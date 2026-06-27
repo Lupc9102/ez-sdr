@@ -3,6 +3,14 @@ name = "satdump"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "satdump"
+path = "src/lib.rs"
+
+[[bin]]
+name = "satdump"
+path = "src/main.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"

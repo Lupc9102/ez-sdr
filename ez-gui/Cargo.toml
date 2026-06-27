@@ -1,0 +1,63 @@
+[package]
+name = "ez-gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dump1090 = { path = "../dump1090" }
+sdrpp = { path = "../sdrpp" }
+satdump = { path = "../satdump" }
+
+eframe = { version = "0.28", features = ["wgpu"] }
+egui = "0.28"
+egui_dock = "0.13"
+
+# RTL-SDR
+# rtlsdr = { version = "0.1", optional = true }
+rtlsdr_sys = { version = "1.1", optional = true }
+
+# DSP / math
+num-complex = "0.4"
+rustfft = "6"
+realfft = "3"
+
+# Networking
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
+
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["ws"] }
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime / channels
+crossbeam-channel = "0.5"
+tokio-util = "0.7"
+
+# WAV/audio recording
+hound = "3.5"
+cpal = "0.15"
+
+# Image handling for maps and decoded images
+image = "0.25"
+
+# TLE / satellite propagation
+# Using a simple SGP4 implementation included inline since no good crate exists
+
+# MQTT
+rumqttc = "0.24"
+
+# Misc
+fs2 = "0.4"
+native-tls = { version = "0.2", features = ["vendored"] }
+anyhow = "1"
+thiserror = "1"
+chrono = "0.4"
+
+[features]
+default = ["rtlsdr"]
+rtlsdr = ["dep:rtlsdr_sys"]
