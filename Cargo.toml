@@ -1,5 +1,5 @@
 [workspace]
-members = ["dump1090", "sdrpp", "satdump", "ez-gui"]
+members = ["dump1090", "ez-gui"]
 resolver = "2"
 
 [workspace.dependencies]
