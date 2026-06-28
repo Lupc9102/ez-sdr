@@ -81,47 +81,68 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn handle_command(state: &Arc<Mutex<SharedState>>, cmd: &serde_json::Value) {
-    let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    let action = cmd.get("cmd").or(cmd.get("action")).and_then(|v| v.as_str()).unwrap_or("");
     let mut s = state.lock().unwrap();
 
     match action {
-        "tune" => {
-            if let Some(hz) = cmd.get("hz").and_then(|v| v.as_u64()) {
+        "tune" | "set_source" => {
+            if let Some(hz) = cmd.get("hz").or(cmd.get("frequency_hz")).and_then(|v| v.as_u64()) {
                 s.source.frequency_hz = hz;
-                println!("[cmd] tune {hz} Hz");
+            }
+            if let Some(rate) = cmd.get("sample_rate_hz").and_then(|v| v.as_u64()) {
+                s.source.sample_rate_hz = rate as u32;
+            }
+            if let Some(db) = cmd.get("db").or(cmd.get("gain_db")).and_then(|v| v.as_f64()) {
+                s.source.gain_db = db;
+            }
+            if let Some(bias) = cmd.get("bias_tee").and_then(|v| v.as_bool()) {
+                s.source.bias_tee = bias;
+            }
+            if let Some(ppm) = cmd.get("ppm_correction").and_then(|v| v.as_i64()) {
+                s.source.ppm_correction = ppm as i32;
+            }
+            if let Some(ds) = cmd.get("direct_sampling").and_then(|v| v.as_bool()) {
+                s.source.direct_sampling = ds;
             }
         }
         "set_gain" => {
-            if let Some(db) = cmd.get("db").and_then(|v| v.as_f64()) {
+            if let Some(db) = cmd.get("db").or(cmd.get("gain_db")).and_then(|v| v.as_f64()) {
                 s.source.gain_db = db;
-                println!("[cmd] gain {db} dB");
             }
         }
         "set_sample_rate" => {
-            if let Some(rate) = cmd.get("rate").and_then(|v| v.as_u64()) {
+            if let Some(rate) = cmd.get("rate").or(cmd.get("sample_rate_hz")).and_then(|v| v.as_u64()) {
                 s.source.sample_rate_hz = rate as u32;
             }
         }
         "start_source" => {
             s.source.start();
-            println!("[cmd] source started");
         }
         "stop_source" => {
             s.source.stop();
-            println!("[cmd] source stopped");
         }
         "set_demod" => {
             if let Some(mode) = cmd.get("mode").and_then(|v| v.as_str()) {
                 s.demod_mode = mode.to_string();
             }
         }
+        "set_filter_bw" => {
+            if let Some(bw) = cmd.get("bw").and_then(|v| v.as_u64()) {
+                s.filter_bw = bw as u32;
+            }
+        }
+        "set_squelch" => {
+            if let Some(level) = cmd.get("level").and_then(|v| v.as_f64()) {
+                s.squelch = level as f32;
+            }
+        }
         "toggle_bias_tee" => {
-            if let Some(on) = cmd.get("on").and_then(|v| v.as_bool()) {
+            if let Some(on) = cmd.get("on").or(cmd.get("bias_tee")).and_then(|v| v.as_bool()) {
                 s.source.bias_tee = on;
             }
         }
         "tune_bookmark" => {
-            if let Some(hz) = cmd.get("hz").and_then(|v| v.as_u64()) {
+            if let Some(hz) = cmd.get("hz").or(cmd.get("frequency_hz")).and_then(|v| v.as_u64()) {
                 s.source.frequency_hz = hz;
             }
         }
@@ -136,6 +157,29 @@ fn handle_command(state: &Arc<Mutex<SharedState>>, cmd: &serde_json::Value) {
                 s.selected_satellite = Some(name.to_string());
             }
         }
+        "set_auto_record" => {
+            if let Some(v) = cmd.get("value").and_then(|v| v.as_bool()) {
+                s.auto_record = v;
+            }
+        }
+        "set_auto_tune" => {
+            if let Some(v) = cmd.get("value").and_then(|v| v.as_bool()) {
+                s.auto_tune = v;
+            }
+        }
+        "set_live_decode" => {
+            if let Some(v) = cmd.get("value").and_then(|v| v.as_bool()) {
+                s.live_decode = v;
+            }
+        }
+        "set_observer" => {
+            if let Some(lat) = cmd.get("lat").and_then(|v| v.as_f64()) {
+                s.observer_lat = lat;
+            }
+            if let Some(lon) = cmd.get("lon").and_then(|v| v.as_f64()) {
+                s.observer_lon = lon;
+            }
+        }
         "start_adsb" => {
             s.source.frequency_hz = 1_090_000_000;
             s.source.sample_rate_hz = 2_048_000;
@@ -144,11 +188,14 @@ fn handle_command(state: &Arc<Mutex<SharedState>>, cmd: &serde_json::Value) {
         "stop_adsb" => {
             s.stop_adsb();
         }
-        "refresh_tles" => {
+        "refresh_tles" | "refresh_bookmarks" => {
             s.refresh_bookmarks();
         }
-        "set_observer" => {
-            // Observer settings stored for future TLE propagation
+        "reset_config" => {
+            *s = SharedState::new();
+        }
+        "ai_query" => {
+            println!("[cmd] AI query received (not implemented yet)");
         }
         _ => {
             println!("[cmd] unknown: {action}");

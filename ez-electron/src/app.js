@@ -1,513 +1,799 @@
-// ============================================================
-// EZ-SDR Electron Renderer
-// WebSocket client + Golden Layout + Canvas spectrum
-// ============================================================
+const PRESETS = {
+    spectrum: {
+        color: '#2ecc71',
+        lineWidth: 1.5,
+        gridColor: '#444',
+        labelColor: '#888',
+        padding: { top: 20, right: 20, bottom: 25, left: 45 },
+    },
+};
 
-let ws = null;
-let lastState = null;
-let layout = null;
-
-const WS_URL = "ws://127.0.0.1:5347";
-
-// ---- WebSocket ------------------------------------------------
-function connectWs() {
-  if (ws && ws.readyState <= 1) return;
-
-  ws = new WebSocket(WS_URL);
-  ws.onopen = () => {
-    document.getElementById("conn-status").textContent = "Connected";
-    document.getElementById("conn-status").className = "status connected";
-  };
-  ws.onclose = () => {
-    document.getElementById("conn-status").textContent = "Disconnected";
-    document.getElementById("conn-status").className = "status disconnected";
-    setTimeout(connectWs, 2000);
-  };
-  ws.onerror = () => ws.close();
-  ws.onmessage = (e) => {
-    try {
-      lastState = JSON.parse(e.data);
-      handleStateUpdate(lastState);
-    } catch {}
-  };
-}
-
-function sendCmd(cmd) {
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify(cmd));
-}
-
-// ---- State update dispatcher -----------------------------------
-function handleStateUpdate(s) {
-  document.getElementById("freq-display").textContent =
-    (s.center_freq_hz / 1e6).toFixed(3) + " MHz";
-
-  if (s.spectrum && s.waterfall) {
-    renderSpectrum(s.spectrum, s.waterfall, s.fft_size);
-  }
-
-  updateSourcePanel(s);
-  updateSdrPanel(s);
-  updateSatellitePanel(s);
-  updateAdsbPanel(s);
-  updateRecorderPanel(s);
-}
-
-// ---- Spectrum Canvas -------------------------------------------
-let spectrumCanvas, spectrumCtx;
+let ws;
+let state = null;
 let waterfallCanvas, waterfallCtx;
+let spectrumCanvas, spectrumCtx;
+let peakHold = false;
+let average = 0.5;
 let waterfallRows = [];
-const WATERFALL_HISTORY = 256;
 
-function initSpectrumCanvas() {
-  spectrumCanvas = document.getElementById("spectrum-canvas");
-  spectrumCtx = spectrumCanvas.getContext("2d");
-  waterfallCanvas = document.getElementById("waterfall-canvas");
-  waterfallCtx = waterfallCanvas.getContext("2d");
-  resizeSpectrum();
-}
-
-function resizeSpectrum() {
-  if (!spectrumCanvas) return;
-  const container = spectrumCanvas.parentElement;
-  if (!container) return;
-  spectrumCanvas.width = container.clientWidth;
-  spectrumCanvas.height = Math.floor(container.clientHeight * 0.35);
-  waterfallCanvas.width = container.clientWidth;
-  waterfallCanvas.height = Math.floor(container.clientHeight * 0.65);
-}
-
-function renderSpectrum(dbs, waterfallRow, fftSize) {
-  if (!spectrumCtx || !waterfallCtx) return;
-  const w = spectrumCanvas.width;
-  const h = spectrumCanvas.height;
-  if (w === 0 || h === 0) return;
-
-  // Spectrum
-  spectrumCtx.fillStyle = "#0a0a15";
-  spectrumCtx.fillRect(0, 0, w, h);
-
-  const n = dbs.length;
-  const barW = Math.max(1, w / n);
-
-  for (let i = 0; i < n; i++) {
-    const norm = Math.max(0, Math.min(1, (dbs[i] + 100) / 80));
-    const barH = norm * h;
-    const x = (i / n) * w;
-    const [r, g, b] = spectrumColor(norm);
-    spectrumCtx.fillStyle = `rgb(${r},${g},${b})`;
-    spectrumCtx.fillRect(x, h - barH, barW + 0.5, barH);
-  }
-
-  // dB grid lines
-  spectrumCtx.strokeStyle = "rgba(60,60,80,0.5)";
-  spectrumCtx.lineWidth = 0.5;
-  for (const db of [-80, -60, -40, -20, 0]) {
-    const norm = (db + 100) / 80;
-    const y = h - norm * h;
-    spectrumCtx.beginPath();
-    spectrumCtx.moveTo(0, y);
-    spectrumCtx.lineTo(w, y);
-    spectrumCtx.stroke();
-    spectrumCtx.fillStyle = "#556";
-    spectrumCtx.font = "9px monospace";
-    spectrumCtx.fillText(`${db} dB`, 2, y - 2);
-  }
-
-  // Waterfall
-  waterfallRows.push(waterfallRow);
-  if (waterfallRows.length > WATERFALL_HISTORY) waterfallRows.shift();
-
-  const wh = waterfallCanvas.height;
-  const rowH = Math.max(1, wh / WATERFALL_HISTORY);
-  const imgData = waterfallCtx.createImageData(w, wh);
-  const data = imgData.data;
-
-  for (let row = 0; row < waterfallRows.length; row++) {
-    const rowData = waterfallRows[row];
-    const yStart = Math.floor(row * rowH);
-    const yEnd = Math.floor((row + 1) * rowH);
-    const srcLen = rowData.length / 4;
-    for (let y = yStart; y < yEnd && y < wh; y++) {
-      for (let x = 0; x < w; x++) {
-        const srcIdx = Math.floor((x / w) * srcLen) * 4;
-        const dstIdx = (y * w + x) * 4;
-        data[dstIdx] = rowData[srcIdx] || 0;
-        data[dstIdx + 1] = rowData[srcIdx + 1] || 0;
-        data[dstIdx + 2] = rowData[srcIdx + 2] || 0;
-        data[dstIdx + 3] = 255;
-      }
-    }
-  }
-
-  waterfallCtx.putImageData(imgData, 0, 0);
-}
-
-function spectrumColor(norm) {
-  if (norm < 0.25) {
-    const t = norm / 0.25;
-    return [t * 80 | 0, 0, 128 + t * 127 | 0];
-  } else if (norm < 0.5) {
-    const t = (norm - 0.25) / 0.25;
-    return [0, t * 200 | 0, 255 - t * 155 | 0];
-  } else if (norm < 0.75) {
-    const t = (norm - 0.5) / 0.25;
-    return [t * 255 | 0, 200 + t * 55 | 0, 100 - t * 100 | 0];
-  } else {
-    const t = (norm - 0.75) / 0.25;
-    return [255, 255 - t * 100 | 0, 0];
-  }
-}
-
-// ---- Panel updaters -------------------------------------------
-function updateSourcePanel(s) {
-  const el = document.getElementById("source-panel");
-  if (!el) return;
-  el.innerHTML = `
-    <div class="panel-header">RTL-SDR V4 Source</div>
-    <div style="padding:8px">
-      <div style="margin-bottom:8px">
-        <span style="color:${s.source.running ? '#00cc88' : '#cc4444'}">
-          ● ${s.source.status}
-        </span>
-      </div>
-      <label style="color:#88a;font-size:11px">Frequency</label>
-      <input type="number" id="inp-freq" value="${s.center_freq_hz}" step="1000"
-        style="margin-bottom:8px">
-      <label style="color:#88a;font-size:11px">Gain: ${s.source.gain_db.toFixed(1)} dB</label>
-      <input type="range" id="inp-gain" min="0" max="49.6" step="0.1"
-        value="${s.source.gain_db}">
-      <label style="color:#88a;font-size:11px">Sample Rate</label>
-      <input type="number" id="inp-rate" value="${s.sample_rate_hz}" step="100000"
-        style="margin-bottom:8px">
-      <div style="margin-top:8px">
-        <label><input type="checkbox" id="inp-bias" ${s.source.bias_tee ? 'checked' : ''}>
-          Bias Tee (4.5V)</label>
-      </div>
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <button class="${s.source.running ? '' : 'primary'}"
-          onclick="sendCmd({action:'start_source'})">Start</button>
-        <button class="${s.source.running ? 'primary' : ''}"
-          onclick="sendCmd({action:'stop_source'})">Stop</button>
-      </div>
-    </div>`;
-
-  const freqInp = document.getElementById("inp-freq");
-  if (freqInp) freqInp.onchange = () => sendCmd({ action: "tune", hz: parseInt(freqInp.value) });
-  const gainInp = document.getElementById("inp-gain");
-  if (gainInp) gainInp.oninput = () => sendCmd({ action: "set_gain", db: parseFloat(gainInp.value) });
-  const rateInp = document.getElementById("inp-rate");
-  if (rateInp) rateInp.onchange = () => sendCmd({ action: "set_sample_rate", rate: parseInt(rateInp.value) });
-  const biasInp = document.getElementById("inp-bias");
-  if (biasInp) biasInp.onchange = () => sendCmd({ action: "toggle_bias_tee", on: biasInp.checked });
-}
-
-function updateSdrPanel(s) {
-  const el = document.getElementById("sdr-panel");
-  if (!el) return;
-  const modes = ["RAW", "AM", "FM", "WFM", "LSB", "USB"];
-  el.innerHTML = `
-    <div class="panel-header">SDR Receiver</div>
-    <div style="padding:8px">
-      <div style="display:flex;gap:4px;margin-bottom:8px">
-        ${modes.map(m => `<button class="${s.demod_mode === m ? 'active' : ''}"
-          onclick="sendCmd({action:'set_demod',mode:'${m}'})">${m}</button>`).join("")}
-      </div>
-      <div id="sdr-info" style="color:#667;font-size:11px">
-        Demod: ${s.demod_mode} | ${s.source.running ? 'Running' : 'Stopped'}
-      </div>
-    </div>`;
-}
-
-function updateSatellitePanel(s) {
-  const el = document.getElementById("sat-panel");
-  if (!el) return;
-  el.innerHTML = `
-    <div class="panel-header">Satellite Tracking</div>
-    <div style="padding:8px">
-      <div style="margin-bottom:8px">
-        <label style="color:#88a;font-size:11px">Observer</label>
-        <div style="display:flex;gap:4px">
-          <input type="number" id="obs-lat" value="51.5" step="0.1" placeholder="Lat"
-            style="width:50%">
-          <input type="number" id="obs-lon" value="-0.1" step="0.1" placeholder="Lon"
-            style="width:50%">
-        </div>
-      </div>
-      <div style="margin-bottom:8px">
-        <label style="color:#88a;font-size:11px">Selected: ${s.selected_satellite || 'None'}</label>
-      </div>
-      <table>
-        <tr><th>Satellite</th><th>AOS</th><th>LOS</th><th>MaxEl</th><th></th></tr>
-        ${(s.passes || []).map(p => `
-          <tr class="${s.selected_satellite === p.satellite ? 'selected' : ''}">
-            <td>${p.satellite}</td>
-            <td>${p.aos}</td>
-            <td>${p.los}</td>
-            <td>${p.max_elevation.toFixed(0)}°</td>
-            <td><button onclick="sendCmd({action:'select_satellite',name:'${p.satellite}'});
-              sendCmd({action:'tune',hz:${p.frequency_hz}})">
-              ${s.selected_satellite === p.satellite ? 'Selected' : 'Select'}</button></td>
-          </tr>
-        `).join("")}
-      </table>
-    </div>`;
-}
-
-function updateAdsbPanel(s) {
-  const el = document.getElementById("adsb-panel");
-  if (!el) return;
-  el.innerHTML = `
-    <div class="panel-header">ADS-B / Mode S (1090 MHz)</div>
-    <div style="padding:8px">
-      <div style="display:flex;gap:6px;margin-bottom:8px">
-        <button class="${s.adsb_running ? 'primary' : ''}"
-          onclick="sendCmd({action:'start_adsb'})">Start</button>
-        <button class="${!s.adsb_running ? '' : 'primary'}"
-          onclick="sendCmd({action:'stop_adsb'})">Stop</button>
-        <span style="color:#667;font-size:11px">
-          Aircraft: ${(s.aircraft || []).length}
-        </span>
-      </div>
-      <div class="map-container" style="height:150px;margin-bottom:8px">
-        Aircraft Map
-      </div>
-      <div style="max-height:200px;overflow-y:auto">
-        <table>
-          <tr><th>ICAO</th><th>Callsign</th><th>Alt</th><th>Spd</th><th>Lat</th><th>Lon</th></tr>
-          ${(s.aircraft || []).map(a => `
-            <tr>
-              <td>${a.icao.toString(16).toUpperCase().padStart(6,'0')}</td>
-              <td>${a.callsign}</td>
-              <td>${a.altitude}</td>
-              <td>${a.speed}</td>
-              <td>${a.lat.toFixed(2)}</td>
-              <td>${a.lon.toFixed(2)}</td>
-            </tr>
-          `).join("")}
-        </table>
-      </div>
-    </div>`;
-}
-
-function updateRecorderPanel(s) {
-  const el = document.getElementById("rec-panel");
-  if (!el) return;
-  el.innerHTML = `
-    <div class="panel-header">Recorder</div>
-    <div style="padding:8px">
-      ${s.recording ? `
-        <div style="margin-bottom:8px">
-          <span class="rec-indicator"></span>
-          <span style="color:#ff4444;font-weight:600">RECORDING</span>
-          <span style="color:#667;font-size:11px;margin-left:8px">
-            ${s.record_secs}s | ${(s.record_bytes / 1048576).toFixed(1)} MB
-          </span>
-        </div>
-        <button class="primary" onclick="sendCmd({action:'stop_recording'})">Stop Recording</button>
-      ` : `
-        <button class="primary" onclick="sendCmd({action:'start_recording'})">Start Recording</button>
-      `}
-      <div style="margin-top:12px">
-        <div style="color:#88a;font-size:11px">Output: ./recordings/</div>
-      </div>
-    </div>`;
-}
-
-// ---- Bookmarks panel ------------------------------------------
-function renderBookmarksPanel() {
-  const el = document.getElementById("bm-panel");
-  if (!el || !lastState) return;
-
-  const categories = {};
-  (lastState.bookmarks || []).forEach(bm => {
-    if (!categories[bm.category]) categories[bm.category] = [];
-    categories[bm.category].push(bm);
-  });
-
-  let html = `<div class="panel-header">Bookmarks</div><div class="panel-content">`;
-  for (const [cat, items] of Object.entries(categories)) {
-    html += `<div class="bookmark-category">▾ ${cat}</div>`;
-    items.forEach(bm => {
-      html += `<div class="bookmark-item" onclick="sendCmd({action:'tune_bookmark',hz:${bm.frequency_hz}})">
-        <span class="name">${bm.name}</span>
-        <span class="freq">${(bm.frequency_hz / 1e6).toFixed(3)} MHz</span>
-      </div>`;
-    });
-  }
-  html += `</div>`;
-  el.innerHTML = html;
-}
-
-// ---- AI panel -------------------------------------------------
-function renderAiPanel() {
-  return `
-    <div class="panel-header">AI Agent</div>
-    <div style="padding:8px">
-      <div style="margin-bottom:6px">
-        <input type="password" placeholder="OpenRouter API Key..." id="ai-key"
-          style="margin-bottom:6px">
-      </div>
-      <div class="chat-messages" id="ai-chat"></div>
-      <div class="chat-input-row">
-        <input type="text" id="ai-input" placeholder="Ask the AI anything...">
-        <button onclick="aiSend()">Send</button>
-      </div>
-    </div>`;
-}
-
-function aiSend() {
-  const inp = document.getElementById("ai-input");
-  const chat = document.getElementById("ai-chat");
-  if (!inp || !chat || !inp.value.trim()) return;
-  chat.innerHTML += `<div class="chat-msg user">You: ${inp.value}</div>`;
-  chat.innerHTML += `<div class="chat-msg ai">AI: (AI integration coming soon — backend handles this)</div>`;
-  inp.value = "";
-  chat.scrollTop = chat.scrollHeight;
-}
-
-// ---- Settings panel -------------------------------------------
-function renderSettingsPanel() {
-  return `
-    <div class="panel-header">Settings</div>
-    <div style="padding:8px">
-      <label style="color:#88a;font-size:11px">MQTT Broker</label>
-      <input type="text" value="localhost:1883" style="margin-bottom:8px">
-      <label style="color:#88a;font-size:11px">MQTT Topic Prefix</label>
-      <input type="text" value="ezsdr" style="margin-bottom:8px">
-      <label><input type="checkbox"> Web Remote</label>
-      <div style="margin-top:8px">
-        <button>Save Settings</button>
-      </div>
-    </div>`;
-}
-
-// ---- Golden Layout setup --------------------------------------
-function initLayout() {
-  const config = {
-    settings: {
-      showMaximiseIcon: true,
-      showCloseIcon: true,
-      constrainDragToContainer: true,
-    },
-    dimensions: {
-      borderWidth: 4,
-      barHeight: 28,
-    },
+// ——— Golden Layout ———
+const config = {
+    settings: { showPopoutIcon: false, showMaximiseIcon: false },
     content: [
-      {
-        type: "row",
-        content: [
-          {
-            type: "column",
-            width: 22,
+        {
+            type: 'row',
             content: [
-              {
-                type: "stack",
-                content: [
-                  { type: "component", componentName: "Bookmarks", componentState: {}, title: "Bookmarks" },
-                  { type: "component", componentName: "Scheduler", componentState: {}, title: "Scheduler" },
-                  { type: "component", componentName: "Settings", componentState: {}, title: "Settings" },
-                ],
-              },
+                { type: 'column', width: 60, content: [
+                    { type: 'component', componentName: 'Spectrum', componentState: { id: 'spectrum' }, height: 70 },
+                    { type: 'component', componentName: 'Waterfall', componentState: { id: 'waterfall' }, height: 30 },
+                ]},
+                { type: 'column', width: 40, content: [
+                    { type: 'row', content: [
+                        { type: 'component', componentName: 'SDR Controls', componentState: { id: 'sdr' }, width: 50 },
+                        { type: 'component', componentName: 'Source', componentState: { id: 'source' }, width: 50 },
+                    ]},
+                    { type: 'row', content: [
+                        { type: 'component', componentName: 'Satellite', componentState: { id: 'satellite' }, width: 50 },
+                        { type: 'component', componentName: 'ADS-B', componentState: { id: 'adsb' }, width: 50 },
+                    ]},
+                ]},
             ],
-          },
-          {
-            type: "column",
+        },
+        {
+            type: 'column',
             content: [
-              {
-                type: "row",
-                height: 65,
-                content: [
-                  { type: "component", componentName: "Spectrum", componentState: {}, title: "Spectrum" },
-                ],
-              },
-              {
-                type: "row",
-                height: 35,
-                content: [
-                  {
-                    type: "stack",
-                    content: [
-                      { type: "component", componentName: "SDR", componentState: {}, title: "SDR" },
-                      { type: "component", componentName: "Satellite", componentState: {}, title: "Satellite" },
-                      { type: "component", componentName: "ADS-B", componentState: {}, title: "ADS-B" },
-                      { type: "component", componentName: "Recorder", componentState: {}, title: "Recorder" },
-                      { type: "component", componentName: "AI Agent", componentState: {}, title: "AI Agent" },
-                    ],
-                  },
-                ],
-              },
+                { type: 'row', content: [
+                    { type: 'component', componentName: 'Recorder', componentState: { id: 'recorder' }, width: 33 },
+                    { type: 'component', componentName: 'AI Agent', componentState: { id: 'ai' }, width: 34 },
+                    { type: 'component', componentName: 'Bookmarks', componentState: { id: 'bookmarks' }, width: 33 },
+                ]},
+                { type: 'row', content: [
+                    { type: 'component', componentName: 'Scheduler', componentState: { id: 'scheduler' }, width: 50 },
+                    { type: 'component', componentName: 'Settings', componentState: { id: 'settings' }, width: 50 },
+                ]},
             ],
-          },
-        ],
-      },
+        },
     ],
-  };
+};
 
-  layout = new GoldenLayout(config, document.getElementById("golden-container"));
-
-  layout.registerComponent("Spectrum", (container) => {
-    container.getElement().html(`
-      <div style="width:100%;height:100%;display:flex;flex-direction:column">
-        <canvas id="spectrum-canvas" style="flex:0.35"></canvas>
-        <canvas id="waterfall-canvas" style="flex:0.65"></canvas>
-      </div>`);
-    container.on("open", () => setTimeout(initSpectrumCanvas, 100));
-    container.on("resize", () => setTimeout(resizeSpectrum, 50));
-  });
-
-  layout.registerComponent("SDR", (container) => {
-    container.getElement().html('<div id="sdr-panel" class="panel-content"></div>');
-  });
-
-  layout.registerComponent("Satellite", (container) => {
-    container.getElement().html('<div id="sat-panel" class="panel-content"></div>');
-  });
-
-  layout.registerComponent("ADS-B", (container) => {
-    container.getElement().html('<div id="adsb-panel" class="panel-content"></div>');
-  });
-
-  layout.registerComponent("Recorder", (container) => {
-    container.getElement().html('<div id="rec-panel" class="panel-content"></div>');
-  });
-
-  layout.registerComponent("AI Agent", (container) => {
-    container.getElement().html(renderAiPanel());
-  });
-
-  layout.registerComponent("Bookmarks", (container) => {
-    container.getElement().html('<div id="bm-panel" class="panel-content"></div>');
-    container.on("open", () => setTimeout(renderBookmarksPanel, 200));
-  });
-
-  layout.registerComponent("Scheduler", (container) => {
-    container.getElement().html(`
-      <div class="panel-header">Scheduler</div>
-      <div class="panel-content">
-        <button onclick="sendCmd({action:'refresh_tles'})">Refresh TLEs</button>
-        <div style="margin-top:8px;color:#667;font-size:11px">
-          Pass prediction runs automatically
+const panelHTML = {
+    spectrum: () => `
+        <div class="panel-controls">
+            <label>FFT <select id="fftSize"><option>512</option><option>1024</option><option selected>2048</option><option>4096</option></select></label>
+            <label>Window <select id="windowFunc"><option>Hann</option><option>Hamming</option><option>Blackman</option><option>Blackman-Harris</option></select></label>
+            <label><input type="checkbox" id="peakHold"> Peak Hold</label>
+            <label>Avg <input type="range" id="avgAlpha" min="0.05" max="0.95" step="0.05" value="0.5" style="width:60px"></label>
         </div>
-      </div>`);
-  });
+        <div class="panel-body"><canvas id="spectrumCanvas" class="spectrum-canvas"></canvas></div>
+    `,
+    waterfall: () => `
+        <div class="panel-body"><canvas id="waterfallCanvas" class="waterfall-canvas"></canvas></div>
+    `,
+    sdr: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <div class="sdr-label">Demodulation</div>
+                <div class="mode-grid">
+                    <button class="mode-btn" data-mode="RAW">RAW</button>
+                    <button class="mode-btn active" data-mode="FM">FM</button>
+                    <button class="mode-btn" data-mode="WFM">WFM</button>
+                    <button class="mode-btn" data-mode="AM">AM</button>
+                    <button class="mode-btn" data-mode="LSB">LSB</button>
+                    <button class="mode-btn" data-mode="USB">USB</button>
+                </div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Filter Bandwidth <span id="bwValue">12.0 kHz</span></div>
+                <input type="range" id="filterBw" min="100" max="250000" step="100" value="12000">
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Squelch <span id="sqlValue">-50 dB</span></div>
+                <input type="range" id="squelch" min="-120" max="0" step="1" value="-50">
+            </div>
+        </div>
+    `,
+    source: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <div class="sdr-label">Frequency</div>
+                <div class="freq-input-group">
+                    <input type="number" id="freqMHz" class="freq-input" value="100.0" step="0.1" min="24" max="1766">
+                    <span class="freq-unit">MHz</span>
+                </div>
+                <div class="freq-input-group" style="margin-top:4px">
+                    <input type="number" id="freqKHz" class="freq-input freq-small" value="0" step="1" min="0" max="999">
+                    <span class="freq-unit">kHz</span>
+                </div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Sample Rate <span id="srValue">2.048 MS/s</span></div>
+                <select id="sampleRate">
+                    <option value="250000">250 kS/s</option>
+                    <option value="1024000">1.024 MS/s</option>
+                    <option value="1536000">1.536 MS/s</option>
+                    <option value="1792000">1.792 MS/s</option>
+                    <option value="1920000">1.920 MS/s</option>
+                    <option value="2048000" selected>2.048 MS/s</option>
+                    <option value="2160000">2.160 MS/s</option>
+                    <option value="2400000">2.400 MS/s</option>
+                    <option value="2560000">2.560 MS/s</option>
+                </select>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Gain <span id="gainValue">40.0 dB</span></div>
+                <input type="range" id="gainSlider" min="0" max="49.6" step="0.1" value="40">
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">PPM Correction <span id="ppmValue">0</span></div>
+                <input type="range" id="ppmSlider" min="-100" max="100" step="1" value="0">
+            </div>
+            <div class="sdr-section toggle-row">
+                <label><input type="checkbox" id="biasTee"> Bias Tee (V)</label>
+                <label><input type="checkbox" id="directSampling"> Direct Sampling</label>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Temperature</div>
+                <div class="temp-display" id="tempDisplay">—</div>
+            </div>
+            <button id="applySource" class="btn-apply">Apply Settings</button>
+        </div>
+    `,
+    satellite: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <div class="sdr-label">Observer Location</div>
+                <div class="obs-row">
+                    <label>Lat <input type="number" id="obsLat" value="51.5" step="0.01" style="width:70px"></label>
+                    <label>Lon <input type="number" id="obsLon" value="-0.1" step="0.01" style="width:70px"></label>
+                </div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Signal Strength</div>
+                <div class="signal-bar-wrap"><div class="signal-bar" id="signalBar"></div></div>
+                <span class="signal-dB" id="signalDb">-120.0 dB</span>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Doppler Shift</div>
+                <div class="doppler-display" id="dopplerDisplay">0 Hz</div>
+            </div>
+            <div class="sdr-section toggle-row">
+                <label><input type="checkbox" id="autoRecord" checked> Auto-record</label>
+                <label><input type="checkbox" id="autoTune" checked> Auto-tune</label>
+                <label><input type="checkbox" id="liveDecode"> Live-decode</label>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Upcoming Passes</div>
+                <table class="pass-table" id="passTable">
+                    <thead><tr><th>SAT</th><th>AOS</th><th>LOS</th><th>Max El</th><th></th></tr></thead>
+                    <tbody id="passBody"></tbody>
+                </table>
+            </div>
+        </div>
+    `,
+    adsb: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <div class="sdr-row-between">
+                    <div>
+                        <div class="sdr-label">Messages</div>
+                        <span id="adsbMsgCount" class="big-number">0</span>
+                    </div>
+                    <div>
+                        <div class="sdr-label">Rate</div>
+                        <span id="adsbMsgRate" class="big-number">0</span><span class="unit">/s</span>
+                    </div>
+                    <div>
+                        <div class="sdr-label">Aircraft</div>
+                        <span id="adsbAircraftCount" class="big-number">0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="sdr-section">
+                <button id="adsbToggle" class="btn-apply" style="width:100%">Start ADS-B</button>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Aircraft</div>
+                <div class="aircraft-table-wrap">
+                    <table class="aircraft-table" id="aircraftTable">
+                        <thead><tr><th>ICAO</th><th>Call</th><th>Alt</th><th>Spd</th><th>HDG</th><th>Lat</th><th>Lon</th><th>Age</th></tr></thead>
+                        <tbody id="aircraftBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="sdr-section">
+                <div id="adsbMap" class="adsb-map"></div>
+            </div>
+        </div>
+    `,
+    recorder: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <div class="sdr-label">Status</div>
+                <div id="recStatus" class="rec-indicator stopped">STOPPED</div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Format</div>
+                <div class="mode-grid">
+                    <button class="mode-btn active" data-fmt="IQ">IQ</button>
+                    <button class="mode-btn" data-fmt="WAV">WAV</button>
+                </div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Output Directory</div>
+                <div id="recDir" class="path-display">./recordings</div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Disk Space</div>
+                <div class="progress-bar-wrap"><div class="progress-bar" id="recDiskBar" style="width:0%"></div></div>
+                <span id="recDiskText">— free</span>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Duration</div>
+                <div id="recDuration" class="time-display">00:00</div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Size</div>
+                <span id="recSize" class="big-number">0</span><span class="unit"> KB</span>
+            </div>
+            <div class="sdr-section">
+                <button id="recToggle" class="btn-apply" style="width:100%">Start Recording</button>
+            </div>
+        </div>
+    `,
+    ai: () => `
+        <div class="panel-body ai-panel">
+            <div class="sdr-section">
+                <label class="sdr-label">OpenRouter API Key</label>
+                <input type="password" id="apiKey" class="api-key-input" placeholder="sk-or-...">
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Model: <span id="aiModelDisplay">claude-3-haiku-20240307</span></div>
+            </div>
+            <div class="ai-chat" id="aiChat">
+                <div class="ai-msg system">Ready. Ask me about signal analysis, pass predictions, or SDR settings.</div>
+            </div>
+            <div class="ai-input-row">
+                <input type="text" id="aiInput" class="ai-input" placeholder="Ask about signals...">
+                <button id="aiSend" class="btn-apply">Send</button>
+            </div>
+        </div>
+    `,
+    bookmarks: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <input type="text" id="bmSearch" placeholder="Search bookmarks..." style="width:100%;padding:6px;background:#1e1e2e;color:#fff;border:1px solid #444;border-radius:4px">
+            </div>
+            <div class="bookmarks-list" id="bmList"></div>
+            <div class="sdr-section" style="margin-top:8px">
+                <button id="bmAddCustom" class="btn-apply" style="width:100%">+ Add Custom Bookmark</button>
+            </div>
+        </div>
+    `,
+    scheduler: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <div class="sdr-label">Active Jobs</div>
+                <div id="schedulerJobs" class="scheduler-jobs">No active scheduled tasks</div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Next Pass</div>
+                <div id="nextPassInfo" class="next-pass">—</div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">System</div>
+                <div class="system-stats">
+                    <div>Uptime: <span id="sysUptime">—</span></div>
+                    <div>Memory: <span id="sysMem">—</span></div>
+                    <div>Backend: <span id="sysBackend">Disconnected</span></div>
+                </div>
+            </div>
+        </div>
+    `,
+    settings: () => `
+        <div class="panel-body">
+            <div class="sdr-section">
+                <div class="sdr-label">Display</div>
+                <div class="toggle-row">
+                    <label><input type="checkbox" id="cfgPeakHold"> Peak Hold</label>
+                    <label><input type="checkbox" id="cfgWaterfall" checked> Waterfall</label>
+                    <label><input type="checkbox" id="cfgMinimap"> Minimap</label>
+                </div>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Audio Output</div>
+                <select id="cfgAudioOut"><option>Default</option></select>
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Default Save Path</div>
+                <input type="text" id="cfgSavePath" value="./recordings" style="width:100%;padding:4px;background:#1e1e2e;color:#fff;border:1px solid #444;border-radius:4px">
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">MQTT Broker</div>
+                <input type="text" id="cfgMqtt" placeholder="mqtt://localhost:1883" style="width:100%;padding:4px;background:#1e1e2e;color:#fff;border:1px solid #444;border-radius:4px">
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">MQTT Topic</div>
+                <input type="text" id="cfgMqttTopic" value="ez-sdr/spectrum" style="width:100%;padding:4px;background:#1e1e2e;color:#fff;border:1px solid #444;border-radius:4px">
+            </div>
+            <div class="sdr-section">
+                <div class="sdr-label">Web Remote Port</div>
+                <input type="number" id="cfgWebPort" value="8080" style="width:100%;padding:4px;background:#1e1e2e;color:#fff;border:1px solid #444;border-radius:4px">
+            </div>
+            <div class="sdr-section">
+                <button id="cfgReset" class="btn-apply" style="width:100%">Reset Defaults</button>
+            </div>
+        </div>
+    `,
+};
 
-  layout.registerComponent("Settings", (container) => {
-    container.getElement().html(renderSettingsPanel());
-  });
+const panelRenderers = {};
 
-  layout.init();
+function registerRenderers() {
+    panelRenderers.spectrum = (container, state) => {
+        container.innerHTML = panelHTML.spectrum();
+        spectrumCanvas = container.querySelector('#spectrumCanvas');
+        if (!spectrumCanvas) return;
+        spectrumCtx = spectrumCanvas.getContext('2d');
+        const resize = () => {
+            const rect = container.querySelector('.panel-body').getBoundingClientRect();
+            spectrumCanvas.width = rect.width;
+            spectrumCanvas.height = rect.height;
+        };
+        resize();
+        new ResizeObserver(resize).observe(container.getElement());
+        const pe = container.getElement();
+        if (pe) pe.addEventListener('resize', resize);
 
-  window.addEventListener("resize", () => layout.updateSize());
+        container.getElement().querySelector('#peakHold')?.addEventListener('change', e => { peakHold = e.target.checked; });
+        container.getElement().querySelector('#avgAlpha')?.addEventListener('input', e => { average = parseFloat(e.target.value); });
+    };
+
+    panelRenderers.waterfall = (container, state) => {
+        container.innerHTML = panelHTML.waterfall();
+        waterfallCanvas = container.querySelector('#waterfallCanvas');
+        if (!waterfallCanvas) return;
+        waterfallCtx = waterfallCanvas.getContext('2d');
+        waterfallRows = [];
+        const resize = () => {
+            const rect = container.querySelector('.panel-body').getBoundingClientRect();
+            waterfallCanvas.width = rect.width;
+            waterfallCanvas.height = rect.height;
+        };
+        resize();
+        new ResizeObserver(resize).observe(container.getElement());
+        const pe = container.getElement();
+        if (pe) pe.addEventListener('resize', resize);
+    };
+
+    panelRenderers.sdr = (container, state) => {
+        container.innerHTML = panelHTML.sdr();
+        const el = container.getElement();
+        el.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                el.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                send({ cmd: 'set_demod', mode: btn.dataset.mode });
+            });
+        });
+        el.querySelector('#filterBw')?.addEventListener('input', e => {
+            el.querySelector('#bwValue').textContent = (e.target.value / 1000).toFixed(1) + ' kHz';
+        });
+        el.querySelector('#filterBw')?.addEventListener('change', e => {
+            send({ cmd: 'set_filter_bw', bw: parseInt(e.target.value) });
+        });
+        el.querySelector('#squelch')?.addEventListener('input', e => {
+            el.querySelector('#sqlValue').textContent = e.target.value + ' dB';
+        });
+        el.querySelector('#squelch')?.addEventListener('change', e => {
+            send({ cmd: 'set_squelch', level: parseFloat(e.target.value) });
+        });
+    };
+
+    panelRenderers.source = (container, state) => {
+        container.innerHTML = panelHTML.source();
+        const el = container.getElement();
+        el.querySelector('#applySource')?.addEventListener('click', () => {
+            const mhz = parseFloat(el.querySelector('#freqMHz').value) || 100;
+            const khz = parseFloat(el.querySelector('#freqKHz').value) || 0;
+            const freqHz = Math.round((mhz + khz / 1000) * 1e6);
+            send({
+                cmd: 'set_source',
+                frequency_hz: freqHz,
+                sample_rate_hz: parseInt(el.querySelector('#sampleRate').value),
+                gain_db: parseFloat(el.querySelector('#gainSlider').value),
+                bias_tee: el.querySelector('#biasTee').checked,
+                ppm_correction: parseInt(el.querySelector('#ppmSlider').value),
+                direct_sampling: el.querySelector('#directSampling').checked,
+            });
+        });
+        el.querySelector('#gainSlider')?.addEventListener('input', e => {
+            el.querySelector('#gainValue').textContent = parseFloat(e.target.value).toFixed(1) + ' dB';
+        });
+        el.querySelector('#ppmSlider')?.addEventListener('input', e => {
+            el.querySelector('#ppmValue').textContent = e.target.value;
+        });
+        el.querySelector('#sampleRate')?.addEventListener('change', e => {
+            el.querySelector('#srValue').textContent = (parseInt(e.target.value) / 1e6).toFixed(3) + ' MS/s';
+        });
+    };
+
+    panelRenderers.satellite = (container, state) => {
+        container.innerHTML = panelHTML.satellite();
+        const el = container.getElement();
+        el.querySelector('#autoRecord')?.addEventListener('change', e => {
+            send({ cmd: 'set_auto_record', value: e.target.checked });
+        });
+        el.querySelector('#autoTune')?.addEventListener('change', e => {
+            send({ cmd: 'set_auto_tune', value: e.target.checked });
+        });
+        el.querySelector('#liveDecode')?.addEventListener('change', e => {
+            send({ cmd: 'set_live_decode', value: e.target.checked });
+        });
+        el.querySelector('#obsLat')?.addEventListener('change', e => {
+            send({ cmd: 'set_observer', lat: parseFloat(e.target.value), lon: parseFloat(el.querySelector('#obsLon').value) });
+        });
+        el.querySelector('#obsLon')?.addEventListener('change', e => {
+            send({ cmd: 'set_observer', lat: parseFloat(el.querySelector('#obsLat').value), lon: parseFloat(e.target.value) });
+        });
+    };
+
+    panelRenderers.adsb = (container, state) => {
+        container.innerHTML = panelHTML.adsb();
+        const el = container.getElement();
+        el.querySelector('#adsbToggle')?.addEventListener('click', () => {
+            send({ cmd: state?.adsb_running ? 'stop_adsb' : 'start_adsb' });
+        });
+    };
+
+    panelRenderers.recorder = (container, state) => {
+        container.innerHTML = panelHTML.recorder();
+        const el = container.getElement();
+        el.querySelector('#recToggle')?.addEventListener('click', () => {
+            send({ cmd: state?.recording ? 'stop_recording' : 'start_recording' });
+        });
+        el.querySelectorAll('[data-fmt]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                el.querySelectorAll('[data-fmt]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+    };
+
+    panelRenderers.ai = (container, state) => {
+        container.innerHTML = panelHTML.ai();
+        const el = container.getElement();
+        el.querySelector('#aiSend')?.addEventListener('click', () => {
+            const input = el.querySelector('#aiInput');
+            if (!input?.value.trim()) return;
+            const chat = el.querySelector('#aiChat');
+            chat.innerHTML += `<div class="ai-msg user">${escHtml(input.value)}</div>`;
+            chat.scrollTop = chat.scrollHeight;
+            send({ cmd: 'ai_query', prompt: input.value, api_key: el.querySelector('#apiKey')?.value || '' });
+            input.value = '';
+        });
+        el.querySelector('#aiInput')?.addEventListener('keydown', e => {
+            if (e.key === 'Enter') el.querySelector('#aiSend')?.click();
+        });
+    };
+
+    panelRenderers.bookmarks = (container, state) => {
+        container.innerHTML = panelHTML.bookmarks();
+        renderBookmarks(container.getElement(), state);
+    };
+
+    panelRenderers.scheduler = (container, state) => {
+        container.innerHTML = panelHTML.scheduler();
+    };
+
+    panelRenderers.settings = (container, state) => {
+        container.innerHTML = panelHTML.settings();
+        const el = container.getElement();
+        el.querySelector('#cfgReset')?.addEventListener('click', () => {
+            send({ cmd: 'reset_config' });
+        });
+    };
 }
 
-// ---- Init -----------------------------------------------------
-document.addEventListener("DOMContentLoaded", () => {
-  initLayout();
-  connectWs();
+function renderBookmarks(el, state) {
+    const list = el.querySelector('#bmList');
+    const search = el.querySelector('#bmSearch')?.value?.toLowerCase() || '';
+    const bookmarks = state?.bookmarks || [];
+    const grouped = {};
+    bookmarks.forEach(bm => {
+        if (search && !bm.name.toLowerCase().includes(search) && !bm.category.toLowerCase().includes(search)) return;
+        if (!grouped[bm.category]) grouped[bm.category] = [];
+        grouped[bm.category].push(bm);
+    });
+    let html = '';
+    Object.keys(grouped).sort().forEach(cat => {
+        html += `<div class="bm-category" data-cat="${escAttr(cat)}"><span class="bm-cat-icon">▸</span> <strong>${escHtml(cat)}</strong> <span class="bm-count">${grouped[cat].length}</span></div>`;
+        html += `<div class="bm-items" id="bm-${cat.replace(/[^a-z0-9]/gi,'_')}">`;
+        grouped[cat].forEach(bm => {
+            const freqStr = bm.frequency_hz >= 1e9 ? (bm.frequency_hz/1e9).toFixed(3)+' GHz' : bm.frequency_hz >= 1e6 ? (bm.frequency_hz/1e6).toFixed(3)+' MHz' : (bm.frequency_hz/1e3).toFixed(1)+' kHz';
+            html += `<div class="bm-item" data-freq="${bm.frequency_hz}">
+                <div class="bm-name">${escHtml(bm.name)}</div>
+                <div class="bm-details">${freqStr} ${bm.mode} ${bm.notes ? '· '+escHtml(bm.notes) : ''}</div>
+                <button class="btn-tune" data-freq="${bm.frequency_hz}" data-mode="${bm.mode}">Tune</button>
+            </div>`;
+        });
+        html += '</div>';
+    });
+    list.innerHTML = html;
+    list.querySelectorAll('.bm-category').forEach(cat => {
+        cat.addEventListener('click', () => {
+            cat.classList.toggle('collapsed');
+            const items = cat.nextElementSibling;
+            if (items) items.style.display = cat.classList.contains('collapsed') ? 'none' : '';
+            cat.querySelector('.bm-cat-icon').textContent = cat.classList.contains('collapsed') ? '▸' : '▾';
+        });
+    });
+    list.querySelectorAll('.btn-tune').forEach(btn => {
+        btn.addEventListener('click', () => {
+            send({ cmd: 'set_source', frequency_hz: parseInt(btn.dataset.freq) });
+            send({ cmd: 'set_demod', mode: btn.dataset.mode || 'FM' });
+        });
+    });
+}
 
-  // Re-render bookmarks when state arrives
-  setInterval(() => {
-    if (lastState) renderBookmarksPanel();
-  }, 2000);
+function updateUI(s) {
+    state = s;
+    if (!s) return;
+
+    // Spectrum
+    drawSpectrum(s.spectrum, s.peak_hold);
+
+    // Waterfall
+    if (s.waterfall && s.waterfall.length > 0) drawWaterfall(s.waterfall, s.fft_size);
+
+    // SDR
+    document.querySelectorAll('.mode-btn[data-mode]').forEach(b => {
+        b.classList.toggle('active', b.dataset.mode === s.demod_mode);
+    });
+    const bwEl = document.getElementById('bwValue');
+    if (bwEl) bwEl.textContent = (s.filter_bw / 1000).toFixed(1) + ' kHz';
+    const sqlEl = document.getElementById('sqlValue');
+    if (sqlEl) sqlEl.textContent = s.squelch + ' dB';
+    const bwSlider = document.getElementById('filterBw');
+    if (bwSlider) bwSlider.value = s.filter_bw;
+    const sqlSlider = document.getElementById('squelch');
+    if (sqlSlider) sqlSlider.value = s.squelch;
+
+    // Source
+    const freqMHz = document.getElementById('freqMHz');
+    if (freqMHz) freqMHz.value = (s.source?.frequency_hz / 1e6).toFixed(1);
+    const srEl = document.getElementById('srValue');
+    if (srEl && s.source) srEl.textContent = (s.source.sample_rate_hz / 1e6).toFixed(3) + ' MS/s';
+    const gainVal = document.getElementById('gainValue');
+    if (gainVal && s.source) gainVal.textContent = s.source.gain_db.toFixed(1) + ' dB';
+    const gainSlider = document.getElementById('gainSlider');
+    if (gainSlider && s.source) gainSlider.value = s.source.gain_db;
+    const ppmVal = document.getElementById('ppmValue');
+    if (ppmVal && s.source) ppmVal.textContent = s.source.ppm_correction;
+    const ppmSlider = document.getElementById('ppmSlider');
+    if (ppmSlider && s.source) ppmSlider.value = s.source.ppm_correction;
+    const biasCb = document.getElementById('biasTee');
+    if (biasCb && s.source) biasCb.checked = s.source.bias_tee;
+    const dsCb = document.getElementById('directSampling');
+    if (dsCb && s.source) dsCb.checked = s.source.direct_sampling;
+    const tempDisp = document.getElementById('tempDisplay');
+    if (tempDisp && s.source) tempDisp.textContent = s.source.temperature > 0 ? s.source.temperature.toFixed(1) + '°C' : '—';
+
+    // Satellite
+    const sigBar = document.getElementById('signalBar');
+    if (sigBar) {
+        const pct = Math.max(0, Math.min(100, (s.signal_strength + 120) / 80 * 100));
+        sigBar.style.width = pct + '%';
+        sigBar.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f39c12' : '#e74c3c';
+    }
+    const sigDb = document.getElementById('signalDb');
+    if (sigDb) sigDb.textContent = s.signal_strength.toFixed(1) + ' dB';
+    const dopplerDisp = document.getElementById('dopplerDisplay');
+    if (dopplerDisp) dopplerDisp.textContent = (s.doppler_hz >= 0 ? '+' : '') + s.doppler_hz.toFixed(0) + ' Hz';
+    const autoRecCb = document.getElementById('autoRecord');
+    if (autoRecCb) autoRecCb.checked = s.auto_record;
+    const autoTuneCb = document.getElementById('autoTune');
+    if (autoTuneCb) autoTuneCb.checked = s.auto_tune;
+    const liveDecCb = document.getElementById('liveDecode');
+    if (liveDecCb) liveDecCb.checked = s.live_decode;
+    const obsLatInput = document.getElementById('obsLat');
+    if (obsLatInput) obsLatInput.value = s.observer_lat;
+    const obsLonInput = document.getElementById('obsLon');
+    if (obsLonInput) obsLonInput.value = s.observer_lon;
+
+    // Passes
+    const passBody = document.getElementById('passBody');
+    if (passBody && s.passes) {
+        passBody.innerHTML = s.passes.map(p => `<tr><td>${escHtml(p.satellite)}</td><td>${escHtml(p.aos)}</td><td>${escHtml(p.los)}</td><td>${p.max_elevation.toFixed(0)}°</td><td><button class="btn-tune-pass" data-freq="${p.frequency_hz}">Tune</button></td></tr>`).join('');
+        passBody.querySelectorAll('.btn-tune-pass').forEach(b => {
+            b.addEventListener('click', () => send({ cmd: 'set_source', frequency_hz: parseInt(b.dataset.freq) }));
+        });
+    }
+
+    // ADS-B
+    const adsbCount = document.getElementById('adsbMsgCount');
+    if (adsbCount) adsbCount.textContent = s.total_adsb_messages.toLocaleString();
+    const adsbRate = document.getElementById('adsbMsgRate');
+    if (adsbRate) adsbRate.textContent = s.msg_rate.toFixed(1);
+    const adsbAircraft = document.getElementById('adsbAircraftCount');
+    if (adsbAircraft) adsbAircraft.textContent = (s.aircraft || []).length;
+    const adsbBtn = document.getElementById('adsbToggle');
+    if (adsbBtn) { adsbBtn.textContent = s.adsb_running ? 'Stop ADS-B' : 'Start ADS-B'; adsbBtn.classList.toggle('btn-stop', s.adsb_running); }
+    const acBody = document.getElementById('aircraftBody');
+    if (acBody && s.aircraft) {
+        acBody.innerHTML = s.aircraft.map(a => `<tr><td>${a.icao.toString(16).toUpperCase()}</td><td>${escHtml(a.callsign)}</td><td>${a.altitude}</td><td>${a.speed}</td><td>${a.heading}°</td><td>${a.lat.toFixed(4)}</td><td>${a.lon.toFixed(4)}</td><td>${a.age_secs}s</td></tr>`).join('');
+    }
+
+    // Recorder
+    const recStatus = document.getElementById('recStatus');
+    if (recStatus) {
+        recStatus.textContent = s.recording ? 'RECORDING' : 'STOPPED';
+        recStatus.className = 'rec-indicator ' + (s.recording ? 'recording' : 'stopped');
+    }
+    const recDur = document.getElementById('recDuration');
+    if (recDur) { const m = Math.floor(s.record_secs/60), sec = s.record_secs%60; recDur.textContent = String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0'); }
+    const recSize = document.getElementById('recSize');
+    if (recSize) recSize.textContent = (s.record_bytes/1024).toFixed(0);
+    const recToggle = document.getElementById('recToggle');
+    if (recToggle) recToggle.textContent = s.recording ? 'Stop Recording' : 'Start Recording';
+
+    // Scheduler
+    const nextPassEl = document.getElementById('nextPassInfo');
+    if (nextPassEl && s.passes && s.passes.length > 0) {
+        const next = s.passes[0];
+        nextPassEl.textContent = `${next.satellite} @ ${next.aos} (${next.max_elevation.toFixed(0)}°)`;
+    }
+
+    // System
+    const backendEl = document.getElementById('sysBackend');
+    if (backendEl) backendEl.textContent = 'Connected';
+
+    // Bookmarks (re-render if panel exists)
+    const bmList = document.getElementById('bmList');
+    if (bmList) {
+        const container = bmList.closest('.panel-body')?.parentElement;
+        if (container) renderBookmarks(container, s);
+    }
+}
+
+function drawSpectrum(data, peakData) {
+    if (!spectrumCanvas || !spectrumCtx || !data || data.length === 0) return;
+    const W = spectrumCanvas.width, H = spectrumCanvas.height;
+    if (W <= 0 || H <= 0) return;
+    const ctx = spectrumCtx;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W, H);
+
+    const pad = PRESETS.spectrum.padding;
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+    const minDb = -120, maxDb = 0;
+    const range = maxDb - minDb;
+
+    // Grid lines
+    ctx.strokeStyle = PRESETS.spectrum.gridColor;
+    ctx.lineWidth = 0.5;
+    ctx.font = '10px monospace';
+    ctx.fillStyle = PRESETS.spectrum.labelColor;
+    ctx.textAlign = 'right';
+    for (let db = minDb; db <= maxDb; db += 20) {
+        const y = pad.top + plotH * (1 - (db - minDb) / range);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+        ctx.fillText(db + ' dB', pad.left - 4, y + 3);
+    }
+
+    // X-axis labels
+    ctx.textAlign = 'center';
+    const binCount = data.length;
+    const centerIdx = Math.floor(binCount / 2);
+    for (let i = 0; i <= 4; i++) {
+        const x = pad.left + (i / 4) * plotW;
+        const binIdx = Math.floor(i / 4 * binCount);
+        const offset = (binIdx - centerIdx) / binCount;
+        const freqKhz = (offset * parseInt(document.getElementById('sampleRate')?.value || 2048000) / 1000);
+        ctx.fillText((freqKhz >= 0 ? '+' : '') + freqKhz.toFixed(0) + ' kHz', x, H - 4);
+    }
+
+    // Peak hold
+    if (peakHold && peakData) {
+        ctx.strokeStyle = 'rgba(255,80,80,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i < binCount; i++) {
+            const x = pad.left + (i / binCount) * plotW;
+            const y = pad.top + plotH * (1 - (peakData[i] - minDb) / range);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
+
+    // Spectrum line
+    ctx.strokeStyle = PRESETS.spectrum.color;
+    ctx.lineWidth = PRESETS.spectrum.lineWidth;
+    ctx.beginPath();
+    for (let i = 0; i < binCount; i++) {
+        const x = pad.left + (i / binCount) * plotW;
+        const db = minDb + Math.max(0, Math.min(1, (data[i] - minDb) / range)) * range;
+        const y = pad.top + plotH * (1 - (db - minDb) / range);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Fill under
+    ctx.lineTo(pad.left + plotW, pad.top + plotH);
+    ctx.lineTo(pad.left, pad.top + plotH);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(46,204,113,0.1)';
+    ctx.fill();
+}
+
+function drawWaterfall(row, fftSize) {
+    if (!waterfallCanvas || !waterfallCtx || !row || row.length === 0) return;
+    const W = waterfallCanvas.width, H = waterfallCanvas.height;
+    if (W <= 0 || H <= 0) return;
+    const ctx = waterfallCtx;
+    waterfallRows.push(row);
+    const maxRows = H;
+    if (waterfallRows.length > maxRows) waterfallRows.shift();
+    ctx.clearRect(0, 0, W, H);
+    const rowH = Math.max(1, H / maxRows);
+    const startRow = Math.max(0, maxRows - waterfallRows.length);
+    for (let r = 0; r < waterfallRows.length; r++) {
+        const rowData = waterfallRows[r];
+        const binCount = rowData.length / 4;
+        const imageData = ctx.createImageData(W, 1);
+        for (let x = 0; x < W; x++) {
+            const bin = Math.min(binCount - 1, Math.floor((x / W) * binCount));
+            const idx = bin * 4;
+            imageData.data[x*4+0] = rowData[idx+0];
+            imageData.data[x*4+1] = rowData[idx+1];
+            imageData.data[x*4+2] = rowData[idx+2];
+            imageData.data[x*4+3] = rowData[idx+3] ?? 255;
+        }
+        ctx.putImageData(imageData, 0, Math.floor((startRow + r) * rowH));
+    }
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return s.replace(/[^a-z0-9]/gi,'_'); }
+
+function send(obj) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+function connect() {
+    const url = 'ws://127.0.0.1:5347';
+    ws = new WebSocket(url);
+    ws.onopen = () => {
+        console.log('Connected to ez-backend');
+        document.title = 'ez-sdr';
+    };
+    ws.onmessage = (e) => {
+        try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'state') updateUI(msg.state);
+            if (msg.type === 'ai_response') {
+                const chat = document.getElementById('aiChat');
+                if (chat) {
+                    chat.innerHTML += `<div class="ai-msg assistant">${escHtml(msg.text || msg.error || 'No response')}</div>`;
+                    chat.scrollTop = chat.scrollHeight;
+                }
+            }
+        } catch (err) { console.error('WS parse error', err); }
+    };
+    ws.onclose = () => {
+        console.log('Disconnected, reconnecting in 2s...');
+        setTimeout(connect, 2000);
+    };
+    ws.onerror = () => ws.close();
+}
+
+registerRenderers();
+const myLayout = new GoldenLayout(config);
+Object.keys(panelRenderers).forEach(name => {
+    myLayout.registerComponent(name, function(container, state) {
+        panelRenderers[name](container, state);
+    });
 });
+myLayout.init();
+connect();

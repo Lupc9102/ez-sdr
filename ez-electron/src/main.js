@@ -2,6 +2,12 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-software-rasterizer");
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+}
+
 let mainWindow = null;
 let backendProcess = null;
 let backendReady = false;
