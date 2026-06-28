@@ -8,9 +8,9 @@ dump1090 = { path = "../dump1090" }
 sdrpp = { path = "../sdrpp" }
 satdump = { path = "../satdump" }
 
-eframe = { version = "0.28" }
-egui = "0.28"
-egui_dock = "0.13"
+eframe = { version = "0.35", features = ["glow", "wayland", "x11"] }
+egui = "0.35"
+egui_dock = "0.20"
 
 # RTL-SDR
 rtlsdr_sys = { version = "1.1", optional = true }

@@ -121,16 +121,7 @@ impl CentralApp {
 }
 
 impl eframe::App for CentralApp {
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        // Check if source is running
-        let source_running = {
-            if let Ok(state) = self.shared.try_lock() {
-                state.source.status == crate::source_manager::SourceStatus::Running
-            } else {
-                false
-            }
-        };
-
+    fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         // Drain samples from source (fast, minimal lock hold)
         let mut sample_batch: Vec<Vec<u8>> = Vec::new();
         {
@@ -153,10 +144,7 @@ impl eframe::App for CentralApp {
             self.recorder_panel.write_samples(samples);
         }
 
-        // Only repaint continuously when source is running
-        if source_running {
-            ctx.request_repaint();
-        }
+        ctx.request_repaint();
 
         // Process web remote commands
         for cmd in self.web_remote.poll_commands() {
@@ -192,11 +180,13 @@ impl eframe::App for CentralApp {
         if !self.adsb_panel.aircraft.is_empty() {
             self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
         }
+    }
 
-        let style = Style::from_egui(ctx.style().as_ref());
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let style = Style::from_egui(ui.style().as_ref());
         DockArea::new(&mut self.dock_state)
             .style(style)
-            .show(ctx, &mut TabViewer {
+            .show_inside(ui, &mut TabViewer {
                 shared: self.shared.clone(),
                 sdr: &mut self.sdr_panel,
                 satellite: &mut self.satellite_panel,

@@ -97,7 +97,7 @@ impl RecorderPanel {
                     ui.colored_label(egui::Color32::RED, "● REC");
                     ui.label(format!("{}s | {:.1} MB | free: {:.1} GB", elapsed, size_mb, free_gb));
                 });
-                let progress = if let Ok(state) = self.shared.try_lock() {
+                let progress = if let Ok(_state) = self.shared.try_lock() {
                     // Show a fake progress that wraps every 10 minutes
                     (elapsed % 600) as f32 / 600.0
                 } else { 0.0 };
@@ -114,7 +114,7 @@ impl RecorderPanel {
     }
 }
 
-fn free_disk_space(path: &str) -> (f64, String) {
+fn free_disk_space(_path: &str) -> (f64, String) {
     // Simple fallback
     (99.9, "GB".to_string())
 }

@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use crate::app::SharedState;
-use crate::tle_engine::{PassInfo, TleEngine};
+use crate::tle_engine::TleEngine;
 
 pub struct Scheduler {
     pub jobs: Vec<ScheduledJob>,
