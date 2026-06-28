@@ -1,0 +1,8 @@
+target/
+ez-electron/node_modules/
+ez-electron/dist/
+*.db
+*.db-shm
+*.db-wal
+*.iq
+recordings/

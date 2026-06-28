@@ -1634,6 +1634,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ez-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossbeam-channel",
+ "dump1090",
+ "futures-util",
+ "num-complex",
+ "rusqlite",
+ "rustfft",
+ "satdump",
+ "sdrpp",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-tungstenite",
+ "tungstenite",
+]
+
+[[package]]
 name = "ez-gui"
 version = "0.1.0"
 dependencies = [
