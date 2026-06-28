@@ -17,6 +17,14 @@ mod mqtt;
 mod tle_engine;
 
 fn main() -> eframe::Result {
+    // Force X11 on Linux — winit's Wayland backend has broken mouse input
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("WINIT_UNIX_BACKEND").is_err() {
+            std::env::set_var("WINIT_UNIX_BACKEND", "x11");
+        }
+    }
+
     let options = NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 900.0]),
