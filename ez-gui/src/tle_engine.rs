@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(Debug, Clone)]
 pub struct TleEntry {
     pub name: String,
@@ -26,6 +24,8 @@ pub struct TleEngine {
     pub observer_lat: f64,
     pub observer_lon: f64,
     pub observer_alt: f64,
+    cached_passes: Vec<PassInfo>,
+    cached_at: std::time::Instant,
 }
 
 impl TleEngine {
@@ -35,6 +35,8 @@ impl TleEngine {
             observer_lat: 51.5,
             observer_lon: -0.1,
             observer_alt: 10.0,
+            cached_passes: vec![],
+            cached_at: std::time::Instant::now() - std::time::Duration::from_secs(999),
         };
         engine.load_builtin();
         engine
@@ -50,8 +52,12 @@ impl TleEngine {
         ];
     }
 
-    pub fn upcoming_passes(&self) -> Vec<PassInfo> {
-        self.compute_passes(self.observer_lat, self.observer_lon, 72.0)
+    pub fn upcoming_passes(&mut self) -> &[PassInfo] {
+        if self.cached_at.elapsed() > std::time::Duration::from_secs(60) {
+            self.cached_passes = self.compute_passes(self.observer_lat, self.observer_lon, 72.0);
+            self.cached_at = std::time::Instant::now();
+        }
+        &self.cached_passes
     }
 
     pub fn compute_passes(&self, lat: f64, lon: f64, hours: f64) -> Vec<PassInfo> {
@@ -66,7 +72,7 @@ impl TleEngine {
             let period_s = period_min * 60.0;
             let mut aos_time = 0.0;
             let mut max_el = 0.0;
-            let mut los_time = 0.0;
+            let mut _los_time = 0.0;
             let mut visible = false;
 
             for i in 0..steps {
@@ -89,17 +95,17 @@ impl TleEngine {
                     max_el = elev;
                 }
                 if visible && elev <= 0.0 {
-                    los_time = t;
+                    _los_time = t;
                     visible = false;
                     if max_el > 5.0 {
                         passes.push(PassInfo {
                             satellite: sat.name.clone(),
                             aos: format_time(aos_time),
-                            los: format_time(los_time),
+                            los: format_time(_los_time),
                             max_elevation: max_el,
                             frequency_hz: sat_frequency(&sat.name),
                             aos_dt: aos_time,
-                            los_dt: los_time,
+                            los_dt: _los_time,
                         });
                     }
                 }

@@ -33,7 +33,6 @@ impl SatellitePanel {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Satellite Tracking");
 
-        // Observer location
         ui.collapsing("Observer Location", |ui| {
             ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"));
             ui.add(egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"));
@@ -41,14 +40,12 @@ impl SatellitePanel {
 
         ui.separator();
 
-        // Controls
         ui.checkbox(&mut self.auto_record, "Auto-record on pass");
         ui.checkbox(&mut self.auto_tune, "Auto-tune to downlink + Doppler");
         ui.checkbox(&mut self.live_decode, "Live decode (LRPT/APT)");
 
         ui.separator();
 
-        // Signal strength bar
         ui.horizontal(|ui| {
             ui.label("Signal Strength:");
             let norm = ((self.signal_strength + 120.0) / 120.0).clamp(0.0, 1.0);
@@ -66,12 +63,12 @@ impl SatellitePanel {
 
         ui.separator();
 
-        // Pass list
         ui.heading("Upcoming Passes");
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let passes = {
-                let state = self.shared.lock().unwrap();
-                state.tle.upcoming_passes()
+            let passes = if let Ok(mut state) = self.shared.try_lock() {
+                state.tle.upcoming_passes().to_vec()
+            } else {
+                return;
             };
 
             egui::Grid::new("pass_grid").num_columns(5).striped(true).show(ui, |ui| {
@@ -94,8 +91,9 @@ impl SatellitePanel {
                     if ui.button(if selected { "Selected" } else { "Select" }).clicked() {
                         self.selected_sat = Some(pass.satellite.clone());
                         if self.auto_tune {
-                            let mut state = self.shared.lock().unwrap();
-                            state.source.frequency_hz = pass.frequency_hz;
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                state.source.frequency_hz = pass.frequency_hz;
+                            }
                         }
                     }
                     ui.end_row();

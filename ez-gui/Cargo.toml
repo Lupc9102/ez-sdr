@@ -8,12 +8,11 @@ dump1090 = { path = "../dump1090" }
 sdrpp = { path = "../sdrpp" }
 satdump = { path = "../satdump" }
 
-eframe = { version = "0.28", features = ["wgpu"] }
+eframe = { version = "0.28" }
 egui = "0.28"
 egui_dock = "0.13"
 
 # RTL-SDR
-# rtlsdr = { version = "0.1", optional = true }
 rtlsdr_sys = { version = "1.1", optional = true }
 
 # DSP / math
@@ -45,9 +44,6 @@ cpal = "0.15"
 # Image handling for maps and decoded images
 image = "0.25"
 
-# TLE / satellite propagation
-# Using a simple SGP4 implementation included inline since no good crate exists
-
 # MQTT
 rumqttc = "0.24"
 
@@ -59,5 +55,5 @@ thiserror = "1"
 chrono = "0.4"
 
 [features]
-default = ["rtlsdr"]
+default = []
 rtlsdr = ["dep:rtlsdr_sys"]

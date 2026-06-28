@@ -13,7 +13,7 @@ use crate::recorder_panel::RecorderPanel;
 use crate::satellite_panel::SatellitePanel;
 use crate::scheduler::Scheduler;
 use crate::sdr_panel::SdrPanel;
-use crate::source_manager::{SourceManager, SourceStatus};
+use crate::source_manager::SourceManager;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
 use crate::web_remote::{RemoteCommand, WebRemote};
@@ -122,21 +122,40 @@ impl CentralApp {
 
 impl eframe::App for CentralApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        // Drain samples from source → spectrum + recorder
+        // Check if source is running
+        let source_running = {
+            if let Ok(state) = self.shared.try_lock() {
+                state.source.status == crate::source_manager::SourceStatus::Running
+            } else {
+                false
+            }
+        };
+
+        // Drain samples from source (fast, minimal lock hold)
+        let mut sample_batch: Vec<Vec<u8>> = Vec::new();
         {
             let mut state = self.shared.lock().unwrap();
             state.source.poll();
-            while let Some(samples) = state.source.recv_samples() {
-                state.spectrum.push_iq_samples(&samples);
-                self.recorder_panel.write_samples(&samples);
+            for _ in 0..4 {
+                if let Some(samples) = state.source.recv_samples() {
+                    sample_batch.push(samples);
+                } else {
+                    break;
+                }
             }
         }
-        ctx.request_repaint();
-        {
-            let shared = self.shared.clone();
+
+        // Process samples outside lock
+        for samples in &sample_batch {
             if let Ok(mut state) = self.shared.try_lock() {
-                state.scheduler.poll_shared(&shared);
+                state.spectrum.push_iq_samples(samples);
             }
+            self.recorder_panel.write_samples(samples);
+        }
+
+        // Only repaint continuously when source is running
+        if source_running {
+            ctx.request_repaint();
         }
 
         // Process web remote commands
@@ -157,30 +176,21 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // Broadcast state to web clients
-        let (freq, gain, mode, ac_count, passes) = {
-            let ac_count = self.adsb_panel.aircraft.len();
-            if let Ok(state) = self.shared.try_lock() {
-                let mode = format!("{:?}", state.demod_mode);
-                let passes = state.tle.upcoming_passes();
-                (state.source.frequency_hz, state.source.gain_db, mode, ac_count, passes)
-            } else {
-                (0, 0.0, "Unknown".to_string(), ac_count, vec![])
-            }
-        };
-        self.web_remote
-            .broadcast_state(freq, gain, &mode, ac_count, &passes);
-
-        // MQTT tick
-        self.mqtt.tick(freq, gain);
-        if !self.adsb_panel.aircraft.is_empty() {
-            self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
-        }
+        // Broadcast state + MQTT tick (cheap — passes are cached now)
         {
-            if let Ok(state) = self.shared.try_lock() {
-                let passes = state.tle.upcoming_passes();
+            if let Ok(mut state) = self.shared.try_lock() {
+                let mode = format!("{:?}", state.demod_mode);
+                let freq = state.source.frequency_hz;
+                let gain = state.source.gain_db;
+                let passes = state.tle.upcoming_passes().to_vec();
+                let ac_count = self.adsb_panel.aircraft.len();
+                self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes);
+                self.mqtt.tick(freq, gain);
                 self.mqtt.publish_passes(&passes);
             }
+        }
+        if !self.adsb_panel.aircraft.is_empty() {
+            self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
         }
 
         let style = Style::from_egui(ctx.style().as_ref());
@@ -236,19 +246,13 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Recorder => self.recorder.ui(ui),
             Tab::AiAgent => self.ai.ui(ui),
             Tab::Bookmarks => {
-                // Lock, extract what we need, drop lock, then call
-                let bookmarks_clone;
-                let freq_to_tune;
-                {
-                    let mut state = self.shared.lock().unwrap();
-                    bookmarks_clone = state.bookmarks.bookmarks.clone();
-                    freq_to_tune = ui.input(|i| {
-                        for bm in &bookmarks_clone {
-                            // We'll render buttons here inside a nested closure after dropping lock
-                        }
-                        None::<u64>
-                    });
-                }
+                let bookmarks_clone = {
+                    if let Ok(state) = self.shared.try_lock() {
+                        state.bookmarks.bookmarks.clone()
+                    } else {
+                        return;
+                    }
+                };
                 ui.heading("Frequency Bookmarks");
                 let categories: std::collections::HashSet<_> = bookmarks_clone.iter().map(|b| b.category.clone()).collect();
                 for cat in categories {
@@ -258,7 +262,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                 ui.label(&bm.name);
                                 ui.monospace(format!("{:.3} MHz", bm.frequency_hz as f64 / 1e6));
                                 if ui.button("Tune").clicked() {
-                                    if let Ok(mut state) = self.shared.lock() {
+                                    if let Ok(mut state) = self.shared.try_lock() {
                                         state.source.frequency_hz = bm.frequency_hz;
                                     }
                                 }
@@ -268,11 +272,13 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 }
             }
             Tab::Scheduler => {
-                let jobs_clone;
-                {
-                    let state = self.shared.lock().unwrap();
-                    jobs_clone = state.scheduler.jobs.clone();
-                }
+                let jobs_clone = {
+                    if let Ok(state) = self.shared.try_lock() {
+                        state.scheduler.jobs.clone()
+                    } else {
+                        return;
+                    }
+                };
                 ui.heading("Scheduler");
                 if ui.button("Refresh TLEs + compute passes").clicked() {
                     // TODO
