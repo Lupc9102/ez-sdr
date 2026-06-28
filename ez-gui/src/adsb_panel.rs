@@ -65,11 +65,13 @@ impl AdsBPanel {
                     self.start_time = None;
                 }
             } else if ui.button("Start ADS-B").clicked() {
-                let mut state = self.shared.lock().unwrap();
-                state.source.frequency_hz = 1_090_000_000;
-                state.source.sample_rate_hz = 2_048_000;
-                if state.source.status == crate::source_manager::SourceStatus::Idle {
-                    state.source.start();
+                if let Ok(mut state) = self.shared.try_lock() {
+                    state.source.frequency_hz = 1_090_000_000;
+                    state.source.sample_rate_hz = 2_048_000;
+                    if state.source.status != crate::source_manager::SourceStatus::Running {
+                        state.source.start();
+                    }
+                    state.adsb_running = true;
                 }
                 self.start_time = Some(std::time::Instant::now());
             }

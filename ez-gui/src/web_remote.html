@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EZ-SDR Remote Control</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Courier New', monospace; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
+  h1 { color: #3498db; margin-bottom: 20px; }
+  .status { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .status-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .status-label { color: #888; }
+  .status-value { color: #3498db; font-weight: bold; }
+  .controls { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .controls h2 { color: #3498db; margin-bottom: 12px; font-size: 14px; }
+  button { background: #2980b9; color: white; border: none; border-radius: 4px; padding: 8px 16px; cursor: pointer; margin: 4px; }
+  button:hover { background: #3498db; }
+  button.danger { background: #c0392b; }
+  button.danger:hover { background: #e74c3c; }
+  input { background: #0e0e1e; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; padding: 6px 10px; font-family: monospace; }
+  .freq-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .tune-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; max-width: 300px; }
+  #log { background: #0e0e1e; border: 1px solid #333; border-radius: 4px; padding: 8px; height: 150px; overflow-y: auto; font-size: 11px; }
+  .connected { color: #2ecc71; }
+  .disconnected { color: #e74c3c; }
+</style>
+</head>
+<body>
+<h1>EZ-SDR Remote Control</h1>
+<div class="status">
+  <div class="status-row">
+    <span class="status-label">Connection:</span>
+    <span id="connStatus" class="status-value disconnected">Disconnected</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Frequency:</span>
+    <span id="freqDisplay" class="status-value">—</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Gain:</span>
+    <span id="gainDisplay" class="status-value">—</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Demod:</span>
+    <span id="demodDisplay" class="status-value">—</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Aircraft:</span>
+    <span id="aircraftDisplay" class="status-value">0</span>
+  </div>
+</div>
+<div class="controls">
+  <h2>Frequency Tuning</h2>
+  <div class="freq-controls">
+    <input type="number" id="freqInput" value="100000000" min="500000" max="1770000000" step="1000000">
+    <button onclick="tuneFreq()">Tune</button>
+  </div>
+  <div class="tune-grid">
+    <button onclick="tune(-10000000)">-10 MHz</button>
+    <button onclick="tune(-1000000)">-1 MHz</button>
+    <button onclick="tune(-100000)">-100 kHz</button>
+    <button onclick="tune(100000)">+100 kHz</button>
+    <button onclick="tune(1000000)">+1 MHz</button>
+    <button onclick="tune(10000000)">+10 MHz</button>
+  </div>
+  <h2>Quick Tuning</h2>
+  <button onclick="quickTune(109000000)">FM Radio</button>
+  <button onclick="quickTune(1090000000)">ADS-B</button>
+  <button onclick="quickTune(137100000)">NOAA 19</button>
+  <button onclick="quickTune(137620000)">NOAA 15</button>
+  <button onclick="quickTune(137912500)">NOAA 18</button>
+  <button onclick="quickTune(145800000)">ISS</button>
+</div>
+<div class="controls">
+  <h2>Recording</h2>
+  <button onclick="send({action:'start_record'})">● Start Recording</button>
+  <button class="danger" onclick="send({action:'stop_record'})">■ Stop Recording</button>
+</div>
+<h2 style="margin-bottom:8px;font-size:14px;color:#3498db;">Log</h2>
+<div id="log"></div>
+<script>
+let ws;
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    document.getElementById('connStatus').textContent = 'Connected';
+    document.getElementById('connStatus').className = 'status-value connected';
+    log('Connected to EZ-SDR');
+  };
+  ws.onmessage = (e) => {
+    try {
+      const s = JSON.parse(e.data);
+      document.getElementById('freqDisplay').textContent = (s.frequency_hz/1e6).toFixed(3) + ' MHz';
+      document.getElementById('gainDisplay').textContent = s.gain_db + ' dB';
+      document.getElementById('demodDisplay').textContent = s.demod_mode;
+      document.getElementById('aircraftDisplay').textContent = s.aircraft_count;
+      document.getElementById('freqInput').value = s.frequency_hz;
+    } catch(err) {}
+  };
+  ws.onclose = () => {
+    document.getElementById('connStatus').textContent = 'Disconnected';
+    document.getElementById('connStatus').className = 'status-value disconnected';
+    setTimeout(connect, 2000);
+  };
+}
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function tune(hz) {
+  const freq = parseInt(document.getElementById('freqInput').value) + hz;
+  document.getElementById('freqInput').value = freq;
+  send({action:'tune', hz: freq});
+}
+function tuneFreq() {
+  send({action:'tune', hz: parseInt(document.getElementById('freqInput').value)});
+}
+function quickTune(hz) {
+  document.getElementById('freqInput').value = hz;
+  send({action:'tune', hz: hz});
+}
+function log(msg) {
+  const el = document.getElementById('log');
+  el.innerHTML += `<div>${new Date().toLocaleTimeString()} ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+connect();
+</script>
+</body>
+</html>

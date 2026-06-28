@@ -19,7 +19,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             version: "0.1.0".to_string(),
-            default_freq_hz: 1_090_000_000,
+            default_freq_hz: 100_000_000,
             default_sample_rate: 2_048_000,
             default_gain: 40.0,
             output_directory: "./recordings".to_string(),
@@ -42,18 +42,67 @@ impl AppConfig {
     }
 
     pub fn save(&self) {
-        let _ = std::fs::write("ez_sdr_config.json", serde_json::to_string_pretty(self).unwrap());
+        if let Ok(json) = serde_json::to_string_pretty(self) {
+            let _ = std::fs::write("ez_sdr_config.json", json);
+        }
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Settings");
-        ui.add(egui::Slider::new(&mut self.default_freq_hz, 0..=1_770_000_000).text("Default freq (Hz)"));
-        ui.text_edit_singleline(&mut self.output_directory);
-        ui.text_edit_singleline(&mut self.mqtt_broker);
-        ui.text_edit_singleline(&mut self.mqtt_topic_prefix);
-        ui.checkbox(&mut self.web_remote_enabled, "Web remote");
-        if ui.button("Save").clicked() {
-            self.save();
-        }
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.collapsing("Source", |ui| {
+                ui.add(egui::Slider::new(&mut self.default_freq_hz, 500_000..=1_770_000_000)
+                    .text("Default frequency")
+                    .custom_formatter(|v, _| format!("{:.3} MHz", v / 1e6)));
+                ui.add(egui::Slider::new(&mut self.default_sample_rate, 225_001..=3_200_000)
+                    .text("Sample rate")
+                    .custom_formatter(|v, _| format!("{:.3} MSps", v / 1e6)));
+                ui.add(egui::Slider::new(&mut self.default_gain, 0.0..=49.6)
+                    .step_by(0.1)
+                    .text("Gain (dB)")
+                    .custom_formatter(|v, _| format!("{:.1} dB", v)));
+            });
+
+            ui.collapsing("Recording", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Output directory:");
+                    ui.add(egui::TextEdit::singleline(&mut self.output_directory).desired_width(200.0));
+                });
+            });
+
+            ui.collapsing("AI Agent", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("OpenRouter API Key:");
+                    ui.add(egui::TextEdit::singleline(&mut self.openrouter_api_key).password(true).desired_width(200.0));
+                });
+            });
+
+            ui.collapsing("MQTT", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Broker:");
+                    ui.add(egui::TextEdit::singleline(&mut self.mqtt_broker).desired_width(200.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Topic prefix:");
+                    ui.add(egui::TextEdit::singleline(&mut self.mqtt_topic_prefix).desired_width(200.0));
+                });
+            });
+
+            ui.collapsing("Web Remote", |ui| {
+                ui.checkbox(&mut self.web_remote_enabled, "Enable web remote");
+                ui.add(egui::Slider::new(&mut self.web_remote_port, 1024..=65535).text("Port"));
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    self.save();
+                }
+                if ui.button("Reset to defaults").clicked() {
+                    *self = Self::default();
+                }
+            });
+        });
     }
 }

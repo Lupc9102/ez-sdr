@@ -8,7 +8,7 @@ pub struct AiPanel {
     pub messages: Vec<ChatMessage>,
     pub input: String,
     pub thinking: bool,
-    pub history: Vec<String>,
+    pending_response: Option<crossbeam_channel::Receiver<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,7 +38,6 @@ Available tools:
 - start_adsb() — Start ADS-B tracking at 1090 MHz
 - stop_adsb() — Stop ADS-B tracking
 - get_status() — Get current SDR status
-- search_frequency(name: string) — Look up frequency for a known signal type
 
 When you want to call a tool, respond with a JSON block like:
 {\"tool\": \"tune_frequency\", \"args\": {\"hz\": 137620000}}
@@ -57,7 +56,7 @@ impl AiPanel {
             }],
             input: String::new(),
             thinking: false,
-            history: vec![],
+            pending_response: None,
         }
     }
 
@@ -92,6 +91,10 @@ impl AiPanel {
             obj
         }).collect();
 
+        // We need a way to get the response back to the UI.
+        // Use crossbeam oneshot channel.
+        let (resp_tx, resp_rx) = crossbeam_channel::bounded::<String>(1);
+
         std::thread::spawn(move || {
             let client = reqwest::blocking::Client::new();
             let body = serde_json::json!({
@@ -109,14 +112,47 @@ impl AiPanel {
                 Ok(r) => {
                     let v: serde_json::Value = r.json().unwrap_or(serde_json::json!({"choices": []}));
                     let content = v["choices"][0]["message"]["content"].as_str().unwrap_or("No response.").to_string();
-                    // TODO: parse tool calls from response
-                    println!("AI response: {}", content);
+                    let _ = resp_tx.send(content);
                 }
                 Err(e) => {
-                    println!("AI error: {}", e);
+                    let _ = resp_tx.send(format!("Error: {}", e));
                 }
             }
         });
+
+        // Poll for response via crossbeam channel
+        self.pending_response = Some(resp_rx);
+    }
+
+    fn check_response(&mut self) {
+        if let Some(rx) = &self.pending_response {
+            if let Ok(content) = rx.try_recv() {
+                // Check for tool calls in the response
+                let mut tool_calls = Vec::new();
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(tool) = json.get("tool") {
+                        if let Some(name) = tool.as_str() {
+                            let args = json.get("args").cloned().unwrap_or(serde_json::json!({}));
+                            tool_calls.push(ToolCall { name: name.to_string(), arguments: args });
+                        }
+                    }
+                }
+
+                self.messages.push(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: content.clone(),
+                    tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls.clone()) },
+                });
+
+                // Execute any tool calls
+                for tc in &tool_calls {
+                    self.execute_tool_call(tc);
+                }
+
+                self.thinking = false;
+                self.pending_response = None;
+            }
+        }
     }
 
     fn execute_tool_call(&mut self, call: &ToolCall) {
@@ -142,11 +178,35 @@ impl AiPanel {
                         state.source.bias_tee = on;
                     }
                 }
+                "set_demod" => {
+                    if let Some(mode) = call.arguments["mode"].as_str() {
+                        state.demod_mode = match mode.to_uppercase().as_str() {
+                            "RAW" => crate::sdr_panel::DemodMode::Raw,
+                            "AM" => crate::sdr_panel::DemodMode::Am,
+                            "FM" => crate::sdr_panel::DemodMode::Fm,
+                            "WFM" => crate::sdr_panel::DemodMode::Wfm,
+                            "LSB" => crate::sdr_panel::DemodMode::Lsb,
+                            "USB" => crate::sdr_panel::DemodMode::Usb,
+                            _ => crate::sdr_panel::DemodMode::Fm,
+                        };
+                    }
+                }
                 "start_recording" => {
-                    // TODO: trigger recording
+                    state.recording = true;
                 }
                 "stop_recording" => {
-                    // TODO: stop recording
+                    state.recording = false;
+                }
+                "select_satellite" => {
+                    if let Some(name) = call.arguments["name"].as_str() {
+                        state.selected_satellite = Some(name.to_string());
+                    }
+                }
+                "start_adsb" => {
+                    state.adsb_running = true;
+                }
+                "stop_adsb" => {
+                    state.adsb_running = false;
                 }
                 _ => {}
             }
@@ -154,12 +214,12 @@ impl AiPanel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("AI Agent — Haiku 4.5 via OpenRouter");
+        self.check_response();
+
+        ui.heading("AI Agent — Haiku via OpenRouter");
         ui.horizontal(|ui| {
             ui.label("API Key:");
-            if ui.add(egui::TextEdit::singleline(&mut self.api_key).password(true).desired_width(250.0)).changed() {
-                // save to config
-            }
+            ui.add(egui::TextEdit::singleline(&mut self.api_key).password(true).desired_width(250.0));
         });
         ui.separator();
 
@@ -171,14 +231,14 @@ impl AiPanel {
                     "assistant" => (egui::Color32::from_rgb(100, 255, 130), "AI"),
                     _ => (egui::Color32::from_gray(180), "?"),
                 };
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.colored_label(color, format!("{}:", label));
                     ui.label(&msg.content);
                 });
                 if let Some(ref calls) = msg.tool_calls {
                     for tc in calls {
                         ui.horizontal(|ui| {
-                            ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "🔧");
+                            ui.colored_label(egui::Color32::from_rgb(255, 200, 50), ">>>");
                             ui.monospace(format!("{}({})", tc.name, tc.arguments));
                         });
                     }
@@ -195,8 +255,10 @@ impl AiPanel {
             }
         });
         if self.thinking {
-            ui.spinner();
-            ui.label("Thinking...");
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Thinking...");
+            });
         }
     }
 }

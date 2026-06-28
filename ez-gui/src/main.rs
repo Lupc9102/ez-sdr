@@ -6,6 +6,7 @@ mod spectrum;
 mod sdr_panel;
 mod satellite_panel;
 mod adsb_panel;
+mod adsb_decoder;
 mod recorder_panel;
 mod ai_panel;
 mod scheduler;
@@ -15,6 +16,8 @@ mod bookmarks;
 mod web_remote;
 mod mqtt;
 mod tle_engine;
+mod demod;
+mod audio_output;
 
 fn main() -> eframe::Result {
     // Force X11 on Linux — winit's Wayland backend has broken mouse input

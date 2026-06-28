@@ -1,5 +1,3 @@
-use crate::source_manager::SourceManager;
-
 pub struct BookmarkDb {
     pub bookmarks: Vec<Bookmark>,
 }
@@ -31,14 +29,13 @@ impl Default for BookmarkDb {
                 Bookmark { name: "Pager 2m".into(), frequency_hz: 153_000_000, mode: "RAW".into(), bandwidth_hz: 25_000, category: "Pager".into(), notes: "".into() },
                 Bookmark { name: "FM Radio".into(), frequency_hz: 100_000_000, mode: "WFM".into(), bandwidth_hz: 200_000, category: "Broadcast".into(), notes: "87.5-108 MHz".into() },
                 Bookmark { name: "DAB Band III".into(), frequency_hz: 220_000_000, mode: "WFM".into(), bandwidth_hz: 1_500_000, category: "Broadcast".into(), notes: "".into() },
-                Bookmark { name: " ham 2m".into(), frequency_hz: 145_500_000, mode: "NFM".into(), bandwidth_hz: 12_500, category: "Ham".into(), notes: "144-146 MHz".into() },
-                Bookmark { name: "ham 70cm".into(), frequency_hz: 435_000_000, mode: "NFM".into(), bandwidth_hz: 12_500, category: "Ham".into(), notes: "430-440 MHz".into() },
+                Bookmark { name: "Ham 2m".into(), frequency_hz: 145_500_000, mode: "NFM".into(), bandwidth_hz: 12_500, category: "Ham".into(), notes: "144-146 MHz".into() },
+                Bookmark { name: "Ham 70cm".into(), frequency_hz: 435_000_000, mode: "NFM".into(), bandwidth_hz: 12_500, category: "Ham".into(), notes: "430-440 MHz".into() },
                 Bookmark { name: "ISS Voice".into(), frequency_hz: 145_800_000, mode: "NFM".into(), bandwidth_hz: 12_500, category: "Space".into(), notes: "".into() },
                 Bookmark { name: "ISS SSTV".into(), frequency_hz: 145_800_000, mode: "WFM".into(), bandwidth_hz: 34_000, category: "Space".into(), notes: "".into() },
                 Bookmark { name: "Inmarsat Aero".into(), frequency_hz: 1_541_500_000, mode: "WFM".into(), bandwidth_hz: 600_000, category: "Satellite".into(), notes: "".into() },
                 Bookmark { name: "Iridium".into(), frequency_hz: 1_626_000_000, mode: "WFM".into(), bandwidth_hz: 41_000, category: "Satellite".into(), notes: "".into() },
-                Bookmark { name: "Starlink".into(), frequency_hz: 1_600_000_000, mode: "WFM".into(), bandwidth_hz: 50_000_000, category: "Satellite".into(), notes: "Downlink ~11.7-12.7 GHz".into() },
-                Bookmark { name: "L-band GPS L1".into(), frequency_hz: 1_575_420_000, mode: "RAW".into(), bandwidth_hz: 2_000_000, category: "Navigation".into(), notes: "".into() },
+                Bookmark { name: "GPS L1".into(), frequency_hz: 1_575_420_000, mode: "RAW".into(), bandwidth_hz: 2_000_000, category: "Navigation".into(), notes: "".into() },
                 Bookmark { name: "Galileo E1".into(), frequency_hz: 1_575_420_000, mode: "RAW".into(), bandwidth_hz: 2_000_000, category: "Navigation".into(), notes: "".into() },
                 Bookmark { name: "GSM 900 UL".into(), frequency_hz: 890_000_000, mode: "RAW".into(), bandwidth_hz: 200_000, category: "Cellular".into(), notes: "Uplink".into() },
                 Bookmark { name: "GSM 900 DL".into(), frequency_hz: 935_000_000, mode: "RAW".into(), bandwidth_hz: 200_000, category: "Cellular".into(), notes: "Downlink".into() },
@@ -49,22 +46,14 @@ impl Default for BookmarkDb {
     }
 }
 
-impl BookmarkDb {
-    pub fn ui(&mut self, ui: &mut egui::Ui, source: &mut SourceManager) {
-        ui.heading("Frequency Bookmarks");
-        let categories: Vec<_> = self.bookmarks.iter().map(|b| b.category.clone()).collect::<std::collections::HashSet<_>>().into_iter().collect();
-        for cat in categories {
-            ui.collapsing(&cat, |ui| {
-                for bm in self.bookmarks.iter().filter(|b| b.category == cat) {
-                    ui.horizontal(|ui| {
-                        ui.label(&bm.name);
-                        ui.monospace(format!("{:.3} MHz", bm.frequency_hz as f64 / 1e6));
-                        if ui.button("Tune").clicked() {
-                            source.frequency_hz = bm.frequency_hz;
-                        }
-                    });
-                }
-            });
+impl Bookmark {
+    pub fn freq_display(&self) -> String {
+        if self.frequency_hz >= 1_000_000_000 {
+            format!("{:.3} GHz", self.frequency_hz as f64 / 1e9)
+        } else if self.frequency_hz >= 1_000_000 {
+            format!("{:.3} MHz", self.frequency_hz as f64 / 1e6)
+        } else {
+            format!("{:.1} kHz", self.frequency_hz as f64 / 1e3)
         }
     }
 }
