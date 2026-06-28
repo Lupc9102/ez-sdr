@@ -1,10 +1,12 @@
 use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 pub struct Database {
     conn: Connection,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AircraftRecord {
     pub icao: u32,
@@ -17,6 +19,7 @@ pub struct AircraftRecord {
     pub altitude: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PassRecord {
     pub satellite: String,
@@ -29,6 +32,7 @@ pub struct PassRecord {
     pub peak_snr: f32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BookmarkRecord {
     pub name: String,
@@ -38,6 +42,7 @@ pub struct BookmarkRecord {
     pub notes: String,
 }
 
+#[allow(dead_code)]
 impl Database {
     pub fn open_or_create() -> Result<Self> {
         let conn = Connection::open("ez_sdr.db")?;

@@ -12,6 +12,8 @@ pub struct SatellitePanel {
     pub observer_lat: f64,
     pub observer_lon: f64,
     pub auto_tune: bool,
+    cached_passes: Vec<crate::tle_engine::PassInfo>,
+    pass_cache_at: std::time::Instant,
 }
 
 impl SatellitePanel {
@@ -27,15 +29,33 @@ impl SatellitePanel {
             observer_lat: 51.5,
             observer_lon: -0.1,
             auto_tune: true,
+            cached_passes: vec![],
+            pass_cache_at: std::time::Instant::now(),
         }
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Satellite Tracking");
 
+        // Sync observer location from shared state (e.g., when Settings → Save applies config values)
+        if let Ok(state) = self.shared.try_lock() {
+            if (state.tle.observer_lat - self.observer_lat).abs() > 0.001
+                || (state.tle.observer_lon - self.observer_lon).abs() > 0.001
+            {
+                self.observer_lat = state.tle.observer_lat;
+                self.observer_lon = state.tle.observer_lon;
+            }
+        }
+
         ui.collapsing("Observer Location", |ui| {
-            ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"));
-            ui.add(egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"));
+            let changed_lat = ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude")).changed();
+            let changed_lon = ui.add(egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude")).changed();
+            if changed_lat || changed_lon {
+                if let Ok(mut state) = self.shared.try_lock() {
+                    state.tle.observer_lat = self.observer_lat;
+                    state.tle.observer_lon = self.observer_lon;
+                }
+            }
         });
 
         ui.separator();
@@ -64,12 +84,14 @@ impl SatellitePanel {
         ui.separator();
 
         ui.heading("Upcoming Passes");
+        if self.pass_cache_at.elapsed() > std::time::Duration::from_secs(5) {
+            if let Ok(mut state) = self.shared.try_lock() {
+                self.cached_passes = state.tle.upcoming_passes().to_vec();
+                self.pass_cache_at = std::time::Instant::now();
+            }
+        }
+        let passes = self.cached_passes.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let passes = if let Ok(mut state) = self.shared.try_lock() {
-                state.tle.upcoming_passes().to_vec()
-            } else {
-                return;
-            };
 
             egui::Grid::new("pass_grid").num_columns(5).striped(true).show(ui, |ui| {
                 ui.label("Satellite");

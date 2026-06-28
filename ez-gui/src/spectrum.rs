@@ -16,9 +16,13 @@ pub struct SpectrumAnalyzer {
     peak_hold: Vec<f32>,
     show_peak_hold: bool,
     fft: Option<Arc<dyn Fft<f32>>>,
+    fft_input_buf: Vec<Complex32>,
     window_cache: Vec<f32>,
     frame_counter: u32,
     hover_pos: Option<egui::Pos2>,
+    waterfall_dirty: bool,
+    waterfall_every_n: u32,
+    pub clicked_tune_freq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -71,9 +75,13 @@ impl SpectrumAnalyzer {
             peak_hold: vec![-120.0; fft_size],
             show_peak_hold: false,
             fft,
+            fft_input_buf: Vec::with_capacity(4096),
             window_cache,
             frame_counter: 0,
             hover_pos: None,
+            waterfall_dirty: true,
+            waterfall_every_n: 2,
+            clicked_tune_freq: None,
         }
     }
 
@@ -83,6 +91,7 @@ impl SpectrumAnalyzer {
         self.peak_hold = vec![-120.0; size];
         self.waterfall_pixels = vec![vec![0u8; size * 4]; self.waterfall_history];
         self.window_cache = self.window_type.generate(size);
+        self.fft_input_buf = Vec::with_capacity(size.max(4096));
         let mut planner = FftPlanner::<f32>::new();
         self.fft = Some(planner.plan_fft_forward(size));
         self.waterfall_texture = None;
@@ -103,6 +112,10 @@ impl SpectrumAnalyzer {
         self.spectrum_dbs.iter().cloned().fold(-120.0f32, f32::max)
     }
 
+    pub fn min_level(&self) -> f32 {
+        self.spectrum_dbs.iter().cloned().fold(0.0f32, f32::min)
+    }
+
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
         if iq.len() < 2 { return; }
         let fft = match &self.fft {
@@ -112,17 +125,18 @@ impl SpectrumAnalyzer {
         let n_samples = iq.len() / 2;
         let fft_len = n_samples.min(self.fft_size);
 
-        let mut buffer: Vec<Complex32> = (0..fft_len).map(|i| {
+        self.fft_input_buf.clear();
+        self.fft_input_buf.extend((0..fft_len).map(|i| {
             let i_val = iq[2 * i] as f32 - 127.4;
             let q_val = iq[2 * i + 1] as f32 - 127.4;
             let w = if i < self.window_cache.len() { self.window_cache[i] } else { 1.0 };
             Complex32::new(i_val * w, q_val * w)
-        }).collect();
+        }));
 
-        fft.process(&mut buffer);
+        fft.process(&mut self.fft_input_buf);
 
         let scale = 1.0 / (fft_len as f32);
-        for (i, c) in buffer.iter().enumerate() {
+        for (i, c) in self.fft_input_buf.iter().enumerate() {
             let mag = c.norm() * scale;
             let db = if mag > 1e-10 { 20.0 * mag.log10() } else { -120.0 };
             self.spectrum_dbs[i] = self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[i];
@@ -169,6 +183,20 @@ impl SpectrumAnalyzer {
                     self.peak_hold = vec![-120.0; self.fft_size];
                 }
             }
+            if ui.small_button("Clear WF").clicked() {
+                self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; self.waterfall_history];
+                self.waterfall_dirty = true;
+            }
+            ui.separator();
+            ui.label("Avg:");
+            ui.add(egui::Slider::new(&mut self.avg_alpha, 0.01..=0.99).text("α"));
+            ui.separator();
+            ui.label("WF:");
+            for (label, n) in [("1x", 1u32), ("2x", 2), ("4x", 4), ("8x", 8)] {
+                if ui.selectable_label(self.waterfall_every_n == n, label).clicked() {
+                    self.waterfall_every_n = n;
+                }
+            }
         });
 
         // Info bar
@@ -176,6 +204,10 @@ impl SpectrumAnalyzer {
             ui.monospace(format!("Center: {:.3} MHz", self.center_freq as f64 / 1e6));
             ui.monospace(format!("Span: {:.3} MHz", self.sample_rate as f64 / 1e6));
             ui.monospace(format!("Res: {:.1} Hz", self.sample_rate as f64 / self.fft_size as f64));
+            ui.separator();
+            ui.monospace(format!("Min: {:.0} dB", self.min_level()));
+            ui.monospace(format!("Avg: {:.0} dB", self.signal_level()));
+            ui.monospace(format!("Max: {:.0} dB", self.peak_level()));
         });
 
         let avail = ui.available_size();
@@ -229,6 +261,44 @@ impl SpectrumAnalyzer {
                 egui::FontId::proportional(8.0),
                 egui::Color32::from_gray(90),
             );
+        }
+
+        // Band plan overlay
+        {
+            struct Band { name: &'static str, low_mhz: f64, high_mhz: f64, color: egui::Color32 }
+            const BANDS: &[Band] = &[
+                Band { name: "160m", low_mhz: 1.8, high_mhz: 2.0, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
+                Band { name: "80m",  low_mhz: 3.5, high_mhz: 4.0, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
+                Band { name: "40m",  low_mhz: 7.0, high_mhz: 7.3, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
+                Band { name: "20m",  low_mhz: 14.0, high_mhz: 14.35, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
+                Band { name: "15m",  low_mhz: 21.0, high_mhz: 21.45, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
+                Band { name: "10m",  low_mhz: 28.0, high_mhz: 29.7, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
+                Band { name: "6m",   low_mhz: 50.0, high_mhz: 54.0, color: egui::Color32::from_rgba_premultiplied(180, 120, 50, 30) },
+                Band { name: "2m",   low_mhz: 144.0, high_mhz: 148.0, color: egui::Color32::from_rgba_premultiplied(180, 120, 50, 30) },
+                Band { name: "70cm", low_mhz: 420.0, high_mhz: 450.0, color: egui::Color32::from_rgba_premultiplied(180, 80, 80, 30) },
+            ];
+            let center_mhz = self.center_freq as f64 / 1e6;
+            let half_span_mhz = self.sample_rate as f64 / 2e6;
+            let left_mhz = center_mhz - half_span_mhz;
+            let right_mhz = center_mhz + half_span_mhz;
+            for band in BANDS {
+                let low = band.low_mhz.max(left_mhz);
+                let high = band.high_mhz.min(right_mhz);
+                if low < high {
+                    let x1 = spectrum_rect.left() + ((low - left_mhz) / (right_mhz - left_mhz)) as f32 * spectrum_rect.width();
+                    let x2 = spectrum_rect.left() + ((high - left_mhz) / (right_mhz - left_mhz)) as f32 * spectrum_rect.width();
+                    let rect = egui::Rect::from_x_y_ranges(x1..=x2, spectrum_rect.top()..=spectrum_rect.bottom());
+                    painter.rect_filled(rect, 0.0, band.color);
+                    let label_x = (x1 + x2) / 2.0;
+                    painter.text(
+                        egui::pos2(label_x, spectrum_rect.top() + 8.0),
+                        egui::Align2::CENTER_CENTER,
+                        band.name,
+                        egui::FontId::proportional(8.0),
+                        egui::Color32::from_rgba_premultiplied(180, 180, 180, 100),
+                    );
+                }
+            }
         }
 
         // Fill under spectrum
@@ -326,36 +396,48 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Waterfall
-        if self.frame_counter % 2 == 0 {
+        // Click-to-tune on spectrum
+        if response.clicked() {
+            if let Some(pointer) = response.hover_pos() {
+                let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
+                let offset_hz = (frac as f64 - 0.5) * self.sample_rate as f64;
+                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                self.clicked_tune_freq = Some(freq);
+            }
+        }
+
+        // Waterfall (speed controlled by waterfall_every_n)
+        if self.frame_counter % self.waterfall_every_n == 0 {
             let row = self.waterfall_row();
             self.waterfall_pixels.pop();
             self.waterfall_pixels.insert(0, row);
+            self.waterfall_dirty = true;
         }
 
         let (wf_rect, _) = ui.allocate_exact_size(egui::vec2(avail.x, waterfall_height), egui::Sense::hover());
 
-        let mut rgba_bytes = Vec::with_capacity(self.fft_size * self.waterfall_history * 4);
-        for row_data in &self.waterfall_pixels {
-            rgba_bytes.extend_from_slice(row_data);
-        }
-
-        let rgba = egui::ColorImage::from_rgba_unmultiplied(
-            [self.fft_size, self.waterfall_history],
-            &rgba_bytes,
-        );
-
-        match &mut self.waterfall_texture {
-            Some(tex) => {
-                tex.set(rgba, egui::TextureOptions::NEAREST);
+        if self.waterfall_dirty {
+            let mut rgba_bytes = Vec::with_capacity(self.fft_size * self.waterfall_history * 4);
+            for row_data in &self.waterfall_pixels {
+                rgba_bytes.extend_from_slice(row_data);
             }
-            None => {
-                self.waterfall_texture = Some(ui.ctx().load_texture(
-                    "waterfall",
-                    rgba,
-                    egui::TextureOptions::NEAREST,
-                ));
+            let rgba = egui::ColorImage::from_rgba_unmultiplied(
+                [self.fft_size, self.waterfall_history],
+                &rgba_bytes,
+            );
+            match &mut self.waterfall_texture {
+                Some(tex) => {
+                    tex.set(rgba, egui::TextureOptions::NEAREST);
+                }
+                None => {
+                    self.waterfall_texture = Some(ui.ctx().load_texture(
+                        "waterfall",
+                        rgba,
+                        egui::TextureOptions::NEAREST,
+                    ));
+                }
             }
+            self.waterfall_dirty = false;
         }
 
         if let Some(tex) = &self.waterfall_texture {

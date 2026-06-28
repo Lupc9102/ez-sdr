@@ -1,10 +1,13 @@
 #[derive(Debug, Clone)]
 pub struct TleEntry {
     pub name: String,
+    #[allow(dead_code)]
     pub line1: String,
+    #[allow(dead_code)]
     pub line2: String,
     pub mean_motion: f64,
     pub inclination: f64,
+    #[allow(dead_code)]
     pub eccentricity: f64,
 }
 
@@ -16,6 +19,7 @@ pub struct PassInfo {
     pub max_elevation: f64,
     pub frequency_hz: u64,
     pub aos_dt: f64,
+    #[allow(dead_code)]
     pub los_dt: f64,
 }
 
@@ -23,6 +27,7 @@ pub struct TleEngine {
     pub tles: Vec<TleEntry>,
     pub observer_lat: f64,
     pub observer_lon: f64,
+    #[allow(dead_code)]
     pub observer_alt: f64,
     cached_passes: Vec<PassInfo>,
     cached_at: std::time::Instant,
@@ -126,6 +131,7 @@ impl TleEngine {
         passes
     }
 
+    #[allow(dead_code)]
     pub fn doppler_shift(&self, sat: &TleEntry, freq_hz: f64, t: f64) -> f64 {
         let period_s = 1440.0 / sat.mean_motion * 60.0;
         let orbit_phase = (t % period_s) / period_s;

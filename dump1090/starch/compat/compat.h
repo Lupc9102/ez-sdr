@@ -16,7 +16,7 @@
 #if defined(__APPLE__)
 
 /*
- * Mach endian conversion
+ * Mach endian conversion functions are not available on iOS, so we use the libkern versions instead.
  */
 # include <libkern/OSByteOrder.h>
 # define bswap_16 OSSwapInt16

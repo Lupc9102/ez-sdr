@@ -1,5 +1,4 @@
-use dump1090::demod::{Demod2400, DemodStats, InputFormat, MagBuf, ModesMessage, compute_magnitude, MAGBUF_DISCONTINUOUS};
-use dump1090::mode_s::decode_mode_s_message;
+use dump1090::demod::{Demod2400, DemodStats, InputFormat, MagBuf, compute_magnitude};
 use crate::adsb_panel::AircraftEntry;
 use std::collections::HashMap;
 
@@ -7,6 +6,7 @@ pub struct AdsBDecoder {
     demod: Demod2400,
     stats: DemodStats,
     mag_buf: Vec<u16>,
+    #[allow(dead_code)]
     overlap_buf: Vec<u16>,
     aircraft: HashMap<u32, AircraftState>,
     pub total_messages: u64,
@@ -30,6 +30,7 @@ struct CprFrame {
     pub raw_lat: u32,
     pub raw_lon: u32,
     pub timestamp: f64,
+    #[allow(dead_code)]
     pub is_even: bool,
 }
 
@@ -51,7 +52,7 @@ impl AdsBDecoder {
         }
     }
 
-    pub fn feed_iq(&mut self, iq: &[u8], sample_rate: u32) {
+    pub fn feed_iq(&mut self, iq: &[u8], _sample_rate: u32) {
         let nsamples = iq.len() / 2;
         let overlap = 0;
 
@@ -59,7 +60,7 @@ impl AdsBDecoder {
 
         let (mean_level, mean_power) = compute_magnitude(iq, &mut self.mag_buf[..nsamples], InputFormat::Uc8);
 
-        let mut mag = MagBuf {
+        let mag = MagBuf {
             data: self.mag_buf[..nsamples].to_vec(),
             total_length: nsamples,
             valid_length: nsamples,
@@ -264,6 +265,7 @@ impl AdsBDecoder {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn stats(&self) -> (u64, u64, u64) {
         let preambles = self.stats.demod_preambles;
         let accepted: u64 = self.stats.demod_accepted.iter().sum();

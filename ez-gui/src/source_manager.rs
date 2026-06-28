@@ -49,7 +49,7 @@ impl SourceManager {
             return;
         }
         self.status = SourceStatus::Opening;
-        self.running.store(true, Ordering::SeqCst);
+        self.running = Arc::new(AtomicBool::new(true));
         let running = self.running.clone();
 
         // Recreate channel if needed (after a previous stop)
@@ -64,9 +64,9 @@ impl SourceManager {
 
         let freq = self.frequency_hz;
         let rate = self.sample_rate_hz;
-        let ppm = self.ppm_correction;
-        let bias = self.bias_tee;
-        let gain = self.gain_db;
+        let _ppm = self.ppm_correction;
+        let _bias = self.bias_tee;
+        let _gain = self.gain_db;
 
         let handle = std::thread::spawn(move || {
             #[cfg(feature = "rtlsdr")]
@@ -144,6 +144,14 @@ impl SourceManager {
 
                         phase += 1.0;
                         burst_phase += 1.0;
+                        // Cap phase and burst_phase to prevent slow trig operations
+                        // on large f64 values (argument reduction cost grows with magnitude)
+                        if phase >= sample_rate_f * 10.0 {
+                            phase -= sample_rate_f * 10.0;
+                        }
+                        if burst_phase >= 10000.0 {
+                            burst_phase -= 10000.0;
+                        }
                     }
 
                     let _ = tx.try_send(buf.clone());
@@ -157,9 +165,11 @@ impl SourceManager {
 
     pub fn stop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
-        if let Some(handle) = self.worker_handle.take() {
-            let _ = handle.join();
-        }
+        self.worker_handle.take(); // detach thread — it will exit on next loop check
+        // Recreate channel for next start()
+        let (new_tx, new_rx) = bounded(32);
+        self.tx = Some(new_tx);
+        self.rx = Some(new_rx);
         self.status = SourceStatus::Idle;
     }
 
@@ -183,6 +193,32 @@ impl SourceManager {
             ui.colored_label(color, format!("● {}", label));
         });
         ui.add(egui::Slider::new(&mut self.frequency_hz, 500_000..=1_770_000_000).text("Frequency (Hz)").custom_formatter(|v, _| format!("{:.3} MHz", v / 1e6)));
+        ui.horizontal(|ui| {
+            let mut freq_mhz = self.frequency_hz as f64 / 1e6;
+            if ui.add(egui::DragValue::new(&mut freq_mhz).speed(0.001).range(0.5..=1770.0).prefix("MHz "))
+                .changed()
+            {
+                self.frequency_hz = (freq_mhz * 1e6) as u64;
+            }
+            if ui.small_button("-1MHz").clicked() {
+                self.frequency_hz = self.frequency_hz.saturating_sub(1_000_000).max(500_000);
+            }
+            if ui.small_button("-100k").clicked() {
+                self.frequency_hz = self.frequency_hz.saturating_sub(100_000).max(500_000);
+            }
+            if ui.small_button("-10k").clicked() {
+                self.frequency_hz = self.frequency_hz.saturating_sub(10_000).max(500_000);
+            }
+            if ui.small_button("+10k").clicked() {
+                self.frequency_hz = self.frequency_hz.saturating_add(10_000).min(1_770_000_000);
+            }
+            if ui.small_button("+100k").clicked() {
+                self.frequency_hz = self.frequency_hz.saturating_add(100_000).min(1_770_000_000);
+            }
+            if ui.small_button("+1MHz").clicked() {
+                self.frequency_hz = self.frequency_hz.saturating_add(1_000_000).min(1_770_000_000);
+            }
+        });
         ui.add(egui::Slider::new(&mut self.sample_rate_hz, 225_001..=3_200_000).text("Sample rate (Hz)").custom_formatter(|v, _| format!("{:.3} MSps", v / 1e6)));
         ui.horizontal(|ui| {
             ui.label("Gain:");
@@ -206,10 +242,11 @@ impl SourceManager {
     }
 }
 
-/// Simple deterministic pseudo-random from a seed (no dependency needed)
+/// Simple deterministic pseudo-random (LCG, no sin() — which gets slow for large values)
 fn rand_f64(seed: f64) -> f64 {
-    let x = seed.sin() * 43758.5453;
-    x - x.floor()
+    let x = seed * 1664525.0 + 1013904223.0;
+    let frac = x - (x * (1.0 / 4294967296.0)).floor() * 4294967296.0;
+    frac / 4294967296.0
 }
 
 #[cfg(feature = "rtlsdr")]

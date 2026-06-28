@@ -6,6 +6,7 @@ pub struct AudioOutput {
     stream: Option<cpal::Stream>,
     sample_rate: u32,
     running: bool,
+    failed: bool,
 }
 
 impl AudioOutput {
@@ -14,6 +15,7 @@ impl AudioOutput {
             stream: None,
             sample_rate: 48000,
             running: false,
+            failed: false,
         }
     }
 
@@ -97,16 +99,25 @@ impl AudioOutput {
         Ok(())
     }
 
-    pub fn stop(&mut self) {
-        self.stream = None;
-        self.running = false;
-    }
-
     pub fn is_running(&self) -> bool {
         self.running
     }
 
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    pub fn has_failed(&self) -> bool {
+        self.failed
+    }
+
+    pub fn mark_failed(&mut self) {
+        self.failed = true;
+    }
+
+    pub fn stop(&mut self) {
+        self.stream = None;
+        self.running = false;
+        self.failed = false;
     }
 }

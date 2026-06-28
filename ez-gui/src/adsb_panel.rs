@@ -62,6 +62,9 @@ impl AdsBPanel {
             ui.label(format!("Aircraft: {} | Messages: {} ({:.0}/s)", self.aircraft.len(), self.total_messages, msg_rate));
             if self.start_time.is_some() {
                 if ui.button("Stop").clicked() {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.adsb_running = false;
+                    }
                     self.start_time = None;
                 }
             } else if ui.button("Start ADS-B").clicked() {

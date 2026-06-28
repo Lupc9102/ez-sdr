@@ -26,9 +26,15 @@ impl WebRemote {
         }
     }
 
+    pub fn stop(&mut self) {
+        self.tx = None;
+        self.cmd_rx = None;
+    }
+
     pub fn set_enabled(&mut self, enabled: bool, port: u16) {
         self.enabled = enabled;
         self.port = port;
+        self.stop();
         if enabled {
             self.start();
         }
@@ -58,8 +64,11 @@ impl WebRemote {
                         loop {
                             tokio::select! {
                                 msg = rx.recv() => {
-                                    if let Ok(data) = msg {
-                                        if socket.send(Message::Text(data.into())).await.is_err() { break; }
+                                    match msg {
+                                        Ok(data) => {
+                                            if socket.send(Message::Text(data.into())).await.is_err() { break; }
+                                        }
+                                        Err(_) => break,
                                     }
                                 }
                                 Some(Ok(msg)) = socket.recv() => {
@@ -120,21 +129,23 @@ impl WebRemote {
     }
 
     pub fn broadcast_state(&mut self, freq_hz: u64, gain_db: f64, demod_mode: &str, aircraft_count: usize, passes: &[crate::tle_engine::PassInfo]) {
-        if let Some(tx) = &self.tx {
-            let state = serde_json::json!({
-                "frequency_hz": freq_hz,
-                "gain_db": gain_db,
-                "demod_mode": demod_mode,
-                "aircraft_count": aircraft_count,
-                "upcoming_passes": passes.iter().map(|p| serde_json::json!({
-                    "satellite": p.satellite,
-                    "aos": p.aos,
-                    "los": p.los,
-                    "max_elevation": p.max_elevation,
-                })).collect::<Vec<_>>(),
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            });
-            let _ = tx.send(state.to_string());
-        }
+        let tx = match &self.tx {
+            Some(t) if t.receiver_count() > 0 => t,
+            _ => return,
+        };
+        let state = serde_json::json!({
+            "frequency_hz": freq_hz,
+            "gain_db": gain_db,
+            "demod_mode": demod_mode,
+            "aircraft_count": aircraft_count,
+            "upcoming_passes": passes.iter().map(|p| serde_json::json!({
+                "satellite": p.satellite,
+                "aos": p.aos,
+                "los": p.los,
+                "max_elevation": p.max_elevation,
+            })).collect::<Vec<_>>(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        let _ = tx.send(state.to_string());
     }
 }

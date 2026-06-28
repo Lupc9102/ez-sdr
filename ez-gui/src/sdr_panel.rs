@@ -13,6 +13,18 @@ pub enum DemodMode {
 }
 
 impl DemodMode {
+    pub fn from_label(s: &str) -> Option<Self> {
+        match s {
+            "RAW" => Some(Self::Raw),
+            "AM" => Some(Self::Am),
+            "FM" | "NFM" => Some(Self::Fm),
+            "WFM" => Some(Self::Wfm),
+            "LSB" => Some(Self::Lsb),
+            "USB" => Some(Self::Usb),
+            _ => None,
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             DemodMode::Raw => "RAW",
@@ -42,6 +54,21 @@ impl SdrPanel {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("SDR Receiver");
+
+        // Big frequency display
+        if let Ok(mut state) = self.shared.try_lock() {
+            ui.horizontal(|ui| {
+                let mut freq_mhz = state.source.frequency_hz as f64 / 1e6;
+                ui.monospace(egui::RichText::new(format!("{:.3}", freq_mhz)).size(24.0).color(egui::Color32::from_rgb(52, 152, 219)));
+                ui.label(egui::RichText::new("MHz").size(14.0).color(egui::Color32::GRAY));
+                if ui.add(egui::DragValue::new(&mut freq_mhz).speed(0.01).range(0.5..=1770.0).suffix(" MHz"))
+                    .changed()
+                {
+                    state.source.frequency_hz = (freq_mhz * 1e6) as u64;
+                }
+            });
+        }
+        ui.separator();
 
         // Demod mode selector
         ui.horizontal(|ui| {

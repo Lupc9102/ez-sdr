@@ -161,6 +161,7 @@ impl Demodulator {
         out
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.prev_i = 0.0;
         self.prev_q = 0.0;

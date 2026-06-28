@@ -29,6 +29,8 @@ impl MqttPublisher {
         self.topic_prefix = topic_prefix;
         if enabled {
             self.connect();
+        } else {
+            self.disconnect();
         }
     }
 
@@ -39,12 +41,18 @@ impl MqttPublisher {
         let (client, mut connection) = Client::new(opts, 128);
 
         std::thread::spawn(move || {
-            for _notification in connection.iter() {
-                // Process outgoing messages
+            for notification in connection.iter() {
+                if notification.is_err() {
+                    break;
+                }
             }
         });
 
         self.client = Some(client);
+    }
+
+    pub fn disconnect(&mut self) {
+        self.client = None;
     }
 
     pub fn publish(&mut self, subtopic: &str, payload: &str) {

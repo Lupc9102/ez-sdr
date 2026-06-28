@@ -13,6 +13,9 @@ pub struct AppConfig {
     pub mqtt_topic_prefix: String,
     pub web_remote_enabled: bool,
     pub web_remote_port: u16,
+    pub observer_lat: f64,
+    pub observer_lon: f64,
+    pub needs_apply: bool,
 }
 
 impl Default for AppConfig {
@@ -29,6 +32,9 @@ impl Default for AppConfig {
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
             web_remote_port: 5259,
+            observer_lat: 51.5,
+            observer_lon: -0.1,
+            needs_apply: false,
         }
     }
 }
@@ -94,13 +100,20 @@ impl AppConfig {
                 ui.add(egui::Slider::new(&mut self.web_remote_port, 1024..=65535).text("Port"));
             });
 
+            ui.collapsing("Satellite Observer Location", |ui| {
+                ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"));
+                ui.add(egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"));
+            });
+
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {
                     self.save();
+                    self.needs_apply = true;
                 }
                 if ui.button("Reset to defaults").clicked() {
                     *self = Self::default();
+                    self.needs_apply = true;
                 }
             });
         });

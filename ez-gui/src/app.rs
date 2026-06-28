@@ -38,6 +38,7 @@ pub struct SharedState {
     pub source: SourceManager,
     pub spectrum: SpectrumAnalyzer,
     pub config: AppConfig,
+    #[allow(dead_code)]
     pub db: Database,
     pub bookmarks: BookmarkDb,
     pub scheduler: Scheduler,
@@ -46,7 +47,9 @@ pub struct SharedState {
     pub recording: bool,
     pub adsb_running: bool,
     pub selected_satellite: Option<String>,
+    #[allow(dead_code)]
     pub iq_tx: Option<crossbeam_channel::Sender<Vec<f32>>>,
+    #[allow(dead_code)]
     pub audio_tx: Option<crossbeam_channel::Sender<Vec<f32>>>,
     pub audio_running: bool,
     pub volume: f32,
@@ -67,6 +70,10 @@ pub struct CentralApp {
     audio_rx: Arc<Mutex<crossbeam_channel::Receiver<Vec<f32>>>>,
     audio_tx: crossbeam_channel::Sender<Vec<f32>>,
     adsb_decoder: AdsBDecoder,
+    last_scheduler_update: std::time::Instant,
+    last_source_status: crate::source_manager::SourceStatus,
+    last_auto_tuned_satellite: String,
+    bookmark_filter: String,
 }
 
 impl CentralApp {
@@ -111,7 +118,12 @@ impl CentralApp {
         // Start demo source immediately
         {
             let mut state = shared.lock().unwrap();
+            state.source.frequency_hz = state.config.default_freq_hz;
+            state.source.sample_rate_hz = state.config.default_sample_rate;
+            state.source.gain_db = state.config.default_gain;
             state.source.start();
+            state.tle.observer_lat = state.config.observer_lat;
+            state.tle.observer_lon = state.config.observer_lon;
         }
 
         let mut dock_state = DockState::new(vec![
@@ -141,6 +153,10 @@ impl CentralApp {
             audio_rx,
             audio_tx,
             adsb_decoder: AdsBDecoder::new(),
+            last_scheduler_update: std::time::Instant::now(),
+            last_source_status: crate::source_manager::SourceStatus::Idle,
+            last_auto_tuned_satellite: String::new(),
+            bookmark_filter: String::new(),
         }
     }
 }
@@ -153,6 +169,10 @@ impl eframe::App for CentralApp {
             if let Ok(mut state) = self.shared.try_lock() {
                 for _ in 0..4 {
                     if let Some(samples) = state.source.recv_samples() {
+                        if samples == b"ERROR" {
+                            state.source.status = crate::source_manager::SourceStatus::Error("Device open failed".to_string());
+                            break;
+                        }
                         sample_batch.push(samples);
                     } else {
                         break;
@@ -224,16 +244,31 @@ impl eframe::App for CentralApp {
             }
         });
 
-        // Only repaint at ~30fps max
-        ctx.request_repaint_after(Duration::from_millis(33));
+        // Track source status transitions
+        if let Ok(mut state) = self.shared.try_lock() {
+            let was_running = matches!(self.last_source_status, crate::source_manager::SourceStatus::Running);
+            let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
+            if was_running && !is_running {
+                state.adsb_running = false;
+            }
+            self.last_source_status = state.source.status.clone();
+        }
 
-        // Start/stop audio based on state
+        // Repaint rate: 30fps when active, 1fps when idle (saves CPU on battery)
+        ctx.request_repaint_after(Duration::from_millis(if sample_batch.is_empty() { 1000 } else { 33 }));
+
+        // Start/stop audio based on state (once only, no retry storm)
         {
             if let Ok(state) = self.shared.try_lock() {
                 if state.audio_running && !self.audio.is_running() {
-                    let rx = self.audio_rx.clone();
-                    if let Err(e) = self.audio.start(rx) {
-                        eprintln!("Failed to start audio: {}", e);
+                    if !self.audio.has_failed() {
+                        let rx = self.audio_rx.clone();
+                        if self.audio.start(rx).is_ok() {
+                            self.demod.reset();
+                        } else {
+                            eprintln!("Failed to start audio");
+                            self.audio.mark_failed();
+                        }
                     }
                 } else if !state.audio_running && self.audio.is_running() {
                     self.audio.stop();
@@ -259,26 +294,63 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // Scheduler tick: check upcoming passes
+        // Scheduler tick: check upcoming passes (rate-limited to every 5s)
         {
+            let now = std::time::Instant::now();
+            let needs_update = now.duration_since(self.last_scheduler_update).as_secs() >= 5;
             if let Ok(mut state) = self.shared.try_lock() {
-                let passes = state.tle.upcoming_passes().to_vec();
-                state.scheduler.update_from_passes(&passes);
+                if needs_update {
+                    let passes = state.tle.upcoming_passes().to_vec();
+                    state.scheduler.update_from_passes(&passes);
+                    self.last_scheduler_update = now;
+                }
+                // Auto-tune to the first active pass
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64())
+                    .unwrap_or(0.0);
+                let tune_to = state.scheduler.active_job(now_unix).map(|j| (j.satellite.clone(), j.frequency_hz));
+                if let Some((sat, freq)) = tune_to {
+                    if sat != self.last_auto_tuned_satellite {
+                        state.source.frequency_hz = freq;
+                        self.last_auto_tuned_satellite = sat;
+                    }
+                }
             }
         }
 
-        // Broadcast state + MQTT tick
+        // Apply config changes triggered from Settings tab
         if let Ok(mut state) = self.shared.try_lock() {
-            let mode = format!("{:?}", state.demod_mode);
+            if state.config.needs_apply {
+                state.config.needs_apply = false;
+                state.source.frequency_hz = state.config.default_freq_hz;
+                state.source.sample_rate_hz = state.config.default_sample_rate;
+                state.source.gain_db = state.config.default_gain;
+                state.tle.observer_lat = state.config.observer_lat;
+                state.tle.observer_lon = state.config.observer_lon;
+                self.web_remote.set_enabled(state.config.web_remote_enabled, state.config.web_remote_port);
+                self.mqtt.set_enabled(
+                    !state.config.mqtt_broker.is_empty(),
+                    state.config.mqtt_broker.clone(),
+                    state.config.mqtt_topic_prefix.clone(),
+                );
+            }
+        }
+
+        // Broadcast state + MQTT tick (rate-limited to every 5s)
+        if let Ok(mut state) = self.shared.try_lock() {
+            let mode = state.demod_mode.label();
             let freq = state.source.frequency_hz;
             let gain = state.source.gain_db;
-            let passes = state.tle.upcoming_passes().to_vec();
             let ac_count = self.adsb_panel.aircraft.len();
+            let passes = state.tle.upcoming_passes().to_vec();
             self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes);
-            self.mqtt.tick(freq, gain);
-            self.mqtt.publish_passes(&passes);
-            if !self.adsb_panel.aircraft.is_empty() {
-                self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
+            if self.last_scheduler_update.elapsed().as_secs() < 1 {
+                self.mqtt.tick(freq, gain);
+                self.mqtt.publish_passes(&passes);
+                if !self.adsb_panel.aircraft.is_empty() {
+                    self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
+                }
             }
         }
     }
@@ -288,12 +360,6 @@ impl eframe::App for CentralApp {
         let snapshot = {
             if let Ok(state) = self.shared.try_lock() {
                 Some(SharedSnapshot {
-                    frequency_hz: state.source.frequency_hz,
-                    sample_rate_hz: state.source.sample_rate_hz,
-                    gain_db: state.source.gain_db,
-                    demod_mode: format!("{}", state.demod_mode.label()),
-                    recording: state.recording,
-                    source_running: state.source.status == crate::source_manager::SourceStatus::Running,
                     bookmarks: state.bookmarks.bookmarks.clone(),
                     jobs: state.scheduler.jobs.clone(),
                 })
@@ -313,6 +379,7 @@ impl eframe::App for CentralApp {
                 adsb: &mut self.adsb_panel,
                 recorder: &mut self.recorder_panel,
                 ai: &mut self.ai_panel,
+                bookmark_filter: &mut self.bookmark_filter,
             });
 
         // Status bar
@@ -348,12 +415,6 @@ impl eframe::App for CentralApp {
 }
 
 struct SharedSnapshot {
-    frequency_hz: u64,
-    sample_rate_hz: u32,
-    gain_db: f64,
-    demod_mode: String,
-    recording: bool,
-    source_running: bool,
     bookmarks: Vec<crate::bookmarks::Bookmark>,
     jobs: Vec<crate::scheduler::ScheduledJob>,
 }
@@ -366,6 +427,7 @@ struct TabViewer<'a> {
     adsb: &'a mut AdsBPanel,
     recorder: &'a mut RecorderPanel,
     ai: &'a mut AiPanel,
+    bookmark_filter: &'a mut String,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -391,6 +453,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Spectrum => {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.spectrum.ui(ui);
+                    if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
+                        state.source.frequency_hz = freq;
+                    }
                 }
             }
             Tab::Satellite => self.satellite.ui(ui),
@@ -403,17 +468,29 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     None => return,
                 };
                 ui.heading("Frequency Bookmarks");
-                ui.label(format!("{} bookmarks", snapshot.bookmarks.len()));
+                ui.horizontal(|ui| {
+                    ui.label(format!("{} bookmarks", snapshot.bookmarks.len()));
+                    ui.add(egui::TextEdit::singleline(self.bookmark_filter).hint_text("Filter...").desired_width(150.0));
+                });
                 ui.separator();
 
-                let mut categories: Vec<_> = snapshot.bookmarks.iter().map(|b| b.category.clone()).collect();
+                let filter_lower = self.bookmark_filter.to_lowercase();
+                let filtered: Vec<_> = snapshot.bookmarks.iter()
+                    .filter(|b| filter_lower.is_empty()
+                        || b.name.to_lowercase().contains(&filter_lower)
+                        || b.category.to_lowercase().contains(&filter_lower)
+                        || b.mode.to_lowercase().contains(&filter_lower)
+                        || b.freq_display().contains(&filter_lower))
+                    .collect();
+
+                let mut categories: Vec<_> = filtered.iter().map(|b| b.category.clone()).collect();
                 categories.sort();
                 categories.dedup();
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for cat in categories {
                         ui.collapsing(&cat, |ui| {
-                            for bm in snapshot.bookmarks.iter().filter(|b| b.category == cat) {
+                            for bm in filtered.iter().filter(|b| b.category == cat) {
                                 ui.horizontal(|ui| {
                                     ui.label(&bm.name);
                                     ui.monospace(format!("{}", bm.freq_display()));
@@ -421,6 +498,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                     if ui.small_button("Tune").clicked() {
                                         if let Ok(mut state) = self.shared.try_lock() {
                                             state.source.frequency_hz = bm.frequency_hz;
+                                            if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) {
+                                                state.demod_mode = mode;
+                                            }
                                         }
                                     }
                                 });

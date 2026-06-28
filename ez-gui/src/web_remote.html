@@ -65,12 +65,20 @@
     <button onclick="tune(10000000)">+10 MHz</button>
   </div>
   <h2>Quick Tuning</h2>
-  <button onclick="quickTune(109000000)">FM Radio</button>
+  <button onclick="quickTune(100000000)">FM Radio</button>
   <button onclick="quickTune(1090000000)">ADS-B</button>
   <button onclick="quickTune(137100000)">NOAA 19</button>
   <button onclick="quickTune(137620000)">NOAA 15</button>
   <button onclick="quickTune(137912500)">NOAA 18</button>
   <button onclick="quickTune(145800000)">ISS</button>
+</div>
+<div class="controls">
+  <h2>Settings</h2>
+  <div class="freq-controls">
+    <span class="status-label">Gain:</span>
+    <input type="range" id="gainSlider" min="0" max="49.6" step="0.1" value="40" oninput="setGain(this.value)">
+    <span id="gainVal">40.0 dB</span>
+  </div>
 </div>
 <div class="controls">
   <h2>Recording</h2>
@@ -112,6 +120,10 @@ function tune(hz) {
 }
 function tuneFreq() {
   send({action:'tune', hz: parseInt(document.getElementById('freqInput').value)});
+}
+function setGain(db) {
+  document.getElementById('gainVal').textContent = parseFloat(db).toFixed(1) + ' dB';
+  send({action:'set_gain', db: parseFloat(db)});
 }
 function quickTune(hz) {
   document.getElementById('freqInput').value = hz;
