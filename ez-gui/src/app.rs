@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use egui::Context;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, SurfaceIndex};
 
 use crate::adsb_panel::AdsBPanel;
@@ -18,7 +18,7 @@ use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
 use crate::web_remote::{RemoteCommand, WebRemote};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tab {
     Sdr,
     Spectrum,
@@ -93,6 +93,12 @@ impl CentralApp {
             }
         }
 
+        // Start demo source immediately so there's data to display
+        {
+            let mut state = shared.lock().unwrap();
+            state.source.start();
+        }
+
         let mut dock_state = DockState::new(vec![
             Tab::Spectrum,
             Tab::Sdr,
@@ -121,17 +127,17 @@ impl CentralApp {
 }
 
 impl eframe::App for CentralApp {
-    fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        // Drain samples from source (fast, minimal lock hold)
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Drain samples from source — single lock, fast
         let mut sample_batch: Vec<Vec<u8>> = Vec::new();
         {
-            let mut state = self.shared.lock().unwrap();
-            state.source.poll();
-            for _ in 0..4 {
-                if let Some(samples) = state.source.recv_samples() {
-                    sample_batch.push(samples);
-                } else {
-                    break;
+            if let Ok(mut state) = self.shared.try_lock() {
+                for _ in 0..4 {
+                    if let Some(samples) = state.source.recv_samples() {
+                        sample_batch.push(samples);
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -144,7 +150,8 @@ impl eframe::App for CentralApp {
             self.recorder_panel.write_samples(samples);
         }
 
-        ctx.request_repaint();
+        // Only repaint at ~30fps max, not every frame
+        ctx.request_repaint_after(Duration::from_millis(33));
 
         // Process web remote commands
         for cmd in self.web_remote.poll_commands() {
@@ -164,29 +171,51 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // Broadcast state + MQTT tick (cheap — passes are cached now)
-        {
-            if let Ok(mut state) = self.shared.try_lock() {
-                let mode = format!("{:?}", state.demod_mode);
-                let freq = state.source.frequency_hz;
-                let gain = state.source.gain_db;
-                let passes = state.tle.upcoming_passes().to_vec();
-                let ac_count = self.adsb_panel.aircraft.len();
-                self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes);
-                self.mqtt.tick(freq, gain);
-                self.mqtt.publish_passes(&passes);
+        // Broadcast state + MQTT tick
+        if let Ok(mut state) = self.shared.try_lock() {
+            let mode = format!("{:?}", state.demod_mode);
+            let freq = state.source.frequency_hz;
+            let gain = state.source.gain_db;
+            let passes = state.tle.upcoming_passes().to_vec();
+            let ac_count = self.adsb_panel.aircraft.len();
+            self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes);
+            self.mqtt.tick(freq, gain);
+            self.mqtt.publish_passes(&passes);
+            if !self.adsb_panel.aircraft.is_empty() {
+                self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
             }
-        }
-        if !self.adsb_panel.aircraft.is_empty() {
-            self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Take a snapshot of the shared state once per frame to avoid repeated locking
+        let snapshot = {
+            if let Ok(state) = self.shared.try_lock() {
+                Some(SharedSnapshot {
+                    frequency_hz: state.source.frequency_hz,
+                    sample_rate_hz: state.source.sample_rate_hz,
+                    gain_db: state.source.gain_db,
+                    bias_tee: state.source.bias_tee,
+                    ppm_correction: state.source.ppm_correction,
+                    direct_sampling: state.source.direct_sampling,
+                    temperature: state.source.temperature,
+                    source_status: format!("{:?}", state.source.status),
+                    demod_mode: format!("{:?}", state.demod_mode),
+                    recording: state.recording,
+                    adsb_running: state.adsb_running,
+                    bookmarks: state.bookmarks.bookmarks.clone(),
+                    jobs: state.scheduler.jobs.clone(),
+                })
+            } else {
+                return;
+            }
+        };
+
         let style = Style::from_egui(ui.style().as_ref());
         DockArea::new(&mut self.dock_state)
             .style(style)
             .show_inside(ui, &mut TabViewer {
+                snapshot,
                 shared: self.shared.clone(),
                 sdr: &mut self.sdr_panel,
                 satellite: &mut self.satellite_panel,
@@ -197,7 +226,24 @@ impl eframe::App for CentralApp {
     }
 }
 
+struct SharedSnapshot {
+    frequency_hz: u64,
+    sample_rate_hz: u32,
+    gain_db: f64,
+    bias_tee: bool,
+    ppm_correction: i32,
+    direct_sampling: bool,
+    temperature: f32,
+    source_status: String,
+    demod_mode: String,
+    recording: bool,
+    adsb_running: bool,
+    bookmarks: Vec<crate::bookmarks::Bookmark>,
+    jobs: Vec<crate::scheduler::ScheduledJob>,
+}
+
 struct TabViewer<'a> {
+    snapshot: Option<SharedSnapshot>,
     shared: Arc<Mutex<SharedState>>,
     sdr: &'a mut SdrPanel,
     satellite: &'a mut SatellitePanel,
@@ -236,18 +282,17 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Recorder => self.recorder.ui(ui),
             Tab::AiAgent => self.ai.ui(ui),
             Tab::Bookmarks => {
-                let bookmarks_clone = {
-                    if let Ok(state) = self.shared.try_lock() {
-                        state.bookmarks.bookmarks.clone()
-                    } else {
-                        return;
-                    }
+                let bookmarks = match &self.snapshot {
+                    Some(s) => &s.bookmarks,
+                    None => return,
                 };
                 ui.heading("Frequency Bookmarks");
-                let categories: std::collections::HashSet<_> = bookmarks_clone.iter().map(|b| b.category.clone()).collect();
+                let mut categories: Vec<_> = bookmarks.iter().map(|b| b.category.clone()).collect();
+                categories.sort();
+                categories.dedup();
                 for cat in categories {
                     ui.collapsing(&cat, |ui| {
-                        for bm in bookmarks_clone.iter().filter(|b| b.category == cat) {
+                        for bm in bookmarks.iter().filter(|b| b.category == cat) {
                             ui.horizontal(|ui| {
                                 ui.label(&bm.name);
                                 ui.monospace(format!("{:.3} MHz", bm.frequency_hz as f64 / 1e6));
@@ -262,18 +307,15 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 }
             }
             Tab::Scheduler => {
-                let jobs_clone = {
-                    if let Ok(state) = self.shared.try_lock() {
-                        state.scheduler.jobs.clone()
-                    } else {
-                        return;
-                    }
+                let jobs = match &self.snapshot {
+                    Some(s) => &s.jobs,
+                    None => return,
                 };
                 ui.heading("Scheduler");
                 if ui.button("Refresh TLEs + compute passes").clicked() {
                     // TODO
                 }
-                for job in &jobs_clone {
+                for job in jobs {
                     ui.label(format!("{}  {} → {}", job.satellite, job.aos, job.los));
                 }
             }
