@@ -319,14 +319,25 @@ impl AdsBPanel {
                         let icao_str = format!("{:06x}", ac.icao);
                         if !ac.callsign.to_lowercase().contains(&cs_filter) && !icao_str.contains(&cs_filter) { continue; }
                     }
-                    ui.label(format!("{:06X}", ac.icao));
-                    ui.label(&ac.callsign);
-                    ui.label(format!("{}", ac.altitude));
-                    ui.label(format!("{}", ac.speed));
-                    ui.label(format!("{}°", ac.heading));
-                    ui.label(format!("{:.4}", ac.lat));
-                    ui.label(format!("{:.4}", ac.lon));
-                    ui.label(format!("{}s", age));
+                    // Age-based row color: bright white = fresh, gray = stale
+                    let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
+                    let brightness = (255.0 * (1.0 - age_frac * 0.7)) as u8;
+                    let row_color = egui::Color32::from_rgb(brightness, brightness, brightness);
+                    let age_str = if age < 10 {
+                        format!("{}s ●", age)
+                    } else {
+                        format!("{}s", age)
+                    };
+                    ui.colored_label(row_color, format!("{:06X}", ac.icao));
+                    ui.colored_label(row_color, &ac.callsign);
+                    ui.colored_label(row_color, format!("{}", ac.altitude));
+                    ui.colored_label(row_color, format!("{}", ac.speed));
+                    ui.colored_label(row_color, format!("{}°", ac.heading));
+                    ui.colored_label(row_color, format!("{:.4}", ac.lat));
+                    ui.colored_label(row_color, format!("{:.4}", ac.lon));
+                    let age_color = if age < 10 { egui::Color32::GREEN } else if age < 30 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
+                    ui.colored_label(age_color, age_str)
+                        .on_hover_text(format!("Last message received {} seconds ago.", age));
                     ui.end_row();
                 }
             });
