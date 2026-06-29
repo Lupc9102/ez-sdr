@@ -43,7 +43,6 @@ pub struct SdrPanel {
     pub filter_bw: u32,
     pub bookmark_request: Option<(u64, String)>,
     freq_input: String,
-    freq_input_active: bool,
 }
 
 impl SdrPanel {
@@ -54,7 +53,6 @@ impl SdrPanel {
             filter_bw: 12_000,
             bookmark_request: None,
             freq_input: String::new(),
-            freq_input_active: false,
         }
     }
 
@@ -131,18 +129,24 @@ impl SdrPanel {
 
         ui.separator();
 
-        // Demod mode selector
+        // Demod mode selector with bandwidth hints
         ui.horizontal(|ui| {
             if let Ok(mut state) = self.shared.try_lock() {
-                for (mode, tip) in [
-                    (DemodMode::Raw, "RAW I/Q — pass raw complex samples to external decoders"),
-                    (DemodMode::Am,  "AM — Amplitude Modulation. Use for aviation (118–137 MHz), AM broadcast, shortwave"),
-                    (DemodMode::Fm,  "NFM — Narrowband FM. Use for land mobile radio: police, fire, repeaters, NOAA weather"),
-                    (DemodMode::Wfm, "WFM — Wideband FM. Use for commercial FM broadcast (88–108 MHz). Supports stereo + RDS"),
-                    (DemodMode::Lsb, "LSB — Lower Sideband. Use for amateur HF voice below 10 MHz"),
-                    (DemodMode::Usb, "USB — Upper Sideband. Use for amateur HF voice above 10 MHz, some utility/military"),
+                for (mode, bw_hint, tip) in [
+                    (DemodMode::Raw, "",       "RAW I/Q — pass raw complex samples to external decoders"),
+                    (DemodMode::Am,  "8 kHz",  "AM — Amplitude Modulation. Aviation (118–137 MHz), AM broadcast, shortwave"),
+                    (DemodMode::Fm,  "12.5 k", "NFM — Narrowband FM. Land mobile radio: police, fire, repeaters, NOAA weather"),
+                    (DemodMode::Wfm, "200 k",  "WFM — Wideband FM. Commercial FM broadcast (88–108 MHz). Stereo + RDS"),
+                    (DemodMode::Lsb, "2.4 k",  "LSB — Lower Sideband. Amateur HF voice below 10 MHz"),
+                    (DemodMode::Usb, "2.4 k",  "USB — Upper Sideband. Amateur HF voice above 10 MHz, utility/military"),
                 ] {
-                    if ui.selectable_label(state.demod_mode == mode, mode.label())
+                    let selected = state.demod_mode == mode;
+                    let label = if bw_hint.is_empty() {
+                        mode.label().to_string()
+                    } else {
+                        format!("{} {}", mode.label(), bw_hint)
+                    };
+                    if ui.selectable_label(selected, label)
                         .on_hover_text(tip)
                         .clicked()
                     {
@@ -160,9 +164,6 @@ impl SdrPanel {
             let peak = state.spectrum.peak_level();
             let snr = peak - noise_floor;
             let norm = ((signal + 120.0) / 120.0).clamp(0.0, 1.0);
-            let color = if norm > 0.6 { egui::Color32::GREEN }
-                else if norm > 0.3 { egui::Color32::YELLOW }
-                else { egui::Color32::RED };
             // VU-style signal meter
             ui.horizontal(|ui| {
                 ui.label("Signal:").on_hover_text("RF signal level in dBFS. Green zone (>-40 dB) = strong. Yellow (−60–40) = moderate. Red (<-60) = weak/noise.");

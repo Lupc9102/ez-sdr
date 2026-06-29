@@ -290,7 +290,7 @@ impl FrequencyScanner {
                 .on_hover_text("Current step size in Hz.");
             ui.end_row();
 
-            ui.label("Dwell (ms):").on_hover_text("Time to listen at each frequency before stepping. 200–500 ms is typical. Too short misses bursty signals (digital voice, packets).");;
+            ui.label("Dwell (ms):").on_hover_text("Time to listen at each frequency before stepping. 200–500 ms is typical. Too short misses bursty signals (digital voice, packets).");
             ui.add(egui::Slider::new(&mut self.dwell_ms, 50..=5000))
                 .on_hover_text("Dwell time per step in milliseconds.");
             ui.end_row();

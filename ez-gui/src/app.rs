@@ -176,6 +176,7 @@ impl CentralApp {
             Tab::Satellite,
             Tab::AdsB,
             Tab::Recorder,
+            Tab::Scanner,
             Tab::AiAgent,
             Tab::HowTo,
         ]);
@@ -826,6 +827,7 @@ impl eframe::App for CentralApp {
 }
 
 struct SharedSnapshot {
+    #[allow(dead_code)]
     bookmarks: Vec<crate::bookmarks::Bookmark>,
     jobs: Vec<crate::scheduler::ScheduledJob>,
     custom_tasks: Vec<crate::scheduler::CustomTask>,

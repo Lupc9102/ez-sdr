@@ -42,7 +42,7 @@ You may call multiple tools sequentially. Always explain what you are doing.";
 enum StreamEvent {
     Chunk(String),
     ToolCallDetected { tool: String, args: serde_json::Value },
-    Done(String),
+    Done(#[allow(dead_code)] String),
     Error(String),
 }
 
@@ -709,8 +709,7 @@ impl AiPanel {
     }
 }
 
-/// Synchronous version of execute_tool_call for use in the worker thread.
-/// Does NOT have access to SharedState, so we just build a result string.
+#[allow(dead_code)]
 fn execute_tool_sync(name: &str, args: &serde_json::Value) -> String {
     match name {
         "tune_frequency" => {
