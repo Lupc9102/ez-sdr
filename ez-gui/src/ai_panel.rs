@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 
 use crate::app::SharedState;
-use crate::config::DEFAULT_AI_MODEL;
+use crate::config::{DEFAULT_AI_MODEL, PROVIDER_PRESETS};
 
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
@@ -66,8 +66,8 @@ impl AiPanel {
     }
 
     /// Build the messages JSON array for the API call, injecting system prompt.
-    fn build_api_messages(&self) -> (Vec<serde_json::Value>, String, String, String, u32, f64) {
-        let (endpoint, model, api_key, max_tokens, temperature, system_prompt, freq, rate, gain, mode, recording, sat, adsb) = {
+    fn build_api_messages(&self) -> (Vec<serde_json::Value>, String, String, String, String, u32, f64, String) {
+        let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt, freq, rate, gain, mode, recording, sat, adsb) = {
             if let Ok(state) = self.shared.try_lock() {
                 let cfg = &state.config;
                 let mode_label = state.demod_mode.label().to_string();
@@ -75,6 +75,7 @@ impl AiPanel {
                     cfg.ai_endpoint.clone(),
                     cfg.ai_model.clone(),
                     cfg.ai_api_key.clone(),
+                    cfg.ai_provider.clone(),
                     cfg.ai_max_tokens,
                     cfg.ai_temperature,
                     cfg.ai_system_prompt.clone(),
@@ -87,7 +88,7 @@ impl AiPanel {
                     state.adsb_running,
                 )
             } else {
-                return (vec![], String::new(), String::new(), String::new(), 0, 0.0);
+                return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new());
             }
         };
 
@@ -141,7 +142,7 @@ impl AiPanel {
             msgs.push(obj);
         }
 
-        (msgs, endpoint, model, api_key, max_tokens, temperature)
+        (msgs, endpoint, model, api_key, provider, max_tokens, temperature, sys)
     }
 
     pub fn send_message(&mut self) {
@@ -166,19 +167,27 @@ impl AiPanel {
         });
         self.thinking = true;
 
-        let (api_messages, endpoint, model, api_key, max_tokens, temperature) = self.build_api_messages();
-        if api_key.is_empty() {
-            self.messages.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: "⚠ API key not set. Configure it in Settings → AI Agent.".to_string(),
-                tool_calls: None,
-                streaming: false,
-            });
+        let (api_messages, endpoint, model, api_key, provider, max_tokens, temperature, system_prompt) = self.build_api_messages();
+
+        let needs_key = PROVIDER_PRESETS.iter()
+            .find(|p| p.name == provider)
+            .map(|p| p.needs_key)
+            .unwrap_or(true);
+
+        if needs_key && api_key.is_empty() {
+            if let Some(last) = self.messages.last_mut() {
+                last.streaming = false;
+                last.content = format!(
+                    "⚠ No API key set for {}. Go to Settings → AI Agent to add one.",
+                    provider
+                );
+            }
             self.thinking = false;
             return;
         }
 
         let (evt_tx, evt_rx) = crossbeam_channel::bounded::<StreamEvent>(256);
+        let is_anthropic = provider == "Anthropic";
 
         std::thread::spawn(move || {
             let client = match reqwest::blocking::Client::builder()
@@ -192,126 +201,161 @@ impl AiPanel {
                 }
             };
 
-            let body = serde_json::json!({
-                "model": model,
-                "messages": api_messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stream": true,
-            });
-
-            let resp = match client
-                .post(&endpoint)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    let _ = evt_tx.send(StreamEvent::Error(format!("HTTP error: {}", e)));
-                    return;
-                }
-            };
-
-            if !resp.status().is_success() {
-                let status = resp.status();
-                let text = resp.text().unwrap_or_default();
-                let _ = evt_tx.send(StreamEvent::Error(format!("HTTP {}: {}", status, text)));
-                return;
-            }
-
-            // Read SSE stream line by line
-            let mut full_text = String::new();
-            let reader = BufReader::new(resp);
-            for line in reader.lines() {
-                let line = match line {
-                    Ok(l) => l,
-                    Err(_) => break,
-                };
-                if !line.starts_with("data: ") {
-                    continue;
-                }
-                let data = &line[6..];
-                if data == "[DONE]" {
-                    break;
-                }
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                    let content = json["choices"][0]["delta"]["content"]
-                        .as_str()
-                        .unwrap_or("");
-                    if !content.is_empty() {
-                        full_text.push_str(content);
-                        let _ = evt_tx.send(StreamEvent::Chunk(content.to_string()));
-                    }
-                }
-            }
-
-            // After stream completes, check for tool calls in the full text
-            let tool_info = serde_json::from_str::<serde_json::Value>(&full_text)
-                .ok()
-                .and_then(|json| {
-                    let name = json.get("tool").and_then(|v| v.as_str())?.to_string();
-                    let args = json.get("args").cloned().unwrap_or(serde_json::json!({}));
-                    Some((name, args))
-                });
-            if let Some((ref tool_name, ref args)) = tool_info {
-                let _ = evt_tx.send(StreamEvent::ToolCallDetected {
-                    tool: tool_name.clone(),
-                    args: args.clone(),
-                });
-            }
-            let _ = evt_tx.send(StreamEvent::Done(full_text.clone()));
-
-            // Tool feedback loop: execute tool, send result back to LLM for friendly summary
-            if let Some((ref tool_name, ref args)) = tool_info {
-                let result = execute_tool_sync(tool_name, args);
-                let feedback_body = serde_json::json!({
-                    "model": model,
-                    "messages": serde_json::json!([
-                        {"role": "system", "content": "You are a helpful radio assistant. Report the result concisely."},
-                        {"role": "user", "content": format!(
-                            "I called the tool '{}' with args {} and got result: {}. \
-                             Summarize what happened in a friendly sentence.",
-                            tool_name, args, result
-                        )}
-                    ]),
-                    "max_tokens": 512,
-                    "temperature": 0.5,
-                    "stream": true,
-                });
-
-                if let Ok(fb_resp) = client
-                    .post(&endpoint)
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .header("Content-Type", "application/json")
-                    .json(&feedback_body)
-                    .send()
-                {
-                    if fb_resp.status().is_success() {
-                        let reader = BufReader::new(fb_resp);
-                        for line in reader.lines() {
-                            let line = match line {
-                                Ok(l) => l,
-                                Err(_) => break,
-                            };
-                            if !line.starts_with("data: ") { continue; }
-                            let data = &line[6..];
-                            if data == "[DONE]" { break; }
-                            if let Ok(js) = serde_json::from_str::<serde_json::Value>(data) {
-                                let c = js["choices"][0]["delta"]["content"]
-                                    .as_str().unwrap_or("");
-                                if !c.is_empty() {
-                                    let _ = evt_tx.send(StreamEvent::Chunk(c.to_string()));
-                                }
-                            }
-                        }
-                    }
-                }
+            if is_anthropic {
+                Self::stream_anthropic(&client, &evt_tx, &endpoint, &api_key, &model, &system_prompt, &api_messages, max_tokens, temperature);
+            } else {
+                Self::stream_openai_compat(&client, &evt_tx, &endpoint, &api_key, &model, &api_messages, max_tokens, temperature);
             }
         });
 
         self.pending_rx = Some(evt_rx);
+    }
+
+    fn stream_openai_compat(
+        client: &reqwest::blocking::Client,
+        evt_tx: &crossbeam_channel::Sender<StreamEvent>,
+        endpoint: &str,
+        api_key: &str,
+        model: &str,
+        api_messages: &[serde_json::Value],
+        max_tokens: u32,
+        temperature: f64,
+    ) {
+        let body = serde_json::json!({
+            "model": model,
+            "messages": api_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": true,
+        });
+
+        let mut req = client.post(endpoint)
+            .header("Content-Type", "application/json")
+            .json(&body);
+        if !api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        let resp = match req.send() {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = evt_tx.send(StreamEvent::Error(format!("HTTP error: {}", e)));
+                return;
+            }
+        };
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().unwrap_or_default();
+            let _ = evt_tx.send(StreamEvent::Error(format!("HTTP {}: {}", status, text)));
+            return;
+        }
+
+        let mut full_text = String::new();
+        let reader = BufReader::new(resp);
+        for line in reader.lines() {
+            let line = match line { Ok(l) => l, Err(_) => break };
+            if !line.starts_with("data: ") { continue; }
+            let data = &line[6..];
+            if data == "[DONE]" { break; }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                let content = json["choices"][0]["delta"]["content"].as_str().unwrap_or("");
+                if !content.is_empty() {
+                    full_text.push_str(content);
+                    let _ = evt_tx.send(StreamEvent::Chunk(content.to_string()));
+                }
+            }
+        }
+
+        Self::check_tool_calls(evt_tx, &full_text);
+        let _ = evt_tx.send(StreamEvent::Done(full_text));
+    }
+
+    fn stream_anthropic(
+        client: &reqwest::blocking::Client,
+        evt_tx: &crossbeam_channel::Sender<StreamEvent>,
+        endpoint: &str,
+        api_key: &str,
+        model: &str,
+        system_prompt: &str,
+        api_messages: &[serde_json::Value],
+        max_tokens: u32,
+        temperature: f64,
+    ) {
+        // Anthropic format: system is a top-level field, messages exclude system
+        let non_system: Vec<&serde_json::Value> = api_messages.iter()
+            .filter(|m| m["role"].as_str() != Some("system"))
+            .collect();
+
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system_prompt,
+            "messages": non_system,
+            "stream": true,
+        });
+
+        let resp = match client.post(endpoint)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = evt_tx.send(StreamEvent::Error(format!("HTTP error: {}", e)));
+                return;
+            }
+        };
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().unwrap_or_default();
+            let _ = evt_tx.send(StreamEvent::Error(format!("Anthropic HTTP {}: {}", status, text)));
+            return;
+        }
+
+        let mut full_text = String::new();
+        let reader = BufReader::new(resp);
+        for line in reader.lines() {
+            let line = match line { Ok(l) => l, Err(_) => break };
+            if !line.starts_with("data: ") { continue; }
+            let data = &line[6..];
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                match json["type"].as_str() {
+                    Some("content_block_delta") => {
+                        let text = json["delta"]["text"].as_str().unwrap_or("");
+                        if !text.is_empty() {
+                            full_text.push_str(text);
+                            let _ = evt_tx.send(StreamEvent::Chunk(text.to_string()));
+                        }
+                    }
+                    Some("message_stop") => break,
+                    _ => {}
+                }
+            }
+        }
+
+        Self::check_tool_calls(evt_tx, &full_text);
+        let _ = evt_tx.send(StreamEvent::Done(full_text));
+    }
+
+    fn check_tool_calls(evt_tx: &crossbeam_channel::Sender<StreamEvent>, full_text: &str) {
+        let tool_info = serde_json::from_str::<serde_json::Value>(full_text)
+            .ok()
+            .and_then(|json| {
+                let name = json.get("tool").and_then(|v| v.as_str())?.to_string();
+                let args = json.get("args").cloned().unwrap_or(serde_json::json!({}));
+                Some((name, args))
+            });
+        if let Some((ref tool_name, ref args)) = tool_info {
+            let _ = evt_tx.send(StreamEvent::ToolCallDetected {
+                tool: tool_name.clone(),
+                args: args.clone(),
+            });
+        }
     }
 
     fn poll_stream(&mut self) {
@@ -449,15 +493,20 @@ impl AiPanel {
         self.poll_stream();
 
         // Header with model info
-        let (model, has_key, temp) = {
+        let (model, provider, has_key, temp) = {
             if let Ok(state) = self.shared.try_lock() {
+                let needs_key = PROVIDER_PRESETS.iter()
+                    .find(|p| p.name == state.config.ai_provider)
+                    .map(|p| p.needs_key)
+                    .unwrap_or(true);
                 (
                     state.config.ai_model.clone(),
-                    !state.config.ai_api_key.is_empty(),
+                    state.config.ai_provider.clone(),
+                    !needs_key || !state.config.ai_api_key.is_empty(),
                     state.config.ai_temperature,
                 )
             } else {
-                (DEFAULT_AI_MODEL.to_string(), false, 0.7)
+                (DEFAULT_AI_MODEL.to_string(), "?".to_string(), false, 0.7)
             }
         };
         self.temperature = temp;
@@ -465,18 +514,40 @@ impl AiPanel {
         ui.horizontal(|ui| {
             ui.heading("AI Agent");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.monospace(format!("model: {}", model));
+                ui.monospace(format!("{} · {}", provider, model));
                 if !has_key {
-                    ui.colored_label(egui::Color32::YELLOW, "⚠ no key");
+                    ui.colored_label(egui::Color32::YELLOW, "⚠ no key")
+                        .on_hover_text("Go to Settings → AI Agent to add an API key.");
                 }
             });
+        });
+        ui.separator();
+
+        // Quick prompt buttons
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new("Quick:").weak());
+            let quick_prompts = [
+                ("📻 FM Radio",      "Tune to 100.1 MHz and set mode to WFM"),
+                ("✈ ADS-B",          "Start ADS-B tracking"),
+                ("🛰 NOAA 19",       "Track NOAA 19 weather satellite"),
+                ("📡 Scan VHF",      "Scan 145 to 165 MHz for active signals"),
+                ("🔊 Max audio",     "Set gain to 40 and volume to maximum"),
+                ("📋 Status",        "Show me the current SDR status"),
+                ("❓ What can I hear?","What signals can I find near 400 MHz?"),
+            ];
+            for (label, prompt) in &quick_prompts {
+                if ui.small_button(*label).on_hover_text(*prompt).clicked() && !self.thinking {
+                    self.input = prompt.to_string();
+                    self.send_message();
+                }
+            }
         });
         ui.separator();
 
         // Chat area
         egui::ScrollArea::vertical()
             .id_salt("ai_chat_scroll")
-            .max_height(320.0)
+            .max_height(ui.available_height() - 90.0)
             .stick_to_bottom(true)
             .show(ui, |ui| {
                 for msg in &self.messages {
@@ -484,9 +555,9 @@ impl AiPanel {
                         continue;
                     }
                     let (color, label) = match msg.role.as_str() {
-                        "user" => (egui::Color32::from_rgb(100, 180, 255), "You"),
+                        "user"      => (egui::Color32::from_rgb(100, 180, 255), "You"),
                         "assistant" => (egui::Color32::from_rgb(100, 255, 130), "AI"),
-                        _ => (egui::Color32::from_gray(180), "?"),
+                        _           => (egui::Color32::from_gray(180), "?"),
                     };
 
                     let is_error = msg.content.starts_with('⚠');
@@ -498,17 +569,12 @@ impl AiPanel {
 
                     ui.horizontal_wrapped(|ui| {
                         ui.colored_label(color, format!("{}:", label));
-                        // Check if content contains a code block (``` ... ```)
                         if msg.content.contains("```") {
                             for (i, block) in msg.content.split("```").enumerate() {
                                 if i % 2 == 0 {
                                     ui.label(egui::RichText::new(block.to_string()).color(content_color));
                                 } else {
-                                    let code = if let Some(idx) = block.find('\n') {
-                                        &block[idx + 1..]
-                                    } else {
-                                        block
-                                    };
+                                    let code = if let Some(idx) = block.find('\n') { &block[idx + 1..] } else { block };
                                     ui.monospace(egui::RichText::new(code.to_string()).color(egui::Color32::from_rgb(200, 200, 100)));
                                 }
                             }
@@ -517,7 +583,6 @@ impl AiPanel {
                         }
                     });
 
-                    // Tool calls
                     if let Some(ref calls) = msg.tool_calls {
                         for tc in calls {
                             ui.horizontal(|ui| {
@@ -527,7 +592,6 @@ impl AiPanel {
                         }
                     }
 
-                    // Streaming indicator
                     if msg.streaming {
                         ui.horizontal(|ui| {
                             ui.spinner();
@@ -538,13 +602,10 @@ impl AiPanel {
                     ui.add_space(4.0);
                 }
 
-                // Token estimate warning
-                let rough_tokens: usize = self.messages.iter()
-                    .map(|m| m.content.len() / 4)
-                    .sum();
+                let rough_tokens: usize = self.messages.iter().map(|m| m.content.len() / 4).sum();
                 if rough_tokens > 3000 {
                     ui.colored_label(egui::Color32::YELLOW,
-                        format!("⚠ ~{}k context tokens — consider clearing chat if the LLM seems confused.", rough_tokens / 1000));
+                        format!("⚠ ~{}k context tokens — consider clearing chat if responses seem confused.", rough_tokens / 1000));
                 }
             });
 
@@ -555,14 +616,18 @@ impl AiPanel {
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut self.input)
                     .desired_width(f32::INFINITY)
-                    .hint_text("Ask the AI to tune, record, track satellites…")
+                    .hint_text("Ask to tune, record, scan, track satellites…")
                     .return_key(Some(egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Enter))),
             );
-            let send_clicked = ui.button("Send").clicked() || resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let send_clicked = ui.button("Send").clicked()
+                || resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if send_clicked && !self.input.is_empty() && !self.thinking {
                 self.send_message();
             }
-            if ui.button("Clear").clicked() && !self.thinking {
+            if ui.button("Clear")
+                .on_hover_text("Clear conversation history. Useful when the model seems confused due to long context.")
+                .clicked() && !self.thinking
+            {
                 self.messages.clear();
             }
         });

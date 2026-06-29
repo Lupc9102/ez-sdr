@@ -436,30 +436,39 @@ impl eframe::App for CentralApp {
             if let Ok(state) = self.shared.try_lock() {
                 let running = state.source.status == crate::source_manager::SourceStatus::Running;
                 let status_color = if running { egui::Color32::GREEN } else { egui::Color32::GRAY };
-                ui.colored_label(status_color, "●");
-                ui.small(if running { "Running" } else { "Stopped" });
+                ui.colored_label(status_color, "●")
+                    .on_hover_text(if running { "SDR source is active and streaming samples." } else { "SDR source is stopped. Press Start or Space to begin." });
+                ui.small(if running { "Running" } else { "Stopped" })
+                    .on_hover_text("SDR source status indicator.");
                 ui.separator();
-                ui.monospace(format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6));
+                ui.monospace(format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6))
+                    .on_hover_text("Center tuned frequency. Use arrow keys or SDR panel to change. RTL-SDR range: 24–1766 MHz.");
                 ui.separator();
-                ui.small(format!("{} · {:.1} MSps", state.demod_mode.label(), state.source.sample_rate_hz as f64 / 1e6));
+                ui.small(format!("{} · {:.1} MSps", state.demod_mode.label(), state.source.sample_rate_hz as f64 / 1e6))
+                    .on_hover_text("Active demodulation mode and sample rate in megasamples per second. Higher sample rates show wider spectrum but use more CPU.");
                 ui.separator();
-                ui.small(format!("Gain: {:.1} dB", state.source.gain_db));
+                ui.small(format!("Gain: {:.1} dB", state.source.gain_db))
+                    .on_hover_text("RF gain in dB. Higher = more sensitive but more noise and risk of overload. 30–40 dB is typical for outdoor signals.");
                 ui.separator();
                 if state.recording {
-                    ui.colored_label(egui::Color32::RED, "● REC");
+                    ui.colored_label(egui::Color32::RED, "● REC")
+                        .on_hover_text("Recording raw I/Q samples to disk. Go to the Recorder tab to stop.");
                 }
                 if self.audio.is_running() {
-                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "🔊 Audio");
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "🔊 Audio")
+                        .on_hover_text("Audio is playing through your speakers/headphones. Use Vol slider or Stop Audio in the SDR panel.");
                 }
             }
             // Volume slider
             if let Ok(mut state) = self.shared.try_lock() {
                 ui.separator();
-                ui.small("Vol:");
-                ui.add(egui::Slider::new(&mut state.volume, 0.0..=1.0).text(""));
+                ui.small("Vol:").on_hover_text("Quick volume control for audio output.");
+                ui.add(egui::Slider::new(&mut state.volume, 0.0..=1.0).text(""))
+                    .on_hover_text("Audio output volume. Does not affect RF gain.");
                 ui.separator();
-                ui.small("Squelch:");
-                ui.add(egui::Slider::new(&mut state.squelch, -120.0..=0.0).text("dB"));
+                ui.small("Squelch:").on_hover_text("Squelch threshold. Audio mutes when signal drops below this level — silences static during quiet periods.");
+                ui.add(egui::Slider::new(&mut state.squelch, -120.0..=0.0).text("dB"))
+                    .on_hover_text("Squelch level in dBFS. Set ~5 dB above your noise floor to gate out background hiss between transmissions.");
             }
             if let Ok(state) = self.shared.try_lock() {
                 let peak = state.spectrum.peak_level();
@@ -467,8 +476,10 @@ impl eframe::App for CentralApp {
                 let peak_color = if peak > -20.0 { egui::Color32::GREEN }
                     else if peak > -60.0 { egui::Color32::YELLOW }
                     else { egui::Color32::GRAY };
-                ui.colored_label(peak_color, format!("Peak: {:.1}dB", peak));
-                ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {:.1}dB", noise_floor));
+                ui.colored_label(peak_color, format!("Peak: {:.1}dB", peak))
+                    .on_hover_text("Strongest signal in the current spectrum view (dBFS). Green = strong signal present, yellow = moderate, grey = weak/none.");
+                ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {:.1}dB", noise_floor))
+                    .on_hover_text("Estimated noise floor — the average background noise level. The gap between floor and peak is SNR (signal-to-noise ratio).");
             }
         });
 

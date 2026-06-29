@@ -104,15 +104,16 @@ impl AdsBPanel {
             } else {
                 0.0
             };
-            ui.label(format!("Aircraft: {} | Messages: {} ({:.0}/s)", self.aircraft.len(), self.total_messages, msg_rate));
+            ui.label(format!("Aircraft: {} | Messages: {} ({:.0}/s)", self.aircraft.len(), self.total_messages, msg_rate))
+                .on_hover_text("Live count of tracked aircraft and Mode S/ADS-B messages received. Message rate shows decode throughput.");
             if self.start_time.is_some() {
-                if ui.button("Stop").clicked() {
+                if ui.button("Stop").on_hover_text("Stop the ADS-B decoder and SDR.").clicked() {
                     if let Ok(mut state) = self.shared.try_lock() {
                         state.adsb_running = false;
                     }
                     self.start_time = None;
                 }
-            } else if ui.button("Start ADS-B").clicked() {
+            } else if ui.button("Start ADS-B").on_hover_text("Tune to 1090 MHz, set sample rate 2.048 MS/s, and start decoding Mode S transponder messages from aircraft overhead.").clicked() {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.source.frequency_hz = 1_090_000_000;
                     state.source.sample_rate_hz = 2_048_000;
@@ -126,11 +127,13 @@ impl AdsBPanel {
         });
 
         ui.separator();
-        ui.checkbox(&mut self.show_map, "Show map");
+        ui.checkbox(&mut self.show_map, "Show map")
+            .on_hover_text("Toggle the geographic map view. Aircraft are plotted as green dots using their GPS-reported latitude/longitude from ADS-B position messages.");
 
         if self.show_map {
             // Pseudo-map: render aircraft as dots
             let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 200.0), egui::Sense::click());
+            let response = response.on_hover_text("World map showing aircraft positions. Click a plane dot to look up its model, operator, and registration via Planespotters.net.");
             let painter = ui.painter();
             painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(15, 25, 15));
 
@@ -203,14 +206,14 @@ impl AdsBPanel {
         // Aircraft table
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("adsb_grid").num_columns(8).striped(true).show(ui, |ui| {
-                ui.label("ICAO");
-                ui.label("Callsign");
-                ui.label("Alt (ft)");
-                ui.label("Spd (kt)");
-                ui.label("HDG");
-                ui.label("Lat");
-                ui.label("Lon");
-                ui.label("Age");
+                ui.label("ICAO").on_hover_text("24-bit ICAO Mode S address — unique to each aircraft worldwide. Like a tail number but in hex.");
+                ui.label("Callsign").on_hover_text("Flight or aircraft callsign broadcast by the aircraft. May be a flight number (UAL123) or registration (N12345).");
+                ui.label("Alt (ft)").on_hover_text("Barometric altitude in feet above mean sea level (MSL), from the aircraft's Mode C altitude encoder.");
+                ui.label("Spd (kt)").on_hover_text("Ground speed in knots from ADS-B velocity message (1090 ES Type 19). Not airspeed.");
+                ui.label("HDG").on_hover_text("Track angle (degrees true from north), not magnetic heading. Derived from ADS-B velocity message.");
+                ui.label("Lat").on_hover_text("GPS latitude in decimal degrees from ADS-B surface/airborne position message (Type 9-18). Accuracy typically ±10m.");
+                ui.label("Lon").on_hover_text("GPS longitude in decimal degrees from ADS-B surface/airborne position message.");
+                ui.label("Age").on_hover_text("Seconds since the last ADS-B message was received from this aircraft. Aircraft not heard for >60 s may have moved out of range.");
                 ui.end_row();
 
                 let now = std::time::Instant::now();

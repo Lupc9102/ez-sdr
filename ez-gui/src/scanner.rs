@@ -142,56 +142,66 @@ impl FrequencyScanner {
         ui.separator();
 
         egui::Grid::new("scanner_controls").num_columns(2).show(ui, |ui| {
-            ui.label("Start (MHz):");
+            ui.label("Start (MHz):").on_hover_text("Lowest frequency to scan. The sweep begins here.");
             let mut start = self.start_hz as f64 / 1e6;
-            if ui.add(egui::DragValue::new(&mut start).speed(0.01).range(0.5..=1770.0).suffix(" MHz")).changed() {
+            if ui.add(egui::DragValue::new(&mut start).speed(0.01).range(0.5..=1770.0).suffix(" MHz"))
+                .on_hover_text("Drag or type to set the scan start frequency in MHz.")
+                .changed()
+            {
                 self.start_hz = (start * 1e6) as u64;
                 if self.start_hz > self.stop_hz { self.stop_hz = self.start_hz; }
             }
             ui.end_row();
 
-            ui.label("Stop (MHz):");
+            ui.label("Stop (MHz):").on_hover_text("Highest frequency to scan. The sweep ends here and wraps back to start.");
             let mut stop = self.stop_hz as f64 / 1e6;
-            if ui.add(egui::DragValue::new(&mut stop).speed(0.01).range(0.5..=1770.0).suffix(" MHz")).changed() {
+            if ui.add(egui::DragValue::new(&mut stop).speed(0.01).range(0.5..=1770.0).suffix(" MHz"))
+                .on_hover_text("Drag or type to set the scan stop frequency in MHz.")
+                .changed()
+            {
                 self.stop_hz = (stop * 1e6) as u64;
                 if self.stop_hz < self.start_hz { self.start_hz = self.stop_hz; }
             }
             ui.end_row();
 
-            ui.label("Step:");
+            ui.label("Step:").on_hover_text("How much to advance per dwell. Match to signal bandwidth: 100 kHz for FM broadcast, 12.5 kHz for NFM voice, 25 kHz for aviation.");
             ui.horizontal(|ui| {
                 let presets = [1_000u64, 10_000, 100_000, 250_000, 1_000_000];
                 for p in presets {
-                    if ui.selectable_label(self.step_hz == p, match p {
-                        1_000 => "1k",
-                        10_000 => "10k",
+                    let label = match p {
+                        1_000   => "1k",
+                        10_000  => "10k",
                         100_000 => "100k",
                         250_000 => "250k",
-                        _ => "1M",
-                    }).clicked() {
+                        _       => "1M",
+                    };
+                    if ui.selectable_label(self.step_hz == p, label).clicked() {
                         self.step_hz = p;
                     }
                 }
             });
             ui.end_row();
 
-            ui.label("Step (Hz):");
-            ui.add(egui::DragValue::new(&mut self.step_hz).speed(1000.0).range(100..=10_000_000));
+            ui.label("Step (Hz):").on_hover_text("Fine-tune the step size in Hz. 12500 = standard NFM channel spacing. 25000 = aviation. 200000 = FM broadcast.");
+            ui.add(egui::DragValue::new(&mut self.step_hz).speed(1000.0).range(100..=10_000_000))
+                .on_hover_text("Current step size in Hz.");
             ui.end_row();
 
-            ui.label("Dwell (ms):");
-            ui.add(egui::Slider::new(&mut self.dwell_ms, 50..=5000));
+            ui.label("Dwell (ms):").on_hover_text("Time to listen at each frequency before stepping. 200–500 ms is typical. Too short misses bursty signals (digital voice, packets).");;
+            ui.add(egui::Slider::new(&mut self.dwell_ms, 50..=5000))
+                .on_hover_text("Dwell time per step in milliseconds.");
             ui.end_row();
 
-            ui.label("Threshold (dB):");
-            ui.add(egui::Slider::new(&mut self.threshold_db, -120.0..=0.0));
+            ui.label("Threshold (dB):").on_hover_text("Minimum signal level to log as a 'hit'. Start at -60 dB and adjust based on your local noise floor. Anything above threshold is logged.");
+            ui.add(egui::Slider::new(&mut self.threshold_db, -120.0..=0.0))
+                .on_hover_text("Signal strength threshold in dB. Only signals above this level are recorded as hits.");
             ui.end_row();
 
-            ui.label("Progress:");
+            ui.label("Progress:").on_hover_text("How far through the current sweep the scanner is. Resets at the start frequency after each full sweep.");
             ui.add(egui::ProgressBar::new(self.progress).show_percentage().desired_width(200.0));
             ui.end_row();
 
-            ui.label("Current:");
+            ui.label("Current:").on_hover_text("Signal level measured at the current step frequency. Green = above threshold (hit logged), grey = below threshold.");
             ui.colored_label(
                 if self.last_peak_db > self.threshold_db { egui::Color32::GREEN } else { egui::Color32::GRAY },
                 format!("{:.1} dB", self.last_peak_db)
@@ -199,7 +209,8 @@ impl FrequencyScanner {
             ui.end_row();
         });
 
-        ui.checkbox(&mut self.reset_on_start, "Reset hits on start");
+        ui.checkbox(&mut self.reset_on_start, "Reset hits on start")
+            .on_hover_text("If checked, the hits list is cleared each time you press Start Scan. Uncheck to accumulate across multiple sweeps.");
 
         ui.separator();
         ui.label(format!("Signals: {}", self.hits.len()));
