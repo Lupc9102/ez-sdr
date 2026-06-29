@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
+pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-3-haiku";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub version: String,
@@ -8,7 +11,12 @@ pub struct AppConfig {
     pub default_gain: f64,
     pub output_directory: String,
     pub theme: String,
-    pub openrouter_api_key: String,
+    pub ai_api_key: String,
+    pub ai_endpoint: String,
+    pub ai_model: String,
+    pub ai_max_tokens: u32,
+    pub ai_temperature: f64,
+    pub ai_system_prompt: String,
     pub mqtt_broker: String,
     pub mqtt_topic_prefix: String,
     pub web_remote_enabled: bool,
@@ -27,7 +35,12 @@ impl Default for AppConfig {
             default_gain: 40.0,
             output_directory: "./recordings".to_string(),
             theme: "dark".to_string(),
-            openrouter_api_key: String::new(),
+            ai_api_key: String::new(),
+            ai_endpoint: DEFAULT_AI_ENDPOINT.to_string(),
+            ai_model: DEFAULT_AI_MODEL.to_string(),
+            ai_max_tokens: 2048,
+            ai_temperature: 0.7,
+            ai_system_prompt: String::new(),
             mqtt_broker: "localhost:1883".to_string(),
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
@@ -79,8 +92,25 @@ impl AppConfig {
 
             ui.collapsing("AI Agent", |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("OpenRouter API Key:");
-                    ui.add(egui::TextEdit::singleline(&mut self.openrouter_api_key).password(true).desired_width(200.0));
+                    ui.label("API Key:");
+                    ui.add(egui::TextEdit::singleline(&mut self.ai_api_key).password(true).desired_width(200.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Endpoint:");
+                    ui.add(egui::TextEdit::singleline(&mut self.ai_endpoint).desired_width(200.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Model:");
+                    ui.add(egui::TextEdit::singleline(&mut self.ai_model).desired_width(200.0));
+                });
+                ui.add(egui::Slider::new(&mut self.ai_temperature, 0.0..=2.0)
+                    .step_by(0.05).text("Temperature"));
+                ui.add(egui::Slider::new(&mut self.ai_max_tokens, 256u32..=16384u32)
+                    .step_by(256.0).text("Max tokens"));
+                ui.collapsing("System prompt", |ui| {
+                    ui.label("Leave empty for default (tool‑enabled assistant).");
+                    ui.add_sized([400.0, 120.0],
+                        egui::TextEdit::multiline(&mut self.ai_system_prompt));
                 });
             });
 
