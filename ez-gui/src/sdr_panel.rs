@@ -222,8 +222,18 @@ impl SdrPanel {
                 let snr_color = if snr > 20.0 { egui::Color32::GREEN }
                     else if snr > 10.0 { egui::Color32::YELLOW }
                     else { egui::Color32::GRAY };
+                let (quality_str, quality_tip) = if snr > 25.0 {
+                    ("● Excellent", "SNR >25 dB: very clean signal, audio will be clear.")
+                } else if snr > 15.0 {
+                    ("● Good", "SNR 15–25 dB: good reception, audio should be clean.")
+                } else if snr > 8.0 {
+                    ("● Marginal", "SNR 8–15 dB: weak signal, audio may be noisy or choppy.")
+                } else {
+                    ("● No signal", "SNR <8 dB: no meaningful signal at this frequency. Try moving the antenna, increasing gain, or tuning to a different frequency.")
+                };
                 ui.colored_label(snr_color, format!("SNR {:.1} dB", snr))
                     .on_hover_text("Signal-to-Noise Ratio: peak dB minus estimated noise floor. >20 dB = excellent, 10–20 dB = good, <10 dB = marginal. Aim for >15 dB for clean audio.");
+                ui.colored_label(snr_color, quality_str).on_hover_text(quality_tip);
             });
         }
 
