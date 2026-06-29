@@ -173,6 +173,12 @@ impl CentralApp {
                     state.freq_history.push_back(hz);
                 }
             }
+            // Restore saved spectrum dB range (non-default check avoids stomping on first run)
+            if state.config.spectrum_min_db != 0.0 || state.config.spectrum_max_db != 0.0 {
+                let min = state.config.spectrum_min_db;
+                let max = state.config.spectrum_max_db;
+                state.spectrum.set_display_range(min, max);
+            }
             let init_freq = state.source.frequency_hz;
             if state.freq_history.is_empty() || state.freq_history.back() != Some(&init_freq) {
                 state.freq_history.push_back(init_freq);
@@ -388,15 +394,43 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::M) {
                     state.audio_running = !state.audio_running;
                 }
-                // Ctrl+S: save config (also persists recent frequencies)
+                // Ctrl+S: save config (also persists recent frequencies + spectrum range)
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
                     let recent: Vec<u64> = state.freq_history.iter().cloned().collect();
                     state.config.recent_frequencies = recent;
+                    let (min_db, max_db) = state.spectrum.display_range();
+                    state.config.spectrum_min_db = min_db;
+                    state.config.spectrum_max_db = max_db;
                     state.config.save();
                 }
                 // F: freeze/unfreeze spectrum
                 if i.key_pressed(egui::Key::F) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.frozen = !state.spectrum.frozen;
+                }
+                // [ / ] : frequency history back/forward
+                if i.key_pressed(egui::Key::OpenBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    if !hist.is_empty() {
+                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        if cur_idx > 0 {
+                            let new_idx = cur_idx - 1;
+                            self.freq_history_idx = Some(new_idx);
+                            state.source.frequency_hz = hist[new_idx];
+                            self.last_history_freq = hist[new_idx];
+                        }
+                    }
+                }
+                if i.key_pressed(egui::Key::CloseBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    if !hist.is_empty() {
+                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        if cur_idx + 1 < hist.len() {
+                            let new_idx = cur_idx + 1;
+                            self.freq_history_idx = Some(new_idx);
+                            state.source.frequency_hz = hist[new_idx];
+                            self.last_history_freq = hist[new_idx];
+                        }
+                    }
                 }
             }
         });
@@ -843,34 +877,55 @@ impl eframe::App for CentralApp {
             }
         });
 
+        // Reset layout button in status bar trailing area
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("⟳ Layout").on_hover_text("Reset all panels to default layout").clicked() {
+                let surface = egui_dock::SurfaceIndex::main();
+                let mut ds = DockState::new(vec![
+                    Tab::Spectrum, Tab::Sdr, Tab::Satellite, Tab::AdsB,
+                    Tab::Recorder, Tab::Scanner, Tab::AiAgent, Tab::HowTo,
+                ]);
+                ds[surface].split_left(egui_dock::NodeIndex::root(), 0.25, vec![Tab::Bookmarks, Tab::Scheduler, Tab::Settings]);
+                self.dock_state = ds;
+            }
+        });
+
         // Keyboard shortcuts help overlay
         if self.show_keyboard_help {
             egui::Window::new("Keyboard Shortcuts (?)")
                 .id(egui::Id::new("keyboard_help"))
-                .default_width(350.0)
+                .default_width(400.0)
                 .movable(true)
                 .show(ui.ctx(), |ui| {
                     egui::Grid::new("shortcuts_grid").num_columns(2).striped(true).show(ui, |ui| {
                         ui.monospace("Space"); ui.label("Start/Stop SDR source"); ui.end_row();
                         ui.monospace("↑ / ↓"); ui.label("Tune ±1 MHz"); ui.end_row();
                         ui.monospace("← / →"); ui.label("Tune ±100 kHz"); ui.end_row();
-                        ui.monospace("Alt+← / Alt+→"); ui.label("Frequency history back/forward"); ui.end_row();
+                        ui.monospace("[ / ]"); ui.label("Frequency history back/forward"); ui.end_row();
+                        ui.monospace("Alt+← / Alt+→"); ui.label("Frequency history back/forward (alt)"); ui.end_row();
                         ui.monospace("F1"); ui.label("Demod: RAW"); ui.end_row();
                         ui.monospace("F2"); ui.label("Demod: AM"); ui.end_row();
                         ui.monospace("F3"); ui.label("Demod: NFM"); ui.end_row();
                         ui.monospace("F4"); ui.label("Demod: WFM"); ui.end_row();
                         ui.monospace("F5"); ui.label("Demod: LSB"); ui.end_row();
                         ui.monospace("F6"); ui.label("Demod: USB"); ui.end_row();
-                        ui.monospace("M"); ui.label("Toggle audio on/off"); ui.end_row();
+                        ui.monospace("M"); ui.label("Toggle audio mute on/off"); ui.end_row();
                         ui.monospace("F"); ui.label("Freeze / unfreeze spectrum display"); ui.end_row();
-                        ui.monospace("Ctrl+S"); ui.label("Save settings"); ui.end_row();
-                        ui.monospace("?"); ui.label("Toggle this help"); ui.end_row();
-                        ui.monospace("Left-click (spectrum/wfall)"); ui.label("Tune to clicked frequency"); ui.end_row();
-                        ui.monospace("Right-click (spectrum)"); ui.label("Context menu (bookmark, marker, zoom reset…)"); ui.end_row();
-                        ui.monospace("Middle-click (spectrum)"); ui.label("Add frequency marker"); ui.end_row();
+                        ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies"); ui.end_row();
+                        ui.monospace("?"); ui.label("Toggle this shortcut reference"); ui.end_row();
+                        ui.separator(); ui.separator(); ui.end_row();
+                        ui.label(egui::RichText::new("Spectrum / Waterfall").italics()); ui.label(""); ui.end_row();
+                        ui.monospace("Left-click"); ui.label("Tune to clicked frequency"); ui.end_row();
+                        ui.monospace("Right-click"); ui.label("Context menu (bookmark, marker, zoom reset…)"); ui.end_row();
+                        ui.monospace("Middle-click"); ui.label("Drop a frequency marker"); ui.end_row();
                         ui.monospace("Scroll"); ui.label("Zoom in/out on spectrum"); ui.end_row();
                         ui.monospace("Shift+Scroll"); ui.label("Pan spectrum left/right"); ui.end_row();
                         ui.monospace("Mid-drag"); ui.label("Pan spectrum view"); ui.end_row();
+                        ui.separator(); ui.separator(); ui.end_row();
+                        ui.label(egui::RichText::new("Status bar").italics()); ui.label(""); ui.end_row();
+                        ui.monospace("Click frequency"); ui.label("Copy frequency value to clipboard"); ui.end_row();
+                        ui.monospace("◀ ▶ buttons"); ui.label("Navigate frequency history"); ui.end_row();
+                        ui.monospace("⟳ Layout"); ui.label("Reset panel layout to default"); ui.end_row();
                     });
                 });
         }
@@ -943,6 +998,12 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         .map(|b| (b.frequency_hz, b.name.clone()))
                         .collect();
                     state.spectrum.vfo_bw_hz = state.lpf_cutoff as u32 * 2;
+                    // Scanner sweep position marker
+                    state.spectrum.scan_marker = if self.scanner.enabled && !self.scanner.paused {
+                        Some(self.scanner.current_freq_hz)
+                    } else {
+                        None
+                    };
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;

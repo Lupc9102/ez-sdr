@@ -46,6 +46,10 @@ pub struct AppConfig {
     pub needs_apply: bool,
     #[serde(default)]
     pub recent_frequencies: Vec<u64>,
+    #[serde(default)]
+    pub spectrum_min_db: f32,
+    #[serde(default)]
+    pub spectrum_max_db: f32,
 }
 
 impl Default for AppConfig {
@@ -73,6 +77,8 @@ impl Default for AppConfig {
             font_scale: 1.0,
             needs_apply: false,
             recent_frequencies: Vec::new(),
+            spectrum_min_db: -120.0,
+            spectrum_max_db: 0.0,
         }
     }
 }
@@ -317,7 +323,7 @@ impl AppConfig {
             });
             ui.colored_label(
                 egui::Color32::GRAY,
-                "Settings are saved to ez_sdr_config.json in the current directory.",
+                "Settings are saved to ez_sdr_config.json in the current directory. Spectrum dB range is saved with Ctrl+S.",
             );
         });
     }

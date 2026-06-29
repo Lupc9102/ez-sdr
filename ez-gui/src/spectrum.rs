@@ -38,6 +38,7 @@ pub struct SpectrumAnalyzer {
     show_bookmarks: bool,
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
+    pub scan_marker: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -122,6 +123,7 @@ impl SpectrumAnalyzer {
             vfo_bw_hz: 15000,
             show_vfo_bw: true,
             frozen: false,
+            scan_marker: None,
         }
     }
 
@@ -140,6 +142,16 @@ impl SpectrumAnalyzer {
     pub fn update_params(&mut self, center_freq: u64, sample_rate: u32) {
         self.center_freq = center_freq;
         self.sample_rate = sample_rate;
+    }
+
+    pub fn display_range(&self) -> (f32, f32) {
+        (self.display_min_db, self.display_max_db)
+    }
+
+    pub fn set_display_range(&mut self, min: f32, max: f32) {
+        self.display_min_db = min;
+        self.display_max_db = max.max(min + 10.0);
+        self.waterfall_dirty = true;
     }
 
     pub fn signal_level(&self) -> f32 {
@@ -823,6 +835,37 @@ impl SpectrumAnalyzer {
                     label,
                     egui::FontId::proportional(8.0),
                     egui::Color32::from_rgba_premultiplied(255, 200, 50, 200),
+                );
+            }
+        }
+
+        // Scanner sweep position marker
+        if let Some(scan_freq) = self.scan_marker {
+            let offset_hz = scan_freq as f64 - self.center_freq as f64;
+            let zoom_span_s = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_center_offset_s = (self.zoom_offset as f64 - 0.5) * zoom_span_s;
+            let left_hz_s = -zoom_span_s / 2.0 + zoom_center_offset_s;
+            let right_hz_s = zoom_span_s / 2.0 + zoom_center_offset_s;
+            let frac = (offset_hz - left_hz_s) / (right_hz_s - left_hz_s);
+            if (0.0..=1.0).contains(&frac) {
+                let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
+                // Dashed cyan line
+                let dash = 5.0f32;
+                let mut y = spectrum_rect.top();
+                while y < spectrum_rect.bottom() {
+                    let y_end = (y + dash).min(spectrum_rect.bottom());
+                    painter.line_segment(
+                        [egui::pos2(x, y), egui::pos2(x, y_end)],
+                        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 220, 220, 180)),
+                    );
+                    y += dash * 2.0;
+                }
+                painter.text(
+                    egui::pos2(x + 2.0, spectrum_rect.top() + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("🔍 {:.3}", scan_freq as f64 / 1e6),
+                    egui::FontId::proportional(7.5),
+                    egui::Color32::from_rgba_premultiplied(0, 220, 220, 200),
                 );
             }
         }
