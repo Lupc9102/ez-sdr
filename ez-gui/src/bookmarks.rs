@@ -139,22 +139,32 @@ impl BookmarkDb {
 
     /// Export bookmarks to CSV. Returns (path, error)
     pub fn export_csv(&self) -> (String, String) {
-        let filename = format!("ez_sdr_bookmarks_{}.csv",
+        let default_name = format!("ez_sdr_bookmarks_{}.csv",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0));
-        let mut csv = String::from("name,frequency_hz,mode,category,notes\n");
+        let path = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("CSV", &["csv"])
+            .save_file();
+        let path = match path {
+            Some(p) => p,
+            None => return (String::new(), String::new()),
+        };
+        let mut csv = String::from("name,frequency_hz,frequency_mhz,mode,category,notes\n");
         for bm in &self.bookmarks {
-            csv.push_str(&format!("{},{},{},{},{}\n",
+            csv.push_str(&format!("{},{},{:.6},{},{},{}\n",
                 bm.name.replace(',', ";"),
                 bm.frequency_hz,
+                bm.frequency_hz as f64 / 1e6,
                 bm.mode,
                 bm.category.replace(',', ";"),
                 bm.notes.replace(',', ";")));
         }
-        match std::fs::write(&filename, &csv) {
-            Ok(_) => (filename, String::new()),
+        let path_str = path.to_string_lossy().to_string();
+        match std::fs::write(&path, &csv) {
+            Ok(_) => (path_str, String::new()),
             Err(e) => (String::new(), format!("Export failed: {}", e)),
         }
     }

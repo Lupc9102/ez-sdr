@@ -46,6 +46,9 @@ pub struct FrequencyScanner {
     memory_freqs: Vec<(u64, String)>,
     memory_idx: usize,
     pub memory_category_filter: String,
+    // Exclude list
+    pub exclude_hz: Vec<u64>,
+    exclude_input: String,
 }
 
 impl FrequencyScanner {
@@ -84,6 +87,8 @@ impl FrequencyScanner {
             memory_freqs: Vec::new(),
             memory_idx: 0,
             memory_category_filter: String::new(),
+            exclude_hz: Vec::new(),
+            exclude_input: String::new(),
         }
     }
 
@@ -252,6 +257,19 @@ impl FrequencyScanner {
             return;
         }
 
+        // Skip excluded frequencies
+        let is_excluded = self.exclude_hz.iter().any(|&ex| {
+            let diff = if self.current_freq_hz > ex { self.current_freq_hz - ex } else { ex - self.current_freq_hz };
+            diff <= self.step_hz / 2
+        });
+        if is_excluded {
+            let next = self.current_freq_hz.saturating_add(self.step_hz);
+            self.current_freq_hz = if next > self.stop_hz { self.start_hz } else { next };
+            self.tune_request_hz = Some(self.current_freq_hz);
+            self.last_step_time = Some(now);
+            return;
+        }
+
         let signal_active = spectrum_peak_db > self.threshold_db
             && self.current_freq_hz >= self.start_hz
             && self.current_freq_hz <= self.stop_hz;
@@ -411,6 +429,36 @@ impl FrequencyScanner {
             }
         });
 
+        // Exclude list
+        ui.collapsing("🚫 Exclude frequencies", |ui| {
+            ui.label("Frequencies in this list are skipped during range scan. Useful to ignore known interferers or vacant channels.");
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.exclude_input)
+                    .desired_width(120.0)
+                    .hint_text("MHz to exclude"));
+                if ui.small_button("Add").clicked() {
+                    let s = self.exclude_input.trim().to_lowercase();
+                    if let Ok(mhz) = s.trim_end_matches("mhz").trim().parse::<f64>() {
+                        let hz = (mhz * 1e6) as u64;
+                        if !self.exclude_hz.contains(&hz) {
+                            self.exclude_hz.push(hz);
+                        }
+                    }
+                    self.exclude_input.clear();
+                }
+                if !self.exclude_hz.is_empty() && ui.small_button("Clear all").clicked() {
+                    self.exclude_hz.clear();
+                }
+            });
+            let mut to_remove = None;
+            for (i, &f) in self.exclude_hz.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{:.3} MHz", f as f64 / 1e6));
+                    if ui.small_button("✕").clicked() { to_remove = Some(i); }
+                });
+            }
+            if let Some(i) = to_remove { self.exclude_hz.remove(i); }
+        });
         ui.separator();
 
         // Band presets

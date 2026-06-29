@@ -89,3 +89,5 @@ Started: 2026-06-29 (8-hour window)
 - T+~140min: Bookmark overlay color-coding by category (aviation=blue, weather=green, marine=teal, amateur=purple, broadcast=orange, scanner=red)
 - T+~145min: Band plan overlay expanded from 9 to 45+ allocations covering all major VHF/UHF bands
 - T+~155min: VOX / squelch-triggered recording — auto-start/stop recording on signal, configurable tail delay
+- T+~165min: Band plan toggle (🗺 BP button) + color legend in tooltip
+- T+~170min: Labeled spectrum markers — "Add marker" popup dialog for optional label text
