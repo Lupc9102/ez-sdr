@@ -11,10 +11,26 @@ pub struct SourceManager {
     pub ppm_correction: i32,
     pub direct_sampling: bool,
     pub temperature: f32,
+    pub source_mode: SourceMode,
+    pub replay_file: Option<String>,
+    pub replay_loop: bool,
+    pub replay_speed: f32,
+    pub replay_position: u64,
+    pub replay_size: u64,
     tx: Option<Sender<Vec<u8>>>,
     rx: Option<Receiver<Vec<u8>>>,
     running: Arc<AtomicBool>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SourceMode {
+    Simulated,
+    Replay,
+}
+
+impl Default for SourceMode {
+    fn default() -> Self { SourceMode::Simulated }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +53,12 @@ impl SourceManager {
             ppm_correction: 0,
             direct_sampling: false,
             temperature: 0.0,
+            source_mode: SourceMode::Simulated,
+            replay_file: None,
+            replay_loop: false,
+            replay_speed: 1.0,
+            replay_position: 0,
+            replay_size: 0,
             tx: Some(tx),
             rx: Some(rx),
             running: Arc::new(AtomicBool::new(false)),
@@ -67,94 +89,145 @@ impl SourceManager {
         let _ppm = self.ppm_correction;
         let _bias = self.bias_tee;
         let _gain = self.gain_db;
+        let source_mode = self.source_mode.clone();
+        let replay_file = self.replay_file.clone();
+        let replay_loop = self.replay_loop;
+        let replay_speed = self.replay_speed;
 
         let handle = std::thread::spawn(move || {
-            #[cfg(feature = "rtlsdr")]
-            {
-                let mut dev = unsafe { rtl_sdr_open(freq, rate, ppm, bias, gain) };
-                if dev.is_null() {
-                    let _ = tx.send(b"ERROR".to_vec());
-                    return;
-                }
-                let mut buf = vec![0u8; 16384 * 2];
-                while running.load(Ordering::SeqCst) {
-                    let n = unsafe { rtl_sdr_read_sync(dev, &mut buf) };
-                    if n > 0 {
-                        let _ = tx.try_send(buf[..n].to_vec());
-                    }
-                }
-                unsafe { rtl_sdr_close(dev); }
-            }
-            #[cfg(not(feature = "rtlsdr"))]
-            {
-                // Demo mode: generate realistic multi-signal IQ data
-                let mut phase: f64 = 0.0;
-                let mut burst_phase: f64 = 0.0;
-                let buf_size = 16384;
-                let mut buf = vec![0u8; buf_size];
-                let sample_rate_f = rate as f64;
-                let center_freq_f = freq as f64;
-
-                while running.load(Ordering::SeqCst) {
-                    let sleep_ms = (buf_size as f64 / sample_rate_f * 1000.0) as u64;
-                    std::thread::sleep(std::time::Duration::from_millis(sleep_ms.max(1)));
-
-                    for i in (0..buf_size).step_by(2) {
-                        let t = phase / sample_rate_f;
-
-                        // Noise floor (-80 dB relative)
-                        let noise_i = (rand_f64(phase * 137.1) * 6.0 - 3.0) as i16;
-                        let noise_q = (rand_f64(phase * 251.7) * 6.0 - 3.0) as i16;
-
-                        // FM broadcast station at center + 200 kHz (-30 dB)
-                        let fm_offset = 200_000.0;
-                        let fm_phase = 2.0 * std::f64::consts::PI * (center_freq_f + fm_offset) * t;
-                        let fm_amp = 25.0;
-                        let fm_i = (fm_amp * fm_phase.cos()) as i16;
-                        let fm_q = (fm_amp * fm_phase.sin()) as i16;
-
-                        // Narrowband FM signal at center - 100 kHz (-50 dB, intermittent)
-                        let nbfm_offset = -100_000.0;
-                        let nbfm_phase = 2.0 * std::f64::consts::PI * (center_freq_f + nbfm_offset) * t;
-                        let nbfm_env = if (burst_phase * 0.5).sin() > 0.3 { 8.0 } else { 0.0 };
-                        let nbfm_i = (nbfm_env * nbfm_phase.cos()) as i16;
-                        let nbfm_q = (nbfm_env * nbfm_phase.sin()) as i16;
-
-                        // AM carrier at center + 50 kHz (-40 dB)
-                        let am_offset = 50_000.0;
-                        let am_phase = 2.0 * std::f64::consts::PI * (center_freq_f + am_offset) * t;
-                        let am_env = 12.0 * (1.0 + 0.5 * (2.0 * std::f64::consts::PI * 440.0 * t).sin());
-                        let am_i = (am_env * am_phase.cos()) as i16;
-                        let am_q = (am_env * am_phase.sin()) as i16;
-
-                        // ADS-B-like pulse burst at center (-20 dB, periodic)
-                        let pulse_active = (burst_phase * 0.1).sin() > 0.95;
-                        let (pulse_i, pulse_q) = if pulse_active {
-                            let pulse_phase = 2.0 * std::f64::consts::PI * center_freq_f * t;
-                            (40.0 * pulse_phase.cos(), 40.0 * pulse_phase.sin())
-                        } else {
-                            (0.0, 0.0)
-                        };
-
-                        let total_i = noise_i + fm_i + nbfm_i + am_i + pulse_i as i16;
-                        let total_q = noise_q + fm_q + nbfm_q + am_q + pulse_q as i16;
-
-                        buf[i] = (total_i as i32 + 127).clamp(0, 255) as u8;
-                        buf[i + 1] = (total_q as i32 + 127).clamp(0, 255) as u8;
-
-                        phase += 1.0;
-                        burst_phase += 1.0;
-                        // Cap phase and burst_phase to prevent slow trig operations
-                        // on large f64 values (argument reduction cost grows with magnitude)
-                        if phase >= sample_rate_f * 10.0 {
-                            phase -= sample_rate_f * 10.0;
+            match source_mode {
+                SourceMode::Replay => {
+                    let path = match replay_file {
+                        Some(p) => p,
+                        None => {
+                            let _ = tx.send(b"ERROR".to_vec());
+                            return;
                         }
-                        if burst_phase >= 10000.0 {
-                            burst_phase -= 10000.0;
+                    };
+                    let file = match std::fs::File::open(&path) {
+                        Ok(f) => std::io::BufReader::new(f),
+                        Err(_) => {
+                            let _ = tx.send(b"ERROR".to_vec());
+                            return;
+                        }
+                    };
+                    use std::io::Read;
+                    let mut reader = file;
+                    let buf_size = 65536;
+                    let mut buf = vec![0u8; buf_size];
+                    loop {
+                        match reader.read(&mut buf) {
+                            Ok(0) => {
+                                if replay_loop {
+                                    let file2 = match std::fs::File::open(&path) {
+                                        Ok(f) => std::io::BufReader::new(f),
+                                        Err(_) => break,
+                                    };
+                                    reader = file2;
+                                    continue;
+                                }
+                                break;
+                            }
+                            Ok(n) => {
+                                let chunk = buf[..n].to_vec();
+                                if tx.try_send(chunk).is_err() {
+                                    break;
+                                }
+                                let sleep_ms = (n as f64 / (rate as f64 * 2.0) * 1000.0 / replay_speed as f64) as u64;
+                                std::thread::sleep(std::time::Duration::from_millis(sleep_ms.max(1)));
+                                if !running.load(Ordering::SeqCst) { break; }
+                            }
+                            Err(_) => break,
                         }
                     }
+                }
+                SourceMode::Simulated => {
+                    #[cfg(feature = "rtlsdr")]
+                    {
+                        let mut dev = unsafe { rtl_sdr_open(freq, rate, _ppm, _bias, _gain) };
+                        if dev.is_null() {
+                            let _ = tx.send(b"ERROR".to_vec());
+                            return;
+                        }
+                        let mut buf = vec![0u8; 16384 * 2];
+                        while running.load(Ordering::SeqCst) {
+                            let n = unsafe { rtl_sdr_read_sync(dev, &mut buf) };
+                            if n > 0 {
+                                let _ = tx.try_send(buf[..n].to_vec());
+                            }
+                        }
+                        unsafe { rtl_sdr_close(dev); }
+                    }
+                    #[cfg(not(feature = "rtlsdr"))]
+                    {
+                        // Demo mode: generate realistic multi-signal IQ data
+                        let mut phase: f64 = 0.0;
+                        let mut burst_phase: f64 = 0.0;
+                        let buf_size = 16384;
+                        let mut buf = vec![0u8; buf_size];
+                        let sample_rate_f = rate as f64;
+                        let center_freq_f = freq as f64;
 
-                    let _ = tx.try_send(buf.clone());
+                        while running.load(Ordering::SeqCst) {
+                            let sleep_ms = (buf_size as f64 / sample_rate_f * 1000.0) as u64;
+                            std::thread::sleep(std::time::Duration::from_millis(sleep_ms.max(1)));
+
+                            for i in (0..buf_size).step_by(2) {
+                                let t = phase / sample_rate_f;
+
+                                // Noise floor (-80 dB relative)
+                                let noise_i = (rand_f64(phase * 137.1) * 6.0 - 3.0) as i16;
+                                let noise_q = (rand_f64(phase * 251.7) * 6.0 - 3.0) as i16;
+
+                                // FM broadcast station at center + 200 kHz (-30 dB)
+                                let fm_offset = 200_000.0;
+                                let fm_phase = 2.0 * std::f64::consts::PI * (center_freq_f + fm_offset) * t;
+                                let fm_amp = 25.0;
+                                let fm_i = (fm_amp * fm_phase.cos()) as i16;
+                                let fm_q = (fm_amp * fm_phase.sin()) as i16;
+
+                                // Narrowband FM signal at center - 100 kHz (-50 dB, intermittent)
+                                let nbfm_offset = -100_000.0;
+                                let nbfm_phase = 2.0 * std::f64::consts::PI * (center_freq_f + nbfm_offset) * t;
+                                let nbfm_env = if (burst_phase * 0.5).sin() > 0.3 { 8.0 } else { 0.0 };
+                                let nbfm_i = (nbfm_env * nbfm_phase.cos()) as i16;
+                                let nbfm_q = (nbfm_env * nbfm_phase.sin()) as i16;
+
+                                // AM carrier at center + 50 kHz (-40 dB)
+                                let am_offset = 50_000.0;
+                                let am_phase = 2.0 * std::f64::consts::PI * (center_freq_f + am_offset) * t;
+                                let am_env = 12.0 * (1.0 + 0.5 * (2.0 * std::f64::consts::PI * 440.0 * t).sin());
+                                let am_i = (am_env * am_phase.cos()) as i16;
+                                let am_q = (am_env * am_phase.sin()) as i16;
+
+                                // ADS-B-like pulse burst at center (-20 dB, periodic)
+                                let pulse_active = (burst_phase * 0.1).sin() > 0.95;
+                                let (pulse_i, pulse_q) = if pulse_active {
+                                    let pulse_phase = 2.0 * std::f64::consts::PI * center_freq_f * t;
+                                    (40.0 * pulse_phase.cos(), 40.0 * pulse_phase.sin())
+                                } else {
+                                    (0.0, 0.0)
+                                };
+
+                                let total_i = noise_i + fm_i + nbfm_i + am_i + pulse_i as i16;
+                                let total_q = noise_q + fm_q + nbfm_q + am_q + pulse_q as i16;
+
+                                buf[i] = (total_i as i32 + 127).clamp(0, 255) as u8;
+                                buf[i + 1] = (total_q as i32 + 127).clamp(0, 255) as u8;
+
+                                phase += 1.0;
+                                burst_phase += 1.0;
+                                if phase >= sample_rate_f * 10.0 {
+                                    phase -= sample_rate_f * 10.0;
+                                }
+                                if burst_phase >= 10000.0 {
+                                    burst_phase -= 10000.0;
+                                }
+                            }
+
+                            let _ = tx.try_send(buf.clone());
+                        }
+                    }
                 }
             }
         });
@@ -182,7 +255,45 @@ impl SourceManager {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("RTL-SDR V4 Source");
+        ui.heading("Source");
+
+        // Source mode selection
+        ui.horizontal(|ui| {
+            ui.label("Mode:");
+            if ui.selectable_label(self.source_mode == SourceMode::Simulated, "Simulated").clicked() {
+                self.source_mode = SourceMode::Simulated;
+            }
+            if ui.selectable_label(self.source_mode == SourceMode::Replay, "File Replay").clicked() {
+                self.source_mode = SourceMode::Replay;
+            }
+        });
+
+        if self.source_mode == SourceMode::Replay {
+            ui.separator();
+            ui.horizontal(|ui| {
+                let mut path = self.replay_file.clone().unwrap_or_default();
+                if ui.add(egui::TextEdit::singleline(&mut path).desired_width(400.0).hint_text("Path to .iq file (e.g. /path/to/recording.iq)")).changed() {
+                    if !path.is_empty() {
+                        self.replay_file = Some(path);
+                    } else {
+                        self.replay_file = None;
+                    }
+                }
+                ui.separator();
+                ui.checkbox(&mut self.replay_loop, "Loop");
+                ui.label("Speed:");
+                ui.add(egui::Slider::new(&mut self.replay_speed, 0.1..=10.0).text("x").logarithmic(true));
+            });
+            if let Some(path) = &self.replay_file {
+                ui.label(format!("File: {}", path));
+                if self.replay_size > 0 {
+                    let mb = self.replay_size as f64 / 1_048_576.0;
+                    ui.label(format!("Size: {:.1} MB", mb));
+                }
+            }
+        }
+
+        ui.separator();
         ui.horizontal(|ui| {
             let (color, label) = match &self.status {
                 SourceStatus::Running => (egui::Color32::GREEN, "Running"),
@@ -191,6 +302,11 @@ impl SourceManager {
                 SourceStatus::Error(e) => (egui::Color32::RED, e.as_str()),
             };
             ui.colored_label(color, format!("● {}", label));
+            if self.replay_position > 0 && self.replay_size > 0 {
+                let pct = self.replay_position as f64 / self.replay_size as f64 * 100.0;
+                ui.separator();
+                ui.label(format!("Pos: {:.1}%", pct));
+            }
         });
         ui.add(egui::Slider::new(&mut self.frequency_hz, 500_000..=1_770_000_000).text("Frequency (Hz)").custom_formatter(|v, _| format!("{:.3} MHz", v / 1e6)));
         ui.horizontal(|ui| {
@@ -220,18 +336,20 @@ impl SourceManager {
             }
         });
         ui.add(egui::Slider::new(&mut self.sample_rate_hz, 225_001..=3_200_000).text("Sample rate (Hz)").custom_formatter(|v, _| format!("{:.3} MSps", v / 1e6)));
-        ui.horizontal(|ui| {
-            ui.label("Gain:");
-            ui.add(egui::Slider::new(&mut self.gain_db, 0.0..=49.6).step_by(0.1).text("dB").custom_formatter(|v, _| format!("{:.1} dB", v)));
-            if ui.button("Auto").clicked() {
-                self.gain_db = 0.0;
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.bias_tee, "Bias Tee (4.5V)");
-            ui.checkbox(&mut self.direct_sampling, "Direct Sampling");
-        });
-        ui.add(egui::Slider::new(&mut self.ppm_correction, -100..=100).text("PPM correction"));
+        if self.source_mode != SourceMode::Replay {
+            ui.horizontal(|ui| {
+                ui.label("Gain:");
+                ui.add(egui::Slider::new(&mut self.gain_db, 0.0..=49.6).step_by(0.1).text("dB").custom_formatter(|v, _| format!("{:.1} dB", v)));
+                if ui.button("Auto").clicked() {
+                    self.gain_db = 0.0;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.bias_tee, "Bias Tee (4.5V)");
+                ui.checkbox(&mut self.direct_sampling, "Direct Sampling");
+            });
+            ui.add(egui::Slider::new(&mut self.ppm_correction, -100..=100).text("PPM correction"));
+        }
         ui.horizontal(|ui| {
             if ui.button("Start").clicked() { self.start(); }
             if ui.button("Stop").clicked() { self.stop(); }

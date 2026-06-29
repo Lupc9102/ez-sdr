@@ -18,6 +18,7 @@ mod mqtt;
 mod tle_engine;
 mod demod;
 mod audio_output;
+mod scanner;
 
 fn main() -> eframe::Result {
     // Force X11 on Linux — winit's Wayland backend has broken mouse input

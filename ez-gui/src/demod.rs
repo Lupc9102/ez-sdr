@@ -7,6 +7,9 @@ pub struct Demodulator {
     decimation: usize,
     decim_counter: usize,
     audio_sample_rate: u32,
+    lpf_cutoff: f32,
+    lpf_state_l: f32,
+    lpf_alpha: f32,
 }
 
 impl Demodulator {
@@ -18,7 +21,17 @@ impl Demodulator {
             decimation: 1,
             decim_counter: 0,
             audio_sample_rate: 48000,
+            lpf_cutoff: 15000.0,
+            lpf_state_l: 0.0,
+            lpf_alpha: 1.0,
         }
+    }
+
+    pub fn set_lpf_cutoff(&mut self, cutoff_hz: f32) {
+        self.lpf_cutoff = cutoff_hz.max(100.0).min(20000.0);
+        let rc = 1.0 / (2.0 * std::f32::consts::PI * self.lpf_cutoff);
+        let dt = 1.0 / self.audio_sample_rate as f32;
+        self.lpf_alpha = (dt / (rc + dt)).clamp(0.001, 1.0);
     }
 
     pub fn set_sample_rates(&mut self, input_rate: u32, audio_rate: u32) {
@@ -30,14 +43,25 @@ impl Demodulator {
     }
 
     pub fn demodulate(&mut self, iq: &[u8], mode: DemodMode) -> Vec<f32> {
-        match mode {
+        let samples = match mode {
             DemodMode::Raw => self.demod_raw(iq),
             DemodMode::Am => self.demod_am(iq),
             DemodMode::Fm => self.demod_fm(iq),
             DemodMode::Wfm => self.demod_wfm(iq),
             DemodMode::Lsb => self.demod_ssb(iq, false),
             DemodMode::Usb => self.demod_ssb(iq, true),
+        };
+        self.apply_lpf(samples)
+    }
+
+    fn apply_lpf(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        if self.lpf_alpha >= 0.999 { return samples; }
+        let mut out = Vec::with_capacity(samples.len());
+        for s in samples {
+            self.lpf_state_l = self.lpf_state_l + self.lpf_alpha * (s - self.lpf_state_l);
+            out.push(self.lpf_state_l);
         }
+        out
     }
 
     fn demod_raw(&mut self, iq: &[u8]) -> Vec<f32> {

@@ -142,6 +142,15 @@ impl TleEngine {
         let v = range_rate * 1000.0;
         -v / c * freq_hz
     }
+
+    pub fn doppler_shift_for_sat(&self, name: &str, freq_hz: f64, t: f64) -> f64 {
+        for sat in &self.tles {
+            if sat.name == name {
+                return self.doppler_shift(sat, freq_hz, t);
+            }
+        }
+        0.0
+    }
 }
 
 fn format_time(t: f64) -> String {

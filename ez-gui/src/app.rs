@@ -28,6 +28,7 @@ pub enum Tab {
     Satellite,
     AdsB,
     Recorder,
+    Scanner,
     AiAgent,
     Bookmarks,
     Scheduler,
@@ -53,6 +54,8 @@ pub struct SharedState {
     pub audio_tx: Option<crossbeam_channel::Sender<Vec<f32>>>,
     pub audio_running: bool,
     pub volume: f32,
+    pub squelch: f32,
+    pub lpf_cutoff: f32,
 }
 
 pub struct CentralApp {
@@ -70,10 +73,12 @@ pub struct CentralApp {
     audio_rx: Arc<Mutex<crossbeam_channel::Receiver<Vec<f32>>>>,
     audio_tx: crossbeam_channel::Sender<Vec<f32>>,
     adsb_decoder: AdsBDecoder,
+    scanner: crate::scanner::FrequencyScanner,
     last_scheduler_update: std::time::Instant,
     last_source_status: crate::source_manager::SourceStatus,
     last_auto_tuned_satellite: String,
     bookmark_filter: String,
+    show_keyboard_help: bool,
 }
 
 impl CentralApp {
@@ -97,6 +102,8 @@ impl CentralApp {
             audio_tx: None,
             audio_running: false,
             volume: 0.5,
+            squelch: -50.0,
+            lpf_cutoff: 15000.0,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -153,10 +160,12 @@ impl CentralApp {
             audio_rx,
             audio_tx,
             adsb_decoder: AdsBDecoder::new(),
+            scanner: crate::scanner::FrequencyScanner::new(shared.clone()),
             last_scheduler_update: std::time::Instant::now(),
             last_source_status: crate::source_manager::SourceStatus::Idle,
             last_auto_tuned_satellite: String::new(),
             bookmark_filter: String::new(),
+            show_keyboard_help: false,
         }
     }
 }
@@ -183,10 +192,10 @@ impl eframe::App for CentralApp {
 
         // Process samples outside lock
         for samples in &sample_batch {
-            let (freq, rate, demod_mode, audio_running, volume, adsb_running) = {
+            let (freq, rate, demod_mode, audio_running, volume, squelch_db, lpf_cutoff, adsb_running) = {
                 if let Ok(state) = self.shared.try_lock() {
                     (state.source.frequency_hz, state.source.sample_rate_hz,
-                     state.demod_mode, state.audio_running, state.volume, state.adsb_running)
+                     state.demod_mode, state.audio_running, state.volume, state.squelch, state.lpf_cutoff, state.adsb_running)
                 } else {
                     continue;
                 }
@@ -202,8 +211,15 @@ impl eframe::App for CentralApp {
             // Demodulate and send audio
             if audio_running {
                 self.demod.set_sample_rates(rate, self.audio.sample_rate());
+                self.demod.set_lpf_cutoff(lpf_cutoff);
                 let audio = self.demod.demodulate(samples, demod_mode);
-                let audio: Vec<f32> = audio.into_iter().map(|s| s * volume).collect();
+                let gate: f32 = if squelch_db < -80.0 { 1.0 } else {
+                    let signal_level = if let Ok(state) = self.shared.try_lock() {
+                        state.spectrum.signal_level()
+                    } else { -120.0 };
+                    if signal_level > squelch_db { 1.0 } else { 0.0 }
+                };
+                let audio: Vec<f32> = audio.into_iter().map(|s| s * volume * gate).collect();
                 let _ = self.audio_tx.try_send(audio);
             }
 
@@ -218,6 +234,10 @@ impl eframe::App for CentralApp {
 
         // Keyboard shortcuts
         ctx.input(|i| {
+            // ? : toggle keyboard help
+            if i.key_pressed(egui::Key::Questionmark) {
+                self.show_keyboard_help = !self.show_keyboard_help;
+            }
             if let Ok(mut state) = self.shared.try_lock() {
                 // Space: toggle start/stop
                 if i.key_pressed(egui::Key::Space) {
@@ -313,7 +333,28 @@ impl eframe::App for CentralApp {
                 if let Some((sat, freq)) = tune_to {
                     if sat != self.last_auto_tuned_satellite {
                         state.source.frequency_hz = freq;
-                        self.last_auto_tuned_satellite = sat;
+                        self.last_auto_tuned_satellite = sat.clone();
+                    }
+                    // Apply doppler correction
+                    let doppler = state.tle.doppler_shift_for_sat(&sat, freq as f64, now_unix);
+                    if doppler.abs() > 1.0 {
+                        let corrected = (freq as f64 + doppler) as u64;
+                        if corrected != state.source.frequency_hz {
+                            state.source.frequency_hz = corrected;
+                        }
+                    }
+                }
+            }
+
+            // Frequency scanner tick (runs every frame, rate-limited by dwell_ms)
+            {
+                let peak = if let Ok(state) = self.shared.try_lock() {
+                    state.spectrum.peak_level()
+                } else { -120.0 };
+                self.scanner.tick(peak);
+                if let Some(freq) = self.scanner.tune_request_hz.take() {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.source.frequency_hz = freq;
                     }
                 }
             }
@@ -378,6 +419,7 @@ impl eframe::App for CentralApp {
                 satellite: &mut self.satellite_panel,
                 adsb: &mut self.adsb_panel,
                 recorder: &mut self.recorder_panel,
+                scanner: &mut self.scanner,
                 ai: &mut self.ai_panel,
                 bookmark_filter: &mut self.bookmark_filter,
             });
@@ -403,14 +445,48 @@ impl eframe::App for CentralApp {
                 if self.audio.is_running() {
                     ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "🔊 Audio");
                 }
+            }
+            // Volume slider
+            if let Ok(mut state) = self.shared.try_lock() {
                 ui.separator();
+                ui.small("Vol:");
+                ui.add(egui::Slider::new(&mut state.volume, 0.0..=1.0).text(""));
+                ui.separator();
+                ui.small("Squelch:");
+                ui.add(egui::Slider::new(&mut state.squelch, -120.0..=0.0).text("dB"));
+            }
+            if let Ok(state) = self.shared.try_lock() {
                 let peak = state.spectrum.peak_level();
+                let noise_floor = state.spectrum.noise_floor();
                 let peak_color = if peak > -20.0 { egui::Color32::GREEN }
                     else if peak > -60.0 { egui::Color32::YELLOW }
                     else { egui::Color32::GRAY };
-                ui.colored_label(peak_color, format!("Peak: {:.1} dB", peak));
+                ui.colored_label(peak_color, format!("Peak: {:.1}dB", peak));
+                ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {:.1}dB", noise_floor));
             }
         });
+
+        // Keyboard shortcuts help overlay
+        if self.show_keyboard_help {
+            egui::Window::new("Keyboard Shortcuts (?)")
+                .id(egui::Id::new("keyboard_help"))
+                .default_width(350.0)
+                .movable(true)
+                .show(ui.ctx(), |ui| {
+                    egui::Grid::new("shortcuts_grid").num_columns(2).striped(true).show(ui, |ui| {
+                        ui.monospace("Space"); ui.label("Start/Stop source"); ui.end_row();
+                        ui.monospace("↑ / ↓"); ui.label("Tune ±1 MHz"); ui.end_row();
+                        ui.monospace("← / →"); ui.label("Tune ±100 kHz"); ui.end_row();
+                        ui.monospace("?"); ui.label("Toggle this help"); ui.end_row();
+                        ui.monospace("Left-click"); ui.label("Tune to frequency on spectrum"); ui.end_row();
+                        ui.monospace("Right-click"); ui.label("Reset zoom"); ui.end_row();
+                        ui.monospace("Middle-click"); ui.label("Add frequency marker"); ui.end_row();
+                        ui.monospace("Scroll"); ui.label("Zoom in/out on spectrum"); ui.end_row();
+                        ui.monospace("Shift+Scroll"); ui.label("Pan spectrum left/right"); ui.end_row();
+                        ui.monospace("Mid-drag"); ui.label("Pan spectrum view"); ui.end_row();
+                    });
+                });
+        }
     }
 }
 
@@ -426,6 +502,7 @@ struct TabViewer<'a> {
     satellite: &'a mut SatellitePanel,
     adsb: &'a mut AdsBPanel,
     recorder: &'a mut RecorderPanel,
+    scanner: &'a mut crate::scanner::FrequencyScanner,
     ai: &'a mut AiPanel,
     bookmark_filter: &'a mut String,
 }
@@ -440,6 +517,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Satellite => "Satellite".into(),
             Tab::AdsB => "ADS-B".into(),
             Tab::Recorder => "Recorder".into(),
+            Tab::Scanner => "Scanner".into(),
             Tab::AiAgent => "AI Agent".into(),
             Tab::Bookmarks => "Bookmarks".into(),
             Tab::Scheduler => "Scheduler".into(),
@@ -461,6 +539,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Satellite => self.satellite.ui(ui),
             Tab::AdsB => self.adsb.ui(ui),
             Tab::Recorder => self.recorder.ui(ui),
+            Tab::Scanner => self.scanner.ui(ui),
             Tab::AiAgent => self.ai.ui(ui),
             Tab::Bookmarks => {
                 let snapshot = match &self.snapshot {

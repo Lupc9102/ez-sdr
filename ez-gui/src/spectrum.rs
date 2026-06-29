@@ -12,6 +12,10 @@ pub struct SpectrumAnalyzer {
     center_freq: u64,
     sample_rate: u32,
     window_type: WindowType,
+    color_map: ColorMap,
+    zoom_factor: f32,
+    zoom_offset: f32,
+    markers: Vec<u64>,
     avg_alpha: f32,
     peak_hold: Vec<f32>,
     show_peak_hold: bool,
@@ -30,6 +34,15 @@ pub enum WindowType {
     Hann,
     Hamming,
     Blackman,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ColorMap {
+    Classic,
+    Viridis,
+    Magma,
+    Grayscale,
+    Hot,
 }
 
 impl WindowType {
@@ -71,6 +84,10 @@ impl SpectrumAnalyzer {
             center_freq: 100_000_000,
             sample_rate: 2_048_000,
             window_type,
+            color_map: ColorMap::Classic,
+            zoom_factor: 1.0,
+            zoom_offset: 0.5,
+            markers: Vec::new(),
             avg_alpha: 0.3,
             peak_hold: vec![-120.0; fft_size],
             show_peak_hold: false,
@@ -116,6 +133,13 @@ impl SpectrumAnalyzer {
         self.spectrum_dbs.iter().cloned().fold(0.0f32, f32::min)
     }
 
+    pub fn noise_floor(&self) -> f32 {
+        if self.spectrum_dbs.is_empty() { return -120.0; }
+        let mut sorted = self.spectrum_dbs.to_vec();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted[sorted.len() / 4].max(sorted[0])
+    }
+
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
         if iq.len() < 2 { return; }
         let fft = match &self.fft {
@@ -152,7 +176,7 @@ impl SpectrumAnalyzer {
         let mut pixels = vec![0u8; self.fft_size * 4];
         for (i, db) in self.spectrum_dbs.iter().enumerate() {
             let normalized = ((db + 120.0) / 80.0).clamp(0.0, 1.0);
-            let (r, g, b) = waterfall_color(normalized);
+            let (r, g, b) = color_map(self.color_map, normalized);
             pixels[i * 4] = r;
             pixels[i * 4 + 1] = g;
             pixels[i * 4 + 2] = b;
@@ -188,6 +212,14 @@ impl SpectrumAnalyzer {
                 self.waterfall_dirty = true;
             }
             ui.separator();
+            ui.label("Palette:");
+            for (label, cmap) in [("Classic", ColorMap::Classic), ("Viridis", ColorMap::Viridis), ("Magma", ColorMap::Magma), ("Gray", ColorMap::Grayscale), ("Hot", ColorMap::Hot)] {
+                if ui.selectable_label(self.color_map == cmap, label).clicked() {
+                    self.color_map = cmap;
+                    self.waterfall_dirty = true;
+                }
+            }
+            ui.separator();
             ui.label("Avg:");
             ui.add(egui::Slider::new(&mut self.avg_alpha, 0.01..=0.99).text("α"));
             ui.separator();
@@ -196,6 +228,20 @@ impl SpectrumAnalyzer {
                 if ui.selectable_label(self.waterfall_every_n == n, label).clicked() {
                     self.waterfall_every_n = n;
                 }
+            }
+            ui.separator();
+            let mark_count = self.markers.len();
+            ui.label(format!("Marks: {}", mark_count));
+            if ui.small_button("Clear M").clicked() {
+                self.markers.clear();
+            }
+            ui.label("Zoom:");
+            if ui.small_button("1x").clicked() {
+                self.zoom_factor = 1.0;
+                self.zoom_offset = 0.5;
+            }
+            if self.zoom_factor > 1.0 {
+                ui.label(format!("{:.0}x", self.zoom_factor));
             }
         });
 
@@ -206,6 +252,7 @@ impl SpectrumAnalyzer {
             ui.monospace(format!("Res: {:.1} Hz", self.sample_rate as f64 / self.fft_size as f64));
             ui.separator();
             ui.monospace(format!("Min: {:.0} dB", self.min_level()));
+            ui.monospace(format!("Floor: {:.0} dB", self.noise_floor()));
             ui.monospace(format!("Avg: {:.0} dB", self.signal_level()));
             ui.monospace(format!("Max: {:.0} dB", self.peak_level()));
         });
@@ -242,13 +289,18 @@ impl SpectrumAnalyzer {
             );
         }
 
-        // Vertical grid lines (frequency)
+        // Zoom parameters
+        let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+        let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+        let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+        let right_hz = zoom_span / 2.0 + zoom_center_offset;
+
+        // Vertical grid lines (frequency) with zoom support
         let n_grid = 8;
-        let half_span = self.sample_rate as f64 / 2.0;
         for i in 0..=n_grid {
             let frac = i as f32 / n_grid as f32;
             let x = spectrum_rect.left() + frac * spectrum_rect.width();
-            let offset_hz = -half_span + frac as f64 * self.sample_rate as f64;
+            let offset_hz = left_hz + frac as f64 * zoom_span;
             let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
             painter.line_segment(
                 [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
@@ -278,9 +330,9 @@ impl SpectrumAnalyzer {
                 Band { name: "70cm", low_mhz: 420.0, high_mhz: 450.0, color: egui::Color32::from_rgba_premultiplied(180, 80, 80, 30) },
             ];
             let center_mhz = self.center_freq as f64 / 1e6;
-            let half_span_mhz = self.sample_rate as f64 / 2e6;
-            let left_mhz = center_mhz - half_span_mhz;
-            let right_mhz = center_mhz + half_span_mhz;
+            let half_span_mhz = zoom_span / 2e6;
+            let left_mhz = center_mhz - half_span_mhz + zoom_center_offset / 1e6;
+            let right_mhz = center_mhz + half_span_mhz + zoom_center_offset / 1e6;
             for band in BANDS {
                 let low = band.low_mhz.max(left_mhz);
                 let high = band.high_mhz.min(right_mhz);
@@ -301,36 +353,52 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Fill under spectrum
+        // Fill under spectrum (zoom-aware)
         {
             let mut mesh = egui::Mesh::default();
             let color_top = egui::Color32::from_rgba_premultiplied(30, 120, 200, 100);
             let color_bot = egui::Color32::from_rgba_premultiplied(10, 30, 60, 20);
-            for i in 0..n {
-                let x = spectrum_rect.left() + (i as f32 / n as f32) * spectrum_rect.width();
-                let db = self.spectrum_dbs[i];
-                let norm = ((db - min_db) / range).clamp(0.0, 1.0);
-                let y = spectrum_rect.bottom() - norm * spectrum_height;
-                mesh.colored_vertex(egui::pos2(x, y), color_top);
-                mesh.colored_vertex(egui::pos2(x, spectrum_rect.bottom()), color_bot);
+            let half_span = self.sample_rate as f64 / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let first_bin = first_bin.clamp(0, n.saturating_sub(1));
+            let last_bin = last_bin.clamp(first_bin + 1, n);
+            let visible_bins = last_bin - first_bin;
+            if visible_bins > 0 {
+                for i in first_bin..last_bin {
+                    let frac = (i - first_bin) as f32 / visible_bins.max(1) as f32;
+                    let x = spectrum_rect.left() + frac * spectrum_rect.width();
+                    let db = self.spectrum_dbs[i];
+                    let norm = ((db - min_db) / range).clamp(0.0, 1.0);
+                    let y = spectrum_rect.bottom() - norm * spectrum_height;
+                    mesh.colored_vertex(egui::pos2(x, y), color_top);
+                    mesh.colored_vertex(egui::pos2(x, spectrum_rect.bottom()), color_bot);
+                }
+                for i in 0..visible_bins.saturating_sub(1) {
+                    let idx = (i * 2) as u32;
+                    mesh.indices.push(idx);
+                    mesh.indices.push(idx + 1);
+                    mesh.indices.push(idx + 2);
+                    mesh.indices.push(idx + 1);
+                    mesh.indices.push(idx + 3);
+                    mesh.indices.push(idx + 2);
+                }
+                painter.add(egui::Shape::mesh(mesh));
             }
-            for i in 0..n.saturating_sub(1) {
-                let idx = (i * 2) as u32;
-                mesh.indices.push(idx);
-                mesh.indices.push(idx + 1);
-                mesh.indices.push(idx + 2);
-                mesh.indices.push(idx + 1);
-                mesh.indices.push(idx + 3);
-                mesh.indices.push(idx + 2);
-            }
-            painter.add(egui::Shape::mesh(mesh));
         }
 
-        // Peak hold
+        // Peak hold (zoom-aware)
         if self.show_peak_hold {
             let mut prev_pos = None;
-            for i in 0..n {
-                let x = spectrum_rect.left() + (i as f32 / n as f32) * spectrum_rect.width();
+            let half_span = self.sample_rate as f64 / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let first_bin = first_bin.clamp(0, n.saturating_sub(1));
+            let last_bin = last_bin.clamp(first_bin + 1, n);
+            let visible_bins = (last_bin - first_bin).max(1);
+            for i in first_bin..last_bin {
+                let frac = (i - first_bin) as f32 / visible_bins as f32;
+                let x = spectrum_rect.left() + frac * spectrum_rect.width();
                 let db = self.peak_hold[i];
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
@@ -341,11 +409,18 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Spectrum line
+        // Spectrum line (zoom-aware)
         {
             let mut prev_pos = None;
-            for i in 0..n {
-                let x = spectrum_rect.left() + (i as f32 / n as f32) * spectrum_rect.width();
+            let half_span = self.sample_rate as f64 / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let first_bin = first_bin.clamp(0, n.saturating_sub(1));
+            let last_bin = last_bin.clamp(first_bin + 1, n);
+            let visible_bins = (last_bin - first_bin).max(1);
+            for i in first_bin..last_bin {
+                let frac = (i - first_bin) as f32 / visible_bins as f32;
+                let x = spectrum_rect.left() + frac * spectrum_rect.width();
                 let db = self.spectrum_dbs[i];
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
@@ -363,7 +438,10 @@ impl SpectrumAnalyzer {
             let bin = (frac * n as f32) as usize;
             if bin < n {
                 let db = self.spectrum_dbs[bin];
-                let offset_hz = (frac as f64 - 0.5) * self.sample_rate as f64;
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+                let offset_hz = left_hz + frac as f64 * zoom_span;
                 let freq = self.center_freq as f64 + offset_hz;
                 let freq_str = if freq >= 1e9 { format!("{:.3} GHz", freq / 1e9) }
                     else if freq >= 1e6 { format!("{:.3} MHz", freq / 1e6) }
@@ -396,13 +474,75 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Click-to-tune on spectrum
+        // Frequency markers
+        for marker_freq in &self.markers {
+            let offset_hz = *marker_freq as f64 - self.center_freq as f64;
+            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+            let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+            let right_hz = zoom_span / 2.0 + zoom_center_offset;
+            let frac = (offset_hz - left_hz) / (right_hz - left_hz);
+            if (0.0..=1.0).contains(&frac) {
+                let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
+                painter.line_segment(
+                    [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(255, 200, 50, 160)),
+                );
+                let label = format!("{:.3} MHz", *marker_freq as f64 / 1e6);
+                painter.text(
+                    egui::pos2(x, spectrum_rect.top() + 2.0),
+                    egui::Align2::CENTER_TOP,
+                    label,
+                    egui::FontId::proportional(8.0),
+                    egui::Color32::from_rgba_premultiplied(255, 200, 50, 200),
+                );
+            }
+        }
+
+        // Click-to-tune, zoom, and markers on spectrum
         if response.clicked() {
             if let Some(pointer) = response.hover_pos() {
                 let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let offset_hz = (frac as f64 - 0.5) * self.sample_rate as f64;
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+                let offset_hz = left_hz + frac as f64 * zoom_span;
                 let freq = (self.center_freq as f64 + offset_hz) as u64;
                 self.clicked_tune_freq = Some(freq);
+            }
+        }
+        if response.secondary_clicked() {
+            self.zoom_factor = 1.0;
+            self.zoom_offset = 0.5;
+        }
+        // Middle-click to add frequency marker
+        if response.clicked_by(egui::PointerButton::Middle) {
+            if let Some(pointer) = response.hover_pos() {
+                let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+                let offset_hz = left_hz + frac as f64 * zoom_span;
+                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                self.markers.push(freq);
+                if self.markers.len() > 20 {
+                    self.markers.remove(0);
+                }
+            }
+        }
+        if response.dragged_by(egui::PointerButton::Middle) {
+            let delta = response.drag_delta();
+            self.zoom_offset = (self.zoom_offset - delta.x / spectrum_rect.width()).clamp(0.0, 1.0);
+        }
+        if response.hovered() {
+            let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
+            let shift = ui.input(|i| i.modifiers.shift);
+            if scroll_delta.y != 0.0 {
+                if shift {
+                    self.zoom_offset = (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
+                } else {
+                    self.zoom_factor = (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
+                }
             }
         }
 
@@ -449,12 +589,12 @@ impl SpectrumAnalyzer {
             );
         }
 
-        // Waterfall frequency labels
+        // Waterfall frequency labels (zoom-aware)
         let wf_painter = ui.painter();
         for i in 0..=n_grid {
-            let frac = i as f32 / n_grid as f32;
-            let x = wf_rect.left() + frac * wf_rect.width();
-            let offset_hz = -half_span + frac as f64 * self.sample_rate as f64;
+            let frac = i as f64 / n_grid as f64;
+            let x = wf_rect.left() + (frac as f32) * wf_rect.width();
+            let offset_hz = left_hz + frac * zoom_span;
             let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
             wf_painter.text(
                 egui::pos2(x, wf_rect.top() + 2.0),
@@ -467,7 +607,35 @@ impl SpectrumAnalyzer {
     }
 }
 
-fn waterfall_color(norm: f32) -> (u8, u8, u8) {
+fn color_map(cmap: ColorMap, t: f32) -> (u8, u8, u8) {
+    match cmap {
+        ColorMap::Classic => waterfall_color_classic(t),
+        ColorMap::Viridis => {
+            let r = (t * 255.0) as u8;
+            let g = ((1.0 - (t - 0.5).abs() * 2.0) * 255.0) as u8;
+            let b = ((1.0 - t) * 255.0) as u8;
+            (r, g, b)
+        }
+        ColorMap::Magma => {
+            let r = (t.powf(1.5) * 255.0) as u8;
+            let g = (t.powf(0.75) * (1.0 - t) * 255.0) as u8;
+            let b = ((1.0 - t).powf(1.5) * 255.0) as u8;
+            (r, g, b)
+        }
+        ColorMap::Grayscale => {
+            let v = (t * 255.0) as u8;
+            (v, v, v)
+        }
+        ColorMap::Hot => {
+            let r = (t * 3.0).min(1.0) * 255.0;
+            let g = ((t * 3.0 - 1.0).max(0.0).min(1.0)) * 255.0;
+            let b = ((t * 3.0 - 2.0).max(0.0).min(1.0)) * 255.0;
+            (r as u8, g as u8, b as u8)
+        }
+    }
+}
+
+fn waterfall_color_classic(norm: f32) -> (u8, u8, u8) {
     if norm < 0.15 {
         let t = norm / 0.15;
         (0, 0, (t * 80.0) as u8)

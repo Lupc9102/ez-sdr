@@ -55,16 +55,27 @@ impl SdrPanel {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("SDR Receiver");
 
-        // Big frequency display
+        // Big frequency display with fine/coarse tuning
         if let Ok(mut state) = self.shared.try_lock() {
             ui.horizontal(|ui| {
                 let mut freq_mhz = state.source.frequency_hz as f64 / 1e6;
-                ui.monospace(egui::RichText::new(format!("{:.3}", freq_mhz)).size(24.0).color(egui::Color32::from_rgb(52, 152, 219)));
+                ui.monospace(egui::RichText::new(format!("{:.6}", freq_mhz)).size(24.0).color(egui::Color32::from_rgb(52, 152, 219)));
                 ui.label(egui::RichText::new("MHz").size(14.0).color(egui::Color32::GRAY));
-                if ui.add(egui::DragValue::new(&mut freq_mhz).speed(0.01).range(0.5..=1770.0).suffix(" MHz"))
-                    .changed()
-                {
+                let is_dragging = ui.add(egui::DragValue::new(&mut freq_mhz).speed(0.0001).range(0.5..=1770.0).suffix(" MHz"));
+                if is_dragging.changed() || is_dragging.dragged() {
                     state.source.frequency_hz = (freq_mhz * 1e6) as u64;
+                }
+                if ui.small_button("-1M").clicked() {
+                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(1_000_000).max(500_000);
+                }
+                if ui.small_button("+1M").clicked() {
+                    state.source.frequency_hz = (state.source.frequency_hz + 1_000_000).min(1_770_000_000);
+                }
+                if ui.small_button("-100k").clicked() {
+                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(100_000).max(500_000);
+                }
+                if ui.small_button("+100k").clicked() {
+                    state.source.frequency_hz = (state.source.frequency_hz + 100_000).min(1_770_000_000);
                 }
             });
         }
@@ -133,9 +144,42 @@ impl SdrPanel {
 
         ui.separator();
 
-        // Filter and squelch
-        ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter bandwidth (Hz)").logarithmic(true));
-        ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)"));
+        // Frequency presets (band quick-tune)
+        ui.horizontal(|ui| {
+            ui.label("Bands:");
+            const BANDS: &[(&str, u64)] = &[
+                ("BC FM", 100_000_000),
+                ("Air", 118_000_000),
+                ("2m", 144_000_000),
+                ("70cm", 430_000_000),
+                ("NOAA 15", 137_620_000),
+                ("NOAA 18", 137_912_500),
+                ("NOAA 19", 137_100_000),
+                ("ISS", 145_800_000),
+            ];
+            if let Ok(mut state) = self.shared.try_lock() {
+                for (name, freq_hz) in BANDS {
+                    if ui.small_button(*name).clicked() {
+                        state.source.frequency_hz = *freq_hz;
+                    }
+                }
+            }
+        });
+
+        // Filter bandwidth and squelch
+        ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true));
+        if let Ok(mut state) = self.shared.try_lock() {
+            let cutoff = state.lpf_cutoff;
+            if ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true)).changed() {
+            }
+        }
+        if ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)")).changed()
+            || ui.input(|i| i.pointer.any_down())
+        {
+            if let Ok(mut state) = self.shared.try_lock() {
+                state.squelch = self.squelch;
+            }
+        }
 
         ui.separator();
 
