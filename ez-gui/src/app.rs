@@ -89,6 +89,7 @@ pub struct CentralApp {
     show_keyboard_help: bool,
     last_history_freq: u64,
     freq_history_idx: Option<usize>,
+    status_flash: Option<(String, std::time::Instant)>,
     recording_start: Option<std::time::Instant>,
     show_welcome: bool,
     bm_last_len: usize,
@@ -235,6 +236,7 @@ impl CentralApp {
                 state.source.frequency_hz
             },
             freq_history_idx: None,
+            status_flash: None,
             new_bm_name: String::new(),
             new_bm_freq_mhz: String::new(),
             new_bm_mode: "NFM".to_string(),
@@ -442,6 +444,17 @@ impl eframe::App for CentralApp {
                             }
                             break;
                         }
+                    }
+                }
+                // B: tune to nearest bookmark
+                if i.key_pressed(egui::Key::B) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    let cur = state.source.frequency_hz;
+                    let nearest = state.bookmarks.bookmarks.iter()
+                        .min_by_key(|b| (b.frequency_hz as i64 - cur as i64).unsigned_abs())
+                        .map(|bm| (bm.frequency_hz, bm.name.clone()));
+                    if let Some((freq, name)) = nearest {
+                        state.source.frequency_hz = freq;
+                        self.status_flash = Some((format!("⭐ {}", name), std::time::Instant::now()));
                     }
                 }
                 // [ / ] : frequency history back/forward
@@ -982,6 +995,16 @@ impl eframe::App for CentralApp {
                 };
                 ui.colored_label(badge_color, badge).on_hover_text(badge_tip);
             }
+            // Status flash (short-lived messages, e.g. "⭐ Bookmark name")
+            if let Some((msg, since)) = &self.status_flash {
+                if since.elapsed().as_secs_f32() < 3.0 {
+                    ui.separator();
+                    let alpha = ((3.0 - since.elapsed().as_secs_f32()) / 3.0 * 255.0) as u8;
+                    ui.colored_label(egui::Color32::from_rgba_unmultiplied(220, 200, 80, alpha), msg);
+                } else {
+                    self.status_flash = None;
+                }
+            }
         });
 
         // Reset layout button in status bar trailing area
@@ -1020,6 +1043,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("F"); ui.label("Freeze / unfreeze spectrum display"); ui.end_row();
                         ui.monospace("C"); ui.label("Cycle waterfall colormap (Classic→Viridis→Plasma→…)"); ui.end_row();
                         ui.monospace("V"); ui.label("Swap VFO A ↔ VFO B (quick frequency toggle)"); ui.end_row();
+                        ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
                         ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
                         ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
                         ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies + spectrum dB range + VFO B + waterfall range"); ui.end_row();
