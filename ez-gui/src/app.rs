@@ -101,7 +101,7 @@ impl CentralApp {
             spectrum: SpectrumAnalyzer::new(),
             config: AppConfig::load_or_default(),
             db: Database::open_or_create().unwrap(),
-            bookmarks: BookmarkDb::default(),
+            bookmarks: BookmarkDb::load_or_default(),
             scheduler: Scheduler::new(),
             tle: TleEngine::new(),
             demod_mode: crate::sdr_panel::DemodMode::Fm,
@@ -608,6 +608,18 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} bookmarks", bm_count));
                     ui.add(egui::TextEdit::singleline(self.bookmark_filter).hint_text("Filter...").desired_width(150.0));
+                    if ui.button("💾 Save").on_hover_text("Save all bookmarks to ez_sdr_bookmarks.json in the current directory.").clicked() {
+                        if let Ok(state) = self.shared.try_lock() {
+                            state.bookmarks.save();
+                        }
+                    }
+                    if ui.button("📂 Load").on_hover_text("Reload bookmarks from ez_sdr_bookmarks.json, replacing the current list.").clicked() {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            if let Some(loaded) = crate::bookmarks::BookmarkDb::load_saved() {
+                                state.bookmarks.bookmarks = loaded;
+                            }
+                        }
+                    }
                     if ui.button(if *self.show_add_bm { "✕ Cancel" } else { "+ Add" })
                         .on_hover_text("Add a new bookmark for the current or any frequency.")
                         .clicked()

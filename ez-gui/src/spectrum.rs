@@ -29,6 +29,9 @@ pub struct SpectrumAnalyzer {
     waterfall_dirty: bool,
     waterfall_every_n: u32,
     pub clicked_tune_freq: Option<u64>,
+    signal_history: std::collections::VecDeque<f32>,
+    signal_history_max: usize,
+    show_signal_history: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -103,6 +106,9 @@ impl SpectrumAnalyzer {
             waterfall_dirty: true,
             waterfall_every_n: 2,
             clicked_tune_freq: None,
+            signal_history: std::collections::VecDeque::new(),
+            signal_history_max: 600,
+            show_signal_history: false,
         }
     }
 
@@ -172,6 +178,14 @@ impl SpectrumAnalyzer {
                 self.peak_hold[i] = db;
             } else {
                 self.peak_hold[i] = 0.999 * self.peak_hold[i] + 0.001 * db;
+            }
+        }
+        // Record peak dB to signal history (every 10th frame to avoid overwhelming)
+        if self.frame_counter % 10 == 0 {
+            let peak = self.peak_level();
+            self.signal_history.push_back(peak);
+            if self.signal_history.len() > self.signal_history_max {
+                self.signal_history.pop_front();
             }
         }
     }
@@ -273,7 +287,46 @@ impl SpectrumAnalyzer {
                     self.waterfall_dirty = true;
                 }
             }
+            ui.separator();
+            ui.toggle_value(&mut self.show_signal_history, "📈 History")
+                .on_hover_text("Show a scrolling chart of peak signal strength over time. Useful for tracking intermittent signals.");
         });
+
+        // Signal history mini-chart
+        if self.show_signal_history && !self.signal_history.is_empty() {
+            let history_height = 60.0;
+            let (hist_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), history_height), egui::Sense::hover());
+            let painter = ui.painter();
+            painter.rect_filled(hist_rect, 0.0, egui::Color32::from_rgb(10, 10, 20));
+            let n = self.signal_history.len();
+            let min_v = self.display_min_db;
+            let max_v = self.display_max_db;
+            let range = (max_v - min_v).max(1.0);
+            let pts: Vec<egui::Pos2> = self.signal_history.iter().enumerate().map(|(i, &db)| {
+                let x = hist_rect.left() + (i as f32 / (self.signal_history_max as f32 - 1.0).max(1.0)) * hist_rect.width();
+                let norm = ((db - min_v) / range).clamp(0.0, 1.0);
+                let y = hist_rect.bottom() - norm * hist_rect.height();
+                egui::pos2(x, y)
+            }).collect();
+            if pts.len() > 1 {
+                let history_vec: Vec<f32> = self.signal_history.iter().cloned().collect();
+                for i in 0..pts.len() - 1 {
+                    let db = history_vec[i];
+                    let norm = ((db - min_v) / range).clamp(0.0, 1.0);
+                    let col = if norm > 0.7 { egui::Color32::GREEN }
+                        else if norm > 0.4 { egui::Color32::YELLOW }
+                        else { egui::Color32::from_rgb(100, 150, 200) };
+                    painter.line_segment([pts[i], pts[i + 1]], egui::Stroke::new(1.0, col));
+                }
+            }
+            // dB axis labels
+            painter.text(egui::pos2(hist_rect.right() - 2.0, hist_rect.top() + 2.0), egui::Align2::RIGHT_TOP,
+                format!("{:.0}dB", max_v), egui::FontId::monospace(9.0), egui::Color32::GRAY);
+            painter.text(egui::pos2(hist_rect.right() - 2.0, hist_rect.bottom() - 2.0), egui::Align2::RIGHT_BOTTOM,
+                format!("{:.0}dB", min_v), egui::FontId::monospace(9.0), egui::Color32::GRAY);
+            painter.text(egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0), egui::Align2::LEFT_TOP,
+                format!("Peak dB ({} pts)", n), egui::FontId::monospace(9.0), egui::Color32::DARK_GRAY);
+        }
 
         // Info bar
         ui.horizontal(|ui| {

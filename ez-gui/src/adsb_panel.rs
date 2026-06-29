@@ -11,6 +11,10 @@ pub struct AdsBPanel {
     pub aircraft_info: std::collections::HashMap<u32, AircraftInfo>,
     info_rx: std::sync::mpsc::Receiver<(u32, AircraftInfo)>,
     info_tx: std::sync::mpsc::Sender<(u32, AircraftInfo)>,
+    pub min_altitude_ft: u32,
+    pub max_altitude_ft: u32,
+    pub altitude_filter_enabled: bool,
+    pub max_age_secs: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +64,10 @@ impl AdsBPanel {
             aircraft_info: std::collections::HashMap::new(),
             info_rx,
             info_tx,
+            min_altitude_ft: 0,
+            max_altitude_ft: 60_000,
+            altitude_filter_enabled: false,
+            max_age_secs: 60,
         }
     }
 
@@ -127,6 +135,23 @@ impl AdsBPanel {
         });
 
         ui.separator();
+        // Filters
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.altitude_filter_enabled, "Alt filter")
+                .on_hover_text("Only show aircraft within the altitude range below.");
+            if self.altitude_filter_enabled {
+                ui.add(egui::DragValue::new(&mut self.min_altitude_ft).speed(500.0).range(0..=60_000).suffix(" ft min"))
+                    .on_hover_text("Minimum altitude to display (feet MSL).");
+                ui.add(egui::DragValue::new(&mut self.max_altitude_ft).speed(500.0).range(0..=100_000).suffix(" ft max"))
+                    .on_hover_text("Maximum altitude to display (feet MSL).");
+            }
+            ui.separator();
+            ui.label("Max age:").on_hover_text("Remove aircraft not heard for more than this many seconds.");
+            ui.add(egui::DragValue::new(&mut self.max_age_secs).speed(5.0).range(10..=600).suffix("s"))
+                .on_hover_text("Stale aircraft timeout in seconds. Default 60 s.");
+        });
+
+        ui.separator();
         ui.checkbox(&mut self.show_map, "Show map")
             .on_hover_text("Toggle the geographic map view. Aircraft are plotted as green dots using their GPS-reported latitude/longitude from ADS-B position messages.");
 
@@ -173,7 +198,11 @@ impl AdsBPanel {
             }
 
             // Plot aircraft
+            let map_now = std::time::Instant::now();
             for ac in &self.aircraft {
+                let age = map_now.duration_since(ac.seen).as_secs();
+                if age > self.max_age_secs { continue; }
+                if self.altitude_filter_enabled && (ac.altitude < self.min_altitude_ft || ac.altitude > self.max_altitude_ft) { continue; }
                 let x = rect.left() + ((ac.lon + 180.0) / 360.0) as f32 * rect.width();
                 let y = rect.top() + ((90.0 - ac.lat) / 180.0) as f32 * rect.height();
                 let color = if self.selected_icao == Some(ac.icao) { egui::Color32::from_rgb(0, 255, 255) } else { egui::Color32::GREEN };
@@ -217,8 +246,14 @@ impl AdsBPanel {
                 ui.end_row();
 
                 let now = std::time::Instant::now();
+                let max_age = self.max_age_secs;
+                let alt_filter = self.altitude_filter_enabled;
+                let min_alt = self.min_altitude_ft;
+                let max_alt = self.max_altitude_ft;
                 for ac in &self.aircraft {
                     let age = now.duration_since(ac.seen).as_secs();
+                    if age > max_age { continue; }
+                    if alt_filter && (ac.altitude < min_alt || ac.altitude > max_alt) { continue; }
                     ui.label(format!("{:06X}", ac.icao));
                     ui.label(&ac.callsign);
                     ui.label(format!("{}", ac.altitude));

@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 pub struct BookmarkDb {
     pub bookmarks: Vec<Bookmark>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bookmark {
     pub name: String,
     pub frequency_hz: u64,
@@ -45,6 +47,26 @@ impl Default for BookmarkDb {
                 Bookmark { name: "ISM 433".into(), frequency_hz: 433_920_000, mode: "RAW".into(), bandwidth_hz: 300_000, category: "IoT".into(), notes: "".into() },
             ],
         }
+    }
+}
+
+const BOOKMARKS_FILE: &str = "ez_sdr_bookmarks.json";
+
+impl BookmarkDb {
+    pub fn save(&self) {
+        if let Ok(json) = serde_json::to_string_pretty(&self.bookmarks) {
+            let _ = std::fs::write(BOOKMARKS_FILE, json);
+        }
+    }
+
+    pub fn load_saved() -> Option<Vec<Bookmark>> {
+        let s = std::fs::read_to_string(BOOKMARKS_FILE).ok()?;
+        serde_json::from_str(&s).ok()
+    }
+
+    pub fn load_or_default() -> Self {
+        let bookmarks = Self::load_saved().unwrap_or_else(|| Self::default().bookmarks);
+        Self { bookmarks }
     }
 }
 
