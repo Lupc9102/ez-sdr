@@ -40,6 +40,7 @@ pub struct SpectrumAnalyzer {
     show_vfo_bw: bool,
     pub scan_marker: Option<u64>,
     pub squelch_db: f32,
+    pub source_running: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -126,6 +127,7 @@ impl SpectrumAnalyzer {
             frozen: false,
             scan_marker: None,
             squelch_db: -120.0,
+            source_running: false,
         }
     }
 
@@ -326,6 +328,20 @@ impl SpectrumAnalyzer {
                     self.display_min_db = (cur_min - margin).max(-160.0);
                     self.display_max_db = (cur_max + margin).min(20.0);
                     self.waterfall_dirty = true;
+                }
+            }
+            ui.separator();
+            if ui.small_button("⊕ Peak").on_hover_text("Tune to the frequency with the strongest signal currently visible in the spectrum.").clicked() {
+                if !self.spectrum_dbs.is_empty() {
+                    let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                    let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+                    let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+                    let n = self.spectrum_dbs.len();
+                    let (peak_bin, _) = self.spectrum_dbs.iter().enumerate()
+                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                        .unwrap_or((0, &-120.0));
+                    let offset_hz = left_hz + (peak_bin as f64 / n as f64) * zoom_span;
+                    self.clicked_tune_freq = Some((self.center_freq as f64 + offset_hz) as u64);
                 }
             }
             ui.separator();
@@ -895,6 +911,22 @@ impl SpectrumAnalyzer {
                     egui::Color32::from_rgba_premultiplied(0, 220, 220, 200),
                 );
             }
+        }
+
+        // Empty-state overlay when no SDR source is running
+        if !self.source_running {
+            let center = spectrum_rect.center();
+            let msg = "No SDR source running";
+            let hint = "Go to the SDR tab → Start, or use Demo mode to explore.";
+            painter.rect_filled(
+                egui::Rect::from_center_size(center, egui::vec2(340.0, 52.0)),
+                6.0,
+                egui::Color32::from_rgba_premultiplied(10, 10, 20, 200),
+            );
+            painter.text(center - egui::vec2(0.0, 10.0), egui::Align2::CENTER_CENTER, msg,
+                egui::FontId::proportional(15.0), egui::Color32::from_rgb(200, 200, 200));
+            painter.text(center + egui::vec2(0.0, 12.0), egui::Align2::CENTER_CENTER, hint,
+                egui::FontId::proportional(10.0), egui::Color32::from_gray(130));
         }
 
         // Click-to-tune, zoom, and markers on spectrum

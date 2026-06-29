@@ -1006,6 +1006,8 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     };
                     // Squelch threshold line
                     state.spectrum.squelch_db = state.squelch;
+                    // Source running state (for empty-state overlay)
+                    state.spectrum.source_running = state.source.status == crate::source_manager::SourceStatus::Running;
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;
@@ -1071,6 +1073,16 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             } else {
                                 *self.bm_import_msg = err;
                             }
+                        }
+                    }
+                    if ui.small_button("A→Z").on_hover_text("Sort all bookmarks alphabetically by name within each category.").clicked() {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            state.bookmarks.bookmarks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                        }
+                    }
+                    if ui.small_button("Hz↑").on_hover_text("Sort all bookmarks by frequency (lowest first) within each category.").clicked() {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            state.bookmarks.bookmarks.sort_by_key(|b| b.frequency_hz);
                         }
                     }
                     if ui.button(if *self.show_add_bm { "✕ Cancel" } else { "+ Add" })
