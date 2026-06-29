@@ -405,6 +405,11 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::F) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.frozen = !state.spectrum.frozen;
                 }
+                // C: cycle waterfall colormap
+                if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    use crate::spectrum::ColorMap;
+                    state.spectrum.cycle_colormap();
+                }
                 // [ / ] : frequency history back/forward
                 if i.key_pressed(egui::Key::OpenBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let hist: Vec<u64> = state.freq_history.iter().cloned().collect();

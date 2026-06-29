@@ -162,6 +162,18 @@ impl SpectrumAnalyzer {
         self.waterfall_dirty = true;
     }
 
+    pub fn cycle_colormap(&mut self) {
+        self.color_map = match self.color_map {
+            ColorMap::Classic   => ColorMap::Viridis,
+            ColorMap::Viridis   => ColorMap::Plasma,
+            ColorMap::Plasma    => ColorMap::Magma,
+            ColorMap::Magma     => ColorMap::Hot,
+            ColorMap::Hot       => ColorMap::Grayscale,
+            ColorMap::Grayscale => ColorMap::Classic,
+        };
+        self.waterfall_dirty = true;
+    }
+
     pub fn signal_level(&self) -> f32 {
         if self.spectrum_dbs.is_empty() { return -120.0; }
         let sum: f32 = self.spectrum_dbs.iter().sum();
