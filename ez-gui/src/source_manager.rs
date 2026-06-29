@@ -339,10 +339,21 @@ impl SourceManager {
         if self.source_mode != SourceMode::Replay {
             ui.horizontal(|ui| {
                 ui.label("Gain:");
-                ui.add(egui::Slider::new(&mut self.gain_db, 0.0..=49.6).step_by(0.1).text("dB").custom_formatter(|v, _| format!("{:.1} dB", v)));
-                if ui.button("Auto").clicked() {
-                    self.gain_db = 0.0;
-                }
+                ui.add(egui::Slider::new(&mut self.gain_db, 0.0..=49.6).step_by(0.1).text("dB").custom_formatter(|v, _| format!("{:.1} dB", v)))
+                    .on_hover_text("RF gain in dB. RTL-SDR range: 0–49.6 dB in 0.9 dB steps.");
+                ui.horizontal(|ui| {
+                    for (label, val, tip) in [
+                        ("Auto", 0.0, "Automatic gain control (AGC). Good starting point but can overload with strong signals."),
+                        ("Low", 15.0, "~15 dB — use near strong transmitters to avoid overload / intermodulation."),
+                        ("Med", 30.0, "~30 dB — good general-purpose starting point for most setups."),
+                        ("High", 40.0, "~40 dB — use for weak signals: satellites, distant stations. Watch for overload."),
+                        ("Max", 49.6, "49.6 dB maximum gain. Only use with weak signals and quiet RF environment."),
+                    ] {
+                        if ui.small_button(label).on_hover_text(tip).clicked() {
+                            self.gain_db = val;
+                        }
+                    }
+                });
             });
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.bias_tee, "Bias Tee (4.5V)");

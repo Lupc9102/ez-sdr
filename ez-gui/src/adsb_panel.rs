@@ -16,6 +16,8 @@ pub struct AdsBPanel {
     pub altitude_filter_enabled: bool,
     pub max_age_secs: u64,
     pub callsign_filter: String,
+    pub show_trails: bool,
+    aircraft_trails: std::collections::HashMap<u32, std::collections::VecDeque<(f64, f64)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +72,8 @@ impl AdsBPanel {
             altitude_filter_enabled: false,
             max_age_secs: 60,
             callsign_filter: String::new(),
+            show_trails: true,
+            aircraft_trails: std::collections::HashMap::new(),
         }
     }
 
@@ -136,6 +140,16 @@ impl AdsBPanel {
             }
         });
 
+        // Update aircraft trails
+        for ac in &self.aircraft {
+            if ac.lat == 0.0 && ac.lon == 0.0 { continue; }
+            let trail = self.aircraft_trails.entry(ac.icao).or_insert_with(std::collections::VecDeque::new);
+            if trail.back().map(|&(lat, lon)| (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001).unwrap_or(true) {
+                trail.push_back((ac.lat, ac.lon));
+                if trail.len() > 30 { trail.pop_front(); }
+            }
+        }
+
         ui.separator();
         // Filters
         ui.horizontal(|ui| {
@@ -160,8 +174,14 @@ impl AdsBPanel {
         });
 
         ui.separator();
-        ui.checkbox(&mut self.show_map, "Show map")
-            .on_hover_text("Toggle the geographic map view. Aircraft are plotted as green dots using their GPS-reported latitude/longitude from ADS-B position messages.");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.show_map, "Show map")
+                .on_hover_text("Toggle the geographic map view. Aircraft are plotted as green dots using their GPS-reported latitude/longitude from ADS-B position messages.");
+            if self.show_map {
+                ui.checkbox(&mut self.show_trails, "Trails")
+                    .on_hover_text("Show the last 30 position reports as a trail behind each aircraft.");
+            }
+        });
 
         if self.show_map {
             // Pseudo-map: render aircraft as dots
@@ -203,6 +223,26 @@ impl AdsBPanel {
                     [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
                     egui::Stroke::new(0.5, egui::Color32::from_rgb(30, 50, 30)),
                 );
+            }
+
+            // Plot trails
+            if self.show_trails {
+                for (icao, trail) in &self.aircraft_trails {
+                    if trail.len() < 2 { continue; }
+                    let trail_color = if self.selected_icao == Some(*icao) {
+                        egui::Color32::from_rgba_unmultiplied(0, 200, 255, 120)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(50, 200, 50, 80)
+                    };
+                    let pts: Vec<egui::Pos2> = trail.iter().map(|&(lat, lon)| {
+                        let tx = rect.left() + ((lon + 180.0) / 360.0) as f32 * rect.width();
+                        let ty = rect.top() + ((90.0 - lat) / 180.0) as f32 * rect.height();
+                        egui::pos2(tx, ty)
+                    }).collect();
+                    for w in pts.windows(2) {
+                        painter.line_segment([w[0], w[1]], egui::Stroke::new(1.0, trail_color));
+                    }
+                }
             }
 
             // Plot aircraft

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -60,6 +61,7 @@ pub struct SharedState {
     pub lpf_cutoff: f32,
     pub fm_deviation_hz: f32,
     pub audio_peak: f32,
+    pub freq_history: VecDeque<u64>,
 }
 
 pub struct CentralApp {
@@ -84,6 +86,7 @@ pub struct CentralApp {
     last_auto_tuned_satellite: String,
     bookmark_filter: String,
     show_keyboard_help: bool,
+    last_history_freq: u64,
     // New-bookmark form state
     new_bm_name: String,
     new_bm_freq_mhz: String,
@@ -118,6 +121,7 @@ impl CentralApp {
             lpf_cutoff: 15000.0,
             fm_deviation_hz: 0.0,
             audio_peak: 0.0,
+            freq_history: VecDeque::with_capacity(20),
         }));
 
         let mut web_remote = WebRemote::new();
@@ -145,6 +149,8 @@ impl CentralApp {
             state.source.start();
             state.tle.observer_lat = state.config.observer_lat;
             state.tle.observer_lon = state.config.observer_lon;
+            let init_freq = state.source.frequency_hz;
+            state.freq_history.push_back(init_freq);
         }
 
         let mut dock_state = DockState::new(vec![
@@ -182,6 +188,10 @@ impl CentralApp {
             last_auto_tuned_satellite: String::new(),
             bookmark_filter: String::new(),
             show_keyboard_help: false,
+            last_history_freq: {
+                let state = shared.lock().unwrap();
+                state.source.frequency_hz
+            },
             new_bm_name: String::new(),
             new_bm_freq_mhz: String::new(),
             new_bm_mode: "NFM".to_string(),
@@ -287,6 +297,20 @@ impl eframe::App for CentralApp {
                 }
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     state.source.frequency_hz = state.source.frequency_hz.saturating_sub(100_000).max(500_000);
+                }
+                // F1-F6: select demod mode
+                if i.key_pressed(egui::Key::F1) { state.demod_mode = crate::sdr_panel::DemodMode::Raw; }
+                if i.key_pressed(egui::Key::F2) { state.demod_mode = crate::sdr_panel::DemodMode::Am; }
+                if i.key_pressed(egui::Key::F3) { state.demod_mode = crate::sdr_panel::DemodMode::Fm; }
+                if i.key_pressed(egui::Key::F4) { state.demod_mode = crate::sdr_panel::DemodMode::Wfm; }
+                if i.key_pressed(egui::Key::F5) { state.demod_mode = crate::sdr_panel::DemodMode::Lsb; }
+                if i.key_pressed(egui::Key::F6) { state.demod_mode = crate::sdr_panel::DemodMode::Usb; }
+                // R: toggle recording
+                if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl {
+                    if state.recording {
+                        state.recording = false;
+                    }
+                    // Note: actual start_recording() is handled by recorder_panel via state.recording
                 }
             }
         });
@@ -434,6 +458,20 @@ impl eframe::App for CentralApp {
                 self.mqtt.publish_passes(&passes);
                 if !self.adsb_panel.aircraft.is_empty() {
                     self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
+                }
+            }
+        }
+
+        // Track frequency changes for history
+        if let Ok(mut state) = self.shared.try_lock() {
+            let freq = state.source.frequency_hz;
+            if freq != self.last_history_freq {
+                self.last_history_freq = freq;
+                if state.freq_history.back() != Some(&freq) {
+                    state.freq_history.push_back(freq);
+                    if state.freq_history.len() > 20 {
+                        state.freq_history.pop_front();
+                    }
                 }
             }
         }
