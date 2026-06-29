@@ -403,6 +403,21 @@ impl eframe::App for CentralApp {
         // Repaint rate: 30fps when active, 1fps when idle (saves CPU on battery)
         ctx.request_repaint_after(Duration::from_millis(if sample_batch.is_empty() { 1000 } else { 33 }));
 
+        // Dynamic window title: show current frequency so it's visible in taskbar
+        {
+            if let Ok(state) = self.shared.try_lock() {
+                let freq_mhz = state.source.frequency_hz as f64 / 1e6;
+                let mode = state.demod_mode.label();
+                let running = state.source.status == crate::source_manager::SourceStatus::Running;
+                let title = if running {
+                    format!("EZ-SDR — {:.3} MHz {} ▶", freq_mhz, mode)
+                } else {
+                    format!("EZ-SDR — {:.3} MHz {} ■", freq_mhz, mode)
+                };
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+            }
+        }
+
         // Start/stop audio based on state (once only, no retry storm)
         {
             if let Ok(state) = self.shared.try_lock() {
