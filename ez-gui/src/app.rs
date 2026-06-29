@@ -390,8 +390,28 @@ impl eframe::App for CentralApp {
                         state.source.gain_db = gain_db;
                     }
                 }
+                RemoteCommand::SetDemod { mode } => {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        use crate::sdr_panel::DemodMode;
+                        if let Some(dm) = DemodMode::from_label(&mode) {
+                            state.demod_mode = dm;
+                        }
+                    }
+                }
+                RemoteCommand::SetSquelch { db } => {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.squelch = db;
+                    }
+                }
+                RemoteCommand::SetVolume { level } => {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.volume = level.clamp(0.0, 1.0);
+                    }
+                }
                 RemoteCommand::StartRecord => self.recorder_panel.start_recording(),
                 RemoteCommand::StopRecord => self.recorder_panel.stop_recording(),
+                RemoteCommand::StartScan => self.scanner.start(),
+                RemoteCommand::StopScan => self.scanner.stop(),
             }
         }
 
@@ -488,7 +508,14 @@ impl eframe::App for CentralApp {
             let gain = state.source.gain_db;
             let ac_count = self.adsb_panel.aircraft.len();
             let passes = state.tle.upcoming_passes().to_vec();
-            self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes);
+            let squelch = state.squelch;
+            let volume = state.volume;
+            let recording = state.recording;
+            let scanner_active = self.scanner.enabled;
+            let peak = state.spectrum.peak_level();
+            let noise = state.spectrum.noise_floor();
+            let snr = peak - noise;
+            self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes, squelch, volume, recording, scanner_active, snr);
             if self.last_scheduler_update.elapsed().as_secs() < 1 {
                 self.mqtt.tick(freq, gain);
                 self.mqtt.publish_passes(&passes);
