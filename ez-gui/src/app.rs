@@ -762,8 +762,13 @@ impl eframe::App for CentralApp {
                 ui.small(if running { "Running" } else { "Stopped" })
                     .on_hover_text("SDR source status indicator.");
                 ui.separator();
-                ui.monospace(format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6))
-                    .on_hover_text("Center tuned frequency. Use arrow keys or SDR panel to change. RTL-SDR range: 24–1766 MHz.");
+                let freq_str = format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6);
+                let freq_resp = ui.add(egui::Label::new(egui::RichText::new(&freq_str).monospace())
+                    .sense(egui::Sense::click()))
+                    .on_hover_text("Click to copy frequency to clipboard. Use arrow keys or SDR panel to change. RTL-SDR range: 24–1766 MHz.");
+                if freq_resp.clicked() {
+                    ui.ctx().copy_text(format!("{:.6}", state.source.frequency_hz as f64 / 1e6));
+                }
                 ui.separator();
                 ui.small(format!("{} · {:.1} MSps", state.demod_mode.label(), state.source.sample_rate_hz as f64 / 1e6))
                     .on_hover_text("Active demodulation mode and sample rate in megasamples per second. Higher sample rates show wider spectrum but use more CPU.");
@@ -1145,8 +1150,13 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                         ui.label(&bm.name);
                                         ui.monospace(bm.freq_display());
                                         ui.small(&bm.mode);
+                                        let tune_tip = if bm.notes.is_empty() {
+                                            format!("Tune to {} and switch to {} mode", bm.freq_display(), bm.mode)
+                                        } else {
+                                            format!("Tune to {} and switch to {} mode\n{}", bm.freq_display(), bm.mode, bm.notes)
+                                        };
                                         if ui.small_button("Tune")
-                                            .on_hover_text(format!("Tune to {} and switch to {} mode", bm.freq_display(), bm.mode))
+                                            .on_hover_text(tune_tip)
                                             .clicked()
                                         {
                                             if let Ok(mut state) = self.shared.try_lock() {
@@ -1232,6 +1242,92 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
 
                 ui.separator();
                 ui.label(egui::RichText::new("Upcoming Satellite Passes").strong());
+
+                // Visual timeline: 24-hour bar with pass blocks
+                {
+                    let tl_h = 28.0;
+                    let (tl_rect, tl_resp) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), tl_h),
+                        egui::Sense::hover(),
+                    );
+                    let painter = ui.painter();
+                    painter.rect_filled(tl_rect, 2.0, egui::Color32::from_rgb(8, 8, 18));
+
+                    let today_start = (now_unix as u64).saturating_sub((now_unix as u64) % 86400) as f64;
+                    let day_span = 86400.0f64;
+
+                    // Hour marks
+                    for h in 0..=24 {
+                        let frac = h as f32 / 24.0;
+                        let x = tl_rect.left() + frac * tl_rect.width();
+                        painter.line_segment(
+                            [egui::pos2(x, tl_rect.top()), egui::pos2(x, tl_rect.bottom())],
+                            egui::Stroke::new(0.4, egui::Color32::from_rgba_premultiplied(60, 60, 80, 100)),
+                        );
+                        if h % 4 == 0 {
+                            painter.text(
+                                egui::pos2(x + 2.0, tl_rect.top() + 1.0),
+                                egui::Align2::LEFT_TOP,
+                                format!("{:02}", h),
+                                egui::FontId::proportional(7.0),
+                                egui::Color32::from_gray(90),
+                            );
+                        }
+                    }
+
+                    // Pass blocks (color-coded by satellite index)
+                    let pass_colors = [
+                        egui::Color32::from_rgb(52, 152, 219),
+                        egui::Color32::from_rgb(46, 204, 113),
+                        egui::Color32::from_rgb(241, 196, 15),
+                        egui::Color32::from_rgb(155, 89, 182),
+                        egui::Color32::from_rgb(231, 76, 60),
+                    ];
+                    let hover_x = tl_resp.hover_pos().map(|p| p.x);
+                    let mut hovered_job: Option<&crate::scheduler::ScheduledJob> = None;
+                    for (i, job) in jobs.iter().enumerate() {
+                        let aos_frac = ((job.aos_dt - today_start) / day_span).clamp(0.0, 1.0) as f32;
+                        let los_frac = ((job.los_dt - today_start) / day_span).clamp(0.0, 1.0) as f32;
+                        if los_frac <= aos_frac { continue; }
+                        let x1 = tl_rect.left() + aos_frac * tl_rect.width();
+                        let x2 = tl_rect.left() + los_frac * tl_rect.width();
+                        let col = pass_colors[i % pass_colors.len()];
+                        let block = egui::Rect::from_x_y_ranges(x1..=x2, (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0));
+                        painter.rect_filled(block, 1.0, col.linear_multiply(0.7));
+                        // Border via two filled rects (left/right edges)
+                        painter.rect_filled(egui::Rect::from_x_y_ranges(x1..=(x1 + 1.0), (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0)), 0.0, col);
+                        painter.rect_filled(egui::Rect::from_x_y_ranges((x2 - 1.0)..=x2, (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0)), 0.0, col);
+                        if x2 - x1 > 16.0 {
+                            painter.text(
+                                egui::pos2((x1 + x2) / 2.0, tl_rect.center().y),
+                                egui::Align2::CENTER_CENTER,
+                                &job.satellite,
+                                egui::FontId::proportional(7.0),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                        if let Some(hx) = hover_x {
+                            if hx >= x1 && hx <= x2 {
+                                hovered_job = Some(job);
+                            }
+                        }
+                    }
+
+                    // Current time marker
+                    let now_frac = ((now_unix - today_start) / day_span).clamp(0.0, 1.0) as f32;
+                    let now_x = tl_rect.left() + now_frac * tl_rect.width();
+                    painter.line_segment(
+                        [egui::pos2(now_x, tl_rect.top()), egui::pos2(now_x, tl_rect.bottom())],
+                        egui::Stroke::new(1.2, egui::Color32::from_rgb(255, 80, 80)),
+                    );
+
+                    // Tooltip for hovered pass
+                    if let Some(job) = hovered_job {
+                        let tip = format!("{}\nAOS: {}  LOS: {}\n{:.3} MHz", job.satellite, job.aos, job.los, job.frequency_hz as f64 / 1e6);
+                        tl_resp.on_hover_text(tip);
+                    }
+                }
+
                 if jobs.is_empty() {
                     ui.label(egui::RichText::new("No upcoming passes (update TLE data in Satellite tab).").color(egui::Color32::GRAY));
                 } else {

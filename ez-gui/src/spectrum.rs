@@ -688,6 +688,26 @@ impl SpectrumAnalyzer {
             }
         }
 
+        // Animated noise floor indicator
+        {
+            let nf = self.noise_floor();
+            let nf_norm = ((nf - min_db) / range).clamp(0.0, 1.0);
+            let nf_y = spectrum_rect.bottom() - nf_norm * spectrum_height;
+            let t = (self.frame_counter as f32 * 0.04).sin() * 0.4 + 0.6;
+            let alpha = (t * 90.0) as u8;
+            painter.line_segment(
+                [egui::pos2(spectrum_rect.left(), nf_y), egui::pos2(spectrum_rect.right(), nf_y)],
+                egui::Stroke::new(0.7, egui::Color32::from_rgba_premultiplied(80, 80, 210, alpha)),
+            );
+            painter.text(
+                egui::pos2(spectrum_rect.left() + 4.0, nf_y - 2.0),
+                egui::Align2::LEFT_BOTTOM,
+                format!("▸ noise {:.0} dB", nf),
+                egui::FontId::proportional(7.5),
+                egui::Color32::from_rgba_premultiplied(80, 100, 210, alpha),
+            );
+        }
+
         // Mouse hover readout
         if let Some(pointer) = response.hover_pos() {
             self.hover_pos = Some(pointer);
@@ -961,6 +981,28 @@ impl SpectrumAnalyzer {
                 egui::FontId::proportional(8.0),
                 egui::Color32::from_rgba_premultiplied(180, 180, 180, 160),
             );
+        }
+
+        // Bookmark markers on waterfall
+        if self.show_bookmarks {
+            for (bm_freq, bm_name) in &self.bookmark_freqs {
+                let offset_hz = *bm_freq as f64 - self.center_freq as f64;
+                let frac = (offset_hz - left_hz) / zoom_span;
+                if (0.0..=1.0).contains(&frac) {
+                    let x = wf_rect.left() + frac as f32 * wf_rect.width();
+                    wf_painter.line_segment(
+                        [egui::pos2(x, wf_rect.top()), egui::pos2(x, wf_rect.bottom())],
+                        egui::Stroke::new(0.7, egui::Color32::from_rgba_premultiplied(255, 215, 0, 90)),
+                    );
+                    wf_painter.text(
+                        egui::pos2(x + 2.0, wf_rect.top() + 14.0),
+                        egui::Align2::LEFT_TOP,
+                        bm_name.as_str(),
+                        egui::FontId::proportional(7.0),
+                        egui::Color32::from_rgba_premultiplied(255, 215, 0, 130),
+                    );
+                }
+            }
         }
 
         // Waterfall click-to-tune

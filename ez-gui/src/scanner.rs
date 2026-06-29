@@ -33,6 +33,8 @@ pub struct FrequencyScanner {
     pub last_export_msg: String,
     scan_start_time: Option<Instant>,
     total_hits_logged: u64,
+    pub hit_flash: u32,
+    show_histogram: bool,
 }
 
 impl FrequencyScanner {
@@ -59,6 +61,8 @@ impl FrequencyScanner {
             last_export_msg: String::new(),
             scan_start_time: None,
             total_hits_logged: 0,
+            hit_flash: 0,
+            show_histogram: true,
         }
     }
 
@@ -161,6 +165,7 @@ impl FrequencyScanner {
                 }
                 self.hits.push(hit);
                 self.total_hits_logged += 1;
+                self.hit_flash = 45;
                 if self.hits.len() > self.max_hits {
                     self.hits.remove(0);
                 }
@@ -340,6 +345,16 @@ impl FrequencyScanner {
 
         ui.separator();
         ui.horizontal(|ui| {
+            // Flash badge on new hit
+            if self.hit_flash > 0 {
+                let alpha = ((self.hit_flash as f32 / 45.0) * 220.0) as u8;
+                ui.colored_label(
+                    egui::Color32::from_rgba_premultiplied(46, 204, 113, alpha),
+                    "● HIT!",
+                ).on_hover_text("A new signal was just detected above the threshold!");
+                self.hit_flash = self.hit_flash.saturating_sub(1);
+                ui.separator();
+            }
             ui.label(format!("Signals: {}", self.hits.len()))
                 .on_hover_text("Total unique signal hits currently in the table (limited to max_hits).");
             if let Some(start) = self.scan_start_time {
@@ -349,7 +364,73 @@ impl FrequencyScanner {
                 ui.label(format!("Rate: {:.1}/min", rate))
                     .on_hover_text("Number of new signal hits detected per minute since the scan started. High rate = active or noisy band; low rate = quiet band.");
             }
+            ui.separator();
+            ui.toggle_value(&mut self.show_histogram, "📊 Histogram")
+                .on_hover_text("Show a bar chart of signal hits distributed across the scan range.");
         });
+
+        // Hits strength histogram
+        if self.show_histogram && !self.hits.is_empty() {
+            let hist_h = 50.0;
+            let (hist_rect, _) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), hist_h),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter();
+            painter.rect_filled(hist_rect, 2.0, egui::Color32::from_rgb(8, 8, 16));
+
+            let span = self.stop_hz.saturating_sub(self.start_hz).max(1) as f64;
+            let n_buckets = 60usize;
+            let mut buckets = vec![-120.0f32; n_buckets];
+            for hit in &self.hits {
+                let pos = hit.freq_hz.saturating_sub(self.start_hz) as f64;
+                let bucket = ((pos / span) * n_buckets as f64) as usize;
+                let bucket = bucket.min(n_buckets - 1);
+                if hit.strength_db > buckets[bucket] {
+                    buckets[bucket] = hit.strength_db;
+                }
+            }
+            let min_db_h = self.threshold_db - 10.0;
+            let max_db_h = (self.hits.iter().map(|h| h.strength_db).fold(-120.0f32, f32::max) + 5.0).max(min_db_h + 10.0);
+            let db_range = (max_db_h - min_db_h).max(1.0);
+            let bar_w = hist_rect.width() / n_buckets as f32;
+            for (i, &db) in buckets.iter().enumerate() {
+                if db <= min_db_h { continue; }
+                let norm = ((db - min_db_h) / db_range).clamp(0.0, 1.0);
+                let bar_h = norm * hist_h;
+                let x = hist_rect.left() + i as f32 * bar_w;
+                let bar_rect = egui::Rect::from_min_size(
+                    egui::pos2(x + 0.5, hist_rect.bottom() - bar_h),
+                    egui::vec2(bar_w - 1.0, bar_h),
+                );
+                let col = if db > -20.0 { egui::Color32::from_rgb(46, 204, 113) }
+                    else if db > -40.0 { egui::Color32::from_rgb(241, 196, 15) }
+                    else { egui::Color32::from_rgb(200, 120, 50) };
+                painter.rect_filled(bar_rect, 0.0, col);
+            }
+            // Threshold line
+            let thresh_norm = ((self.threshold_db - min_db_h) / db_range).clamp(0.0, 1.0);
+            let thresh_y = hist_rect.bottom() - thresh_norm * hist_h;
+            painter.line_segment(
+                [egui::pos2(hist_rect.left(), thresh_y), egui::pos2(hist_rect.right(), thresh_y)],
+                egui::Stroke::new(0.6, egui::Color32::from_rgba_premultiplied(231, 76, 60, 150)),
+            );
+            painter.text(
+                egui::pos2(hist_rect.right() - 2.0, thresh_y - 2.0),
+                egui::Align2::RIGHT_BOTTOM,
+                format!("thr {:.0}", self.threshold_db),
+                egui::FontId::proportional(7.5),
+                egui::Color32::from_rgba_premultiplied(231, 76, 60, 180),
+            );
+            // Labels
+            painter.text(
+                egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0),
+                egui::Align2::LEFT_TOP,
+                format!("Signal strength histogram  {:.3}–{:.3} MHz", self.start_hz as f64 / 1e6, self.stop_hz as f64 / 1e6),
+                egui::FontId::proportional(7.5),
+                egui::Color32::DARK_GRAY,
+            );
+        }
 
         let hit_color = |db: f32| -> egui::Color32 {
             if db > -20.0 { egui::Color32::GREEN }
