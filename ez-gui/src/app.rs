@@ -95,6 +95,7 @@ pub struct CentralApp {
     new_bm_category: String,
     new_bm_error: String,
     show_add_bm: bool,
+    bm_import_msg: String,
 }
 
 impl CentralApp {
@@ -200,6 +201,7 @@ impl CentralApp {
             new_bm_category: "Custom".to_string(),
             new_bm_error: String::new(),
             show_add_bm: false,
+            bm_import_msg: String::new(),
         }
     }
 }
@@ -459,6 +461,12 @@ impl eframe::App for CentralApp {
         if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {
                 state.config.needs_apply = false;
+                // Apply theme
+                if state.config.theme == "light" {
+                    ctx.set_visuals(egui::Visuals::light());
+                } else {
+                    ctx.set_visuals(egui::Visuals::dark());
+                }
                 state.source.frequency_hz = state.config.default_freq_hz;
                 state.source.sample_rate_hz = state.config.default_sample_rate;
                 state.source.gain_db = state.config.default_gain;
@@ -547,6 +555,7 @@ impl eframe::App for CentralApp {
                 new_bm_category: &mut self.new_bm_category,
                 new_bm_error: &mut self.new_bm_error,
                 show_add_bm: &mut self.show_add_bm,
+                bm_import_msg: &mut self.bm_import_msg,
             });
 
         // Status bar
@@ -684,6 +693,7 @@ struct TabViewer<'a> {
     new_bm_category: &'a mut String,
     new_bm_error: &'a mut String,
     show_add_bm: &'a mut bool,
+    bm_import_msg: &'a mut String,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -750,6 +760,30 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         if let Ok(mut state) = self.shared.try_lock() {
                             if let Some(loaded) = crate::bookmarks::BookmarkDb::load_saved() {
                                 state.bookmarks.bookmarks = loaded;
+                            }
+                        }
+                    }
+                    if ui.button("📥 Import CSV").on_hover_text("Import bookmarks from a CSV file (columns: name,frequency_hz,mode,category). Appends to current list.").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().add_filter("CSV", &["csv"]).pick_file() {
+                            if let Some(path_str) = path.to_str() {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    let (count, err) = state.bookmarks.import_csv(path_str);
+                                    if err.is_empty() {
+                                        *self.bm_import_msg = format!("Imported {} bookmarks.", count);
+                                    } else {
+                                        *self.bm_import_msg = err;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if ui.button("📤 Export CSV").on_hover_text("Export all bookmarks to a timestamped CSV file in the current directory.").clicked() {
+                        if let Ok(state) = self.shared.try_lock() {
+                            let (path, err) = state.bookmarks.export_csv();
+                            if err.is_empty() {
+                                *self.bm_import_msg = format!("Exported to {}", path);
+                            } else {
+                                *self.bm_import_msg = err;
                             }
                         }
                     }
@@ -822,6 +856,10 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             }
                         }
                     });
+                }
+
+                if !self.bm_import_msg.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(100, 220, 100), self.bm_import_msg.as_str());
                 }
 
                 ui.separator();

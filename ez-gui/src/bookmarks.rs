@@ -70,6 +70,71 @@ impl BookmarkDb {
     }
 }
 
+impl BookmarkDb {
+    /// Import bookmarks from a CSV file.
+    /// Expected columns: name,frequency_hz,mode,category (header row optional)
+    /// Returns (imported count, error message)
+    pub fn import_csv(&mut self, path: &str) -> (usize, String) {
+        let content = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => return (0, format!("Read error: {}", e)),
+        };
+        let mut count = 0;
+        for (i, line) in content.lines().enumerate() {
+            let parts: Vec<&str> = line.splitn(4, ',').collect();
+            if parts.len() < 2 { continue; }
+            // Skip header row
+            if i == 0 && parts[0].eq_ignore_ascii_case("name") { continue; }
+            let name = parts[0].trim().trim_matches('"').to_string();
+            let freq_str = parts[1].trim().trim_matches('"');
+            let freq_hz: u64 = match freq_str.parse() {
+                Ok(v) => v,
+                Err(_) => {
+                    // Try MHz
+                    match freq_str.parse::<f64>() {
+                        Ok(v) if v < 10_000.0 => (v * 1_000_000.0) as u64,
+                        _ => continue,
+                    }
+                }
+            };
+            let mode = parts.get(2).map(|s| s.trim().trim_matches('"')).unwrap_or("NFM").to_string();
+            let category = parts.get(3).map(|s| s.trim().trim_matches('"')).unwrap_or("Imported").to_string();
+            self.bookmarks.push(Bookmark {
+                name,
+                frequency_hz: freq_hz,
+                mode,
+                bandwidth_hz: 12_500,
+                category,
+                notes: String::new(),
+            });
+            count += 1;
+        }
+        (count, String::new())
+    }
+
+    /// Export bookmarks to CSV. Returns (path, error)
+    pub fn export_csv(&self) -> (String, String) {
+        let filename = format!("ez_sdr_bookmarks_{}.csv",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0));
+        let mut csv = String::from("name,frequency_hz,mode,category,notes\n");
+        for bm in &self.bookmarks {
+            csv.push_str(&format!("{},{},{},{},{}\n",
+                bm.name.replace(',', ";"),
+                bm.frequency_hz,
+                bm.mode,
+                bm.category.replace(',', ";"),
+                bm.notes.replace(',', ";")));
+        }
+        match std::fs::write(&filename, &csv) {
+            Ok(_) => (filename, String::new()),
+            Err(e) => (String::new(), format!("Export failed: {}", e)),
+        }
+    }
+}
+
 impl Bookmark {
     pub fn freq_display(&self) -> String {
         if self.frequency_hz >= 1_000_000_000 {

@@ -46,6 +46,9 @@ image = "0.25"
 # MQTT
 rumqttc = "0.24"
 
+# File picker
+rfd = "0.15"
+
 # Misc
 fs2 = "0.4"
 native-tls = { version = "0.2", features = ["vendored"] }

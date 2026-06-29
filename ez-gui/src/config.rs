@@ -239,6 +239,18 @@ impl AppConfig {
                     .on_hover_text("TCP port for the web remote. Default 5259. Open http://localhost:5259 in a browser.");
             });
 
+            ui.collapsing("Appearance", |ui| {
+                ui.label("Theme:").on_hover_text("Switch between dark and light UI themes.");
+                ui.horizontal(|ui| {
+                    for t in &["dark", "light"] {
+                        if ui.selectable_label(&self.theme == *t, *t).clicked() {
+                            self.theme = t.to_string();
+                            self.needs_apply = true;
+                        }
+                    }
+                });
+            });
+
             ui.collapsing("Satellite Observer Location", |ui| {
                 ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
                     .on_hover_text("Your latitude in decimal degrees. North positive. Used to predict satellite pass times.");
