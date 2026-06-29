@@ -488,6 +488,21 @@ impl SdrPanel {
             }
         });
 
+        // Frequency identification
+        if let Ok(state) = self.shared.try_lock() {
+            let freq = state.source.frequency_hz;
+            if let Some(info) = identify_frequency(freq) {
+                ui.separator();
+                ui.collapsing(format!("📻 {} — {}", info.band, info.short_desc), |ui| {
+                    ui.label(egui::RichText::new(info.detail).color(egui::Color32::from_rgb(200, 200, 200)));
+                    if !info.tips.is_empty() {
+                        ui.add_space(2.0);
+                        ui.label(egui::RichText::new(format!("💡 {}", info.tips)).small().color(egui::Color32::GRAY));
+                    }
+                });
+            }
+        }
+
         ui.separator();
 
         // Source controls
@@ -495,6 +510,114 @@ impl SdrPanel {
             state.source.ui(ui);
         }
     }
+}
+
+struct FreqIdInfo {
+    band: &'static str,
+    short_desc: &'static str,
+    detail: &'static str,
+    tips: &'static str,
+}
+
+fn identify_frequency(freq_hz: u64) -> Option<FreqIdInfo> {
+    let entries: &[(u64, u64, &str, &str, &str, &str)] = &[
+        (150_000,   500_000,   "LF/MF",         "Long & medium wave",
+            "AM broadcast (MW), maritime beacons, time signals (DCF77/MSF).",
+            "Use AM demod. Long-wave AM goes down to 150 kHz. DCF77 at 77.5 kHz carries atomic time."),
+        (1_800_000, 3_500_000, "160m HF Amateur","Amateur 160m (Top Band)",
+            "CW at 1.8 MHz, voice SSB from 1.84 MHz. Very long-range at night.",
+            "Use LSB for voice, CW mode for Morse. Best reception after dark."),
+        (3_500_000, 4_000_000, "80m HF Amateur", "Amateur 80m band",
+            "Busy night band — CW, SSB voice, digital modes. Excellent DX at night.",
+            "Use LSB. Expect crowded frequencies especially 3.5–3.8 MHz."),
+        (7_000_000, 7_300_000, "40m HF Amateur", "Amateur 40m band",
+            "CW and digital 7.0–7.07, SSB 7.1–7.3. Strong DX day and night.",
+            "LSB below 10 MHz. FT8 digital at 7.074 MHz is very busy."),
+        (10_000_000, 10_150_000, "30m HF Amateur", "Amateur 30m band",
+            "CW and digital only. FT8 at 10.136 MHz. No phone allowed.",
+            "USB. Narrow band — good for digital modes like FT8/FT4."),
+        (14_000_000, 14_350_000, "20m HF Amateur", "Amateur 20m band",
+            "Most popular HF amateur band. Excellent DX any time of day.",
+            "USB above 10 MHz. FT8 at 14.074 MHz. SSB voice from 14.150 MHz."),
+        (21_000_000, 21_450_000, "15m HF Amateur", "Amateur 15m band",
+            "Good daytime DX, especially solar maximum. Opens to distant DX.",
+            "USB. FT8 at 21.074 MHz. Active during day."),
+        (24_890_000, 24_990_000, "12m HF Amateur", "Amateur 12m band",
+            "Near full shortwave for DX. Best near solar maximum.",
+            "USB. FT8 at 24.915 MHz."),
+        (26_965_000, 27_405_000, "CB (Citizens Band)", "CB radio — 40 channels AM",
+            "Truckers, 4x4 off-road, short-range comms. Channel 19 = 27.185 MHz trucker net.",
+            "AM demod. Ch9 (27.065 MHz) is emergency channel. USB is used for DX on some channels."),
+        (28_000_000, 29_700_000, "10m HF Amateur", "Amateur 10m band",
+            "Excellent when solar cycle is active. Worldwide DX with modest antennas.",
+            "USB. FT8 at 28.074 MHz. CW at 28.0–28.070 MHz."),
+        (50_000_000, 54_000_000, "6m Amateur",    "Amateur 6m 'magic band'",
+            "VHF sporadic-E propagation — can provide continent-wide DX unexpectedly.",
+            "USB for voice/FT8. Known for surprise openings with low power."),
+        (88_000_000, 108_000_000, "FM Broadcast", "Commercial FM radio (88–108 MHz)",
+            "Stereo music, news, talk radio. RDS data embedded. WFM demod, wide 200 kHz BW.",
+            "WFM mode, BW ~200 kHz. Many SDRs receive RDS text alongside audio."),
+        (108_000_000, 118_000_000, "VOR/ILS",     "Aviation navigation aids",
+            "VHF Omni-directional Range (VOR) and Instrument Landing System. Not voice.",
+            "AM demod. These are navigation signals — you'll hear a morse identifier and tone."),
+        (118_000_000, 137_000_000, "Aviation VHF", "Air Traffic Control (ATC)",
+            "ATC talking to aircraft. Approach, ground, tower, ATIS, centre frequencies.",
+            "AM demod. ATIS (airport weather) are automated — listen for your local airport."),
+        (137_000_000, 138_000_000, "NOAA Satellites","Weather satellite downlinks",
+            "NOAA 15/18/19 send APT image data at 137.5/137.9/137.1 MHz. Visible passes only.",
+            "WFM 34 kHz BW. Use SDR# or NOAA-APT software to decode the image."),
+        (144_000_000, 148_000_000, "Amateur 2m",   "2-meter amateur radio band",
+            "Most active VHF amateur band. FM repeaters, simplex, satellite links, weak-signal.",
+            "NFM for voice. 144.0–144.1 MHz CW/SSB DX. 144.390 MHz is APRS."),
+        (150_000_000, 156_000_000, "Land Mobile",  "Public safety, utilities, business",
+            "Police, fire, taxis, railways. Mix of NFM voice and digital (DMR, P25).",
+            "NFM. Digital signals sound like fast data/buzzing — need separate decoder."),
+        (156_000_000, 174_000_000, "Marine VHF",   "Maritime communications",
+            "Channel 16 (156.8 MHz) = international distress and hailing. Working channels 17–28.",
+            "NFM. DSC digital safety calls on Ch70 (156.525 MHz)."),
+        (162_400_000, 162_600_000, "NOAA WX Radio","US NOAA Weather Radio",
+            "7 channels of continuous weather broadcasts, warnings, forecasts.",
+            "WFM or NFM. Automated voice — very strong signal near transmitters."),
+        (406_000_000, 406_100_000, "EPIRB/PLB",    "Emergency distress beacons (406 MHz)",
+            "EPIRB and PLB satellite-linked emergency beacons. Narrow digital bursts.",
+            "NFM. Should be silent unless a genuine emergency — do not transmit here."),
+        (420_000_000, 450_000_000, "Amateur 70cm",  "70-centimeter amateur band",
+            "FM repeaters, weak-signal EME, ATV, digital modes. Most active: 430–440 MHz.",
+            "NFM for voice repeaters. 432.1 MHz SSB weak-signal DX. 433.0 MHz simplex."),
+        (433_000_000, 435_000_000, "ISM 433 MHz",  "License-free ISM devices",
+            "Car key fobs, wireless doorbells, weather stations, cheap sensors.",
+            "NFM or RAW. Short OOK/FSK bursts — decode with rtl_433 tool."),
+        (450_000_000, 470_000_000, "UHF LMR",      "UHF land mobile radio",
+            "Business, public safety, taxis, transport. Mix of FM voice and digital.",
+            "NFM. DMR, P25, NXDN digital systems sound like buzzing/data bursts."),
+        (890_000_000, 960_000_000, "GSM 900",      "2G cellular (GSM)",
+            "Legacy 2G voice/SMS. Uplink 890–915 MHz, downlink 935–960 MHz.",
+            "RAW — encrypted. You'll see signal but can't decode content legally."),
+        (1_090_000_000, 1_090_000_000, "ADS-B",    "Aircraft position transponders",
+            "ADS-B 1090ES — aircraft broadcast position, altitude, speed. 1 second updates.",
+            "Use the ADS-B tab in ez-sdr! RAW mode + 2.4 MSps. Works at 1090 ±1 MHz."),
+        (1_215_000_000, 1_240_000_000, "L-band Radar","Radar altimeters, navigation",
+            "Radar altimeters and L-band surveillance radars. Pulsed signals.",
+            "RAW. Short bursts visible in the waterfall."),
+        (1_525_000_000, 1_559_000_000, "L-band Sat","L-band satellite downlinks",
+            "Inmarsat/Iridium voice, AERO aviation data, SCADA, MSS phones.",
+            "WFM/NFM. Inmarsat AERO at 1.5465 GHz carries ATC/aircraft data."),
+        (1_559_000_000, 1_610_000_000, "GPS/GNSS",  "GPS/GALILEO/GLONASS signals",
+            "Navigation satellite signals. Very weak broadband BPSK. L1 at 1575.42 MHz.",
+            "RAW with wide BW. Use dedicated GPS software — too weak for audio."),
+        (1_626_000_000, 1_661_000_000, "Iridium",   "Iridium satellite phones",
+            "Iridium NEXT LEO satellite constellation. Burst data, voice, IoT links.",
+            "RAW or WFM. Bursts every ~90 seconds when satellites pass."),
+        (1_694_000_000, 1_700_000_000, "GOES Sat",  "GOES weather satellite downlinks",
+            "GOES-16/17/18 East/West at 1694.1 MHz: HRIT full-disk weather images.",
+            "RAW, needs 2+ MSps and special decoder (goestools/SatDump)."),
+    ];
+    for &(lo, hi, band, short_desc, detail, tips) in entries {
+        if freq_hz >= lo && freq_hz <= hi.max(lo) {
+            return Some(FreqIdInfo { band, short_desc, detail, tips });
+        }
+    }
+    None
 }
 
 /// Returns (suggested_mode, band_name, reason) if the frequency matches a well-known band
