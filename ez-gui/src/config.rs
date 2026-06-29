@@ -287,6 +287,30 @@ impl AppConfig {
                     *self = Self::default();
                     self.needs_apply = true;
                 }
+                if ui.button("📤 Export…").on_hover_text("Export config to a custom file path via file dialog.").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_file_name("ez_sdr_config_backup.json")
+                        .add_filter("JSON", &["json"])
+                        .save_file()
+                    {
+                        if let Ok(json) = serde_json::to_string_pretty(self) {
+                            let _ = std::fs::write(&path, json);
+                        }
+                    }
+                }
+                if ui.button("📥 Import…").on_hover_text("Load config from a previously exported JSON file.").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .pick_file()
+                    {
+                        if let Ok(data) = std::fs::read_to_string(&path) {
+                            if let Ok(loaded) = serde_json::from_str::<AppConfig>(&data) {
+                                *self = loaded;
+                                self.needs_apply = true;
+                            }
+                        }
+                    }
+                }
             });
             ui.colored_label(
                 egui::Color32::GRAY,
