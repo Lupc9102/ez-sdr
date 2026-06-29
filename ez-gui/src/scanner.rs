@@ -8,7 +8,6 @@ pub struct SignalHit {
     pub freq_hz: u64,
     pub strength_db: f32,
     pub timestamp: Instant,
-    pub peak_db: f32,
 }
 
 pub struct FrequencyScanner {
@@ -93,7 +92,6 @@ impl FrequencyScanner {
                 freq_hz: self.current_freq_hz,
                 strength_db: spectrum_peak_db,
                 timestamp: now,
-                peak_db: spectrum_peak_db,
             };
             self.hits.push(hit);
             if self.hits.len() > self.max_hits {

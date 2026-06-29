@@ -169,9 +169,7 @@ impl SdrPanel {
         // Filter bandwidth and squelch
         ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true));
         if let Ok(mut state) = self.shared.try_lock() {
-            let cutoff = state.lpf_cutoff;
-            if ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true)).changed() {
-            }
+            ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true));
         }
         if ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)")).changed()
             || ui.input(|i| i.pointer.any_down())
