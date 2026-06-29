@@ -71,41 +71,66 @@ impl BookmarkDb {
 }
 
 impl BookmarkDb {
-    /// Import bookmarks from a CSV file.
-    /// Expected columns: name,frequency_hz,mode,category (header row optional)
+    /// Import bookmarks from a CSV file (columns: name,frequency_hz,mode,category,notes or bandwidth_hz).
+    /// Skips rows with frequency already in the list. Header row auto-detected.
     /// Returns (imported count, error message)
     pub fn import_csv(&mut self, path: &str) -> (usize, String) {
         let content = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => return (0, format!("Read error: {}", e)),
         };
+        let existing_freqs: std::collections::HashSet<u64> = self.bookmarks.iter().map(|b| b.frequency_hz).collect();
         let mut count = 0;
-        for (i, line) in content.lines().enumerate() {
-            let parts: Vec<&str> = line.splitn(4, ',').collect();
-            if parts.len() < 2 { continue; }
-            // Skip header row
-            if i == 0 && parts[0].eq_ignore_ascii_case("name") { continue; }
-            let name = parts[0].trim().trim_matches('"').to_string();
-            let freq_str = parts[1].trim().trim_matches('"');
-            let freq_hz: u64 = match freq_str.parse() {
-                Ok(v) => v,
-                Err(_) => {
-                    // Try MHz
-                    match freq_str.parse::<f64>() {
-                        Ok(v) if v < 10_000.0 => (v * 1_000_000.0) as u64,
-                        _ => continue,
-                    }
+        let mut header: Option<Vec<String>> = None;
+        for line in content.lines() {
+            let trim = line.trim();
+            if trim.is_empty() { continue; }
+            let parts: Vec<String> = trim.split(',').map(|s| s.trim().trim_matches('"').to_string()).collect();
+            if parts.is_empty() { continue; }
+
+            // Detect header row
+            if header.is_none() {
+                if parts[0].eq_ignore_ascii_case("name") || parts[0].eq_ignore_ascii_case("frequency_hz") {
+                    header = Some(parts.iter().map(|s| s.to_lowercase()).collect());
+                    continue;
                 }
+                // No header — use positional: name,frequency_hz,mode,category,notes
+                header = Some(vec!["name".into(), "frequency_hz".into(), "mode".into(), "category".into(), "notes".into()]);
+            }
+
+            let col = |name: &str| -> Option<&str> {
+                header.as_ref()?.iter().position(|h| h == name)
+                    .and_then(|i| parts.get(i))
+                    .map(|s| s.as_str())
+                    .filter(|s| !s.is_empty())
             };
-            let mode = parts.get(2).map(|s| s.trim().trim_matches('"')).unwrap_or("NFM").to_string();
-            let category = parts.get(3).map(|s| s.trim().trim_matches('"')).unwrap_or("Imported").to_string();
+
+            let freq_str = col("frequency_hz").unwrap_or("");
+            let freq_hz: u64 = if let Ok(v) = freq_str.parse::<u64>() {
+                v
+            } else if let Ok(v) = freq_str.parse::<f64>() {
+                if v < 10_000.0 { (v * 1_000_000.0) as u64 } else { v as u64 }
+            } else {
+                continue;
+            };
+
+            if existing_freqs.contains(&freq_hz) { continue; }
+
+            let name = col("name").unwrap_or("Imported").to_string();
+            let mode = col("mode").unwrap_or("NFM").to_string();
+            let category = col("category").unwrap_or("Imported").to_string();
+            let notes = col("notes").unwrap_or("").to_string();
+            let bandwidth_hz: u32 = col("bandwidth_hz")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(12_500);
+
             self.bookmarks.push(Bookmark {
                 name,
                 frequency_hz: freq_hz,
                 mode,
-                bandwidth_hz: 12_500,
+                bandwidth_hz,
                 category,
-                notes: String::new(),
+                notes,
             });
             count += 1;
         }
