@@ -838,8 +838,18 @@ impl eframe::App for CentralApp {
                     self.recording_start = None;
                 }
                 if self.audio.is_running() {
-                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "🔊 Audio")
-                        .on_hover_text("Audio is playing through your speakers/headphones. Use Vol slider or Stop Audio in the SDR panel.");
+                    let audio_peak = state.audio_peak;
+                    let (audio_color, audio_label) = if audio_peak > 0.95 {
+                        (egui::Color32::from_rgb(231, 76, 60), "🔊 CLIP")
+                    } else {
+                        (egui::Color32::from_rgb(100, 200, 255), "🔊 Audio")
+                    };
+                    ui.colored_label(audio_color, audio_label)
+                        .on_hover_text(format!(
+                            "Audio playing at {:.0}% level. {}",
+                            (audio_peak * 100.0).min(100.0),
+                            if audio_peak > 0.95 { "⚠ Clipping — reduce volume in the SDR panel." } else { "Use Vol slider in the SDR panel to adjust." }
+                        ));
                 }
                 // Squelch-blocked indicator
                 {
