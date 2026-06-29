@@ -96,6 +96,10 @@ impl SdrPanel {
                 if ui.small_button("⭐").on_hover_text("Bookmark this frequency — saves it to your bookmarks list with the current mode.").clicked() {
                     self.bookmark_request = Some((bm_freq, bm_mode));
                 }
+                let copy_freq_str = format!("{:.6}", bm_freq as f64 / 1e6);
+                if ui.small_button("📋").on_hover_text("Copy current frequency (MHz) to clipboard.").clicked() {
+                    ui.ctx().copy_text(copy_freq_str);
+                }
             });
         }
         // Direct frequency entry

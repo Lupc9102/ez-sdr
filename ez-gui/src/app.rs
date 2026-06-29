@@ -374,6 +374,10 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::M) {
                     state.audio_running = !state.audio_running;
                 }
+                // Ctrl+S: save config
+                if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
+                    state.config.save();
+                }
             }
         });
 
@@ -788,6 +792,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("F5"); ui.label("Demod: LSB"); ui.end_row();
                         ui.monospace("F6"); ui.label("Demod: USB"); ui.end_row();
                         ui.monospace("M"); ui.label("Toggle audio on/off"); ui.end_row();
+                        ui.monospace("Ctrl+S"); ui.label("Save settings"); ui.end_row();
                         ui.monospace("?"); ui.label("Toggle this help"); ui.end_row();
                         ui.monospace("Left-click (spectrum)"); ui.label("Tune to clicked frequency"); ui.end_row();
                         ui.monospace("Right-click (spectrum)"); ui.label("Context menu (bookmark, marker, zoom reset…)"); ui.end_row();
@@ -1119,6 +1124,32 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     None => return,
                 };
                 ui.heading("Scheduler");
+
+                // Next event countdown summary
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64())
+                    .unwrap_or(0.0);
+                let next_pass = jobs.first();
+                let next_task = custom_tasks.iter().filter(|t| !t.fired && t.at_unix > now_unix)
+                    .min_by(|a, b| a.at_unix.partial_cmp(&b.at_unix).unwrap_or(std::cmp::Ordering::Equal));
+                if let Some(job) = next_pass {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(100, 180, 255),
+                        format!("Next pass: {} at {} ({})", job.satellite, job.aos, job.los),
+                    ).on_hover_text("Next satellite pass scheduled. Enable Auto-tune below to tune automatically.");
+                } else if next_task.is_none() {
+                    ui.colored_label(egui::Color32::GRAY, "No upcoming events. Add a custom task below or update TLE data in the Satellite tab.");
+                }
+                if let Some(task) = next_task {
+                    let secs = (task.at_unix - now_unix).max(0.0) as u64;
+                    let countdown = if secs < 60 { format!("{}s", secs) } else { format!("{}m {}s", secs / 60, secs % 60) };
+                    ui.colored_label(
+                        egui::Color32::from_rgb(241, 196, 15),
+                        format!("Next task: '{}' at {:.3} MHz — fires in {}", task.label, task.frequency_hz as f64 / 1e6, countdown),
+                    );
+                }
+                ui.add_space(4.0);
 
                 // Auto-tune toggle
                 let mut auto = auto_tune;

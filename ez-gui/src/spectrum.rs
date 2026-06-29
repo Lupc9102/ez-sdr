@@ -267,7 +267,8 @@ impl SpectrumAnalyzer {
                 self.zoom_offset = 0.5;
             }
             if self.zoom_factor > 1.0 {
-                ui.label(format!("{:.0}x", self.zoom_factor));
+                ui.colored_label(egui::Color32::from_rgb(100, 180, 255), format!("🔍 {:.0}x", self.zoom_factor))
+                    .on_hover_text("Current zoom level. Click '1x' to reset. Scroll on the spectrum to zoom in/out.");
             }
             ui.separator();
             ui.label("dB range:").on_hover_text("Adjust the visible dB range on the spectrum plot. Drag the Floor/Ceil values to zoom in on a particular signal level.");
