@@ -108,6 +108,32 @@ impl SdrPanel {
                 }
             });
         }
+        // VFO A/B swap
+        if let Ok(mut state) = self.shared.try_lock() {
+            let vfo_b_mhz = state.vfo_b as f64 / 1e6;
+            let cur_mhz = state.source.frequency_hz as f64 / 1e6;
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("VFO A").strong().color(egui::Color32::from_rgb(52, 200, 100)));
+                ui.monospace(format!("{:.3} MHz", cur_mhz));
+                ui.separator();
+                ui.label(egui::RichText::new("VFO B").color(egui::Color32::from_rgb(100, 180, 255)));
+                ui.monospace(format!("{:.3} MHz", vfo_b_mhz));
+                if ui.small_button("⇄ Swap")
+                    .on_hover_text("Swap between VFO A and VFO B frequencies (keyboard: V). VFO B stores an alternate frequency for quick A/B comparison.")
+                    .clicked()
+                {
+                    let tmp = state.source.frequency_hz;
+                    state.source.frequency_hz = state.vfo_b;
+                    state.vfo_b = tmp;
+                }
+                if ui.small_button("Set B here")
+                    .on_hover_text("Save current frequency as VFO B without switching.")
+                    .clicked()
+                {
+                    state.vfo_b = state.source.frequency_hz;
+                }
+            });
+        }
         // Direct frequency entry
         ui.horizontal(|ui| {
             ui.label("Go to:").on_hover_text("Type a frequency and press Enter to jump. Examples: 145.5 (MHz), 145500000 (Hz), 145500k (kHz).");

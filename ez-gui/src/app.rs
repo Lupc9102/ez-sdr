@@ -62,6 +62,7 @@ pub struct SharedState {
     pub fm_deviation_hz: f32,
     pub audio_peak: f32,
     pub freq_history: VecDeque<u64>,
+    pub vfo_b: u64,
 }
 
 pub struct CentralApp {
@@ -139,6 +140,7 @@ impl CentralApp {
             fm_deviation_hz: 0.0,
             audio_peak: 0.0,
             freq_history: VecDeque::with_capacity(20),
+            vfo_b: 0,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -164,6 +166,7 @@ impl CentralApp {
             state.source.sample_rate_hz = state.config.default_sample_rate;
             state.source.gain_db = state.config.default_gain;
             state.source.ppm_correction = state.config.ppm_correction;
+            state.vfo_b = if state.config.vfo_b_hz > 0 { state.config.vfo_b_hz } else { state.config.default_freq_hz };
             state.source.start();
             state.tle.observer_lat = state.config.observer_lat;
             state.tle.observer_lon = state.config.observer_lon;
@@ -401,6 +404,7 @@ impl eframe::App for CentralApp {
                     state.config.spectrum_min_db = min_db;
                     state.config.spectrum_max_db = max_db;
                     state.config.ppm_correction = state.source.ppm_correction;
+                    state.config.vfo_b_hz = state.vfo_b;
                     state.config.save();
                 }
                 // F: freeze/unfreeze spectrum
@@ -410,6 +414,12 @@ impl eframe::App for CentralApp {
                 // C: cycle waterfall colormap
                 if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.cycle_colormap();
+                }
+                // V: swap VFO A/B
+                if i.key_pressed(egui::Key::V) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    let tmp = state.source.frequency_hz;
+                    state.source.frequency_hz = state.vfo_b;
+                    state.vfo_b = tmp;
                 }
                 // [ / ] : frequency history back/forward
                 if i.key_pressed(egui::Key::OpenBracket) && !i.modifiers.ctrl && !i.modifiers.alt {

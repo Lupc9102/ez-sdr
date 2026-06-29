@@ -52,6 +52,8 @@ pub struct AppConfig {
     pub spectrum_max_db: f32,
     #[serde(default)]
     pub ppm_correction: i32,
+    #[serde(default)]
+    pub vfo_b_hz: u64,
 }
 
 impl Default for AppConfig {
@@ -82,6 +84,7 @@ impl Default for AppConfig {
             spectrum_min_db: -120.0,
             spectrum_max_db: 0.0,
             ppm_correction: 0,
+            vfo_b_hz: 0,
         }
     }
 }
