@@ -41,6 +41,8 @@ pub struct SpectrumAnalyzer {
     pub scan_marker: Option<u64>,
     pub squelch_db: f32,
     pub source_running: bool,
+    pub pending_squelch_db: Option<f32>,
+    ctx_menu_pos: Option<egui::Pos2>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -128,6 +130,8 @@ impl SpectrumAnalyzer {
             scan_marker: None,
             squelch_db: -120.0,
             source_running: false,
+            pending_squelch_db: None,
+            ctx_menu_pos: None,
         }
     }
 
@@ -482,7 +486,7 @@ impl SpectrumAnalyzer {
         let waterfall_height = avail.y * 0.65;
 
         // Spectrum plot
-        let (spectrum_rect, response) = ui.allocate_exact_size(egui::vec2(avail.x, spectrum_height), egui::Sense::hover());
+        let (spectrum_rect, response) = ui.allocate_exact_size(egui::vec2(avail.x, spectrum_height), egui::Sense::click());
         let painter = ui.painter();
         painter.rect_filled(spectrum_rect, 0.0, egui::Color32::from_rgb(8, 8, 14));
 
@@ -929,6 +933,11 @@ impl SpectrumAnalyzer {
                 egui::FontId::proportional(10.0), egui::Color32::from_gray(130));
         }
 
+        // Capture right-click position for context menu squelch action
+        if response.secondary_clicked() {
+            self.ctx_menu_pos = response.hover_pos();
+        }
+
         // Click-to-tune, zoom, and markers on spectrum
         if response.clicked() {
             if let Some(pointer) = response.hover_pos() {
@@ -969,6 +978,21 @@ impl SpectrumAnalyzer {
                 if ui.button("⭐ Bookmark this frequency").clicked() {
                     self.pending_bookmark_freq = Some(freq);
                     ui.close();
+                }
+                if ui.button("📋 Copy frequency").clicked() {
+                    ui.ctx().copy_text(format!("{:.4}", freq_mhz));
+                    ui.close();
+                }
+            }
+            // "Set squelch here" based on stored hover position
+            if let Some(pos) = self.ctx_menu_pos {
+                if spectrum_rect.contains(pos) {
+                    let y_frac = 1.0 - ((pos.y - spectrum_rect.top()) / spectrum_rect.height()).clamp(0.0, 1.0);
+                    let db_at = min_db + y_frac * range;
+                    if ui.button(format!("🔒 Set squelch to {:.0} dB", db_at)).clicked() {
+                        self.pending_squelch_db = Some(db_at);
+                        ui.close();
+                    }
                 }
             }
             ui.separator();

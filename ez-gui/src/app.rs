@@ -1041,6 +1041,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             notes: String::new(),
                         });
                     }
+                    if let Some(sq) = state.spectrum.pending_squelch_db.take() {
+                        state.squelch = sq;
+                    }
                 }
             }
             Tab::Satellite => self.satellite.ui(ui),
