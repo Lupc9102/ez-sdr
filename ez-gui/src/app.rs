@@ -19,6 +19,7 @@ use crate::sdr_panel::SdrPanel;
 use crate::source_manager::SourceManager;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
+use crate::howto_panel::HowToPanel;
 use crate::web_remote::{RemoteCommand, WebRemote};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -33,6 +34,7 @@ pub enum Tab {
     Bookmarks,
     Scheduler,
     Settings,
+    HowTo,
 }
 
 pub struct SharedState {
@@ -66,6 +68,7 @@ pub struct CentralApp {
     adsb_panel: AdsBPanel,
     recorder_panel: RecorderPanel,
     ai_panel: AiPanel,
+    howto_panel: HowToPanel,
     web_remote: WebRemote,
     mqtt: MqttPublisher,
     demod: Demodulator,
@@ -140,6 +143,7 @@ impl CentralApp {
             Tab::AdsB,
             Tab::Recorder,
             Tab::AiAgent,
+            Tab::HowTo,
         ]);
 
         let surface = SurfaceIndex::main();
@@ -153,6 +157,7 @@ impl CentralApp {
             adsb_panel: AdsBPanel::new(shared.clone()),
             recorder_panel: RecorderPanel::new(shared.clone()),
             ai_panel: AiPanel::new(shared.clone()),
+            howto_panel: HowToPanel::new(),
             web_remote,
             mqtt,
             demod: Demodulator::new(),
@@ -421,6 +426,7 @@ impl eframe::App for CentralApp {
                 recorder: &mut self.recorder_panel,
                 scanner: &mut self.scanner,
                 ai: &mut self.ai_panel,
+                howto: &mut self.howto_panel,
                 bookmark_filter: &mut self.bookmark_filter,
             });
 
@@ -504,6 +510,7 @@ struct TabViewer<'a> {
     recorder: &'a mut RecorderPanel,
     scanner: &'a mut crate::scanner::FrequencyScanner,
     ai: &'a mut AiPanel,
+    howto: &'a mut HowToPanel,
     bookmark_filter: &'a mut String,
 }
 
@@ -522,6 +529,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Bookmarks => "Bookmarks".into(),
             Tab::Scheduler => "Scheduler".into(),
             Tab::Settings => "Settings".into(),
+            Tab::HowTo => "How To".into(),
         }
     }
 
@@ -541,6 +549,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Recorder => self.recorder.ui(ui),
             Tab::Scanner => self.scanner.ui(ui),
             Tab::AiAgent => self.ai.ui(ui),
+            Tab::HowTo => self.howto.ui(ui),
             Tab::Bookmarks => {
                 let snapshot = match &self.snapshot {
                     Some(s) => s,
