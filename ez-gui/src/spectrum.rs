@@ -4,6 +4,7 @@ use rustfft::{FftPlanner, Fft};
 use std::sync::Arc;
 
 pub struct SpectrumAnalyzer {
+    pub frozen: bool,
     fft_size: usize,
     waterfall_history: usize,
     waterfall_pixels: Vec<Vec<u8>>,
@@ -120,6 +121,7 @@ impl SpectrumAnalyzer {
             show_bookmarks: true,
             vfo_bw_hz: 15000,
             show_vfo_bw: true,
+            frozen: false,
         }
     }
 
@@ -162,7 +164,7 @@ impl SpectrumAnalyzer {
     }
 
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
-        if iq.len() < 2 { return; }
+        if self.frozen || iq.len() < 2 { return; }
         let fft = match &self.fft {
             Some(f) => f,
             None => return,
@@ -283,6 +285,13 @@ impl SpectrumAnalyzer {
             if self.display_min_db >= self.display_max_db - 10.0 {
                 self.display_min_db = self.display_max_db - 10.0;
                 self.waterfall_dirty = true;
+            }
+            ui.separator();
+            let freeze_label = if self.frozen { "❄ Frozen" } else { "❄ Freeze" };
+            if ui.toggle_value(&mut self.frozen, freeze_label)
+                .on_hover_text("Freeze the spectrum and waterfall display. Useful to examine a signal in detail without the display updating.")
+                .clicked() && !self.frozen {
+                // unfreeze: clear peak hold too
             }
             ui.separator();
             ui.toggle_value(&mut self.show_vfo_bw, "VFO BW")
