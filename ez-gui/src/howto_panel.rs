@@ -594,8 +594,12 @@ impl HowToPanel {
         ui.label("Tune to any frequency within your hardware's range. You can:");
         ui.label("  •  Type a MHz value directly in the frequency box");
         ui.label("  •  Use the up/down spinner arrows");
+        ui.label("  •  Press the ±10k buttons for fine-step tuning (+10 kHz / −10 kHz per press)");
         ui.label("  •  Press ↑/↓ for ±1 MHz, ←/→ for ±100 kHz (from anywhere in the app)");
-        ui.label("  •  Click anywhere on the Spectrum display to instantly tune there");
+        ui.label("  •  Click anywhere on the Spectrum or Waterfall display to instantly tune there");
+        ui.label("  •  Click any entry in the 'Recent:' row to return to a previously-visited frequency");
+        ui.label("  •  Press 📋 to copy the current frequency to the clipboard");
+        Self::tip(ui, "The Recent row shows your last 8 tuned frequencies as quick-access buttons. Useful for switching between two or three signals you're monitoring.");
 
         ui.add_space(10.0);
         Self::h2(ui, "Sample rate");
@@ -627,11 +631,60 @@ impl HowToPanel {
         ui.add_space(10.0);
         Self::h2(ui, "Squelch");
         ui.label("Cuts audio output when signal level is below the threshold — silences static between transmissions. Adjust the slider until static stops but voice/signal still comes through.");
-        Self::tip(ui, "Squelch threshold varies by band. Re-adjust whenever you change frequency. A good starting point: set squelch ~5 dB above the noise floor.");
+        egui::Grid::new("squelch_btns").num_columns(2).striped(true).show(ui, |ui| {
+            for (btn, desc) in &[
+                ("Auto",  "Automatically sets squelch to noise floor + 5 dB — a safe starting point for most signals."),
+                ("Off",   "Disables squelch entirely (−120 dB). Audio plays at all times. Useful for testing."),
+            ] {
+                ui.monospace(*btn);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+        Self::tip(ui, "Use 'Auto' first, then fine-tune the slider if needed. Re-adjust whenever you change frequency.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Demodulation mode buttons");
+        ui.label("Each mode button shows a bandwidth hint in its label (e.g. 'NFM 12.5k'). This reminds you how wide the audio bandwidth is, which is important for signal identification:");
+        egui::Grid::new("demod_bw_hint").num_columns(2).striped(true).show(ui, |ui| {
+            for (mode, bw) in &[
+                ("WFM 200k", "Wideband FM — for broadcast FM radio stations (88–108 MHz)."),
+                ("NFM 12.5k", "Narrowband FM — most voice (police, amateur, business radio)."),
+                ("AM 8 kHz", "Amplitude modulation — aviation voice, AM broadcast."),
+                ("USB/LSB 2.4k", "Single sideband — amateur HF, maritime. Select USB for > 10 MHz, LSB for < 10 MHz."),
+                ("RAW", "No audio demodulation. Feeds raw IQ samples to downstream processing (e.g. ADS-B decoder)."),
+            ] {
+                ui.monospace(*mode);
+                ui.label(*bw);
+                ui.end_row();
+            }
+        });
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Keyboard shortcuts (SDR panel)");
+        egui::Grid::new("sdr_shortcuts").num_columns(2).striped(true).show(ui, |ui| {
+            for (key, action) in &[
+                ("M",       "Toggle audio mute on/off."),
+                ("Ctrl+S",  "Save current settings to config file immediately."),
+                ("Space",   "Start / Stop the SDR source (works anywhere in app)."),
+            ] {
+                ui.monospace(*key);
+                ui.label(*action);
+                ui.end_row();
+            }
+        });
 
         ui.add_space(10.0);
         Self::h2(ui, "Status bar");
-        ui.label("The status bar at the bottom of the window shows: running/stopped indicator, current frequency, demod mode, sample rate, gain, recording indicator, audio indicator, peak dB, and noise floor. These update in real time.");
+        ui.label("The status bar at the bottom of the window shows:");
+        ui.label("  •  ▶ Running / ■ Stopped indicator");
+        ui.label("  •  Current frequency and demodulation mode");
+        ui.label("  •  Sample rate and gain level");
+        ui.label("  •  ● REC MM:SS — recording in progress with elapsed time");
+        ui.label("  •  🔇 mute / 🔊 audio indicator");
+        ui.label("  •  Peak signal level and noise floor in dB");
+        ui.label("  •  ⚠ DEMO badge (yellow) when running in simulation mode — no real hardware");
+        Self::tip(ui, "The ⚠ DEMO badge disappears automatically when you connect real hardware and switch the source to RTL-SDR or SoapySDR.");
     }
 
     fn section_spectrum(&mut self, ui: &mut egui::Ui) {
@@ -679,17 +732,16 @@ impl HowToPanel {
         });
 
         ui.add_space(10.0);
-        Self::h2(ui, "Controls");
+        Self::h2(ui, "Mouse and keyboard controls");
         egui::Grid::new("spectrum_controls").num_columns(2).striped(true).show(ui, |ui| {
             for (ctrl, action) in &[
-                ("Left-click",       "Tune to that frequency instantly"),
-                ("Right-click",      "Reset zoom to full bandwidth"),
-                ("Scroll wheel",     "Zoom in/out on the spectrum"),
-                ("Shift + Scroll",   "Pan left/right"),
-                ("Middle-click",     "Add a frequency marker"),
-                ("Middle-drag",      "Pan the spectrum view"),
-                ("Space (anywhere)", "Start / stop the SDR source"),
-                ("? key",            "Toggle keyboard shortcut reference overlay"),
+                ("Left-click (spectrum)",  "Tune the SDR to that exact frequency instantly"),
+                ("Left-click (waterfall)", "Also tunes — click anywhere on the waterfall to jump to that frequency"),
+                ("Right-click",            "Reset zoom to full bandwidth view"),
+                ("Scroll wheel",           "Zoom in/out on the spectrum"),
+                ("Shift + Scroll",         "Pan left/right when zoomed"),
+                ("Middle-drag",            "Pan the spectrum view when zoomed"),
+                ("Hover",                  "Shows crosshair + frequency tooltip at cursor position"),
             ] {
                 ui.monospace(*ctrl);
                 ui.label(*action);
@@ -697,9 +749,45 @@ impl HowToPanel {
             }
         });
 
+        ui.add_space(10.0);
+        Self::h2(ui, "Control bar toggles");
+        egui::Grid::new("spectrum_bar_btns").num_columns(2).striped(true).show(ui, |ui| {
+            for (btn, desc) in &[
+                ("❄ Freeze",    "Pauses the spectrum and waterfall display. Incoming IQ data is still processed, but the screen stops updating — useful for studying a signal in detail without it scrolling away."),
+                ("▶ Unfreeze",  "Resumes live display. Appears in place of ❄ Freeze when frozen."),
+                ("VFO BW",      "Toggles a blue shaded region showing the current demodulation bandwidth around the tuned frequency. Helps visualize whether your demod filter covers the signal."),
+                ("⭐ BM",        "Shows bookmark frequency markers as gold vertical lines on the spectrum. Names appear as labels above each line."),
+                ("🔍 Nx",       "Appears when zoomed — shows the current zoom level. Color changes to indicate zoom is active."),
+            ] {
+                ui.monospace(*btn);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Info bar (below controls)");
+        ui.label("The bar at the bottom of the spectrum view shows real-time stats:");
+        egui::Grid::new("spectrum_infobar").num_columns(2).striped(true).show(ui, |ui| {
+            for (field, desc) in &[
+                ("CTR",        "Center tuned frequency in MHz."),
+                ("Span",       "Frequency range visible (= sample rate, or sample rate ÷ zoom when zoomed)."),
+                ("Res",        "FFT frequency resolution in Hz per bin. Lower = finer detail. Increase FFT size in spectrum settings to improve."),
+                ("Peak",       "Strongest signal power in the current view (dBFS). Green > −20 dB, yellow > −50 dB."),
+                ("Floor",      "Estimated noise floor (25th percentile of all spectrum bins)."),
+                ("SNR",        "Signal-to-noise ratio = Peak − Floor. Green > 20 dB, yellow > 10 dB."),
+                ("❄ FROZEN",   "Badge appears when spectrum is frozen. Click ▶ Unfreeze to resume."),
+            ] {
+                ui.label(egui::RichText::new(*field).strong());
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+
         ui.add_space(8.0);
-        Self::tip(ui, "Band plan overlays show you what each chunk of spectrum is allocated for — labels appear on the spectrum automatically.");
-        Self::tip(ui, "A 'DC spike' (bright line at dead center) is normal for direct-conversion receivers like the RTL-SDR. Tune 100–200 kHz away from your target so it doesn't appear at center.");
+        Self::tip(ui, "Band plan overlays show what each portion of spectrum is allocated for — labels appear automatically based on your current frequency range.");
+        Self::tip(ui, "A 'DC spike' (bright line at dead center) is normal for RTL-SDR. Tune 100–200 kHz away from your target signal so it doesn't end up buried in the spike.");
+        Self::tip(ui, "Freeze the spectrum while scanning a busy band — scroll through bookmarks, then unfreeze to watch live activity again.");
     }
 
     fn section_demod_modes(&mut self, ui: &mut egui::Ui) {
@@ -970,10 +1058,22 @@ impl HowToPanel {
         Self::h1(ui, "Bookmarks & Scheduler");
 
         Self::h2(ui, "Bookmarks");
-        ui.label("Save frequencies you use regularly for one-click tuning. Shown in the left sidebar.");
-        ui.label("  •  Add: type a name and frequency, press Add");
-        ui.label("  •  Tune: click any bookmark entry to immediately tune the SDR");
-        ui.label("  •  Filter: use the search box at the top of the Bookmarks panel to find bookmarks by name");
+        ui.label("Save frequencies you use regularly for one-click tuning.");
+        egui::Grid::new("bm_actions").num_columns(2).striped(true).show(ui, |ui| {
+            for (action, desc) in &[
+                ("Add",         "Type a name and frequency, then press Add. The bookmark is saved immediately."),
+                ("Tune",        "Click any bookmark entry to instantly tune the SDR to that frequency."),
+                ("Edit (✏)",    "Click the pencil icon on any bookmark to rename it, change its frequency, mode, or category. Press ✓ to confirm, ✕ to cancel."),
+                ("Category",    "Group bookmarks into named categories (e.g. 'Aviation', 'Weather'). Each category shows a count and collapses its entries with a header."),
+                ("Auto-save",   "Bookmarks are automatically saved to disk 15 seconds after any change — no need to press a save button."),
+                ("Filter",      "Use the search box at the top to filter bookmarks by name or frequency."),
+                ("BM overlay",  "Enable '⭐ BM' in the Spectrum tab to see bookmark frequencies as gold vertical lines on the spectrum."),
+            ] {
+                ui.label(egui::RichText::new(*action).strong());
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
 
         ui.add_space(6.0);
         Self::h2(ui, "Suggested bookmarks to start with");

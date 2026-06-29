@@ -152,6 +152,7 @@ impl SpectrumAnalyzer {
         self.spectrum_dbs.iter().cloned().fold(-120.0f32, f32::max)
     }
 
+    #[allow(dead_code)]
     pub fn min_level(&self) -> f32 {
         self.spectrum_dbs.iter().cloned().fold(0.0f32, f32::min)
     }
@@ -411,14 +412,39 @@ impl SpectrumAnalyzer {
 
         // Info bar
         ui.horizontal(|ui| {
-            ui.monospace(format!("Center: {:.3} MHz", self.center_freq as f64 / 1e6));
-            ui.monospace(format!("Span: {:.3} MHz", self.sample_rate as f64 / 1e6));
-            ui.monospace(format!("Res: {:.1} Hz", self.sample_rate as f64 / self.fft_size as f64));
+            let center_mhz = self.center_freq as f64 / 1e6;
+            let span_mhz = self.sample_rate as f64 / 1e6;
+            let visible_span_mhz = span_mhz / self.zoom_factor as f64;
+            let res_hz = self.sample_rate as f64 / self.fft_size as f64;
+            ui.monospace(format!("⟵CTR {:.3} MHz", center_mhz))
+                .on_hover_text("Center tuned frequency.");
             ui.separator();
-            ui.monospace(format!("Min: {:.0} dB", self.min_level()));
-            ui.monospace(format!("Floor: {:.0} dB", self.noise_floor()));
-            ui.monospace(format!("Avg: {:.0} dB", self.signal_level()));
-            ui.monospace(format!("Max: {:.0} dB", self.peak_level()));
+            if self.zoom_factor > 1.0 {
+                ui.monospace(format!("Span {:.3} MHz (zoom {:.0}x)", visible_span_mhz, self.zoom_factor))
+                    .on_hover_text("Visible frequency span at current zoom level.");
+            } else {
+                ui.monospace(format!("Span {:.3} MHz", span_mhz))
+                    .on_hover_text("Total visible frequency span = sample rate.");
+            }
+            ui.separator();
+            ui.monospace(format!("Res {:.1} Hz/bin", res_hz))
+                .on_hover_text("FFT frequency resolution per bin. Lower = more detail. Increase FFT size to improve.");
+            ui.separator();
+            let peak = self.peak_level();
+            let noise = self.noise_floor();
+            let snr = peak - noise;
+            let peak_col = if peak > -20.0 { egui::Color32::GREEN } else if peak > -50.0 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
+            ui.colored_label(peak_col, format!("Peak {:.0} dB", peak))
+                .on_hover_text("Strongest signal in current view (dBFS).");
+            ui.monospace(format!("Floor {:.0} dB", noise))
+                .on_hover_text("Estimated noise floor (25th percentile of spectrum bins).");
+            let snr_col = if snr > 20.0 { egui::Color32::GREEN } else if snr > 10.0 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
+            ui.colored_label(snr_col, format!("SNR {:.0} dB", snr))
+                .on_hover_text("Signal-to-noise ratio: peak minus floor. >20 dB = excellent.");
+            if self.frozen {
+                ui.separator();
+                ui.colored_label(egui::Color32::from_rgb(100, 180, 255), "❄ FROZEN");
+            }
         });
 
         let avail = ui.available_size();
