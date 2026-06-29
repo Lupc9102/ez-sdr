@@ -866,10 +866,11 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Sdr => self.sdr.ui(ui),
             Tab::Spectrum => {
                 if let Ok(mut state) = self.shared.try_lock() {
-                    // Sync bookmarks to spectrum for overlay
+                    // Sync bookmarks and VFO BW to spectrum for overlays
                     state.spectrum.bookmark_freqs = state.bookmarks.bookmarks.iter()
                         .map(|b| (b.frequency_hz, b.name.clone()))
                         .collect();
+                    state.spectrum.vfo_bw_hz = state.lpf_cutoff as u32 * 2;
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;

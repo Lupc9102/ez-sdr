@@ -35,6 +35,8 @@ pub struct SpectrumAnalyzer {
     show_signal_history: bool,
     pub bookmark_freqs: Vec<(u64, String)>,
     show_bookmarks: bool,
+    pub vfo_bw_hz: u32,
+    show_vfo_bw: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -116,6 +118,8 @@ impl SpectrumAnalyzer {
             show_signal_history: false,
             bookmark_freqs: Vec::new(),
             show_bookmarks: true,
+            vfo_bw_hz: 15000,
+            show_vfo_bw: true,
         }
     }
 
@@ -281,6 +285,8 @@ impl SpectrumAnalyzer {
                 self.waterfall_dirty = true;
             }
             ui.separator();
+            ui.toggle_value(&mut self.show_vfo_bw, "VFO BW")
+                .on_hover_text("Show shaded VFO filter bandwidth region centered on the tuned frequency.");
             ui.toggle_value(&mut self.show_bookmarks, "⭐ BM")
                 .on_hover_text("Overlay bookmark frequencies as vertical lines on the spectrum.");
             if ui.small_button("⟳").on_hover_text("Reset dB range to default (-120 to 0)").clicked() {
@@ -499,6 +505,47 @@ impl SpectrumAnalyzer {
                         egui::Color32::from_rgba_premultiplied(180, 180, 180, 100),
                     );
                 }
+            }
+        }
+
+        // VFO bandwidth indicator — shaded region showing active filter width
+        if self.show_vfo_bw && self.vfo_bw_hz > 0 {
+            let zoom_span_v = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_center_offset_v = (self.zoom_offset as f64 - 0.5) * zoom_span_v;
+            let left_hz_v = -zoom_span_v / 2.0 + zoom_center_offset_v;
+            let right_hz_v = zoom_span_v / 2.0 + zoom_center_offset_v;
+            let half_bw = self.vfo_bw_hz as f64 / 2.0;
+            // VFO is at center freq (offset 0)
+            let vfo_offset = 0.0f64;
+            let bw_left = vfo_offset - half_bw;
+            let bw_right = vfo_offset + half_bw;
+            let x1_frac = ((bw_left - left_hz_v) / (right_hz_v - left_hz_v)).clamp(0.0, 1.0);
+            let x2_frac = ((bw_right - left_hz_v) / (right_hz_v - left_hz_v)).clamp(0.0, 1.0);
+            if x1_frac < x2_frac {
+                let x1 = spectrum_rect.left() + x1_frac as f32 * spectrum_rect.width();
+                let x2 = spectrum_rect.left() + x2_frac as f32 * spectrum_rect.width();
+                let vfo_rect = egui::Rect::from_x_y_ranges(x1..=x2, spectrum_rect.top()..=spectrum_rect.bottom());
+                painter.rect_filled(vfo_rect, 0.0, egui::Color32::from_rgba_premultiplied(52, 152, 219, 25));
+                // Left edge
+                painter.line_segment(
+                    [egui::pos2(x1, spectrum_rect.top()), egui::pos2(x1, spectrum_rect.bottom())],
+                    egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(52, 152, 219, 120)),
+                );
+                // Right edge
+                painter.line_segment(
+                    [egui::pos2(x2, spectrum_rect.top()), egui::pos2(x2, spectrum_rect.bottom())],
+                    egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(52, 152, 219, 120)),
+                );
+                // Label
+                let bw_khz = self.vfo_bw_hz as f32 / 1000.0;
+                let bw_label = if bw_khz >= 1.0 { format!("{:.0} kHz", bw_khz) } else { format!("{:.0} Hz", self.vfo_bw_hz) };
+                painter.text(
+                    egui::pos2((x1 + x2) / 2.0, spectrum_rect.bottom() - 2.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    bw_label,
+                    egui::FontId::proportional(8.0),
+                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 180),
+                );
             }
         }
 
@@ -830,7 +877,7 @@ impl SpectrumAnalyzer {
             self.waterfall_dirty = true;
         }
 
-        let (wf_rect, _) = ui.allocate_exact_size(egui::vec2(avail.x, waterfall_height), egui::Sense::hover());
+        let (wf_rect, wf_response) = ui.allocate_exact_size(egui::vec2(avail.x, waterfall_height), egui::Sense::click());
 
         if self.waterfall_dirty {
             let mut rgba_bytes = Vec::with_capacity(self.fft_size * self.waterfall_history * 4);
@@ -878,6 +925,41 @@ impl SpectrumAnalyzer {
                 format!("{:.2}", freq_mhz),
                 egui::FontId::proportional(8.0),
                 egui::Color32::from_rgba_premultiplied(180, 180, 180, 160),
+            );
+        }
+
+        // Waterfall click-to-tune
+        if wf_response.clicked() {
+            if let Some(pointer) = wf_response.hover_pos() {
+                let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
+                let offset_hz = left_hz + frac as f64 * zoom_span;
+                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                self.clicked_tune_freq = Some(freq);
+            }
+        }
+        // Waterfall hover crosshair + tooltip
+        if let Some(pointer) = wf_response.hover_pos() {
+            let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
+            let offset_hz = left_hz + frac as f64 * zoom_span;
+            let freq = self.center_freq as f64 + offset_hz;
+            let freq_str = if freq >= 1e9 { format!("{:.3} GHz", freq / 1e9) }
+                else if freq >= 1e6 { format!("{:.3} MHz", freq / 1e6) }
+                else { format!("{:.1} kHz", freq / 1e3) };
+            wf_painter.line_segment(
+                [egui::pos2(pointer.x, wf_rect.top()), egui::pos2(pointer.x, wf_rect.bottom())],
+                egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(255, 255, 255, 100)),
+            );
+            let tip_rect = egui::Rect::from_min_size(
+                egui::pos2(pointer.x + 6.0, pointer.y - 12.0),
+                egui::vec2(100.0, 14.0),
+            );
+            wf_painter.rect_filled(tip_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 180));
+            wf_painter.text(
+                egui::pos2(tip_rect.left() + 3.0, tip_rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                &freq_str,
+                egui::FontId::monospace(9.0),
+                egui::Color32::from_rgb(100, 200, 255),
             );
         }
     }
