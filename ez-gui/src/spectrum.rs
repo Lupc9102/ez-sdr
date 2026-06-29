@@ -297,38 +297,93 @@ impl SpectrumAnalyzer {
 
         // Signal history mini-chart
         if self.show_signal_history && !self.signal_history.is_empty() {
-            let history_height = 60.0;
-            let (hist_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), history_height), egui::Sense::hover());
+            let history_height = 70.0;
+            let (hist_rect, hist_resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), history_height), egui::Sense::hover());
+            let hist_resp = hist_resp.on_hover_text("Signal peak history chart. Shows the last 600 spectrum peaks. Hover for cursor value.");
             let painter = ui.painter();
-            painter.rect_filled(hist_rect, 0.0, egui::Color32::from_rgb(10, 10, 20));
+            painter.rect_filled(hist_rect, 2.0, egui::Color32::from_rgb(8, 8, 18));
+
             let n = self.signal_history.len();
+            let history_vec: Vec<f32> = self.signal_history.iter().cloned().collect();
             let min_v = self.display_min_db;
             let max_v = self.display_max_db;
             let range = (max_v - min_v).max(1.0);
-            let pts: Vec<egui::Pos2> = self.signal_history.iter().enumerate().map(|(i, &db)| {
-                let x = hist_rect.left() + (i as f32 / (self.signal_history_max as f32 - 1.0).max(1.0)) * hist_rect.width();
-                let norm = ((db - min_v) / range).clamp(0.0, 1.0);
-                let y = hist_rect.bottom() - norm * hist_rect.height();
-                egui::pos2(x, y)
+
+            let db_to_y = |db: f32| hist_rect.bottom() - ((db - min_v) / range).clamp(0.0, 1.0) * hist_rect.height();
+            let i_to_x = |i: usize| hist_rect.left() + (i as f32 / (self.signal_history_max as f32 - 1.0).max(1.0)) * hist_rect.width();
+
+            // Noise floor reference line
+            let nf = self.noise_floor();
+            let nf_y = db_to_y(nf);
+            painter.line_segment(
+                [egui::pos2(hist_rect.left(), nf_y), egui::pos2(hist_rect.right(), nf_y)],
+                egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(100, 100, 200, 80)),
+            );
+
+            // Filled area + line
+            let pts: Vec<egui::Pos2> = history_vec.iter().enumerate().map(|(i, &db)| {
+                egui::pos2(i_to_x(i), db_to_y(db))
             }).collect();
+
             if pts.len() > 1 {
-                let history_vec: Vec<f32> = self.signal_history.iter().cloned().collect();
+                // Filled polygon under the curve
+                let mut poly = pts.clone();
+                poly.push(egui::pos2(pts.last().unwrap().x, hist_rect.bottom()));
+                poly.push(egui::pos2(pts[0].x, hist_rect.bottom()));
+                painter.add(egui::Shape::convex_polygon(
+                    poly,
+                    egui::Color32::from_rgba_premultiplied(46, 204, 113, 20),
+                    egui::Stroke::NONE,
+                ));
+
+                // Color-coded line segments
                 for i in 0..pts.len() - 1 {
-                    let db = history_vec[i];
-                    let norm = ((db - min_v) / range).clamp(0.0, 1.0);
-                    let col = if norm > 0.7 { egui::Color32::GREEN }
-                        else if norm > 0.4 { egui::Color32::YELLOW }
-                        else { egui::Color32::from_rgb(100, 150, 200) };
-                    painter.line_segment([pts[i], pts[i + 1]], egui::Stroke::new(1.0, col));
+                    let norm = ((history_vec[i] - min_v) / range).clamp(0.0, 1.0);
+                    let col = if norm > 0.7 { egui::Color32::from_rgb(46, 204, 113) }
+                        else if norm > 0.45 { egui::Color32::from_rgb(241, 196, 15) }
+                        else { egui::Color32::from_rgb(52, 152, 219) };
+                    painter.line_segment([pts[i], pts[i + 1]], egui::Stroke::new(1.2, col));
+                }
+
+                // Peak dot
+                if let Some((pk_idx, &pk_db)) = history_vec.iter().enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                {
+                    let px = i_to_x(pk_idx);
+                    let py = db_to_y(pk_db);
+                    painter.circle_filled(egui::pos2(px, py), 3.0, egui::Color32::RED);
+                    painter.text(egui::pos2(px + 4.0, py), egui::Align2::LEFT_CENTER,
+                        format!("pk {:.0}", pk_db), egui::FontId::monospace(8.0),
+                        egui::Color32::from_rgb(255, 100, 100));
+                }
+
+                // Cursor readout
+                if let Some(ptr) = hist_resp.hover_pos() {
+                    let frac = ((ptr.x - hist_rect.left()) / hist_rect.width()).clamp(0.0, 1.0);
+                    let idx = (frac * (history_vec.len() as f32 - 1.0)) as usize;
+                    if idx < history_vec.len() {
+                        let db = history_vec[idx];
+                        let cx = i_to_x(idx);
+                        let cy = db_to_y(db);
+                        painter.line_segment(
+                            [egui::pos2(cx, hist_rect.top()), egui::pos2(cx, hist_rect.bottom())],
+                            egui::Stroke::new(0.5, egui::Color32::from_gray(120)),
+                        );
+                        painter.circle_filled(egui::pos2(cx, cy), 3.0, egui::Color32::WHITE);
+                        painter.text(egui::pos2(cx + 5.0, cy - 8.0), egui::Align2::LEFT_BOTTOM,
+                            format!("{:.1} dB", db), egui::FontId::monospace(9.0), egui::Color32::WHITE);
+                    }
                 }
             }
-            // dB axis labels
+
+            // Labels
             painter.text(egui::pos2(hist_rect.right() - 2.0, hist_rect.top() + 2.0), egui::Align2::RIGHT_TOP,
-                format!("{:.0}dB", max_v), egui::FontId::monospace(9.0), egui::Color32::GRAY);
+                format!("{:.0}", max_v), egui::FontId::monospace(8.0), egui::Color32::DARK_GRAY);
             painter.text(egui::pos2(hist_rect.right() - 2.0, hist_rect.bottom() - 2.0), egui::Align2::RIGHT_BOTTOM,
-                format!("{:.0}dB", min_v), egui::FontId::monospace(9.0), egui::Color32::GRAY);
+                format!("{:.0} dB", min_v), egui::FontId::monospace(8.0), egui::Color32::DARK_GRAY);
             painter.text(egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0), egui::Align2::LEFT_TOP,
-                format!("Peak dB ({} pts)", n), egui::FontId::monospace(9.0), egui::Color32::DARK_GRAY);
+                format!("Signal history  ({} pts, floor {:.0} dB)", n, nf),
+                egui::FontId::monospace(8.0), egui::Color32::DARK_GRAY);
         }
 
         // Info bar

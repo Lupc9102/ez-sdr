@@ -13,6 +13,9 @@ pub struct Demodulator {
     pub last_fm_deviation_hz: f32,
     pub last_audio_peak: f32,
     input_rate: u32,
+    // AGC state
+    agc_gain: f32,
+    pub agc_enabled: bool,
 }
 
 impl Demodulator {
@@ -30,6 +33,8 @@ impl Demodulator {
             last_fm_deviation_hz: 0.0,
             last_audio_peak: 0.0,
             input_rate: 2_048_000,
+            agc_gain: 1.0,
+            agc_enabled: true,
         }
     }
 
@@ -58,7 +63,34 @@ impl Demodulator {
             DemodMode::Lsb => self.demod_ssb(iq, false),
             DemodMode::Usb => self.demod_ssb(iq, true),
         };
-        self.apply_lpf(samples)
+        let filtered = self.apply_lpf(samples);
+        if self.agc_enabled {
+            self.apply_agc(filtered)
+        } else {
+            filtered
+        }
+    }
+
+    fn apply_agc(&mut self, mut samples: Vec<f32>) -> Vec<f32> {
+        // Soft-knee AGC: target RMS ~0.25, attack fast, decay slow
+        const TARGET: f32 = 0.25;
+        const ATTACK: f32 = 0.01;   // fast attack (gain drops quickly on loud signal)
+        const DECAY: f32 = 0.0001;  // slow decay (gain rises slowly when quiet)
+        const MAX_GAIN: f32 = 40.0;
+        const MIN_GAIN: f32 = 0.1;
+
+        for s in &mut samples {
+            let out = *s * self.agc_gain;
+            let abs = out.abs();
+            if abs > TARGET {
+                self.agc_gain *= 1.0 - ATTACK * (abs / TARGET - 1.0).min(1.0);
+            } else {
+                self.agc_gain *= 1.0 + DECAY;
+            }
+            self.agc_gain = self.agc_gain.clamp(MIN_GAIN, MAX_GAIN);
+            *s = out.clamp(-1.0, 1.0);
+        }
+        samples
     }
 
     fn apply_lpf(&mut self, samples: Vec<f32>) -> Vec<f32> {
