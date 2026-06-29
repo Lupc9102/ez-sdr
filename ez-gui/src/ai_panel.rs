@@ -602,6 +602,8 @@ impl AiPanel {
                 ("🔊 Max audio",     "Set gain to 40 and volume to maximum"),
                 ("📋 Status",        "Show me the current SDR status"),
                 ("❓ What can I hear?","What signals can I find near 400 MHz?"),
+                ("🔧 Diagnose",      "Get the current SDR status and tell me if anything looks wrong or could be improved. Give me beginner-friendly advice."),
+                ("🔇 No audio?",     "I can't hear any audio. Diagnose why — check the current SDR state, demod mode, squelch, and audio settings and suggest fixes."),
             ];
             for (label, prompt) in &quick_prompts {
                 if ui.small_button(*label).on_hover_text(*prompt).clicked() && !self.thinking {
