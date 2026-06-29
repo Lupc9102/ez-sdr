@@ -723,6 +723,57 @@ impl SpectrumAnalyzer {
             }
         }
 
+        // Peak labels on peak hold — label top 5 peaks above noise floor
+        if self.show_peak_hold {
+            let half_span = self.sample_rate as f64 / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate as f64 * n as f64) as usize;
+            let first_bin = first_bin.clamp(0, n.saturating_sub(1));
+            let last_bin = last_bin.clamp(first_bin + 1, n);
+            let visible_bins = (last_bin - first_bin).max(1);
+
+            let noise = self.noise_floor();
+            let threshold = noise + 8.0;
+
+            // Collect local maxima: bin is a peak if it's higher than both neighbors and above threshold
+            let mut candidates: Vec<(f32, usize)> = Vec::new();
+            for i in (first_bin + 1)..last_bin.saturating_sub(1) {
+                let db = self.peak_hold[i];
+                if db > threshold && db >= self.peak_hold[i - 1] && db >= self.peak_hold[i + 1] {
+                    candidates.push((db, i));
+                }
+            }
+            // Sort by strength descending
+            candidates.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Place labels, skip if too close to an already-labeled peak (within 40px)
+            let mut labeled_xs: Vec<f32> = Vec::new();
+            for (db, bin) in candidates.iter().take(8) {
+                let frac = (bin - first_bin) as f32 / visible_bins as f32;
+                let x = spectrum_rect.left() + frac * spectrum_rect.width();
+                if labeled_xs.iter().any(|&lx| (lx - x).abs() < 40.0) { continue; }
+                labeled_xs.push(x);
+                let norm = ((*db - min_db) / range).clamp(0.0, 1.0);
+                let y = spectrum_rect.bottom() - norm * spectrum_height;
+                let offset_hz = left_hz + frac as f64 * zoom_span;
+                let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
+                // Stem line
+                painter.line_segment(
+                    [egui::pos2(x, y), egui::pos2(x, y - 10.0)],
+                    egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(255, 100, 100, 180)),
+                );
+                // Label
+                painter.text(
+                    egui::pos2(x, y - 12.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    format!("{:.3}", freq_mhz),
+                    egui::FontId::proportional(7.5),
+                    egui::Color32::from_rgb(255, 130, 130),
+                );
+                if labeled_xs.len() >= 5 { break; }
+            }
+        }
+
         // Spectrum line (zoom-aware)
         {
             let mut prev_pos = None;
