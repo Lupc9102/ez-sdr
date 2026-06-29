@@ -39,6 +39,7 @@ pub struct FrequencyScanner {
     pub hold_resume_delay_ms: u64,
     holding: bool,
     hold_last_active: Option<Instant>,
+    pub spectrum_visible_range: Option<(u64, u64)>,
 }
 
 impl FrequencyScanner {
@@ -71,6 +72,7 @@ impl FrequencyScanner {
             hold_resume_delay_ms: 1500,
             holding: false,
             hold_last_active: None,
+            spectrum_visible_range: None,
         }
     }
 
@@ -249,6 +251,15 @@ impl FrequencyScanner {
             }
             if ui.button("Export CSV").on_hover_text("Save all hits to a CSV file in the current directory.").clicked() {
                 self.export_hits_csv();
+            }
+            if let Some((vis_start, vis_stop)) = self.spectrum_visible_range {
+                if ui.button("🔭 Scan visible").on_hover_text(
+                    format!("Set scan range to the currently visible spectrum view ({:.3}–{:.3} MHz), then start.", vis_start as f64 / 1e6, vis_stop as f64 / 1e6)
+                ).clicked() {
+                    self.start_hz = vis_start;
+                    self.stop_hz = vis_stop;
+                    if !self.enabled { self.start(); }
+                }
             }
             if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("📌 Bookmark all"))
                 .on_hover_text("Add all scanner hits as bookmarks in the 'Scanner' category. Skips frequencies already bookmarked.")

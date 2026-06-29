@@ -1104,12 +1104,23 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     if let Some(sq) = state.spectrum.pending_squelch_db.take() {
                         state.squelch = sq;
                     }
+                    if let Some(hz) = state.spectrum.pending_scan_start.take() {
+                        self.scanner.start_hz = hz;
+                    }
+                    if let Some(hz) = state.spectrum.pending_scan_stop.take() {
+                        self.scanner.stop_hz = hz;
+                    }
                 }
             }
             Tab::Satellite => self.satellite.ui(ui),
             Tab::AdsB => self.adsb.ui(ui),
             Tab::Recorder => self.recorder.ui(ui),
-            Tab::Scanner => self.scanner.ui(ui),
+            Tab::Scanner => {
+                if let Ok(state) = self.shared.try_lock() {
+                    self.scanner.spectrum_visible_range = Some((state.spectrum.visible_left_hz, state.spectrum.visible_right_hz));
+                }
+                self.scanner.ui(ui);
+            }
             Tab::AiAgent => self.ai.ui(ui),
             Tab::HowTo => self.howto.ui(ui),
             Tab::Bookmarks => {

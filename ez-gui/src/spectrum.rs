@@ -42,6 +42,10 @@ pub struct SpectrumAnalyzer {
     pub squelch_db: f32,
     pub source_running: bool,
     pub pending_squelch_db: Option<f32>,
+    pub pending_scan_start: Option<u64>,
+    pub pending_scan_stop: Option<u64>,
+    pub visible_left_hz: u64,
+    pub visible_right_hz: u64,
     ctx_menu_pos: Option<egui::Pos2>,
 }
 
@@ -131,6 +135,10 @@ impl SpectrumAnalyzer {
             squelch_db: -120.0,
             source_running: false,
             pending_squelch_db: None,
+            pending_scan_start: None,
+            pending_scan_stop: None,
+            visible_left_hz: 99_000_000,
+            visible_right_hz: 101_000_000,
             ctx_menu_pos: None,
         }
     }
@@ -530,6 +538,9 @@ impl SpectrumAnalyzer {
         let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
         let left_hz = -zoom_span / 2.0 + zoom_center_offset;
         let right_hz = zoom_span / 2.0 + zoom_center_offset;
+        // Update visible range for scanner integration
+        self.visible_left_hz = (self.center_freq as f64 + left_hz).max(0.0) as u64;
+        self.visible_right_hz = (self.center_freq as f64 + right_hz).max(0.0) as u64;
 
         // Vertical grid lines (frequency) with zoom support
         let n_grid = 8;
@@ -993,6 +1004,15 @@ impl SpectrumAnalyzer {
                 }
                 if ui.button("📋 Copy frequency").clicked() {
                     ui.ctx().copy_text(format!("{:.4}", freq_mhz));
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(format!("▶ Set as scan start ({:.3} MHz)", freq_mhz)).clicked() {
+                    self.pending_scan_start = Some(freq);
+                    ui.close();
+                }
+                if ui.button(format!("⏹ Set as scan stop ({:.3} MHz)", freq_mhz)).clicked() {
+                    self.pending_scan_stop = Some(freq);
                     ui.close();
                 }
             }
