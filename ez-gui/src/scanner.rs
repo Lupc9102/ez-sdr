@@ -717,12 +717,19 @@ impl FrequencyScanner {
                     ui.strong("Time Ago");
                     ui.strong("Tune");
                     ui.strong("Del");
+                    ui.strong("Skip");
                     ui.end_row();
 
                     let hits_copy = self.hits.clone();
                     let mut remove_idx = None;
+                    let mut exclude_freq = None;
                     for (i, hit) in hits_copy.iter().enumerate() {
-                        ui.monospace(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6));
+                        let already_excluded = self.exclude_hz.contains(&hit.freq_hz);
+                        if already_excluded {
+                            ui.monospace(egui::RichText::new(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6)).strikethrough().color(egui::Color32::GRAY));
+                        } else {
+                            ui.monospace(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6));
+                        }
                         ui.colored_label(hit_color(hit.strength_db), format!("{:.1} dB", hit.strength_db));
                         // Mini strength bar
                         let norm = ((hit.strength_db + 120.0) / 120.0).clamp(0.0, 1.0);
@@ -736,17 +743,35 @@ impl FrequencyScanner {
                         );
                         let ago = hit.timestamp.elapsed().as_secs();
                         ui.label(if ago < 60 { format!("{}s", ago) } else { format!("{}m", ago / 60) });
-                        if ui.small_button("📡").clicked() {
+                        if ui.small_button("📡").on_hover_text("Tune SDR to this frequency.").clicked() {
                             self.tune_request_hz = Some(hit.freq_hz);
                         }
-                        if ui.small_button("✕").clicked() {
+                        if ui.small_button("✕").on_hover_text("Remove this hit from the list.").clicked() {
                             remove_idx = Some(i);
+                        }
+                        let skip_btn = if already_excluded {
+                            ui.small_button(egui::RichText::new("🚫").color(egui::Color32::from_rgb(255, 80, 80)))
+                                .on_hover_text("Already in exclude list. Clicks to remove.")
+                        } else {
+                            ui.small_button("🚫").on_hover_text("Add to exclude list — scanner will skip this frequency.")
+                        };
+                        if skip_btn.clicked() {
+                            if already_excluded {
+                                self.exclude_hz.retain(|&f| f != hit.freq_hz);
+                            } else {
+                                exclude_freq = Some(hit.freq_hz);
+                            }
                         }
                         ui.end_row();
                     }
                     if let Some(idx) = remove_idx {
                         if idx < self.hits.len() {
                             self.hits.remove(idx);
+                        }
+                    }
+                    if let Some(f) = exclude_freq {
+                        if !self.exclude_hz.contains(&f) {
+                            self.exclude_hz.push(f);
                         }
                     }
                 });

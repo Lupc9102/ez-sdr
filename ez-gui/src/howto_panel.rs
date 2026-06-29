@@ -1,5 +1,6 @@
 pub struct HowToPanel {
     pub selected_section: usize,
+    search_query: String,
 }
 
 const SECTIONS: &[&str] = &[
@@ -21,9 +22,91 @@ const SECTIONS: &[&str] = &[
     "Troubleshooting",
 ];
 
+// Keyword index: maps search terms to section indices (multiple matches allowed)
+const KEYWORD_INDEX: &[(&str, &[usize])] = &[
+    ("gain",        &[3, 15]),
+    ("squelch",     &[3, 15]),
+    ("noise",       &[3, 11, 15]),
+    ("frequency",   &[3, 12]),
+    ("tune",        &[3, 10]),
+    ("waterfall",   &[4]),
+    ("spectrum",    &[4]),
+    ("zoom",        &[4]),
+    ("colormap",    &[4]),
+    ("color",       &[4]),
+    ("am",          &[5]),
+    ("fm",          &[3, 5]),
+    ("nfm",         &[3, 5]),
+    ("wfm",         &[3, 5]),
+    ("ssb",         &[5]),
+    ("lsb",         &[5]),
+    ("usb",         &[5]),
+    ("demod",       &[5]),
+    ("aircraft",    &[6]),
+    ("adsb",        &[6]),
+    ("ads-b",       &[6]),
+    ("satellite",   &[7]),
+    ("noaa",        &[7, 12]),
+    ("apt",         &[7]),
+    ("scanner",     &[8]),
+    ("scan",        &[8]),
+    ("record",      &[9]),
+    ("wav",         &[9]),
+    ("iq",          &[9]),
+    ("bookmark",    &[10]),
+    ("scheduler",   &[10]),
+    ("schedule",    &[10]),
+    ("interference", &[11]),
+    ("intermod",    &[11]),
+    ("usb 3",       &[11]),
+    ("reference",   &[12]),
+    ("soapy",       &[13]),
+    ("hackrf",      &[13]),
+    ("airspy",      &[13]),
+    ("rtlsdr",      &[1]),
+    ("rtl-sdr",     &[1]),
+    ("dongle",      &[1]),
+    ("antenna",     &[2]),
+    ("coax",        &[2]),
+    ("ai",          &[14]),
+    ("troubleshoot", &[15]),
+    ("audio",       &[3, 5, 15]),
+    ("vfo",         &[3]),
+    ("step",        &[3]),
+    ("sparkline",   &[3]),
+    ("vox",         &[9]),
+    ("bias tee",    &[1, 13]),
+    ("ppm",         &[3]),
+    ("memory scan", &[8]),
+    ("csv",         &[8, 10]),
+    ("export",      &[8, 10]),
+    ("import",      &[10]),
+];
+
 impl HowToPanel {
     pub fn new() -> Self {
-        Self { selected_section: 0 }
+        Self { selected_section: 0, search_query: String::new() }
+    }
+
+    fn search_matches(query: &str) -> Vec<usize> {
+        if query.is_empty() { return Vec::new(); }
+        let q = query.to_lowercase();
+        let mut matched = std::collections::HashSet::new();
+        // Direct section name match
+        for (i, name) in SECTIONS.iter().enumerate() {
+            if name.to_lowercase().contains(&q) {
+                matched.insert(i);
+            }
+        }
+        // Keyword index
+        for &(kw, sections) in KEYWORD_INDEX {
+            if kw.contains(&q) || q.contains(kw) {
+                for &s in sections { matched.insert(s); }
+            }
+        }
+        let mut v: Vec<usize> = matched.into_iter().collect();
+        v.sort();
+        v
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
@@ -34,11 +117,30 @@ impl HowToPanel {
                 .show(ui, |ui| {
                     ui.set_width(175.0);
                     ui.heading("Topics");
+                    ui.add(egui::TextEdit::singleline(&mut self.search_query)
+                        .desired_width(160.0)
+                        .hint_text("🔍 Search topics…"))
+                        .on_hover_text("Filter topics by keyword — e.g. 'gain', 'scanner', 'recording', 'waterfall', 'vfo'.");
+                    if !self.search_query.is_empty() && ui.small_button("✕").clicked() {
+                        self.search_query.clear();
+                    }
                     ui.separator();
+                    let matches = Self::search_matches(&self.search_query);
                     for (i, section) in SECTIONS.iter().enumerate() {
-                        if ui.selectable_label(self.selected_section == i, *section).clicked() {
+                        let visible = self.search_query.is_empty() || matches.contains(&i);
+                        if !visible { continue; }
+                        let highlighted = !self.search_query.is_empty() && matches.contains(&i);
+                        let label = if highlighted {
+                            egui::RichText::new(*section).color(egui::Color32::from_rgb(255, 220, 80))
+                        } else {
+                            egui::RichText::new(*section)
+                        };
+                        if ui.selectable_label(self.selected_section == i, label).clicked() {
                             self.selected_section = i;
                         }
+                    }
+                    if !self.search_query.is_empty() && matches.is_empty() {
+                        ui.colored_label(egui::Color32::GRAY, "No topics found.");
                     }
                 });
 

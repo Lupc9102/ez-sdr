@@ -91,3 +91,5 @@ Started: 2026-06-29 (8-hour window)
 - T+~155min: VOX / squelch-triggered recording — auto-start/stop recording on signal, configurable tail delay
 - T+~165min: Band plan toggle (🗺 BP button) + color legend in tooltip
 - T+~170min: Labeled spectrum markers — "Add marker" popup dialog for optional label text
+- T+~180min: Bookmark CSV export with file dialog (+ frequency_mhz column)
+- T+~182min: Scanner exclude list — skip known interferer frequencies during range scan
