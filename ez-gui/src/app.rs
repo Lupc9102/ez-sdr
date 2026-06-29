@@ -323,6 +323,7 @@ impl eframe::App for CentralApp {
         }
 
         // Keyboard shortcuts
+        let mut ctrl_r_pressed = false;
         ctx.input(|i| {
             // ? : toggle keyboard help
             if i.key_pressed(egui::Key::Questionmark) {
@@ -383,12 +384,9 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::F4) { state.demod_mode = crate::sdr_panel::DemodMode::Wfm; }
                 if i.key_pressed(egui::Key::F5) { state.demod_mode = crate::sdr_panel::DemodMode::Lsb; }
                 if i.key_pressed(egui::Key::F6) { state.demod_mode = crate::sdr_panel::DemodMode::Usb; }
-                // R: toggle recording
-                if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl {
-                    if state.recording {
-                        state.recording = false;
-                    }
-                    // Note: actual start_recording() is handled by recorder_panel via state.recording
+                // Ctrl+R: toggle recording
+                if i.modifiers.ctrl && i.key_pressed(egui::Key::R) {
+                    ctrl_r_pressed = true;
                 }
                 // M: toggle audio mute
                 if i.key_pressed(egui::Key::M) {
@@ -434,6 +432,15 @@ impl eframe::App for CentralApp {
                 }
             }
         });
+
+        // Ctrl+R: toggle recording (must be outside ctx.input to access recorder_panel)
+        if ctrl_r_pressed {
+            if self.recorder_panel.recording {
+                self.recorder_panel.stop_recording();
+            } else {
+                self.recorder_panel.start_recording();
+            }
+        }
 
         // Track source status transitions
         if let Ok(mut state) = self.shared.try_lock() {
@@ -828,6 +835,15 @@ impl eframe::App for CentralApp {
                 if self.audio.is_running() {
                     ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "🔊 Audio")
                         .on_hover_text("Audio is playing through your speakers/headphones. Use Vol slider or Stop Audio in the SDR panel.");
+                }
+                // Squelch-blocked indicator
+                {
+                    let signal = state.spectrum.signal_level();
+                    let squelch = state.squelch;
+                    if signal < squelch && squelch > -90.0 {
+                        ui.colored_label(egui::Color32::from_rgb(160, 130, 60), "🔒 SQ")
+                            .on_hover_text(format!("Squelch is blocking audio — signal ({:.0} dB) is below squelch threshold ({:.0} dB). Reduce squelch or wait for a stronger signal.", signal, squelch));
+                    }
                 }
                 // Demo mode badge — helps beginners know they are in simulation
                 if state.source.source_mode == crate::source_manager::SourceMode::Simulated {

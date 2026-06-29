@@ -1085,6 +1085,33 @@ impl SpectrumAnalyzer {
             );
         }
 
+        // Waterfall time axis labels (left edge)
+        {
+            let secs_per_row = (self.fft_size as f64 / self.sample_rate as f64) * self.waterfall_every_n as f64;
+            let interval_rows = (self.waterfall_history / 8).max(1);
+            let n_labels = self.waterfall_history / interval_rows;
+            for k in 1..=n_labels {
+                let row = k * interval_rows;
+                let frac = row as f32 / self.waterfall_history as f32;
+                let y = wf_rect.top() + frac * wf_rect.height();
+                let secs_ago = row as f64 * secs_per_row;
+                let label = if secs_ago >= 60.0 {
+                    format!("-{:.0}m", secs_ago / 60.0)
+                } else if secs_ago >= 1.0 {
+                    format!("-{:.0}s", secs_ago)
+                } else {
+                    format!("-{:.0}ms", secs_ago * 1000.0)
+                };
+                wf_painter.text(
+                    egui::pos2(wf_rect.left() + 2.0, y),
+                    egui::Align2::LEFT_CENTER,
+                    &label,
+                    egui::FontId::proportional(8.0),
+                    egui::Color32::from_rgba_premultiplied(180, 180, 180, 140),
+                );
+            }
+        }
+
         // Bookmark markers on waterfall
         if self.show_bookmarks {
             for (bm_freq, bm_name) in &self.bookmark_freqs {
