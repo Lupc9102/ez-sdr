@@ -163,6 +163,7 @@ impl CentralApp {
             state.source.frequency_hz = state.config.default_freq_hz;
             state.source.sample_rate_hz = state.config.default_sample_rate;
             state.source.gain_db = state.config.default_gain;
+            state.source.ppm_correction = state.config.ppm_correction;
             state.source.start();
             state.tle.observer_lat = state.config.observer_lat;
             state.tle.observer_lon = state.config.observer_lon;
@@ -392,13 +393,14 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::M) {
                     state.audio_running = !state.audio_running;
                 }
-                // Ctrl+S: save config (also persists recent frequencies + spectrum range)
+                // Ctrl+S: save config (also persists recent frequencies + spectrum range + PPM)
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
                     let recent: Vec<u64> = state.freq_history.iter().cloned().collect();
                     state.config.recent_frequencies = recent;
                     let (min_db, max_db) = state.spectrum.display_range();
                     state.config.spectrum_min_db = min_db;
                     state.config.spectrum_max_db = max_db;
+                    state.config.ppm_correction = state.source.ppm_correction;
                     state.config.save();
                 }
                 // F: freeze/unfreeze spectrum

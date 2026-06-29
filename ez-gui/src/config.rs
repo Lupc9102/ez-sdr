@@ -50,6 +50,8 @@ pub struct AppConfig {
     pub spectrum_min_db: f32,
     #[serde(default)]
     pub spectrum_max_db: f32,
+    #[serde(default)]
+    pub ppm_correction: i32,
 }
 
 impl Default for AppConfig {
@@ -79,6 +81,7 @@ impl Default for AppConfig {
             recent_frequencies: Vec::new(),
             spectrum_min_db: -120.0,
             spectrum_max_db: 0.0,
+            ppm_correction: 0,
         }
     }
 }
