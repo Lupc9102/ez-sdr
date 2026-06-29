@@ -35,6 +35,10 @@ pub struct FrequencyScanner {
     total_hits_logged: u64,
     pub hit_flash: u32,
     show_histogram: bool,
+    pub hold_on_active: bool,
+    pub hold_resume_delay_ms: u64,
+    holding: bool,
+    hold_last_active: Option<Instant>,
 }
 
 impl FrequencyScanner {
@@ -63,6 +67,10 @@ impl FrequencyScanner {
             total_hits_logged: 0,
             hit_flash: 0,
             show_histogram: true,
+            hold_on_active: false,
+            hold_resume_delay_ms: 1500,
+            holding: false,
+            hold_last_active: None,
         }
     }
 
@@ -134,11 +142,12 @@ impl FrequencyScanner {
             return;
         }
 
-        if spectrum_peak_db > self.threshold_db
+        let signal_active = spectrum_peak_db > self.threshold_db
             && self.current_freq_hz >= self.start_hz
-            && self.current_freq_hz <= self.stop_hz
-        {
-            // Deduplicate: update existing hit within ±step_hz instead of adding duplicate
+            && self.current_freq_hz <= self.stop_hz;
+
+        if signal_active {
+            // Log the hit (dedup within ±step_hz)
             let half_step = self.step_hz / 2;
             let existing = self.hits.iter_mut().find(|h| {
                 let diff = if h.freq_hz > self.current_freq_hz {
@@ -170,6 +179,28 @@ impl FrequencyScanner {
                     self.hits.remove(0);
                 }
             }
+
+            // Hold: stay on this frequency while signal is active
+            if self.hold_on_active {
+                self.hold_last_active = Some(now);
+                self.holding = true;
+                self.last_step_time = Some(now); // keep dwell timer alive
+                self.status_text = format!("⏸ Holding {:.3} MHz ({:.0} dB)", self.current_freq_hz as f64 / 1e6, spectrum_peak_db);
+                return;
+            }
+        }
+
+        // Resume delay after signal drops
+        if self.holding {
+            let resume_delay = Duration::from_millis(self.hold_resume_delay_ms);
+            let since_signal = self.hold_last_active.map(|t| now.duration_since(t)).unwrap_or(resume_delay);
+            if since_signal < resume_delay {
+                self.last_step_time = Some(now);
+                return;
+            }
+            self.holding = false;
+            self.hold_last_active = None;
+            self.status_text = format!("Scanning {:.3}–{:.3} MHz", self.start_hz as f64 / 1e6, self.stop_hz as f64 / 1e6);
         }
 
         let next = self.current_freq_hz.saturating_add(self.step_hz);
@@ -244,6 +275,15 @@ impl FrequencyScanner {
             }
             ui.checkbox(&mut self.auto_tune_on_hit, "Auto-tune on hit")
                 .on_hover_text("When enabled, the SDR tunes to each new signal hit immediately so you can hear it. Pauses the sweep while listening.");
+            ui.checkbox(&mut self.hold_on_active, "Hold on activity")
+                .on_hover_text("Pause the sweep whenever a signal is detected above the threshold. Resumes scanning after signal drops and the resume delay expires.");
+            if self.hold_on_active {
+                ui.add(egui::Slider::new(&mut self.hold_resume_delay_ms, 200u64..=5000u64)
+                    .step_by(100.0)
+                    .text("Resume delay (ms)")
+                    .custom_formatter(|v, _| format!("{:.0} ms", v)))
+                    .on_hover_text("How long to wait after signal drops before resuming the sweep. Longer values prevent premature resume on intermittent signals.");
+            }
             ui.separator();
             let color = if self.enabled { egui::Color32::GREEN } else { egui::Color32::GRAY };
             ui.colored_label(color, &self.status_text);
