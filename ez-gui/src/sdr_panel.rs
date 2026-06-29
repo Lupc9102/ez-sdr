@@ -306,6 +306,26 @@ impl SdrPanel {
             }
         });
 
+        // Recent frequencies (last 8 from history, most recent first)
+        if let Ok(state) = self.shared.try_lock() {
+            if state.freq_history.len() > 1 {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Recent:").on_hover_text("Last tuned frequencies — click to jump back.");
+                    let hist: Vec<u64> = state.freq_history.iter().cloned().rev().skip(1).take(8).collect();
+                    for freq in hist {
+                        let label = format!("{:.3}", freq as f64 / 1e6);
+                        if ui.small_button(&label).on_hover_text(format!("{:.3} MHz — click to retune", freq as f64 / 1e6)).clicked() {
+                            drop(state); // release lock before re-acquiring
+                            if let Ok(mut st) = self.shared.try_lock() {
+                                st.source.frequency_hz = freq;
+                            }
+                            return;
+                        }
+                    }
+                });
+            }
+        }
+
         // Filter bandwidth and squelch
         ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
             .on_hover_text("Receiver filter bandwidth. Set just wider than the signal. WFM: 200 kHz, NFM voice: 12–16 kHz, AM voice: 8 kHz, SSB: 2.4 kHz. Too wide = more noise.");

@@ -90,6 +90,8 @@ pub struct CentralApp {
     freq_history_idx: Option<usize>,
     recording_start: Option<std::time::Instant>,
     show_welcome: bool,
+    bm_last_len: usize,
+    bm_dirty_since: Option<std::time::Instant>,
     // New-bookmark form state
     new_bm_name: String,
     new_bm_freq_mhz: String,
@@ -225,6 +227,8 @@ impl CentralApp {
             new_task_time: String::new(),
             new_task_error: String::new(),
             recording_start: None,
+            bm_last_len: 0,
+            bm_dirty_since: None,
             // Show welcome if config is fresh (default frequency = 100 MHz means unconfigured)
             show_welcome: {
                 let state = shared.lock().unwrap();
@@ -573,6 +577,21 @@ impl eframe::App for CentralApp {
                 self.mqtt.publish_passes(&passes);
                 if !self.adsb_panel.aircraft.is_empty() {
                     self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
+                }
+            }
+        }
+
+        // Auto-save bookmarks when modified (15-second debounce)
+        if let Ok(state) = self.shared.try_lock() {
+            let cur_len = state.bookmarks.bookmarks.len();
+            if cur_len != self.bm_last_len {
+                self.bm_last_len = cur_len;
+                self.bm_dirty_since = Some(std::time::Instant::now());
+            }
+            if let Some(dirty_since) = self.bm_dirty_since {
+                if dirty_since.elapsed().as_secs() >= 15 {
+                    state.bookmarks.save();
+                    self.bm_dirty_since = None;
                 }
             }
         }
