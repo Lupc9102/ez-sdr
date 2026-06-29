@@ -219,6 +219,29 @@ impl FrequencyScanner {
             if ui.button("Export CSV").on_hover_text("Save all hits to a CSV file in the current directory.").clicked() {
                 self.export_hits_csv();
             }
+            if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("📌 Bookmark all"))
+                .on_hover_text("Add all scanner hits as bookmarks in the 'Scanner' category. Skips frequencies already bookmarked.")
+                .clicked()
+            {
+                if let Ok(mut state) = self.shared.lock() {
+                    let existing: std::collections::HashSet<u64> = state.bookmarks.bookmarks.iter().map(|b| b.frequency_hz).collect();
+                    let mut added = 0u32;
+                    for hit in &self.hits {
+                        if !existing.contains(&hit.freq_hz) {
+                            state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                                name: format!("{:.3} MHz", hit.freq_hz as f64 / 1e6),
+                                frequency_hz: hit.freq_hz,
+                                mode: "NFM".to_string(),
+                                bandwidth_hz: self.step_hz.max(12_500) as u32,
+                                category: "Scanner".to_string(),
+                                notes: format!("{:.1} dB", hit.strength_db),
+                            });
+                            added += 1;
+                        }
+                    }
+                    self.last_export_msg = format!("Added {} to Bookmarks/Scanner.", added);
+                }
+            }
             ui.checkbox(&mut self.auto_tune_on_hit, "Auto-tune on hit")
                 .on_hover_text("When enabled, the SDR tunes to each new signal hit immediately so you can hear it. Pauses the sweep while listening.");
             ui.separator();

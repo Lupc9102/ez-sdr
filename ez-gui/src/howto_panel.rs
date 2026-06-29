@@ -596,10 +596,11 @@ impl HowToPanel {
         ui.label("  •  Use the up/down spinner arrows");
         ui.label("  •  Press the ±10k buttons for fine-step tuning (+10 kHz / −10 kHz per press)");
         ui.label("  •  Press ↑/↓ for ±1 MHz, ←/→ for ±100 kHz (from anywhere in the app)");
+        ui.label("  •  Press [ to go back in frequency history, ] to go forward");
         ui.label("  •  Click anywhere on the Spectrum or Waterfall display to instantly tune there");
         ui.label("  •  Click any entry in the 'Recent:' row to return to a previously-visited frequency");
         ui.label("  •  Press 📋 to copy the current frequency to the clipboard");
-        Self::tip(ui, "The Recent row shows your last 8 tuned frequencies as quick-access buttons. Useful for switching between two or three signals you're monitoring.");
+        Self::tip(ui, "The Recent row shows your last 8 tuned frequencies as quick-access buttons. [ and ] step through that same history — useful for A/B comparing two frequencies.");
 
         ui.add_space(10.0);
         Self::h2(ui, "Sample rate");
@@ -664,9 +665,12 @@ impl HowToPanel {
         Self::h2(ui, "Keyboard shortcuts (SDR panel)");
         egui::Grid::new("sdr_shortcuts").num_columns(2).striped(true).show(ui, |ui| {
             for (key, action) in &[
-                ("M",       "Toggle audio mute on/off."),
-                ("Ctrl+S",  "Save current settings to config file immediately."),
-                ("Space",   "Start / Stop the SDR source (works anywhere in app)."),
+                ("M",           "Toggle audio mute on/off."),
+                ("Space",       "Start / Stop the SDR source (works anywhere in app)."),
+                ("↑ / ↓",       "Tune ±1 MHz."),
+                ("← / →",       "Tune ±100 kHz."),
+                ("[ / ]",       "Navigate frequency history — back / forward."),
+                ("Ctrl+S",      "Save config AND persist current spectrum dB range."),
             ] {
                 ui.monospace(*key);
                 ui.label(*action);
@@ -678,12 +682,15 @@ impl HowToPanel {
         Self::h2(ui, "Status bar");
         ui.label("The status bar at the bottom of the window shows:");
         ui.label("  •  ▶ Running / ■ Stopped indicator");
-        ui.label("  •  Current frequency and demodulation mode");
+        ui.label("  •  Current frequency — click it to copy to clipboard");
+        ui.label("  •  Demodulation mode");
         ui.label("  •  Sample rate and gain level");
         ui.label("  •  ● REC MM:SS — recording in progress with elapsed time");
         ui.label("  •  🔇 mute / 🔊 audio indicator");
         ui.label("  •  Peak signal level and noise floor in dB");
         ui.label("  •  ⚠ DEMO badge (yellow) when running in simulation mode — no real hardware");
+        ui.label("  •  ⟳ Layout button (far right) — resets all panels back to the default dock layout");
+        Self::tip(ui, "Click the frequency in the status bar to instantly copy it to the clipboard. Great for sharing frequencies or pasting into other apps.");
         Self::tip(ui, "The ⚠ DEMO badge disappears automatically when you connect real hardware and switch the source to RTL-SDR or SoapySDR.");
     }
 
@@ -756,10 +763,25 @@ impl HowToPanel {
                 ("❄ Freeze",    "Pauses the spectrum and waterfall display. Incoming IQ data is still processed, but the screen stops updating — useful for studying a signal in detail without it scrolling away."),
                 ("▶ Unfreeze",  "Resumes live display. Appears in place of ❄ Freeze when frozen."),
                 ("VFO BW",      "Toggles a blue shaded region showing the current demodulation bandwidth around the tuned frequency. Helps visualize whether your demod filter covers the signal."),
-                ("⭐ BM",        "Shows bookmark frequency markers as gold vertical lines on the spectrum. Names appear as labels above each line."),
+                ("⭐ BM",        "Shows bookmark frequency markers as gold vertical lines on both the spectrum and waterfall. Names appear as labels above each line."),
                 ("🔍 Nx",       "Appears when zoomed — shows the current zoom level. Color changes to indicate zoom is active."),
             ] {
                 ui.monospace(*btn);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+
+        ui.add_space(8.0);
+        Self::h2(ui, "Spectrum overlays");
+        egui::Grid::new("spectrum_overlays").num_columns(2).striped(true).show(ui, |ui| {
+            for (name, desc) in &[
+                ("Noise floor line",     "A pulsing blue horizontal line marks the estimated noise floor. It animates gently so you can spot it at a glance. Labeled 'NF: −XX dBFS' on the left edge."),
+                ("Scanner sweep marker", "When the Frequency Scanner is running, a cyan dashed vertical line shows where the scanner is currently sweeping. The label shows the exact frequency. Disappears when the scan is stopped or paused."),
+                ("Bookmark markers",     "When '⭐ BM' is active, gold vertical lines mark each bookmarked frequency. Labels appear at the top of the waterfall."),
+                ("VFO bandwidth",        "When 'VFO BW' is active, a translucent blue rectangle shows the current demodulation filter bandwidth centered on the tuned frequency."),
+            ] {
+                ui.label(egui::RichText::new(*name).strong());
                 ui.label(*desc);
                 ui.end_row();
             }
@@ -783,6 +805,11 @@ impl HowToPanel {
                 ui.end_row();
             }
         });
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Saving your spectrum settings");
+        ui.label("Press Ctrl+S at any time to save the current spectrum dB min/max range to the config file. It will be restored automatically the next time you start ez-sdr.");
+        Self::tip(ui, "Adjust the dB range so signals are clearly visible and the noise floor sits near the bottom — then Ctrl+S locks it in for next session.");
 
         ui.add_space(8.0);
         Self::tip(ui, "Band plan overlays show what each portion of spectrum is allocated for — labels appear automatically based on your current frequency range.");
@@ -980,10 +1007,25 @@ impl HowToPanel {
         });
 
         ui.add_space(10.0);
+        Self::h2(ui, "Hit detection feedback");
+        egui::Grid::new("scan_hit_ui").num_columns(2).striped(true).show(ui, |ui| {
+            for (name, desc) in &[
+                ("● HIT! badge",      "A green flashing '● HIT!' badge appears briefly above the hits table each time a new signal is found. It fades out over about 1.5 seconds — easy to spot at a glance without being distracting."),
+                ("📊 Histogram",       "Toggle a bar chart showing signal hit count and strength across the scan range. Bars are color-coded by strength: green > −20 dB, yellow > −40 dB, orange below that. Helps you see which part of the band is most active."),
+                ("Spectrum sweep line","When the scanner is running, a cyan dashed vertical line on the Spectrum / Waterfall tab shows where the sweep is currently listening. Lets you watch both the scanner panel and spectrum simultaneously."),
+            ] {
+                ui.label(egui::RichText::new(*name).strong());
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+
+        ui.add_space(10.0);
         Self::h2(ui, "Hits table");
         ui.label("When a signal exceeds the threshold, it's logged with frequency, strength (dB), and time since last seen.");
         ui.label("  •  Click 📡 to instantly tune the SDR to that frequency");
         ui.label("  •  Click ✕ to remove a hit from the list");
+        ui.label("  •  Click 📌 Bookmark all to save every hit as a bookmark in the 'Scanner' category");
 
         ui.add_space(10.0);
         Self::h2(ui, "Scan presets");
@@ -1062,12 +1104,14 @@ impl HowToPanel {
         egui::Grid::new("bm_actions").num_columns(2).striped(true).show(ui, |ui| {
             for (action, desc) in &[
                 ("Add",         "Type a name and frequency, then press Add. The bookmark is saved immediately."),
-                ("Tune",        "Click any bookmark entry to instantly tune the SDR to that frequency."),
+                ("Tune",        "Click any bookmark's Tune button to instantly tune the SDR to that frequency and switch to its saved mode. Hover the Tune button to see the bookmark's notes."),
                 ("Edit (✏)",    "Click the pencil icon on any bookmark to rename it, change its frequency, mode, or category. Press ✓ to confirm, ✕ to cancel."),
+                ("Notes",       "Each bookmark can store notes (e.g. 'Active on weekends', 'Call sign W1XY'). Notes appear in the Tune button tooltip."),
                 ("Category",    "Group bookmarks into named categories (e.g. 'Aviation', 'Weather'). Each category shows a count and collapses its entries with a header."),
                 ("Auto-save",   "Bookmarks are automatically saved to disk 15 seconds after any change — no need to press a save button."),
                 ("Filter",      "Use the search box at the top to filter bookmarks by name or frequency."),
-                ("BM overlay",  "Enable '⭐ BM' in the Spectrum tab to see bookmark frequencies as gold vertical lines on the spectrum."),
+                ("BM overlay",  "Enable '⭐ BM' in the Spectrum tab to see bookmark frequencies as gold vertical lines on both the spectrum and waterfall."),
+                ("📌 Scanner",  "After a frequency scan, click '📌 Bookmark all' in the Scanner tab to add all discovered signal hits as bookmarks in the 'Scanner' category."),
             ] {
                 ui.label(egui::RichText::new(*action).strong());
                 ui.label(*desc);
@@ -1102,6 +1146,15 @@ impl HowToPanel {
         ui.label("  2.  Set your location (lat/lon) in Settings");
         ui.label("  3.  Upcoming passes populate the Scheduler automatically with start time and max elevation");
         ui.label("  4.  At pass start, the SDR auto-tunes and applies real-time Doppler correction");
+
+        ui.add_space(6.0);
+        Self::h2(ui, "24-hour pass timeline");
+        ui.label("At the top of the Scheduler tab, a horizontal timeline bar shows all of today's predicted passes (midnight to midnight, local time).");
+        ui.label("  •  Each satellite's passes are drawn as colored blocks on the bar");
+        ui.label("  •  A red vertical 'NOW' marker shows the current time of day");
+        ui.label("  •  Hover over a block to see the satellite name and pass time window as a tooltip");
+        ui.label("  •  Hour tick marks appear every 4 hours for quick reference");
+        Self::tip(ui, "Glance at the 24-hour bar to see at a glance how many passes are coming up today, and when the next one starts — without reading through the full list.");
         Self::tip(ui, "You can leave ez-sdr running overnight. The Scheduler will auto-tune to every NOAA pass that crosses your horizon.");
     }
 
