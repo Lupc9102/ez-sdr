@@ -128,17 +128,35 @@ impl FrequencyScanner {
             && self.current_freq_hz >= self.start_hz
             && self.current_freq_hz <= self.stop_hz
         {
-            let hit = SignalHit {
-                freq_hz: self.current_freq_hz,
-                strength_db: spectrum_peak_db,
-                timestamp: now,
-            };
-            if self.auto_tune_on_hit {
-                self.tune_request_hz = Some(self.current_freq_hz);
-            }
-            self.hits.push(hit);
-            if self.hits.len() > self.max_hits {
-                self.hits.remove(0);
+            // Deduplicate: update existing hit within ±step_hz instead of adding duplicate
+            let half_step = self.step_hz / 2;
+            let existing = self.hits.iter_mut().find(|h| {
+                let diff = if h.freq_hz > self.current_freq_hz {
+                    h.freq_hz - self.current_freq_hz
+                } else {
+                    self.current_freq_hz - h.freq_hz
+                };
+                diff <= half_step
+            });
+            if let Some(hit) = existing {
+                if spectrum_peak_db > hit.strength_db {
+                    hit.strength_db = spectrum_peak_db;
+                    hit.freq_hz = self.current_freq_hz;
+                    hit.timestamp = now;
+                }
+            } else {
+                let hit = SignalHit {
+                    freq_hz: self.current_freq_hz,
+                    strength_db: spectrum_peak_db,
+                    timestamp: now,
+                };
+                if self.auto_tune_on_hit {
+                    self.tune_request_hz = Some(self.current_freq_hz);
+                }
+                self.hits.push(hit);
+                if self.hits.len() > self.max_hits {
+                    self.hits.remove(0);
+                }
             }
         }
 
@@ -309,12 +327,13 @@ impl FrequencyScanner {
 
         egui::ScrollArea::vertical().max_height(400.0).auto_shrink(false).show(ui, |ui| {
             egui::Grid::new("hits_grid")
-                .num_columns(5)
+                .num_columns(6)
                 .striped(true)
-                .min_col_width(55.0)
+                .min_col_width(50.0)
                 .show(ui, |ui| {
                     ui.strong("Freq");
                     ui.strong("Strength");
+                    ui.strong("Level");
                     ui.strong("Time Ago");
                     ui.strong("Tune");
                     ui.strong("Del");
@@ -325,6 +344,16 @@ impl FrequencyScanner {
                     for (i, hit) in hits_copy.iter().enumerate() {
                         ui.monospace(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6));
                         ui.colored_label(hit_color(hit.strength_db), format!("{:.1} dB", hit.strength_db));
+                        // Mini strength bar
+                        let norm = ((hit.strength_db + 120.0) / 120.0).clamp(0.0, 1.0);
+                        let bar_w = 60.0;
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, 10.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 1.0, egui::Color32::from_rgb(20, 20, 30));
+                        let fill_color = hit_color(hit.strength_db);
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(rect.min, egui::vec2(norm * bar_w, rect.height())),
+                            1.0, fill_color,
+                        );
                         let ago = hit.timestamp.elapsed().as_secs();
                         ui.label(if ago < 60 { format!("{}s", ago) } else { format!("{}m", ago / 60) });
                         if ui.small_button("📡").clicked() {

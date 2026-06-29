@@ -88,6 +88,7 @@ pub struct CentralApp {
     show_keyboard_help: bool,
     last_history_freq: u64,
     freq_history_idx: Option<usize>,
+    recording_start: Option<std::time::Instant>,
     // New-bookmark form state
     new_bm_name: String,
     new_bm_freq_mhz: String,
@@ -96,6 +97,12 @@ pub struct CentralApp {
     new_bm_error: String,
     show_add_bm: bool,
     bm_import_msg: String,
+    // Bookmark inline edit
+    edit_bm_idx: Option<usize>,
+    edit_bm_name: String,
+    edit_bm_freq_mhz: String,
+    edit_bm_mode: String,
+    edit_bm_category: String,
     // Custom task form
     new_task_label: String,
     new_task_freq_mhz: String,
@@ -207,10 +214,16 @@ impl CentralApp {
             new_bm_error: String::new(),
             show_add_bm: false,
             bm_import_msg: String::new(),
+            edit_bm_idx: None,
+            edit_bm_name: String::new(),
+            edit_bm_freq_mhz: String::new(),
+            edit_bm_mode: String::new(),
+            edit_bm_category: String::new(),
             new_task_label: String::new(),
             new_task_freq_mhz: String::new(),
             new_task_time: String::new(),
             new_task_error: String::new(),
+            recording_start: None,
         }
     }
 }
@@ -611,6 +624,11 @@ impl eframe::App for CentralApp {
                 new_bm_error: &mut self.new_bm_error,
                 show_add_bm: &mut self.show_add_bm,
                 bm_import_msg: &mut self.bm_import_msg,
+                edit_bm_idx: &mut self.edit_bm_idx,
+                edit_bm_name: &mut self.edit_bm_name,
+                edit_bm_freq_mhz: &mut self.edit_bm_freq_mhz,
+                edit_bm_mode: &mut self.edit_bm_mode,
+                edit_bm_category: &mut self.edit_bm_category,
                 new_task_label: &mut self.new_task_label,
                 new_task_freq_mhz: &mut self.new_task_freq_mhz,
                 new_task_time: &mut self.new_task_time,
@@ -667,8 +685,19 @@ impl eframe::App for CentralApp {
                     .on_hover_text("RF gain in dB. Higher = more sensitive but more noise and risk of overload. 30–40 dB is typical for outdoor signals.");
                 ui.separator();
                 if state.recording {
-                    ui.colored_label(egui::Color32::RED, "● REC")
-                        .on_hover_text("Recording raw I/Q samples to disk. Go to the Recorder tab to stop.");
+                    if self.recording_start.is_none() {
+                        self.recording_start = Some(std::time::Instant::now());
+                    }
+                    let elapsed = self.recording_start.map(|s| s.elapsed().as_secs()).unwrap_or(0);
+                    let rec_label = if elapsed < 60 {
+                        format!("● REC {:02}s", elapsed)
+                    } else {
+                        format!("● REC {:02}:{:02}", elapsed / 60, elapsed % 60)
+                    };
+                    ui.colored_label(egui::Color32::RED, rec_label)
+                        .on_hover_text("Recording in progress. Go to the Recorder tab to stop.");
+                } else {
+                    self.recording_start = None;
                 }
                 if self.audio.is_running() {
                     ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "🔊 Audio")
@@ -764,6 +793,11 @@ struct TabViewer<'a> {
     new_bm_error: &'a mut String,
     show_add_bm: &'a mut bool,
     bm_import_msg: &'a mut String,
+    edit_bm_idx: &'a mut Option<usize>,
+    edit_bm_name: &'a mut String,
+    edit_bm_freq_mhz: &'a mut String,
+    edit_bm_mode: &'a mut String,
+    edit_bm_category: &'a mut String,
     new_task_label: &'a mut String,
     new_task_freq_mhz: &'a mut String,
     new_task_time: &'a mut String,
@@ -972,25 +1006,66 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         ui.collapsing(cat_header, |ui| {
                             for (orig_idx, bm) in filtered.iter().filter(|(_, b)| &b.category == cat) {
                                 ui.horizontal(|ui| {
-                                    ui.label(&bm.name);
-                                    ui.monospace(bm.freq_display());
-                                    ui.small(&bm.mode);
-                                    if ui.small_button("Tune")
-                                        .on_hover_text(format!("Tune to {} and switch to {} mode", bm.freq_display(), bm.mode))
-                                        .clicked()
-                                    {
-                                        if let Ok(mut state) = self.shared.try_lock() {
-                                            state.source.frequency_hz = bm.frequency_hz;
-                                            if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) {
-                                                state.demod_mode = mode;
+                                    let is_editing = *self.edit_bm_idx == Some(*orig_idx);
+                                    if is_editing {
+                                        // Inline edit row
+                                        ui.add(egui::TextEdit::singleline(self.edit_bm_name).desired_width(120.0).hint_text("Name"));
+                                        ui.add(egui::TextEdit::singleline(self.edit_bm_freq_mhz).desired_width(70.0).hint_text("MHz"));
+                                        egui::ComboBox::from_id_salt(format!("edit_mode_{}", orig_idx))
+                                            .selected_text(self.edit_bm_mode.as_str())
+                                            .show_ui(ui, |ui| {
+                                                for m in ["NFM", "WFM", "AM", "USB", "LSB", "RAW"] {
+                                                    ui.selectable_value(self.edit_bm_mode, m.to_string(), m);
+                                                }
+                                            });
+                                        ui.add(egui::TextEdit::singleline(self.edit_bm_category).desired_width(80.0).hint_text("Category"));
+                                        if ui.small_button("✓").on_hover_text("Save changes").clicked() {
+                                            if let Ok(freq_mhz) = self.edit_bm_freq_mhz.trim().parse::<f64>() {
+                                                if let Ok(mut state) = self.shared.try_lock() {
+                                                    if let Some(bm) = state.bookmarks.bookmarks.get_mut(*orig_idx) {
+                                                        bm.name = self.edit_bm_name.trim().to_string();
+                                                        bm.frequency_hz = (freq_mhz * 1e6) as u64;
+                                                        bm.mode = self.edit_bm_mode.clone();
+                                                        bm.category = if self.edit_bm_category.trim().is_empty() { "Custom".into() } else { self.edit_bm_category.trim().to_string() };
+                                                    }
+                                                }
+                                            }
+                                            *self.edit_bm_idx = None;
+                                        }
+                                        if ui.small_button("✕").on_hover_text("Cancel edit").clicked() {
+                                            *self.edit_bm_idx = None;
+                                        }
+                                    } else {
+                                        ui.label(&bm.name);
+                                        ui.monospace(bm.freq_display());
+                                        ui.small(&bm.mode);
+                                        if ui.small_button("Tune")
+                                            .on_hover_text(format!("Tune to {} and switch to {} mode", bm.freq_display(), bm.mode))
+                                            .clicked()
+                                        {
+                                            if let Ok(mut state) = self.shared.try_lock() {
+                                                state.source.frequency_hz = bm.frequency_hz;
+                                                if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) {
+                                                    state.demod_mode = mode;
+                                                }
                                             }
                                         }
-                                    }
-                                    if ui.small_button("🗑")
-                                        .on_hover_text("Delete this bookmark")
-                                        .clicked()
-                                    {
-                                        delete_idx = Some(*orig_idx);
+                                        if ui.small_button("✏")
+                                            .on_hover_text("Edit this bookmark")
+                                            .clicked()
+                                        {
+                                            *self.edit_bm_idx = Some(*orig_idx);
+                                            *self.edit_bm_name = bm.name.clone();
+                                            *self.edit_bm_freq_mhz = format!("{:.4}", bm.frequency_hz as f64 / 1e6);
+                                            *self.edit_bm_mode = bm.mode.clone();
+                                            *self.edit_bm_category = bm.category.clone();
+                                        }
+                                        if ui.small_button("🗑")
+                                            .on_hover_text("Delete this bookmark")
+                                            .clicked()
+                                        {
+                                            delete_idx = Some(*orig_idx);
+                                        }
                                     }
                                 });
                             }
