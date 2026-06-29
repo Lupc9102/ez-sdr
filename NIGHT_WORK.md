@@ -85,3 +85,6 @@ Started: 2026-06-29 (8-hour window)
 - T+~115min: Auto-squelch tracking mode — "Track ON" toggle continuously follows noise floor + configurable offset
 - T+~125min: Bookmark memory scan — 📻 Memory Scan section in Scanner tab, cycles bookmarks, applies each bookmark's demod mode, hold-on-activity support
 - T+~125min: Keyboard shortcut overlay updated (configurable step hints, Shift+Arrow added)
+- T+~135min: Recent frequencies quick-access bar in SDR panel (last 6 unique freqs as clickable chips)
+- T+~140min: Bookmark overlay color-coding by category (aviation=blue, weather=green, marine=teal, amateur=purple, broadcast=orange, scanner=red)
+- T+~145min: Band plan overlay expanded from 9 to 45+ allocations covering all major VHF/UHF bands

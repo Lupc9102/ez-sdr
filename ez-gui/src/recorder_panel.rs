@@ -18,6 +18,11 @@ pub struct RecorderPanel {
     file_list_last_scan: Option<std::time::Instant>,
     pub max_duration_mins: u32,
     delete_confirm: Option<String>,
+    // Squelch-triggered recording
+    pub squelch_record: bool,
+    pub squelch_record_tail_ms: u64,
+    squelch_record_last_active: Option<std::time::Instant>,
+    pub squelch_record_count: u32,
 }
 
 #[derive(Clone)]
@@ -46,6 +51,29 @@ impl RecorderPanel {
             file_list_last_scan: None,
             max_duration_mins: 0,
             delete_confirm: None,
+            squelch_record: false,
+            squelch_record_tail_ms: 2000,
+            squelch_record_last_active: None,
+            squelch_record_count: 0,
+        }
+    }
+
+    pub fn tick_squelch_record(&mut self, signal_db: f32, squelch_db: f32) {
+        if !self.squelch_record { return; }
+        let signal_active = signal_db > squelch_db && squelch_db > -90.0;
+        let now = std::time::Instant::now();
+        if signal_active {
+            self.squelch_record_last_active = Some(now);
+            if !self.recording {
+                self.start_recording();
+                self.squelch_record_count += 1;
+            }
+        } else if self.recording {
+            let tail = std::time::Duration::from_millis(self.squelch_record_tail_ms);
+            let since = self.squelch_record_last_active.map(|t| now.duration_since(t)).unwrap_or(tail);
+            if since >= tail {
+                self.stop_recording();
+            }
         }
     }
 
@@ -241,6 +269,39 @@ impl RecorderPanel {
             ui.colored_label(egui::Color32::RED, &self.last_error);
         }
 
+        ui.separator();
+
+        // Squelch-triggered recording
+        ui.collapsing("🎙 VOX / Squelch-triggered recording", |ui| {
+            ui.label("Automatically start and stop recording when a signal is detected above the squelch threshold. Each transmission becomes a separate file.");
+            ui.horizontal(|ui| {
+                let vox_label = if self.squelch_record {
+                    egui::RichText::new("VOX ON").color(egui::Color32::from_rgb(80, 220, 120)).strong()
+                } else {
+                    egui::RichText::new("Enable VOX")
+                };
+                if ui.toggle_value(&mut self.squelch_record, vox_label)
+                    .on_hover_text("When enabled, recording starts automatically when signal exceeds squelch, and stops after the tail delay.")
+                    .changed() && self.squelch_record && self.recording {
+                    self.stop_recording();
+                }
+                ui.add(egui::Slider::new(&mut self.squelch_record_tail_ms, 200u64..=10_000)
+                    .step_by(200.0)
+                    .text("Tail (ms)")
+                    .custom_formatter(|v, _| {
+                        if v < 1000.0 { format!("{:.0} ms", v) } else { format!("{:.1} s", v / 1000.0) }
+                    }))
+                    .on_hover_text("How long to continue recording after signal drops. Prevents chopping multi-part transmissions.");
+            });
+            if self.squelch_record_count > 0 {
+                ui.label(format!("{} recordings captured this session", self.squelch_record_count));
+            }
+            if self.squelch_record && self.recording {
+                ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Recording active transmission…");
+            } else if self.squelch_record {
+                ui.colored_label(egui::Color32::GRAY, "◉ Waiting for signal…");
+            }
+        });
         ui.separator();
 
         if self.recording {

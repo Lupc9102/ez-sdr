@@ -622,6 +622,14 @@ impl eframe::App for CentralApp {
                 }
             }
 
+            // Squelch-triggered recording tick
+            {
+                let (signal_db, squelch_db) = if let Ok(state) = self.shared.try_lock() {
+                    (state.spectrum.signal_level(), state.squelch)
+                } else { (-120.0, -50.0) };
+                self.recorder_panel.tick_squelch_record(signal_db, squelch_db);
+            }
+
             // Frequency scanner tick (runs every frame, rate-limited by dwell_ms)
             {
                 let peak = if let Ok(state) = self.shared.try_lock() {
