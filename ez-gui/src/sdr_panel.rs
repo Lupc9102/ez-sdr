@@ -134,6 +134,41 @@ impl SdrPanel {
                 }
             });
         }
+        // Tuning step presets
+        if let Ok(mut state) = self.shared.try_lock() {
+            ui.horizontal(|ui| {
+                ui.label("Step:").on_hover_text("Arrow key tuning step. ←→ = fine step, ↑↓ = coarse step. Shift multiplies by 10.");
+                for (label, hz, tip) in [
+                    ("1k",  1_000u64,   "1 kHz step — for SSB/CW tuning"),
+                    ("5k",  5_000,       "5 kHz step — NFM channel spacing (narrow)"),
+                    ("8.33k",8_333,      "8.33 kHz step — ICAO aviation channel spacing"),
+                    ("10k", 10_000,      "10 kHz step"),
+                    ("12.5k",12_500,     "12.5 kHz step — NFM standard spacing"),
+                    ("25k", 25_000,      "25 kHz step — wide NFM / older PMR"),
+                    ("50k", 50_000,      "50 kHz step"),
+                    ("100k",100_000,     "100 kHz step (default fine)"),
+                    ("200k",200_000,     "200 kHz step — FM broadcast channel spacing"),
+                    ("1M",  1_000_000,   "1 MHz step (default coarse)"),
+                ] {
+                    let is_fine = state.tune_step_fine_hz == hz;
+                    let is_coarse = state.tune_step_coarse_hz == hz;
+                    let btn = ui.add(egui::Button::new(egui::RichText::new(label)
+                        .color(if is_fine { egui::Color32::from_rgb(80, 200, 120) }
+                               else if is_coarse { egui::Color32::from_rgb(100, 160, 255) }
+                               else { egui::Color32::GRAY }))
+                        .small())
+                        .on_hover_text(format!("{} — click once: fine step (←→), click twice: coarse step (↑↓). Current fine: {} Hz, coarse: {} Hz.",
+                            tip, state.tune_step_fine_hz, state.tune_step_coarse_hz));
+                    if btn.clicked() {
+                        if !is_fine {
+                            state.tune_step_fine_hz = hz;
+                        } else {
+                            state.tune_step_coarse_hz = hz;
+                        }
+                    }
+                }
+            });
+        }
         // Direct frequency entry
         ui.horizontal(|ui| {
             ui.label("Go to:").on_hover_text("Type a frequency and press Enter to jump. Examples: 145.5 (MHz), 145500000 (Hz), 145500k (kHz).");

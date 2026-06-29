@@ -63,6 +63,8 @@ pub struct SharedState {
     pub audio_peak: f32,
     pub freq_history: VecDeque<u64>,
     pub vfo_b: u64,
+    pub tune_step_fine_hz: u64,
+    pub tune_step_coarse_hz: u64,
 }
 
 pub struct CentralApp {
@@ -142,6 +144,8 @@ impl CentralApp {
             audio_peak: 0.0,
             freq_history: VecDeque::with_capacity(20),
             vfo_b: 0,
+            tune_step_fine_hz: 100_000,
+            tune_step_coarse_hz: 1_000_000,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -349,19 +353,21 @@ impl eframe::App for CentralApp {
                         state.source.start();
                     }
                 }
-                // Arrow keys: tune up/down by 1 MHz
-                if i.key_pressed(egui::Key::ArrowUp) {
-                    state.source.frequency_hz = (state.source.frequency_hz + 1_000_000).min(1_770_000_000);
+                // Arrow keys: tune up/down/left/right (coarse = up/down, fine = left/right)
+                // Shift modifier doubles the step
+                let fine = state.tune_step_fine_hz * if i.modifiers.shift { 10 } else { 1 };
+                let coarse = state.tune_step_coarse_hz * if i.modifiers.shift { 10 } else { 1 };
+                if i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.alt {
+                    state.source.frequency_hz = (state.source.frequency_hz + coarse).min(1_770_000_000);
                 }
-                if i.key_pressed(egui::Key::ArrowDown) {
-                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(1_000_000).max(500_000);
+                if i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.alt {
+                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(coarse).max(500_000);
                 }
-                // Arrow left/right: tune by 100 kHz
-                if i.key_pressed(egui::Key::ArrowRight) {
-                    state.source.frequency_hz = (state.source.frequency_hz + 100_000).min(1_770_000_000);
+                if i.key_pressed(egui::Key::ArrowRight) && !i.modifiers.alt {
+                    state.source.frequency_hz = (state.source.frequency_hz + fine).min(1_770_000_000);
                 }
-                if i.key_pressed(egui::Key::ArrowLeft) {
-                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(100_000).max(500_000);
+                if i.key_pressed(egui::Key::ArrowLeft) && !i.modifiers.alt {
+                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(fine).max(500_000);
                 }
                 // Alt+Left/Right: frequency history back/forward
                 if i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft) {
