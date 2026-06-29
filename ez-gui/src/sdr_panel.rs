@@ -153,10 +153,52 @@ impl SdrPanel {
             let color = if norm > 0.6 { egui::Color32::GREEN }
                 else if norm > 0.3 { egui::Color32::YELLOW }
                 else { egui::Color32::RED };
+            // VU-style signal meter
             ui.horizontal(|ui| {
-                ui.label("Signal:")
-                    .on_hover_text("Estimated signal level in dBFS. Green = strong, yellow = moderate, red = weak or no signal. -60 dBFS or above is usually demodulable.");
-                ui.add(egui::ProgressBar::new(norm).fill(color).text(format!("{:.1} dB", signal)));
+                ui.label("Signal:").on_hover_text("RF signal level in dBFS. Green zone (>-40 dB) = strong. Yellow (−60–40) = moderate. Red (<-60) = weak/noise.");
+                // Draw custom colored bar using painter
+                let desired = egui::vec2(180.0, 14.0);
+                let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::hover());
+                let response = response.on_hover_text(format!("Signal: {:.1} dBFS  SNR: {:.1} dB  Noise: {:.1} dB", signal, snr, noise_floor));
+                let p = ui.painter();
+                p.rect_filled(rect, 2.0, egui::Color32::from_rgb(15, 15, 25));
+                // Zones: 0–50% red, 50–75% yellow, 75–100% green
+                let zones = [
+                    (0.0f32, 0.5f32, egui::Color32::from_rgb(150, 30, 30)),
+                    (0.5f32, 0.75f32, egui::Color32::from_rgb(180, 150, 20)),
+                    (0.75f32, 1.0f32, egui::Color32::from_rgb(30, 150, 50)),
+                ];
+                for (lo, hi, c) in &zones {
+                    let fill = egui::Rect::from_min_max(
+                        egui::pos2(rect.left() + lo * rect.width(), rect.top()),
+                        egui::pos2(rect.left() + hi * rect.width(), rect.bottom()),
+                    );
+                    p.rect_filled(fill, 0.0, egui::Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 40));
+                }
+                // Filled bar up to signal level
+                let fill_w = norm * rect.width();
+                let fill_color = if norm > 0.75 { egui::Color32::from_rgb(50, 200, 80) }
+                    else if norm > 0.5 { egui::Color32::from_rgb(220, 180, 30) }
+                    else { egui::Color32::from_rgb(200, 50, 50) };
+                p.rect_filled(
+                    egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, rect.height())),
+                    2.0, fill_color,
+                );
+                // Tick marks every 20 dB
+                for db in (-120..=0i32).step_by(20) {
+                    let t = ((db as f32 - (-120.0)) / 120.0).clamp(0.0, 1.0);
+                    let x = rect.left() + t * rect.width();
+                    p.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                        egui::Stroke::new(0.5, egui::Color32::from_gray(80)));
+                }
+                // Level text
+                p.text(egui::pos2(rect.right() - 2.0, rect.center().y),
+                    egui::Align2::RIGHT_CENTER,
+                    format!("{:.0}dB", signal),
+                    egui::FontId::monospace(9.0),
+                    egui::Color32::WHITE);
+                let _ = response;
+
                 ui.separator();
                 let snr_color = if snr > 20.0 { egui::Color32::GREEN }
                     else if snr > 10.0 { egui::Color32::YELLOW }
