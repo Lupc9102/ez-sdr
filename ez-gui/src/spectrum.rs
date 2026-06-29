@@ -39,6 +39,7 @@ pub struct SpectrumAnalyzer {
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
     pub scan_marker: Option<u64>,
+    pub squelch_db: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -124,6 +125,7 @@ impl SpectrumAnalyzer {
             show_vfo_bw: true,
             frozen: false,
             scan_marker: None,
+            squelch_db: -120.0,
         }
     }
 
@@ -717,6 +719,31 @@ impl SpectrumAnalyzer {
                 format!("▸ noise {:.0} dB", nf),
                 egui::FontId::proportional(7.5),
                 egui::Color32::from_rgba_premultiplied(80, 100, 210, alpha),
+            );
+        }
+
+        // Squelch threshold line (dashed orange, only when not disabled)
+        if self.squelch_db > min_db + 1.0 {
+            let sq_norm = ((self.squelch_db - min_db) / range).clamp(0.0, 1.0);
+            let sq_y = spectrum_rect.bottom() - sq_norm * spectrum_height;
+            let dash_len = 6.0_f32;
+            let gap_len = 4.0_f32;
+            let total = dash_len + gap_len;
+            let n_dashes = (spectrum_rect.width() / total).ceil() as usize;
+            for i in 0..n_dashes {
+                let x0 = spectrum_rect.left() + i as f32 * total;
+                let x1 = (x0 + dash_len).min(spectrum_rect.right());
+                painter.line_segment(
+                    [egui::pos2(x0, sq_y), egui::pos2(x1, sq_y)],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(220, 140, 40, 180)),
+                );
+            }
+            painter.text(
+                egui::pos2(spectrum_rect.right() - 4.0, sq_y - 2.0),
+                egui::Align2::RIGHT_BOTTOM,
+                format!("SQ {:.0} dB", self.squelch_db),
+                egui::FontId::proportional(7.5),
+                egui::Color32::from_rgba_premultiplied(220, 140, 40, 200),
             );
         }
 

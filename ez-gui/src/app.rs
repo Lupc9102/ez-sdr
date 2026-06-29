@@ -1004,6 +1004,8 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     } else {
                         None
                     };
+                    // Squelch threshold line
+                    state.spectrum.squelch_db = state.squelch;
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;

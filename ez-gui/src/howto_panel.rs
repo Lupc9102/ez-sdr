@@ -665,12 +665,20 @@ impl HowToPanel {
         Self::h2(ui, "Keyboard shortcuts (SDR panel)");
         egui::Grid::new("sdr_shortcuts").num_columns(2).striped(true).show(ui, |ui| {
             for (key, action) in &[
-                ("M",           "Toggle audio mute on/off."),
                 ("Space",       "Start / Stop the SDR source (works anywhere in app)."),
+                ("M",           "Toggle audio mute on/off."),
+                ("F",           "Freeze / unfreeze spectrum display."),
                 ("↑ / ↓",       "Tune ±1 MHz."),
                 ("← / →",       "Tune ±100 kHz."),
                 ("[ / ]",       "Navigate frequency history — back / forward."),
+                ("F1",          "Switch demod to RAW (raw I/Q)."),
+                ("F2",          "Switch demod to AM (amplitude modulation)."),
+                ("F3",          "Switch demod to NFM (narrowband FM)."),
+                ("F4",          "Switch demod to WFM (wideband FM broadcast)."),
+                ("F5",          "Switch demod to LSB (lower sideband HF)."),
+                ("F6",          "Switch demod to USB (upper sideband HF)."),
                 ("Ctrl+S",      "Save config AND persist current spectrum dB range."),
+                ("?",           "Toggle keyboard shortcut reference overlay."),
             ] {
                 ui.monospace(*key);
                 ui.label(*action);
