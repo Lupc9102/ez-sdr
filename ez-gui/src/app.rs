@@ -1019,8 +1019,10 @@ impl eframe::App for CentralApp {
                         ui.monospace("M"); ui.label("Toggle audio mute on/off"); ui.end_row();
                         ui.monospace("F"); ui.label("Freeze / unfreeze spectrum display"); ui.end_row();
                         ui.monospace("C"); ui.label("Cycle waterfall colormap (Classic→Viridis→Plasma→…)"); ui.end_row();
+                        ui.monospace("V"); ui.label("Swap VFO A ↔ VFO B (quick frequency toggle)"); ui.end_row();
+                        ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
                         ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
-                        ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies + spectrum dB range"); ui.end_row();
+                        ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies + spectrum dB range + VFO B + waterfall range"); ui.end_row();
                         ui.monospace("?"); ui.label("Toggle this shortcut reference"); ui.end_row();
                         ui.separator(); ui.separator(); ui.end_row();
                         ui.label(egui::RichText::new("Spectrum / Waterfall").italics()); ui.label(""); ui.end_row();
