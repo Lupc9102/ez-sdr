@@ -87,6 +87,7 @@ pub struct CentralApp {
     bookmark_filter: String,
     show_keyboard_help: bool,
     last_history_freq: u64,
+    freq_history_idx: Option<usize>,
     // New-bookmark form state
     new_bm_name: String,
     new_bm_freq_mhz: String,
@@ -192,6 +193,7 @@ impl CentralApp {
                 let state = shared.lock().unwrap();
                 state.source.frequency_hz
             },
+            freq_history_idx: None,
             new_bm_name: String::new(),
             new_bm_freq_mhz: String::new(),
             new_bm_mode: "NFM".to_string(),
@@ -252,6 +254,7 @@ impl eframe::App for CentralApp {
                     if signal_level > squelch_db { 1.0 } else { 0.0 }
                 };
                 let audio: Vec<f32> = audio.into_iter().map(|s| s * volume * gate).collect();
+                self.recorder_panel.write_audio_samples(&audio);
                 let _ = self.audio_tx.try_send(audio);
                 // Update demod metrics in shared state
                 if let Ok(mut state) = self.shared.try_lock() {
@@ -297,6 +300,31 @@ impl eframe::App for CentralApp {
                 }
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     state.source.frequency_hz = state.source.frequency_hz.saturating_sub(100_000).max(500_000);
+                }
+                // Alt+Left/Right: frequency history back/forward
+                if i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft) {
+                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    if !hist.is_empty() {
+                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        if cur_idx > 0 {
+                            let new_idx = cur_idx - 1;
+                            self.freq_history_idx = Some(new_idx);
+                            state.source.frequency_hz = hist[new_idx];
+                            self.last_history_freq = hist[new_idx];
+                        }
+                    }
+                }
+                if i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight) {
+                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    if !hist.is_empty() {
+                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        if cur_idx + 1 < hist.len() {
+                            let new_idx = cur_idx + 1;
+                            self.freq_history_idx = Some(new_idx);
+                            state.source.frequency_hz = hist[new_idx];
+                            self.last_history_freq = hist[new_idx];
+                        }
+                    }
                 }
                 // F1-F6: select demod mode
                 if i.key_pressed(egui::Key::F1) { state.demod_mode = crate::sdr_panel::DemodMode::Raw; }
@@ -468,8 +496,17 @@ impl eframe::App for CentralApp {
             if freq != self.last_history_freq {
                 self.last_history_freq = freq;
                 if state.freq_history.back() != Some(&freq) {
+                    // Manual tune: truncate forward history and append
+                    if let Some(idx) = self.freq_history_idx {
+                        let len = state.freq_history.len();
+                        let excess = len.saturating_sub(idx + 1);
+                        for _ in 0..excess {
+                            state.freq_history.pop_back();
+                        }
+                        self.freq_history_idx = None;
+                    }
                     state.freq_history.push_back(freq);
-                    if state.freq_history.len() > 20 {
+                    if state.freq_history.len() > 50 {
                         state.freq_history.pop_front();
                     }
                 }
@@ -515,6 +552,35 @@ impl eframe::App for CentralApp {
         // Status bar
         ui.separator();
         ui.horizontal(|ui| {
+            // Frequency history nav
+            let (hist_len, hist_idx) = if let Ok(state) = self.shared.try_lock() {
+                (state.freq_history.len(), self.freq_history_idx.unwrap_or(state.freq_history.len().saturating_sub(1)))
+            } else { (0, 0) };
+            let can_back = hist_idx > 0 && hist_len > 1;
+            let can_fwd = self.freq_history_idx.is_some() && hist_idx + 1 < hist_len;
+            if ui.add_enabled(can_back, egui::Button::new("◀")).on_hover_text("Go back to previous frequency (Alt+←)").clicked() {
+                if let Ok(mut state) = self.shared.try_lock() {
+                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    if hist_idx > 0 {
+                        let new_idx = hist_idx - 1;
+                        self.freq_history_idx = Some(new_idx);
+                        state.source.frequency_hz = hist[new_idx];
+                        self.last_history_freq = hist[new_idx];
+                    }
+                }
+            }
+            if ui.add_enabled(can_fwd, egui::Button::new("▶")).on_hover_text("Go forward in frequency history (Alt+→)").clicked() {
+                if let Ok(mut state) = self.shared.try_lock() {
+                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    if hist_idx + 1 < hist_len {
+                        let new_idx = hist_idx + 1;
+                        self.freq_history_idx = Some(new_idx);
+                        state.source.frequency_hz = hist[new_idx];
+                        self.last_history_freq = hist[new_idx];
+                    }
+                }
+            }
+            ui.separator();
             if let Ok(state) = self.shared.try_lock() {
                 let running = state.source.status == crate::source_manager::SourceStatus::Running;
                 let status_color = if running { egui::Color32::GREEN } else { egui::Color32::GRAY };
@@ -573,13 +639,20 @@ impl eframe::App for CentralApp {
                 .movable(true)
                 .show(ui.ctx(), |ui| {
                     egui::Grid::new("shortcuts_grid").num_columns(2).striped(true).show(ui, |ui| {
-                        ui.monospace("Space"); ui.label("Start/Stop source"); ui.end_row();
+                        ui.monospace("Space"); ui.label("Start/Stop SDR source"); ui.end_row();
                         ui.monospace("↑ / ↓"); ui.label("Tune ±1 MHz"); ui.end_row();
                         ui.monospace("← / →"); ui.label("Tune ±100 kHz"); ui.end_row();
+                        ui.monospace("Alt+← / Alt+→"); ui.label("Frequency history back/forward"); ui.end_row();
+                        ui.monospace("F1"); ui.label("Demod: RAW"); ui.end_row();
+                        ui.monospace("F2"); ui.label("Demod: AM"); ui.end_row();
+                        ui.monospace("F3"); ui.label("Demod: NFM"); ui.end_row();
+                        ui.monospace("F4"); ui.label("Demod: WFM"); ui.end_row();
+                        ui.monospace("F5"); ui.label("Demod: LSB"); ui.end_row();
+                        ui.monospace("F6"); ui.label("Demod: USB"); ui.end_row();
                         ui.monospace("?"); ui.label("Toggle this help"); ui.end_row();
-                        ui.monospace("Left-click"); ui.label("Tune to frequency on spectrum"); ui.end_row();
-                        ui.monospace("Right-click"); ui.label("Reset zoom"); ui.end_row();
-                        ui.monospace("Middle-click"); ui.label("Add frequency marker"); ui.end_row();
+                        ui.monospace("Left-click (spectrum)"); ui.label("Tune to clicked frequency"); ui.end_row();
+                        ui.monospace("Right-click (spectrum)"); ui.label("Context menu (bookmark, marker, zoom reset…)"); ui.end_row();
+                        ui.monospace("Middle-click (spectrum)"); ui.label("Add frequency marker"); ui.end_row();
                         ui.monospace("Scroll"); ui.label("Zoom in/out on spectrum"); ui.end_row();
                         ui.monospace("Shift+Scroll"); ui.label("Pan spectrum left/right"); ui.end_row();
                         ui.monospace("Mid-drag"); ui.label("Pan spectrum view"); ui.end_row();

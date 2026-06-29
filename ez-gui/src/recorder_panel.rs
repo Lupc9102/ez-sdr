@@ -10,6 +10,7 @@ pub struct RecorderPanel {
     pub start_time: Option<std::time::Instant>,
     pub bytes_written: u64,
     pub iq_writer: Option<std::io::BufWriter<std::fs::File>>,
+    pub wav_writer: Option<hound::WavWriter<std::io::BufWriter<std::fs::File>>>,
     pub last_filename: String,
     pub last_error: String,
     disk_cache: (std::time::Instant, f64, String),
@@ -35,6 +36,7 @@ impl RecorderPanel {
             start_time: None,
             bytes_written: 0,
             iq_writer: None,
+            wav_writer: None,
             last_filename: String::new(),
             last_error: String::new(),
             disk_cache: (std::time::Instant::now(), 99.9, "GB".to_string()),
@@ -89,27 +91,53 @@ impl RecorderPanel {
         } else {
             0.0
         };
-        let filename = format!("{}_{:.1}MHz.iq", ts, freq_mhz);
-        let path = dir.join(&filename);
-        match std::fs::File::create(&path) {
-            Ok(file) => {
-                self.iq_writer = Some(std::io::BufWriter::new(file));
-                self.recording = true;
-                self.start_time = Some(std::time::Instant::now());
-                self.bytes_written = 0;
-                self.last_filename = filename;
-                if let Ok(mut state) = self.shared.try_lock() {
-                    state.recording = true;
+        let ts_str = ts.to_string();
+        if self.record_iq {
+            let filename = format!("{}_{:.1}MHz.iq", ts_str, freq_mhz);
+            let path = dir.join(&filename);
+            match std::fs::File::create(&path) {
+                Ok(file) => {
+                    self.iq_writer = Some(std::io::BufWriter::new(file));
+                    self.last_filename = filename;
+                }
+                Err(e) => {
+                    self.last_error = format!("Failed to create IQ file: {}", e);
+                    return;
                 }
             }
-            Err(e) => {
-                self.last_error = format!("Failed to create file: {}", e);
+        }
+        if self.record_audio {
+            let wav_filename = format!("{}_{:.1}MHz_audio.wav", ts_str, freq_mhz);
+            let wav_path = dir.join(&wav_filename);
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: 48000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            match hound::WavWriter::create(&wav_path, spec) {
+                Ok(w) => {
+                    self.wav_writer = Some(w);
+                    if self.last_filename.is_empty() { self.last_filename = wav_filename; }
+                }
+                Err(e) => {
+                    self.last_error = format!("Failed to create WAV file: {}", e);
+                }
             }
+        }
+        self.recording = true;
+        self.start_time = Some(std::time::Instant::now());
+        self.bytes_written = 0;
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.recording = true;
         }
     }
 
     pub fn stop_recording(&mut self) {
         self.iq_writer.take();
+        if let Some(w) = self.wav_writer.take() {
+            let _ = w.finalize();
+        }
         self.recording = false;
         if let Ok(mut state) = self.shared.try_lock() {
             state.recording = false;
@@ -126,6 +154,21 @@ impl RecorderPanel {
                 } else {
                     self.bytes_written += samples.len() as u64;
                 }
+            }
+        }
+    }
+
+    pub fn write_audio_samples(&mut self, audio: &[f32]) {
+        if self.recording {
+            if let Some(writer) = &mut self.wav_writer {
+                for &s in audio {
+                    let sample = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                    if let Err(e) = writer.write_sample(sample) {
+                        self.last_error = format!("WAV write error: {}", e);
+                        break;
+                    }
+                }
+                self.bytes_written = self.bytes_written.saturating_add(audio.len() as u64 * 2);
             }
         }
     }
