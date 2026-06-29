@@ -428,6 +428,22 @@ impl eframe::App for CentralApp {
                     state.source.frequency_hz = state.vfo_b;
                     state.vfo_b = tmp;
                 }
+                // 1-9: tune to bookmark #N
+                {
+                    let bm_keys = [
+                        (egui::Key::Num1, 0usize), (egui::Key::Num2, 1), (egui::Key::Num3, 2),
+                        (egui::Key::Num4, 3), (egui::Key::Num5, 4), (egui::Key::Num6, 5),
+                        (egui::Key::Num7, 6), (egui::Key::Num8, 7), (egui::Key::Num9, 8),
+                    ];
+                    for (key, idx) in bm_keys {
+                        if i.key_pressed(key) && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.shift {
+                            if let Some(bm) = state.bookmarks.bookmarks.get(idx) {
+                                state.source.frequency_hz = bm.frequency_hz;
+                            }
+                            break;
+                        }
+                    }
+                }
                 // [ / ] : frequency history back/forward
                 if i.key_pressed(egui::Key::OpenBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
@@ -1330,6 +1346,10 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                             *self.edit_bm_idx = None;
                                         }
                                     } else {
+                                        if *orig_idx < 9 {
+                                            ui.colored_label(egui::Color32::from_rgb(100, 180, 255), format!("[{}]", orig_idx + 1))
+                                                .on_hover_text(format!("Press {} to tune here instantly", orig_idx + 1));
+                                        }
                                         ui.label(&bm.name);
                                         ui.monospace(bm.freq_display());
                                         ui.small(&bm.mode);
