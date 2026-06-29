@@ -28,6 +28,8 @@ pub struct FrequencyScanner {
     pub progress: f32,
     pub last_peak_db: f32,
     pub tune_request_hz: Option<u64>,
+    pub auto_tune_on_hit: bool,
+    pub last_export_msg: String,
 }
 
 impl FrequencyScanner {
@@ -49,6 +51,32 @@ impl FrequencyScanner {
             progress: 0.0,
             last_peak_db: -120.0,
             tune_request_hz: None,
+            auto_tune_on_hit: false,
+            last_export_msg: String::new(),
+        }
+    }
+
+    pub fn export_hits_csv(&mut self) {
+        if self.hits.is_empty() {
+            self.last_export_msg = "No hits to export.".to_string();
+            return;
+        }
+        let filename = format!("scanner_hits_{}.csv", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let mut csv = String::from("Frequency_Hz,Frequency_MHz,Strength_dB,Age_Seconds\n");
+        let now = std::time::Instant::now();
+        for hit in &self.hits {
+            let age = now.duration_since(hit.timestamp).as_secs();
+            csv.push_str(&format!(
+                "{},{:.4},{:.1},{}\n",
+                hit.freq_hz,
+                hit.freq_hz as f64 / 1e6,
+                hit.strength_db,
+                age
+            ));
+        }
+        match std::fs::write(&filename, &csv) {
+            Ok(_) => self.last_export_msg = format!("Exported {} hits to {}", self.hits.len(), filename),
+            Err(e) => self.last_export_msg = format!("Export failed: {}", e),
         }
     }
 
@@ -93,6 +121,9 @@ impl FrequencyScanner {
                 strength_db: spectrum_peak_db,
                 timestamp: now,
             };
+            if self.auto_tune_on_hit {
+                self.tune_request_hz = Some(self.current_freq_hz);
+            }
             self.hits.push(hit);
             if self.hits.len() > self.max_hits {
                 self.hits.remove(0);
@@ -128,15 +159,23 @@ impl FrequencyScanner {
             } else if ui.button("▶ Start Scan").clicked() {
                 self.start();
             }
-            if ui.button("Sort by strength").clicked() {
+            if ui.button("Sort by strength").on_hover_text("Sort the hit list by signal strength, strongest first.").clicked() {
                 self.sort_hits_by_strength();
             }
-            if ui.button("Clear hits").clicked() {
+            if ui.button("Clear hits").on_hover_text("Remove all logged signal hits.").clicked() {
                 self.hits.clear();
             }
+            if ui.button("Export CSV").on_hover_text("Save all hits to a CSV file in the current directory.").clicked() {
+                self.export_hits_csv();
+            }
+            ui.checkbox(&mut self.auto_tune_on_hit, "Auto-tune on hit")
+                .on_hover_text("When enabled, the SDR tunes to each new signal hit immediately so you can hear it. Pauses the sweep while listening.");
             ui.separator();
             let color = if self.enabled { egui::Color32::GREEN } else { egui::Color32::GRAY };
             ui.colored_label(color, &self.status_text);
+            if !self.last_export_msg.is_empty() {
+                ui.label(egui::RichText::new(&self.last_export_msg).color(egui::Color32::from_rgb(100, 220, 100)).small());
+            }
         });
 
         ui.separator();

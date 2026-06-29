@@ -82,6 +82,13 @@ pub struct CentralApp {
     last_auto_tuned_satellite: String,
     bookmark_filter: String,
     show_keyboard_help: bool,
+    // New-bookmark form state
+    new_bm_name: String,
+    new_bm_freq_mhz: String,
+    new_bm_mode: String,
+    new_bm_category: String,
+    new_bm_error: String,
+    show_add_bm: bool,
 }
 
 impl CentralApp {
@@ -171,6 +178,12 @@ impl CentralApp {
             last_auto_tuned_satellite: String::new(),
             bookmark_filter: String::new(),
             show_keyboard_help: false,
+            new_bm_name: String::new(),
+            new_bm_freq_mhz: String::new(),
+            new_bm_mode: "NFM".to_string(),
+            new_bm_category: "Custom".to_string(),
+            new_bm_error: String::new(),
+            show_add_bm: false,
         }
     }
 }
@@ -365,6 +378,22 @@ impl eframe::App for CentralApp {
             }
         }
 
+        // Process quick-bookmark request from SDR panel
+        if let Some((freq, mode)) = self.sdr_panel.bookmark_request.take() {
+            if let Ok(mut state) = self.shared.try_lock() {
+                let freq_mhz = freq as f64 / 1e6;
+                let name = format!("{:.3} MHz {}", freq_mhz, mode);
+                state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                    name,
+                    frequency_hz: freq,
+                    mode,
+                    bandwidth_hz: 12_500,
+                    category: "Quick".to_string(),
+                    notes: String::new(),
+                });
+            }
+        }
+
         // Apply config changes triggered from Settings tab
         if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {
@@ -428,6 +457,12 @@ impl eframe::App for CentralApp {
                 ai: &mut self.ai_panel,
                 howto: &mut self.howto_panel,
                 bookmark_filter: &mut self.bookmark_filter,
+                new_bm_name: &mut self.new_bm_name,
+                new_bm_freq_mhz: &mut self.new_bm_freq_mhz,
+                new_bm_mode: &mut self.new_bm_mode,
+                new_bm_category: &mut self.new_bm_category,
+                new_bm_error: &mut self.new_bm_error,
+                show_add_bm: &mut self.show_add_bm,
             });
 
         // Status bar
@@ -523,6 +558,12 @@ struct TabViewer<'a> {
     ai: &'a mut AiPanel,
     howto: &'a mut HowToPanel,
     bookmark_filter: &'a mut String,
+    new_bm_name: &'a mut String,
+    new_bm_freq_mhz: &'a mut String,
+    new_bm_mode: &'a mut String,
+    new_bm_category: &'a mut String,
+    new_bm_error: &'a mut String,
+    show_add_bm: &'a mut bool,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -562,39 +603,119 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::AiAgent => self.ai.ui(ui),
             Tab::HowTo => self.howto.ui(ui),
             Tab::Bookmarks => {
-                let snapshot = match &self.snapshot {
-                    Some(s) => s,
-                    None => return,
-                };
+                let bm_count = if let Ok(state) = self.shared.try_lock() { state.bookmarks.bookmarks.len() } else { 0 };
                 ui.heading("Frequency Bookmarks");
                 ui.horizontal(|ui| {
-                    ui.label(format!("{} bookmarks", snapshot.bookmarks.len()));
+                    ui.label(format!("{} bookmarks", bm_count));
                     ui.add(egui::TextEdit::singleline(self.bookmark_filter).hint_text("Filter...").desired_width(150.0));
+                    if ui.button(if *self.show_add_bm { "✕ Cancel" } else { "+ Add" })
+                        .on_hover_text("Add a new bookmark for the current or any frequency.")
+                        .clicked()
+                    {
+                        *self.show_add_bm = !*self.show_add_bm;
+                        self.new_bm_error.clear();
+                        // Pre-fill frequency from SDR
+                        if *self.show_add_bm {
+                            if let Ok(state) = self.shared.try_lock() {
+                                *self.new_bm_freq_mhz = format!("{:.4}", state.source.frequency_hz as f64 / 1e6);
+                                *self.new_bm_mode = state.demod_mode.label().to_string();
+                            }
+                        }
+                    }
                 });
+
+                // Add bookmark form
+                if *self.show_add_bm {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("New Bookmark").strong());
+                        egui::Grid::new("add_bm_grid").num_columns(2).show(ui, |ui| {
+                            ui.label("Name:");
+                            ui.add(egui::TextEdit::singleline(self.new_bm_name).desired_width(200.0).hint_text("e.g. Local Police"));
+                            ui.end_row();
+                            ui.label("Freq (MHz):");
+                            ui.add(egui::TextEdit::singleline(self.new_bm_freq_mhz).desired_width(120.0).hint_text("145.5"));
+                            ui.end_row();
+                            ui.label("Mode:");
+                            egui::ComboBox::from_id_salt("bm_mode_combo")
+                                .selected_text(self.new_bm_mode.as_str())
+                                .show_ui(ui, |ui| {
+                                    for m in ["NFM", "WFM", "AM", "USB", "LSB", "RAW"] {
+                                        ui.selectable_value(self.new_bm_mode, m.to_string(), m);
+                                    }
+                                });
+                            ui.end_row();
+                            ui.label("Category:");
+                            ui.add(egui::TextEdit::singleline(self.new_bm_category).desired_width(150.0).hint_text("Custom"));
+                            ui.end_row();
+                        });
+                        if !self.new_bm_error.is_empty() {
+                            ui.colored_label(egui::Color32::RED, self.new_bm_error.as_str());
+                        }
+                        if ui.button("Save Bookmark").clicked() {
+                            let name = self.new_bm_name.trim().to_string();
+                            let freq_str = self.new_bm_freq_mhz.trim().to_string();
+                            match freq_str.parse::<f64>() {
+                                Ok(mhz) if mhz > 0.0 && !name.is_empty() => {
+                                    let bm = crate::bookmarks::Bookmark {
+                                        name,
+                                        frequency_hz: (mhz * 1e6) as u64,
+                                        mode: self.new_bm_mode.clone(),
+                                        bandwidth_hz: 12_500,
+                                        category: if self.new_bm_category.trim().is_empty() { "Custom".to_string() } else { self.new_bm_category.trim().to_string() },
+                                        notes: String::new(),
+                                    };
+                                    if let Ok(mut state) = self.shared.try_lock() {
+                                        state.bookmarks.bookmarks.push(bm);
+                                    }
+                                    self.new_bm_name.clear();
+                                    self.new_bm_error.clear();
+                                    *self.show_add_bm = false;
+                                }
+                                Ok(_) => *self.new_bm_error = "Frequency must be > 0 MHz".to_string(),
+                                Err(_) if name.is_empty() => *self.new_bm_error = "Name cannot be empty".to_string(),
+                                Err(_) => *self.new_bm_error = "Invalid frequency — enter a number like 145.5".to_string(),
+                            }
+                        }
+                    });
+                }
+
                 ui.separator();
 
                 let filter_lower = self.bookmark_filter.to_lowercase();
-                let filtered: Vec<_> = snapshot.bookmarks.iter()
-                    .filter(|b| filter_lower.is_empty()
+                // Collect bookmarks while holding lock briefly
+                let (bookmarks_snapshot, total) = if let Ok(state) = self.shared.try_lock() {
+                    (state.bookmarks.bookmarks.clone(), state.bookmarks.bookmarks.len())
+                } else {
+                    return;
+                };
+                let _ = total;
+
+                let filtered: Vec<(usize, &crate::bookmarks::Bookmark)> = bookmarks_snapshot.iter()
+                    .enumerate()
+                    .filter(|(_, b)| filter_lower.is_empty()
                         || b.name.to_lowercase().contains(&filter_lower)
                         || b.category.to_lowercase().contains(&filter_lower)
                         || b.mode.to_lowercase().contains(&filter_lower)
                         || b.freq_display().contains(&filter_lower))
                     .collect();
 
-                let mut categories: Vec<_> = filtered.iter().map(|b| b.category.clone()).collect();
+                let mut categories: Vec<String> = filtered.iter().map(|(_, b)| b.category.clone()).collect();
                 categories.sort();
                 categories.dedup();
 
+                let mut delete_idx: Option<usize> = None;
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    for cat in categories {
-                        ui.collapsing(&cat, |ui| {
-                            for bm in filtered.iter().filter(|b| b.category == cat) {
+                    for cat in &categories {
+                        ui.collapsing(cat, |ui| {
+                            for (orig_idx, bm) in filtered.iter().filter(|(_, b)| &b.category == cat) {
                                 ui.horizontal(|ui| {
                                     ui.label(&bm.name);
-                                    ui.monospace(format!("{}", bm.freq_display()));
+                                    ui.monospace(bm.freq_display());
                                     ui.small(&bm.mode);
-                                    if ui.small_button("Tune").clicked() {
+                                    if ui.small_button("Tune")
+                                        .on_hover_text(format!("Tune to {} and switch to {} mode", bm.freq_display(), bm.mode))
+                                        .clicked()
+                                    {
                                         if let Ok(mut state) = self.shared.try_lock() {
                                             state.source.frequency_hz = bm.frequency_hz;
                                             if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) {
@@ -602,11 +723,24 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                             }
                                         }
                                     }
+                                    if ui.small_button("🗑")
+                                        .on_hover_text("Delete this bookmark")
+                                        .clicked()
+                                    {
+                                        delete_idx = Some(*orig_idx);
+                                    }
                                 });
                             }
                         });
                     }
                 });
+                if let Some(idx) = delete_idx {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        if idx < state.bookmarks.bookmarks.len() {
+                            state.bookmarks.bookmarks.remove(idx);
+                        }
+                    }
+                }
             }
             Tab::Scheduler => {
                 let jobs = match &self.snapshot {

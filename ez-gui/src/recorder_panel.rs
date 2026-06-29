@@ -13,6 +13,15 @@ pub struct RecorderPanel {
     pub last_filename: String,
     pub last_error: String,
     disk_cache: (std::time::Instant, f64, String),
+    file_list: Vec<RecordingFile>,
+    file_list_last_scan: Option<std::time::Instant>,
+}
+
+#[derive(Clone)]
+struct RecordingFile {
+    name: String,
+    size_bytes: u64,
+    modified: String,
 }
 
 impl RecorderPanel {
@@ -29,7 +38,41 @@ impl RecorderPanel {
             last_filename: String::new(),
             last_error: String::new(),
             disk_cache: (std::time::Instant::now(), 99.9, "GB".to_string()),
+            file_list: Vec::new(),
+            file_list_last_scan: None,
         }
+    }
+
+    fn scan_recordings(&mut self) {
+        let should_scan = self.file_list_last_scan
+            .map(|t| t.elapsed().as_secs() >= 5)
+            .unwrap_or(true);
+        if !should_scan { return; }
+        self.file_list_last_scan = Some(std::time::Instant::now());
+
+        let dir = std::path::Path::new(&self.output_dir);
+        let mut files: Vec<RecordingFile> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if ext != "iq" && ext != "wav" { continue; }
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                let modified = entry.metadata()
+                    .and_then(|m| m.modified())
+                    .map(|t| {
+                        let secs = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                        let ts = chrono::DateTime::<chrono::Local>::from(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs));
+                        ts.format("%Y-%m-%d %H:%M").to_string()
+                    })
+                    .unwrap_or_else(|_| "?".to_string());
+                files.push(RecordingFile { name, size_bytes, modified });
+            }
+        }
+        // Sort newest first by name (timestamps in filename)
+        files.sort_by(|a, b| b.name.cmp(&a.name));
+        self.file_list = files;
     }
 
     pub fn start_recording(&mut self) {
@@ -88,6 +131,7 @@ impl RecorderPanel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.scan_recordings();
         ui.heading("Recorder");
 
         if let Ok(state) = self.shared.try_lock() {
@@ -148,6 +192,46 @@ impl RecorderPanel {
                 self.start_recording();
             }
         }
+
+        // Recordings file browser
+        ui.separator();
+        ui.collapsing(format!("Recordings ({} files)", self.file_list.len()), |ui| {
+            ui.horizontal(|ui| {
+                if ui.small_button("↻ Refresh").on_hover_text("Rescan the output directory for .iq and .wav files.").clicked() {
+                    self.file_list_last_scan = None;
+                    self.scan_recordings();
+                }
+                if ui.small_button("📂 Open folder").on_hover_text("Open the recordings directory in your file manager.").clicked() {
+                    let _ = std::process::Command::new("xdg-open").arg(&self.output_dir).spawn();
+                }
+            });
+            if self.file_list.is_empty() {
+                ui.label(egui::RichText::new("No .iq or .wav files found in output directory.").color(egui::Color32::GRAY));
+            } else {
+                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    egui::Grid::new("rec_file_grid").num_columns(3).striped(true).min_col_width(60.0).show(ui, |ui| {
+                        ui.label(egui::RichText::new("File").strong());
+                        ui.label(egui::RichText::new("Size").strong());
+                        ui.label(egui::RichText::new("Date").strong());
+                        ui.end_row();
+                        let files = self.file_list.clone();
+                        for f in &files {
+                            let size_str = if f.size_bytes > 1_073_741_824 {
+                                format!("{:.1} GB", f.size_bytes as f64 / 1_073_741_824.0)
+                            } else if f.size_bytes > 1_048_576 {
+                                format!("{:.0} MB", f.size_bytes as f64 / 1_048_576.0)
+                            } else {
+                                format!("{:.0} KB", f.size_bytes as f64 / 1024.0)
+                            };
+                            ui.label(&f.name).on_hover_text(&f.name);
+                            ui.label(&size_str);
+                            ui.label(&f.modified);
+                            ui.end_row();
+                        }
+                    });
+                });
+            }
+        });
     }
 
     fn cached_free_disk_space(&mut self) -> (f64, String) {

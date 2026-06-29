@@ -91,26 +91,76 @@ impl SatellitePanel {
             }
         }
         let passes = self.cached_passes.clone();
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
 
-            egui::Grid::new("pass_grid").num_columns(5).striped(true).show(ui, |ui| {
-                ui.label("Satellite");
-                ui.label("AOS");
-                ui.label("LOS");
-                ui.label("MaxEl");
-                ui.label("Action");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("pass_grid").num_columns(6).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Satellite").strong())
+                    .on_hover_text("Satellite name from TLE catalog");
+                ui.label(egui::RichText::new("AOS").strong())
+                    .on_hover_text("Acquisition of Signal — when the satellite rises above your horizon");
+                ui.label(egui::RichText::new("LOS").strong())
+                    .on_hover_text("Loss of Signal — when the satellite sets below your horizon");
+                ui.label(egui::RichText::new("MaxEl").strong())
+                    .on_hover_text("Maximum elevation above horizon during the pass. >20° = good pass. >45° = excellent.");
+                ui.label(egui::RichText::new("In").strong())
+                    .on_hover_text("Time remaining until AOS. Green = pass in progress. Yellow = within 10 minutes.");
+                ui.label(egui::RichText::new("Action").strong());
                 ui.end_row();
 
                 for pass in &passes {
                     let selected = self.selected_sat.as_deref() == Some(&pass.satellite);
-                    ui.colored_label(
-                        if selected { egui::Color32::from_rgb(0, 255, 255) } else { egui::Color32::WHITE },
-                        &pass.satellite,
-                    );
-                    ui.label(&pass.aos);
-                    ui.label(&pass.los);
-                    ui.label(format!("{:.0}°", pass.max_elevation));
-                    if ui.button(if selected { "Selected" } else { "Select" }).clicked() {
+                    let secs_until_aos = pass.aos_dt - now_unix;
+                    let secs_until_los = pass.los_dt - now_unix;
+                    let is_active = secs_until_aos <= 0.0 && secs_until_los > 0.0;
+
+                    let name_color = if is_active {
+                        egui::Color32::from_rgb(50, 255, 100)
+                    } else if selected {
+                        egui::Color32::from_rgb(0, 220, 255)
+                    } else {
+                        egui::Color32::WHITE
+                    };
+
+                    ui.colored_label(name_color, &pass.satellite);
+                    ui.label(&pass.aos).on_hover_text("Local time of AOS");
+                    ui.label(&pass.los).on_hover_text("Local time of LOS");
+                    ui.label(format!("{:.0}°", pass.max_elevation))
+                        .on_hover_text(if pass.max_elevation > 45.0 { "Excellent pass — overhead!" } else if pass.max_elevation > 20.0 { "Good pass" } else { "Low pass — horizon obstructions may affect signal" });
+
+                    // Countdown
+                    let countdown_text;
+                    let countdown_color;
+                    if is_active {
+                        let remaining = secs_until_los.max(0.0) as u64;
+                        let m = remaining / 60;
+                        let s = remaining % 60;
+                        countdown_text = format!("▶ {:02}:{:02}", m, s);
+                        countdown_color = egui::Color32::from_rgb(50, 255, 100);
+                    } else if secs_until_aos < 0.0 {
+                        countdown_text = "past".to_string();
+                        countdown_color = egui::Color32::GRAY;
+                    } else if secs_until_aos < 600.0 {
+                        let m = secs_until_aos as u64 / 60;
+                        let s = secs_until_aos as u64 % 60;
+                        countdown_text = format!("{:02}:{:02}", m, s);
+                        countdown_color = egui::Color32::YELLOW;
+                    } else {
+                        let h = secs_until_aos as u64 / 3600;
+                        let m = (secs_until_aos as u64 % 3600) / 60;
+                        countdown_text = format!("{}h {:02}m", h, m);
+                        countdown_color = egui::Color32::GRAY;
+                    }
+                    ui.colored_label(countdown_color, countdown_text)
+                        .on_hover_text(if is_active { "Pass in progress!" } else { "Time until AOS" });
+
+                    if ui.button(if is_active { "▶ Tune" } else if selected { "✓ Sel" } else { "Select" })
+                        .on_hover_text(format!("Tune to {:.3} MHz for this satellite", pass.frequency_hz as f64 / 1e6))
+                        .clicked()
+                    {
                         self.selected_sat = Some(pass.satellite.clone());
                         if self.auto_tune {
                             if let Ok(mut state) = self.shared.try_lock() {

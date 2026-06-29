@@ -41,6 +41,7 @@ pub struct SdrPanel {
     shared: Arc<Mutex<SharedState>>,
     pub squelch: f32,
     pub filter_bw: u32,
+    pub bookmark_request: Option<(u64, String)>,
 }
 
 impl SdrPanel {
@@ -49,6 +50,7 @@ impl SdrPanel {
             shared,
             squelch: -50.0,
             filter_bw: 12_000,
+            bookmark_request: None,
         }
     }
 
@@ -78,6 +80,11 @@ impl SdrPanel {
                 }
                 if ui.small_button("+100k").on_hover_text("Tune up 100 kHz (keyboard: →)").clicked() {
                     state.source.frequency_hz = (state.source.frequency_hz + 100_000).min(1_770_000_000);
+                }
+                let bm_freq = state.source.frequency_hz;
+                let bm_mode = state.demod_mode.label().to_string();
+                if ui.small_button("⭐").on_hover_text("Bookmark this frequency — saves it to your bookmarks list with the current mode.").clicked() {
+                    self.bookmark_request = Some((bm_freq, bm_mode));
                 }
             });
         }

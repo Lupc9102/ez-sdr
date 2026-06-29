@@ -19,6 +19,8 @@ pub struct SpectrumAnalyzer {
     avg_alpha: f32,
     peak_hold: Vec<f32>,
     show_peak_hold: bool,
+    display_min_db: f32,
+    display_max_db: f32,
     fft: Option<Arc<dyn Fft<f32>>>,
     fft_input_buf: Vec<Complex32>,
     window_cache: Vec<f32>,
@@ -91,6 +93,8 @@ impl SpectrumAnalyzer {
             avg_alpha: 0.3,
             peak_hold: vec![-120.0; fft_size],
             show_peak_hold: false,
+            display_min_db: -120.0,
+            display_max_db: 0.0,
             fft,
             fft_input_buf: Vec::with_capacity(4096),
             window_cache,
@@ -174,8 +178,9 @@ impl SpectrumAnalyzer {
 
     fn waterfall_row(&self) -> Vec<u8> {
         let mut pixels = vec![0u8; self.fft_size * 4];
+        let range = (self.display_max_db - self.display_min_db).max(1.0);
         for (i, db) in self.spectrum_dbs.iter().enumerate() {
-            let normalized = ((db + 120.0) / 80.0).clamp(0.0, 1.0);
+            let normalized = ((db - self.display_min_db) / range).clamp(0.0, 1.0);
             let (r, g, b) = color_map(self.color_map, normalized);
             pixels[i * 4] = r;
             pixels[i * 4 + 1] = g;
@@ -243,6 +248,31 @@ impl SpectrumAnalyzer {
             if self.zoom_factor > 1.0 {
                 ui.label(format!("{:.0}x", self.zoom_factor));
             }
+            ui.separator();
+            ui.label("dB range:").on_hover_text("Adjust the visible dB range on the spectrum plot. Drag the Floor/Ceil values to zoom in on a particular signal level.");
+            ui.add(egui::DragValue::new(&mut self.display_min_db).speed(1.0).range(-160.0..=-40.0).suffix(" floor"))
+                .on_hover_text("Bottom of the dB scale. Default -120 dBFS.");
+            ui.add(egui::DragValue::new(&mut self.display_max_db).speed(1.0).range(-40.0..=20.0).suffix(" ceil"))
+                .on_hover_text("Top of the dB scale. Default 0 dBFS.");
+            if self.display_min_db >= self.display_max_db - 10.0 {
+                self.display_min_db = self.display_max_db - 10.0;
+                self.waterfall_dirty = true;
+            }
+            if ui.small_button("⟳").on_hover_text("Reset dB range to default (-120 to 0)").clicked() {
+                self.display_min_db = -120.0;
+                self.display_max_db = 0.0;
+                self.waterfall_dirty = true;
+            }
+            if ui.small_button("Auto-fit").on_hover_text("Automatically set the dB range to the current signal min/max, centering the display on your signals.").clicked() {
+                if !self.spectrum_dbs.is_empty() {
+                    let cur_min = self.spectrum_dbs.iter().cloned().fold(f32::INFINITY, f32::min);
+                    let cur_max = self.spectrum_dbs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let margin = ((cur_max - cur_min) * 0.1).max(5.0);
+                    self.display_min_db = (cur_min - margin).max(-160.0);
+                    self.display_max_db = (cur_max + margin).min(20.0);
+                    self.waterfall_dirty = true;
+                }
+            }
         });
 
         // Info bar
@@ -267,9 +297,9 @@ impl SpectrumAnalyzer {
         painter.rect_filled(spectrum_rect, 0.0, egui::Color32::from_rgb(8, 8, 14));
 
         let n = self.fft_size;
-        let min_db = -120.0f32;
-        let max_db = 0.0f32;
-        let range = max_db - min_db;
+        let min_db = self.display_min_db;
+        let max_db = self.display_max_db;
+        let range = (max_db - min_db).max(1.0);
 
         // Horizontal grid lines (dB)
         for db in (-120..=0).step_by(20) {
