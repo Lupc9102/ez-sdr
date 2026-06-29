@@ -319,6 +319,42 @@ impl SdrPanel {
             });
         }
 
+        // Signal history sparkline
+        if let Ok(state) = self.shared.try_lock() {
+            let history = state.spectrum.signal_history_snapshot();
+            let history_max = state.spectrum.signal_history_max();
+            if history.len() >= 2 {
+                let desired = egui::vec2(180.0, 30.0);
+                let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::hover());
+                let response = response.on_hover_text("Signal strength over time (last 60s). Shows peaks only. Helps identify if a signal is continuous, periodic, or intermittent.");
+                let p = ui.painter();
+                p.rect_filled(rect, 2.0, egui::Color32::from_rgb(10, 10, 20));
+                let n = history.len();
+                let min_db = -120.0f32;
+                let max_db = 0.0f32;
+                let db_range = max_db - min_db;
+                let points: Vec<egui::Pos2> = history.iter().enumerate().map(|(i, &db)| {
+                    let x = rect.left() + (i as f32 / (history_max as f32 - 1.0).max(1.0)) * rect.width();
+                    let norm = ((db - min_db) / db_range).clamp(0.0, 1.0);
+                    let y = rect.bottom() - norm * rect.height();
+                    egui::pos2(x, y)
+                }).collect();
+                for win in points.windows(2) {
+                    let norm = (win[1].y - rect.top()) / rect.height();
+                    let c = if norm < 0.25 { egui::Color32::from_rgb(50, 200, 80) }
+                        else if norm < 0.5 { egui::Color32::from_rgb(180, 160, 30) }
+                        else { egui::Color32::from_rgb(100, 60, 200) };
+                    p.line_segment([win[0], win[1]], egui::Stroke::new(1.0, c));
+                }
+                // Label
+                p.text(egui::pos2(rect.left() + 2.0, rect.top() + 2.0),
+                    egui::Align2::LEFT_TOP, "60s",
+                    egui::FontId::monospace(8.0), egui::Color32::from_gray(100));
+                let _ = response;
+                let _ = n;
+            }
+        }
+
         // Overload detection + smart gain
         if let Ok(mut state) = self.shared.try_lock() {
             let peak = state.spectrum.peak_level();

@@ -174,6 +174,14 @@ impl SpectrumAnalyzer {
         self.waterfall_dirty = true;
     }
 
+    pub fn signal_history_snapshot(&self) -> Vec<f32> {
+        self.signal_history.iter().cloned().collect()
+    }
+
+    pub fn signal_history_max(&self) -> usize {
+        self.signal_history_max
+    }
+
     pub fn cycle_colormap(&mut self) {
         self.color_map = match self.color_map {
             ColorMap::Classic   => ColorMap::Viridis,
