@@ -164,6 +164,27 @@ impl SdrPanel {
             }
         });
 
+        // Band-aware demod auto-suggest
+        if let Ok(mut state) = self.shared.try_lock() {
+            let freq = state.source.frequency_hz;
+            let current = state.demod_mode;
+            if let Some((suggested, band_name, reason)) = suggest_demod_for_freq(freq) {
+                if suggested != current {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "💡");
+                        ui.label(egui::RichText::new(format!("{} →", band_name)).color(egui::Color32::from_rgb(180, 180, 180)));
+                        if ui.small_button(suggested.label())
+                            .on_hover_text(format!("Switch to {} — {}", suggested.label(), reason))
+                            .clicked()
+                        {
+                            state.demod_mode = suggested;
+                        }
+                        ui.label(egui::RichText::new(format!("({})", reason)).color(egui::Color32::GRAY).small());
+                    });
+                }
+            }
+        }
+
         // Signal meter + SNR
         ui.separator();
         if let Ok(state) = self.shared.try_lock() {
@@ -419,4 +440,27 @@ impl SdrPanel {
             state.source.ui(ui);
         }
     }
+}
+
+/// Returns (suggested_mode, band_name, reason) if the frequency matches a well-known band
+/// and the suggestion would differ from the current mode.
+fn suggest_demod_for_freq(freq_hz: u64) -> Option<(DemodMode, &'static str, &'static str)> {
+    let bands: &[(u64, u64, DemodMode, &str, &str)] = &[
+        (88_000_000,  108_000_000, DemodMode::Wfm, "FM Broadcast",     "WFM for commercial radio"),
+        (118_000_000, 137_000_000, DemodMode::Am,  "Aviation",          "AM for air-to-ground voice"),
+        (137_000_000, 138_000_000, DemodMode::Fm,  "NOAA APT",          "NFM for weather satellite"),
+        (144_000_000, 148_000_000, DemodMode::Fm,  "Amateur 2m",        "NFM for repeaters/simplex"),
+        (156_000_000, 174_000_000, DemodMode::Fm,  "Marine VHF",        "NFM for ship/coast guard"),
+        (162_400_000, 162_600_000, DemodMode::Wfm, "NOAA Weather",      "WFM for NOAA broadcasts"),
+        (420_000_000, 450_000_000, DemodMode::Fm,  "Amateur 70cm",      "NFM for amateur radio"),
+        (26_965_000,  27_405_000,  DemodMode::Am,  "CB Radio",          "AM for Citizens Band"),
+        (150_000_000, 156_000_000, DemodMode::Fm,  "Land Mobile",       "NFM for land mobile radio"),
+        (450_000_000, 470_000_000, DemodMode::Fm,  "UHF LMR",           "NFM for UHF land mobile"),
+    ];
+    for &(lo, hi, mode, name, reason) in bands {
+        if freq_hz >= lo && freq_hz <= hi {
+            return Some((mode, name, reason));
+        }
+    }
+    None
 }
