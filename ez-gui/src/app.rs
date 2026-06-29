@@ -383,6 +383,10 @@ impl eframe::App for CentralApp {
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
                     state.config.save();
                 }
+                // F: freeze/unfreeze spectrum
+                if i.key_pressed(egui::Key::F) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    state.spectrum.frozen = !state.spectrum.frozen;
+                }
             }
         });
 
@@ -821,9 +825,10 @@ impl eframe::App for CentralApp {
                         ui.monospace("F5"); ui.label("Demod: LSB"); ui.end_row();
                         ui.monospace("F6"); ui.label("Demod: USB"); ui.end_row();
                         ui.monospace("M"); ui.label("Toggle audio on/off"); ui.end_row();
+                        ui.monospace("F"); ui.label("Freeze / unfreeze spectrum display"); ui.end_row();
                         ui.monospace("Ctrl+S"); ui.label("Save settings"); ui.end_row();
                         ui.monospace("?"); ui.label("Toggle this help"); ui.end_row();
-                        ui.monospace("Left-click (spectrum)"); ui.label("Tune to clicked frequency"); ui.end_row();
+                        ui.monospace("Left-click (spectrum/wfall)"); ui.label("Tune to clicked frequency"); ui.end_row();
                         ui.monospace("Right-click (spectrum)"); ui.label("Context menu (bookmark, marker, zoom reset…)"); ui.end_row();
                         ui.monospace("Middle-click (spectrum)"); ui.label("Add frequency marker"); ui.end_row();
                         ui.monospace("Scroll"); ui.label("Zoom in/out on spectrum"); ui.end_row();
