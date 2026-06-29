@@ -1058,7 +1058,7 @@ impl SpectrumAnalyzer {
             self.waterfall_dirty = true;
         }
 
-        let (wf_rect, wf_response) = ui.allocate_exact_size(egui::vec2(avail.x, waterfall_height), egui::Sense::click());
+        let (wf_rect, wf_response) = ui.allocate_exact_size(egui::vec2(avail.x, waterfall_height), egui::Sense::click_and_drag());
 
         if self.waterfall_dirty {
             let mut rgba_bytes = Vec::with_capacity(self.fft_size * self.waterfall_history * 4);
@@ -1158,6 +1158,23 @@ impl SpectrumAnalyzer {
             }
         }
 
+        // Waterfall drag-to-pan zoom window
+        if wf_response.dragged_by(egui::PointerButton::Primary) {
+            let delta = wf_response.drag_delta();
+            self.zoom_offset = (self.zoom_offset - delta.x / wf_rect.width()).clamp(0.0, 1.0);
+        }
+        // Waterfall scroll-to-zoom (matches spectrum behavior)
+        if wf_response.hovered() {
+            let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
+            let shift = ui.input(|i| i.modifiers.shift);
+            if scroll_delta.y != 0.0 {
+                if shift {
+                    self.zoom_offset = (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
+                } else {
+                    self.zoom_factor = (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
+                }
+            }
+        }
         // Waterfall click-to-tune
         if wf_response.clicked() {
             if let Some(pointer) = wf_response.hover_pos() {
@@ -1167,6 +1184,40 @@ impl SpectrumAnalyzer {
                 self.clicked_tune_freq = Some(freq);
             }
         }
+        // Waterfall right-click context menu
+        if wf_response.secondary_clicked() {
+            self.ctx_menu_pos = wf_response.hover_pos();
+        }
+        wf_response.context_menu(|ui| {
+            if let Some(pos) = self.ctx_menu_pos {
+                if wf_rect.contains(pos) {
+                    let frac = ((pos.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
+                    let offset_hz = left_hz + frac as f64 * zoom_span;
+                    let freq = (self.center_freq as f64 + offset_hz) as u64;
+                    let freq_mhz = freq as f64 / 1e6;
+                    ui.label(egui::RichText::new(format!("{:.4} MHz", freq_mhz)).strong());
+                    ui.separator();
+                    if ui.button("📡 Tune here").clicked() {
+                        self.clicked_tune_freq = Some(freq);
+                        ui.close();
+                    }
+                    if ui.button("⭐ Bookmark this frequency").clicked() {
+                        self.pending_bookmark_freq = Some(freq);
+                        ui.close();
+                    }
+                    if ui.button("📋 Copy frequency").clicked() {
+                        ui.ctx().copy_text(format!("{:.4}", freq_mhz));
+                        ui.close();
+                    }
+                }
+            }
+            ui.separator();
+            if ui.button("🔍 Reset zoom (1x)").clicked() {
+                self.zoom_factor = 1.0;
+                self.zoom_offset = 0.5;
+                ui.close();
+            }
+        });
         // Waterfall hover crosshair + tooltip
         if let Some(pointer) = wf_response.hover_pos() {
             let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
