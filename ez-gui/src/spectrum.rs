@@ -46,6 +46,7 @@ pub enum WindowType {
 pub enum ColorMap {
     Classic,
     Viridis,
+    Plasma,
     Magma,
     Grayscale,
     Hot,
@@ -234,7 +235,7 @@ impl SpectrumAnalyzer {
             }
             ui.separator();
             ui.label("Palette:");
-            for (label, cmap) in [("Classic", ColorMap::Classic), ("Viridis", ColorMap::Viridis), ("Magma", ColorMap::Magma), ("Gray", ColorMap::Grayscale), ("Hot", ColorMap::Hot)] {
+            for (label, cmap) in [("Classic", ColorMap::Classic), ("Viridis", ColorMap::Viridis), ("Plasma", ColorMap::Plasma), ("Magma", ColorMap::Magma), ("Gray", ColorMap::Grayscale), ("Hot", ColorMap::Hot)] {
                 if ui.selectable_label(self.color_map == cmap, label).clicked() {
                     self.color_map = cmap;
                     self.waterfall_dirty = true;
@@ -774,30 +775,62 @@ impl SpectrumAnalyzer {
     }
 }
 
+fn lerp_color(a: (u8,u8,u8), b: (u8,u8,u8), t: f32) -> (u8,u8,u8) {
+    (
+        (a.0 as f32 + (b.0 as f32 - a.0 as f32) * t) as u8,
+        (a.1 as f32 + (b.1 as f32 - a.1 as f32) * t) as u8,
+        (a.2 as f32 + (b.2 as f32 - a.2 as f32) * t) as u8,
+    )
+}
+
+fn sample_palette(palette: &[(u8,u8,u8)], t: f32) -> (u8,u8,u8) {
+    let n = palette.len();
+    if n == 0 { return (0,0,0); }
+    let scaled = t.clamp(0.0, 1.0) * (n - 1) as f32;
+    let lo = scaled.floor() as usize;
+    let hi = (lo + 1).min(n - 1);
+    lerp_color(palette[lo], palette[hi], scaled - lo as f32)
+}
+
 fn color_map(cmap: ColorMap, t: f32) -> (u8, u8, u8) {
     match cmap {
         ColorMap::Classic => waterfall_color_classic(t),
         ColorMap::Viridis => {
-            let r = (t * 255.0) as u8;
-            let g = ((1.0 - (t - 0.5).abs() * 2.0) * 255.0) as u8;
-            let b = ((1.0 - t) * 255.0) as u8;
-            (r, g, b)
+            // 8-stop piecewise approximation of matplotlib Viridis
+            const V: &[(u8,u8,u8)] = &[
+                (68, 1, 84), (72, 40, 120), (62, 74, 137), (49, 104, 142),
+                (38, 130, 142), (31, 158, 137), (53, 183, 121), (110, 206, 88),
+                (181, 222, 43), (253, 231, 37),
+            ];
+            sample_palette(V, t)
+        }
+        ColorMap::Plasma => {
+            // 10-stop piecewise approximation of matplotlib Plasma
+            const P: &[(u8,u8,u8)] = &[
+                (13, 8, 135), (75, 3, 161), (125, 3, 168), (168, 34, 150),
+                (203, 70, 121), (229, 107, 93), (248, 148, 65), (253, 195, 40),
+                (240, 249, 33), (240, 249, 33),
+            ];
+            sample_palette(P, t)
         }
         ColorMap::Magma => {
-            let r = (t.powf(1.5) * 255.0) as u8;
-            let g = (t.powf(0.75) * (1.0 - t) * 255.0) as u8;
-            let b = ((1.0 - t).powf(1.5) * 255.0) as u8;
-            (r, g, b)
+            // 10-stop piecewise approximation of matplotlib Magma
+            const M: &[(u8,u8,u8)] = &[
+                (0, 0, 4), (28, 16, 68), (79, 18, 123), (129, 37, 129),
+                (181, 54, 122), (229, 80, 100), (251, 135, 97), (254, 194, 135),
+                (252, 253, 191), (252, 253, 191),
+            ];
+            sample_palette(M, t)
         }
         ColorMap::Grayscale => {
             let v = (t * 255.0) as u8;
             (v, v, v)
         }
         ColorMap::Hot => {
-            let r = (t * 3.0).min(1.0) * 255.0;
-            let g = ((t * 3.0 - 1.0).max(0.0).min(1.0)) * 255.0;
-            let b = ((t * 3.0 - 2.0).max(0.0).min(1.0)) * 255.0;
-            (r as u8, g as u8, b as u8)
+            let r = ((t * 3.0).min(1.0) * 255.0) as u8;
+            let g = (((t * 3.0 - 1.0).max(0.0).min(1.0)) * 255.0) as u8;
+            let b = (((t * 3.0 - 2.0).max(0.0).min(1.0)) * 255.0) as u8;
+            (r, g, b)
         }
     }
 }
