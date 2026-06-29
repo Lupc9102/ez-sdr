@@ -44,6 +44,8 @@ pub struct AppConfig {
     pub observer_lon: f64,
     pub font_scale: f64,
     pub needs_apply: bool,
+    #[serde(default)]
+    pub recent_frequencies: Vec<u64>,
 }
 
 impl Default for AppConfig {
@@ -70,6 +72,7 @@ impl Default for AppConfig {
             observer_lon: -0.1,
             font_scale: 1.0,
             needs_apply: false,
+            recent_frequencies: Vec::new(),
         }
     }
 }

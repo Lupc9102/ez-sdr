@@ -166,8 +166,17 @@ impl CentralApp {
             state.source.start();
             state.tle.observer_lat = state.config.observer_lat;
             state.tle.observer_lon = state.config.observer_lon;
+            // Restore recent frequency history from config
+            let saved_recent: Vec<u64> = state.config.recent_frequencies.clone();
+            for hz in saved_recent {
+                if hz > 0 {
+                    state.freq_history.push_back(hz);
+                }
+            }
             let init_freq = state.source.frequency_hz;
-            state.freq_history.push_back(init_freq);
+            if state.freq_history.is_empty() || state.freq_history.back() != Some(&init_freq) {
+                state.freq_history.push_back(init_freq);
+            }
         }
 
         let mut dock_state = DockState::new(vec![
@@ -379,8 +388,10 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::M) {
                     state.audio_running = !state.audio_running;
                 }
-                // Ctrl+S: save config
+                // Ctrl+S: save config (also persists recent frequencies)
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
+                    let recent: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    state.config.recent_frequencies = recent;
                     state.config.save();
                 }
                 // F: freeze/unfreeze spectrum
