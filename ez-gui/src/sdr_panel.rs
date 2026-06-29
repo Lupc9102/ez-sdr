@@ -166,6 +166,25 @@ impl SdrPanel {
             });
         }
 
+        // Demod quality indicators
+        if let Ok(state) = self.shared.try_lock() {
+            let mode = state.demod_mode;
+            if mode == DemodMode::Fm || mode == DemodMode::Wfm {
+                let dev_khz = state.fm_deviation_hz / 1000.0;
+                let dev_color = if dev_khz > 75.0 { egui::Color32::RED }
+                    else if dev_khz > 5.0 { egui::Color32::GREEN }
+                    else { egui::Color32::GRAY };
+                ui.horizontal(|ui| {
+                    ui.colored_label(dev_color, format!("FM dev: {:.1} kHz", dev_khz))
+                        .on_hover_text("FM frequency deviation. NFM: 5–12.5 kHz is normal. WFM broadcast: up to 75 kHz. >75 kHz = overmodulated.");
+                    let peak_pct = (state.audio_peak * 100.0).min(100.0);
+                    let peak_col = if peak_pct > 90.0 { egui::Color32::RED } else if peak_pct > 60.0 { egui::Color32::GREEN } else { egui::Color32::GRAY };
+                    ui.colored_label(peak_col, format!("Audio: {:.0}%", peak_pct))
+                        .on_hover_text("Normalized audio output level. 0% = silent, 100% = clipping risk. Adjust volume if consistently above 90%.");
+                });
+            }
+        }
+
         // Audio controls
         ui.separator();
         ui.horizontal(|ui| {

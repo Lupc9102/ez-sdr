@@ -10,6 +10,9 @@ pub struct Demodulator {
     lpf_cutoff: f32,
     lpf_state_l: f32,
     lpf_alpha: f32,
+    pub last_fm_deviation_hz: f32,
+    pub last_audio_peak: f32,
+    input_rate: u32,
 }
 
 impl Demodulator {
@@ -24,6 +27,9 @@ impl Demodulator {
             lpf_cutoff: 15000.0,
             lpf_state_l: 0.0,
             lpf_alpha: 1.0,
+            last_fm_deviation_hz: 0.0,
+            last_audio_peak: 0.0,
+            input_rate: 2_048_000,
         }
     }
 
@@ -36,6 +42,7 @@ impl Demodulator {
 
     pub fn set_sample_rates(&mut self, input_rate: u32, audio_rate: u32) {
         self.audio_sample_rate = audio_rate;
+        self.input_rate = input_rate;
         self.decimation = (input_rate / audio_rate).max(1) as usize;
         if self.decimation < 1 {
             self.decimation = 1;
@@ -95,6 +102,7 @@ impl Demodulator {
 
     fn demod_fm(&mut self, iq: &[u8]) -> Vec<f32> {
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
+        let mut max_diff: f32 = 0.0;
         for chunk in iq.chunks(2) {
             if chunk.len() < 2 { break; }
             let i = (chunk[0] as f32 - 127.4) / 128.0;
@@ -111,6 +119,8 @@ impl Demodulator {
                 diff += 2.0 * std::f32::consts::PI;
             }
 
+            if diff.abs() > max_diff { max_diff = diff.abs(); }
+
             self.prev_i = i;
             self.prev_q = q;
             self.prev_phase = phase;
@@ -120,6 +130,14 @@ impl Demodulator {
                 self.decim_counter = 0;
                 out.push(diff * 0.5);
             }
+        }
+        // FM deviation = max_phase_diff * sample_rate / (2π)
+        if self.input_rate > 0 {
+            self.last_fm_deviation_hz = max_diff * self.input_rate as f32 / (2.0 * std::f32::consts::PI);
+        }
+        // Track audio peak
+        if let Some(&p) = out.iter().max_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap_or(std::cmp::Ordering::Equal)) {
+            self.last_audio_peak = 0.9 * self.last_audio_peak + 0.1 * p.abs();
         }
         out
     }

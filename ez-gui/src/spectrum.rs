@@ -29,6 +29,7 @@ pub struct SpectrumAnalyzer {
     waterfall_dirty: bool,
     waterfall_every_n: u32,
     pub clicked_tune_freq: Option<u64>,
+    pub pending_bookmark_freq: Option<u64>,
     signal_history: std::collections::VecDeque<f32>,
     signal_history_max: usize,
     show_signal_history: bool,
@@ -106,6 +107,7 @@ impl SpectrumAnalyzer {
             waterfall_dirty: true,
             waterfall_every_n: 2,
             clicked_tune_freq: None,
+            pending_bookmark_freq: None,
             signal_history: std::collections::VecDeque::new(),
             signal_history_max: 600,
             show_signal_history: false,
@@ -594,10 +596,60 @@ impl SpectrumAnalyzer {
                 self.clicked_tune_freq = Some(freq);
             }
         }
-        if response.secondary_clicked() {
-            self.zoom_factor = 1.0;
-            self.zoom_offset = 0.5;
-        }
+        // Right-click context menu
+        response.context_menu(|ui| {
+            // Compute hovered frequency for menu actions
+            let hovered_freq = response.hover_pos().map(|pointer| {
+                let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+                let offset_hz = left_hz + frac as f64 * zoom_span;
+                (self.center_freq as f64 + offset_hz) as u64
+            });
+
+            if let Some(freq) = hovered_freq {
+                let freq_mhz = freq as f64 / 1e6;
+                ui.label(egui::RichText::new(format!("{:.4} MHz", freq_mhz)).strong());
+                ui.separator();
+                if ui.button("📡 Tune here").clicked() {
+                    self.clicked_tune_freq = Some(freq);
+                    ui.close();
+                }
+                if ui.button("📍 Add marker").clicked() {
+                    self.markers.push(freq);
+                    if self.markers.len() > 20 { self.markers.remove(0); }
+                    ui.close();
+                }
+                if ui.button("⭐ Bookmark this frequency").clicked() {
+                    self.pending_bookmark_freq = Some(freq);
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if ui.button("🔍 Reset zoom (1x)").clicked() {
+                self.zoom_factor = 1.0;
+                self.zoom_offset = 0.5;
+                ui.close();
+            }
+            if ui.button("Auto-fit dB range").clicked() {
+                if !self.spectrum_dbs.is_empty() {
+                    let cur_min = self.spectrum_dbs.iter().cloned().fold(f32::INFINITY, f32::min);
+                    let cur_max = self.spectrum_dbs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let margin = ((cur_max - cur_min) * 0.1).max(5.0);
+                    self.display_min_db = (cur_min - margin).max(-160.0);
+                    self.display_max_db = (cur_max + margin).min(20.0);
+                    self.waterfall_dirty = true;
+                }
+                ui.close();
+            }
+            if !self.markers.is_empty() {
+                if ui.button(format!("Clear {} marker(s)", self.markers.len())).clicked() {
+                    self.markers.clear();
+                    ui.close();
+                }
+            }
+        });
         // Middle-click to add frequency marker
         if response.clicked_by(egui::PointerButton::Middle) {
             if let Some(pointer) = response.hover_pos() {

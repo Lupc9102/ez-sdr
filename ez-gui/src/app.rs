@@ -58,6 +58,8 @@ pub struct SharedState {
     pub volume: f32,
     pub squelch: f32,
     pub lpf_cutoff: f32,
+    pub fm_deviation_hz: f32,
+    pub audio_peak: f32,
 }
 
 pub struct CentralApp {
@@ -114,6 +116,8 @@ impl CentralApp {
             volume: 0.5,
             squelch: -50.0,
             lpf_cutoff: 15000.0,
+            fm_deviation_hz: 0.0,
+            audio_peak: 0.0,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -239,6 +243,11 @@ impl eframe::App for CentralApp {
                 };
                 let audio: Vec<f32> = audio.into_iter().map(|s| s * volume * gate).collect();
                 let _ = self.audio_tx.try_send(audio);
+                // Update demod metrics in shared state
+                if let Ok(mut state) = self.shared.try_lock() {
+                    state.fm_deviation_hz = self.demod.last_fm_deviation_hz;
+                    state.audio_peak = self.demod.last_audio_peak;
+                }
             }
 
             // Feed to ADS-B decoder when tuned to 1090 MHz
@@ -593,6 +602,19 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;
+                    }
+                    if let Some(freq) = state.spectrum.pending_bookmark_freq.take() {
+                        let freq_mhz = freq as f64 / 1e6;
+                        let mode = state.demod_mode.label().to_string();
+                        let name = format!("{:.4} MHz {}", freq_mhz, mode);
+                        state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                            name,
+                            frequency_hz: freq,
+                            mode,
+                            bandwidth_hz: 12_500,
+                            category: "Quick".to_string(),
+                            notes: String::new(),
+                        });
                     }
                 }
             }

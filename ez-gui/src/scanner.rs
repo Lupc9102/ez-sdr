@@ -14,6 +14,7 @@ pub struct FrequencyScanner {
     #[allow(dead_code)]
     shared: Arc<Mutex<SharedState>>,
     pub enabled: bool,
+    pub paused: bool,
     pub reset_on_start: bool,
     pub start_hz: u64,
     pub stop_hz: u64,
@@ -37,6 +38,7 @@ impl FrequencyScanner {
         Self {
             shared,
             enabled: false,
+            paused: false,
             reset_on_start: true,
             start_hz: 88_000_000,
             stop_hz: 108_000_000,
@@ -100,9 +102,19 @@ impl FrequencyScanner {
         self.status_text = format!("Stopped ({} signals)", self.hits.len());
     }
 
+    pub fn pause(&mut self) {
+        self.paused = true;
+        self.status_text = format!("Paused at {:.3} MHz ({} signals)", self.current_freq_hz as f64 / 1e6, self.hits.len());
+    }
+
+    pub fn resume(&mut self) {
+        self.paused = false;
+        self.status_text = format!("Scanning {:.3}–{:.3} MHz", self.start_hz as f64 / 1e6, self.stop_hz as f64 / 1e6);
+    }
+
     pub fn tick(&mut self, spectrum_peak_db: f32) {
         self.last_peak_db = spectrum_peak_db;
-        if !self.enabled || self.step_hz == 0 {
+        if !self.enabled || self.step_hz == 0 || self.paused {
             return;
         }
         let now = Instant::now();
@@ -153,10 +165,19 @@ impl FrequencyScanner {
 
         ui.horizontal(|ui| {
             if self.enabled {
-                if ui.button("⏹ Stop").clicked() {
+                if ui.button("⏹ Stop").on_hover_text("Stop the scan and keep hits.").clicked() {
                     self.stop();
                 }
-            } else if ui.button("▶ Start Scan").clicked() {
+                if self.paused {
+                    if ui.button("▶ Resume").on_hover_text("Continue scanning from where it paused.").clicked() {
+                        self.resume();
+                    }
+                } else {
+                    if ui.button("⏸ Pause").on_hover_text("Pause the sweep at the current frequency without clearing hits.").clicked() {
+                        self.pause();
+                    }
+                }
+            } else if ui.button("▶ Start Scan").on_hover_text("Begin sweeping the configured frequency range.").clicked() {
                 self.start();
             }
             if ui.button("Sort by strength").on_hover_text("Sort the hit list by signal strength, strongest first.").clicked() {
