@@ -31,6 +31,8 @@ pub struct FrequencyScanner {
     pub tune_request_hz: Option<u64>,
     pub auto_tune_on_hit: bool,
     pub last_export_msg: String,
+    scan_start_time: Option<Instant>,
+    total_hits_logged: u64,
 }
 
 impl FrequencyScanner {
@@ -55,6 +57,8 @@ impl FrequencyScanner {
             tune_request_hz: None,
             auto_tune_on_hit: false,
             last_export_msg: String::new(),
+            scan_start_time: None,
+            total_hits_logged: 0,
         }
     }
 
@@ -86,7 +90,9 @@ impl FrequencyScanner {
         self.enabled = true;
         if self.reset_on_start {
             self.hits.clear();
+            self.total_hits_logged = 0;
         }
+        self.scan_start_time = Some(Instant::now());
         self.current_freq_hz = self.start_hz;
         self.last_step_time = Some(Instant::now());
         self.tune_request_hz = Some(self.current_freq_hz);
@@ -154,6 +160,7 @@ impl FrequencyScanner {
                     self.tune_request_hz = Some(self.current_freq_hz);
                 }
                 self.hits.push(hit);
+                self.total_hits_logged += 1;
                 if self.hits.len() > self.max_hits {
                     self.hits.remove(0);
                 }
@@ -304,6 +311,22 @@ impl FrequencyScanner {
             ui.add(egui::ProgressBar::new(self.progress).show_percentage().desired_width(200.0));
             ui.end_row();
 
+            ui.label("Cycle time:").on_hover_text("Estimated time for one complete sweep (start → stop → back to start). = number of steps × dwell time.");
+            {
+                let span = self.stop_hz.saturating_sub(self.start_hz);
+                let steps = if self.step_hz > 0 { span / self.step_hz + 1 } else { 1 };
+                let total_ms = steps * self.dwell_ms;
+                let cycle_str = if total_ms < 1000 {
+                    format!("{} ms", total_ms)
+                } else if total_ms < 60_000 {
+                    format!("{:.1} s ({} steps)", total_ms as f64 / 1000.0, steps)
+                } else {
+                    format!("{:.1} min ({} steps)", total_ms as f64 / 60_000.0, steps)
+                };
+                ui.label(cycle_str).on_hover_text("One full sweep takes this long. Reduce dwell time or widen the step to scan faster at the cost of missing short transmissions.");
+            }
+            ui.end_row();
+
             ui.label("Current:").on_hover_text("Signal level measured at the current step frequency. Green = above threshold (hit logged), grey = below threshold.");
             ui.colored_label(
                 if self.last_peak_db > self.threshold_db { egui::Color32::GREEN } else { egui::Color32::GRAY },
@@ -316,7 +339,17 @@ impl FrequencyScanner {
             .on_hover_text("If checked, the hits list is cleared each time you press Start Scan. Uncheck to accumulate across multiple sweeps.");
 
         ui.separator();
-        ui.label(format!("Signals: {}", self.hits.len()));
+        ui.horizontal(|ui| {
+            ui.label(format!("Signals: {}", self.hits.len()))
+                .on_hover_text("Total unique signal hits currently in the table (limited to max_hits).");
+            if let Some(start) = self.scan_start_time {
+                let elapsed_secs = start.elapsed().as_secs_f64().max(1.0);
+                let rate = self.total_hits_logged as f64 / (elapsed_secs / 60.0);
+                ui.separator();
+                ui.label(format!("Rate: {:.1}/min", rate))
+                    .on_hover_text("Number of new signal hits detected per minute since the scan started. High rate = active or noisy band; low rate = quiet band.");
+            }
+        });
 
         let hit_color = |db: f32| -> egui::Color32 {
             if db > -20.0 { egui::Color32::GREEN }

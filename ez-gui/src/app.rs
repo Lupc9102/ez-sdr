@@ -790,6 +790,15 @@ impl eframe::App for CentralApp {
                     .on_hover_text("Strongest signal in the current spectrum view (dBFS). Green = strong signal present, yellow = moderate, grey = weak/none.");
                 ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {:.1}dB", noise_floor))
                     .on_hover_text("Estimated noise floor — the average background noise level. The gap between floor and peak is SNR (signal-to-noise ratio).");
+                let snr = peak - noise_floor;
+                let (badge, badge_color, badge_tip) = if snr > 20.0 {
+                    ("🟢 Signal", egui::Color32::GREEN,     "Strong signal detected (SNR > 20 dB). Good reception.")
+                } else if snr > 8.0 {
+                    ("🟡 Weak",   egui::Color32::YELLOW,    "Weak signal detected (SNR 8–20 dB). May be readable.")
+                } else {
+                    ("⚫ Quiet",  egui::Color32::DARK_GRAY,  "No significant signal at current frequency (SNR < 8 dB). Try a different frequency or increase gain.")
+                };
+                ui.colored_label(badge_color, badge).on_hover_text(badge_tip);
             }
         });
 
