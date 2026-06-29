@@ -66,10 +66,35 @@ impl MqttPublisher {
     pub fn tick(&mut self, freq_hz: u64, gain_db: f64) {
         let json = serde_json::json!({
             "frequency_hz": freq_hz,
+            "frequency_mhz": freq_hz as f64 / 1e6,
             "gain_db": gain_db,
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         self.publish("sdr/state", &json.to_string());
+    }
+
+    pub fn publish_signal(&mut self, freq_hz: u64, signal_db: f32, noise_db: f32, demod: &str, recording: bool) {
+        let json = serde_json::json!({
+            "frequency_hz": freq_hz,
+            "frequency_mhz": freq_hz as f64 / 1e6,
+            "signal_db": signal_db,
+            "noise_floor_db": noise_db,
+            "snr_db": signal_db - noise_db,
+            "demod_mode": demod,
+            "recording": recording,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        self.publish("sdr/signal", &json.to_string());
+    }
+
+    pub fn publish_scanner_hit(&mut self, freq_hz: u64, strength_db: f32) {
+        let json = serde_json::json!({
+            "frequency_hz": freq_hz,
+            "frequency_mhz": freq_hz as f64 / 1e6,
+            "strength_db": strength_db,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        self.publish("scanner/hit", &json.to_string());
     }
 
     pub fn publish_aircraft(&mut self, aircraft: &[AircraftEntry]) {

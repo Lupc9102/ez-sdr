@@ -466,7 +466,14 @@ impl eframe::App for CentralApp {
                 let peak = if let Ok(state) = self.shared.try_lock() {
                     state.spectrum.peak_level()
                 } else { -120.0 };
+                let prev_hits = self.scanner.hits.len();
                 self.scanner.tick(peak);
+                // Publish any new hits to MQTT
+                if self.scanner.hits.len() > prev_hits {
+                    for hit in &self.scanner.hits[prev_hits..] {
+                        self.mqtt.publish_scanner_hit(hit.freq_hz, hit.strength_db);
+                    }
+                }
                 if let Some(freq) = self.scanner.tune_request_hz.take() {
                     if let Ok(mut state) = self.shared.try_lock() {
                         state.source.frequency_hz = freq;
@@ -532,6 +539,7 @@ impl eframe::App for CentralApp {
             self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes, squelch, volume, recording, scanner_active, snr);
             if self.last_scheduler_update.elapsed().as_secs() < 1 {
                 self.mqtt.tick(freq, gain);
+                self.mqtt.publish_signal(freq, peak, noise, &mode, recording);
                 self.mqtt.publish_passes(&passes);
                 if !self.adsb_panel.aircraft.is_empty() {
                     self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
