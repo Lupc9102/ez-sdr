@@ -43,6 +43,8 @@ pub struct SdrPanel {
     pub filter_bw: u32,
     pub bookmark_request: Option<(u64, String)>,
     freq_input: String,
+    auto_squelch: bool,
+    auto_squelch_offset: f32,
 }
 
 impl SdrPanel {
@@ -53,6 +55,8 @@ impl SdrPanel {
             filter_bw: 12_000,
             bookmark_request: None,
             freq_input: String::new(),
+            auto_squelch: false,
+            auto_squelch_offset: 5.0,
         }
     }
 
@@ -533,25 +537,53 @@ impl SdrPanel {
             ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true))
                 .on_hover_text("Low-pass filter on audio output. Cuts high-frequency hiss above this frequency. Default 15 kHz is fine for voice. Lower for CW/Morse (~800 Hz).");
         }
+        // Auto-squelch tracking: update squelch every frame when enabled
+        if self.auto_squelch {
+            if let Ok(mut state) = self.shared.try_lock() {
+                let noise = state.spectrum.noise_floor();
+                if noise < -30.0 {
+                    let tracked = (noise + self.auto_squelch_offset).min(0.0);
+                    self.squelch = tracked;
+                    state.squelch = tracked;
+                }
+            }
+        }
         ui.horizontal(|ui| {
-            if ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)"))
-                .on_hover_text("Signal level threshold. Audio is muted when signal drops below this value, silencing static between transmissions. Set ~5 dB above your noise floor.")
-                .changed()
-                || ui.input(|i| i.pointer.any_down())
-            {
+            let sq_resp = ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)"))
+                .on_hover_text("Signal level threshold. Audio is muted when signal drops below this value, silencing static between transmissions. Set ~5 dB above your noise floor.");
+            if sq_resp.changed() || ui.input(|i| i.pointer.any_down()) {
+                self.auto_squelch = false;
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.squelch = self.squelch;
                 }
             }
-            if ui.small_button("Auto").on_hover_text("Set squelch to 5 dB above current noise floor — a good starting point to gate out background static.").clicked() {
+            if ui.small_button("Auto").on_hover_text("Set squelch to offset dB above current noise floor (one-shot).").clicked() {
+                self.auto_squelch = false;
                 if let Ok(mut state) = self.shared.try_lock() {
                     let noise = state.spectrum.noise_floor();
-                    let auto_sq = (noise + 5.0).min(0.0);
+                    let auto_sq = (noise + self.auto_squelch_offset).min(0.0);
                     self.squelch = auto_sq;
                     state.squelch = auto_sq;
                 }
             }
+            let track_label = if self.auto_squelch {
+                egui::RichText::new("Track ON").color(egui::Color32::from_rgb(80, 220, 120))
+            } else {
+                egui::RichText::new("Track")
+            };
+            if ui.small_button(track_label)
+                .on_hover_text("Continuously track the noise floor and keep squelch at floor + offset. Adjusts automatically as conditions change.")
+                .clicked()
+            {
+                self.auto_squelch = !self.auto_squelch;
+            }
+            ui.add(egui::DragValue::new(&mut self.auto_squelch_offset)
+                .speed(0.5)
+                .range(0.0..=30.0)
+                .suffix(" dB offset"))
+                .on_hover_text("How many dB above the noise floor to set squelch when using Auto or Track.");
             if ui.small_button("Off").on_hover_text("Disable squelch — audio always passes regardless of signal strength.").clicked() {
+                self.auto_squelch = false;
                 self.squelch = -120.0;
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.squelch = -120.0;

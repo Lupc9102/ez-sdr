@@ -29,6 +29,7 @@ pub struct FrequencyScanner {
     pub progress: f32,
     pub last_peak_db: f32,
     pub tune_request_hz: Option<u64>,
+    pub mode_request: Option<String>,
     pub auto_tune_on_hit: bool,
     pub last_export_msg: String,
     scan_start_time: Option<Instant>,
@@ -40,6 +41,11 @@ pub struct FrequencyScanner {
     holding: bool,
     hold_last_active: Option<Instant>,
     pub spectrum_visible_range: Option<(u64, u64)>,
+    // Memory scan mode
+    pub memory_scan: bool,
+    memory_freqs: Vec<(u64, String)>,
+    memory_idx: usize,
+    pub memory_category_filter: String,
 }
 
 impl FrequencyScanner {
@@ -62,6 +68,7 @@ impl FrequencyScanner {
             progress: 0.0,
             last_peak_db: -120.0,
             tune_request_hz: None,
+            mode_request: None,
             auto_tune_on_hit: false,
             last_export_msg: String::new(),
             scan_start_time: None,
@@ -73,7 +80,36 @@ impl FrequencyScanner {
             holding: false,
             hold_last_active: None,
             spectrum_visible_range: None,
+            memory_scan: false,
+            memory_freqs: Vec::new(),
+            memory_idx: 0,
+            memory_category_filter: String::new(),
         }
+    }
+
+    pub fn start_memory_scan(&mut self, freqs: Vec<(u64, String)>) {
+        if freqs.is_empty() {
+            self.status_text = "No bookmarks to scan.".into();
+            return;
+        }
+        self.memory_scan = true;
+        self.memory_freqs = freqs;
+        self.memory_idx = 0;
+        self.enabled = true;
+        self.holding = false;
+        self.hold_last_active = None;
+        self.last_step_time = Some(Instant::now());
+        let (f, m) = &self.memory_freqs[0];
+        self.tune_request_hz = Some(*f);
+        self.mode_request = Some(m.clone());
+        self.current_freq_hz = *f;
+        self.status_text = format!("Memory scan: {:.3} MHz (1/{})", *f as f64 / 1e6, self.memory_freqs.len());
+    }
+
+    pub fn stop_memory_scan(&mut self) {
+        self.memory_scan = false;
+        self.enabled = false;
+        self.status_text = format!("Memory scan stopped ({} hits)", self.hits.len());
     }
 
     pub fn export_hits_csv(&mut self) {
@@ -149,9 +185,66 @@ impl FrequencyScanner {
 
     pub fn tick(&mut self, spectrum_peak_db: f32) {
         self.last_peak_db = spectrum_peak_db;
-        if !self.enabled || self.step_hz == 0 || self.paused {
+        if !self.enabled || self.paused {
             return;
         }
+        if self.memory_scan {
+            self.tick_memory(spectrum_peak_db);
+        } else {
+            self.tick_range(spectrum_peak_db);
+        }
+    }
+
+    fn tick_memory(&mut self, spectrum_peak_db: f32) {
+        if self.memory_freqs.is_empty() { return; }
+        let now = Instant::now();
+        let dwell = Duration::from_millis(self.dwell_ms);
+        let elapsed = self.last_step_time.map(|t| now.duration_since(t)).unwrap_or(dwell);
+        if elapsed < dwell { return; }
+
+        let signal_active = spectrum_peak_db > self.threshold_db;
+        if signal_active {
+            let existing = self.hits.iter_mut().find(|h| h.freq_hz == self.current_freq_hz);
+            if let Some(hit) = existing {
+                if spectrum_peak_db > hit.strength_db {
+                    hit.strength_db = spectrum_peak_db;
+                    hit.timestamp = now;
+                }
+            } else {
+                self.hits.push(SignalHit { freq_hz: self.current_freq_hz, strength_db: spectrum_peak_db, timestamp: now });
+                self.total_hits_logged += 1;
+                self.hit_flash = 45;
+            }
+            if self.hold_on_active {
+                self.hold_last_active = Some(now);
+                self.holding = true;
+                self.last_step_time = Some(now);
+                self.status_text = format!("⏸ Holding {:.3} MHz ({:.0} dB)", self.current_freq_hz as f64 / 1e6, spectrum_peak_db);
+                return;
+            }
+        }
+        if self.holding {
+            let since = self.hold_last_active.map(|t| now.duration_since(t)).unwrap_or(Duration::from_millis(self.hold_resume_delay_ms));
+            if since < Duration::from_millis(self.hold_resume_delay_ms) {
+                self.last_step_time = Some(now);
+                return;
+            }
+            self.holding = false;
+            self.hold_last_active = None;
+        }
+
+        self.memory_idx = (self.memory_idx + 1) % self.memory_freqs.len();
+        let (f, m) = &self.memory_freqs[self.memory_idx];
+        self.current_freq_hz = *f;
+        self.tune_request_hz = Some(*f);
+        self.mode_request = Some(m.clone());
+        self.progress = self.memory_idx as f32 / self.memory_freqs.len().max(1) as f32;
+        self.status_text = format!("Memory: {:.3} MHz ({}/{})", *f as f64 / 1e6, self.memory_idx + 1, self.memory_freqs.len());
+        self.last_step_time = Some(now);
+    }
+
+    fn tick_range(&mut self, spectrum_peak_db: f32) {
+        if self.step_hz == 0 { return; }
         let now = Instant::now();
         let dwell = Duration::from_millis(self.dwell_ms);
         let elapsed = self.last_step_time.map(|t| now.duration_since(t)).unwrap_or(dwell);
@@ -341,6 +434,42 @@ impl FrequencyScanner {
                     self.stop_hz = stop;
                     self.step_hz = step;
                 }
+            }
+        });
+        // Memory scan section
+        ui.collapsing("📻 Memory Scan (cycle bookmarks)", |ui| {
+            ui.label("Cycle through all bookmarks (or a specific category), dwelling at each for the configured dwell time. Pauses on active signals when 'Hold on activity' is enabled.");
+            ui.horizontal(|ui| {
+                ui.label("Category filter:");
+                ui.text_edit_singleline(&mut self.memory_category_filter)
+                    .on_hover_text("Leave empty to scan ALL bookmarks. Type a category name (e.g. 'Aviation', 'Scanner') to scan only that category.");
+                if self.memory_scan && self.enabled {
+                    if ui.button("⏹ Stop Memory Scan").on_hover_text("Stop memory scan.").clicked() {
+                        self.stop_memory_scan();
+                    }
+                } else {
+                    if ui.button("▶ Start Memory Scan").on_hover_text("Cycle through all bookmarks in order, dwelling at each frequency.").clicked() {
+                        let freqs: Vec<(u64, String)> = {
+                            let filter = self.memory_category_filter.trim().to_lowercase();
+                            if let Ok(state) = self.shared.try_lock() {
+                                state.bookmarks.bookmarks.iter()
+                                    .filter(|b| filter.is_empty() || b.category.to_lowercase() == filter)
+                                    .map(|b| (b.frequency_hz, b.mode.clone()))
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            }
+                        };
+                        self.start_memory_scan(freqs);
+                    }
+                }
+            });
+            if self.memory_scan && self.enabled {
+                let n = self.memory_freqs.len();
+                let i = self.memory_idx + 1;
+                ui.colored_label(egui::Color32::from_rgb(100, 220, 100),
+                    format!("Scanning channel {}/{} — {:.3} MHz", i, n, self.current_freq_hz as f64 / 1e6));
+                ui.add(egui::ProgressBar::new(self.progress).desired_width(200.0));
             }
         });
         ui.separator();

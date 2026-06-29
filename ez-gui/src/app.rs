@@ -638,7 +638,14 @@ impl eframe::App for CentralApp {
                 if let Some(freq) = self.scanner.tune_request_hz.take() {
                     if let Ok(mut state) = self.shared.try_lock() {
                         state.source.frequency_hz = freq;
+                        if let Some(mode_str) = self.scanner.mode_request.take() {
+                            if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) {
+                                state.demod_mode = mode;
+                            }
+                        }
                     }
+                } else {
+                    let _ = self.scanner.mode_request.take();
                 }
             }
         }
@@ -1035,8 +1042,9 @@ impl eframe::App for CentralApp {
                 .show(ui.ctx(), |ui| {
                     egui::Grid::new("shortcuts_grid").num_columns(2).striped(true).show(ui, |ui| {
                         ui.monospace("Space"); ui.label("Start/Stop SDR source"); ui.end_row();
-                        ui.monospace("↑ / ↓"); ui.label("Tune ±1 MHz"); ui.end_row();
-                        ui.monospace("← / →"); ui.label("Tune ±100 kHz"); ui.end_row();
+                        ui.monospace("↑ / ↓"); ui.label("Tune by coarse step (default 1 MHz, set via step row)"); ui.end_row();
+                        ui.monospace("← / →"); ui.label("Tune by fine step (default 100 kHz, set via step row)"); ui.end_row();
+                        ui.monospace("Shift+Arrow"); ui.label("Tune by 10× the current step"); ui.end_row();
                         ui.monospace("[ / ]"); ui.label("Frequency history back/forward"); ui.end_row();
                         ui.monospace("Alt+← / Alt+→"); ui.label("Frequency history back/forward (alt)"); ui.end_row();
                         ui.monospace("F1"); ui.label("Demod: RAW"); ui.end_row();

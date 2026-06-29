@@ -662,15 +662,79 @@ impl HowToPanel {
         });
 
         ui.add_space(10.0);
+        Self::h2(ui, "VFO A/B — dual frequency memory");
+        ui.label("Below the main frequency display is a VFO A/B row. 'VFO A' is the currently active (tuned) frequency. 'VFO B' stores a second frequency for instant comparison:");
+        egui::Grid::new("vfo_controls").num_columns(2).striped(true).show(ui, |ui| {
+            for (btn, desc) in &[
+                ("⇄ Swap",      "Switch between VFO A and VFO B instantly. Useful for A/B comparing two frequencies."),
+                ("Set B here",  "Save the current frequency to VFO B without switching to it."),
+                ("V key",       "Keyboard shortcut to swap A/B from anywhere in the app."),
+            ] {
+                ui.monospace(*btn);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+        Self::tip(ui, "A common workflow: monitor your main frequency (VFO A), set VFO B to a nearby frequency of interest, and press V to quickly A/B between them. VFO B frequency is saved across sessions with Ctrl+S.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Tuning step sizes");
+        ui.label("A row of step size buttons (1k, 5k, 12.5k, 100k, 1M, etc.) below the VFO row sets the arrow key step size:");
+        ui.label("  •  First click: sets that value as the FINE step (used by ← / →)  — shown in green");
+        ui.label("  •  Second click on the same value: sets it as the COARSE step (used by ↑ / ↓)  — shown in blue");
+        ui.label("  •  Shift+Arrow multiplies the step by 10 for rapid movement");
+        Self::tip(ui, "For scanning FM broadcast (88–108 MHz), set step to 200k. For NFM scanner work, set 12.5k or 25k. For CW/SSB on HF, use 1k.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Frequency identification");
+        ui.label("When tuned to a recognised frequency allocation, a 📻 collapsible section appears below the step row showing:");
+        ui.label("  •  Band name (e.g. 'FM Broadcast', 'Aviation VHF', 'NOAA Satellites')");
+        ui.label("  •  One-line description of typical services");
+        ui.label("  •  Practical tips: which demod mode to use, key channels, what to expect to hear");
+        Self::tip(ui, "Covers 30+ allocations from LF/MF through GPS and GOES satellites at 1.7 GHz. New users can explore unknown frequencies and learn what each band is used for.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Demod auto-suggest");
+        ui.label("A 💡 suggestion line appears below the demod buttons when the current frequency is in a well-known band and the active demod mode doesn't match. Click the suggested mode label to switch immediately.");
+        Self::tip(ui, "Example: tune to 118 MHz (airband) while in NFM mode — a suggestion to switch to AM appears. One click applies it.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Gain — overload detection and Smart Gain");
+        ui.label("Below the signal meter, two gain-management features help prevent and fix overload:");
+        egui::Grid::new("gain_features").num_columns(2).striped(true).show(ui, |ui| {
+            for (name, desc) in &[
+                ("⚠ Overload warning",  "Appears when peak signal exceeds -15 dBFS. Shows a '-10 dB' button to immediately reduce gain and stop ADC clipping."),
+                ("Smart Gain button",    "Automatically adjusts gain to target -30 dBFS peak — a comfortable headroom level for most signals."),
+            ] {
+                ui.colored_label(egui::Color32::from_rgb(255, 160, 60), *name);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Signal history sparkline");
+        ui.label("A compact 60-second signal strength chart appears below the signal meter, showing the peak level history as a color-coded line:");
+        ui.label("  •  Purple = weak signal (below noise floor)");
+        ui.label("  •  Amber = moderate signal");
+        ui.label("  •  Green = strong signal");
+        Self::tip(ui, "Use the sparkline to tell if a signal is continuous, periodic (repeating transmissions), or one-shot. Very useful for scanner work — shows active channels at a glance.");
+
+        ui.add_space(10.0);
         Self::h2(ui, "Keyboard shortcuts (SDR panel)");
         egui::Grid::new("sdr_shortcuts").num_columns(2).striped(true).show(ui, |ui| {
             for (key, action) in &[
                 ("Space",       "Start / Stop the SDR source (works anywhere in app)."),
                 ("M",           "Toggle audio mute on/off."),
                 ("F",           "Freeze / unfreeze spectrum display."),
+                ("C",           "Cycle waterfall colormap (Classic → Viridis → Plasma → Magma → Hot → Grayscale)."),
+                ("V",           "Swap VFO A ↔ VFO B."),
+                ("B",           "Tune to the nearest bookmark from the current frequency."),
+                ("1–9",         "Tune instantly to bookmark #1 through #9."),
                 ("Ctrl+R",      "Start / Stop recording (toggle) — no need to go to the Recorder tab."),
-                ("↑ / ↓",       "Tune ±1 MHz."),
-                ("← / →",       "Tune ±100 kHz."),
+                ("↑ / ↓",       "Tune by coarse step (default 1 MHz, configurable)."),
+                ("← / →",       "Tune by fine step (default 100 kHz, configurable)."),
+                ("Shift+Arrow", "Tune by 10× the configured step."),
                 ("[ / ]",       "Navigate frequency history — back / forward."),
                 ("F1",          "Switch demod to RAW (raw I/Q)."),
                 ("F2",          "Switch demod to AM (amplitude modulation)."),
@@ -678,7 +742,7 @@ impl HowToPanel {
                 ("F4",          "Switch demod to WFM (wideband FM broadcast)."),
                 ("F5",          "Switch demod to LSB (lower sideband HF)."),
                 ("F6",          "Switch demod to USB (upper sideband HF)."),
-                ("Ctrl+S",      "Save config AND persist current spectrum dB range."),
+                ("Ctrl+S",      "Save config including VFO B, PPM, waterfall range, dB range, recent freqs."),
                 ("?",           "Toggle keyboard shortcut reference overlay."),
             ] {
                 ui.monospace(*key);
@@ -823,8 +887,35 @@ impl HowToPanel {
         ui.label("The left edge of the waterfall shows time labels (−Xms, −Xs, −Xm) indicating how far back each row represents. The actual time depends on your FFT size, sample rate, and waterfall speed setting. Faster speeds = shorter history.");
 
         ui.add_space(10.0);
+        Self::h2(ui, "Waterfall color range (WF Color)");
+        ui.label("Two 'WF color:' drag fields in the spectrum control bar set the dB range used to color the waterfall, independently of the spectrum dB range:");
+        egui::Grid::new("wf_color_controls").num_columns(2).striped(true).show(ui, |ui| {
+            for (ctrl, desc) in &[
+                ("WF Min (left drag)", "dB level that maps to the darkest waterfall color. Drag down to see weaker signals (more noise visible)."),
+                ("WF Max (right drag)","dB level that maps to the brightest waterfall color. Drag up to increase dynamic range."),
+                ("WF Auto button",     "Sets WF min/max to the current spectrum floor and peak automatically for best contrast."),
+            ] {
+                ui.monospace(*ctrl);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+        Self::tip(ui, "The WF range is saved with Ctrl+S and restored on next launch. A narrow WF range (e.g. −90 to −50 dB) gives high-contrast waterfall while keeping the spectrum view at a wider range for amplitude accuracy.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Colormap");
+        ui.label("Press C to cycle through waterfall/spectrum colormaps:");
+        ui.label("  •  Classic — blue/cyan/yellow/red (traditional SDR)");
+        ui.label("  •  Viridis — perceptually uniform purple→green→yellow");
+        ui.label("  •  Plasma — purple→orange→yellow (high contrast)");
+        ui.label("  •  Magma — black→purple→white");
+        ui.label("  •  Hot — black→red→orange→white");
+        ui.label("  •  Grayscale — black→white (printing / colour-blind friendly)");
+        Self::tip(ui, "Viridis and Plasma are perceptually uniform and easiest on the eyes for long sessions. Classic and Hot give high contrast for busy bands like aircraft or marine VHF.");
+
+        ui.add_space(10.0);
         Self::h2(ui, "Saving your spectrum settings");
-        ui.label("Press Ctrl+S at any time to save the current spectrum dB min/max range to the config file. It will be restored automatically the next time you start ez-sdr.");
+        ui.label("Press Ctrl+S at any time to save the current spectrum dB min/max range AND waterfall color range to the config file. Both are restored automatically on next launch.");
         Self::tip(ui, "Adjust the dB range so signals are clearly visible and the noise floor sits near the bottom — then Ctrl+S locks it in for next session.");
 
         ui.add_space(8.0);
@@ -1081,6 +1172,16 @@ impl HowToPanel {
         });
         Self::tip(ui, "Combine 'Hold on activity' with 'Auto-tune on hit' to both stop the sweep AND reroute audio to the active frequency instantly.");
 
+        ui.add_space(10.0);
+        Self::h2(ui, "Exporting hits to CSV");
+        ui.label("Click 'Export CSV' in the Scanner tab to save your hit list. A native file save dialog lets you choose the location and name. The exported CSV includes:");
+        ui.label("  •  Frequency_Hz — exact center frequency in hertz");
+        ui.label("  •  Frequency_MHz — same in megahertz (human-readable)");
+        ui.label("  •  Max_Strength_dB — peak signal strength seen at that frequency");
+        ui.label("  •  Hit_Count — how many times the frequency exceeded the threshold");
+        ui.label("Hits are grouped and sorted by frequency, so repeated detections of the same signal are merged into one row (best peak + total count).");
+        Self::tip(ui, "Open the CSV in a spreadsheet, filter by Hit_Count to find the most active channels, or sort by Strength to investigate the strongest signals first.");
+
         Self::tip(ui, "After scanning, click Sort by Strength to bubble the strongest signals to the top, then investigate each one in turn.");
         Self::warn(ui, "Very short dwell times (<100 ms) will miss bursty signals like digital voice, APRS packets, or FSK data bursts.");
     }
@@ -1139,6 +1240,27 @@ impl HowToPanel {
             }
         });
 
+        ui.add_space(10.0);
+        Self::h2(ui, "Recording metadata sidecar");
+        ui.label("Every recording automatically creates a matching JSON file (same name, .json extension) with capture metadata:");
+        egui::Grid::new("sidecar_fields").num_columns(2).striped(true).show(ui, |ui| {
+            for (field, desc) in &[
+                ("frequency_hz",    "Exact center frequency in hertz at the time recording started."),
+                ("frequency_mhz",   "Same in MHz (6 decimal places)."),
+                ("sample_rate_hz",  "Sample rate in samples per second."),
+                ("demod_mode",      "Active demodulation mode (NFM, AM, WFM, LSB, USB, RAW)."),
+                ("gain_db",         "Gain setting at recording start (dB)."),
+                ("ppm_correction",  "PPM frequency correction applied."),
+                ("timestamp_utc",   "ISO-8601 UTC timestamp of recording start."),
+                ("files",           "List of output files created (I/Q, audio, or both)."),
+            ] {
+                ui.monospace(*field);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+        Self::tip(ui, "The sidecar JSON lets you identify a recording months later without relying on the filename alone. It also makes batch processing easier — scripts can read the JSON to know the correct sample rate, frequency, and mode to use when decoding.");
+
         Self::tip(ui, "For NOAA APT satellite passes: record I/Q during the pass, then replay and decode offline. No real-time pressure — you can re-decode many times with different settings.");
         Self::tip(ui, "The Scheduler tab can auto-start and auto-stop recording when a scheduled satellite pass begins and ends.");
     }
@@ -1159,12 +1281,28 @@ impl HowToPanel {
                 ("Filter",      "Use the search box at the top to filter bookmarks by name or frequency."),
                 ("BM overlay",  "Enable '⭐ BM' in the Spectrum tab to see bookmark frequencies as gold vertical lines on both the spectrum and waterfall."),
                 ("📌 Scanner",  "After a frequency scan, click '📌 Bookmark all' in the Scanner tab to add all discovered signal hits as bookmarks in the 'Scanner' category."),
+                ("[N] label",   "The first 9 bookmarks (in list order) show a [1]–[9] indicator — press that key on the keyboard to tune directly, no mouse needed."),
             ] {
                 ui.label(egui::RichText::new(*action).strong());
                 ui.label(*desc);
                 ui.end_row();
             }
         });
+
+        ui.add_space(6.0);
+        Self::h2(ui, "Bookmark keyboard shortcuts");
+        egui::Grid::new("bm_keys").num_columns(2).striped(true).show(ui, |ui| {
+            for (key, desc) in &[
+                ("1–9",  "Instantly tune to bookmark #1 through #9 (top to bottom in the list, ignoring categories)."),
+                ("B",    "Tune to the bookmark nearest to the currently tuned frequency — useful for jumping to the 'closest known frequency' without knowing which number it is."),
+                ("V",    "Swap VFO A ↔ VFO B — quickly compare current frequency with a stored alternate."),
+            ] {
+                ui.monospace(*key);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+        Self::tip(ui, "Put your most-used frequencies at the top of the list to give them the 1–9 slots. Drag or re-order by editing the category so the ones you tune to most often get the lowest numbers.");
 
         ui.add_space(6.0);
         Self::h2(ui, "Suggested bookmarks to start with");

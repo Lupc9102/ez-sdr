@@ -55,3 +55,28 @@ Started: 2026-06-29 (8-hour window)
 ## Session Log
 - Session 1: Starting now (emoji tabs, band auto-demod, demo badge, file picker, shortcuts, presets)
 - Session 19 (Night Shift): Started 2026-06-29T20:12Z, end target 2026-06-30T04:12Z. Goal: work through backlog from Session 2 onward — spectrum improvements, scanner, config, bookmarks, scheduler, misc QoL. Timer: python3 /home/lupc/Documents/ez-sdr/timer.py check
+
+## Session 19 Night Shift Log
+- T+15min: Ctrl+R recording toggle, waterfall time axis, squelch SQ badge
+- T+20min: Spectrum right-click context menu (Copy freq, Set squelch, Scan range)
+- T+25min: Scanner hold-on-activity mode
+- T+30min: S-meter bargraph in status bar
+- T+35min: HowTo panel documentation for all night-shift features
+- T+40min: Bookmark CSV import (dedup + column auto-detect)
+- T+45min: Audio clipping indicator in status bar
+- T+50min: 'C' key cycles waterfall colormap
+- T+55min: Spectrum→Scanner integration (scan visible range button)
+- T+60min: Peak hold: label top-5 frequency peaks with stems
+- T+65min: PPM correction persistance in config
+- T+70min: Recording metadata sidecar JSON files
+- T+72min: Smart demod auto-suggest for known frequency bands (FM, aviation, marine, etc.)
+- T+72min: Dual VFO A/B with ⇄ swap button + V key shortcut + config persistence
+- T+75min: Smart gain / overload detection (ADC clip warning + -10dB button + Smart Gain auto-adjust)
+- T+78min: Waterfall brightness/contrast: separate wf_min_db/wf_max_db + WF Auto button
+- T+80min: Scanner CSV export: rfd file dialog + grouped by freq (BTreeMap dedup, max strength, hit count)
+- T+82min: Numeric keys 1-9 bookmark quick-tune + [N] indicators in bookmark list
+- T+84min: B key snap to nearest bookmark + status flash (3s fade on screen)
+- T+86min: Frequency identification panel (30+ allocations, 📻 collapsing) in SDR panel
+- T+88min: Configurable arrow key tuning step presets row + Shift×10 multiplier
+- T+91min: Signal strength history sparkline (60-second chart below S-meter, colour coded)
+- T+~110min: HowTo panel updates for all Session 19 features (VFO A/B, steps, freq ID, demod suggest, sparkline, overload, WF range, sidecar JSON, CSV export, bookmark shortcuts)
