@@ -260,7 +260,7 @@ impl AppConfig {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Save").on_hover_text("Save settings to ez_sdr_config.json in the current directory.").clicked() {
+                if ui.button("💾 Save & Apply").on_hover_text("Save settings to ez_sdr_config.json and apply them immediately.").clicked() {
                     self.save();
                     self.needs_apply = true;
                 }
@@ -269,6 +269,10 @@ impl AppConfig {
                     self.needs_apply = true;
                 }
             });
+            ui.colored_label(
+                egui::Color32::GRAY,
+                "Settings are saved to ez_sdr_config.json in the current directory.",
+            );
         });
     }
 }

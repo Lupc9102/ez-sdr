@@ -85,6 +85,12 @@ impl SdrPanel {
                 if ui.small_button("+100k").on_hover_text("Tune up 100 kHz (keyboard: →)").clicked() {
                     state.source.frequency_hz = (state.source.frequency_hz + 100_000).min(1_770_000_000);
                 }
+                if ui.small_button("-10k").on_hover_text("Tune down 10 kHz — fine channel step").clicked() {
+                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(10_000).max(500_000);
+                }
+                if ui.small_button("+10k").on_hover_text("Tune up 10 kHz — fine channel step").clicked() {
+                    state.source.frequency_hz = (state.source.frequency_hz + 10_000).min(1_770_000_000);
+                }
                 let bm_freq = state.source.frequency_hz;
                 let bm_mode = state.demod_mode.label().to_string();
                 if ui.small_button("⭐").on_hover_text("Bookmark this frequency — saves it to your bookmarks list with the current mode.").clicked() {
@@ -265,23 +271,32 @@ impl SdrPanel {
 
         ui.separator();
 
-        // Frequency presets (band quick-tune)
-        ui.horizontal(|ui| {
-            ui.label("Bands:").on_hover_text("Quick-tune presets. Click to jump immediately to that frequency.");
-            const BANDS: &[(&str, u64, &str)] = &[
-                ("BC FM",  100_000_000, "FM Broadcast band center (88–108 MHz). Mode: WFM"),
-                ("Air",    118_000_000, "Aviation VHF voice band start (118–137 MHz). Mode: AM — not FM!"),
-                ("2m",     144_000_000, "Amateur 2-meter band. FM repeaters, APRS at 144.390 MHz. Mode: NFM"),
-                ("70cm",   430_000_000, "Amateur 70cm band. FM repeaters, digital modes. Mode: NFM"),
-                ("NOAA 15",137_620_000, "NOAA 15 weather satellite (137.620 MHz). Mode: WFM 34 kHz"),
-                ("NOAA 18",137_912_500, "NOAA 18 weather satellite (137.9125 MHz). Mode: WFM 34 kHz"),
-                ("NOAA 19",137_100_000, "NOAA 19 weather satellite (137.100 MHz). Mode: WFM 34 kHz"),
-                ("ISS",    145_800_000, "International Space Station (145.800 MHz). Mode: NFM"),
+        // Frequency presets (band quick-tune) — also auto-sets demod mode
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Bands:").on_hover_text("Quick-tune presets. Click to jump to that frequency and automatically switch to the right demodulation mode.");
+            // (name, freq_hz, demod_mode_label, tip)
+            const BANDS: &[(&str, u64, &str, &str)] = &[
+                ("BC FM",   100_000_000, "WFM",  "FM Broadcast band center (88–108 MHz) → WFM mode"),
+                ("Air",     118_000_000, "AM",   "Aviation VHF voice band (118–137 MHz) → AM mode (not FM!)"),
+                ("NOAA WX", 162_400_000, "NFM",  "NOAA Weather Radio (162.400–162.550 MHz) → NFM mode"),
+                ("Marine",  156_800_000, "NFM",  "Marine VHF distress channel 16 (156.8 MHz) → NFM mode"),
+                ("2m",      144_000_000, "NFM",  "Amateur 2-meter band. Repeaters, APRS at 144.390 MHz → NFM"),
+                ("APRS",    144_390_000, "NFM",  "APRS digipeater/tracker beacon (144.390 MHz US) → NFM mode"),
+                ("70cm",    430_000_000, "NFM",  "Amateur 70cm band. FM repeaters, digital modes → NFM"),
+                ("PMR446",  446_006_250, "NFM",  "PMR446 licence-free walkie-talkies (446.006–446.194 MHz) → NFM"),
+                ("NOAA 15", 137_620_000, "WFM",  "NOAA 15 weather satellite (137.620 MHz) → WFM 34 kHz"),
+                ("NOAA 18", 137_912_500, "WFM",  "NOAA 18 weather satellite (137.9125 MHz) → WFM 34 kHz"),
+                ("NOAA 19", 137_100_000, "WFM",  "NOAA 19 weather satellite (137.100 MHz) → WFM 34 kHz"),
+                ("ISS",     145_800_000, "NFM",  "International Space Station voice (145.800 MHz) → NFM"),
+                ("ADS-B",  1_090_000_000, "RAW", "Mode-S/ADS-B aircraft transponders (1090 MHz) → RAW (ADS-B decoder)"),
             ];
             if let Ok(mut state) = self.shared.try_lock() {
-                for (name, freq_hz, tip) in BANDS {
+                for (name, freq_hz, mode_str, tip) in BANDS {
                     if ui.small_button(*name).on_hover_text(*tip).clicked() {
                         state.source.frequency_hz = *freq_hz;
+                        if let Some(mode) = DemodMode::from_label(mode_str) {
+                            state.demod_mode = mode;
+                        }
                     }
                 }
             }

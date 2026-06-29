@@ -351,6 +351,10 @@ impl eframe::App for CentralApp {
                     }
                     // Note: actual start_recording() is handled by recorder_panel via state.recording
                 }
+                // M: toggle audio mute
+                if i.key_pressed(egui::Key::M) {
+                    state.audio_running = !state.audio_running;
+                }
             }
         });
 
@@ -670,6 +674,14 @@ impl eframe::App for CentralApp {
                     ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "🔊 Audio")
                         .on_hover_text("Audio is playing through your speakers/headphones. Use Vol slider or Stop Audio in the SDR panel.");
                 }
+                // Demo mode badge — helps beginners know they are in simulation
+                if state.source.source_mode == crate::source_manager::SourceMode::Simulated {
+                    ui.separator();
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 180, 50),
+                        "⚠ DEMO",
+                    ).on_hover_text("Running in simulated (demo) mode — no real SDR device connected. The spectrum shows synthetic test signals. Connect an RTL-SDR and rebuild with the 'rtlsdr' feature, or use File Replay mode.");
+                }
             }
             // Volume slider
             if let Ok(mut state) = self.shared.try_lock() {
@@ -713,6 +725,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("F4"); ui.label("Demod: WFM"); ui.end_row();
                         ui.monospace("F5"); ui.label("Demod: LSB"); ui.end_row();
                         ui.monospace("F6"); ui.label("Demod: USB"); ui.end_row();
+                        ui.monospace("M"); ui.label("Toggle audio on/off"); ui.end_row();
                         ui.monospace("?"); ui.label("Toggle this help"); ui.end_row();
                         ui.monospace("Left-click (spectrum)"); ui.label("Tune to clicked frequency"); ui.end_row();
                         ui.monospace("Right-click (spectrum)"); ui.label("Context menu (bookmark, marker, zoom reset…)"); ui.end_row();
@@ -762,17 +775,17 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         match tab {
-            Tab::Sdr => "SDR".into(),
-            Tab::Spectrum => "Spectrum".into(),
-            Tab::Satellite => "Satellite".into(),
-            Tab::AdsB => "ADS-B".into(),
-            Tab::Recorder => "Recorder".into(),
-            Tab::Scanner => "Scanner".into(),
-            Tab::AiAgent => "AI Agent".into(),
-            Tab::Bookmarks => "Bookmarks".into(),
-            Tab::Scheduler => "Scheduler".into(),
-            Tab::Settings => "Settings".into(),
-            Tab::HowTo => "How To".into(),
+            Tab::Sdr => "📻 SDR".into(),
+            Tab::Spectrum => "📊 Spectrum".into(),
+            Tab::Satellite => "🛸 Satellite".into(),
+            Tab::AdsB => "✈ ADS-B".into(),
+            Tab::Recorder => "⏺ Recorder".into(),
+            Tab::Scanner => "🔍 Scanner".into(),
+            Tab::AiAgent => "🤖 AI Agent".into(),
+            Tab::Bookmarks => "⭐ Bookmarks".into(),
+            Tab::Scheduler => "🗓 Scheduler".into(),
+            Tab::Settings => "⚙ Settings".into(),
+            Tab::HowTo => "❓ How To".into(),
         }
     }
 
@@ -781,6 +794,10 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Sdr => self.sdr.ui(ui),
             Tab::Spectrum => {
                 if let Ok(mut state) = self.shared.try_lock() {
+                    // Sync bookmarks to spectrum for overlay
+                    state.spectrum.bookmark_freqs = state.bookmarks.bookmarks.iter()
+                        .map(|b| (b.frequency_hz, b.name.clone()))
+                        .collect();
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;
@@ -950,7 +967,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 let mut delete_idx: Option<usize> = None;
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for cat in &categories {
-                        ui.collapsing(cat, |ui| {
+                        let cat_count = filtered.iter().filter(|(_, b)| &b.category == cat).count();
+                        let cat_header = format!("{} ({})", cat, cat_count);
+                        ui.collapsing(cat_header, |ui| {
                             for (orig_idx, bm) in filtered.iter().filter(|(_, b)| &b.category == cat) {
                                 ui.horizontal(|ui| {
                                     ui.label(&bm.name);

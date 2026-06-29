@@ -272,11 +272,20 @@ impl SourceManager {
             ui.separator();
             ui.horizontal(|ui| {
                 let mut path = self.replay_file.clone().unwrap_or_default();
-                if ui.add(egui::TextEdit::singleline(&mut path).desired_width(400.0).hint_text("Path to .iq file (e.g. /path/to/recording.iq)")).changed() {
+                if ui.add(egui::TextEdit::singleline(&mut path).desired_width(300.0).hint_text("Path to .iq / .bin / .raw file")).changed() {
                     if !path.is_empty() {
                         self.replay_file = Some(path);
                     } else {
                         self.replay_file = None;
+                    }
+                }
+                if ui.button("📂 Browse").on_hover_text("Open a file picker to select an IQ recording file.").clicked() {
+                    if let Some(picked) = rfd::FileDialog::new()
+                        .add_filter("IQ files", &["iq", "bin", "raw", "cs8", "cu8", "cf32"])
+                        .add_filter("All files", &["*"])
+                        .pick_file()
+                    {
+                        self.replay_file = picked.to_str().map(|s| s.to_string());
                     }
                 }
                 ui.separator();

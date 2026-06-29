@@ -33,6 +33,8 @@ pub struct SpectrumAnalyzer {
     signal_history: std::collections::VecDeque<f32>,
     signal_history_max: usize,
     show_signal_history: bool,
+    pub bookmark_freqs: Vec<(u64, String)>,
+    show_bookmarks: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -112,6 +114,8 @@ impl SpectrumAnalyzer {
             signal_history: std::collections::VecDeque::new(),
             signal_history_max: 600,
             show_signal_history: false,
+            bookmark_freqs: Vec::new(),
+            show_bookmarks: true,
         }
     }
 
@@ -275,6 +279,9 @@ impl SpectrumAnalyzer {
                 self.display_min_db = self.display_max_db - 10.0;
                 self.waterfall_dirty = true;
             }
+            ui.separator();
+            ui.toggle_value(&mut self.show_bookmarks, "⭐ BM")
+                .on_hover_text("Overlay bookmark frequencies as vertical lines on the spectrum.");
             if ui.small_button("⟳").on_hover_text("Reset dB range to default (-120 to 0)").clicked() {
                 self.display_min_db = -120.0;
                 self.display_max_db = 0.0;
@@ -489,6 +496,32 @@ impl SpectrumAnalyzer {
                         band.name,
                         egui::FontId::proportional(8.0),
                         egui::Color32::from_rgba_premultiplied(180, 180, 180, 100),
+                    );
+                }
+            }
+        }
+
+        // Bookmark frequency overlays
+        if self.show_bookmarks {
+            let zoom_span_bm = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_center_offset_bm = (self.zoom_offset as f64 - 0.5) * zoom_span_bm;
+            let left_hz_bm = -zoom_span_bm / 2.0 + zoom_center_offset_bm;
+            let right_hz_bm = zoom_span_bm / 2.0 + zoom_center_offset_bm;
+            for (bm_freq, bm_name) in &self.bookmark_freqs {
+                let offset_hz = *bm_freq as f64 - self.center_freq as f64;
+                let frac = (offset_hz - left_hz_bm) / (right_hz_bm - left_hz_bm);
+                if (0.0..=1.0).contains(&frac) {
+                    let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
+                    painter.line_segment(
+                        [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
+                        egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(255, 215, 0, 120)),
+                    );
+                    painter.text(
+                        egui::pos2(x + 2.0, spectrum_rect.bottom() - 12.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        bm_name.as_str(),
+                        egui::FontId::proportional(7.5),
+                        egui::Color32::from_rgba_premultiplied(255, 215, 0, 160),
                     );
                 }
             }
