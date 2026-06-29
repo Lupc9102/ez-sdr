@@ -787,6 +787,12 @@ impl eframe::App for CentralApp {
                         "⚠ DEMO",
                     ).on_hover_text("Running in simulated (demo) mode — no real SDR device connected. The spectrum shows synthetic test signals. Connect an RTL-SDR and rebuild with the 'rtlsdr' feature, or use File Replay mode.");
                 }
+                // MQTT connected badge
+                if self.mqtt.is_connected() {
+                    ui.separator();
+                    ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "📡 MQTT")
+                        .on_hover_text(format!("Publishing to MQTT broker at {}. Topics: {}/signal, {}/scanner, etc.", self.mqtt.broker, self.mqtt.topic_prefix, self.mqtt.topic_prefix));
+                }
             }
             // Volume slider
             if let Ok(mut state) = self.shared.try_lock() {

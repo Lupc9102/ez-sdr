@@ -55,6 +55,10 @@ impl MqttPublisher {
         self.client = None;
     }
 
+    pub fn is_connected(&self) -> bool {
+        self.enabled && self.client.is_some()
+    }
+
     pub fn publish(&mut self, subtopic: &str, payload: &str) {
         if let Some(client) = &mut self.client {
             if !self.enabled { return; }
