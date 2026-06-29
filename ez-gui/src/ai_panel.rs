@@ -67,7 +67,7 @@ impl AiPanel {
 
     /// Build the messages JSON array for the API call, injecting system prompt.
     fn build_api_messages(&self) -> (Vec<serde_json::Value>, String, String, String, String, u32, f64, String) {
-        let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt, freq, rate, gain, mode, recording, sat, adsb) = {
+        let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt, freq, rate, gain, mode, recording, sat, adsb, noise_floor, peak_db, squelch) = {
             if let Ok(state) = self.shared.try_lock() {
                 let cfg = &state.config;
                 let mode_label = state.demod_mode.label().to_string();
@@ -86,11 +86,15 @@ impl AiPanel {
                     state.recording,
                     state.selected_satellite.clone(),
                     state.adsb_running,
+                    state.spectrum.noise_floor(),
+                    state.spectrum.peak_level(),
+                    state.squelch,
                 )
             } else {
                 return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new());
             }
         };
+        let snr = peak_db - noise_floor;
 
         let mut msgs: Vec<serde_json::Value> = Vec::new();
 
@@ -98,20 +102,28 @@ impl AiPanel {
         let sys = if system_prompt.is_empty() {
             format!(
                 "{}\n\nCurrent SDR state:\n\
-                 - Frequency: {} MHz\n\
-                 - Sample rate: {} Hz\n\
+                 - Frequency: {:.4} MHz\n\
+                 - Sample rate: {:.3} MSps\n\
                  - Gain: {:.1} dB\n\
                  - Demod mode: {}\n\
+                 - Noise floor: {:.1} dB\n\
+                 - Peak signal: {:.1} dB\n\
+                 - SNR: {:.1} dB\n\
+                 - Squelch: {:.1} dB\n\
                  - Recording: {}\n\
                  - Satellite: {}\n\
                  - ADS-B: {}",
                 DEFAULT_SYSTEM,
                 freq as f64 / 1e6,
-                rate,
+                rate as f64 / 1e6,
                 gain,
                 mode,
+                noise_floor,
+                peak_db,
+                snr,
+                squelch,
                 if recording { "yes" } else { "no" },
-                sat.unwrap_or_default(),
+                sat.as_deref().unwrap_or("none"),
                 if adsb { "running" } else { "stopped" },
             )
         } else {

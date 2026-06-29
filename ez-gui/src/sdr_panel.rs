@@ -42,6 +42,8 @@ pub struct SdrPanel {
     pub squelch: f32,
     pub filter_bw: u32,
     pub bookmark_request: Option<(u64, String)>,
+    freq_input: String,
+    freq_input_active: bool,
 }
 
 impl SdrPanel {
@@ -51,6 +53,8 @@ impl SdrPanel {
             squelch: -50.0,
             filter_bw: 12_000,
             bookmark_request: None,
+            freq_input: String::new(),
+            freq_input_active: false,
         }
     }
 
@@ -88,6 +92,33 @@ impl SdrPanel {
                 }
             });
         }
+        // Direct frequency entry
+        ui.horizontal(|ui| {
+            ui.label("Go to:").on_hover_text("Type a frequency and press Enter to jump. Examples: 145.5 (MHz), 145500000 (Hz), 145500k (kHz).");
+            let resp = ui.add(egui::TextEdit::singleline(&mut self.freq_input)
+                .desired_width(140.0)
+                .hint_text("MHz or Hz, Enter to jump"));
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let s = self.freq_input.trim().to_lowercase();
+                let parsed_hz: Option<u64> = if let Ok(v) = s.trim_end_matches("mhz").trim().parse::<f64>() {
+                    Some((v * 1e6) as u64)
+                } else if s.ends_with("khz") || s.ends_with('k') {
+                    s.trim_end_matches("khz").trim_end_matches('k').trim().parse::<f64>().ok().map(|v| (v * 1e3) as u64)
+                } else if s.ends_with("ghz") || s.ends_with('g') {
+                    s.trim_end_matches("ghz").trim_end_matches('g').trim().parse::<f64>().ok().map(|v| (v * 1e9) as u64)
+                } else {
+                    s.parse::<u64>().ok()
+                };
+                if let Some(hz) = parsed_hz {
+                    let hz = hz.clamp(500_000, 1_770_000_000);
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.source.frequency_hz = hz;
+                    }
+                    self.freq_input.clear();
+                }
+            }
+        });
+
         ui.separator();
 
         // Demod mode selector
@@ -111,10 +142,13 @@ impl SdrPanel {
             }
         });
 
-        // Signal meter
+        // Signal meter + SNR
         ui.separator();
         if let Ok(state) = self.shared.try_lock() {
             let signal = state.spectrum.signal_level();
+            let noise_floor = state.spectrum.noise_floor();
+            let peak = state.spectrum.peak_level();
+            let snr = peak - noise_floor;
             let norm = ((signal + 120.0) / 120.0).clamp(0.0, 1.0);
             let color = if norm > 0.6 { egui::Color32::GREEN }
                 else if norm > 0.3 { egui::Color32::YELLOW }
@@ -123,6 +157,12 @@ impl SdrPanel {
                 ui.label("Signal:")
                     .on_hover_text("Estimated signal level in dBFS. Green = strong, yellow = moderate, red = weak or no signal. -60 dBFS or above is usually demodulable.");
                 ui.add(egui::ProgressBar::new(norm).fill(color).text(format!("{:.1} dB", signal)));
+                ui.separator();
+                let snr_color = if snr > 20.0 { egui::Color32::GREEN }
+                    else if snr > 10.0 { egui::Color32::YELLOW }
+                    else { egui::Color32::GRAY };
+                ui.colored_label(snr_color, format!("SNR {:.1} dB", snr))
+                    .on_hover_text("Signal-to-Noise Ratio: peak dB minus estimated noise floor. >20 dB = excellent, 10–20 dB = good, <10 dB = marginal. Aim for >15 dB for clean audio.");
             });
         }
 

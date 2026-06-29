@@ -15,6 +15,7 @@ pub struct AdsBPanel {
     pub max_altitude_ft: u32,
     pub altitude_filter_enabled: bool,
     pub max_age_secs: u64,
+    pub callsign_filter: String,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +69,7 @@ impl AdsBPanel {
             max_altitude_ft: 60_000,
             altitude_filter_enabled: false,
             max_age_secs: 60,
+            callsign_filter: String::new(),
         }
     }
 
@@ -149,6 +151,12 @@ impl AdsBPanel {
             ui.label("Max age:").on_hover_text("Remove aircraft not heard for more than this many seconds.");
             ui.add(egui::DragValue::new(&mut self.max_age_secs).speed(5.0).range(10..=600).suffix("s"))
                 .on_hover_text("Stale aircraft timeout in seconds. Default 60 s.");
+            ui.separator();
+            ui.label("Search:").on_hover_text("Filter table by callsign or ICAO hex. Case-insensitive.");
+            ui.add(egui::TextEdit::singleline(&mut self.callsign_filter).desired_width(100.0).hint_text("callsign/ICAO"));
+            if !self.callsign_filter.is_empty() && ui.small_button("✕").clicked() {
+                self.callsign_filter.clear();
+            }
         });
 
         ui.separator();
@@ -254,6 +262,11 @@ impl AdsBPanel {
                     let age = now.duration_since(ac.seen).as_secs();
                     if age > max_age { continue; }
                     if alt_filter && (ac.altitude < min_alt || ac.altitude > max_alt) { continue; }
+                    let cs_filter = self.callsign_filter.to_lowercase();
+                    if !cs_filter.is_empty() {
+                        let icao_str = format!("{:06x}", ac.icao);
+                        if !ac.callsign.to_lowercase().contains(&cs_filter) && !icao_str.contains(&cs_filter) { continue; }
+                    }
                     ui.label(format!("{:06X}", ac.icao));
                     ui.label(&ac.callsign);
                     ui.label(format!("{}", ac.altitude));
