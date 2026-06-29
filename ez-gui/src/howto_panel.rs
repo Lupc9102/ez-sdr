@@ -668,6 +668,7 @@ impl HowToPanel {
                 ("Space",       "Start / Stop the SDR source (works anywhere in app)."),
                 ("M",           "Toggle audio mute on/off."),
                 ("F",           "Freeze / unfreeze spectrum display."),
+                ("Ctrl+R",      "Start / Stop recording (toggle) — no need to go to the Recorder tab."),
                 ("↑ / ↓",       "Tune ±1 MHz."),
                 ("← / →",       "Tune ±100 kHz."),
                 ("[ / ]",       "Navigate frequency history — back / forward."),
@@ -691,15 +692,16 @@ impl HowToPanel {
         ui.label("The status bar at the bottom of the window shows:");
         ui.label("  •  ▶ Running / ■ Stopped indicator");
         ui.label("  •  Current frequency — click it to copy to clipboard");
-        ui.label("  •  Demodulation mode");
-        ui.label("  •  Sample rate and gain level");
-        ui.label("  •  ● REC MM:SS — recording in progress with elapsed time");
-        ui.label("  •  🔇 mute / 🔊 audio indicator");
-        ui.label("  •  Peak signal level and noise floor in dB");
+        ui.label("  •  Demodulation mode · Sample rate · Gain");
+        ui.label("  •  ● REC MM:SS — recording in progress with elapsed time (Ctrl+R to toggle)");
+        ui.label("  •  🔊 Audio badge — audio is playing");
+        ui.label("  •  🔒 SQ badge — squelch is blocking audio (signal below threshold). Hover for details.");
+        ui.label("  •  S-meter bargraph — signal strength as a colored fill bar (S1–S9+). Red = weak, yellow = moderate, green = strong.");
         ui.label("  •  ⚠ DEMO badge (yellow) when running in simulation mode — no real hardware");
+        ui.label("  •  📡 MQTT badge — when connected to an MQTT broker");
         ui.label("  •  ⟳ Layout button (far right) — resets all panels back to the default dock layout");
         Self::tip(ui, "Click the frequency in the status bar to instantly copy it to the clipboard. Great for sharing frequencies or pasting into other apps.");
-        Self::tip(ui, "The ⚠ DEMO badge disappears automatically when you connect real hardware and switch the source to RTL-SDR or SoapySDR.");
+        Self::tip(ui, "The S-meter follows the IARU standard: S1 = −121 dBm, each S-unit is 6 dB. S9 = −73 dBm. The S9+N label appears for very strong signals above S9.");
     }
 
     fn section_spectrum(&mut self, ui: &mut egui::Ui) {
@@ -750,13 +752,14 @@ impl HowToPanel {
         Self::h2(ui, "Mouse and keyboard controls");
         egui::Grid::new("spectrum_controls").num_columns(2).striped(true).show(ui, |ui| {
             for (ctrl, action) in &[
-                ("Left-click (spectrum)",  "Tune the SDR to that exact frequency instantly"),
-                ("Left-click (waterfall)", "Also tunes — click anywhere on the waterfall to jump to that frequency"),
-                ("Right-click",            "Reset zoom to full bandwidth view"),
-                ("Scroll wheel",           "Zoom in/out on the spectrum"),
-                ("Shift + Scroll",         "Pan left/right when zoomed"),
-                ("Middle-drag",            "Pan the spectrum view when zoomed"),
-                ("Hover",                  "Shows crosshair + frequency tooltip at cursor position"),
+                ("Left-click (spectrum)",   "Tune the SDR to that exact frequency instantly"),
+                ("Left-click (waterfall)",  "Tunes to that frequency; drag left/right to pan the zoom window"),
+                ("Right-click (spectrum)",  "Context menu: Tune here · Bookmark · Copy freq · Set squelch · Add marker · Reset zoom · Auto-fit dB"),
+                ("Right-click (waterfall)", "Context menu: Tune here · Bookmark · Copy freq · Reset zoom"),
+                ("Scroll wheel",            "Zoom in/out on the spectrum and waterfall"),
+                ("Shift + Scroll",          "Pan left/right when zoomed"),
+                ("Middle-drag",             "Pan the spectrum view when zoomed"),
+                ("Hover",                   "Shows crosshair + frequency/dB tooltip at cursor position"),
             ] {
                 ui.monospace(*ctrl);
                 ui.label(*action);
@@ -784,10 +787,11 @@ impl HowToPanel {
         Self::h2(ui, "Spectrum overlays");
         egui::Grid::new("spectrum_overlays").num_columns(2).striped(true).show(ui, |ui| {
             for (name, desc) in &[
-                ("Noise floor line",     "A pulsing blue horizontal line marks the estimated noise floor. It animates gently so you can spot it at a glance. Labeled 'NF: −XX dBFS' on the left edge."),
-                ("Scanner sweep marker", "When the Frequency Scanner is running, a cyan dashed vertical line shows where the scanner is currently sweeping. The label shows the exact frequency. Disappears when the scan is stopped or paused."),
+                ("Noise floor line",     "A pulsing blue horizontal line marks the estimated noise floor. Labeled 'NF: −XX dBFS' on the right edge."),
+                ("Squelch threshold",    "A dashed orange horizontal line shows the current squelch level (labeled 'SQ XX dB'). Right-click the spectrum at any dB level to set squelch to that point instantly."),
+                ("Scanner sweep marker", "When the Scanner runs, a cyan dashed vertical line shows the current sweep position. Disappears when stopped or paused."),
                 ("Bookmark markers",     "When '⭐ BM' is active, gold vertical lines mark each bookmarked frequency. Labels appear at the top of the waterfall."),
-                ("VFO bandwidth",        "When 'VFO BW' is active, a translucent blue rectangle shows the current demodulation filter bandwidth centered on the tuned frequency."),
+                ("VFO bandwidth",        "When 'VFO BW' is active, a translucent blue rectangle shows the current demodulation filter bandwidth."),
             ] {
                 ui.label(egui::RichText::new(*name).strong());
                 ui.label(*desc);
@@ -813,6 +817,10 @@ impl HowToPanel {
                 ui.end_row();
             }
         });
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Waterfall time axis");
+        ui.label("The left edge of the waterfall shows time labels (−Xms, −Xs, −Xm) indicating how far back each row represents. The actual time depends on your FFT size, sample rate, and waterfall speed setting. Faster speeds = shorter history.");
 
         ui.add_space(10.0);
         Self::h2(ui, "Saving your spectrum settings");
@@ -1057,6 +1065,22 @@ impl HowToPanel {
             }
         });
 
+        ui.add_space(10.0);
+        Self::h2(ui, "Hold on Activity mode");
+        ui.label("Enable 'Hold on activity' to make the scanner pause and listen whenever it detects a signal above the threshold — like a real radio scanner.");
+        egui::Grid::new("hold_mode").num_columns(2).striped(true).show(ui, |ui| {
+            for (k, v) in &[
+                ("Hold on activity",  "When checked, the sweep pauses on any frequency where signal > threshold. The scanner stays there until the signal drops."),
+                ("Resume delay",      "How long to wait after signal drops before continuing the sweep. 1–2 seconds prevents resume during brief pauses in a transmission."),
+                ("Status bar",        "While holding, the status shows '⏸ Holding 145.500 MHz (−55 dB)' so you always know why the sweep stopped."),
+            ] {
+                ui.label(egui::RichText::new(*k).strong());
+                ui.label(*v);
+                ui.end_row();
+            }
+        });
+        Self::tip(ui, "Combine 'Hold on activity' with 'Auto-tune on hit' to both stop the sweep AND reroute audio to the active frequency instantly.");
+
         Self::tip(ui, "After scanning, click Sort by Strength to bubble the strongest signals to the top, then investigate each one in turn.");
         Self::warn(ui, "Very short dwell times (<100 ms) will miss bursty signals like digital voice, APRS packets, or FSK data bursts.");
     }
@@ -1099,6 +1123,21 @@ impl HowToPanel {
         ui.label("  •  WXtoImg — NOAA APT image decode from recorded audio WAV");
         ui.label("  •  GNU Radio — any custom processing pipeline");
         ui.label("  •  Audacity — audio analysis, spectrogram of recorded audio");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Recording shortcuts & auto-stop");
+        egui::Grid::new("rec_shortcuts").num_columns(2).striped(true).show(ui, |ui| {
+            for (k, v) in &[
+                ("Ctrl+R",            "Toggle recording start/stop from anywhere in the app — no need to switch to the Recorder tab."),
+                ("● REC timer",       "When recording, the status bar shows a red '● REC 00:32' timer so you always know it's running."),
+                ("Stop after",        "Set a time limit (5 / 15 / 30 / 60 / 120 min or unlimited). Recording auto-stops when the limit is reached. A countdown '→ MM:SS left' shows in the Recorder tab."),
+                ("🗑 Delete files",   "Click the 🗑 icon next to a recording to delete it (two-click confirmation required to prevent accidents)."),
+            ] {
+                ui.monospace(*k);
+                ui.label(*v);
+                ui.end_row();
+            }
+        });
 
         Self::tip(ui, "For NOAA APT satellite passes: record I/Q during the pass, then replay and decode offline. No real-time pressure — you can re-decode many times with different settings.");
         Self::tip(ui, "The Scheduler tab can auto-start and auto-stop recording when a scheduled satellite pass begins and ends.");
