@@ -96,6 +96,11 @@ pub struct CentralApp {
     new_bm_error: String,
     show_add_bm: bool,
     bm_import_msg: String,
+    // Custom task form
+    new_task_label: String,
+    new_task_freq_mhz: String,
+    new_task_time: String,
+    new_task_error: String,
 }
 
 impl CentralApp {
@@ -202,6 +207,10 @@ impl CentralApp {
             new_bm_error: String::new(),
             show_add_bm: false,
             bm_import_msg: String::new(),
+            new_task_label: String::new(),
+            new_task_freq_mhz: String::new(),
+            new_task_time: String::new(),
+            new_task_error: String::new(),
         }
     }
 }
@@ -445,6 +454,11 @@ impl eframe::App for CentralApp {
                         }
                     }
                 }
+                // Poll custom scheduled tasks
+                if let Some((label, freq)) = state.scheduler.poll_custom_tasks(now_unix) {
+                    state.source.frequency_hz = freq;
+                    eprintln!("[scheduler] fired custom task '{}' → {:.3} MHz", label, freq as f64 / 1e6);
+                }
             }
 
             // Frequency scanner tick (runs every frame, rate-limited by dwell_ms)
@@ -556,6 +570,8 @@ impl eframe::App for CentralApp {
                 Some(SharedSnapshot {
                     bookmarks: state.bookmarks.bookmarks.clone(),
                     jobs: state.scheduler.jobs.clone(),
+                    custom_tasks: state.scheduler.custom_tasks.clone(),
+                    auto_tune_enabled: state.scheduler.auto_tune_enabled,
                 })
             } else {
                 return;
@@ -583,6 +599,10 @@ impl eframe::App for CentralApp {
                 new_bm_error: &mut self.new_bm_error,
                 show_add_bm: &mut self.show_add_bm,
                 bm_import_msg: &mut self.bm_import_msg,
+                new_task_label: &mut self.new_task_label,
+                new_task_freq_mhz: &mut self.new_task_freq_mhz,
+                new_task_time: &mut self.new_task_time,
+                new_task_error: &mut self.new_task_error,
             });
 
         // Status bar
@@ -701,6 +721,8 @@ impl eframe::App for CentralApp {
 struct SharedSnapshot {
     bookmarks: Vec<crate::bookmarks::Bookmark>,
     jobs: Vec<crate::scheduler::ScheduledJob>,
+    custom_tasks: Vec<crate::scheduler::CustomTask>,
+    auto_tune_enabled: bool,
 }
 
 struct TabViewer<'a> {
@@ -721,6 +743,10 @@ struct TabViewer<'a> {
     new_bm_error: &'a mut String,
     show_add_bm: &'a mut bool,
     bm_import_msg: &'a mut String,
+    new_task_label: &'a mut String,
+    new_task_freq_mhz: &'a mut String,
+    new_task_time: &'a mut String,
+    new_task_error: &'a mut String,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -953,30 +979,42 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 }
             }
             Tab::Scheduler => {
-                let jobs = match &self.snapshot {
-                    Some(s) => &s.jobs,
+                let (jobs, custom_tasks, auto_tune) = match &self.snapshot {
+                    Some(s) => (s.jobs.clone(), s.custom_tasks.clone(), s.auto_tune_enabled),
                     None => return,
                 };
                 ui.heading("Scheduler");
-                ui.label("Upcoming auto-record passes");
+
+                // Auto-tune toggle
+                let mut auto = auto_tune;
+                if ui.checkbox(&mut auto, "Auto-tune to satellite passes")
+                    .on_hover_text("When enabled, the SDR automatically tunes to the frequency of any satellite currently overhead.")
+                    .changed()
+                {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.scheduler.auto_tune_enabled = auto;
+                    }
+                }
+
                 ui.separator();
+                ui.label(egui::RichText::new("Upcoming Satellite Passes").strong());
                 if jobs.is_empty() {
-                    ui.label("No upcoming passes scheduled.");
+                    ui.label(egui::RichText::new("No upcoming passes (update TLE data in Satellite tab).").color(egui::Color32::GRAY));
                 } else {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(180.0).id_salt("sched_sat_scroll").show(ui, |ui| {
                         egui::Grid::new("sched_grid").num_columns(5).striped(true).show(ui, |ui| {
-                            ui.label("Satellite");
-                            ui.label("AOS");
-                            ui.label("LOS");
-                            ui.label("Freq");
-                            ui.label("Action");
+                            ui.label(egui::RichText::new("Satellite").strong()).on_hover_text("Satellite name from TLE catalogue.");
+                            ui.label(egui::RichText::new("AOS").strong()).on_hover_text("Acquisition of Signal — time the satellite rises above the horizon.");
+                            ui.label(egui::RichText::new("LOS").strong()).on_hover_text("Loss of Signal — time the satellite drops below the horizon.");
+                            ui.label(egui::RichText::new("Freq").strong()).on_hover_text("Downlink frequency to tune to.");
+                            ui.label(egui::RichText::new("Tune").strong());
                             ui.end_row();
-                            for job in jobs {
+                            for job in &jobs {
                                 ui.label(&job.satellite);
                                 ui.label(&job.aos);
                                 ui.label(&job.los);
                                 ui.monospace(format!("{:.3} MHz", job.frequency_hz as f64 / 1e6));
-                                if ui.small_button("Tune").clicked() {
+                                if ui.small_button("📡 Tune").on_hover_text("Tune SDR to this satellite's frequency now.").clicked() {
                                     if let Ok(mut state) = self.shared.try_lock() {
                                         state.source.frequency_hz = job.frequency_hz;
                                     }
@@ -984,6 +1022,90 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                 ui.end_row();
                             }
                         });
+                    });
+                }
+
+                ui.separator();
+                ui.label(egui::RichText::new("Custom Timed Tasks").strong())
+                    .on_hover_text("Schedule a one-shot frequency tune at a specific time (HH:MM:SS today).");
+
+                // Add task form
+                ui.group(|ui| {
+                    egui::Grid::new("task_form_grid").num_columns(2).show(ui, |ui| {
+                        ui.label("Label:");
+                        ui.add(egui::TextEdit::singleline(self.new_task_label).desired_width(150.0).hint_text("e.g. NOAA pass"));
+                        ui.end_row();
+                        ui.label("Freq (MHz):");
+                        ui.add(egui::TextEdit::singleline(self.new_task_freq_mhz).desired_width(100.0).hint_text("137.620"));
+                        ui.end_row();
+                        ui.label("Time (HH:MM):");
+                        ui.add(egui::TextEdit::singleline(self.new_task_time).desired_width(80.0).hint_text("14:30"));
+                        ui.end_row();
+                    });
+                    if !self.new_task_error.is_empty() {
+                        ui.colored_label(egui::Color32::RED, self.new_task_error.as_str());
+                    }
+                    if ui.button("+ Add Task").clicked() {
+                        let label = self.new_task_label.trim().to_string();
+                        let freq_res = self.new_task_freq_mhz.trim().parse::<f64>();
+                        // Parse HH:MM or HH:MM:SS as today's unix time
+                        let time_res = parse_hhmm_today(self.new_task_time.trim());
+                        match (freq_res, time_res) {
+                            (Ok(mhz), Some(at_unix)) if mhz > 0.0 => {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    state.scheduler.custom_tasks.push(crate::scheduler::CustomTask {
+                                        label: if label.is_empty() { format!("{:.3} MHz", mhz) } else { label },
+                                        frequency_hz: (mhz * 1e6) as u64,
+                                        at_unix,
+                                        fired: false,
+                                    });
+                                }
+                                self.new_task_label.clear();
+                                self.new_task_freq_mhz.clear();
+                                self.new_task_time.clear();
+                                *self.new_task_error = String::new();
+                            }
+                            (Err(_), _) => *self.new_task_error = "Invalid frequency.".to_string(),
+                            (_, None) => *self.new_task_error = "Invalid time — use HH:MM format.".to_string(),
+                            _ => *self.new_task_error = "Frequency must be > 0.".to_string(),
+                        }
+                    }
+                });
+
+                if !custom_tasks.is_empty() {
+                    let now_unix = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0);
+                    egui::Grid::new("custom_tasks_grid").num_columns(4).striped(true).show(ui, |ui| {
+                        ui.label(egui::RichText::new("Label").strong());
+                        ui.label(egui::RichText::new("Freq").strong());
+                        ui.label(egui::RichText::new("In").strong());
+                        ui.label(egui::RichText::new("Del").strong());
+                        ui.end_row();
+                        let mut remove_idx = None;
+                        for (i, task) in custom_tasks.iter().enumerate() {
+                            let remaining = task.at_unix - now_unix;
+                            let color = if task.fired { egui::Color32::GRAY }
+                                else if remaining < 0.0 { egui::Color32::RED }
+                                else { egui::Color32::WHITE };
+                            ui.colored_label(color, &task.label);
+                            ui.monospace(format!("{:.3} MHz", task.frequency_hz as f64 / 1e6));
+                            let in_str = if task.fired { "fired".to_string() }
+                                else if remaining < 0.0 { "overdue".to_string() }
+                                else if remaining < 60.0 { format!("{:.0}s", remaining) }
+                                else { format!("{:.0}m", remaining / 60.0) };
+                            ui.label(in_str);
+                            if ui.small_button("✕").clicked() { remove_idx = Some(i); }
+                            ui.end_row();
+                        }
+                        if let Some(idx) = remove_idx {
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                if idx < state.scheduler.custom_tasks.len() {
+                                    state.scheduler.custom_tasks.remove(idx);
+                                }
+                            }
+                        }
                     });
                 }
             }
@@ -994,4 +1116,22 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             }
         }
     }
+}
+
+
+/// Parse "HH:MM" or "HH:MM:SS" as a unix timestamp for today in local time.
+fn parse_hhmm_today(s: &str) -> Option<f64> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() < 2 { return None; }
+    let h: u64 = parts[0].parse().ok()?;
+    let m: u64 = parts[1].parse().ok()?;
+    let sec: u64 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    if h > 23 || m > 59 || sec > 59 { return None; }
+    // Get start of today in UTC via SystemTime
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let today_start = now - (now % 86400);
+    Some((today_start + h * 3600 + m * 60 + sec) as f64)
 }
