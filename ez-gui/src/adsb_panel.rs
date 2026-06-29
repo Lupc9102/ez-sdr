@@ -253,7 +253,19 @@ impl AdsBPanel {
                 if self.altitude_filter_enabled && (ac.altitude < self.min_altitude_ft || ac.altitude > self.max_altitude_ft) { continue; }
                 let x = rect.left() + ((ac.lon + 180.0) / 360.0) as f32 * rect.width();
                 let y = rect.top() + ((90.0 - ac.lat) / 180.0) as f32 * rect.height();
-                let color = if self.selected_icao == Some(ac.icao) { egui::Color32::from_rgb(0, 255, 255) } else { egui::Color32::GREEN };
+                let color = if self.selected_icao == Some(ac.icao) {
+                    egui::Color32::from_rgb(0, 255, 255)
+                } else {
+                    // Altitude gradient: blue (ground) → green (mid) → red (high)
+                    let t = (ac.altitude as f32 / 40_000.0).clamp(0.0, 1.0);
+                    if t < 0.5 {
+                        let u = t * 2.0;
+                        egui::Color32::from_rgb((u * 50.0) as u8, (100.0 + u * 155.0) as u8, (200.0 - u * 200.0) as u8)
+                    } else {
+                        let u = (t - 0.5) * 2.0;
+                        egui::Color32::from_rgb((50.0 + u * 205.0) as u8, (255.0 - u * 205.0) as u8, 0)
+                    }
+                };
                 painter.circle_filled(egui::pos2(x, y), 3.0, color);
                 painter.text(
                     egui::pos2(x + 5.0, y - 8.0),

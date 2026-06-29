@@ -201,6 +201,31 @@ impl FrequencyScanner {
 
         ui.separator();
 
+        // Band presets
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Presets:").on_hover_text("Quick-fill start/stop/step for common band plans.");
+            const BAND_PRESETS: &[(&str, u64, u64, u64, &str)] = &[
+                ("FM Broadcast",    88_000_000,  108_000_000, 100_000, "88–108 MHz WFM broadcast"),
+                ("Airband",        118_000_000,  137_000_000,  25_000, "118–137 MHz AM aviation voice"),
+                ("Marine VHF",     156_000_000,  174_000_000,  25_000, "156–174 MHz NFM marine"),
+                ("Ham 2m",         144_000_000,  146_000_000,  12_500, "144–146 MHz NFM amateur"),
+                ("Ham 70cm",       430_000_000,  440_000_000,  12_500, "430–440 MHz NFM amateur"),
+                ("PMR446",         446_006_250,  446_193_750,   6_250, "PMR446 licence-free 8-channel"),
+                ("Weather NOAA",   162_400_000,  162_550_000,  25_000, "162.4–162.55 MHz NOAA WX"),
+                ("ISM 433",        433_050_000,  434_790_000,  25_000, "433 MHz ISM/remote controls"),
+                ("POCSAG 153",     153_000_000,  154_000_000,  25_000, "153 MHz pager band"),
+                ("Ham 23cm",     1_240_000_000, 1_300_000_000, 25_000, "1.24–1.3 GHz amateur"),
+            ];
+            for &(name, start, stop, step, tip) in BAND_PRESETS {
+                if ui.small_button(name).on_hover_text(tip).clicked() {
+                    self.start_hz = start;
+                    self.stop_hz = stop;
+                    self.step_hz = step;
+                }
+            }
+        });
+        ui.separator();
+
         egui::Grid::new("scanner_controls").num_columns(2).show(ui, |ui| {
             ui.label("Start (MHz):").on_hover_text("Lowest frequency to scan. The sweep begins here.");
             let mut start = self.start_hz as f64 / 1e6;
