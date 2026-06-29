@@ -845,6 +845,48 @@ impl eframe::App for CentralApp {
                             .on_hover_text(format!("Squelch is blocking audio — signal ({:.0} dB) is below squelch threshold ({:.0} dB). Reduce squelch or wait for a stronger signal.", signal, squelch));
                     }
                 }
+                // S-meter bargraph (signal strength)
+                {
+                    let signal_db = state.spectrum.signal_level();
+                    // Map -120..0 dB to 0..1, clamp
+                    let fill = ((signal_db + 120.0) / 120.0).clamp(0.0, 1.0);
+                    let bar_w = 60.0f32;
+                    let bar_h = 10.0f32;
+                    let (bar_rect, bar_resp) = ui.allocate_exact_size(
+                        egui::vec2(bar_w, bar_h),
+                        egui::Sense::hover(),
+                    );
+                    let painter = ui.painter();
+                    // Background
+                    painter.rect_filled(bar_rect, 2.0, egui::Color32::from_rgb(30, 30, 40));
+                    // Fill bar: red → yellow → green based on level
+                    let bar_color = if fill > 0.75 {
+                        egui::Color32::from_rgb(46, 204, 113)
+                    } else if fill > 0.4 {
+                        egui::Color32::from_rgb(241, 196, 15)
+                    } else {
+                        egui::Color32::from_rgb(231, 76, 60)
+                    };
+                    let filled = egui::Rect::from_min_size(bar_rect.min, egui::vec2(bar_w * fill, bar_h));
+                    painter.rect_filled(filled, 2.0, bar_color);
+                    // Border
+                    painter.rect_stroke(bar_rect, 2.0, egui::Stroke::new(0.5, egui::Color32::from_gray(80)), egui::StrokeKind::Middle);
+                    // S-unit label overlay
+                    let s_unit = ((signal_db + 127.0) / 6.0).clamp(0.0, 9.0) as u8;
+                    let label = if signal_db > -73.0 { format!("S9+{:.0}", signal_db + 73.0) }
+                        else { format!("S{}", s_unit) };
+                    painter.text(
+                        bar_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        &label,
+                        egui::FontId::proportional(7.5),
+                        egui::Color32::from_rgba_premultiplied(255, 255, 255, 200),
+                    );
+                    bar_resp.on_hover_text(format!(
+                        "Signal strength: {:.1} dBFS ({}). S-units follow the IARU standard: S1 = -121 dBm, each S-unit is 6 dB.",
+                        signal_db, label
+                    ));
+                }
                 // Demo mode badge — helps beginners know they are in simulation
                 if state.source.source_mode == crate::source_manager::SourceMode::Simulated {
                     ui.separator();
