@@ -284,6 +284,35 @@ impl SdrPanel {
             });
         }
 
+        // Overload detection + smart gain
+        if let Ok(mut state) = self.shared.try_lock() {
+            let peak = state.spectrum.peak_level();
+            let gain = state.source.gain_db;
+            if peak > -15.0 && gain > 0.0 {
+                ui.horizontal(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(255, 80, 80),
+                        format!("⚠ Overload! Peak {:.0} dBFS", peak))
+                        .on_hover_text("Signal is clipping the ADC — this causes distortion, ghost signals, and desensitization. Reduce gain.");
+                    if ui.small_button("-10 dB")
+                        .on_hover_text("Reduce gain by 10 dB to eliminate overload.")
+                        .clicked()
+                    {
+                        state.source.gain_db = (gain - 10.0).max(0.0);
+                    }
+                });
+            }
+            if ui.small_button("Smart Gain")
+                .on_hover_text(format!(
+                    "Auto-adjust gain to target -30 dBFS peak. Current peak: {:.0} dBFS, current gain: {:.1} dB.",
+                    peak, gain
+                ))
+                .clicked()
+            {
+                let adjustment = -30.0 - peak as f64;
+                state.source.gain_db = (gain + adjustment).clamp(0.0, 49.6);
+            }
+        }
+
         // Demod quality indicators
         if let Ok(state) = self.shared.try_lock() {
             let mode = state.demod_mode;
