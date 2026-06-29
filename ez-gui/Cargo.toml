@@ -20,6 +20,7 @@ realfft = "3"
 
 # Networking
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
+ureq = { version = "2", features = ["json"] }
 
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }

@@ -8,6 +8,9 @@ pub struct AdsBPanel {
     pub show_map: bool,
     pub total_messages: u64,
     pub start_time: Option<std::time::Instant>,
+    pub aircraft_info: std::collections::HashMap<u32, AircraftInfo>,
+    info_rx: std::sync::mpsc::Receiver<(u32, AircraftInfo)>,
+    info_tx: std::sync::mpsc::Sender<(u32, AircraftInfo)>,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +23,13 @@ pub struct AircraftEntry {
     pub speed: u32,
     pub heading: u32,
     pub seen: std::time::Instant,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AircraftInfo {
+    pub model: String,
+    pub operator: String,
+    pub registration: String,
 }
 
 impl Default for AircraftEntry {
@@ -39,6 +49,7 @@ impl Default for AircraftEntry {
 
 impl AdsBPanel {
     pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
+        let (info_tx, info_rx) = std::sync::mpsc::channel();
         Self {
             shared,
             aircraft: vec![],
@@ -46,10 +57,44 @@ impl AdsBPanel {
             show_map: true,
             total_messages: 0,
             start_time: None,
+            aircraft_info: std::collections::HashMap::new(),
+            info_rx,
+            info_tx,
         }
     }
 
+    fn fetch_aircraft_info(&mut self, icao: u32) {
+        if self.aircraft_info.contains_key(&icao) {
+            return;
+        }
+        self.aircraft_info.insert(icao, AircraftInfo {
+            model: "Loading...".to_string(),
+            operator: "Loading...".to_string(),
+            registration: "Loading...".to_string(),
+        });
+
+        let icao_hex = format!("{:06X}", icao);
+        let tx = self.info_tx.clone();
+
+        std::thread::spawn(move || {
+            let url = format!("https://api.planespotters.net/pub/photos/hex/{}", icao_hex);
+            if let Ok(resp) = ureq::get(&url).call() {
+                if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                    let model = json["aircraft"]["model"].as_str().unwrap_or("Unknown").to_string();
+                    let operator = json["aircraft"]["operator"].as_str().unwrap_or("Unknown").to_string();
+                    let registration = json["aircraft"]["registration"].as_str().unwrap_or("Unknown").to_string();
+                    let _ = tx.send((icao, AircraftInfo { model, operator, registration }));
+                }
+            }
+        });
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // Poll for aircraft info updates
+        while let Ok((icao, info)) = self.info_rx.try_recv() {
+            self.aircraft_info.insert(icao, info);
+        }
+
         ui.heading("ADS-B / Mode S (1090 MHz)");
 
         // Stats bar
@@ -85,9 +130,30 @@ impl AdsBPanel {
 
         if self.show_map {
             // Pseudo-map: render aircraft as dots
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 200.0), egui::Sense::hover());
+            let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 200.0), egui::Sense::click());
             let painter = ui.painter();
             painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(15, 25, 15));
+
+            // Handle clicks
+            if response.clicked() {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    let mut closest_icao = None;
+                    let mut closest_dist = f32::INFINITY;
+                    for ac in &self.aircraft {
+                        let x = rect.left() + ((ac.lon + 180.0) / 360.0) as f32 * rect.width();
+                        let y = rect.top() + ((90.0 - ac.lat) / 180.0) as f32 * rect.height();
+                        let dist = ((pos.x - x).powi(2) + (pos.y - y).powi(2)).sqrt();
+                        if dist < 10.0 && dist < closest_dist {
+                            closest_dist = dist;
+                            closest_icao = Some(ac.icao);
+                        }
+                    }
+                    if let Some(icao) = closest_icao {
+                        self.selected_icao = Some(icao);
+                        self.fetch_aircraft_info(icao);
+                    }
+                }
+            }
 
             // Draw grid
             for i in 0..20 {
@@ -120,6 +186,19 @@ impl AdsBPanel {
         }
 
         ui.separator();
+
+        // Show selected aircraft info
+        if let Some(icao) = self.selected_icao {
+            if let Some(info) = self.aircraft_info.get(&icao) {
+                ui.group(|ui| {
+                    ui.heading(format!("Aircraft {:06X}", icao));
+                    ui.label(format!("Model: {}", info.model));
+                    ui.label(format!("Operator: {}", info.operator));
+                    ui.label(format!("Registration: {}", info.registration));
+                });
+                ui.separator();
+            }
+        }
 
         // Aircraft table
         egui::ScrollArea::vertical().show(ui, |ui| {
