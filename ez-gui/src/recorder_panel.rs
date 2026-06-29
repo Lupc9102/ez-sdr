@@ -89,20 +89,35 @@ impl RecorderPanel {
             self.last_error = format!("Failed to create directory: {}", e);
             return;
         }
-        let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let freq_mhz = if let Ok(state) = self.shared.try_lock() {
-            state.source.frequency_hz as f64 / 1e6
-        } else {
-            0.0
-        };
-        let ts_str = ts.to_string();
+        let now = chrono::Local::now();
+        let ts_str = now.format("%Y%m%d_%H%M%S").to_string();
+        let timestamp_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+        let (freq_hz, sample_rate_hz, gain_db, ppm_correction, demod_label) =
+            if let Ok(state) = self.shared.try_lock() {
+                (
+                    state.source.frequency_hz,
+                    state.source.sample_rate_hz,
+                    state.source.gain_db,
+                    state.source.ppm_correction,
+                    state.demod_mode.label().to_string(),
+                )
+            } else {
+                (0, 2_048_000, 0.0, 0, "NFM".to_string())
+            };
+        let freq_mhz = freq_hz as f64 / 1e6;
+
+        let mut iq_filename = String::new();
+        let mut wav_filename = String::new();
+
         if self.record_iq {
             let filename = format!("{}_{:.1}MHz.iq", ts_str, freq_mhz);
             let path = dir.join(&filename);
             match std::fs::File::create(&path) {
                 Ok(file) => {
                     self.iq_writer = Some(std::io::BufWriter::new(file));
-                    self.last_filename = filename;
+                    self.last_filename = filename.clone();
+                    iq_filename = filename;
                 }
                 Err(e) => {
                     self.last_error = format!("Failed to create IQ file: {}", e);
@@ -111,8 +126,8 @@ impl RecorderPanel {
             }
         }
         if self.record_audio {
-            let wav_filename = format!("{}_{:.1}MHz_audio.wav", ts_str, freq_mhz);
-            let wav_path = dir.join(&wav_filename);
+            let wf = format!("{}_{:.1}MHz_audio.wav", ts_str, freq_mhz);
+            let wav_path = dir.join(&wf);
             let spec = hound::WavSpec {
                 channels: 1,
                 sample_rate: 48000,
@@ -122,13 +137,33 @@ impl RecorderPanel {
             match hound::WavWriter::create(&wav_path, spec) {
                 Ok(w) => {
                     self.wav_writer = Some(w);
-                    if self.last_filename.is_empty() { self.last_filename = wav_filename; }
+                    if self.last_filename.is_empty() { self.last_filename = wf.clone(); }
+                    wav_filename = wf;
                 }
                 Err(e) => {
                     self.last_error = format!("Failed to create WAV file: {}", e);
                 }
             }
         }
+
+        // Write sidecar JSON with recording metadata
+        let sidecar_name = format!("{}_{:.1}MHz.json", ts_str, freq_mhz);
+        let sidecar_path = dir.join(&sidecar_name);
+        let mut files_json = String::from("[");
+        if !iq_filename.is_empty() {
+            files_json.push_str(&format!("\"{}\"", iq_filename));
+        }
+        if !wav_filename.is_empty() {
+            if !iq_filename.is_empty() { files_json.push(','); }
+            files_json.push_str(&format!("\"{}\"", wav_filename));
+        }
+        files_json.push(']');
+        let json = format!(
+            "{{\n  \"frequency_hz\": {},\n  \"frequency_mhz\": {:.6},\n  \"sample_rate_hz\": {},\n  \"demod_mode\": \"{}\",\n  \"gain_db\": {:.1},\n  \"ppm_correction\": {},\n  \"timestamp_utc\": \"{}\",\n  \"files\": {}\n}}\n",
+            freq_hz, freq_mhz, sample_rate_hz, demod_label, gain_db, ppm_correction, timestamp_utc, files_json
+        );
+        let _ = std::fs::write(&sidecar_path, json);
+
         self.recording = true;
         self.start_time = Some(std::time::Instant::now());
         self.bytes_written = 0;

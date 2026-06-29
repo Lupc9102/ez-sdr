@@ -409,7 +409,6 @@ impl eframe::App for CentralApp {
                 }
                 // C: cycle waterfall colormap
                 if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl && !i.modifiers.alt {
-                    use crate::spectrum::ColorMap;
                     state.spectrum.cycle_colormap();
                 }
                 // [ / ] : frequency history back/forward
