@@ -17,6 +17,8 @@ const SECTIONS: &[&str] = &[
     "Noise & Interference",
     "Frequency Reference",
     "SoapySDR & Other Hardware",
+    "AI Agent Guide",
+    "Troubleshooting",
 ];
 
 impl HowToPanel {
@@ -60,6 +62,8 @@ impl HowToPanel {
                         11 => self.section_noise(ui),
                         12 => self.section_freq_reference(ui),
                         13 => self.section_soapy(ui),
+                        14 => self.section_ai_agent(ui),
+                        15 => self.section_troubleshooting(ui),
                         _  => {}
                     }
                 });
@@ -1188,5 +1192,138 @@ impl HowToPanel {
         ui.add_space(8.0);
         Self::tip(ui, "SoapyRemote lets you stream from an SDR attached to a Raspberry Pi on the roof over the network. The Pi mounts at the antenna; your laptop runs the software inside. Minimal cable loss.");
         Self::warn(ui, "The RTL-SDR's 8-bit ADC limits dynamic range to ~48 dB. If strong signals are present near weak targets (e.g., FM broadcast near airband), upgrading to a 12/14-bit SDR makes a dramatic difference.");
+    }
+
+    fn section_ai_agent(&mut self, ui: &mut egui::Ui) {
+        Self::h1(ui, "AI Agent Guide");
+        ui.label("The AI Agent tab lets you control the SDR with plain English. It connects to any OpenAI-compatible API (Anthropic, OpenAI, Groq, Mistral, Ollama, OpenRouter).");
+        ui.add_space(6.0);
+
+        Self::h2(ui, "Quick Start");
+        for (i, step) in [
+            "Go to Settings → AI Agent and choose a provider (Groq is free and fast; Ollama is local/private).",
+            "Paste your API key (or leave blank for Ollama).",
+            "The model is auto-filled — you can override it.",
+            "Go to the AI Agent tab and type a request, or click a Quick button.",
+        ].iter().enumerate() {
+            ui.label(format!("{}. {}", i + 1, step));
+        }
+        ui.add_space(6.0);
+
+        Self::h2(ui, "Example Prompts");
+        egui::Grid::new("ai_prompts").num_columns(2).striped(true).show(ui, |ui| {
+            for (prompt, effect) in &[
+                ("Tune to NOAA 19", "Sets 137.1 MHz, WFM mode"),
+                ("Scan for active signals between 145 and 165 MHz", "Explains scanner setup"),
+                ("Set gain to maximum and start recording", "Sets gain 49.6 dB, starts IQ recording"),
+                ("What demod mode should I use for aviation?", "Explains AM mode for 118–137 MHz"),
+                ("Start ADS-B tracking", "Tunes 1090 MHz, starts decoder"),
+                ("Show me the current status", "Returns full JSON of SDR state"),
+                ("Set squelch to -65 dB", "Sets squelch threshold"),
+                ("Reduce gain until the noise floor drops", "AI adjusts gain in steps"),
+            ] {
+                ui.monospace(*prompt);
+                ui.label(*effect);
+                ui.end_row();
+            }
+        });
+        ui.add_space(6.0);
+
+        Self::h2(ui, "How Tool Calls Work");
+        ui.label("When the AI wants to control the SDR it responds with a JSON tool call. EZ-SDR executes it and shows the result. The AI can chain multiple tool calls in one response.");
+        ui.add_space(4.0);
+        ui.monospace("{\"tool\": \"tune_frequency\", \"args\": {\"hz\": 137100000}}");
+        ui.add_space(4.0);
+        ui.label("You can see available tools in the collapsing panel at the top of the AI Agent tab.");
+        ui.add_space(6.0);
+
+        Self::h2(ui, "Provider Comparison");
+        egui::Grid::new("ai_providers").num_columns(3).striped(true).show(ui, |ui| {
+            ui.label(egui::RichText::new("Provider").strong());
+            ui.label(egui::RichText::new("Cost").strong());
+            ui.label(egui::RichText::new("Notes").strong());
+            ui.end_row();
+            for (name, cost, note) in &[
+                ("Groq", "Free tier", "Fastest inference; llama-3.1-8b-instant recommended"),
+                ("Ollama", "Free (local)", "Private, no internet needed; needs GPU for speed"),
+                ("OpenRouter", "Pay-per-use", "Access to many models with one key; claude-3-haiku is cheap"),
+                ("Anthropic", "Pay-per-use", "Claude models; claude-3-5-haiku is best value"),
+                ("OpenAI", "Pay-per-use", "gpt-4o-mini is cost-effective"),
+                ("Mistral", "Pay-per-use", "mistral-7b is fast and cheap"),
+            ] {
+                ui.label(*name); ui.label(*cost); ui.label(*note); ui.end_row();
+            }
+        });
+        ui.add_space(6.0);
+        Self::tip(ui, "For the best experience, pick a model with >4k context window so the SDR state + conversation history all fit. Groq's llama-3.1-8b-instant has 128k context and is very fast.");
+        Self::warn(ui, "The AI can control real hardware! Double-check tool calls before accepting them if you're unsure. The AI might occasionally suggest incorrect frequencies — always verify against a frequency chart.");
+    }
+
+    fn section_troubleshooting(&mut self, ui: &mut egui::Ui) {
+        Self::h1(ui, "Troubleshooting");
+
+        Self::h2(ui, "SDR Won't Start");
+        egui::Grid::new("ts_start").num_columns(2).striped(true).show(ui, |ui| {
+            for (symptom, fix) in &[
+                ("'No RTL-SDR device found'", "Check USB connection. Try a different port. Run `lsusb` — you should see 'Realtek Semiconductor Corp.'"),
+                ("Device found but won't open", "Another process (rtl_tcp, gqrx, SDR++) is using it. Close all other SDR apps."),
+                ("'usb_claim_interface error'", "You need udev rules. Run: echo 'SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"0bda\", MODE=\"0666\"' | sudo tee /etc/udev/rules.d/20-rtlsdr.rules && sudo udevadm control --reload && sudo udevadm trigger"),
+                ("Black spectrum, no signal", "Sample rate too high — try 1.024 or 2.048 MSps. Gain too low — try 30–40 dB."),
+            ] {
+                ui.label(egui::RichText::new(*symptom).monospace().color(egui::Color32::YELLOW));
+                ui.label(*fix);
+                ui.end_row();
+            }
+        });
+        ui.add_space(6.0);
+
+        Self::h2(ui, "Poor Audio Quality");
+        egui::Grid::new("ts_audio").num_columns(2).striped(true).show(ui, |ui| {
+            for (symptom, fix) in &[
+                ("Buzzy / distorted audio", "Wrong demod mode — AM for aviation, NFM for VHF voice, WFM for FM broadcast."),
+                ("Audio but no voice", "Squelch too tight — lower the squelch threshold (more negative dB)."),
+                ("Loud hum (50/60 Hz)", "USB power noise. Try a USB hub with separate power, or a ferrite on the cable."),
+                ("Crackling / dropouts", "CPU can't keep up — reduce FFT size (512 or 1024), lower sample rate."),
+                ("Muffled / narrow sound on WFM", "Bandwidth too narrow. WFM needs ~200 kHz. Make sure mode is WFM not NFM."),
+            ] {
+                ui.label(egui::RichText::new(*symptom).monospace().color(egui::Color32::YELLOW));
+                ui.label(*fix);
+                ui.end_row();
+            }
+        });
+        ui.add_space(6.0);
+
+        Self::h2(ui, "Spectrum Issues");
+        egui::Grid::new("ts_spectrum").num_columns(2).striped(true).show(ui, |ui| {
+            for (symptom, fix) in &[
+                ("Big spike in center of spectrum", "DC offset — normal for RTL-SDR. It's at the LO frequency. Tune ±100 kHz off your target."),
+                ("Many evenly-spaced spurs", "Clock harmonics or USB interference. Try shielded USB cable, move away from PC."),
+                ("Spectrum full of signals everywhere", "Gain too high — overload. Reduce gain until the noise floor is stable."),
+                ("Waterfall all one color", "Check display min/max dB in the spectrum toolbar — click Auto-fit."),
+                ("No peaks at known frequencies", "Antenna disconnected, wrong polarization, or out of antenna's range."),
+            ] {
+                ui.label(egui::RichText::new(*symptom).monospace().color(egui::Color32::YELLOW));
+                ui.label(*fix);
+                ui.end_row();
+            }
+        });
+        ui.add_space(6.0);
+
+        Self::h2(ui, "ADS-B / Satellite Issues");
+        egui::Grid::new("ts_adsb").num_columns(2).striped(true).show(ui, |ui| {
+            for (symptom, fix) in &[
+                ("No aircraft decoded", "You need a 1090 MHz antenna (5 dB mag-mount works well). The stock whip is too short. Sample rate must be 2.048 MSps."),
+                ("Aircraft appear but no positions", "Only seeing Mode C, not ADS-B. Older aircraft don't transmit position. Normal — the ICAO + altitude is still useful."),
+                ("NOAA image black/garbled", "Satellite passed but signal was too weak — need a V-dipole antenna at 137 MHz. Check pass elevation: <20° will be weak."),
+                ("Satellite pass time wrong", "Observer lat/lon not set. Go to Settings → Satellite Observer Location."),
+            ] {
+                ui.label(egui::RichText::new(*symptom).monospace().color(egui::Color32::YELLOW));
+                ui.label(*fix);
+                ui.end_row();
+            }
+        });
+        ui.add_space(6.0);
+        Self::tip(ui, "The most common RTL-SDR problem is 'wrong gain'. Start at 30 dB, watch the noise floor, and raise gain until the noise floor rises by ~3 dB — that's the optimal point.");
+        Self::warn(ui, "If you're on Linux and the SDR keeps disconnecting, power management may be suspending the USB port. Disable it: echo -1 | sudo tee /sys/module/usbcore/parameters/autosuspend");
     }
 }
