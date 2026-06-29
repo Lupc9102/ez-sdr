@@ -559,6 +559,38 @@ impl SpectrumAnalyzer {
             }
         }
 
+        // Center frequency indicator (dashed vertical line)
+        {
+            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+            let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+            let right_hz = zoom_span / 2.0 + zoom_center_offset;
+            let center_offset = 0.0f64; // center frequency offset from itself is 0
+            let frac = (center_offset - left_hz) / (right_hz - left_hz);
+            if (0.0..=1.0).contains(&frac) {
+                let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
+                // Draw dashed by alternating segments
+                let dash_len = 6.0f32;
+                let gap_len = 4.0f32;
+                let mut y = spectrum_rect.top();
+                while y < spectrum_rect.bottom() {
+                    let y_end = (y + dash_len).min(spectrum_rect.bottom());
+                    painter.line_segment(
+                        [egui::pos2(x, y), egui::pos2(x, y_end)],
+                        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(100, 160, 255, 100)),
+                    );
+                    y += dash_len + gap_len;
+                }
+                painter.text(
+                    egui::pos2(x + 3.0, spectrum_rect.top() + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    "⟵CTR",
+                    egui::FontId::proportional(8.0),
+                    egui::Color32::from_rgba_premultiplied(100, 160, 255, 150),
+                );
+            }
+        }
+
         // Frequency markers
         for marker_freq in &self.markers {
             let offset_hz = *marker_freq as f64 - self.center_freq as f64;
