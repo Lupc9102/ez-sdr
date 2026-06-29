@@ -29,8 +29,10 @@ Available tools:
 - toggle_bias_tee(on: bool) — Enable/disable bias tee
 - start_recording() / stop_recording()
 - select_satellite(name: string) — NOAA 15/18/19, Meteor-M2, ISS
+- set_squelch(db: f64) — Set squelch threshold in dB (e.g. -60.0)
+- set_volume(level: f64) — Set audio volume 0.0–1.0
 - start_adsb() / stop_adsb()
-- get_status() — Return current SDR state
+- get_status() — Return full JSON of current SDR state
 
 When you want to call a tool respond with exactly:
 {\"tool\": \"name\", \"args\": {}}
@@ -495,6 +497,33 @@ impl AiPanel {
                     state.adsb_running = false;
                     return "ADS-B tracking stopped".to_string();
                 }
+                "set_squelch" => {
+                    if let Some(db) = args["db"].as_f64() {
+                        state.squelch = db as f32;
+                        return format!("Squelch set to {:.1} dB", db);
+                    }
+                }
+                "set_volume" => {
+                    if let Some(level) = args["level"].as_f64() {
+                        state.volume = (level as f32).clamp(0.0, 1.0);
+                        return format!("Volume set to {:.0}%", level * 100.0);
+                    }
+                }
+                "get_status" => {
+                    return serde_json::json!({
+                        "frequency_mhz": state.source.frequency_hz as f64 / 1e6,
+                        "gain_db": state.source.gain_db,
+                        "demod": state.demod_mode.label(),
+                        "sample_rate_msps": state.source.sample_rate_hz as f64 / 1e6,
+                        "squelch_db": state.squelch,
+                        "volume": state.volume,
+                        "recording": state.recording,
+                        "adsb_running": state.adsb_running,
+                        "peak_db": state.spectrum.peak_level(),
+                        "noise_floor_db": state.spectrum.noise_floor(),
+                        "snr_db": state.spectrum.peak_level() - state.spectrum.noise_floor(),
+                    }).to_string();
+                }
                 _ => return format!("Unknown tool: {}", name),
             }
         }
@@ -530,6 +559,33 @@ impl AiPanel {
                 if !has_key {
                     ui.colored_label(egui::Color32::YELLOW, "⚠ no key")
                         .on_hover_text("Go to Settings → AI Agent to add an API key.");
+                }
+            });
+        });
+        ui.separator();
+
+        // Collapsing tools reference
+        ui.collapsing("Available Tools", |ui| {
+            egui::Grid::new("ai_tools_grid").num_columns(2).striped(true).show(ui, |ui| {
+                let tools = [
+                    ("tune_frequency(hz)", "Set center frequency in Hz"),
+                    ("set_gain(db)", "RF gain 0–49.6 dB"),
+                    ("set_demod(mode)", "AM / NFM / WFM / USB / LSB / RAW"),
+                    ("set_sample_rate(rate)", "Sample rate in Hz (e.g. 2048000)"),
+                    ("set_squelch(db)", "Squelch threshold in dB"),
+                    ("set_volume(level)", "Audio volume 0.0–1.0"),
+                    ("toggle_bias_tee(on)", "Bias tee power for LNAs"),
+                    ("start_recording()", "Begin IQ/WAV recording"),
+                    ("stop_recording()", "Stop recording"),
+                    ("select_satellite(name)", "Auto-track a satellite"),
+                    ("start_adsb()", "Start ADS-B decoder at 1090 MHz"),
+                    ("stop_adsb()", "Stop ADS-B decoder"),
+                    ("get_status()", "Return full SDR state as JSON"),
+                ];
+                for (name, desc) in &tools {
+                    ui.monospace(*name);
+                    ui.label(*desc);
+                    ui.end_row();
                 }
             });
         });
