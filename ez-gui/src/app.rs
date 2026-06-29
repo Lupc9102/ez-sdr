@@ -1145,7 +1145,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 if let Ok(mut state) = self.shared.try_lock() {
                     // Sync bookmarks and VFO BW to spectrum for overlays
                     state.spectrum.bookmark_freqs = state.bookmarks.bookmarks.iter()
-                        .map(|b| (b.frequency_hz, b.name.clone()))
+                        .map(|b| (b.frequency_hz, b.name.clone(), b.category.clone()))
                         .collect();
                     state.spectrum.vfo_bw_hz = state.lpf_cutoff as u32 * 2;
                     // Scanner sweep position marker

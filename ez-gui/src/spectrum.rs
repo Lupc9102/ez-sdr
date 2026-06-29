@@ -3,6 +3,34 @@ use num_complex::Complex32;
 use rustfft::{FftPlanner, Fft};
 use std::sync::Arc;
 
+fn category_color(category: &str) -> (egui::Color32, egui::Color32) {
+    // Returns (line_color, label_color) based on category keyword
+    let cat = category.to_lowercase();
+    if cat.contains("aviation") || cat.contains("air") {
+        (egui::Color32::from_rgba_premultiplied(100, 180, 255, 140),
+         egui::Color32::from_rgba_premultiplied(100, 180, 255, 200))
+    } else if cat.contains("weather") || cat.contains("noaa") || cat.contains("wx") {
+        (egui::Color32::from_rgba_premultiplied(80, 220, 80, 140),
+         egui::Color32::from_rgba_premultiplied(80, 220, 80, 200))
+    } else if cat.contains("marine") || cat.contains("sea") || cat.contains("coast") {
+        (egui::Color32::from_rgba_premultiplied(0, 200, 200, 140),
+         egui::Color32::from_rgba_premultiplied(0, 200, 200, 200))
+    } else if cat.contains("amateur") || cat.contains("ham") {
+        (egui::Color32::from_rgba_premultiplied(200, 100, 255, 140),
+         egui::Color32::from_rgba_premultiplied(200, 100, 255, 200))
+    } else if cat.contains("broadcast") || cat.contains("fm") || cat.contains("am") {
+        (egui::Color32::from_rgba_premultiplied(255, 140, 60, 140),
+         egui::Color32::from_rgba_premultiplied(255, 140, 60, 200))
+    } else if cat.contains("scanner") || cat.contains("hit") {
+        (egui::Color32::from_rgba_premultiplied(255, 80, 80, 140),
+         egui::Color32::from_rgba_premultiplied(255, 80, 80, 200))
+    } else {
+        // Default gold
+        (egui::Color32::from_rgba_premultiplied(255, 215, 0, 120),
+         egui::Color32::from_rgba_premultiplied(255, 215, 0, 160))
+    }
+}
+
 pub struct SpectrumAnalyzer {
     pub frozen: bool,
     fft_size: usize,
@@ -36,7 +64,7 @@ pub struct SpectrumAnalyzer {
     signal_history: std::collections::VecDeque<f32>,
     signal_history_max: usize,
     show_signal_history: bool,
-    pub bookmark_freqs: Vec<(u64, String)>,
+    pub bookmark_freqs: Vec<(u64, String, String)>,
     show_bookmarks: bool,
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
@@ -596,16 +624,64 @@ impl SpectrumAnalyzer {
         // Band plan overlay
         {
             struct Band { name: &'static str, low_mhz: f64, high_mhz: f64, color: egui::Color32 }
+            // Colors: green=amateur, orange=broadcast, blue=aviation, teal=marine, lime=weather/utility, purple=satellite/space, red=ISM, gray=other
+            const HAM: egui::Color32  = egui::Color32::from_rgba_premultiplied(80, 200, 80, 28);
+            const BCAST: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 140, 50, 28);
+            const AIR: egui::Color32  = egui::Color32::from_rgba_premultiplied(80, 160, 255, 28);
+            const MAR: egui::Color32  = egui::Color32::from_rgba_premultiplied(0, 200, 180, 28);
+            const WX: egui::Color32   = egui::Color32::from_rgba_premultiplied(100, 255, 120, 28);
+            const SAT: egui::Color32  = egui::Color32::from_rgba_premultiplied(180, 100, 255, 28);
+            const ISM: egui::Color32  = egui::Color32::from_rgba_premultiplied(255, 80, 80, 25);
+            const MOB: egui::Color32  = egui::Color32::from_rgba_premultiplied(200, 180, 60, 22);
             const BANDS: &[Band] = &[
-                Band { name: "160m", low_mhz: 1.8, high_mhz: 2.0, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
-                Band { name: "80m",  low_mhz: 3.5, high_mhz: 4.0, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
-                Band { name: "40m",  low_mhz: 7.0, high_mhz: 7.3, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
-                Band { name: "20m",  low_mhz: 14.0, high_mhz: 14.35, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
-                Band { name: "15m",  low_mhz: 21.0, high_mhz: 21.45, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
-                Band { name: "10m",  low_mhz: 28.0, high_mhz: 29.7, color: egui::Color32::from_rgba_premultiplied(60, 180, 75, 30) },
-                Band { name: "6m",   low_mhz: 50.0, high_mhz: 54.0, color: egui::Color32::from_rgba_premultiplied(180, 120, 50, 30) },
-                Band { name: "2m",   low_mhz: 144.0, high_mhz: 148.0, color: egui::Color32::from_rgba_premultiplied(180, 120, 50, 30) },
-                Band { name: "70cm", low_mhz: 420.0, high_mhz: 450.0, color: egui::Color32::from_rgba_premultiplied(180, 80, 80, 30) },
+                // HF amateur
+                Band { name: "160m", low_mhz: 1.8,   high_mhz: 2.0,   color: HAM },
+                Band { name: "80m",  low_mhz: 3.5,   high_mhz: 4.0,   color: HAM },
+                Band { name: "40m",  low_mhz: 7.0,   high_mhz: 7.3,   color: HAM },
+                Band { name: "20m",  low_mhz: 14.0,  high_mhz: 14.35, color: HAM },
+                Band { name: "17m",  low_mhz: 18.068,high_mhz: 18.168,color: HAM },
+                Band { name: "15m",  low_mhz: 21.0,  high_mhz: 21.45, color: HAM },
+                Band { name: "12m",  low_mhz: 24.89, high_mhz: 24.99, color: HAM },
+                Band { name: "10m",  low_mhz: 28.0,  high_mhz: 29.7,  color: HAM },
+                // VHF/UHF amateur
+                Band { name: "6m",   low_mhz: 50.0,  high_mhz: 54.0,  color: HAM },
+                Band { name: "2m",   low_mhz: 144.0, high_mhz: 148.0, color: HAM },
+                Band { name: "1.25m",low_mhz: 219.0, high_mhz: 225.0, color: HAM },
+                Band { name: "70cm", low_mhz: 420.0, high_mhz: 450.0, color: HAM },
+                Band { name: "33cm", low_mhz: 902.0, high_mhz: 928.0, color: HAM },
+                Band { name: "23cm", low_mhz:1240.0, high_mhz:1300.0, color: HAM },
+                // Broadcast
+                Band { name: "AM",   low_mhz: 0.525, high_mhz: 1.705, color: BCAST },
+                Band { name: "FM",   low_mhz: 87.5,  high_mhz: 108.0, color: BCAST },
+                Band { name: "DAB",  low_mhz: 174.0, high_mhz: 230.0, color: BCAST },
+                // Aviation
+                Band { name: "NDB",  low_mhz: 0.19,  high_mhz: 0.525, color: AIR },
+                Band { name: "VOR/ILS",low_mhz:108.0,high_mhz: 118.0, color: AIR },
+                Band { name: "Airband",low_mhz:118.0,high_mhz: 137.0, color: AIR },
+                Band { name: "ADS-B",low_mhz:1090.0, high_mhz:1090.5, color: AIR },
+                Band { name: "ACARS",low_mhz: 129.0, high_mhz: 136.9, color: AIR },
+                // Marine / maritime
+                Band { name: "Marine",low_mhz:156.0, high_mhz: 174.0, color: MAR },
+                Band { name: "Marine MF",low_mhz:1.6,high_mhz: 4.0,   color: MAR },
+                // Weather / utility
+                Band { name: "NOAA WX",low_mhz:162.4,high_mhz:162.55, color: WX },
+                Band { name: "NOAA APT",low_mhz:137.0,high_mhz:138.0, color: WX },
+                Band { name: "GOES",  low_mhz:1686.0,high_mhz:1698.0, color: WX },
+                // Satellites
+                Band { name: "GPS L1",low_mhz:1575.2,high_mhz:1576.0, color: SAT },
+                Band { name: "GPS L2",low_mhz:1227.5,high_mhz:1228.0, color: SAT },
+                Band { name: "Iridium",low_mhz:1616.0,high_mhz:1626.5,color: SAT },
+                Band { name: "Meteor",low_mhz:137.0, high_mhz:138.0,  color: SAT },
+                // Land mobile / PMR
+                Band { name: "LMR VHF",low_mhz:138.0,high_mhz:174.0, color: MOB },
+                Band { name: "PMR446",low_mhz:446.0, high_mhz:446.2,  color: MOB },
+                Band { name: "LMR UHF",low_mhz:450.0,high_mhz:512.0, color: MOB },
+                // ISM / unlicensed
+                Band { name: "ISM 27",low_mhz: 26.96, high_mhz: 27.28,color: ISM },
+                Band { name: "ISM 433",low_mhz:433.05,high_mhz:434.79,color: ISM },
+                Band { name: "ISM 868",low_mhz:868.0, high_mhz: 868.6,color: ISM },
+                Band { name: "ISM 915",low_mhz:902.0, high_mhz: 928.0,color: ISM },
+                Band { name: "WiFi",  low_mhz:2400.0, high_mhz:2500.0,color: ISM },
             ];
             let center_mhz = self.center_freq as f64 / 1e6;
             let half_span_mhz = zoom_span / 2e6;
@@ -678,21 +754,22 @@ impl SpectrumAnalyzer {
             let zoom_center_offset_bm = (self.zoom_offset as f64 - 0.5) * zoom_span_bm;
             let left_hz_bm = -zoom_span_bm / 2.0 + zoom_center_offset_bm;
             let right_hz_bm = zoom_span_bm / 2.0 + zoom_center_offset_bm;
-            for (bm_freq, bm_name) in &self.bookmark_freqs {
+            for (bm_freq, bm_name, bm_cat) in &self.bookmark_freqs {
                 let offset_hz = *bm_freq as f64 - self.center_freq as f64;
                 let frac = (offset_hz - left_hz_bm) / (right_hz_bm - left_hz_bm);
                 if (0.0..=1.0).contains(&frac) {
                     let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
+                    let (line_color, label_color) = category_color(bm_cat);
                     painter.line_segment(
                         [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
-                        egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(255, 215, 0, 120)),
+                        egui::Stroke::new(0.8, line_color),
                     );
                     painter.text(
                         egui::pos2(x + 2.0, spectrum_rect.bottom() - 12.0),
                         egui::Align2::LEFT_BOTTOM,
                         bm_name.as_str(),
                         egui::FontId::proportional(7.5),
-                        egui::Color32::from_rgba_premultiplied(255, 215, 0, 160),
+                        label_color,
                     );
                 }
             }
@@ -1252,21 +1329,27 @@ impl SpectrumAnalyzer {
 
         // Bookmark markers on waterfall
         if self.show_bookmarks {
-            for (bm_freq, bm_name) in &self.bookmark_freqs {
+            for (bm_freq, bm_name, bm_cat) in &self.bookmark_freqs {
                 let offset_hz = *bm_freq as f64 - self.center_freq as f64;
                 let frac = (offset_hz - left_hz) / zoom_span;
                 if (0.0..=1.0).contains(&frac) {
                     let x = wf_rect.left() + frac as f32 * wf_rect.width();
+                    let (mut line_color, mut label_color) = category_color(bm_cat);
+                    // Slightly dimmer on waterfall for legibility
+                    line_color = egui::Color32::from_rgba_premultiplied(
+                        line_color.r(), line_color.g(), line_color.b(), 90);
+                    label_color = egui::Color32::from_rgba_premultiplied(
+                        label_color.r(), label_color.g(), label_color.b(), 130);
                     wf_painter.line_segment(
                         [egui::pos2(x, wf_rect.top()), egui::pos2(x, wf_rect.bottom())],
-                        egui::Stroke::new(0.7, egui::Color32::from_rgba_premultiplied(255, 215, 0, 90)),
+                        egui::Stroke::new(0.7, line_color),
                     );
                     wf_painter.text(
                         egui::pos2(x + 2.0, wf_rect.top() + 14.0),
                         egui::Align2::LEFT_TOP,
                         bm_name.as_str(),
                         egui::FontId::proportional(7.0),
-                        egui::Color32::from_rgba_premultiplied(255, 215, 0, 130),
+                        label_color,
                     );
                 }
             }

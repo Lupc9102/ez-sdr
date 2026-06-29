@@ -80,3 +80,8 @@ Started: 2026-06-29 (8-hour window)
 - T+88min: Configurable arrow key tuning step presets row + Shift×10 multiplier
 - T+91min: Signal strength history sparkline (60-second chart below S-meter, colour coded)
 - T+~110min: HowTo panel updates for all Session 19 features (VFO A/B, steps, freq ID, demod suggest, sparkline, overload, WF range, sidecar JSON, CSV export, bookmark shortcuts)
+
+## Session 20 Night Shift Log
+- T+~115min: Auto-squelch tracking mode — "Track ON" toggle continuously follows noise floor + configurable offset
+- T+~125min: Bookmark memory scan — 📻 Memory Scan section in Scanner tab, cycles bookmarks, applies each bookmark's demod mode, hold-on-activity support
+- T+~125min: Keyboard shortcut overlay updated (configurable step hints, Shift+Arrow added)

@@ -173,6 +173,46 @@ impl SdrPanel {
                 }
             });
         }
+        // Recent frequencies quick-access bar
+        if let Ok(mut state) = self.shared.try_lock() {
+            let cur = state.source.frequency_hz;
+            // collect last 6 unique recent freqs that differ from current
+            let recents: Vec<u64> = state.freq_history.iter()
+                .cloned()
+                .rev()
+                .filter(|&f| f != cur)
+                .collect::<std::collections::HashSet<u64>>()
+                .into_iter()
+                .take(8)
+                .collect();
+            if !recents.is_empty() {
+                let mut sorted = recents;
+                sorted.sort_by(|a, b| {
+                    let da = if *a > cur { a - cur } else { cur - a };
+                    let db = if *b > cur { b - cur } else { cur - b };
+                    da.cmp(&db)
+                });
+                let sorted_clone = sorted.clone();
+                ui.horizontal(|ui| {
+                    ui.small("Recent:");
+                    for &f in sorted_clone.iter().take(6) {
+                        let label = if f >= 1_000_000_000 {
+                            format!("{:.2}G", f as f64 / 1e9)
+                        } else if f >= 100_000_000 {
+                            format!("{:.1}M", f as f64 / 1e6)
+                        } else {
+                            format!("{:.3}M", f as f64 / 1e6)
+                        };
+                        if ui.small_button(egui::RichText::new(label).color(egui::Color32::from_rgb(160, 200, 255)))
+                            .on_hover_text(format!("{:.6} MHz", f as f64 / 1e6))
+                            .clicked()
+                        {
+                            state.source.frequency_hz = f;
+                        }
+                    }
+                });
+            }
+        }
         // Direct frequency entry
         ui.horizontal(|ui| {
             ui.label("Go to:").on_hover_text("Type a frequency and press Enter to jump. Examples: 145.5 (MHz), 145500000 (Hz), 145500k (kHz).");
