@@ -22,6 +22,8 @@ pub struct SpectrumAnalyzer {
     show_peak_hold: bool,
     display_min_db: f32,
     display_max_db: f32,
+    pub wf_min_db: f32,
+    pub wf_max_db: f32,
     fft: Option<Arc<dyn Fft<f32>>>,
     fft_input_buf: Vec<Complex32>,
     window_cache: Vec<f32>,
@@ -114,6 +116,8 @@ impl SpectrumAnalyzer {
             show_peak_hold: false,
             display_min_db: -120.0,
             display_max_db: 0.0,
+            wf_min_db: -120.0,
+            wf_max_db: -20.0,
             fft,
             fft_input_buf: Vec::with_capacity(4096),
             window_cache,
@@ -246,9 +250,9 @@ impl SpectrumAnalyzer {
 
     fn waterfall_row(&self) -> Vec<u8> {
         let mut pixels = vec![0u8; self.fft_size * 4];
-        let range = (self.display_max_db - self.display_min_db).max(1.0);
+        let range = (self.wf_max_db - self.wf_min_db).max(1.0);
         for (i, db) in self.spectrum_dbs.iter().enumerate() {
-            let normalized = ((db - self.display_min_db) / range).clamp(0.0, 1.0);
+            let normalized = ((db - self.wf_min_db) / range).clamp(0.0, 1.0);
             let (r, g, b) = color_map(self.color_map, normalized);
             pixels[i * 4] = r;
             pixels[i * 4 + 1] = g;
@@ -326,6 +330,25 @@ impl SpectrumAnalyzer {
             if self.display_min_db >= self.display_max_db - 10.0 {
                 self.display_min_db = self.display_max_db - 10.0;
                 self.waterfall_dirty = true;
+            }
+            ui.separator();
+            ui.label("WF color:").on_hover_text("Waterfall brightness/contrast: sets the dBFS range mapped to the full color palette. Narrow the range for more contrast on weak signals.");
+            let wf_min_changed = ui.add(egui::DragValue::new(&mut self.wf_min_db).speed(1.0).range(-160.0..=-20.0).suffix(" dark"))
+                .on_hover_text("Lowest dBFS shown in the waterfall (mapped to black/dark). Lower = more sensitive to faint signals.").changed();
+            let wf_max_changed = ui.add(egui::DragValue::new(&mut self.wf_max_db).speed(1.0).range(-60.0..=20.0).suffix(" bright"))
+                .on_hover_text("Highest dBFS shown in waterfall (mapped to brightest color). Lower = amplify weak signals.").changed();
+            if wf_min_changed || wf_max_changed {
+                if self.wf_min_db >= self.wf_max_db - 5.0 { self.wf_min_db = self.wf_max_db - 5.0; }
+                self.waterfall_dirty = true;
+            }
+            if ui.small_button("WF Auto").on_hover_text("Set waterfall color range to current signal min/max for best contrast.").clicked() {
+                if !self.spectrum_dbs.is_empty() {
+                    let cur_min = self.spectrum_dbs.iter().cloned().fold(f32::INFINITY, f32::min);
+                    let cur_max = self.spectrum_dbs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    self.wf_min_db = (cur_min - 5.0).max(-160.0);
+                    self.wf_max_db = (cur_max + 5.0).min(20.0);
+                    self.waterfall_dirty = true;
+                }
             }
             ui.separator();
             let freeze_label = if self.frozen { "❄ Frozen" } else { "❄ Freeze" };

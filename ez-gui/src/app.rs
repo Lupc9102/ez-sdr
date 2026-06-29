@@ -183,6 +183,11 @@ impl CentralApp {
                 let max = state.config.spectrum_max_db;
                 state.spectrum.set_display_range(min, max);
             }
+            // Restore waterfall color range
+            if state.config.wf_min_db != 0.0 || state.config.wf_max_db != 0.0 {
+                state.spectrum.wf_min_db = state.config.wf_min_db;
+                state.spectrum.wf_max_db = state.config.wf_max_db;
+            }
             let init_freq = state.source.frequency_hz;
             if state.freq_history.is_empty() || state.freq_history.back() != Some(&init_freq) {
                 state.freq_history.push_back(init_freq);
@@ -405,6 +410,8 @@ impl eframe::App for CentralApp {
                     state.config.spectrum_max_db = max_db;
                     state.config.ppm_correction = state.source.ppm_correction;
                     state.config.vfo_b_hz = state.vfo_b;
+                    state.config.wf_min_db = state.spectrum.wf_min_db;
+                    state.config.wf_max_db = state.spectrum.wf_max_db;
                     state.config.save();
                 }
                 // F: freeze/unfreeze spectrum
