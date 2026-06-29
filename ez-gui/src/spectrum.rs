@@ -648,6 +648,25 @@ impl SpectrumAnalyzer {
             }
         }
 
+        // SNR badge overlay (top-right of spectrum)
+        {
+            let peak = self.peak_level();
+            let noise = self.noise_floor();
+            let snr = peak - noise;
+            let snr_color = if snr > 20.0 { egui::Color32::from_rgb(46, 204, 113) }
+                else if snr > 10.0 { egui::Color32::from_rgb(241, 196, 15) }
+                else { egui::Color32::from_rgb(231, 76, 60) };
+            let badge_text = format!("SNR {:.1} dB", snr);
+            let text_pos = egui::pos2(spectrum_rect.right() - 4.0, spectrum_rect.top() + 4.0);
+            let bg_rect = egui::Rect::from_min_size(
+                egui::pos2(text_pos.x - 68.0, text_pos.y - 1.0),
+                egui::vec2(72.0, 14.0),
+            );
+            painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160));
+            painter.text(text_pos, egui::Align2::RIGHT_TOP, &badge_text,
+                egui::FontId::monospace(10.0), snr_color);
+        }
+
         // Center frequency indicator (dashed vertical line)
         {
             let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);

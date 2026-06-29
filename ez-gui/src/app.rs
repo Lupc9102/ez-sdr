@@ -89,6 +89,7 @@ pub struct CentralApp {
     last_history_freq: u64,
     freq_history_idx: Option<usize>,
     recording_start: Option<std::time::Instant>,
+    show_welcome: bool,
     // New-bookmark form state
     new_bm_name: String,
     new_bm_freq_mhz: String,
@@ -224,6 +225,11 @@ impl CentralApp {
             new_task_time: String::new(),
             new_task_error: String::new(),
             recording_start: None,
+            // Show welcome if config is fresh (default frequency = 100 MHz means unconfigured)
+            show_welcome: {
+                let state = shared.lock().unwrap();
+                state.config.ai_api_key.is_empty() && state.config.mqtt_broker == "localhost:1883"
+            },
         }
     }
 }
@@ -525,6 +531,9 @@ impl eframe::App for CentralApp {
                 } else {
                     ctx.set_visuals(egui::Visuals::dark());
                 }
+                // Apply font scale
+                let scale = state.config.font_scale as f32;
+                ctx.set_pixels_per_point(scale);
                 state.source.frequency_hz = state.config.default_freq_hz;
                 state.source.sample_rate_hz = state.config.default_sample_rate;
                 state.source.gain_db = state.config.default_gain;
@@ -634,6 +643,30 @@ impl eframe::App for CentralApp {
                 new_task_time: &mut self.new_task_time,
                 new_task_error: &mut self.new_task_error,
             });
+
+        // First-run welcome banner
+        if self.show_welcome {
+            egui::Window::new("👋 Welcome to EZ-SDR!")
+                .id(egui::Id::new("welcome_banner"))
+                .default_width(480.0)
+                .collapsible(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label(egui::RichText::new("You're running in DEMO mode — no real SDR hardware required to explore!").strong());
+                    ui.add_space(4.0);
+                    egui::Grid::new("welcome_tips").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+                        ui.label("📡"); ui.label("Connect an RTL-SDR dongle and rebuild with '--features rtlsdr' for live reception."); ui.end_row();
+                        ui.label("📻"); ui.label("Click a band in 'Bands:' row (SDR tab) to jump to common frequencies."); ui.end_row();
+                        ui.label("📊"); ui.label("Left-click the spectrum to tune. Scroll to zoom. Right-click for more options."); ui.end_row();
+                        ui.label("🔊"); ui.label("Press Start Audio or M key to toggle audio output."); ui.end_row();
+                        ui.label("❓"); ui.label("Open the How To tab for a full beginner guide."); ui.end_row();
+                        ui.label("?");  ui.label("Press ? anywhere to show keyboard shortcuts."); ui.end_row();
+                    });
+                    ui.add_space(6.0);
+                    if ui.button("Got it — dismiss").clicked() {
+                        self.show_welcome = false;
+                    }
+                });
+        }
 
         // Status bar
         ui.separator();

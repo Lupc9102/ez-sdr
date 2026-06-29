@@ -42,6 +42,7 @@ pub struct AppConfig {
     pub web_remote_port: u16,
     pub observer_lat: f64,
     pub observer_lon: f64,
+    pub font_scale: f64,
     pub needs_apply: bool,
 }
 
@@ -67,6 +68,7 @@ impl Default for AppConfig {
             web_remote_port: 5259,
             observer_lat: 51.5,
             observer_lon: -0.1,
+            font_scale: 1.0,
             needs_apply: false,
         }
     }
@@ -245,6 +247,23 @@ impl AppConfig {
                     for t in &["dark", "light"] {
                         if ui.selectable_label(&self.theme == *t, *t).clicked() {
                             self.theme = t.to_string();
+                            self.needs_apply = true;
+                        }
+                    }
+                });
+                ui.add_space(4.0);
+                ui.label("Font scale:").on_hover_text("Scale all UI text. 1.0 is default. Increase for high-DPI displays or if text is too small.");
+                let resp = ui.add(egui::Slider::new(&mut self.font_scale, 0.6..=2.0)
+                    .step_by(0.05)
+                    .text("")
+                    .custom_formatter(|v, _| format!("{:.2}x", v)));
+                if resp.changed() {
+                    self.needs_apply = true;
+                }
+                ui.horizontal(|ui| {
+                    for (label, scale) in [("Small", 0.8f64), ("Normal", 1.0), ("Large", 1.3), ("XL", 1.6)] {
+                        if ui.small_button(label).clicked() {
+                            self.font_scale = scale;
                             self.needs_apply = true;
                         }
                     }
