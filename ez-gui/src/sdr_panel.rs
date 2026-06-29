@@ -648,6 +648,45 @@ impl SdrPanel {
 
         ui.separator();
 
+        // LO / Upconverter offset
+        if let Ok(mut state) = self.shared.try_lock() {
+            ui.horizontal(|ui| {
+                ui.label("LO Offset").on_hover_text("Frequency offset for upconverters (e.g. Ham It Up adds 125 MHz). The displayed frequency = tuned + offset. Set to 0 for direct SDR use.");
+                let mut lo_mhz = state.lo_offset_hz as f64 / 1e6;
+                let drag = ui.add(egui::DragValue::new(&mut lo_mhz)
+                    .speed(0.1)
+                    .suffix(" MHz")
+                    .range(-2000.0..=2000.0));
+                if drag.changed() {
+                    state.lo_offset_hz = (lo_mhz * 1e6) as i64;
+                }
+                for (label, offset_mhz, tip) in [
+                    ("0", 0.0f64, "No offset (direct SDR)"),
+                    ("125", 125.0, "Ham It Up / generic 125 MHz upconverter"),
+                    ("100", 100.0, "SpyVerter / 100 MHz upconverter"),
+                    ("-125", -125.0, "125 MHz downconverter / negative offset"),
+                ] {
+                    if ui.small_button(label).on_hover_text(tip).clicked() {
+                        state.lo_offset_hz = (offset_mhz * 1e6) as i64;
+                    }
+                }
+            });
+            if state.lo_offset_hz != 0 {
+                let true_freq = state.source.frequency_hz as i64 + state.lo_offset_hz;
+                if true_freq > 0 {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 200, 80),
+                        format!("True frequency: {:.3} MHz (tuned {:.3} MHz + {:.0} MHz offset)",
+                            true_freq as f64 / 1e6,
+                            state.source.frequency_hz as f64 / 1e6,
+                            state.lo_offset_hz as f64 / 1e6),
+                    );
+                }
+            }
+        }
+
+        ui.separator();
+
         // Source controls
         if let Ok(mut state) = self.shared.try_lock() {
             state.source.ui(ui);

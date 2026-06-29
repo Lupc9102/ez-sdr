@@ -65,6 +65,7 @@ pub struct SharedState {
     pub vfo_b: u64,
     pub tune_step_fine_hz: u64,
     pub tune_step_coarse_hz: u64,
+    pub lo_offset_hz: i64,
 }
 
 pub struct CentralApp {
@@ -146,6 +147,7 @@ impl CentralApp {
             vfo_b: 0,
             tune_step_fine_hz: 100_000,
             tune_step_coarse_hz: 1_000_000,
+            lo_offset_hz: 0,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -171,6 +173,7 @@ impl CentralApp {
             state.source.sample_rate_hz = state.config.default_sample_rate;
             state.source.gain_db = state.config.default_gain;
             state.source.ppm_correction = state.config.ppm_correction;
+            state.lo_offset_hz = state.config.lo_offset_hz;
             state.vfo_b = if state.config.vfo_b_hz > 0 { state.config.vfo_b_hz } else { state.config.default_freq_hz };
             state.source.start();
             state.tle.observer_lat = state.config.observer_lat;
@@ -420,6 +423,7 @@ impl eframe::App for CentralApp {
                     state.config.vfo_b_hz = state.vfo_b;
                     state.config.wf_min_db = state.spectrum.wf_min_db;
                     state.config.wf_max_db = state.spectrum.wf_max_db;
+                    state.config.lo_offset_hz = state.lo_offset_hz;
                     state.config.save();
                 }
                 // F: freeze/unfreeze spectrum
@@ -486,6 +490,15 @@ impl eframe::App for CentralApp {
                             state.source.frequency_hz = hist[new_idx];
                             self.last_history_freq = hist[new_idx];
                         }
+                    }
+                }
+
+                // T: tune to spectrum peak frequency
+                if i.key_pressed(egui::Key::T) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    let peak_hz = state.spectrum.peak_freq_hz();
+                    if peak_hz > 0 {
+                        state.source.frequency_hz = peak_hz;
+                        self.status_flash = Some((format!("📡 Peak: {:.3} MHz", peak_hz as f64 / 1e6), std::time::Instant::now()));
                     }
                 }
             }
@@ -624,10 +637,10 @@ impl eframe::App for CentralApp {
 
             // Squelch-triggered recording tick
             {
-                let (signal_db, squelch_db) = if let Ok(state) = self.shared.try_lock() {
-                    (state.spectrum.signal_level(), state.squelch)
-                } else { (-120.0, -50.0) };
-                self.recorder_panel.tick_squelch_record(signal_db, squelch_db);
+                let (signal_db, squelch_db, freq_hz, mode_label) = if let Ok(state) = self.shared.try_lock() {
+                    (state.spectrum.signal_level(), state.squelch, state.source.frequency_hz, state.demod_mode.label().to_string())
+                } else { (-120.0, -50.0, 0u64, "NFM".to_string()) };
+                self.recorder_panel.tick_squelch_record(signal_db, squelch_db, freq_hz, &mode_label);
             }
 
             // Frequency scanner tick (runs every frame, rate-limited by dwell_ms)
@@ -876,12 +889,22 @@ impl eframe::App for CentralApp {
                 ui.small(if running { "Running" } else { "Stopped" })
                     .on_hover_text("SDR source status indicator.");
                 ui.separator();
-                let freq_str = format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6);
-                let freq_resp = ui.add(egui::Label::new(egui::RichText::new(&freq_str).monospace())
+                let true_hz = (state.source.frequency_hz as i64 + state.lo_offset_hz).max(0) as u64;
+                let freq_str = if state.lo_offset_hz != 0 {
+                    format!("{:.3} MHz (+{:.0}M)", true_hz as f64 / 1e6, state.lo_offset_hz as f64 / 1e6)
+                } else {
+                    format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6)
+                };
+                let freq_resp = ui.add(egui::Label::new(egui::RichText::new(&freq_str).monospace()
+                    .color(if state.lo_offset_hz != 0 { egui::Color32::from_rgb(255, 200, 80) } else { egui::Color32::WHITE }))
                     .sense(egui::Sense::click()))
-                    .on_hover_text("Click to copy frequency to clipboard. Use arrow keys or SDR panel to change. RTL-SDR range: 24–1766 MHz.");
+                    .on_hover_text(if state.lo_offset_hz != 0 {
+                        format!("True frequency: {:.6} MHz (tuned {:.6} MHz + {} MHz LO offset). Click to copy true frequency.", true_hz as f64/1e6, state.source.frequency_hz as f64/1e6, state.lo_offset_hz/1_000_000)
+                    } else {
+                        "Click to copy frequency to clipboard. Use arrow keys or SDR panel to change. RTL-SDR range: 24–1766 MHz.".to_string()
+                    });
                 if freq_resp.clicked() {
-                    ui.ctx().copy_text(format!("{:.6}", state.source.frequency_hz as f64 / 1e6));
+                    ui.ctx().copy_text(format!("{:.6}", true_hz as f64 / 1e6));
                 }
                 ui.separator();
                 ui.small(format!("{} · {:.1} MSps", state.demod_mode.label(), state.source.sample_rate_hz as f64 / 1e6))
@@ -1066,6 +1089,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("C"); ui.label("Cycle waterfall colormap (Classic→Viridis→Plasma→…)"); ui.end_row();
                         ui.monospace("V"); ui.label("Swap VFO A ↔ VFO B (quick frequency toggle)"); ui.end_row();
                         ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
+                        ui.monospace("T"); ui.label("Tune to the strongest signal in the visible spectrum"); ui.end_row();
                         ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
                         ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
                         ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies + spectrum dB range + VFO B + waterfall range"); ui.end_row();
@@ -1156,6 +1180,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         .map(|b| (b.frequency_hz, b.name.clone(), b.category.clone()))
                         .collect();
                     state.spectrum.vfo_bw_hz = state.lpf_cutoff as u32 * 2;
+                    state.spectrum.demod_mode = state.demod_mode.label().to_string();
                     // Scanner sweep position marker
                     state.spectrum.scan_marker = if self.scanner.enabled && !self.scanner.paused {
                         Some(self.scanner.current_freq_hz)

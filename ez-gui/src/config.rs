@@ -58,6 +58,8 @@ pub struct AppConfig {
     pub wf_min_db: f32,
     #[serde(default)]
     pub wf_max_db: f32,
+    #[serde(default)]
+    pub lo_offset_hz: i64,
 }
 
 impl Default for AppConfig {
@@ -91,6 +93,7 @@ impl Default for AppConfig {
             vfo_b_hz: 0,
             wf_min_db: -120.0,
             wf_max_db: -20.0,
+            lo_offset_hz: 0,
         }
     }
 }

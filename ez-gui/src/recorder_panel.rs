@@ -1,6 +1,13 @@
 use std::sync::{Arc, Mutex};
 use crate::app::SharedState;
 
+pub struct SignalEvent {
+    pub timestamp: String,
+    pub frequency_hz: u64,
+    pub mode: String,
+    pub signal_db: f32,
+}
+
 pub struct RecorderPanel {
     shared: Arc<Mutex<SharedState>>,
     pub recording: bool,
@@ -23,6 +30,10 @@ pub struct RecorderPanel {
     pub squelch_record_tail_ms: u64,
     squelch_record_last_active: Option<std::time::Instant>,
     pub squelch_record_count: u32,
+    // Signal event log
+    pub signal_monitor: bool,
+    pub signal_log: std::collections::VecDeque<SignalEvent>,
+    signal_last_logged: Option<std::time::Instant>,
 }
 
 #[derive(Clone)]
@@ -55,13 +66,37 @@ impl RecorderPanel {
             squelch_record_tail_ms: 2000,
             squelch_record_last_active: None,
             squelch_record_count: 0,
+            signal_monitor: false,
+            signal_log: std::collections::VecDeque::with_capacity(200),
+            signal_last_logged: None,
         }
     }
 
-    pub fn tick_squelch_record(&mut self, signal_db: f32, squelch_db: f32) {
-        if !self.squelch_record { return; }
+    pub fn tick_squelch_record(&mut self, signal_db: f32, squelch_db: f32, freq_hz: u64, mode: &str) {
         let signal_active = signal_db > squelch_db && squelch_db > -90.0;
         let now = std::time::Instant::now();
+
+        // Signal event log — throttle to one entry per 5s per activation
+        if self.signal_monitor && signal_active {
+            let log_gap = std::time::Duration::from_secs(5);
+            let should_log = self.signal_last_logged.map(|t| now.duration_since(t) >= log_gap).unwrap_or(true);
+            if should_log {
+                self.signal_last_logged = Some(now);
+                let ts = chrono::Local::now().format("%H:%M:%S").to_string();
+                if self.signal_log.len() >= 200 { self.signal_log.pop_front(); }
+                self.signal_log.push_back(SignalEvent {
+                    timestamp: ts,
+                    frequency_hz: freq_hz,
+                    mode: mode.to_string(),
+                    signal_db,
+                });
+            }
+        }
+        if !signal_active {
+            self.signal_last_logged = None;
+        }
+
+        if !self.squelch_record { return; }
         if signal_active {
             self.squelch_record_last_active = Some(now);
             if !self.recording {
@@ -300,6 +335,68 @@ impl RecorderPanel {
                 ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Recording active transmission…");
             } else if self.squelch_record {
                 ui.colored_label(egui::Color32::GRAY, "◉ Waiting for signal…");
+            }
+        });
+        ui.separator();
+
+        // Signal event log / monitor
+        ui.collapsing(format!("📋 Signal Log ({} events)", self.signal_log.len()), |ui| {
+            ui.label("Timestamped log of signals detected above squelch. Useful for unattended monitoring — see what came through while you were away.");
+            ui.horizontal(|ui| {
+                let mon_label = if self.signal_monitor {
+                    egui::RichText::new("Monitoring").color(egui::Color32::from_rgb(80, 220, 120)).strong()
+                } else {
+                    egui::RichText::new("Start Monitor")
+                };
+                ui.toggle_value(&mut self.signal_monitor, mon_label)
+                    .on_hover_text("Log each new signal detection with timestamp, frequency, mode, and strength. Throttled to one entry per 5 seconds per activation.");
+                if ui.small_button("🗑 Clear").on_hover_text("Clear all log entries.").clicked() {
+                    self.signal_log.clear();
+                }
+                if !self.signal_log.is_empty() && ui.small_button("💾 Export CSV").on_hover_text("Save signal log to CSV file.").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_file_name("ez_sdr_signal_log.csv")
+                        .add_filter("CSV", &["csv"])
+                        .save_file()
+                    {
+                        let mut csv = String::from("timestamp,frequency_hz,frequency_mhz,mode,signal_db\n");
+                        for ev in &self.signal_log {
+                            csv.push_str(&format!("{},{},{:.6},{},{:.1}\n",
+                                ev.timestamp, ev.frequency_hz,
+                                ev.frequency_hz as f64 / 1e6,
+                                ev.mode, ev.signal_db));
+                        }
+                        let _ = std::fs::write(&path, csv);
+                    }
+                }
+            });
+            if self.signal_log.is_empty() {
+                ui.colored_label(egui::Color32::GRAY, "No signals logged yet. Enable monitoring and set squelch above noise floor.");
+            } else {
+                egui::ScrollArea::vertical().max_height(180.0).id_salt("sig_log_scroll").show(ui, |ui| {
+                    egui::Grid::new("sig_log_grid").num_columns(4).striped(true).min_col_width(50.0).show(ui, |ui| {
+                        ui.label(egui::RichText::new("Time").strong());
+                        ui.label(egui::RichText::new("Frequency").strong());
+                        ui.label(egui::RichText::new("Mode").strong());
+                        ui.label(egui::RichText::new("Level").strong());
+                        ui.end_row();
+                        for ev in self.signal_log.iter().rev() {
+                            let freq_str = if ev.frequency_hz >= 1_000_000_000 {
+                                format!("{:.3} GHz", ev.frequency_hz as f64 / 1e9)
+                            } else {
+                                format!("{:.3} MHz", ev.frequency_hz as f64 / 1e6)
+                            };
+                            let db_color = if ev.signal_db > -60.0 { egui::Color32::from_rgb(80, 220, 120) }
+                                else if ev.signal_db > -80.0 { egui::Color32::from_rgb(220, 200, 80) }
+                                else { egui::Color32::from_rgb(180, 180, 180) };
+                            ui.monospace(&ev.timestamp);
+                            ui.label(&freq_str);
+                            ui.label(&ev.mode);
+                            ui.colored_label(db_color, format!("{:.1} dB", ev.signal_db));
+                            ui.end_row();
+                        }
+                    });
+                });
             }
         });
         ui.separator();

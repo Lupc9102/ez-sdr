@@ -93,3 +93,12 @@ Started: 2026-06-29 (8-hour window)
 - T+~170min: Labeled spectrum markers — "Add marker" popup dialog for optional label text
 - T+~180min: Bookmark CSV export with file dialog (+ frequency_mhz column)
 - T+~182min: Scanner exclude list — skip known interferer frequencies during range scan
+- T+~195min: Scanner: 🚫 button on hits to add/remove from exclude list; excluded hits shown with strikethrough
+- T+~200min: HowTo panel search/filter — keyword search with gold highlighting, 50+ term index
+
+## Session 21 Night Shift Log
+- T+~205min: T key shortcut — tune to strongest visible spectrum peak (peak_freq_hz() argmax method, status flash)
+- T+~210min: Upconverter/LO offset support — DragValue + quick presets (0/125/100/-125 MHz), true-freq display in SDR panel + amber status bar label with hover tooltip, persisted in config with Ctrl+S
+- T+~220min: Signal event log — timestamped ring buffer (200 entries) in Recorder tab, throttled to 1 entry/5s per signal, color-coded dB, "Export CSV" button, separate from VOX recording
+- T+~225min: VFO BW overlay enhanced with mode-aware colors (orange=WFM, purple=AM, green=SSB, blue=NFM/FM/RAW) + mode label shown in BW indicator text
+- T+~230min: Spectrum cursor tooltip enhanced — now shows absolute freq + Δ offset from center (±kHz/MHz) + dB level; tooltip flips to left when near right edge

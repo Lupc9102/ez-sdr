@@ -71,6 +71,7 @@ pub struct SpectrumAnalyzer {
     show_band_plan: bool,
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
+    pub demod_mode: String,
     pub scan_marker: Option<u64>,
     pub squelch_db: f32,
     pub source_running: bool,
@@ -168,6 +169,7 @@ impl SpectrumAnalyzer {
             show_band_plan: true,
             vfo_bw_hz: 15000,
             show_vfo_bw: true,
+            demod_mode: "NFM".to_string(),
             frozen: false,
             scan_marker: None,
             squelch_db: -120.0,
@@ -236,6 +238,19 @@ impl SpectrumAnalyzer {
 
     pub fn peak_level(&self) -> f32 {
         self.spectrum_dbs.iter().cloned().fold(-120.0f32, f32::max)
+    }
+
+    pub fn peak_freq_hz(&self) -> u64 {
+        if self.spectrum_dbs.is_empty() { return self.center_freq; }
+        let n = self.spectrum_dbs.len();
+        let peak_bin = self.spectrum_dbs.iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(i, _)| i)
+            .unwrap_or(n / 2);
+        // DC bin is at n/2; offset from center = (bin - n/2) * (sample_rate / n)
+        let offset_hz = (peak_bin as i64 - n as i64 / 2) * self.sample_rate as i64 / n as i64;
+        (self.center_freq as i64 + offset_hz).max(0) as u64
     }
 
     #[allow(dead_code)]
@@ -743,12 +758,35 @@ impl SpectrumAnalyzer {
 
         // VFO bandwidth indicator — shaded region showing active filter width
         if self.show_vfo_bw && self.vfo_bw_hz > 0 {
+            // Mode-aware colors
+            let (fill_color, edge_color, label_color) = match self.demod_mode.as_str() {
+                "WFM" => (
+                    egui::Color32::from_rgba_premultiplied(255, 140, 50, 22),
+                    egui::Color32::from_rgba_premultiplied(255, 160, 80, 150),
+                    egui::Color32::from_rgba_premultiplied(255, 160, 80, 200),
+                ),
+                "AM" => (
+                    egui::Color32::from_rgba_premultiplied(220, 100, 220, 22),
+                    egui::Color32::from_rgba_premultiplied(220, 100, 220, 150),
+                    egui::Color32::from_rgba_premultiplied(220, 100, 220, 200),
+                ),
+                "LSB" | "USB" => (
+                    egui::Color32::from_rgba_premultiplied(100, 220, 100, 22),
+                    egui::Color32::from_rgba_premultiplied(100, 220, 100, 150),
+                    egui::Color32::from_rgba_premultiplied(100, 220, 100, 200),
+                ),
+                _ => (
+                    // NFM / FM / RAW — default blue
+                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 25),
+                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 120),
+                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 180),
+                ),
+            };
             let zoom_span_v = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset_v = (self.zoom_offset as f64 - 0.5) * zoom_span_v;
             let left_hz_v = -zoom_span_v / 2.0 + zoom_center_offset_v;
             let right_hz_v = zoom_span_v / 2.0 + zoom_center_offset_v;
             let half_bw = self.vfo_bw_hz as f64 / 2.0;
-            // VFO is at center freq (offset 0)
             let vfo_offset = 0.0f64;
             let bw_left = vfo_offset - half_bw;
             let bw_right = vfo_offset + half_bw;
@@ -758,26 +796,27 @@ impl SpectrumAnalyzer {
                 let x1 = spectrum_rect.left() + x1_frac as f32 * spectrum_rect.width();
                 let x2 = spectrum_rect.left() + x2_frac as f32 * spectrum_rect.width();
                 let vfo_rect = egui::Rect::from_x_y_ranges(x1..=x2, spectrum_rect.top()..=spectrum_rect.bottom());
-                painter.rect_filled(vfo_rect, 0.0, egui::Color32::from_rgba_premultiplied(52, 152, 219, 25));
-                // Left edge
+                painter.rect_filled(vfo_rect, 0.0, fill_color);
                 painter.line_segment(
                     [egui::pos2(x1, spectrum_rect.top()), egui::pos2(x1, spectrum_rect.bottom())],
-                    egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(52, 152, 219, 120)),
+                    egui::Stroke::new(0.8, edge_color),
                 );
-                // Right edge
                 painter.line_segment(
                     [egui::pos2(x2, spectrum_rect.top()), egui::pos2(x2, spectrum_rect.bottom())],
-                    egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(52, 152, 219, 120)),
+                    egui::Stroke::new(0.8, edge_color),
                 );
-                // Label
                 let bw_khz = self.vfo_bw_hz as f32 / 1000.0;
-                let bw_label = if bw_khz >= 1.0 { format!("{:.0} kHz", bw_khz) } else { format!("{:.0} Hz", self.vfo_bw_hz) };
+                let bw_label = if bw_khz >= 1.0 {
+                    format!("{} {:.0} kHz", self.demod_mode, bw_khz)
+                } else {
+                    format!("{} {:.0} Hz", self.demod_mode, self.vfo_bw_hz)
+                };
                 painter.text(
                     egui::pos2((x1 + x2) / 2.0, spectrum_rect.bottom() - 2.0),
                     egui::Align2::CENTER_BOTTOM,
                     bw_label,
                     egui::FontId::proportional(8.0),
-                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 180),
+                    label_color,
                 );
             }
         }
@@ -1009,17 +1048,31 @@ impl SpectrumAnalyzer {
                     egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(200, 200, 200, 128)),
                 );
 
-                // Tooltip box
-                let tooltip = format!("{} | {:.1} dB", freq_str, db);
+                // Cursor tooltip with frequency + delta from center + dB
+                let delta_khz = offset_hz / 1000.0;
+                let delta_str = if delta_khz.abs() >= 1000.0 {
+                    format!("{:+.3} MHz", delta_khz / 1000.0)
+                } else {
+                    format!("{:+.1} kHz", delta_khz)
+                };
+                let line1 = format!("{} ({}) {:.1} dB", freq_str, delta_str, db);
+                let tooltip_w = 220.0f32;
+                // Flip tooltip to left if near right edge
+                let tx = if pointer.x + tooltip_w + 14.0 > spectrum_rect.right() {
+                    pointer.x - tooltip_w - 6.0
+                } else {
+                    pointer.x + 12.0
+                };
+                let ty = (pointer.y - 22.0).max(spectrum_rect.top() + 2.0);
                 let text_rect = egui::Rect::from_min_size(
-                    egui::pos2(pointer.x + 12.0, pointer.y - 20.0),
-                    egui::vec2(160.0, 16.0),
+                    egui::pos2(tx, ty),
+                    egui::vec2(tooltip_w, 16.0),
                 );
                 painter.rect_filled(text_rect, 2.0, egui::Color32::from_rgba_unmultiplied(20, 20, 30, 220));
                 painter.text(
                     egui::pos2(text_rect.left() + 4.0, text_rect.center().y),
                     egui::Align2::LEFT_CENTER,
-                    &tooltip,
+                    &line1,
                     egui::FontId::monospace(10.0),
                     egui::Color32::from_rgb(46, 204, 113),
                 );
