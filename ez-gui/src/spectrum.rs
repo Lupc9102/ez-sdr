@@ -44,7 +44,9 @@ pub struct SpectrumAnalyzer {
     color_map: ColorMap,
     zoom_factor: f32,
     zoom_offset: f32,
-    markers: Vec<u64>,
+    markers: Vec<(u64, String)>,
+    marker_label_input: String,
+    marker_pending_freq: Option<u64>,
     avg_alpha: f32,
     peak_hold: Vec<f32>,
     show_peak_hold: bool,
@@ -66,6 +68,7 @@ pub struct SpectrumAnalyzer {
     show_signal_history: bool,
     pub bookmark_freqs: Vec<(u64, String, String)>,
     show_bookmarks: bool,
+    show_band_plan: bool,
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
     pub scan_marker: Option<u64>,
@@ -139,6 +142,8 @@ impl SpectrumAnalyzer {
             zoom_factor: 1.0,
             zoom_offset: 0.5,
             markers: Vec::new(),
+            marker_label_input: String::new(),
+            marker_pending_freq: None,
             avg_alpha: 0.3,
             peak_hold: vec![-120.0; fft_size],
             show_peak_hold: false,
@@ -160,6 +165,7 @@ impl SpectrumAnalyzer {
             show_signal_history: false,
             bookmark_freqs: Vec::new(),
             show_bookmarks: true,
+            show_band_plan: true,
             vfo_bw_hz: 15000,
             show_vfo_bw: true,
             frozen: false,
@@ -398,6 +404,8 @@ impl SpectrumAnalyzer {
                 .on_hover_text("Show shaded VFO filter bandwidth region centered on the tuned frequency.");
             ui.toggle_value(&mut self.show_bookmarks, "⭐ BM")
                 .on_hover_text("Overlay bookmark frequencies as vertical lines on the spectrum.");
+            ui.toggle_value(&mut self.show_band_plan, "🗺 BP")
+                .on_hover_text("Band plan overlay — colored regions show frequency allocations:\n🟢 Green = Amateur (Ham) bands\n🟠 Orange = Broadcast (AM/FM/DAB)\n🔵 Blue = Aviation (airband, VOR, ADS-B)\n🟢 Teal = Marine VHF\n💚 Lime = Weather (NOAA, GOES)\n🟣 Purple = Satellites / GPS\n🔴 Red = ISM (Wi-Fi, 433 MHz remotes)\n🟡 Yellow = Land mobile / PMR");
             if ui.small_button("⟳").on_hover_text("Reset dB range to default (-120 to 0)").clicked() {
                 self.display_min_db = -120.0;
                 self.display_max_db = 0.0;
@@ -560,6 +568,32 @@ impl SpectrumAnalyzer {
             }
         });
 
+        // Marker label popup — shown when user clicks "Add marker" in context menu
+        if let Some(pending_freq) = self.marker_pending_freq {
+            egui::Window::new("Label this marker")
+                .id(egui::Id::new("marker_label_popup"))
+                .fixed_size([260.0, 80.0])
+                .show(ui.ctx(), |ui| {
+                    ui.label(format!("Add label for {:.4} MHz (leave blank for frequency-only):", pending_freq as f64 / 1e6));
+                    let resp = ui.add(egui::TextEdit::singleline(&mut self.marker_label_input)
+                        .desired_width(200.0)
+                        .hint_text("e.g. DC offset, Interference, Local FM…"));
+                    ui.horizontal(|ui| {
+                        if ui.button("Add").clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                            let label = self.marker_label_input.trim().to_string();
+                            self.markers.push((pending_freq, label));
+                            if self.markers.len() > 20 { self.markers.remove(0); }
+                            self.marker_pending_freq = None;
+                            self.marker_label_input.clear();
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.marker_pending_freq = None;
+                            self.marker_label_input.clear();
+                        }
+                    });
+                });
+        }
+
         let avail = ui.available_size();
         let spectrum_height = avail.y * 0.35;
         let waterfall_height = avail.y * 0.65;
@@ -622,7 +656,7 @@ impl SpectrumAnalyzer {
         }
 
         // Band plan overlay
-        {
+        if self.show_band_plan {
             struct Band { name: &'static str, low_mhz: f64, high_mhz: f64, color: egui::Color32 }
             // Colors: green=amateur, orange=broadcast, blue=aviation, teal=marine, lime=weather/utility, purple=satellite/space, red=ISM, gray=other
             const HAM: egui::Color32  = egui::Color32::from_rgba_premultiplied(80, 200, 80, 28);
@@ -1044,7 +1078,7 @@ impl SpectrumAnalyzer {
         }
 
         // Frequency markers
-        for marker_freq in &self.markers {
+        for (marker_freq, marker_label) in &self.markers {
             let offset_hz = *marker_freq as f64 - self.center_freq as f64;
             let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
@@ -1057,11 +1091,15 @@ impl SpectrumAnalyzer {
                     [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
                     egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(255, 200, 50, 160)),
                 );
-                let label = format!("{:.3} MHz", *marker_freq as f64 / 1e6);
+                let display_label = if marker_label.is_empty() {
+                    format!("{:.3} MHz", *marker_freq as f64 / 1e6)
+                } else {
+                    format!("{} {:.3}M", marker_label, *marker_freq as f64 / 1e6)
+                };
                 painter.text(
                     egui::pos2(x, spectrum_rect.top() + 2.0),
                     egui::Align2::CENTER_TOP,
-                    label,
+                    display_label,
                     egui::FontId::proportional(8.0),
                     egui::Color32::from_rgba_premultiplied(255, 200, 50, 200),
                 );
@@ -1153,8 +1191,7 @@ impl SpectrumAnalyzer {
                     ui.close();
                 }
                 if ui.button("📍 Add marker").clicked() {
-                    self.markers.push(freq);
-                    if self.markers.len() > 20 { self.markers.remove(0); }
+                    self.marker_pending_freq = Some(freq);
                     ui.close();
                 }
                 if ui.button("⭐ Bookmark this frequency").clicked() {
@@ -1219,7 +1256,7 @@ impl SpectrumAnalyzer {
                 let left_hz = -zoom_span / 2.0 + zoom_center_offset;
                 let offset_hz = left_hz + frac as f64 * zoom_span;
                 let freq = (self.center_freq as f64 + offset_hz) as u64;
-                self.markers.push(freq);
+                self.markers.push((freq, String::new()));
                 if self.markers.len() > 20 {
                     self.markers.remove(0);
                 }
