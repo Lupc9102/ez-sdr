@@ -81,21 +81,36 @@ impl FrequencyScanner {
             self.last_export_msg = "No hits to export.".to_string();
             return;
         }
-        let filename = format!("scanner_hits_{}.csv", chrono::Local::now().format("%Y%m%d_%H%M%S"));
-        let mut csv = String::from("Frequency_Hz,Frequency_MHz,Strength_dB,Age_Seconds\n");
-        let now = std::time::Instant::now();
+        let default_name = format!("scanner_hits_{}.csv", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let path = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("CSV", &["csv"])
+            .save_file();
+        let path = match path {
+            Some(p) => p,
+            None => { self.last_export_msg = "Export cancelled.".to_string(); return; }
+        };
+
+        // Group hits by frequency: collect max strength and hit count
+        let mut grouped: std::collections::BTreeMap<u64, (f32, u32)> = std::collections::BTreeMap::new();
         for hit in &self.hits {
-            let age = now.duration_since(hit.timestamp).as_secs();
+            let entry = grouped.entry(hit.freq_hz).or_insert((-200.0, 0));
+            if hit.strength_db > entry.0 { entry.0 = hit.strength_db; }
+            entry.1 += 1;
+        }
+
+        let mut csv = String::from("Frequency_Hz,Frequency_MHz,Max_Strength_dB,Hit_Count\n");
+        for (freq_hz, (max_db, count)) in &grouped {
             csv.push_str(&format!(
                 "{},{:.4},{:.1},{}\n",
-                hit.freq_hz,
-                hit.freq_hz as f64 / 1e6,
-                hit.strength_db,
-                age
+                freq_hz,
+                *freq_hz as f64 / 1e6,
+                max_db,
+                count
             ));
         }
-        match std::fs::write(&filename, &csv) {
-            Ok(_) => self.last_export_msg = format!("Exported {} hits to {}", self.hits.len(), filename),
+        match std::fs::write(&path, &csv) {
+            Ok(_) => self.last_export_msg = format!("Exported {} frequencies ({} hits) to {}", grouped.len(), self.hits.len(), path.display()),
             Err(e) => self.last_export_msg = format!("Export failed: {}", e),
         }
     }
