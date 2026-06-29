@@ -16,6 +16,8 @@ pub struct RecorderPanel {
     disk_cache: (std::time::Instant, f64, String),
     file_list: Vec<RecordingFile>,
     file_list_last_scan: Option<std::time::Instant>,
+    pub max_duration_mins: u32,
+    delete_confirm: Option<String>,
 }
 
 #[derive(Clone)]
@@ -42,6 +44,8 @@ impl RecorderPanel {
             disk_cache: (std::time::Instant::now(), 99.9, "GB".to_string()),
             file_list: Vec::new(),
             file_list_last_scan: None,
+            max_duration_mins: 0,
+            delete_confirm: None,
         }
     }
 
@@ -210,30 +214,51 @@ impl RecorderPanel {
                 let size_mb = self.bytes_written as f64 / 1_048_576.0;
                 let (free_gb, unit) = self.cached_free_disk_space();
 
-                ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::RED, "● REC");
-                    let mins = elapsed / 60;
-                    let secs = elapsed % 60;
-                    ui.monospace(format!("{:02}:{:02}", mins, secs));
-                    ui.separator();
-                    ui.label(format!("{:.1} MB", size_mb));
-                    ui.separator();
-                    ui.label(format!("{:.1} {} free", free_gb, unit));
-                });
+                // Auto-stop when duration limit reached
+                if self.max_duration_mins > 0 && elapsed >= self.max_duration_mins as u64 * 60 {
+                    self.stop_recording();
+                    self.last_error.clear();
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(egui::Color32::RED, "● REC");
+                        let mins = elapsed / 60;
+                        let secs = elapsed % 60;
+                        ui.monospace(format!("{:02}:{:02}", mins, secs));
+                        if self.max_duration_mins > 0 {
+                            let limit_secs = self.max_duration_mins as u64 * 60;
+                            let rem = limit_secs.saturating_sub(elapsed);
+                            ui.label(format!("→ {:02}:{:02} left", rem / 60, rem % 60));
+                        }
+                        ui.separator();
+                        ui.label(format!("{:.1} MB", size_mb));
+                        ui.separator();
+                        ui.label(format!("{:.1} {} free", free_gb, unit));
+                    });
 
-                // Data rate
-                if elapsed > 0 {
-                    let rate_mbps = self.bytes_written as f64 / elapsed as f64 / 1_048_576.0;
-                    ui.label(format!("Rate: {:.2} MB/s", rate_mbps));
+                    // Data rate
+                    if elapsed > 0 {
+                        let rate_mbps = self.bytes_written as f64 / elapsed as f64 / 1_048_576.0;
+                        ui.label(format!("Rate: {:.2} MB/s", rate_mbps));
+                    }
+                    if ui.button("■ Stop").clicked() {
+                        self.stop_recording();
+                    }
                 }
             }
-            if ui.button("■ Stop").clicked() {
-                self.stop_recording();
-            }
         } else {
-            if ui.button("● Start Recording").clicked() {
-                self.start_recording();
-            }
+            ui.horizontal(|ui| {
+                if ui.button("● Start Recording").clicked() {
+                    self.start_recording();
+                }
+                ui.label("Stop after:").on_hover_text("Auto-stop recording after this duration. 0 = record until manually stopped.");
+                egui::ComboBox::from_id_salt("rec_dur")
+                    .selected_text(if self.max_duration_mins == 0 { "∞ unlimited".to_string() } else { format!("{} min", self.max_duration_mins) })
+                    .show_ui(ui, |ui| {
+                        for (label, val) in [("∞ unlimited", 0u32), ("5 min", 5), ("15 min", 15), ("30 min", 30), ("60 min", 60), ("120 min", 120)] {
+                            ui.selectable_value(&mut self.max_duration_mins, val, label);
+                        }
+                    });
+            });
         }
 
         // Recordings file browser
@@ -252,12 +277,14 @@ impl RecorderPanel {
                 ui.label(egui::RichText::new("No .iq or .wav files found in output directory.").color(egui::Color32::GRAY));
             } else {
                 egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                    egui::Grid::new("rec_file_grid").num_columns(3).striped(true).min_col_width(60.0).show(ui, |ui| {
+                    egui::Grid::new("rec_file_grid").num_columns(4).striped(true).min_col_width(60.0).show(ui, |ui| {
                         ui.label(egui::RichText::new("File").strong());
                         ui.label(egui::RichText::new("Size").strong());
                         ui.label(egui::RichText::new("Date").strong());
+                        ui.label("");
                         ui.end_row();
                         let files = self.file_list.clone();
+                        let mut to_delete: Option<String> = None;
                         for f in &files {
                             let size_str = if f.size_bytes > 1_073_741_824 {
                                 format!("{:.1} GB", f.size_bytes as f64 / 1_073_741_824.0)
@@ -269,7 +296,26 @@ impl RecorderPanel {
                             ui.label(&f.name).on_hover_text(&f.name);
                             ui.label(&size_str);
                             ui.label(&f.modified);
+                            let confirming = self.delete_confirm.as_deref() == Some(&f.name);
+                            if confirming {
+                                if ui.small_button(egui::RichText::new("✓ Delete?").color(egui::Color32::RED))
+                                    .on_hover_text("Click to confirm deletion. This cannot be undone.")
+                                    .clicked()
+                                {
+                                    to_delete = Some(f.name.clone());
+                                    self.delete_confirm = None;
+                                }
+                            } else {
+                                if ui.small_button("🗑").on_hover_text("Delete this recording file.").clicked() {
+                                    self.delete_confirm = Some(f.name.clone());
+                                }
+                            }
                             ui.end_row();
+                        }
+                        if let Some(name) = to_delete {
+                            let path = std::path::Path::new(&self.output_dir).join(&name);
+                            let _ = std::fs::remove_file(&path);
+                            self.file_list_last_scan = None;
                         }
                     });
                 });
