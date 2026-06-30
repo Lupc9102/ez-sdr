@@ -1252,8 +1252,10 @@ impl eframe::App for CentralApp {
                 let peak_color = if peak > -20.0 { egui::Color32::GREEN }
                     else if peak > -60.0 { egui::Color32::YELLOW }
                     else { egui::Color32::GRAY };
-                ui.colored_label(peak_color, format!("Peak: {:.1}dB", peak))
-                    .on_hover_text("Strongest signal in the current spectrum view (dBFS). Green = strong signal present, yellow = moderate, grey = weak/none.");
+                // Peak level with percentage indicator
+                let peak_pct = ((peak + 120.0) / 120.0 * 100.0).clamp(0.0, 100.0);
+                ui.colored_label(peak_color, format!("Peak: {:.1}dB ({:.0}%)", peak, peak_pct))
+                    .on_hover_text("Strongest signal in the current spectrum view (dBFS). Percentage: 0% = -120dB (weakest), 100% = 0dB (clipping risk).");
                 ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {:.1}dB", noise_floor))
                     .on_hover_text("Estimated noise floor — the average background noise level. The gap between floor and peak is SNR (signal-to-noise ratio).");
                 let snr = peak - noise_floor;
