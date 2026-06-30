@@ -41,7 +41,7 @@ pub struct SpectrumAnalyzer {
     center_freq: u64,
     sample_rate: u32,
     window_type: WindowType,
-    color_map: ColorMap,
+    pub color_map: ColorMap,
     zoom_factor: f32,
     zoom_offset: f32,
     markers: Vec<(u64, String)>,

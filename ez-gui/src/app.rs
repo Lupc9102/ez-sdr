@@ -216,6 +216,17 @@ impl CentralApp {
                 state.spectrum.wf_min_db = state.config.wf_min_db;
                 state.spectrum.wf_max_db = state.config.wf_max_db;
             }
+            // Restore waterfall colormap
+            if !state.config.color_map.is_empty() {
+                state.spectrum.color_map = match state.config.color_map.as_str() {
+                    "Viridis" => crate::spectrum::ColorMap::Viridis,
+                    "Plasma" => crate::spectrum::ColorMap::Plasma,
+                    "Magma" => crate::spectrum::ColorMap::Magma,
+                    "Grayscale" => crate::spectrum::ColorMap::Grayscale,
+                    "Hot" => crate::spectrum::ColorMap::Hot,
+                    _ => crate::spectrum::ColorMap::Classic,
+                };
+            }
             let init_freq = state.source.frequency_hz;
             if state.freq_history.is_empty() || state.freq_history.back() != Some(&init_freq) {
                 state.freq_history.push_back(init_freq);
@@ -483,6 +494,7 @@ impl eframe::App for CentralApp {
                     state.config.wf_min_db = state.spectrum.wf_min_db;
                     state.config.wf_max_db = state.spectrum.wf_max_db;
                     state.config.lo_offset_hz = state.lo_offset_hz;
+                    state.config.color_map = state.spectrum.color_map.name().to_string();
                     // Save current session state so next launch resumes here
                     state.config.last_session_freq_hz = state.source.frequency_hz;
                     state.config.last_session_gain_db = state.source.gain_db;
@@ -1745,6 +1757,7 @@ impl eframe::App for CentralApp {
             cfg.wf_min_db = state.spectrum.wf_min_db;
             cfg.wf_max_db = state.spectrum.wf_max_db;
             cfg.lo_offset_hz = state.lo_offset_hz;
+            cfg.color_map = state.spectrum.color_map.name().to_string();
             cfg.save();
         }
     }

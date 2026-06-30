@@ -68,6 +68,8 @@ pub struct AppConfig {
     pub last_session_gain_db: f64,
     #[serde(default)]
     pub last_session_demod: String,
+    #[serde(default)]
+    pub color_map: String,
 }
 
 impl Default for AppConfig {
@@ -106,6 +108,7 @@ impl Default for AppConfig {
             last_session_freq_hz: 0,
             last_session_gain_db: -1.0,
             last_session_demod: String::new(),
+            color_map: "Classic".to_string(),
         }
     }
 }
