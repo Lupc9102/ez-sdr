@@ -153,10 +153,21 @@ impl SdrPanel {
                 if dist > 0 && dist <= threshold_hz {
                     let dir = if bm.frequency_hz > cur_freq { "↑" } else { "↓" };
                     let dist_str = if dist >= 1000 { format!("{:.1} kHz", dist as f64 / 1000.0) } else { format!("{} Hz", dist) };
+                    let is_very_close = dist <= 1_000; // Within 1 kHz
+                    let label_color = if is_very_close {
+                        egui::Color32::from_rgb(100, 220, 100) // bright green for very close
+                    } else {
+                        egui::Color32::from_rgb(180, 200, 255) // blue for nearby
+                    };
+                    let label_text = if is_very_close {
+                        format!("🎯 {} ({}{}!)", bm.name, dir, dist_str)
+                    } else {
+                        format!("Near: {} ({}{} away)", bm.name, dir, dist_str)
+                    };
                     ui.horizontal(|ui| {
                         ui.colored_label(
-                            egui::Color32::from_rgb(180, 200, 255),
-                            format!("Near: {} ({}{} away)", bm.name, dir, dist_str),
+                            label_color,
+                            label_text,
                         ).on_hover_text(format!("Bookmark '{}' at {:.4} MHz is {} {} — press B to snap to it.", bm.name, bm.frequency_hz as f64 / 1e6, dist_str, if bm.frequency_hz > cur_freq { "above" } else { "below" }));
                     });
                 }
