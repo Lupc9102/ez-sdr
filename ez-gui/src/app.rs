@@ -1358,6 +1358,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     state.spectrum.squelch_db = state.squelch;
                     // Source running state (for empty-state overlay)
                     state.spectrum.source_running = state.source.status == crate::source_manager::SourceStatus::Running;
+                    // Signal active: true when squelch is open (signal above threshold)
+                    state.spectrum.signal_active = state.squelch > -90.0
+                        && state.spectrum.signal_level() > state.squelch;
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;
