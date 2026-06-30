@@ -55,6 +55,9 @@ Available tools:
 - set_volume(level: f64) — Set audio volume 0.0–1.0
 - start_adsb() / stop_adsb()
 - get_status() — Return full JSON of current SDR state
+- get_freq_history() — Return the list of recently tuned frequencies
+- add_bookmark(name: string, hz: u64, mode: string, notes: string) — Save a frequency as a bookmark
+- set_lpf_cutoff(hz: f64) — Set audio low-pass filter cutoff in Hz (e.g. 3000 for voice, 15000 for FM)
 
 When you want to call a tool respond with exactly:
 {\"tool\": \"name\", \"args\": {}}
@@ -642,12 +645,47 @@ impl AiPanel {
                         "sample_rate_msps": state.source.sample_rate_hz as f64 / 1e6,
                         "squelch_db": state.squelch,
                         "volume": state.volume,
+                        "lpf_cutoff_hz": state.lpf_cutoff,
                         "recording": state.recording,
                         "adsb_running": state.adsb_running,
                         "peak_db": state.spectrum.peak_level(),
                         "noise_floor_db": state.spectrum.noise_floor(),
                         "snr_db": state.spectrum.peak_level() - state.spectrum.noise_floor(),
+                        "bookmark_count": state.bookmarks.bookmarks.len(),
+                        "lo_offset_hz": state.lo_offset_hz,
                     }).to_string();
+                }
+                "get_freq_history" => {
+                    let history: Vec<String> = state.freq_history.iter()
+                        .map(|&hz| format!("{:.4} MHz", hz as f64 / 1e6))
+                        .collect();
+                    if history.is_empty() {
+                        return "No frequency history yet".to_string();
+                    }
+                    return format!("Recent frequencies (oldest→newest): {}", history.join(", "));
+                }
+                "add_bookmark" => {
+                    let name = args["name"].as_str().unwrap_or("AI Bookmark").to_string();
+                    let hz = args["hz"].as_u64().unwrap_or(state.source.frequency_hz);
+                    let mode = args["mode"].as_str().unwrap_or(state.demod_mode.label()).to_string();
+                    let notes = args["notes"].as_str().unwrap_or("").to_string();
+                    let freq_mhz = hz as f64 / 1e6;
+                    state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                        name: name.clone(),
+                        frequency_hz: hz,
+                        mode,
+                        bandwidth_hz: 12_500,
+                        category: "AI".to_string(),
+                        notes,
+                    });
+                    return format!("Bookmark '{}' saved at {:.4} MHz", name, freq_mhz);
+                }
+                "set_lpf_cutoff" => {
+                    if let Some(hz) = args["hz"].as_f64() {
+                        state.lpf_cutoff = hz as f32;
+                        return format!("Audio LPF cutoff set to {:.0} Hz", hz);
+                    }
+                    return "Error: missing hz argument".to_string();
                 }
                 _ => return format!("Unknown tool: {}", name),
             }
@@ -696,32 +734,95 @@ impl AiPanel {
         None
     }
 
-    /// Render one line of prose with frequency mentions rendered as blue clickable links.
+    /// Tokenize a line into (text, bold, italic, freq_hz) spans for inline rendering.
+    fn tokenize_inline(text: &str) -> Vec<(String, bool, bool, Option<u64>)> {
+        enum Span { Plain(String), Bold(String), Italic(String) }
+
+        // Split on **bold** and *italic* markers.
+        let mut spans: Vec<Span> = Vec::new();
+        let mut rest = text;
+        while !rest.is_empty() {
+            if rest.starts_with("**") {
+                if let Some(close) = rest[2..].find("**") {
+                    spans.push(Span::Bold(rest[2..2 + close].to_string()));
+                    rest = &rest[2 + close + 2..];
+                    continue;
+                }
+                // No closing **  — treat the two asterisks as plain text
+                spans.push(Span::Plain("**".to_string()));
+                rest = &rest[2..];
+                continue;
+            }
+            if rest.starts_with('*') {
+                if let Some(close) = rest[1..].find('*') {
+                    if close > 0 {
+                        spans.push(Span::Italic(rest[1..1 + close].to_string()));
+                        rest = &rest[1 + close + 1..];
+                        continue;
+                    }
+                }
+                // No closing * — treat as plain text
+                spans.push(Span::Plain("*".to_string()));
+                rest = &rest[1..];
+                continue;
+            }
+            // Advance to the next marker
+            let next = rest.find("**").or_else(|| rest.find('*')).unwrap_or(rest.len());
+            spans.push(Span::Plain(rest[..next].to_string()));
+            rest = &rest[next..];
+        }
+
+        // Expand Plain spans on frequency mentions.
+        let mut result: Vec<(String, bool, bool, Option<u64>)> = Vec::new();
+        for span in spans {
+            match span {
+                Span::Bold(s)   => result.push((s, true,  false, None)),
+                Span::Italic(s) => result.push((s, false, true,  None)),
+                Span::Plain(s)  => {
+                    let mut sub = s.as_str();
+                    while !sub.is_empty() {
+                        match Self::find_next_freq(sub) {
+                            Some((start, end, hz)) => {
+                                if start > 0 {
+                                    result.push((sub[..start].to_string(), false, false, None));
+                                }
+                                result.push((sub[start..end].to_string(), false, false, Some(hz)));
+                                sub = &sub[end..];
+                            }
+                            None => {
+                                result.push((sub.to_string(), false, false, None));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    /// Render one line of prose with frequency mentions rendered as blue clickable links,
+    /// and **bold** / *italic* markdown rendered inline.
     /// Returns Some(hz) if a link was clicked this frame.
     fn render_line_with_freqs(ui: &mut egui::Ui, line: &str, text_color: egui::Color32) -> Option<u64> {
         let mut clicked: Option<u64> = None;
         ui.horizontal_wrapped(|ui| {
-            let mut rest = line;
-            while !rest.is_empty() {
-                match Self::find_next_freq(rest) {
-                    Some((start, end, hz)) => {
-                        if start > 0 {
-                            ui.label(egui::RichText::new(&rest[..start]).color(text_color));
-                        }
-                        let link_text = egui::RichText::new(&rest[start..end])
-                            .color(egui::Color32::from_rgb(80, 180, 255))
-                            .underline();
-                        let resp = ui.add(egui::Label::new(link_text).sense(egui::Sense::click()))
-                            .on_hover_text(format!("🎯 Tune to {:.4} MHz", hz as f64 / 1e6));
-                        if resp.clicked() {
-                            clicked = Some(hz);
-                        }
-                        rest = &rest[end..];
+            for (text, bold, italic, freq_hz) in Self::tokenize_inline(line) {
+                if text.is_empty() { continue; }
+                if let Some(hz) = freq_hz {
+                    let link_text = egui::RichText::new(&text)
+                        .color(egui::Color32::from_rgb(80, 180, 255))
+                        .underline();
+                    let resp = ui.add(egui::Label::new(link_text).sense(egui::Sense::click()))
+                        .on_hover_text(format!("🎯 Tune to {:.4} MHz", hz as f64 / 1e6));
+                    if resp.clicked() {
+                        clicked = Some(hz);
                     }
-                    None => {
-                        ui.label(egui::RichText::new(rest).color(text_color));
-                        break;
-                    }
+                } else {
+                    let mut rich = egui::RichText::new(&text).color(text_color);
+                    if bold { rich = rich.strong(); }
+                    if italic { rich = rich.italics(); }
+                    ui.label(rich);
                 }
             }
         });
@@ -843,6 +944,7 @@ impl AiPanel {
                     ("set_sample_rate(rate)", "Sample rate in Hz (e.g. 2048000)"),
                     ("set_squelch(db)", "Squelch threshold in dB"),
                     ("set_volume(level)", "Audio volume 0.0–1.0"),
+                    ("set_lpf_cutoff(hz)", "Audio low-pass filter cutoff in Hz"),
                     ("toggle_bias_tee(on)", "Bias tee power for LNAs"),
                     ("start_recording()", "Begin IQ/WAV recording"),
                     ("stop_recording()", "Stop recording"),
@@ -850,6 +952,8 @@ impl AiPanel {
                     ("start_adsb()", "Start ADS-B decoder at 1090 MHz"),
                     ("stop_adsb()", "Stop ADS-B decoder"),
                     ("get_status()", "Return full SDR state as JSON"),
+                    ("get_freq_history()", "Show recently tuned frequencies"),
+                    ("add_bookmark(name,hz,mode,notes)", "Save a frequency as a bookmark"),
                 ];
                 for (name, desc) in &tools {
                     ui.monospace(*name);
