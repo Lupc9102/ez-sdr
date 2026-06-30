@@ -58,6 +58,7 @@ Available tools:
 - get_freq_history() — Return the list of recently tuned frequencies
 - add_bookmark(name: string, hz: u64, mode: string, notes: string) — Save a frequency as a bookmark
 - set_lpf_cutoff(hz: f64) — Set audio low-pass filter cutoff in Hz (e.g. 3000 for voice, 15000 for FM)
+- set_ppm(ppm: i32) — Set frequency correction in parts-per-million (corrects oscillator drift)
 
 When you want to call a tool respond with exactly:
 {\"tool\": \"name\", \"args\": {}}
@@ -653,6 +654,7 @@ impl AiPanel {
                         "snr_db": state.spectrum.peak_level() - state.spectrum.noise_floor(),
                         "bookmark_count": state.bookmarks.bookmarks.len(),
                         "lo_offset_hz": state.lo_offset_hz,
+                        "ppm_correction": state.source.ppm_correction,
                     }).to_string();
                 }
                 "get_freq_history" => {
@@ -686,6 +688,13 @@ impl AiPanel {
                         return format!("Audio LPF cutoff set to {:.0} Hz", hz);
                     }
                     return "Error: missing hz argument".to_string();
+                }
+                "set_ppm" => {
+                    if let Some(ppm) = args["ppm"].as_i64() {
+                        state.source.ppm_correction = ppm as i32;
+                        return format!("PPM correction set to {} ppm", ppm);
+                    }
+                    return "Error: missing ppm argument".to_string();
                 }
                 _ => return format!("Unknown tool: {}", name),
             }
@@ -734,11 +743,11 @@ impl AiPanel {
         None
     }
 
-    /// Tokenize a line into (text, bold, italic, freq_hz) spans for inline rendering.
-    fn tokenize_inline(text: &str) -> Vec<(String, bool, bool, Option<u64>)> {
-        enum Span { Plain(String), Bold(String), Italic(String) }
+    /// Tokenize a line into (text, bold, italic, code, freq_hz) spans for inline rendering.
+    fn tokenize_inline(text: &str) -> Vec<(String, bool, bool, bool, Option<u64>)> {
+        enum Span { Plain(String), Bold(String), Italic(String), Code(String) }
 
-        // Split on **bold** and *italic* markers.
+        // Split on **bold**, *italic*, and `code` markers.
         let mut spans: Vec<Span> = Vec::new();
         let mut rest = text;
         while !rest.is_empty() {
@@ -748,7 +757,6 @@ impl AiPanel {
                     rest = &rest[2 + close + 2..];
                     continue;
                 }
-                // No closing **  — treat the two asterisks as plain text
                 spans.push(Span::Plain("**".to_string()));
                 rest = &rest[2..];
                 continue;
@@ -761,36 +769,49 @@ impl AiPanel {
                         continue;
                     }
                 }
-                // No closing * — treat as plain text
                 spans.push(Span::Plain("*".to_string()));
                 rest = &rest[1..];
                 continue;
             }
+            if rest.starts_with('`') {
+                if let Some(close) = rest[1..].find('`') {
+                    spans.push(Span::Code(rest[1..1 + close].to_string()));
+                    rest = &rest[1 + close + 1..];
+                    continue;
+                }
+                spans.push(Span::Plain("`".to_string()));
+                rest = &rest[1..];
+                continue;
+            }
             // Advance to the next marker
-            let next = rest.find("**").or_else(|| rest.find('*')).unwrap_or(rest.len());
+            let next = rest.find("**")
+                .or_else(|| rest.find('*'))
+                .or_else(|| rest.find('`'))
+                .unwrap_or(rest.len());
             spans.push(Span::Plain(rest[..next].to_string()));
             rest = &rest[next..];
         }
 
         // Expand Plain spans on frequency mentions.
-        let mut result: Vec<(String, bool, bool, Option<u64>)> = Vec::new();
+        let mut result: Vec<(String, bool, bool, bool, Option<u64>)> = Vec::new();
         for span in spans {
             match span {
-                Span::Bold(s)   => result.push((s, true,  false, None)),
-                Span::Italic(s) => result.push((s, false, true,  None)),
+                Span::Bold(s)   => result.push((s, true,  false, false, None)),
+                Span::Italic(s) => result.push((s, false, true,  false, None)),
+                Span::Code(s)   => result.push((s, false, false, true,  None)),
                 Span::Plain(s)  => {
                     let mut sub = s.as_str();
                     while !sub.is_empty() {
                         match Self::find_next_freq(sub) {
                             Some((start, end, hz)) => {
                                 if start > 0 {
-                                    result.push((sub[..start].to_string(), false, false, None));
+                                    result.push((sub[..start].to_string(), false, false, false, None));
                                 }
-                                result.push((sub[start..end].to_string(), false, false, Some(hz)));
+                                result.push((sub[start..end].to_string(), false, false, false, Some(hz)));
                                 sub = &sub[end..];
                             }
                             None => {
-                                result.push((sub.to_string(), false, false, None));
+                                result.push((sub.to_string(), false, false, false, None));
                                 break;
                             }
                         }
@@ -807,7 +828,7 @@ impl AiPanel {
     fn render_line_with_freqs(ui: &mut egui::Ui, line: &str, text_color: egui::Color32) -> Option<u64> {
         let mut clicked: Option<u64> = None;
         ui.horizontal_wrapped(|ui| {
-            for (text, bold, italic, freq_hz) in Self::tokenize_inline(line) {
+            for (text, bold, italic, code, freq_hz) in Self::tokenize_inline(line) {
                 if text.is_empty() { continue; }
                 if let Some(hz) = freq_hz {
                     let link_text = egui::RichText::new(&text)
@@ -818,6 +839,12 @@ impl AiPanel {
                     if resp.clicked() {
                         clicked = Some(hz);
                     }
+                } else if code {
+                    ui.monospace(
+                        egui::RichText::new(&text)
+                            .color(egui::Color32::from_rgb(200, 200, 100))
+                            .background_color(egui::Color32::from_black_alpha(80)),
+                    );
                 } else {
                     let mut rich = egui::RichText::new(&text).color(text_color);
                     if bold { rich = rich.strong(); }
@@ -999,6 +1026,7 @@ impl AiPanel {
                     ("get_status()", "Return full SDR state as JSON"),
                     ("get_freq_history()", "Show recently tuned frequencies"),
                     ("add_bookmark(name,hz,mode,notes)", "Save a frequency as a bookmark"),
+                    ("set_ppm(ppm)", "Frequency correction in PPM (oscillator drift)"),
                 ];
                 for (name, desc) in &tools {
                     ui.monospace(*name);
