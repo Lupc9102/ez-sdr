@@ -117,6 +117,14 @@ impl ColorMap {
 }
 
 impl WindowType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            WindowType::Hann => "Hann",
+            WindowType::Hamming => "Hamming",
+            WindowType::Blackman => "Blackman",
+        }
+    }
+
     fn generate(&self, len: usize) -> Vec<f32> {
         match self {
             WindowType::Hann => (0..len).map(|i| {
@@ -429,6 +437,9 @@ impl SpectrumAnalyzer {
             if ui.selectable_label(self.window_type == WindowType::Hann, "Hann").clicked() { self.window_type = WindowType::Hann; self.set_fft_size(self.fft_size); }
             if ui.selectable_label(self.window_type == WindowType::Hamming, "Hamming").clicked() { self.window_type = WindowType::Hamming; self.set_fft_size(self.fft_size); }
             if ui.selectable_label(self.window_type == WindowType::Blackman, "Blackman").clicked() { self.window_type = WindowType::Blackman; self.set_fft_size(self.fft_size); }
+            ui.separator();
+            ui.colored_label(egui::Color32::from_rgb(150, 180, 255), format!("{}·{}", self.fft_size, self.window_type.name()))
+                .on_hover_text(format!("Current FFT: {} bins, {} window. Larger FFT = better frequency resolution but slower updates.", self.fft_size, self.window_type.name()));
             ui.separator();
             if ui.toggle_value(&mut self.show_peak_hold, "Peak").clicked() {
                 if !self.show_peak_hold {
