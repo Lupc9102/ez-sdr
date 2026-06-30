@@ -878,6 +878,7 @@ impl eframe::App for CentralApp {
                 new_task_time: &mut self.new_task_time,
                 new_task_error: &mut self.new_task_error,
                 session_notes: &mut self.session_notes,
+                status_flash: &mut self.status_flash,
             });
 
         // First-run welcome banner
@@ -1438,6 +1439,7 @@ struct TabViewer<'a> {
     new_task_time: &'a mut String,
     new_task_error: &'a mut String,
     session_notes: &'a mut String,
+    status_flash: &'a mut Option<(String, std::time::Instant)>,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -1516,6 +1518,18 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     }
                     if let Some(hz) = state.spectrum.pending_scan_stop.take() {
                         self.scanner.stop_hz = hz;
+                    }
+                    if let Some(freq) = state.spectrum.pending_ai_freq.take() {
+                        let freq_mhz = freq as f64 / 1e6;
+                        self.ai.input = format!(
+                            "I'm looking at {:.4} MHz on the spectrum. What signals might be here? \
+                             What demod mode should I use, and any tips for receiving this frequency?",
+                            freq_mhz
+                        );
+                        *self.status_flash = Some((
+                            format!("🤖 AI prompt ready for {:.3} MHz — switch to AI Agent tab", freq_mhz),
+                            std::time::Instant::now(),
+                        ));
                     }
                 }
             }
@@ -1790,6 +1804,21 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                             .clicked()
                                         {
                                             delete_idx = Some(*orig_idx);
+                                        }
+                                        let bm_freq_mhz = bm.frequency_hz as f64 / 1e6;
+                                        if ui.small_button("🤖")
+                                            .on_hover_text(format!("Ask AI about {}", bm.freq_display()))
+                                            .clicked()
+                                        {
+                                            self.ai.input = format!(
+                                                "Tell me about the bookmark \"{}\": {:.4} MHz ({} mode). \
+                                                 What signals should I expect here, and what are the best settings?",
+                                                bm.name, bm_freq_mhz, bm.mode
+                                            );
+                                            *self.status_flash = Some((
+                                                format!("🤖 AI prompt ready for {} — switch to AI Agent tab", bm.freq_display()),
+                                                std::time::Instant::now(),
+                                            ));
                                         }
                                     }
                                 });

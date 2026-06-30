@@ -85,6 +85,7 @@ pub struct SpectrumAnalyzer {
     pub visible_left_hz: u64,
     pub visible_right_hz: u64,
     ctx_menu_pos: Option<egui::Pos2>,
+    pub pending_ai_freq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -209,6 +210,7 @@ impl SpectrumAnalyzer {
             visible_left_hz: 99_000_000,
             visible_right_hz: 101_000_000,
             ctx_menu_pos: None,
+            pending_ai_freq: None,
         }
     }
 
@@ -1557,6 +1559,13 @@ impl SpectrumAnalyzer {
                     ui.ctx().copy_text(format!("{:.4}", freq_mhz));
                     ui.close();
                 }
+                if ui.button(format!("🤖 Ask AI about {:.3} MHz", freq_mhz))
+                    .on_hover_text("Pre-fill the AI Agent with a question about this frequency")
+                    .clicked()
+                {
+                    self.pending_ai_freq = Some(freq);
+                    ui.close();
+                }
                 // Instant 3dB bandwidth estimate at cursor frequency
                 if !self.spectrum_dbs.is_empty() {
                     let n = self.spectrum_dbs.len();
@@ -1830,6 +1839,13 @@ impl SpectrumAnalyzer {
                     }
                     if ui.button("📋 Copy frequency").clicked() {
                         ui.ctx().copy_text(format!("{:.4}", freq_mhz));
+                        ui.close();
+                    }
+                    if ui.button(format!("🤖 Ask AI about {:.3} MHz", freq_mhz))
+                        .on_hover_text("Pre-fill the AI Agent with a question about this frequency")
+                        .clicked()
+                    {
+                        self.pending_ai_freq = Some(freq);
                         ui.close();
                     }
                 }
