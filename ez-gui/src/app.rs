@@ -1073,16 +1073,20 @@ impl eframe::App for CentralApp {
                 }
                 if self.audio.is_running() {
                     let audio_peak = state.audio_peak;
-                    let (audio_color, audio_label) = if audio_peak > 0.95 {
+                    let is_muted = state.volume < 0.01;
+                    let (audio_color, audio_label) = if is_muted {
+                        (egui::Color32::from_rgb(120, 120, 120), "🔇 Muted")
+                    } else if audio_peak > 0.95 {
                         (egui::Color32::from_rgb(231, 76, 60), "🔊 CLIP")
                     } else {
                         (egui::Color32::from_rgb(100, 200, 255), "🔊 Audio")
                     };
                     ui.colored_label(audio_color, audio_label)
                         .on_hover_text(format!(
-                            "Audio playing at {:.0}% level. {}",
+                            "Audio at {:.0}% level. {}{}",
                             (audio_peak * 100.0).min(100.0),
-                            if audio_peak > 0.95 { "⚠ Clipping — reduce volume in the SDR panel." } else { "Use Vol slider in the SDR panel to adjust." }
+                            if is_muted { "Press M to unmute audio." } else if audio_peak > 0.95 { "⚠ Clipping — reduce volume in the SDR panel." } else { "Use Vol slider in the SDR panel to adjust." },
+                            if is_muted { "" } else { "" }
                         ));
                 }
                 // Squelch-blocked indicator
