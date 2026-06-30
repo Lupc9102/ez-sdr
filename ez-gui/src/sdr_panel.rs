@@ -188,6 +188,46 @@ impl SdrPanel {
                 }
             });
         }
+
+        // Mode suggestion based on current frequency
+        if let Ok(state) = self.shared.try_lock() {
+            if let Some(info) = identify_frequency(state.source.frequency_hz) {
+                // Parse the tips field to extract suggested mode
+                let suggested_mode = if info.tips.contains("LSB") {
+                    Some(("LSB", "for voice"))
+                } else if info.tips.contains("USB") {
+                    Some(("USB", "for voice"))
+                } else if info.tips.contains("WFM") {
+                    Some(("WFM", "for broadcast"))
+                } else if info.tips.contains("NFM") || info.tips.contains("FM") {
+                    Some(("FM", "for narrowband"))
+                } else if info.tips.contains("AM") {
+                    Some(("AM", "for AM broadcast"))
+                } else if info.tips.contains("RAW") {
+                    Some(("RAW", "for digital"))
+                } else {
+                    None
+                };
+
+                if let Some((mode, desc)) = suggested_mode {
+                    if state.demod_mode.label() != mode {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(egui::Color32::from_rgb(200, 200, 100),
+                                format!("💡 {} suggests {} ({})", info.band, mode, desc));
+                            if ui.small_button("Apply").on_hover_text(format!("Switch to {} mode for this frequency", mode)).clicked() {
+                                drop(state);
+                                if let Ok(mut state_mut) = self.shared.try_lock() {
+                                    if let Some(new_mode) = DemodMode::from_label(mode) {
+                                        state_mut.demod_mode = new_mode;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
         // VFO A/B swap
         if let Ok(mut state) = self.shared.try_lock() {
             let vfo_b_mhz = state.vfo_b as f64 / 1e6;
