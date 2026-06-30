@@ -1086,14 +1086,20 @@ impl eframe::App for CentralApp {
                 } else {
                     format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6)
                 };
+                let mut freq_hint = if state.lo_offset_hz != 0 {
+                    format!("True frequency: {:.6} MHz (tuned {:.6} MHz + {} MHz LO offset).", true_hz as f64/1e6, state.source.frequency_hz as f64/1e6, state.lo_offset_hz/1_000_000)
+                } else {
+                    format!("Tuned frequency: {:.6} MHz.", state.source.frequency_hz as f64/1e6)
+                };
+                if state.source.ppm_correction != 0 {
+                    freq_hint.push_str(&format!(" PPM correction: {} PPM active.", state.source.ppm_correction));
+                }
+                freq_hint.push_str(" Click to copy. Use arrow keys or SDR panel to change. RTL-SDR range: 24–1766 MHz.");
+
                 let freq_resp = ui.add(egui::Label::new(egui::RichText::new(&freq_str).monospace()
-                    .color(if state.lo_offset_hz != 0 { egui::Color32::from_rgb(255, 200, 80) } else { egui::Color32::WHITE }))
+                    .color(if state.lo_offset_hz != 0 || state.source.ppm_correction != 0 { egui::Color32::from_rgb(255, 200, 80) } else { egui::Color32::WHITE }))
                     .sense(egui::Sense::click()))
-                    .on_hover_text(if state.lo_offset_hz != 0 {
-                        format!("True frequency: {:.6} MHz (tuned {:.6} MHz + {} MHz LO offset). Click to copy true frequency.", true_hz as f64/1e6, state.source.frequency_hz as f64/1e6, state.lo_offset_hz/1_000_000)
-                    } else {
-                        "Click to copy frequency to clipboard. Use arrow keys or SDR panel to change. RTL-SDR range: 24–1766 MHz.".to_string()
-                    });
+                    .on_hover_text(freq_hint);
                 if freq_resp.clicked() {
                     ui.ctx().copy_text(format!("{:.6}", true_hz as f64 / 1e6));
                 }
