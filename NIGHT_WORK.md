@@ -50,7 +50,7 @@ Usage: `/tmp/opencode/build.sh build --release -p ez-gui`
 ## Sprint 2: ADS-B Enhancement + Beginner UX Polish
 Continued after context summary. Focus: improve visualization & beginner UX.
 
-### Completed (10 improvements)
+### Completed (11 improvements)
 1. **ADS-B 3D View + Distance/Bearing**: Isometric projection of aircraft altitude vs position, haversine distance and bearing calculation, new table columns showing distance/bearing from observer. Syncs observer location from config.
 2. **Frequency-based Mode Suggestion**: When tuned to known frequency, shows band ID and suggests appropriate demod mode with one-click Apply.
 3. **Enhanced Frequency Info Display**: Detailed band info, plain-language description, and "what to hear" tips for known frequencies.
@@ -60,5 +60,7 @@ Continued after context summary. Focus: improve visualization & beginner UX.
 7. **Tuning Checklist**: Smart status display (SDR running, audio on, gain level, signal detected) that only shows when something needs attention.
 8. **Nearby Bookmarks**: Bookmarks within 2 MHz displayed with one-click jump and auto-mode selection.
 9. **RF Filter Presets**: Quick bandwidth buttons (Voice 12.5k, AM 8k, FM 200k, SSB 2.4k, CW 500Hz) for mode optimization.
+10. **Quick Setup Wizard**: One-click "Start & Optimize" button that starts SDR, sets gain 40dB, enables audio and auto-squelch for immediate signal reception.
+11. **S-Meter Signal Indicator**: Visual S0-S9+ strength meter (amateur radio standard) with color coding and SNR display for intuitive signal quality feedback.
 
 All committed individually. Clean build throughout.
