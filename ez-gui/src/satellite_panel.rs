@@ -73,7 +73,25 @@ impl SatellitePanel {
             ui.add(egui::ProgressBar::new(norm as f32).fill(color).text(format!("{:.1} dB", self.signal_strength)));
         });
 
-        ui.label(format!("Doppler shift: {:.1} Hz", self.doppler_hz));
+        {
+            let doppler_color = if self.doppler_hz.abs() > 5000.0 { egui::Color32::from_rgb(255, 120, 60) }
+                else if self.doppler_hz.abs() > 1000.0 { egui::Color32::from_rgb(255, 220, 80) }
+                else { egui::Color32::from_rgb(120, 220, 120) };
+            let doppler_str = if self.doppler_hz.abs() >= 1000.0 {
+                format!("Doppler: {:+.2} kHz", self.doppler_hz / 1000.0)
+            } else {
+                format!("Doppler: {:+.0} Hz", self.doppler_hz)
+            };
+            ui.horizontal(|ui| {
+                ui.colored_label(doppler_color, &doppler_str)
+                    .on_hover_text("Real-time Doppler shift applied to the receive frequency. Positive = satellite approaching. Negative = receding. Automatically corrected when auto-tune is on.");
+                if self.auto_tune {
+                    ui.colored_label(egui::Color32::from_rgb(80, 200, 120),
+                        egui::RichText::new("✓ Corrected").small())
+                        .on_hover_text("Doppler correction is active. The SDR frequency is continuously adjusted to compensate.");
+                }
+            });
+        }
 
         ui.horizontal(|ui| {
             if ui.button("Start Recording").clicked() { self.recording = true; }

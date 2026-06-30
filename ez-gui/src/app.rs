@@ -621,7 +621,8 @@ impl eframe::App for CentralApp {
                     }
                     // Apply doppler correction
                     let doppler = state.tle.doppler_shift_for_sat(&sat, freq as f64, now_unix);
-                    if doppler.abs() > 1.0 {
+                    self.satellite_panel.doppler_hz = doppler;
+                    if self.satellite_panel.auto_tune && doppler.abs() > 1.0 {
                         let corrected = (freq as f64 + doppler) as u64;
                         if corrected != state.source.frequency_hz {
                             state.source.frequency_hz = corrected;
@@ -1007,6 +1008,29 @@ impl eframe::App for CentralApp {
                     ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "📡 MQTT")
                         .on_hover_text(format!("Publishing to MQTT broker at {}. Topics: {}/signal, {}/scanner, etc.", self.mqtt.broker, self.mqtt.topic_prefix, self.mqtt.topic_prefix));
                 }
+            }
+            // Doppler correction status badge (outside the lock, uses satellite_panel data)
+            let doppler_hz = self.satellite_panel.doppler_hz;
+            let sat_selected = self.satellite_panel.selected_sat.is_some();
+            let auto_tune = self.satellite_panel.auto_tune;
+            if sat_selected && doppler_hz.abs() > 1.0 {
+                ui.separator();
+                let doppler_str = if doppler_hz.abs() >= 1000.0 {
+                    format!("🛰 {:+.1}kHz", doppler_hz / 1000.0)
+                } else {
+                    format!("🛰 {:+.0}Hz", doppler_hz)
+                };
+                let dop_color = if auto_tune {
+                    egui::Color32::from_rgb(80, 230, 130)
+                } else {
+                    egui::Color32::from_rgb(200, 200, 80)
+                };
+                ui.colored_label(dop_color, &doppler_str)
+                    .on_hover_text(if auto_tune {
+                        format!("Doppler correction ACTIVE: {:+.1} Hz applied to compensate for satellite motion. Frequency is continuously adjusted. Disable 'Auto-tune' in Satellite panel to stop.", doppler_hz)
+                    } else {
+                        format!("Doppler shift: {:+.1} Hz — not correcting (auto-tune off). Enable 'Auto-tune to downlink + Doppler' in Satellite panel.", doppler_hz)
+                    });
             }
             // Volume slider
             if let Ok(mut state) = self.shared.try_lock() {
