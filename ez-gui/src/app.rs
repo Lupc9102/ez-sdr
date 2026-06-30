@@ -1188,6 +1188,15 @@ impl eframe::App for CentralApp {
                         signal_db, label
                     ));
                 }
+                // RF clipping detection (spectrum saturation warning)
+                {
+                    let peak = state.spectrum.peak_level();
+                    if peak > -5.0 {
+                        ui.separator();
+                        ui.colored_label(egui::Color32::from_rgb(220, 100, 80), "⚠️ RF CLIP")
+                            .on_hover_text(format!("RF signal saturating! Peak at {:.1} dB — reduce gain or antenna signal level to prevent distortion.", peak));
+                    }
+                }
                 // Demo mode badge — helps beginners know they are in simulation
                 if state.source.source_mode == crate::source_manager::SourceMode::Simulated {
                     ui.separator();
