@@ -709,6 +709,24 @@ impl SdrPanel {
         ui.horizontal(|ui| {
             let sq_resp = ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)"))
                 .on_hover_text("Signal level threshold. Audio is muted when signal drops below this value, silencing static between transmissions. Set ~5 dB above your noise floor.");
+
+            // Show squelch relative to noise floor
+            if let Ok(state) = self.shared.try_lock() {
+                let noise = state.spectrum.noise_floor();
+                let offset = self.squelch - noise;
+                let offset_color = if offset < 0.0 {
+                    egui::Color32::from_rgb(220, 100, 80) // red: below noise floor
+                } else if offset < 3.0 {
+                    egui::Color32::from_rgb(220, 180, 80) // orange: too tight
+                } else if offset > 20.0 {
+                    egui::Color32::from_rgb(180, 150, 255) // purple: possibly too high
+                } else {
+                    egui::Color32::from_rgb(100, 200, 100) // green: ideal
+                };
+                ui.colored_label(offset_color, format!("+{:.1}dB", offset))
+                    .on_hover_text(format!("Squelch is {:.1} dB above noise floor ({:.1} dB). Ideal: 3–10 dB above floor.", offset, noise));
+            }
+
             if sq_resp.changed() || ui.input(|i| i.pointer.any_down()) {
                 self.auto_squelch = false;
                 if let Ok(mut state) = self.shared.try_lock() {
