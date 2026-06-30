@@ -65,6 +65,8 @@ pub struct SdrPanel {
     session_start: std::time::Instant,
     best_snr_this_session: f32,
     frequencies_explored: std::collections::HashSet<u64>,
+    signal_alert_threshold: f32,
+    last_alert_freq: u64,
 }
 
 impl SdrPanel {
@@ -87,6 +89,8 @@ impl SdrPanel {
             session_start: std::time::Instant::now(),
             best_snr_this_session: 0.0,
             frequencies_explored: std::collections::HashSet::new(),
+            signal_alert_threshold: 15.0, // Alert when SNR > 15 dB
+            last_alert_freq: 0,
         }
     }
 
@@ -615,6 +619,34 @@ impl SdrPanel {
                 }
             }
         }
+
+        // Signal alert system
+        if let Ok(state) = self.shared.try_lock() {
+            let peak = state.spectrum.peak_level();
+            let noise = state.spectrum.noise_floor();
+            let snr = peak - noise;
+            let current_freq = state.source.frequency_hz;
+
+            // Check if a strong signal appeared
+            if snr > self.signal_alert_threshold && current_freq != self.last_alert_freq && self.signal_alert_threshold > 0.0 {
+                self.last_alert_freq = current_freq;
+            }
+
+            // Show alert indicator if threshold set and strong signal active
+            if self.signal_alert_threshold > 0.0 && snr > self.signal_alert_threshold {
+                let freq_mhz = current_freq as f64 / 1e6;
+                ui.colored_label(egui::Color32::from_rgb(255, 100, 100),
+                    format!("🔔 ALERT! Strong signal {:.3} MHz, SNR {:.0}dB", freq_mhz, snr))
+                    .on_hover_text("A strong signal detected! Adjust threshold to change sensitivity.");
+            }
+        }
+
+        // Alert threshold control
+        ui.horizontal(|ui| {
+            ui.label("🔔 Alert Threshold:").on_hover_text("Get notified when a strong signal appears. Set to 0 to disable.");
+            ui.add(egui::Slider::new(&mut self.signal_alert_threshold, 0.0..=30.0).text("dB").step_by(1.0))
+                .on_hover_text("Alert when SNR exceeds this value");
+        });
 
         // Peak finder: find and auto-tune to strongest signal
         if let Ok(mut state) = self.shared.try_lock() {
