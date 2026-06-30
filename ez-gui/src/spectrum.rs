@@ -1263,6 +1263,48 @@ impl SpectrumAnalyzer {
             }
         }
 
+        // Marker delta measurement — draw span arrow between first two visible markers
+        if self.markers.len() >= 2 {
+            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+            let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+            let right_hz = zoom_span / 2.0 + zoom_center_offset;
+            let freq_to_x = |freq: u64| -> Option<f32> {
+                let offset = freq as f64 - self.center_freq as f64;
+                let frac = (offset - left_hz) / (right_hz - left_hz);
+                if (0.0..=1.0).contains(&frac) { Some(spectrum_rect.left() + frac as f32 * spectrum_rect.width()) }
+                else { None }
+            };
+            let visible: Vec<u64> = self.markers.iter()
+                .filter_map(|(f, _)| freq_to_x(*f).map(|_| *f))
+                .take(2).collect();
+            if visible.len() == 2 {
+                if let (Some(x1), Some(x2)) = (freq_to_x(visible[0]), freq_to_x(visible[1])) {
+                    let (xl, xr, fl, fr) = if x1 < x2 { (x1, x2, visible[0], visible[1]) } else { (x2, x1, visible[1], visible[0]) };
+                    let delta_hz = fr as f64 - fl as f64;
+                    let delta_str = if delta_hz.abs() >= 1_000_000.0 {
+                        format!("Δ {:.3} MHz", delta_hz / 1e6)
+                    } else if delta_hz.abs() >= 1000.0 {
+                        format!("Δ {:.1} kHz", delta_hz / 1000.0)
+                    } else {
+                        format!("Δ {:.0} Hz", delta_hz)
+                    };
+                    let span_y = spectrum_rect.bottom() - 12.0;
+                    let arrow_color = egui::Color32::from_rgba_premultiplied(200, 200, 80, 180);
+                    painter.line_segment([egui::pos2(xl, span_y), egui::pos2(xr, span_y)], egui::Stroke::new(1.0, arrow_color));
+                    painter.line_segment([egui::pos2(xl, span_y - 3.0), egui::pos2(xl, span_y + 3.0)], egui::Stroke::new(1.0, arrow_color));
+                    painter.line_segment([egui::pos2(xr, span_y - 3.0), egui::pos2(xr, span_y + 3.0)], egui::Stroke::new(1.0, arrow_color));
+                    let mid_x = (xl + xr) / 2.0;
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(egui::pos2(mid_x - 28.0, span_y - 10.0), egui::vec2(56.0, 11.0)),
+                        2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+                    );
+                    painter.text(egui::pos2(mid_x, span_y - 5.0), egui::Align2::CENTER_CENTER,
+                        delta_str, egui::FontId::monospace(8.0), arrow_color);
+                }
+            }
+        }
+
         // Scanner sweep position marker
         if let Some(scan_freq) = self.scan_marker {
             let offset_hz = scan_freq as f64 - self.center_freq as f64;
