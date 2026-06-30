@@ -62,6 +62,12 @@ pub struct AppConfig {
     pub lo_offset_hz: i64,
     #[serde(default)]
     pub welcome_seen: bool,
+    #[serde(default)]
+    pub last_session_freq_hz: u64,
+    #[serde(default)]
+    pub last_session_gain_db: f64,
+    #[serde(default)]
+    pub last_session_demod: String,
 }
 
 impl Default for AppConfig {
@@ -97,6 +103,9 @@ impl Default for AppConfig {
             wf_max_db: -20.0,
             lo_offset_hz: 0,
             welcome_seen: false,
+            last_session_freq_hz: 0,
+            last_session_gain_db: -1.0,
+            last_session_demod: String::new(),
         }
     }
 }

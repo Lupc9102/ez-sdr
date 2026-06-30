@@ -122,6 +122,8 @@ pub struct CentralApp {
     show_glossary: bool,
     // First strong signal celebration
     first_strong_signal_seen: bool,
+    // Track demod mode changes to reset demodulator and avoid clicks
+    last_demod_mode: crate::sdr_panel::DemodMode,
 }
 
 impl CentralApp {
@@ -173,9 +175,23 @@ impl CentralApp {
         // Start demo source immediately
         {
             let mut state = shared.lock().unwrap();
-            state.source.frequency_hz = state.config.default_freq_hz;
+            // Restore last session freq/gain/demod if available, else fall back to config defaults
+            state.source.frequency_hz = if state.config.last_session_freq_hz > 0 {
+                state.config.last_session_freq_hz
+            } else {
+                state.config.default_freq_hz
+            };
             state.source.sample_rate_hz = state.config.default_sample_rate;
-            state.source.gain_db = state.config.default_gain;
+            state.source.gain_db = if state.config.last_session_gain_db >= 0.0 {
+                state.config.last_session_gain_db
+            } else {
+                state.config.default_gain
+            };
+            if !state.config.last_session_demod.is_empty() {
+                if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&state.config.last_session_demod) {
+                    state.demod_mode = mode;
+                }
+            }
             state.source.ppm_correction = state.config.ppm_correction;
             state.lo_offset_hz = state.config.lo_offset_hz;
             state.vfo_b = if state.config.vfo_b_hz > 0 { state.config.vfo_b_hz } else { state.config.default_freq_hz };
@@ -272,6 +288,7 @@ impl CentralApp {
             session_notes: String::new(),
             show_glossary: false,
             first_strong_signal_seen: false,
+            last_demod_mode: crate::sdr_panel::DemodMode::Fm,
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
@@ -324,6 +341,11 @@ impl eframe::App for CentralApp {
 
             // Demodulate and send audio
             if audio_running {
+                // Reset demodulator state when mode changes to avoid audio clicks
+                if demod_mode != self.last_demod_mode {
+                    self.demod.reset();
+                    self.last_demod_mode = demod_mode;
+                }
                 self.demod.set_sample_rates(rate, self.audio.sample_rate());
                 self.demod.set_lpf_cutoff(lpf_cutoff);
                 let audio = self.demod.demodulate(samples, demod_mode);
@@ -449,7 +471,7 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::M) {
                     state.audio_running = !state.audio_running;
                 }
-                // Ctrl+S: save config (also persists recent frequencies + spectrum range + PPM)
+                // Ctrl+S: save config (also persists recent frequencies + spectrum range + PPM + session state)
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
                     let recent: Vec<u64> = state.freq_history.iter().cloned().collect();
                     state.config.recent_frequencies = recent;
@@ -461,7 +483,17 @@ impl eframe::App for CentralApp {
                     state.config.wf_min_db = state.spectrum.wf_min_db;
                     state.config.wf_max_db = state.spectrum.wf_max_db;
                     state.config.lo_offset_hz = state.lo_offset_hz;
+                    // Save current session state so next launch resumes here
+                    state.config.last_session_freq_hz = state.source.frequency_hz;
+                    state.config.last_session_gain_db = state.source.gain_db;
+                    state.config.last_session_demod = state.demod_mode.label().to_string();
                     state.config.save();
+                    if let Some(flash) = &mut self.status_flash {
+                        flash.0 = "💾 Config saved (freq, gain, demod, spectrum range)".to_string();
+                        flash.1 = std::time::Instant::now();
+                    } else {
+                        self.status_flash = Some(("💾 Config saved".to_string(), std::time::Instant::now()));
+                    }
                 }
                 // F: freeze/unfreeze spectrum
                 if i.key_pressed(egui::Key::F) && !i.modifiers.ctrl && !i.modifiers.alt {
@@ -1696,6 +1728,26 @@ impl eframe::App for CentralApp {
             if !open { self.show_glossary = false; }
         }
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Auto-save session state on clean exit so next launch resumes where we left off.
+        if let Ok(state) = self.shared.try_lock() {
+            let mut cfg = state.config.clone();
+            cfg.last_session_freq_hz = state.source.frequency_hz;
+            cfg.last_session_gain_db = state.source.gain_db;
+            cfg.last_session_demod = state.demod_mode.label().to_string();
+            cfg.recent_frequencies = state.freq_history.iter().cloned().collect();
+            let (min_db, max_db) = state.spectrum.display_range();
+            cfg.spectrum_min_db = min_db;
+            cfg.spectrum_max_db = max_db;
+            cfg.ppm_correction = state.source.ppm_correction;
+            cfg.vfo_b_hz = state.vfo_b;
+            cfg.wf_min_db = state.spectrum.wf_min_db;
+            cfg.wf_max_db = state.spectrum.wf_max_db;
+            cfg.lo_offset_hz = state.lo_offset_hz;
+            cfg.save();
+        }
+    }
 }
 
 struct SharedSnapshot {
@@ -2482,7 +2534,6 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
         }
     }
 }
-
 
 /// Parse "HH:MM" or "HH:MM:SS" as a unix timestamp for today in local time.
 fn parse_hhmm_today(s: &str) -> Option<f64> {

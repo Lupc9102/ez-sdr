@@ -175,9 +175,13 @@ impl Demodulator {
     }
 
     fn demod_wfm(&mut self, iq: &[u8]) -> Vec<f32> {
-        // Wide FM: same as FM but wider de-emphasis
+        // Wide FM demodulation with correct 50 μs de-emphasis (EU standard).
+        // De-emphasis time constant τ = 50 μs → pole at f_c = 1/(2π·τ) ≈ 3183 Hz.
+        // Discrete IIR: alpha = dt/(τ + dt) where dt = 1/sample_rate
+        let tau = 50.0e-6_f32; // 50 microseconds
+        let dt = 1.0 / self.audio_sample_rate as f32;
+        let alpha = dt / (tau + dt); // ≈ 0.294 at 48 kHz
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
-        let alpha = 1.0 / (1.0 + self.audio_sample_rate as f32 / (2.0 * std::f32::consts::PI * 50.0));
         let mut deemph_state = 0.0f32;
 
         for chunk in iq.chunks(2) {
@@ -192,13 +196,13 @@ impl Demodulator {
 
             self.prev_phase = phase;
 
-            // De-emphasis
-            deemph_state = deemph_state * (1.0 - alpha) + diff * alpha;
+            // 1st-order IIR low-pass de-emphasis: y[n] = y[n-1] + α*(x[n] - y[n-1])
+            deemph_state += alpha * (diff - deemph_state);
 
             self.decim_counter += 1;
             if self.decim_counter >= self.decimation {
                 self.decim_counter = 0;
-                out.push(deemph_state * 0.4);
+                out.push(deemph_state * 0.8);
             }
         }
         out
