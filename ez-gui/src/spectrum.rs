@@ -296,6 +296,26 @@ impl SpectrumAnalyzer {
         self.show_peak_hold
     }
 
+    pub fn save_waterfall_png(&self) {
+        if self.waterfall_pixels.is_empty() { return; }
+        let path = rfd::FileDialog::new()
+            .set_title("Save Waterfall Screenshot")
+            .add_filter("PNG", &["png"])
+            .set_file_name("waterfall_capture.png")
+            .save_file();
+        if let Some(path) = path {
+            let w = self.fft_size as u32;
+            let h = self.waterfall_history as u32;
+            let mut rgba_flat: Vec<u8> = Vec::with_capacity((w * h * 4) as usize);
+            for row in &self.waterfall_pixels {
+                rgba_flat.extend_from_slice(row);
+            }
+            if let Some(img) = image::RgbaImage::from_raw(w, h, rgba_flat) {
+                let _ = img.save(&path);
+            }
+        }
+    }
+
     pub fn export_spectrum_csv(&self) {
         if self.spectrum_dbs.is_empty() { return; }
         let path = rfd::FileDialog::new()
@@ -530,6 +550,9 @@ impl SpectrumAnalyzer {
             ui.separator();
             if ui.small_button("💾 CSV").on_hover_text("Export current spectrum data to CSV (frequency_hz, power_dbfs). Useful for analysis in spreadsheets or Python.").clicked() {
                 self.export_spectrum_csv();
+            }
+            if ui.small_button("📸").on_hover_text("Save a PNG screenshot of the current waterfall display. Captures the entire waterfall history at full resolution.").clicked() {
+                self.save_waterfall_png();
             }
         });
 
