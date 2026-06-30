@@ -77,6 +77,7 @@ pub struct SpectrumAnalyzer {
     pub source_running: bool,
     pub signal_active: bool,
     pub last_signal_unix: Option<f64>,
+    noise_baseline: f32,
     pub pending_squelch_db: Option<f32>,
     pub pending_scan_start: Option<u64>,
     pub pending_scan_stop: Option<u64>,
@@ -178,6 +179,7 @@ impl SpectrumAnalyzer {
             source_running: false,
             signal_active: false,
             last_signal_unix: None,
+            noise_baseline: -120.0,
             pending_squelch_db: None,
             pending_scan_start: None,
             pending_scan_stop: None,
@@ -353,6 +355,13 @@ impl SpectrumAnalyzer {
             self.signal_history.push_back(peak);
             if self.signal_history.len() > self.signal_history_max {
                 self.signal_history.pop_front();
+            }
+            // Update slow-tracking noise baseline (α=0.005 ≈ ~2000 frame time constant)
+            let current_floor = self.noise_floor();
+            if self.noise_baseline <= -119.0 {
+                self.noise_baseline = current_floor;
+            } else {
+                self.noise_baseline = 0.995 * self.noise_baseline + 0.005 * current_floor;
             }
         }
     }
@@ -660,6 +669,16 @@ impl SpectrumAnalyzer {
                     ui.separator();
                     ui.monospace(format!("⊕ {:.3} MHz", peak_freq_mhz))
                         .on_hover_text(format!("Frequency of strongest visible signal: {:.4} MHz. Press T to tune here.", peak_freq_mhz));
+                }
+            }
+            // Noise floor trend indicator — warn if floor jumped significantly vs baseline
+            if self.noise_baseline > -119.0 && self.source_running {
+                let floor_delta = noise - self.noise_baseline;
+                if floor_delta > 3.0 {
+                    ui.separator();
+                    let warn_col = if floor_delta > 8.0 { egui::Color32::RED } else { egui::Color32::YELLOW };
+                    ui.colored_label(warn_col, format!("⚠ Floor +{:.0} dB", floor_delta))
+                        .on_hover_text(format!("Noise floor is {:.1} dB above baseline ({:.0} dB vs baseline {:.0} dB). Possible interference or gain issue.", floor_delta, noise, self.noise_baseline));
                 }
             }
             if self.frozen {
