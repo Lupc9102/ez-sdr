@@ -1777,6 +1777,10 @@ impl SpectrumAnalyzer {
                 self.save_waterfall_png();
                 ui.close();
             }
+            if ui.button("📊 Export spectrum CSV").on_hover_text("Export current FFT data to CSV (frequency_hz, power_dbfs). Opens a file dialog.").clicked() {
+                self.export_spectrum_csv();
+                ui.close();
+            }
             if ui.button("🔍 Reset zoom (1x)").clicked() {
                 self.zoom_factor = 1.0;
                 self.zoom_offset = 0.5;
