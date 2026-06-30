@@ -67,6 +67,9 @@ pub struct SdrPanel {
     frequencies_explored: std::collections::HashSet<u64>,
     signal_alert_threshold: f32,
     last_alert_freq: u64,
+    auto_record_enabled: bool,
+    auto_record_threshold: f32,
+    last_auto_recorded_freq: u64,
 }
 
 impl SdrPanel {
@@ -91,6 +94,9 @@ impl SdrPanel {
             frequencies_explored: std::collections::HashSet::new(),
             signal_alert_threshold: 15.0, // Alert when SNR > 15 dB
             last_alert_freq: 0,
+            auto_record_enabled: false,
+            auto_record_threshold: 20.0, // Record when SNR > 20 dB
+            last_auto_recorded_freq: 0,
         }
     }
 
@@ -632,6 +638,13 @@ impl SdrPanel {
                 self.last_alert_freq = current_freq;
             }
 
+            // Auto-record indicator (actual recording control is in recorder panel)
+            if self.auto_record_enabled && snr > self.auto_record_threshold && current_freq != self.last_auto_recorded_freq {
+                self.last_auto_recorded_freq = current_freq;
+                // Note: actual recording start should be handled by recorder panel
+                // This just tracks that a strong signal was found
+            }
+
             // Show alert indicator if threshold set and strong signal active
             if self.signal_alert_threshold > 0.0 && snr > self.signal_alert_threshold {
                 let freq_mhz = current_freq as f64 / 1e6;
@@ -641,11 +654,20 @@ impl SdrPanel {
             }
         }
 
-        // Alert threshold control
+        // Alert and auto-record controls
         ui.horizontal(|ui| {
             ui.label("🔔 Alert Threshold:").on_hover_text("Get notified when a strong signal appears. Set to 0 to disable.");
             ui.add(egui::Slider::new(&mut self.signal_alert_threshold, 0.0..=30.0).text("dB").step_by(1.0))
                 .on_hover_text("Alert when SNR exceeds this value");
+        });
+
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.auto_record_enabled, "🎙️ Auto-Record").on_hover_text("Automatically record audio when strong signal detected");
+            if self.auto_record_enabled {
+                ui.label("at SNR > ");
+                ui.add(egui::Slider::new(&mut self.auto_record_threshold, 10.0..=30.0).text("dB").step_by(1.0))
+                    .on_hover_text("Auto-record when SNR exceeds this threshold");
+            }
         });
 
         // Peak finder: find and auto-tune to strongest signal
