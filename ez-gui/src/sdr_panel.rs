@@ -154,6 +154,16 @@ impl SdrPanel {
                 };
                 ui.colored_label(dot_color, format!("● {}", status_text))
                     .on_hover_text("SDR source status. Press Space to toggle start/stop from anywhere.");
+                // MQTT status
+                if state.mqtt_enabled {
+                    if state.mqtt_connected {
+                        ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "MQTT ✓")
+                            .on_hover_text("MQTT broker connected — publishing SDR state and ADS-B data.");
+                    } else {
+                        ui.colored_label(egui::Color32::from_rgb(200, 150, 50), "MQTT ⏳")
+                            .on_hover_text("MQTT enabled but waiting for connection — retrying every 10s.");
+                    }
+                }
             });
         }
         ui.separator();

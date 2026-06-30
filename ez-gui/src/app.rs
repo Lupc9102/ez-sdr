@@ -60,6 +60,8 @@ pub struct SharedState {
     pub tune_step_fine_hz: u64,
     pub tune_step_coarse_hz: u64,
     pub lo_offset_hz: i64,
+    pub mqtt_connected: bool,
+    pub mqtt_enabled: bool,
 }
 
 pub struct CentralApp {
@@ -154,6 +156,8 @@ impl CentralApp {
             tune_step_fine_hz: 100_000,
             tune_step_coarse_hz: 1_000_000,
             lo_offset_hz: 0,
+            mqtt_connected: false,
+            mqtt_enabled: false,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -1506,14 +1510,28 @@ impl eframe::App for CentralApp {
                     ).on_hover_text("Running in simulated (demo) mode — no real SDR device connected. The spectrum shows synthetic test signals. Connect an RTL-SDR and rebuild with the 'rtlsdr' feature, or use File Replay mode.");
                 }
                 // MQTT badge
+                {
+                    let mqtt_connected = self.mqtt.is_connected();
+                    let mqtt_enabled = self.mqtt.enabled;
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.mqtt_connected = mqtt_connected;
+                        state.mqtt_enabled = mqtt_enabled;
+                    }
+                }
                 if self.mqtt.enabled {
                     ui.separator();
                     if self.mqtt.is_connected() {
-                        ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "📡 MQTT")
-                            .on_hover_text(format!("Publishing to MQTT broker at {}:{} — Topics: {}/signal, {}/scanner, etc.", self.mqtt.broker, self.mqtt.port, self.mqtt.topic_prefix, self.mqtt.topic_prefix));
+                        ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "●")
+                            .on_hover_text("Connected to MQTT broker");
+                        ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "MQTT")
+                            .on_hover_text(format!("Publishing to broker at {}:{} — Topics: {}/signal, {}/scanner, {}/adsb/aircraft, {}/satellite/passes",
+                                self.mqtt.broker, self.mqtt.port, self.mqtt.topic_prefix, self.mqtt.topic_prefix, self.mqtt.topic_prefix, self.mqtt.topic_prefix));
                     } else {
-                        ui.colored_label(egui::Color32::from_rgb(200, 150, 50), "📡 MQTT ⏳")
-                            .on_hover_text(format!("MQTT enabled but not connected to {}:{}. Retrying automatically every 10 seconds.", self.mqtt.broker, self.mqtt.port));
+                        let secs = self.mqtt.reconnect_in_secs().unwrap_or(0);
+                        ui.colored_label(egui::Color32::from_rgb(231, 76, 60), "●")
+                            .on_hover_text("Disconnected from MQTT broker");
+                        ui.colored_label(egui::Color32::from_rgb(200, 150, 50), format!("MQTT ⏳{}s", secs))
+                            .on_hover_text(format!("Connection to {}:{} lost. Auto-reconnect in {}s.", self.mqtt.broker, self.mqtt.port, secs));
                     }
                 }
             }
