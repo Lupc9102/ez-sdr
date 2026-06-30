@@ -4,6 +4,16 @@ use std::time::Duration;
 
 use egui_dock::{DockArea, DockState, NodeIndex, Style, SurfaceIndex};
 
+#[derive(Debug, Clone)]
+pub struct FreqMemEntry {
+    pub freq_hz: u64,
+    pub label: String,
+}
+
+impl Default for FreqMemEntry {
+    fn default() -> Self { Self { freq_hz: 0, label: String::new() } }
+}
+
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
 use crate::ai_panel::AiPanel;
@@ -56,7 +66,7 @@ pub struct SharedState {
     pub audio_peak: f32,
     pub freq_history: VecDeque<u64>,
     pub vfo_b: u64,
-    pub freq_memory: [u64; 9],
+    pub freq_memory: [FreqMemEntry; 9],
     pub tune_step_fine_hz: u64,
     pub tune_step_coarse_hz: u64,
     pub lo_offset_hz: i64,
@@ -152,7 +162,7 @@ impl CentralApp {
             audio_peak: 0.0,
             freq_history: VecDeque::with_capacity(20),
             vfo_b: 0,
-            freq_memory: [0u64; 9],
+            freq_memory: std::array::from_fn(|_| FreqMemEntry::default()),
             tune_step_fine_hz: 100_000,
             tune_step_coarse_hz: 1_000_000,
             lo_offset_hz: 0,
@@ -566,7 +576,10 @@ impl eframe::App for CentralApp {
                         if i.key_pressed(key) && !i.modifiers.ctrl {
                             if i.modifiers.alt && i.modifiers.shift {
                                 // Save memory
-                                state.freq_memory[idx] = state.source.frequency_hz;
+                                state.freq_memory[idx].freq_hz = state.source.frequency_hz;
+                                if state.freq_memory[idx].label.is_empty() {
+                                    state.freq_memory[idx].label = format!("{:.4} MHz", state.source.frequency_hz as f64 / 1e6);
+                                }
                                 self.status_flash = Some((
                                     format!("💾 M{} saved: {:.4} MHz", idx + 1, state.source.frequency_hz as f64 / 1e6),
                                     std::time::Instant::now()
@@ -574,10 +587,10 @@ impl eframe::App for CentralApp {
                                 break;
                             } else if i.modifiers.alt {
                                 // Recall memory
-                                if state.freq_memory[idx] > 0 {
-                                    state.source.frequency_hz = state.freq_memory[idx];
+                                if state.freq_memory[idx].freq_hz > 0 {
+                                    state.source.frequency_hz = state.freq_memory[idx].freq_hz;
                                     self.status_flash = Some((
-                                        format!("🔁 M{} recalled: {:.4} MHz", idx + 1, state.freq_memory[idx] as f64 / 1e6),
+                                        format!("🔁 M{} recalled: {:.4} MHz", idx + 1, state.freq_memory[idx].freq_hz as f64 / 1e6),
                                         std::time::Instant::now()
                                     ));
                                 }

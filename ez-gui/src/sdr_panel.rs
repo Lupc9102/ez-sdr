@@ -967,19 +967,24 @@ impl SdrPanel {
 
         // Frequency memory display
         if let Ok(state) = self.shared.try_lock() {
-            let has_memory = state.freq_memory.iter().any(|&f| f > 0);
+            let has_memory = state.freq_memory.iter().any(|m: &crate::app::FreqMemEntry| m.freq_hz > 0);
             if has_memory {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("📝 Memory:").strong());
-                    for (i, &freq) in state.freq_memory.iter().enumerate() {
-                        if freq > 0 {
-                            let label = format!("M{}: {:.3}M", i + 1, freq as f64 / 1e6);
-                            if ui.small_button(&label)
-                                .on_hover_text(format!("Click to recall M{}, or press Alt+{} to recall, Alt+Shift+{} to save", i + 1, i + 1, i + 1))
+                    for (i, mem) in state.freq_memory.iter().enumerate() {
+                        if mem.freq_hz > 0 {
+                            let display = if mem.label.is_empty() {
+                                format!("M{}: {:.3}M", i + 1, mem.freq_hz as f64 / 1e6)
+                            } else {
+                                format!("M{}: {}", i + 1, mem.label)
+                            };
+                            if ui.small_button(&display)
+                                .on_hover_text(format!("{:.4} MHz — click to recall, or press Alt+{} to recall, Alt+Shift+{} to save",
+                                    mem.freq_hz as f64 / 1e6, i + 1, i + 1))
                                 .clicked()
                             {
                                 if let Ok(mut state) = self.shared.try_lock() {
-                                    state.source.frequency_hz = freq;
+                                    state.source.frequency_hz = mem.freq_hz;
                                 }
                             }
                         }
