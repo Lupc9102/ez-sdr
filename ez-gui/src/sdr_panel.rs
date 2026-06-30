@@ -522,6 +522,64 @@ impl SdrPanel {
             }
         }
 
+        // S-Meter style signal strength indicator
+        if let Ok(state) = self.shared.try_lock() {
+            let peak = state.spectrum.peak_level();
+            let noise = state.spectrum.noise_floor();
+            let snr = peak - noise;
+
+            // S-meter scale: S1-S9+ (standard amateur radio scale)
+            // S9 = -73dBm relative, S units are roughly 6dB apart
+            let s_value = if snr > 40.0 { 9 } else if snr > 34.0 { 8 }
+                         else if snr > 28.0 { 7 } else if snr > 22.0 { 6 }
+                         else if snr > 16.0 { 5 } else if snr > 10.0 { 4 }
+                         else if snr > 4.0 { 3 } else if snr > -2.0 { 2 }
+                         else if snr > 0.0 { 1 } else { 0 };
+
+            let meter_color = match s_value {
+                9 => egui::Color32::from_rgb(255, 0, 0),       // Red: +20 (very strong)
+                8 => egui::Color32::from_rgb(255, 100, 0),     // Orange
+                7 => egui::Color32::from_rgb(200, 200, 0),     // Yellow
+                5..=6 => egui::Color32::from_rgb(0, 200, 0),  // Green
+                3..=4 => egui::Color32::from_rgb(0, 150, 150), // Cyan
+                _ => egui::Color32::from_rgb(100, 100, 100),  // Gray
+            };
+
+            ui.horizontal(|ui| {
+                ui.label("📶 S-Meter:").on_hover_text("Signal strength meter (S0-S9+). S1-3 = weak, S4-6 = good, S7-9 = strong, S9+ = very strong.");
+
+                // Visual bar
+                let bar_width = 120.0f32;
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_width, 14.0), egui::Sense::hover());
+                let painter = ui.painter();
+
+                painter.rect_filled(rect, 2.0, egui::Color32::from_rgb(20, 20, 30));
+                let fill_frac = (s_value as f32 / 9.0).clamp(0.0, 1.0);
+                if fill_frac > 0.0 {
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * fill_frac, rect.height())),
+                        2.0, meter_color
+                    );
+                }
+
+                // S1-S9 labels
+                for s in 1..=9 {
+                    let x = rect.left() + ((s as f32 - 0.5) / 9.0) * rect.width();
+                    painter.text(
+                        egui::pos2(x, rect.top() - 2.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        format!("S{}", s),
+                        egui::FontId::proportional(7.0),
+                        egui::Color32::from_gray(100)
+                    );
+                }
+
+                let s_text = if s_value == 0 { "S0".to_string() } else if s_value == 9 { "S9+".to_string() } else { format!("S{}", s_value) };
+                ui.colored_label(meter_color, format!("{} (SNR {:.0}dB)", s_text, snr))
+                    .on_hover_text(format!("Signal strength: {} | Peak: {:.0}dBFS | Noise floor: {:.0}dBFS", s_text, peak, noise));
+            });
+        }
+
         // Nearby bookmark hint
         if let Ok(state) = self.shared.try_lock() {
             let cur_freq = state.source.frequency_hz;
