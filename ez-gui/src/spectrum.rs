@@ -1498,6 +1498,18 @@ impl SpectrumAnalyzer {
                         ui.colored_label(egui::Color32::from_rgb(180, 255, 180),
                             format!("📐 3 dB BW ≈ {}", bw_str))
                             .on_hover_text("Estimated 3 dB bandwidth: bins within 3 dB of the peak at the cursor.");
+                        // Suggest likely signal type based on bandwidth
+                        let suggestion = if bw_hz < 500.0 { "CW (Morse), WSPR, or data beacon" }
+                            else if bw_hz < 3_000.0 { "SSB voice (HAM HF) or narrow data" }
+                            else if bw_hz < 8_000.0 { "AM voice, aviation NDB" }
+                            else if bw_hz < 16_000.0 { "NFM voice: PMR446, land mobile, repeater" }
+                            else if bw_hz < 30_000.0 { "Wide NFM, POCSAG pager, APRS, digital voice" }
+                            else if bw_hz < 100_000.0 { "AM broadcast, wide data, some digital modes" }
+                            else if bw_hz < 300_000.0 { "WFM broadcast FM (stereo)" }
+                            else { "Very wide: Wi-Fi, LTE, DAB+, or multiple signals" };
+                        ui.colored_label(egui::Color32::from_rgb(200, 200, 140),
+                            egui::RichText::new(format!("💡 {}", suggestion)).small())
+                            .on_hover_text("Suggested signal type based on measured 3 dB bandwidth. Not definitive — combine with frequency and band plan for better ID.");
                     }
                 }
                 ui.separator();
