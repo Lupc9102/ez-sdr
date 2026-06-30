@@ -545,6 +545,22 @@ impl SdrPanel {
                     ui.colored_label(tip_color, suggestion)
                         .on_hover_text("Gain indicator based on current signal level. Adjust gain for best reception without overload.");
                 }
+
+                // PPM correction quick presets
+                ui.horizontal(|ui| {
+                    ui.label("PPM:").on_hover_text("Parts-per-million frequency error correction. RTL-SDR chips often have ±25 PPM error.");
+                    for (label, ppm) in [("0", 0i32), ("+10", 10), ("+25", 25), ("-10", -10), ("-25", -25)] {
+                        let is_active = state.source.ppm_correction == ppm;
+                        let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
+                            .color(if is_active { egui::Color32::BLACK } else { egui::Color32::GRAY }))
+                            .fill(if is_active { egui::Color32::from_rgb(100, 180, 255) } else { egui::Color32::from_rgba_premultiplied(30, 40, 60, 60) })
+                            .small())
+                            .on_hover_text(format!("Set frequency correction to {} PPM", ppm));
+                        if btn.clicked() {
+                            state.source.ppm_correction = ppm;
+                        }
+                    }
+                });
             }
         }
 
