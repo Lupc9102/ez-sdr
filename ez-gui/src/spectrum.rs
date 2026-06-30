@@ -61,6 +61,7 @@ pub struct SpectrumAnalyzer {
     hover_pos: Option<egui::Pos2>,
     waterfall_dirty: bool,
     waterfall_every_n: u32,
+    pub waterfall_paused: bool,
     pub clicked_tune_freq: Option<u64>,
     pub pending_bookmark_freq: Option<u64>,
     signal_history: std::collections::VecDeque<f32>,
@@ -183,6 +184,7 @@ impl SpectrumAnalyzer {
             hover_pos: None,
             waterfall_dirty: true,
             waterfall_every_n: 2,
+            waterfall_paused: false,
             clicked_tune_freq: None,
             pending_bookmark_freq: None,
             signal_history: std::collections::VecDeque::new(),
@@ -493,6 +495,8 @@ impl SpectrumAnalyzer {
                     self.waterfall_every_n = n;
                 }
             }
+            ui.toggle_value(&mut self.waterfall_paused, "⏸ Pause")
+                .on_hover_text("Pause waterfall scrolling (spectrum still updates)");
             ui.separator();
             let mark_count = self.markers.len();
             ui.label(format!("Marks: {}", mark_count));
@@ -1663,8 +1667,8 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Waterfall (speed controlled by waterfall_every_n)
-        if self.frame_counter % self.waterfall_every_n == 0 {
+        // Waterfall (speed controlled by waterfall_every_n, can be paused)
+        if !self.waterfall_paused && self.frame_counter % self.waterfall_every_n == 0 {
             let row = self.waterfall_row();
             self.waterfall_pixels.pop();
             self.waterfall_pixels.insert(0, row);
