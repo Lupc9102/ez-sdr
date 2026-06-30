@@ -464,6 +464,27 @@ impl SdrPanel {
                     if btn.clicked() { state.source.gain_db = db; }
                 }
             });
+
+            // Gain optimization suggestion
+            {
+                let signal_level = state.spectrum.signal_level();
+                let current_gain = state.source.gain_db;
+                let (suggestion, tip_color) = if signal_level > 0.0 {
+                    ("⚠ Overload!", egui::Color32::from_rgb(220, 80, 80))
+                } else if signal_level > -20.0 {
+                    ("✓ Good level", egui::Color32::from_rgb(100, 200, 80))
+                } else if signal_level > -60.0 && current_gain < 45.0 {
+                    ("↑ Try higher gain", egui::Color32::from_rgb(200, 200, 80))
+                } else if signal_level < -80.0 && current_gain >= 45.0 {
+                    ("↓ Max gain, still weak", egui::Color32::from_rgb(200, 150, 80))
+                } else {
+                    ("", egui::Color32::GRAY)
+                };
+                if !suggestion.is_empty() {
+                    ui.colored_label(tip_color, suggestion)
+                        .on_hover_text("Gain indicator based on current signal level. Adjust gain for best reception without overload.");
+                }
+            }
         }
 
         // Demod quality indicators
