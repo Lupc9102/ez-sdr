@@ -1142,8 +1142,9 @@ impl eframe::App for CentralApp {
                     } else {
                         format!("● REC {:02}:{:02}", elapsed / 60, elapsed % 60)
                     };
-                    ui.colored_label(egui::Color32::RED, rec_label)
-                        .on_hover_text("Recording in progress. Go to the Recorder tab to stop.");
+                    let rec_type = if state.recording_iq { "IQ" } else { "WAV" };
+                    ui.colored_label(egui::Color32::RED, format!("{} [{}]", rec_label, rec_type))
+                        .on_hover_text(format!("Recording {} format in progress. Go to the Recorder tab to stop.", rec_type));
                 } else {
                     self.recording_start = None;
                 }
