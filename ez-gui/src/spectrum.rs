@@ -76,6 +76,7 @@ pub struct SpectrumAnalyzer {
     pub squelch_db: f32,
     pub source_running: bool,
     pub signal_active: bool,
+    pub last_signal_unix: Option<f64>,
     pub pending_squelch_db: Option<f32>,
     pub pending_scan_start: Option<u64>,
     pub pending_scan_stop: Option<u64>,
@@ -176,6 +177,7 @@ impl SpectrumAnalyzer {
             squelch_db: -120.0,
             source_running: false,
             signal_active: false,
+            last_signal_unix: None,
             pending_squelch_db: None,
             pending_scan_start: None,
             pending_scan_stop: None,
@@ -1176,16 +1178,43 @@ impl SpectrumAnalyzer {
                 egui::FontId::monospace(10.0), snr_color);
         }
 
-        // Signal active badge (top-right, below SNR badge) — green when squelch is open
-        if self.signal_active && self.squelch_db > -90.0 {
+        // Signal active / last-seen badge (top-right, below SNR badge)
+        if self.squelch_db > -90.0 {
+            let now_unix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            let (badge_text, fg_color, bg_color) = if self.signal_active {
+                ("● ACTIVE".to_string(),
+                 egui::Color32::from_rgb(60, 220, 80),
+                 egui::Color32::from_rgba_premultiplied(0, 40, 0, 180))
+            } else if let Some(last) = self.last_signal_unix {
+                let elapsed = (now_unix - last).max(0.0);
+                let text = if elapsed < 60.0 {
+                    format!("Last: {:.0}s ago", elapsed)
+                } else if elapsed < 3600.0 {
+                    format!("Last: {:.0}m ago", elapsed / 60.0)
+                } else {
+                    format!("Last: {:.1}h ago", elapsed / 3600.0)
+                };
+                let alpha = ((1.0 - (elapsed / 600.0).min(1.0)) * 200.0) as u8 + 55;
+                (text,
+                 egui::Color32::from_rgba_premultiplied(160, 200, 160, alpha),
+                 egui::Color32::from_rgba_premultiplied(0, 0, 0, 120))
+            } else {
+                ("No activity".to_string(),
+                 egui::Color32::from_rgba_premultiplied(100, 100, 100, 140),
+                 egui::Color32::from_rgba_premultiplied(0, 0, 0, 80))
+            };
+            let badge_w = (badge_text.len() as f32 * 5.5 + 10.0).max(66.0);
             let active_pos = egui::pos2(spectrum_rect.right() - 4.0, spectrum_rect.top() + 20.0);
             let bg_rect = egui::Rect::from_min_size(
-                egui::pos2(active_pos.x - 62.0, active_pos.y - 1.0),
-                egui::vec2(66.0, 14.0),
+                egui::pos2(active_pos.x - badge_w, active_pos.y - 1.0),
+                egui::vec2(badge_w + 4.0, 14.0),
             );
-            painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 40, 0, 180));
-            painter.text(active_pos, egui::Align2::RIGHT_TOP, "● ACTIVE",
-                egui::FontId::monospace(10.0), egui::Color32::from_rgb(60, 220, 80));
+            painter.rect_filled(bg_rect, 2.0, bg_color);
+            painter.text(active_pos, egui::Align2::RIGHT_TOP, &badge_text,
+                egui::FontId::monospace(10.0), fg_color);
         }
 
         // Band name overlay (top-left of spectrum)

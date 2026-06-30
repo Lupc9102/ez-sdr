@@ -1359,8 +1359,16 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     // Source running state (for empty-state overlay)
                     state.spectrum.source_running = state.source.status == crate::source_manager::SourceStatus::Running;
                     // Signal active: true when squelch is open (signal above threshold)
-                    state.spectrum.signal_active = state.squelch > -90.0
+                    let sq_active = state.squelch > -90.0
                         && state.spectrum.signal_level() > state.squelch;
+                    state.spectrum.signal_active = sq_active;
+                    if sq_active {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs_f64())
+                            .unwrap_or(0.0);
+                        state.spectrum.last_signal_unix = Some(now);
+                    }
                     state.spectrum.ui(ui);
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;
