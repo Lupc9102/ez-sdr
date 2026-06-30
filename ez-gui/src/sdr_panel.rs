@@ -156,6 +156,20 @@ impl SdrPanel {
                 }
             });
 
+            // VFO A/B difference indicator
+            if state.vfo_b > 0 {
+                let diff_hz = (state.source.frequency_hz as i64 - state.vfo_b as i64).abs();
+                let diff_str = if diff_hz >= 1_000_000 {
+                    format!("Δ {:.3} MHz", diff_hz as f64 / 1e6)
+                } else if diff_hz >= 1_000 {
+                    format!("Δ {:.1} kHz", diff_hz as f64 / 1e3)
+                } else {
+                    format!("Δ {} Hz", diff_hz)
+                };
+                ui.colored_label(egui::Color32::from_rgb(180, 150, 200), diff_str)
+                    .on_hover_text(format!("Frequency offset between VFO A and VFO B: {}", diff_str));
+            }
+
             // LO offset indicator
             if state.lo_offset_hz != 0 {
                 ui.horizontal(|ui| {
