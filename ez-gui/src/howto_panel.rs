@@ -1881,11 +1881,28 @@ impl HowToPanel {
         ui.add_space(6.0);
 
         Self::h2(ui, "How Tool Calls Work");
-        ui.label("When the AI wants to control the SDR it responds with a JSON tool call. EZ-SDR executes it and shows the result. The AI can chain multiple tool calls in one response.");
+        ui.label("When the AI wants to control the SDR it responds with a JSON tool call. EZ-SDR executes it and shows the result. The AI can chain multiple tool calls in one response — all are executed in sequence.");
         ui.add_space(4.0);
         ui.monospace("{\"tool\": \"tune_frequency\", \"args\": {\"hz\": 137100000}}");
         ui.add_space(4.0);
         ui.label("You can see available tools in the collapsing panel at the top of the AI Agent tab.");
+        ui.add_space(6.0);
+
+        Self::h2(ui, "Chat UI Features");
+        egui::Grid::new("ai_ui_features").num_columns(2).striped(true).show(ui, |ui| {
+            for (feature, desc) in &[
+                ("📋 Copy button", "Each message has a copy button (top-right) to copy its text to clipboard."),
+                ("HH:MM timestamp", "Every message shows the time it was sent, next to the sender label."),
+                ("⬛ Stop button", "Appears while the AI is responding. Click to cancel the request mid-stream."),
+                ("~Xk tok counter", "Shown in the header — rough estimate of context tokens used so far."),
+                ("Code blocks", "Code in ``` fences is rendered in a distinct bordered block with yellow text."),
+                ("Clear button", "Clears conversation history. Useful when the AI seems confused by long context."),
+            ] {
+                ui.monospace(*feature);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
         ui.add_space(6.0);
 
         Self::h2(ui, "Provider Comparison");

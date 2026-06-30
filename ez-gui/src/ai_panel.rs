@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 
 use crate::app::SharedState;
 use crate::config::{DEFAULT_AI_MODEL, PROVIDER_PRESETS};
@@ -10,6 +10,28 @@ pub struct ChatMessage {
     pub content: String,
     pub tool_calls: Option<Vec<ToolCall>>,
     pub streaming: bool,
+    pub timestamp_secs: u64,
+}
+
+impl ChatMessage {
+    fn new(role: &str, content: &str) -> Self {
+        let timestamp_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Self {
+            role: role.to_string(),
+            content: content.to_string(),
+            tool_calls: None,
+            streaming: false,
+            timestamp_secs,
+        }
+    }
+
+    fn format_time(&self) -> String {
+        let secs = self.timestamp_secs % 86400;
+        format!("{:02}:{:02}", secs / 3600, (secs % 3600) / 60)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -36,13 +58,14 @@ Available tools:
 
 When you want to call a tool respond with exactly:
 {\"tool\": \"name\", \"args\": {}}
-You may call multiple tools sequentially. Always explain what you are doing.";
+You may call multiple tools sequentially — include one JSON block per tool call in your response.
+Always explain what you are doing before each tool call.";
 
 // Streaming state sent from worker thread
 enum StreamEvent {
     Chunk(String),
     ToolCallDetected { tool: String, args: serde_json::Value },
-    Done(#[allow(dead_code)] String),
+    Done(String),
     Error(String),
 }
 
@@ -53,6 +76,8 @@ pub struct AiPanel {
     pub thinking: bool,
     temperature: f64,
     pending_rx: Option<crossbeam_channel::Receiver<StreamEvent>>,
+    abort_flag: Arc<AtomicBool>,
+    stream_start: Option<std::time::Instant>,
 }
 
 impl AiPanel {
@@ -64,16 +89,18 @@ impl AiPanel {
             thinking: false,
             temperature: 0.7,
             pending_rx: None,
+            abort_flag: Arc::new(AtomicBool::new(false)),
+            stream_start: None,
         }
     }
 
     /// Build the messages JSON array for the API call, injecting system prompt.
     fn build_api_messages(&self) -> (Vec<serde_json::Value>, String, String, String, String, u32, f64, String) {
-        let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt, freq, rate, gain, mode, recording, sat, adsb, noise_floor, peak_db, squelch) = {
+        let state_snapshot = {
             if let Ok(state) = self.shared.try_lock() {
                 let cfg = &state.config;
                 let mode_label = state.demod_mode.label().to_string();
-                (
+                Some((
                     cfg.ai_endpoint.clone(),
                     cfg.ai_model.clone(),
                     cfg.ai_api_key.clone(),
@@ -91,30 +118,62 @@ impl AiPanel {
                     state.spectrum.noise_floor(),
                     state.spectrum.peak_level(),
                     state.squelch,
-                )
+                    state.volume,
+                    state.lpf_cutoff,
+                    state.audio_peak,
+                    state.vfo_b,
+                    state.bookmarks.bookmarks.len(),
+                    state.lo_offset_hz,
+                    !state.freq_history.is_empty(),
+                ))
             } else {
-                return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new());
+                None
             }
         };
+
+        let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt,
+             freq, rate, gain, mode, recording, sat, adsb, noise_floor, peak_db, squelch,
+             volume, lpf_cutoff, audio_peak, vfo_b, bookmark_count, lo_offset_hz, has_history) =
+            match state_snapshot {
+                Some(s) => s,
+                None => return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new()),
+            };
+
         let snr = peak_db - noise_floor;
 
         let mut msgs: Vec<serde_json::Value> = Vec::new();
 
-        // System prompt
         let sys = if system_prompt.is_empty() {
+            let vfo_b_info = if vfo_b > 0 {
+                format!("\n - VFO-B: {:.4} MHz (offset {:.3} MHz from VFO-A)",
+                    vfo_b as f64 / 1e6,
+                    (vfo_b as f64 - freq as f64) / 1e6)
+            } else {
+                String::new()
+            };
+            let lo_info = if lo_offset_hz != 0 {
+                format!("\n - LO offset: {:+} Hz", lo_offset_hz)
+            } else {
+                String::new()
+            };
             format!(
-                "{}\n\nCurrent SDR state:\n\
-                 - Frequency: {:.4} MHz\n\
-                 - Sample rate: {:.3} MSps\n\
-                 - Gain: {:.1} dB\n\
-                 - Demod mode: {}\n\
-                 - Noise floor: {:.1} dB\n\
-                 - Peak signal: {:.1} dB\n\
-                 - SNR: {:.1} dB\n\
-                 - Squelch: {:.1} dB\n\
-                 - Recording: {}\n\
-                 - Satellite: {}\n\
-                 - ADS-B: {}",
+                "{}\n\nCurrent SDR state:\
+                 \n - Frequency: {:.4} MHz\
+                 \n - Sample rate: {:.3} MSps\
+                 \n - Gain: {:.1} dB\
+                 \n - Demod mode: {}\
+                 \n - Noise floor: {:.1} dB\
+                 \n - Peak signal: {:.1} dB\
+                 \n - SNR: {:.1} dB\
+                 \n - Squelch: {:.1} dB\
+                 \n - Volume: {:.0}%\
+                 \n - Audio LPF: {:.0} Hz\
+                 \n - Audio peak: {:.1} dB\
+                 \n - Recording: {}\
+                 \n - Satellite: {}\
+                 \n - ADS-B: {}\
+                 \n - Bookmarks: {}{}{}\
+                 \n - Recent frequency history: {}",
                 DEFAULT_SYSTEM,
                 freq as f64 / 1e6,
                 rate as f64 / 1e6,
@@ -124,9 +183,16 @@ impl AiPanel {
                 peak_db,
                 snr,
                 squelch,
+                volume * 100.0,
+                lpf_cutoff,
+                audio_peak,
                 if recording { "yes" } else { "no" },
                 sat.as_deref().unwrap_or("none"),
                 if adsb { "running" } else { "stopped" },
+                bookmark_count,
+                vfo_b_info,
+                lo_info,
+                if has_history { "available" } else { "empty" },
             )
         } else {
             system_prompt
@@ -163,23 +229,25 @@ impl AiPanel {
         if self.input.is_empty() || self.thinking {
             return;
         }
-        let user_msg = self.input.clone();
+        let user_msg = self.input.trim().to_string();
+        if user_msg.is_empty() {
+            return;
+        }
         self.input.clear();
-        self.messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: user_msg,
-            tool_calls: None,
-            streaming: false,
+        self.messages.push({
+            let mut m = ChatMessage::new("user", &user_msg);
+            m.streaming = false;
+            m
         });
 
         // Start assistant message placeholder
-        self.messages.push(ChatMessage {
-            role: "assistant".to_string(),
-            content: String::new(),
-            tool_calls: None,
-            streaming: true,
+        self.messages.push({
+            let mut m = ChatMessage::new("assistant", "");
+            m.streaming = true;
+            m
         });
         self.thinking = true;
+        self.stream_start = Some(std::time::Instant::now());
 
         let (api_messages, endpoint, model, api_key, provider, max_tokens, temperature, system_prompt) = self.build_api_messages();
 
@@ -200,6 +268,10 @@ impl AiPanel {
             return;
         }
 
+        // Reset abort flag before spawning new thread
+        self.abort_flag.store(false, Ordering::Relaxed);
+        let abort_flag = self.abort_flag.clone();
+
         let (evt_tx, evt_rx) = crossbeam_channel::bounded::<StreamEvent>(256);
         let is_anthropic = provider == "Anthropic";
 
@@ -216,9 +288,9 @@ impl AiPanel {
             };
 
             if is_anthropic {
-                Self::stream_anthropic(&client, &evt_tx, &endpoint, &api_key, &model, &system_prompt, &api_messages, max_tokens, temperature);
+                Self::stream_anthropic(&client, &evt_tx, &endpoint, &api_key, &model, &system_prompt, &api_messages, max_tokens, temperature, &abort_flag);
             } else {
-                Self::stream_openai_compat(&client, &evt_tx, &endpoint, &api_key, &model, &api_messages, max_tokens, temperature);
+                Self::stream_openai_compat(&client, &evt_tx, &endpoint, &api_key, &model, &api_messages, max_tokens, temperature, &abort_flag);
             }
         });
 
@@ -234,6 +306,7 @@ impl AiPanel {
         api_messages: &[serde_json::Value],
         max_tokens: u32,
         temperature: f64,
+        abort_flag: &Arc<AtomicBool>,
     ) {
         let body = serde_json::json!({
             "model": model,
@@ -268,6 +341,10 @@ impl AiPanel {
         let mut full_text = String::new();
         let reader = BufReader::new(resp);
         for line in reader.lines() {
+            if abort_flag.load(Ordering::Relaxed) {
+                let _ = evt_tx.send(StreamEvent::Done(full_text));
+                return;
+            }
             let line = match line { Ok(l) => l, Err(_) => break };
             if !line.starts_with("data: ") { continue; }
             let data = &line[6..];
@@ -281,7 +358,7 @@ impl AiPanel {
             }
         }
 
-        Self::check_tool_calls(evt_tx, &full_text);
+        Self::dispatch_tool_calls(evt_tx, &full_text);
         let _ = evt_tx.send(StreamEvent::Done(full_text));
     }
 
@@ -295,8 +372,8 @@ impl AiPanel {
         api_messages: &[serde_json::Value],
         max_tokens: u32,
         temperature: f64,
+        abort_flag: &Arc<AtomicBool>,
     ) {
-        // Anthropic format: system is a top-level field, messages exclude system
         let non_system: Vec<&serde_json::Value> = api_messages.iter()
             .filter(|m| m["role"].as_str() != Some("system"))
             .collect();
@@ -334,6 +411,10 @@ impl AiPanel {
         let mut full_text = String::new();
         let reader = BufReader::new(resp);
         for line in reader.lines() {
+            if abort_flag.load(Ordering::Relaxed) {
+                let _ = evt_tx.send(StreamEvent::Done(full_text));
+                return;
+            }
             let line = match line { Ok(l) => l, Err(_) => break };
             if !line.starts_with("data: ") { continue; }
             let data = &line[6..];
@@ -352,24 +433,61 @@ impl AiPanel {
             }
         }
 
-        Self::check_tool_calls(evt_tx, &full_text);
+        Self::dispatch_tool_calls(evt_tx, &full_text);
         let _ = evt_tx.send(StreamEvent::Done(full_text));
     }
 
-    fn check_tool_calls(evt_tx: &crossbeam_channel::Sender<StreamEvent>, full_text: &str) {
-        let tool_info = serde_json::from_str::<serde_json::Value>(full_text)
-            .ok()
-            .and_then(|json| {
-                let name = json.get("tool").and_then(|v| v.as_str())?.to_string();
-                let args = json.get("args").cloned().unwrap_or(serde_json::json!({}));
-                Some((name, args))
-            });
-        if let Some((ref tool_name, ref args)) = tool_info {
-            let _ = evt_tx.send(StreamEvent::ToolCallDetected {
-                tool: tool_name.clone(),
-                args: args.clone(),
-            });
+    /// Find all {"tool": ..., "args": ...} JSON objects in text and emit a ToolCallDetected for each.
+    fn dispatch_tool_calls(evt_tx: &crossbeam_channel::Sender<StreamEvent>, text: &str) {
+        for (tool, args) in Self::extract_tool_calls(text) {
+            let _ = evt_tx.send(StreamEvent::ToolCallDetected { tool, args });
         }
+    }
+
+    /// Scan text for all JSON objects matching {"tool": ..., "args": ...} using brace counting.
+    fn extract_tool_calls(text: &str) -> Vec<(String, serde_json::Value)> {
+        let mut results = Vec::new();
+        let mut search_from = 0;
+
+        while search_from < text.len() {
+            // Find next candidate
+            let Some(rel_start) = text[search_from..].find("{\"tool\"") else { break };
+            let abs_start = search_from + rel_start;
+            let slice = &text[abs_start..];
+
+            // Count braces to extract the full JSON object
+            let mut depth = 0i32;
+            let mut end = 0;
+            for (i, ch) in slice.char_indices() {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = i + 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if end == 0 {
+                break;
+            }
+
+            let candidate = &slice[..end];
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(candidate) {
+                if let Some(name) = json.get("tool").and_then(|v| v.as_str()) {
+                    let args = json.get("args").cloned().unwrap_or(serde_json::json!({}));
+                    results.push((name.to_string(), args));
+                }
+            }
+
+            search_from = abs_start + end;
+        }
+
+        results
     }
 
     fn poll_stream(&mut self) {
@@ -389,30 +507,28 @@ impl AiPanel {
                 Ok(StreamEvent::ToolCallDetected { tool, args }) => {
                     let result = self.execute_tool_call(&tool, &args);
                     if let Some(last) = self.messages.last_mut() {
-                        let tc = ToolCall {
-                            name: tool.clone(),
-                            arguments: args.clone(),
-                        };
+                        let tc = ToolCall { name: tool.clone(), arguments: args.clone() };
                         let mut calls = last.tool_calls.take().unwrap_or_default();
                         calls.push(tc);
                         last.tool_calls = Some(calls);
-                        last.content.push_str(&format!("\n▶ {} → {}", tool, result));
+                        last.content.push_str(&format!("\n\u{25b6} {} \u{2192} {}", tool, result));
                     }
                 }
                 Ok(StreamEvent::Done(_)) => {
                     if let Some(last) = self.messages.last_mut() {
                         last.streaming = false;
                     }
+                    self.stream_start = None;
                     keep = false;
                     break;
                 }
                 Ok(StreamEvent::Error(err)) => {
-                    self.messages.push(ChatMessage {
-                        role: "assistant".to_string(),
-                        content: format!("⚠ {}", err),
-                        tool_calls: None,
-                        streaming: false,
-                    });
+                    // Replace the placeholder with the error message
+                    if let Some(last) = self.messages.last_mut() {
+                        last.streaming = false;
+                        last.content = format!("⚠ {}", err);
+                    }
+                    self.stream_start = None;
                     keep = false;
                     break;
                 }
@@ -421,6 +537,7 @@ impl AiPanel {
                     if let Some(last) = self.messages.last_mut() {
                         last.streaming = false;
                     }
+                    self.stream_start = None;
                     keep = false;
                     break;
                 }
@@ -441,39 +558,44 @@ impl AiPanel {
                         state.source.frequency_hz = hz;
                         return format!("Tuned to {:.3} MHz", hz as f64 / 1e6);
                     }
+                    return "Error: missing hz argument".to_string();
                 }
                 "set_gain" => {
                     if let Some(db) = args["db"].as_f64() {
                         state.source.gain_db = db;
                         return format!("Gain set to {:.1} dB", db);
                     }
+                    return "Error: missing db argument".to_string();
                 }
                 "set_sample_rate" => {
                     if let Some(rate) = args["rate"].as_u64() {
                         state.source.sample_rate_hz = rate as u32;
-                        return format!("Sample rate set to {} Hz", rate);
+                        return format!("Sample rate set to {:.3} MSps", rate as f64 / 1e6);
                     }
+                    return "Error: missing rate argument".to_string();
                 }
                 "toggle_bias_tee" => {
                     if let Some(on) = args["on"].as_bool() {
                         state.source.bias_tee = on;
                         return format!("Bias tee {}", if on { "ON" } else { "OFF" });
                     }
+                    return "Error: missing on argument".to_string();
                 }
                 "set_demod" => {
                     if let Some(mode) = args["mode"].as_str() {
                         let demod = match mode.to_uppercase().as_str() {
                             "RAW" => crate::sdr_panel::DemodMode::Raw,
-                            "AM" => crate::sdr_panel::DemodMode::Am,
+                            "AM"  => crate::sdr_panel::DemodMode::Am,
                             "FM" | "NFM" => crate::sdr_panel::DemodMode::Fm,
                             "WFM" => crate::sdr_panel::DemodMode::Wfm,
                             "LSB" => crate::sdr_panel::DemodMode::Lsb,
                             "USB" => crate::sdr_panel::DemodMode::Usb,
-                            _ => crate::sdr_panel::DemodMode::Fm,
+                            _    => crate::sdr_panel::DemodMode::Fm,
                         };
                         state.demod_mode = demod;
                         return format!("Demod mode set to {}", mode.to_uppercase());
                     }
+                    return "Error: missing mode argument".to_string();
                 }
                 "start_recording" => {
                     state.recording = true;
@@ -484,10 +606,11 @@ impl AiPanel {
                     return "Recording stopped".to_string();
                 }
                 "select_satellite" => {
-                    if let Some(name) = args["name"].as_str() {
-                        state.selected_satellite = Some(name.to_string());
-                        return format!("Satellite '{}' selected", name);
+                    if let Some(sat) = args["name"].as_str() {
+                        state.selected_satellite = Some(sat.to_string());
+                        return format!("Satellite '{}' selected", sat);
                     }
+                    return "Error: missing name argument".to_string();
                 }
                 "start_adsb" => {
                     state.adsb_running = true;
@@ -502,12 +625,14 @@ impl AiPanel {
                         state.squelch = db as f32;
                         return format!("Squelch set to {:.1} dB", db);
                     }
+                    return "Error: missing db argument".to_string();
                 }
                 "set_volume" => {
                     if let Some(level) = args["level"].as_f64() {
                         state.volume = (level as f32).clamp(0.0, 1.0);
                         return format!("Volume set to {:.0}%", level * 100.0);
                     }
+                    return "Error: missing level argument".to_string();
                 }
                 "get_status" => {
                     return serde_json::json!({
@@ -530,10 +655,38 @@ impl AiPanel {
         "Error: could not access SDR state".to_string()
     }
 
+    /// Render message content with proper newline and code-block support.
+    fn render_message_content(ui: &mut egui::Ui, content: &str, text_color: egui::Color32) {
+        if content.contains("```") {
+            let mut in_code = false;
+            for block in content.split("```") {
+                if in_code {
+                    // Strip language tag on first line (e.g. "json\n...")
+                    let code = if let Some(nl) = block.find('\n') { &block[nl + 1..] } else { block };
+                    let code = code.trim_end();
+                    if !code.is_empty() {
+                        ui.group(|ui| {
+                            ui.monospace(
+                                egui::RichText::new(code)
+                                    .color(egui::Color32::from_rgb(200, 200, 100)),
+                            );
+                        });
+                    }
+                } else if !block.is_empty() {
+                    // Regular text — ui.label respects \n
+                    ui.label(egui::RichText::new(block).color(text_color));
+                }
+                in_code = !in_code;
+            }
+        } else {
+            ui.label(egui::RichText::new(content).color(text_color));
+        }
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll_stream();
 
-        // Header with model info
+        // Header with model/provider info and context token estimate
         let (model, provider, has_key, temp) = {
             if let Ok(state) = self.shared.try_lock() {
                 let needs_key = PROVIDER_PRESETS.iter()
@@ -552,9 +705,13 @@ impl AiPanel {
         };
         self.temperature = temp;
 
+        let rough_tokens: usize = self.messages.iter().map(|m| m.content.len() / 4).sum();
+
         ui.horizontal(|ui| {
             ui.heading("AI Agent");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.weak(format!("~{}k tok", rough_tokens / 1000 + 1));
+                ui.separator();
                 ui.monospace(format!("{} · {}", provider, model));
                 if !has_key {
                     ui.colored_label(egui::Color32::YELLOW, "⚠ no key")
@@ -620,11 +777,12 @@ impl AiPanel {
             .max_height(ui.available_height() - 90.0)
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                for msg in &self.messages {
+                for (idx, msg) in self.messages.iter().enumerate() {
                     if msg.role == "system" {
                         continue;
                     }
-                    let (color, label) = match msg.role.as_str() {
+
+                    let (role_color, label) = match msg.role.as_str() {
                         "user"      => (egui::Color32::from_rgb(100, 180, 255), "You"),
                         "assistant" => (egui::Color32::from_rgb(100, 255, 130), "AI"),
                         _           => (egui::Color32::from_gray(180), "?"),
@@ -637,45 +795,45 @@ impl AiPanel {
                         ui.style().visuals.text_color()
                     };
 
-                    ui.horizontal_wrapped(|ui| {
-                        ui.colored_label(color, format!("{}:", label));
-                        if msg.content.contains("```") {
-                            for (i, block) in msg.content.split("```").enumerate() {
-                                if i % 2 == 0 {
-                                    ui.label(egui::RichText::new(block.to_string()).color(content_color));
-                                } else {
-                                    let code = if let Some(idx) = block.find('\n') { &block[idx + 1..] } else { block };
-                                    ui.monospace(egui::RichText::new(code.to_string()).color(egui::Color32::from_rgb(200, 200, 100)));
-                                }
+                    // Message header: role label + timestamp + copy button
+                    let content_to_copy = msg.content.clone();
+                    let time_str = msg.format_time();
+                    ui.horizontal(|ui| {
+                        ui.colored_label(role_color, format!("{}:", label));
+                        ui.weak(&time_str);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button(format!("📋##{}", idx))
+                                .on_hover_text("Copy message to clipboard")
+                                .clicked()
+                            {
+                                ui.ctx().copy_text(content_to_copy.clone());
                             }
-                        } else {
-                            ui.label(egui::RichText::new(&msg.content).color(content_color));
-                        }
+                        });
                     });
 
-                    if let Some(ref calls) = msg.tool_calls {
-                        for tc in calls {
-                            ui.horizontal(|ui| {
-                                ui.colored_label(egui::Color32::from_rgb(255, 200, 50), ">>>");
-                                ui.monospace(format!("{}({})", tc.name, tc.arguments));
-                            });
-                        }
-                    }
+                    // Message content with proper newlines and code blocks
+                    Self::render_message_content(ui, &msg.content, content_color);
 
                     if msg.streaming {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.small("streaming...");
+                            if let Some(start) = self.stream_start {
+                                let elapsed = start.elapsed().as_secs_f32();
+                                ui.weak(format!("thinking… {:.1}s", elapsed));
+                            } else {
+                                ui.weak("streaming…");
+                            }
                         });
                     }
 
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
                 }
 
-                let rough_tokens: usize = self.messages.iter().map(|m| m.content.len() / 4).sum();
                 if rough_tokens > 3000 {
-                    ui.colored_label(egui::Color32::YELLOW,
-                        format!("⚠ ~{}k context tokens — consider clearing chat if responses seem confused.", rough_tokens / 1000));
+                    ui.colored_label(
+                        egui::Color32::YELLOW,
+                        format!("⚠ ~{}k context tokens — consider clearing chat if responses seem confused.", rough_tokens / 1000),
+                    );
                 }
             });
 
@@ -689,14 +847,29 @@ impl AiPanel {
                     .hint_text("Ask to tune, record, scan, track satellites…")
                     .return_key(Some(egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Enter))),
             );
-            let send_clicked = ui.button("Send").clicked()
-                || resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if send_clicked && !self.input.is_empty() && !self.thinking {
+            let send_clicked = ui.add_enabled(
+                !self.thinking,
+                egui::Button::new("Send"),
+            ).clicked()
+                || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.thinking);
+
+            if send_clicked && !self.input.is_empty() {
                 self.send_message();
             }
-            if ui.button("Clear")
+
+            // Stop button — only shown while streaming
+            if self.thinking {
+                if ui.button("⬛ Stop")
+                    .on_hover_text("Cancel the current request")
+                    .clicked()
+                {
+                    self.abort_flag.store(true, Ordering::Relaxed);
+                }
+            }
+
+            if ui.add_enabled(!self.thinking, egui::Button::new("Clear"))
                 .on_hover_text("Clear conversation history. Useful when the model seems confused due to long context.")
-                .clicked() && !self.thinking
+                .clicked()
             {
                 self.messages.clear();
             }
@@ -708,46 +881,5 @@ impl AiPanel {
                 ui.label("Connecting…");
             });
         }
-    }
-}
-
-#[allow(dead_code)]
-fn execute_tool_sync(name: &str, args: &serde_json::Value) -> String {
-    match name {
-        "tune_frequency" => {
-            args["hz"].as_u64()
-                .map(|hz| format!("Tuned to {:.3} MHz", hz as f64 / 1e6))
-                .unwrap_or_else(|| "Error: missing hz".to_string())
-        }
-        "set_gain" => {
-            args["db"].as_f64()
-                .map(|db| format!("Gain set to {:.1} dB", db))
-                .unwrap_or_else(|| "Error: missing db".to_string())
-        }
-        "set_sample_rate" => {
-            args["rate"].as_u64()
-                .map(|rate| format!("Sample rate set to {} Hz", rate))
-                .unwrap_or_else(|| "Error: missing rate".to_string())
-        }
-        "toggle_bias_tee" => {
-            args["on"].as_bool()
-                .map(|on| format!("Bias tee {}", if on { "ON" } else { "OFF" }))
-                .unwrap_or_else(|| "Error: missing on".to_string())
-        }
-        "set_demod" => {
-            args["mode"].as_str()
-                .map(|mode| format!("Demod mode set to {}", mode.to_uppercase()))
-                .unwrap_or_else(|| "Error: missing mode".to_string())
-        }
-        "start_recording" => "Recording started".to_string(),
-        "stop_recording" => "Recording stopped".to_string(),
-        "select_satellite" => {
-            args["name"].as_str()
-                .map(|name| format!("Satellite '{}' selected", name))
-                .unwrap_or_else(|| "Error: missing name".to_string())
-        }
-        "start_adsb" => "ADS-B tracking started at 1090 MHz".to_string(),
-        "stop_adsb" => "ADS-B tracking stopped".to_string(),
-        _ => format!("Unknown tool: {}", name),
     }
 }
