@@ -343,17 +343,24 @@ impl SpectrumAnalyzer {
             .add_filter("PNG", &["png"])
             .set_file_name("waterfall_capture.png")
             .save_file();
-        if let Some(path) = path {
-            let w = self.fft_size as u32;
-            let h = self.waterfall_history as u32;
-            let mut rgba_flat: Vec<u8> = Vec::with_capacity((w * h * 4) as usize);
-            for row in &self.waterfall_pixels {
-                rgba_flat.extend_from_slice(row);
-            }
-            if let Some(img) = image::RgbaImage::from_raw(w, h, rgba_flat) {
-                let _ = img.save(&path);
-            }
+        let Some(path) = path else { return; };
+        let w = self.fft_size as u32;
+        let h = self.waterfall_history as u32;
+        let mut rgba_flat: Vec<u8> = Vec::with_capacity((w * h * 4) as usize);
+        for row in &self.waterfall_pixels {
+            rgba_flat.extend_from_slice(row);
         }
+        if let Some(img) = image::RgbaImage::from_raw(w, h, rgba_flat) {
+            let _ = img.save(&path);
+        }
+        // Write sidecar JSON with capture metadata
+        let sidecar_path = path.with_extension("json");
+        let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+        let json = format!(
+            "{{\n  \"type\": \"waterfall_screenshot\",\n  \"timestamp_utc\": \"{}\",\n  \"center_freq_hz\": {},\n  \"sample_rate_hz\": {},\n  \"fft_size\": {},\n  \"colormap\": \"{}\",\n  \"waterfall_history\": {},\n  \"waterfall_every_n\": {}\n}}\n",
+            ts, self.center_freq, self.sample_rate, self.fft_size, self.color_map.name(), self.waterfall_history, self.waterfall_every_n
+        );
+        let _ = std::fs::write(&sidecar_path, json);
     }
 
     pub fn export_spectrum_csv(&self) {
