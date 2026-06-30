@@ -1280,6 +1280,23 @@ impl eframe::App for CentralApp {
                     ("⚫ Quiet",  egui::Color32::DARK_GRAY,  "No significant signal at current frequency (SNR < 8 dB). Try a different frequency or increase gain.")
                 };
                 ui.colored_label(badge_color, badge).on_hover_text(badge_tip);
+
+                // Signal stability indicator
+                let signal_history = state.spectrum.signal_history_snapshot();
+                if signal_history.len() > 10 {
+                    let mean = signal_history.iter().sum::<f32>() / signal_history.len() as f32;
+                    let variance = signal_history.iter().map(|s| (s - mean).powi(2)).sum::<f32>() / signal_history.len() as f32;
+                    let std_dev = variance.sqrt();
+                    let stability_color = if std_dev < 2.0 {
+                        egui::Color32::from_rgb(100, 200, 100)
+                    } else if std_dev < 5.0 {
+                        egui::Color32::from_rgb(220, 180, 80)
+                    } else {
+                        egui::Color32::from_rgb(200, 100, 100)
+                    };
+                    ui.colored_label(stability_color, format!("σ: {:.2}dB", std_dev))
+                        .on_hover_text(format!("Signal stability (standard deviation): {:.2} dB. <2 dB = stable, 2–5 dB = moderate fluctuation, >5 dB = high variability", std_dev));
+                }
             }
             // Status flash (short-lived messages, e.g. "⭐ Bookmark name")
             if let Some((msg, since)) = &self.status_flash {
