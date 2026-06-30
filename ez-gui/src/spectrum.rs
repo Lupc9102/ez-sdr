@@ -72,6 +72,8 @@ pub struct SpectrumAnalyzer {
     show_band_plan: bool,
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
+    pub vfo_b_freq: u64,
+    show_vfo_b: bool,
     pub demod_mode: String,
     pub scan_marker: Option<u64>,
     pub squelch_db: f32,
@@ -202,6 +204,8 @@ impl SpectrumAnalyzer {
             show_band_plan: true,
             vfo_bw_hz: 15000,
             show_vfo_bw: true,
+            vfo_b_freq: 0,
+            show_vfo_b: true,
             demod_mode: "NFM".to_string(),
             frozen: false,
             scan_marker: None,
@@ -565,6 +569,8 @@ impl SpectrumAnalyzer {
             ui.separator();
             ui.toggle_value(&mut self.show_vfo_bw, "VFO BW")
                 .on_hover_text("Show shaded VFO filter bandwidth region centered on the tuned frequency.");
+            ui.toggle_value(&mut self.show_vfo_b, "VFO B")
+                .on_hover_text("Show VFO B frequency as a dashed marker line on the spectrum and waterfall.");
             ui.toggle_value(&mut self.show_bookmarks, "⭐ BM")
                 .on_hover_text("Overlay bookmark frequencies as vertical lines on the spectrum.");
             ui.toggle_value(&mut self.show_band_plan, "🗺 BP")
@@ -1011,6 +1017,40 @@ impl SpectrumAnalyzer {
                     bw_label,
                     egui::FontId::proportional(8.0),
                     label_color,
+                );
+            }
+        }
+
+        // VFO B frequency marker
+        if self.show_vfo_b && self.vfo_b_freq > 0 {
+            let vs = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let vo = (self.zoom_offset as f64 - 0.5) * vs;
+            let left_hz_v = -vs / 2.0 + vo;
+            let right_hz_v = vs / 2.0 + vo;
+            let offset_hz = self.vfo_b_freq as f64 - self.center_freq as f64;
+            let frac = (offset_hz - left_hz_v) / (right_hz_v - left_hz_v);
+            if (0.0..=1.0).contains(&frac) {
+                let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
+                // Dashed line effect: draw segments
+                let n_dashes = 20;
+                let total_h = spectrum_rect.height();
+                let dash_len = total_h / n_dashes as f32 / 2.0;
+                for i in 0..n_dashes {
+                    let y0 = spectrum_rect.top() + (i as f32 / n_dashes as f32) * total_h;
+                    let y1 = (y0 + dash_len).min(spectrum_rect.bottom());
+                    painter.line_segment(
+                        [egui::pos2(x, y0), egui::pos2(x, y1)],
+                        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(100, 180, 255, 160)),
+                    );
+                }
+                // VFO B label
+                let vfo_b_mhz = self.vfo_b_freq as f64 / 1e6;
+                painter.text(
+                    egui::pos2(x + 3.0, spectrum_rect.top() + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("B {:.3} MHz", vfo_b_mhz),
+                    egui::FontId::proportional(8.0),
+                    egui::Color32::from_rgba_premultiplied(100, 180, 255, 200),
                 );
             }
         }
@@ -1813,6 +1853,33 @@ impl SpectrumAnalyzer {
                         label_color,
                     );
                 }
+            }
+        }
+
+        // VFO B marker on waterfall
+        if self.show_vfo_b && self.vfo_b_freq > 0 {
+            let offset_hz_b = self.vfo_b_freq as f64 - self.center_freq as f64;
+            let frac_b = (offset_hz_b - left_hz) / zoom_span;
+            if (0.0..=1.0).contains(&frac_b) {
+                let x = wf_rect.left() + frac_b as f32 * wf_rect.width();
+                let n_dashes = 14;
+                let total_h = wf_rect.height();
+                let dash_len = total_h / n_dashes as f32 / 2.0;
+                for i in 0..n_dashes {
+                    let y0 = wf_rect.top() + (i as f32 / n_dashes as f32) * total_h;
+                    let y1 = (y0 + dash_len).min(wf_rect.bottom());
+                    wf_painter.line_segment(
+                        [egui::pos2(x, y0), egui::pos2(x, y1)],
+                        egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(100, 180, 255, 90)),
+                    );
+                }
+                wf_painter.text(
+                    egui::pos2(x + 2.0, wf_rect.top() + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    "VFO B",
+                    egui::FontId::proportional(7.0),
+                    egui::Color32::from_rgba_premultiplied(100, 180, 255, 140),
+                );
             }
         }
 

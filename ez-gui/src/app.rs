@@ -1857,6 +1857,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         .map(|b| (b.frequency_hz, b.name.clone(), b.category.clone()))
                         .collect();
                     state.spectrum.vfo_bw_hz = state.lpf_cutoff as u32 * 2;
+                    state.spectrum.vfo_b_freq = state.vfo_b;
                     state.spectrum.demod_mode = state.demod_mode.label().to_string();
                     // Scanner sweep position marker
                     state.spectrum.scan_marker = if self.scanner.enabled && !self.scanner.paused {
