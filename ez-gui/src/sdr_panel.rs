@@ -374,6 +374,36 @@ impl SdrPanel {
                 ui.label(format!("({:.1} dB)", state.source.gain_db))
                     .on_hover_text("Current gain setting");
             });
+
+            // Gain optimization suggestion
+            let audio_peak = state.audio_peak;
+            let snr_db = state.spectrum.peak_level() - state.spectrum.noise_floor();
+            let gain_suggestion = if audio_peak > 0.95 {
+                Some((
+                    "⚠️ Reduce gain — audio clipping!",
+                    egui::Color32::from_rgb(220, 80, 80),
+                    "Your signal is too strong and causing distortion. Lower the gain by 3–5 dB.",
+                ))
+            } else if audio_peak > 0.85 {
+                Some((
+                    "⚠️ Gain is high (clipping risk)",
+                    egui::Color32::from_rgb(255, 180, 80),
+                    "Signal is strong but approaching saturation. Consider reducing gain slightly.",
+                ))
+            } else if snr_db > 0.0 && snr_db < 10.0 && state.source.gain_db < 40.0 {
+                Some((
+                    "💡 Try increasing gain",
+                    egui::Color32::from_rgb(100, 200, 255),
+                    "Signal is weak. You might improve reception by increasing gain (up to 45 dB).",
+                ))
+            } else {
+                None
+            };
+
+            if let Some((msg, color, tooltip)) = gain_suggestion {
+                ui.colored_label(color, msg)
+                    .on_hover_text(tooltip);
+            }
         }
 
         // Nearby bookmark hint
