@@ -47,6 +47,8 @@ pub struct SdrPanel {
     freq_input_error_time: Option<std::time::Instant>,
     auto_squelch: bool,
     auto_squelch_offset: f32,
+    audio_peak_hold: f32,
+    audio_peak_hold_time: Option<std::time::Instant>,
 }
 
 impl SdrPanel {
@@ -61,6 +63,8 @@ impl SdrPanel {
             freq_input_error_time: None,
             auto_squelch: false,
             auto_squelch_offset: 5.0,
+            audio_peak_hold: 0.0,
+            audio_peak_hold_time: None,
         }
     }
 
@@ -531,8 +535,18 @@ impl SdrPanel {
                     ui.colored_label(dev_color, format!("FM dev: {:.1} kHz", dev_khz))
                         .on_hover_text("FM frequency deviation. NFM: 5–12.5 kHz is normal. WFM broadcast: up to 75 kHz. >75 kHz = overmodulated.");
                 });
-                // Audio level meter bar
+                // Audio level meter bar with peak hold
                 let peak_frac = (state.audio_peak).clamp(0.0, 1.0);
+                // Update peak hold (3-second decay)
+                if peak_frac > self.audio_peak_hold {
+                    self.audio_peak_hold = peak_frac;
+                    self.audio_peak_hold_time = Some(std::time::Instant::now());
+                } else if let Some(held_since) = self.audio_peak_hold_time {
+                    if held_since.elapsed().as_secs_f32() > 3.0 {
+                        self.audio_peak_hold = 0.0;
+                        self.audio_peak_hold_time = None;
+                    }
+                }
                 ui.horizontal(|ui| {
                     ui.label("Audio:");
                     let bar_w = 100.0f32;
@@ -551,8 +565,16 @@ impl SdrPanel {
                             2.0, bar_color,
                         );
                     }
+                    // Peak hold marker
+                    if self.audio_peak_hold > 0.01 {
+                        let peak_x = rect.left() + rect.width() * self.audio_peak_hold;
+                        painter.line_segment(
+                            [egui::pos2(peak_x, rect.top()), egui::pos2(peak_x, rect.bottom())],
+                            egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 200, 100)),
+                        );
+                    }
                     painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 70, 80)), egui::StrokeKind::Middle);
-                    resp.on_hover_text(format!("Audio output level: {:.0}%. >90% = clipping risk — lower volume.", peak_frac * 100.0));
+                    resp.on_hover_text(format!("Audio output level: {:.0}%. Peak hold (orange line): {:.0}%. >90% = clipping risk — lower volume.", peak_frac * 100.0, self.audio_peak_hold * 100.0));
                 });
             }
         }
