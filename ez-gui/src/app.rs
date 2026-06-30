@@ -537,6 +537,16 @@ impl eframe::App for CentralApp {
                         self.status_flash = Some((format!("📡 Peak: {:.3} MHz", peak_hz as f64 / 1e6), std::time::Instant::now()));
                     }
                 }
+                // S key: toggle scanner on/off
+                if i.key_pressed(egui::Key::S) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    if self.scanner.enabled {
+                        self.scanner.stop();
+                        self.status_flash = Some((format!("🔍 Scanner: OFF"), std::time::Instant::now()));
+                    } else {
+                        self.scanner.start();
+                        self.status_flash = Some((format!("🔍 Scanner: ON"), std::time::Instant::now()));
+                    }
+                }
             }
         });
 
@@ -1260,6 +1270,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("V"); ui.label("Swap VFO A ↔ VFO B (quick frequency toggle)"); ui.end_row();
                         ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
                         ui.monospace("T"); ui.label("Tune to the strongest signal in the visible spectrum"); ui.end_row();
+                        ui.monospace("S"); ui.label("Toggle scanner on/off (frequency sweep mode)"); ui.end_row();
                         ui.monospace("J"); ui.label("Open frequency jump dialog — type MHz or band name to jump"); ui.end_row();
                         ui.monospace("Ctrl++"); ui.label("Zoom in on spectrum (×1.5 per press)"); ui.end_row();
                         ui.monospace("Ctrl+-"); ui.label("Zoom out on spectrum"); ui.end_row();
