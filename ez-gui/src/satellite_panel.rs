@@ -219,5 +219,98 @@ impl SatellitePanel {
                 }
             });
         });
+
+        ui.add_space(16.0);
+        ui.separator();
+        // ── Satellite Antenna Setup Tutorial ──────────────────────────────
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("📡 Satellite Antenna Setup Guide").size(16.0).strong());
+        ui.add_space(4.0);
+
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+            ui.separator();
+            ui.label("NOAA APT satellites transmit at only 4 W from 800+ km away. A tuned antenna with a clear horizon is essential for good images.");
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("V-Dipole — the best starter antenna for NOAA APT (137 MHz)", |ui| {
+            ui.add_space(4.0);
+            ui.label("The 9A4QV V-dipole is the most popular DIY antenna for 137 MHz weather satellites. It's cheap, easy to build, and outperforms most store-bought options.");
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Build specs:").strong());
+            ui.add_space(2.0);
+            ui.label("  Each arm length: 53.4 cm (quarter-wave at 137.5 MHz)");
+            ui.label("  Angle between arms: 120° (V-shape)");
+            ui.label("  Material: Any conductive rod/wire (coat hanger, brass, aluminium)");
+            ui.label("  Feed: One arm to coax centre conductor, other to shield");
+            ui.label("  Mount: HORIZONTAL, arms pointing North–South");
+            ui.label("  Coax: 50 Ω (RG-58 or better), keep under 10 m if possible");
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("The V-dipole's horizontal polarisation rejects vertically-polarised terrestrial signals (FM broadcast, land mobile) by ~20 dB — this significantly improves satellite SNR in urban areas.");
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.separator();
+                ui.label("A dipole made from an old metal coat hanger works. Don't overthink the materials. Focus on getting it outside with a clear view of the sky.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Turnstile / QFH — circular polarisation for better performance", |ui| {
+            ui.add_space(4.0);
+            ui.label("These antennas use circular polarisation (RHCP), which matches the satellite's transmission. They provide more consistent signal strength during a pass compared to a linearly-polarised V-dipole.");
+            ui.add_space(4.0);
+            egui::Grid::new("sat_ant_grid").num_columns(2).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Type").strong());
+                ui.label(egui::RichText::new("Trade-off").strong());
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Turnstile (cross-dipole)");
+                ui.label("Two crossed dipoles at 90°, fed 90° out of phase. Good circular polarisation. Harder to build than V-dipole but better null-filling overhead.");
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "QFH (Quadrifilar Helix)");
+                ui.label("Best performance for LEO satellites. True hemispherical pattern — receives from horizon to horizon. Complex to build but the gold standard for NOAA/Meteor.");
+                ui.end_row();
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("GOES geostationary satellites — a different challenge (1.7 GHz)", |ui| {
+            ui.add_space(4.0);
+            ui.label("GOES-16/18 are in geostationary orbit (35,786 km). Signals are much weaker than LEO NOAA sats. You will need a directional antenna:");
+            ui.add_space(4.0);
+            ui.label("  1. Grid dish (60–120 cm, repurposed Ku-band TV dish + L-band feed) — $0–30");
+            ui.label("  2. Helical antenna (7–12 turns, DIY ~$15) — 15–18 dBic gain");
+            ui.label("  3. Nooelec SAWbird+ GOES LNA ($35) with bandpass filter for 1694 MHz");
+            ui.label("  Sample rate: ≥2.4 MHz, frequency: 1694.1 MHz, polarisation: RHCP");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.separator();
+                ui.label("GOES requires precise antenna pointing. Use a satellite pointing calculator and fine-tune by watching the signal strength in the spectrum display. Budget: ~$80–150 for a working setup.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Pass checklist — before each satellite pass", |ui| {
+            ui.add_space(4.0);
+            ui.label("1.  Check pass time on heavens-above.com, N2YO.com, or the pass table above");
+            ui.label("2.  Best passes: ≥30° max elevation. Overhead (90°) gives 12+ minutes of signal.");
+            ui.label("3.  Set mode to WFM, bandwidth 34–40 kHz on the SDR panel");
+            ui.label("4.  Enable auto-tune & auto-record in the satellite panel");
+            ui.label("5.  Start recording 2 minutes BEFORE AOS (satellite rises)");
+            ui.label("6.  After the pass (LOS), decode the WAV file with SatDump or WXtoIMG");
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Active NOAA APT frequencies:").strong());
+            ui.label("  NOAA 15: 137.620 MHz  |  NOAA 18: 137.9125 MHz  |  NOAA 19: 137.100 MHz");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("NOAA APT uses analog FM — you can hear the distinctive 'chirping' image data as you tune in. If you hear it, you're close! Fine-tune until it sounds clearest.");
+            });
+        });
     }
 }

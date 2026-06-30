@@ -1739,6 +1739,175 @@ impl SdrPanel {
         if let Ok(mut state) = self.shared.try_lock() {
             state.source.ui(ui);
         }
+
+        ui.add_space(16.0);
+        ui.separator();
+        // ── General SDR Antenna Setup Guide ──────────────────────────────
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("📡 Antenna Setup Guide").size(16.0).strong());
+        ui.add_space(4.0);
+
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+            ui.separator();
+            ui.label("The antenna is the most important part of your setup. A great antenna with a modest SDR will outperform a mediocre antenna with an expensive SDR every time.");
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Choose the right antenna for what you want to hear", |ui| {
+            ui.add_space(4.0);
+            egui::Grid::new("sdr_ant_grid").num_columns(2).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Antenna").strong());
+                ui.label(egui::RichText::new("Best for").strong());
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Dipole (RTL-SDR kit)");
+                ui.label("FM broadcast (88–108 MHz), airband, NOAA satellites, general VHF/UHF. Extend elements to ~75 cm each for FM band. Good starter antenna.");
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Quarter-wave monopole");
+                ui.label("Single vertical element over a ground plane. Omnidirectional. Best for scanning FM, airband, land mobile, ADS-B. Cheap and easy to DIY.");
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Discone (Tram 1411/Diamond D130J)");
+                ui.label("Wideband, covers ~25–1300 MHz with one antenna. Best all-rounder for scanning. No tuning needed. Requires outdoor mast mount. Cost: ~$30–80.");
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Active loop (MLA-30+)");
+                ui.label("Best for shortwave/HF (below 30 MHz). Compact, reduces electrical noise in urban settings. Needs 12V bias. Performs poorly above VHF.");
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Long wire / random wire");
+                ui.label("Simple wire antenna for HF/shortwave listening. 10–30 m wire as high as possible. Needs 9:1 balun and good grounding. Excellent for AM broadcast and amateur HF.");
+                ui.end_row();
+            });
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("If you're not sure what to buy: start with the dipole kit included with your RTL-SDR. Once you outgrow it, the next step is a discone for wideband performance.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Coax cable guide — don't throw away signal", |ui| {
+            ui.add_space(4.0);
+            ui.label("Coax loss increases with frequency. A cable that works fine at 100 MHz may lose half your signal at 1 GHz.");
+            ui.add_space(4.0);
+            egui::Grid::new("coax_grid").num_columns(4).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Cable").strong());
+                ui.label(egui::RichText::new("Loss @ 100 MHz/10m").strong());
+                ui.label(egui::RichText::new("Loss @ 1 GHz/10m").strong());
+                ui.label(egui::RichText::new("Best for").strong());
+                ui.end_row();
+                ui.label("RG-58 / RG-316");
+                ui.label("~1.5 dB");
+                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "~9 dB");
+                ui.label("Short patch cables only");
+                ui.end_row();
+                ui.label("RG-6 (TV coax)");
+                ui.label("~0.8 dB");
+                ui.label("~4 dB");
+                ui.label("Runs under 5 m, okay up to UHF");
+                ui.end_row();
+                ui.label("LMR-240 / RFC240");
+                ui.label("~0.4 dB");
+                ui.label("~2.4 dB");
+                ui.label("Good for runs up to 10 m");
+                ui.end_row();
+                ui.label("LMR-400 / RFC400");
+                ui.colored_label(egui::Color32::from_rgb(80, 220, 80), "~0.2 dB");
+                ui.colored_label(egui::Color32::from_rgb(80, 220, 80), "~1.4 dB");
+                ui.label("Best for permanent outdoor runs up to 30 m");
+                ui.end_row();
+            });
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
+                ui.separator();
+                ui.label("Don't coil excess coax — it forms an inductor that can resonate and pick up interference. Cut it to length or lay it flat.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Placement — outdoor is always better", |ui| {
+            ui.add_space(4.0);
+            ui.label("Signal strength by antenna location (typical at VHF/UHF):");
+            ui.add_space(2.0);
+            ui.label("  Indoor (next to window):   Reference — works for strong local signals");
+            ui.label("  Attic:                     +3–6 dB — roofing material still attenuates");
+            ui.label("  Outdoor at roofline:       +10–20 dB — dramatic improvement");
+            ui.label("  Mast 5 m above roofline:   +20–30 dB — best possible");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("Moving the antenna from indoors to outdoors is the single highest-impact improvement you can make. Even a temporary pole in the garden will outperform an attic antenna.");
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.separator();
+                ui.label("If you're in an apartment, try placing the antenna in a window facing the direction of interest. A magnetic loop antenna (MLA-30+) works better indoors than a whip because it rejects local electrical noise.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Polarisation — why it matters", |ui| {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Vertical polarisation:").strong());
+            ui.label("  FM broadcast, land mobile, ADS-B, marine VHF, amateur repeaters, airband");
+            ui.label("  Use a vertical antenna (whip, monopole, discone)");
+            ui.add_space(2.0);
+            ui.label(egui::RichText::new("Horizontal polarisation:").strong());
+            ui.label("  NOAA weather satellites (137 MHz APT), some HF DX, TV broadcast");
+            ui.label("  Use a horizontal dipole or V-dipole");
+            ui.add_space(2.0);
+            ui.label(egui::RichText::new("Polarisation mismatch penalty:").strong());
+            ui.label("  Vertical ↔ Horizontal:     ~20 dB loss (100× weaker)");
+            ui.label("  Linear ↔ Circular:         ~3 dB loss (acceptable)");
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("Below 30 MHz (HF), the ionosphere randomises polarisation — it doesn't matter for shortwave listening.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Quick-start: tune your dipole antenna", |ui| {
+            ui.add_space(4.0);
+            ui.label("If you have the RTL-SDR dipole kit with telescopic elements, here's how to set it up for each band:");
+            ui.add_space(2.0);
+            egui::Grid::new("dipole_tuning").num_columns(3).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Target").strong());
+                ui.label(egui::RichText::new("Each element length").strong());
+                ui.label(egui::RichText::new("Orientation").strong());
+                ui.end_row();
+                ui.label("FM broadcast (88–108 MHz)");
+                ui.label("~75 cm");
+                ui.label("Vertical (elements up/down)");
+                ui.end_row();
+                ui.label("Airband (118–136 MHz)");
+                ui.label("~60 cm");
+                ui.label("Vertical");
+                ui.end_row();
+                ui.label("NOAA satellites (137 MHz)");
+                ui.label("~54 cm");
+                ui.label("Horizontal V-shape, ~120°");
+                ui.end_row();
+                ui.label("Amateur 2m (144–148 MHz)");
+                ui.label("~52 cm");
+                ui.label("Vertical");
+                ui.end_row();
+                ui.label("ADS-B (1090 MHz)");
+                ui.label("~7 cm");
+                ui.label("Vertical");
+                ui.end_row();
+            });
+            ui.add_space(4.0);
+            ui.label("Formula: quarter-wave length (cm) = 7500 / frequency (MHz). Extend elements to the target length and tighten the screws.");
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
+                ui.separator();
+                ui.label("Don't keep the antenna fully collapsed (short) for VHF — it's tuned for UHF at that length. Extend the elements to the correct length for the band you're listening to.");
+            });
+        });
     }
 }
 

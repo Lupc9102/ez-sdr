@@ -587,5 +587,111 @@ impl AdsBPanel {
             ui.separator();
             ui.small("Blue=Low | Green=Mid | Red/Yellow=High");
         });
+
+        ui.add_space(16.0);
+        ui.separator();
+        // ── ADS-B Antenna Setup Tutorial ─────────────────────────────────
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("📡 ADS-B Antenna Setup Guide").size(16.0).strong());
+        ui.add_space(4.0);
+
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+            ui.separator();
+            ui.label("The antenna is the #1 factor in ADS-B range. A well-placed $15 antenna beats a $200 SDR with a poor antenna every time.");
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Which antenna should I use?", |ui| {
+            ui.add_space(4.0);
+            egui::Grid::new("adsb_ant_table").num_columns(2).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Type").strong());
+                ui.label(egui::RichText::new("Description").strong());
+                ui.end_row();
+
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Quarter-wave ground plane");
+                ui.label("Simplest DIY antenna: a 6.9 cm vertical element on a metal ground plane (≥15 cm square). Needs clear sky view. Cost: ~$5–15. Range: 100–250 km.");
+                ui.end_row();
+
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Coaxial collinear (Co-Co)");
+                ui.label("DIY from coax segments. 3–6 dB gain over a monopole. Longer vertical reach, narrower beam. Popular with feeders. Cost: ~$10–20.");
+                ui.end_row();
+
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Commercial collinear");
+                ui.label("FlightAware 26-inch or similar tuned 1090 MHz antenna. Pre-tuned, weatherproof. Best off-the-shelf choice for permanent outdoor install. Cost: ~$40–60.");
+                ui.end_row();
+
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Stock SDR whip");
+                ui.label("Works, but poorly. Expect 30–80 km range. Not tuned for 1090 MHz. Replace as soon as possible.");
+                ui.end_row();
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Coax cable — don't lose your signal before it reaches the SDR", |ui| {
+            ui.add_space(4.0);
+            ui.label("At 1090 MHz, coax loss is severe. Every 3 dB of cable loss = roughly 30% less range.");
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Typical loss at 1090 MHz per 10 meters:").strong());
+            ui.label("  RG-58/RG-316:    ~9 dB — avoid for any run over 2 m");
+            ui.label("  LMR-240/RFC240:  ~5 dB — acceptable for short runs (≤5 m)");
+            ui.label("  LMR-400/RFC400:  ~3 dB — good for runs up to 15 m");
+            ui.label("  LMR-600:         ~1.8 dB — best for long runs");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.separator();
+                ui.label("If you must run >10 m of coax, mount the RTL-SDR + Pi near the antenna and use Ethernet backhaul instead.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Filtering & LNA — the #1 upgrade for urban setups", |ui| {
+            ui.add_space(4.0);
+            ui.label("Cellular towers (LTE/5G at 700–900 MHz and 1800–2100 MHz) can desensitise your SDR's front-end, making it 'deaf' to weak ADS-B signals at 1090 MHz.");
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Recommended chain (in order from antenna):").strong());
+            ui.label("  1. Antenna");
+            ui.label("  2. 1090 MHz SAW filter (e.g. Uputronics, FlightAware, Nooelec SAWbird)");
+            ui.label("  3. LNA with <1 dB noise figure (often integrated into the filter)");
+            ui.label("  4. Coax cable to SDR");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("Buy the filter FIRST. An LNA amplifies signal AND noise equally — filtering addresses the real problem. Many combo filtered-LNA products (SAWbird+) simplify this.");
+            });
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
+                ui.separator();
+                ui.label("Don't buy a wideband LNA without a 1090 MHz filter. It will amplify nearby cellular interference and make things worse.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Placement — height is everything", |ui| {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Approximate range by antenna location:").strong());
+            ui.add_space(2.0);
+            ui.label("  Indoor windowsill:    30–80 km  (worst — walls, roof, and window glass all absorb 1090 MHz)");
+            ui.label("  Attic:                80–150 km (better, but roofing materials still attenuate)");
+            ui.label("  Outdoor roofline:     150–300 km (dramatic improvement — clear horizon)");
+            ui.label("  Mast 5–10 m high:     300–450 km (best — above obstructions, line-of-sight to horizon)");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("The single biggest improvement you can make: move the antenna from indoors to outdoors. This alone can triple your aircraft count.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Polarisation & antenna gain — the trade-offs", |ui| {
+            ui.add_space(4.0);
+            ui.label("ADS-B transponders transmit with vertical polarisation. Your antenna must also be vertically polarised (elements vertical). A horizontal antenna loses ~20 dB.");
+            ui.add_space(4.0);
+            ui.label("Higher-gain antennas (6–9 dBi) have a narrow vertical beam. They reach aircraft at cruise altitude (35,000 ft) further, but may miss nearby low-altitude traffic. A 2–3 dBi omnidirectional antenna gives more consistent total aircraft counts.");
+        });
     }
 }

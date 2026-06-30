@@ -1021,5 +1021,105 @@ impl FrequencyScanner {
                     }
                 });
         });
+
+        ui.add_space(12.0);
+        ui.separator();
+        // ── Scanner Guide ─────────────────────────────────────────────────
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("📡 Scanner Guide").size(16.0).strong());
+        ui.add_space(4.0);
+
+        ui.collapsing("What to scan — recommended frequency ranges", |ui| {
+            ui.add_space(4.0);
+            egui::Grid::new("scan_ranges").num_columns(3).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Band").strong());
+                ui.label(egui::RichText::new("Range").strong());
+                ui.label(egui::RichText::new("What you'll hear").strong());
+                ui.end_row();
+                ui.label("Land Mobile (VHF)");
+                ui.label("150–174 MHz");
+                ui.label("Police, fire, EMS, business radio, utilities (NFM)");
+                ui.end_row();
+                ui.label("Land Mobile (UHF)");
+                ui.label("450–512 MHz");
+                ui.label("UHF business, security, schools, transport (NFM)");
+                ui.end_row();
+                ui.label("Marine VHF");
+                ui.label("156–162 MHz");
+                ui.label("Coast guard, ship traffic, marina channels (NFM)");
+                ui.end_row();
+                ui.label("Marine AIS");
+                ui.label("161.975–162.025 MHz");
+                ui.label("Ship position data bursts — use RAW mode");
+                ui.end_row();
+                ui.label("Amateur 2m");
+                ui.label("144–148 MHz");
+                ui.label("HAM repeaters, simplex, APRS (NFM)");
+                ui.end_row();
+                ui.label("Amateur 70cm");
+                ui.label("430–450 MHz");
+                ui.label("HAM UHF repeaters, satellite downlinks (NFM)");
+                ui.end_row();
+                ui.label("FM Broadcast");
+                ui.label("88–108 MHz");
+                ui.label("Commercial radio stations (WFM)");
+                ui.end_row();
+                ui.label("Airband");
+                ui.label("118–137 MHz");
+                ui.label("Towers, approach, ground, ATIS (AM)");
+                ui.end_row();
+                ui.label("Rail / POCSAG");
+                ui.label("153–160 MHz");
+                ui.label("Rail communications, pager bursts (NFM)");
+                ui.end_row();
+            });
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("Start with a wide range (150–174 MHz) to discover active channels in your area. As you identify interesting frequencies, narrow the scan range to focus on them.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Antenna for scanning", |ui| {
+            ui.add_space(4.0);
+            ui.label("The best antenna for general scanning is a discone (Tram 1411 or Diamond D130J) mounted outdoors. It covers VHF and UHF without any tuning.");
+            ui.add_space(2.0);
+            ui.label("If you don't have a discone, a quarter-wave vertical cut for the middle of your target band works well. For VHF scanning (150 MHz), use a ~50 cm vertical whip with a ground plane.");
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
+                ui.separator();
+                ui.label("Don't expect good results scanning UHF (450+ MHz) with an antenna tuned for VHF. The mismatch loss can make you miss signals entirely.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Interpreting hits", |ui| {
+            ui.add_space(4.0);
+            ui.label("Each hit shows the frequency, signal strength (dB), and timestamp of the strongest signal detected at that step:");
+            ui.add_space(4.0);
+            ui.label("  •  Strength above threshold = signal present. Higher = closer or stronger transmitter.");
+            ui.label("  •  Multiple hits at the same frequency = active channel (repeat transmissions).");
+            ui.label("  •  Single hit = brief transmission or false positive (noise spike).");
+            ui.label("  •  Hit at exactly every step = noise/overload, not real signals — increase threshold.");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.separator();
+                ui.label("Public safety and military frequencies may be encrypted. If you hear digital noise/garbling, it might be encrypted or a digital mode (P25, DMR, NXDN).");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Export options", |ui| {
+            ui.add_space(4.0);
+            ui.label("Use the Export CSV button to save hits as a spreadsheet. Import into a frequency database for further analysis.");
+            ui.add_space(2.0);
+            ui.label("Use 'Save Hits' / 'Load Hits' to persist scan results between sessions. Data is saved as JSON.");
+            ui.add_space(2.0);
+            ui.label("The 🚫 (exclude) button lets you skip known-noise frequencies during subsequent scans.");
+        });
     }
 }

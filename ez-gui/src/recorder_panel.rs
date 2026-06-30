@@ -662,6 +662,87 @@ impl RecorderPanel {
                 });
             }
         });
+
+        ui.add_space(12.0);
+        ui.separator();
+        // ── Recording Guide ───────────────────────────────────────────────
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("📡 Recording Guide").size(16.0).strong());
+        ui.add_space(4.0);
+
+        ui.collapsing("IQ vs Audio recording — what's the difference?", |ui| {
+            ui.add_space(4.0);
+            egui::Grid::new("rec_types").num_columns(2).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Format").strong());
+                ui.label(egui::RichText::new("Best for").strong());
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "IQ (raw)");
+                ui.label("Raw I/Q samples. Large files (~8 MB/s at 2 MHz bandwidth). Use when you want to replay the full RF spectrum later, change demodulation settings, or post-process with tools like GNU Radio.");
+                ui.end_row();
+                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "WAV (audio)");
+                ui.label("Demodulated audio only. Small files (~90 KB/s). Use for NOAA APT decoding with SatDump/WXtoIMG, archiving voice transmissions, or sharing recordings.");
+                ui.end_row();
+            });
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("For satellite passes: record WAV audio (WFM mode, 34–40 kHz bandwidth), then decode with SatDump. IQ recording is unnecessary for NOAA APT.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Squelch-triggered recording — record only when there's activity", |ui| {
+            ui.add_space(4.0);
+            ui.label("Enable 'Record on squelch open' to automatically start/stop recording based on signal activity:");
+            ui.add_space(2.0);
+            ui.label("  1. Set the squelch level on the SDR panel to cut off static");
+            ui.label("  2. Enable 'Record on squelch open' here");
+            ui.label("  3. Set a tail time (default 500 ms) — recording continues briefly after signal ends to catch the full transmission");
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("This mode is ideal for monitoring a frequency for long periods — you'll only get recordings when something happens, saving disk space.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Recording satellite passes — step by step", |ui| {
+            ui.add_space(4.0);
+            ui.label("1.  Go to the Satellite tab, check 'Auto-record on pass'");
+            ui.label("2.  The scheduler will automatically start recording 2 minutes before AOS");
+            ui.label("3.  Recording stops 1 minute after LOS");
+            ui.label("4.  Find the WAV file in the output directory");
+            ui.label("5.  Open in SatDump (File → Open Baseband → select your .wav)");
+            ui.label("6.  Select the correct satellite (NOAA 15/18/19) and click Decode");
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Alternative manual workflow:").strong());
+            ui.label("  1. Tune to satellite frequency, set mode to WFM, bandwidth 34–40 kHz");
+            ui.label("  2. Click 'Start Recording' 2 minutes before the pass");
+            ui.label("  3. Stop after the pass, then decode the .wav file offline");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.separator();
+                ui.label("WAV recordings are standard PCM files — any audio editor (Audacity, SoX) can open them. This is useful for inspecting the raw APT signal visually.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Disk space & file management", |ui| {
+            ui.add_space(4.0);
+            ui.label("  •  IQ recordings grow at ~8 MB/second — a 5-minute file is ~2.4 GB.");
+            ui.label("  •  WAV audio recordings grow at ~90 KB/second — a 15-minute satellite pass is ~80 MB.");
+            ui.label("  •  Use the file list below to review and delete old recordings.");
+            ui.label("  •  Output directory defaults to the current directory — set a dedicated location for large collections.");
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
+                ui.separator();
+                ui.label("Don't leave IQ recording running unattended. A 10-minute IQ recording at 2.4 MHz uses about 4.8 GB of disk space.");
+            });
+        });
     }
 
     fn cached_free_disk_space(&mut self) -> (f64, String) {
