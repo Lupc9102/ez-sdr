@@ -81,6 +81,11 @@ const KEYWORD_INDEX: &[(&str, &[usize])] = &[
     ("csv",         &[8, 10]),
     ("export",      &[8, 10]),
     ("import",      &[10]),
+    ("bandwidth",   &[3, 4]),
+    ("png",         &[4]),
+    ("screenshot",  &[4]),
+    ("notes",       &[10]),
+    ("preset",      &[3]),
 ];
 
 impl HowToPanel {
@@ -885,6 +890,14 @@ impl HowToPanel {
         ui.label("  •  ⟳ Layout button (far right) — resets all panels back to the default dock layout");
         Self::tip(ui, "Click the frequency in the status bar to instantly copy it to the clipboard. Great for sharing frequencies or pasting into other apps.");
         Self::tip(ui, "The S-meter follows the IARU standard: S1 = −121 dBm, each S-unit is 6 dB. S9 = −73 dBm. The S9+N label appears for very strong signals above S9.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Gain quick presets");
+        ui.label("Below the gain slider, four one-click preset buttons jump straight to common gain values: Low (10 dB), Med (28 dB), High (42 dB), Max (49.6 dB). The active preset is highlighted green. Handy for fast adjustments without dragging the slider.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Nearby bookmark hint");
+        ui.label("When you're tuned within 100 kHz of a saved bookmark, a blue 'Near: <name> (↑/↓ X kHz away)' hint appears in the SDR panel. Hover it for the bookmark's full details, or press B to snap straight to it.");
     }
 
     fn section_spectrum(&mut self, ui: &mut egui::Ui) {
@@ -1130,6 +1143,25 @@ impl HowToPanel {
         ui.label("  •  Grey 'Last: Xs/Xm/Xh ago' — shows how long since the last signal (fades over 10 minutes)");
         ui.label("  •  Dim 'No activity' — squelch has been on but no signal has appeared yet");
         Self::tip(ui, "Use the last-signal badge to monitor a frequency for rare activity. If you saw a signal 5 minutes ago, the badge tells you at a glance — no need to watch the waterfall scroll.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Peak frequency readout");
+        ui.label("The spectrum info bar shows '⊕ X.XXX MHz' — the frequency of the strongest visible signal in the current view. Hover for a precise 4-decimal reading. Press T to instantly tune to this frequency.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Noise floor trend warning");
+        ui.label("ez-sdr tracks a slow-moving baseline of your noise floor. If the floor suddenly jumps more than 3 dB, a warning appears in the info bar: '⚠ Floor +N dB' (yellow for moderate jumps, red above 8 dB). This usually means new interference has appeared nearby — a switching power supply, USB device, or another transmitter.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "3 dB bandwidth estimator & signal type suggestion");
+        ui.label("Right-click anywhere on the spectrum near a signal to bring up the context menu. It automatically computes the signal's 3 dB bandwidth (the width where power drops to half) and shows:");
+        ui.label("  •  '📐 3 dB BW ≈ ...' — the measured bandwidth in Hz/kHz/MHz");
+        ui.label("  •  '💡 Could be: ...' — a guess at signal type based on that bandwidth (CW/WSPR, SSB voice, AM, NFM voice, wide NFM/pager/APRS, AM broadcast, WFM broadcast, or very wide signals like Wi-Fi/LTE)");
+        Self::tip(ui, "Bandwidth estimation works best when the cursor is close to the signal's peak — right-click directly on the brightest part of the trace.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Waterfall PNG export");
+        ui.label("Click the '📸' button in the spectrum toolbar to save the entire waterfall history (the full scrollback buffer, not just what's visible) as a PNG image file. Useful for documenting band activity, sharing captures, or keeping a visual log of a satellite pass.");
 
         ui.add_space(8.0);
         Self::tip(ui, "Band plan overlays show what each portion of spectrum is allocated for — labels appear automatically based on your current frequency range.");
@@ -1618,6 +1650,10 @@ impl HowToPanel {
         ui.label("  •  Hour tick marks appear every 4 hours for quick reference");
         Self::tip(ui, "Glance at the 24-hour bar to see at a glance how many passes are coming up today, and when the next one starts — without reading through the full list.");
         Self::tip(ui, "You can leave ez-sdr running overnight. The Scheduler will auto-tune to every NOAA pass that crosses your horizon.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Session notes");
+        ui.label("At the bottom of the Scheduler tab, a collapsible '📝 Session Notes' scratchpad lets you jot down frequencies, signal observations, or anything worth remembering during a session. Click 'Save to file' to export your notes as a .txt file, or 'Clear' to start fresh.");
     }
 
     fn section_noise(&mut self, ui: &mut egui::Ui) {

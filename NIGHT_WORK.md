@@ -173,3 +173,18 @@ Started: 2026-06-29 (8-hour window)
 
 ## Session 44 Night Shift Log
 - T+~356min: Waterfall PNG screenshot — "📸" toolbar button saves full waterfall history as PNG via file dialog using image crate
+
+## Session 45 Night Shift Log
+- T+~360min: Gain quick-preset buttons in SDR panel — Low (10 dB), Med (28 dB), High (42 dB), Max (49.6 dB) one-click buttons with active highlight; complements the slider for fast operational gain changes
+
+## Session 46 Night Shift Log
+- T+~365min: Session notes scratchpad in Scheduler tab — collapsible "📝 Session Notes" text area for jotting observations; "Save to file" exports .txt via rfd file dialog; "Clear" empties the area; persists for the session in-memory
+
+## Session 47 Night Shift Log
+- T+~590min: HowTo panel documentation for Sessions 39-46 — added sections for peak frequency readout, noise floor trend warning, 3 dB BW estimator + signal type suggestion, waterfall PNG export (Spectrum & Waterfall section); gain quick presets + nearby bookmark hint (SDR Panel Controls section); session notes scratchpad (Bookmarks & Scheduler section); new search keywords (bandwidth, png, screenshot, notes, preset)
+
+## Night Shift Complete
+- Ended: 2026-06-30, ~9.9h elapsed (overshot the 8h target due to an API outage mid-shift — build/commit work paused, then resumed once resolved)
+- **96 commits** across 47 sessions
+- Summary: took ez-sdr from a functional SDR GUI to a feature-rich, beginner-friendly application. Major additions: full spectrum analysis toolkit (zoom, markers, peak hold, band overlays, BW/signal-type estimation, CSV/PNG export), a smarter scanner (hold-on-activity, exclude lists, JSON persistence, memory scan), SDR panel quality-of-life (dual VFO, smart gain/overload protection, gain presets, configurable tuning steps, nearby-bookmark hints), recorder improvements (filename templates, VOX, sidecar metadata, quick-start presets), bookmark/scheduler polish (CSV import/export, category filters, satellite Doppler display, session notes), and a fully searchable HowTo panel documenting all of it.
+- Remaining backlog items not done: Scanner sweep position marker on spectrum, Config font size slider / JSON export-import / recently-used-frequencies list, "Reset all panels" button verification, final warning cleanup pass. None are blocking — good candidates for a future session.
