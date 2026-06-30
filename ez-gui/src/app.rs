@@ -1098,9 +1098,13 @@ impl eframe::App for CentralApp {
                     ui.ctx().copy_text(format!("{:.6}", true_hz as f64 / 1e6));
                 }
                 ui.separator();
-                ui.small(format!("{} · {:.1} MSps", state.demod_mode.label(), state.source.sample_rate_hz as f64 / 1e6))
-                    .on_hover_text("Active demodulation mode and sample rate in megasamples per second. Higher sample rates show wider spectrum but use more CPU.");
+                let sps_mhz = state.source.sample_rate_hz as f64 / 1e6;
+                ui.small(format!("{} · {:.1} MSps", state.demod_mode.label(), sps_mhz))
+                    .on_hover_text(format!("Demod mode: {}. Sample rate: {:.1} MSps (spectrum width: ±{:.1} MHz). Higher rates = wider view, more CPU.",
+                        state.demod_mode.label(), sps_mhz, sps_mhz / 2.0));
                 ui.separator();
+                ui.small(format!("{}M", state.source.sample_rate_hz / 1_000_000))
+                    .on_hover_text(format!("Current sample rate: {} samples/sec", state.source.sample_rate_hz));
                 ui.small(format!("Gain: {:.1} dB", state.source.gain_db))
                     .on_hover_text("RF gain in dB. Higher = more sensitive but more noise and risk of overload. 30–40 dB is typical for outdoor signals.");
                 ui.separator();
