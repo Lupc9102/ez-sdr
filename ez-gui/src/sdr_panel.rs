@@ -863,19 +863,36 @@ pub fn identify_frequency(freq_hz: u64) -> Option<FreqIdInfo> {
 /// and the suggestion would differ from the current mode.
 fn suggest_demod_for_freq(freq_hz: u64) -> Option<(DemodMode, &'static str, &'static str)> {
     let bands: &[(u64, u64, DemodMode, &str, &str)] = &[
-        (88_000_000,  108_000_000, DemodMode::Wfm, "FM Broadcast",     "WFM for commercial radio"),
+        // HF amateur bands (LSB preferred below 10 MHz)
+        (1_800_000,   2_000_000,   DemodMode::Lsb,  "160m Band",         "LSB for voice; CW for Morse"),
+        (3_500_000,   4_000_000,   DemodMode::Lsb,  "80m Band",          "LSB for voice/digital"),
+        (7_000_000,   7_300_000,   DemodMode::Lsb,  "40m Band",          "LSB for voice/FT8"),
+        (10_100_000,  10_150_000,  DemodMode::Usb,  "30m Band",          "USB for digital modes (CW/data only)"),
+        (14_000_000,  14_350_000,  DemodMode::Usb,  "20m Band",          "USB for voice/FT8 (most popular)"),
+        (21_000_000,  21_450_000,  DemodMode::Usb,  "15m Band",          "USB for voice/FT8"),
+        (24_890_000,  24_990_000,  DemodMode::Usb,  "12m Band",          "USB for voice/FT8"),
+        (28_000_000,  29_700_000,  DemodMode::Usb,  "10m Band",          "USB for voice/FT8/CW"),
+        (50_000_000,  54_000_000,  DemodMode::Usb,  "6m Band",           "USB for voice/FT8 (sporadic-E)"),
+        // Medium wave
+        (150_000,     500_000,     DemodMode::Am,   "LF/MF Band",        "AM for beacons/time signals"),
+        (26_965_000,  27_405_000,  DemodMode::Am,   "CB Radio",          "AM for Citizens Band"),
+        // VHF/UHF
+        (88_000_000,  108_000_000, DemodMode::Wfm, "FM Broadcast",      "WFM for commercial radio"),
         (118_000_000, 137_000_000, DemodMode::Am,  "Aviation",          "AM for air-to-ground voice"),
         (137_000_000, 138_000_000, DemodMode::Fm,  "NOAA APT",          "NFM for weather satellite"),
         (144_000_000, 148_000_000, DemodMode::Fm,  "Amateur 2m",        "NFM for repeaters/simplex"),
+        (150_000_000, 156_000_000, DemodMode::Fm,  "Land Mobile",       "NFM for land mobile radio"),
         (156_000_000, 174_000_000, DemodMode::Fm,  "Marine VHF",        "NFM for ship/coast guard"),
         (162_400_000, 162_600_000, DemodMode::Wfm, "NOAA Weather",      "WFM for NOAA broadcasts"),
-        (420_000_000, 450_000_000, DemodMode::Fm,  "Amateur 70cm",      "NFM for amateur radio"),
-        (26_965_000,  27_405_000,  DemodMode::Am,  "CB Radio",          "AM for Citizens Band"),
-        (150_000_000, 156_000_000, DemodMode::Fm,  "Land Mobile",       "NFM for land mobile radio"),
+        (406_000_000, 406_100_000, DemodMode::Fm,  "EPIRB/PLB",         "NFM for emergency beacons"),
+        (420_000_000, 450_000_000, DemodMode::Fm,  "Amateur 70cm",      "NFM for repeaters/digital"),
+        (433_000_000, 435_000_000, DemodMode::Fm,  "ISM 433 MHz",       "NFM or RAW for sensor data"),
         (450_000_000, 470_000_000, DemodMode::Fm,  "UHF LMR",           "NFM for UHF land mobile"),
+        // Microwave/satellite
+        (1_090_000_000, 1_090_000_000, DemodMode::Raw, "ADS-B",         "RAW for aircraft transponders"),
     ];
     for &(lo, hi, mode, name, reason) in bands {
-        if freq_hz >= lo && freq_hz <= hi {
+        if freq_hz >= lo && freq_hz <= hi.max(lo) {
             return Some((mode, name, reason));
         }
     }
