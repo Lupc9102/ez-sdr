@@ -155,3 +155,21 @@ Started: 2026-06-29 (8-hour window)
 
 ## Session 38 Night Shift Log
 - T+~330min: HowTo panel updates for Sessions 27-37: band name overlay, P key peak hold, J key freq jump, Ctrl±/0 zoom shortcuts, CSV export, marker delta, last-signal badge, scanner JSON save/load, recorder filename template, quick-start presets, audio level meter
+
+## Session 39 Night Shift Log
+- T+~335min: Peak frequency in spectrum info bar — "⊕ X.XXX MHz" readout shows strongest visible signal frequency; hover tooltip shows 4-decimal MHz + T key reminder
+
+## Session 40 Night Shift Log
+- T+~340min: Noise floor trend indicator — slow-tracking baseline detects floor jumps >3 dB; shows yellow/red "⚠ Floor +N dB" in info bar to alert about interference
+
+## Session 41 Night Shift Log
+- T+~345min: Nearby bookmark hint in SDR panel — when within ±100 kHz of any bookmark, shows "Near: <name> (↑/↓ X kHz away)" with hover detail + B key reminder
+
+## Session 42 Night Shift Log
+- T+~350min: 3 dB bandwidth estimator in spectrum right-click menu — instant computation of signal bandwidth at cursor; shows BW in Hz/kHz/MHz
+
+## Session 43 Night Shift Log
+- T+~353min: Signal type suggestion from bandwidth — extends BW estimator with "💡 Could be: NFM voice / SSB / WFM / ..." hint based on measured bandwidth ranges
+
+## Session 44 Night Shift Log
+- T+~356min: Waterfall PNG screenshot — "📸" toolbar button saves full waterfall history as PNG via file dialog using image crate
