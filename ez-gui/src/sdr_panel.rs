@@ -246,6 +246,30 @@ impl SdrPanel {
             }
         }
 
+        // Quick Setup Wizard for beginners
+        if let Ok(mut state) = self.shared.try_lock() {
+            let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
+            if !is_running {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("🚀 Quick Setup").small().color(egui::Color32::from_rgb(100, 200, 255)));
+                    ui.horizontal(|ui| {
+                        if ui.small_button("▶ Start & Optimize")
+                            .on_hover_text("Start SDR, set gain to 40 dB, enable auto-squelch, and start audio so you can hear signals immediately")
+                            .clicked()
+                        {
+                            state.source.start();
+                            state.source.gain_db = 40.0;
+                            state.audio_running = true;
+                            self.auto_squelch = true;
+                            self.squelch = -120.0 + 5.0; // 5 dB above noise floor when tracking starts
+                        }
+                        ui.separator();
+                        ui.label(egui::RichText::new("or tune to a frequency →").small());
+                    });
+                });
+            }
+        }
+
         // Quick tune presets
         if let Ok(mut state) = self.shared.try_lock() {
             ui.horizontal_wrapped(|ui| {
