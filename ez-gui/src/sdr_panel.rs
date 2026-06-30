@@ -446,6 +446,24 @@ impl SdrPanel {
                 let adjustment = -30.0 - peak as f64;
                 state.source.gain_db = (gain + adjustment).clamp(0.0, 49.6);
             }
+            // Gain presets
+            ui.horizontal(|ui| {
+                ui.label("Gain:").on_hover_text("Quick gain presets for common scenarios.");
+                for (label, db, tip) in [
+                    ("Low",  10.0f64, "Low gain (10 dB) — for very strong nearby transmitters or when overloading."),
+                    ("Med",  28.0, "Medium gain (28 dB) — good starting point for most environments."),
+                    ("High", 42.0, "High gain (42 dB) — for weak distant signals. Watch for overload."),
+                    ("Max",  49.6, "Maximum gain (49.6 dB) — only for very weak signals. High overload risk."),
+                ] {
+                    let is_active = (state.source.gain_db - db).abs() < 0.5;
+                    let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
+                        .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(200, 220, 200) }))
+                        .fill(if is_active { egui::Color32::from_rgb(60, 160, 80) } else { egui::Color32::from_rgba_premultiplied(30, 50, 30, 80) })
+                        .small())
+                        .on_hover_text(tip);
+                    if btn.clicked() { state.source.gain_db = db; }
+                }
+            });
         }
 
         // Demod quality indicators
