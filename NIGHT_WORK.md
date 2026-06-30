@@ -121,3 +121,13 @@ Started: 2026-06-29 (8-hour window)
 ## Session 27 Night Shift Log
 - T+~270min: Band name overlay on spectrum top-left corner (calls identify_frequency; semi-transparent badge shows e.g. "FM Broadcast" for recognized bands)
 - T+~272min: P key toggles spectrum peak hold on/off with status flash; toggle_peak_hold() pub method; P documented in shortcut overlay and HowTo
+
+## Session 28 Night Shift Log
+- T+~275min: Scanner: 💾 Save Hits / 📂 Load Hits JSON buttons — persist hit list across sessions; simple JSON format; merge deduplication on load
+
+## Session 29 Night Shift Log
+- T+~278min: Recorder: configurable filename template ({date}, {freq}, {freq1}, {mode} tokens); live filename preview shown below the field; Reset button; IQ/WAV/sidecar JSON all use template
+
+## Session 30 Night Shift Log
+- T+~282min: Adaptive dB grid lines on spectrum — 20/10/5 dB step based on display range; labels on right edge; 0 dB emphasized
+- T+~284min: Recorder quick-start presets — 30s/1m/5m/10m buttons; start recording immediately with auto-stop
