@@ -384,6 +384,15 @@ impl eframe::App for CentralApp {
                 };
                 let audio: Vec<f32> = audio.into_iter().map(|s| s * volume * gate).collect();
                 self.recorder_panel.write_audio_samples(&audio);
+                // Push audio to waveform display (decimate to ~1000 samples for visualization)
+                if let Ok(mut state) = self.shared.try_lock() {
+                    let wf = &mut state.spectrum.audio_waveform;
+                    if wf.capacity() < 2048 { wf.reserve(2048); }
+                    for &s in audio.iter().step_by((audio.len() / 800).max(1)) {
+                        if wf.len() >= 2048 { wf.pop_front(); }
+                        wf.push_back(s);
+                    }
+                }
                 let _ = self.audio_tx.try_send(audio);
                 // Update demod metrics in shared state
                 if let Ok(mut state) = self.shared.try_lock() {

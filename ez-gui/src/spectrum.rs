@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::f32::consts::PI;
 use num_complex::Complex32;
 use rustfft::{FftPlanner, Fft};
@@ -68,6 +69,8 @@ pub struct SpectrumAnalyzer {
     signal_history: std::collections::VecDeque<f32>,
     signal_history_max: usize,
     show_signal_history: bool,
+    pub audio_waveform: VecDeque<f32>,
+    show_audio_waveform: bool,
     pub bookmark_freqs: Vec<(u64, String, String)>,
     show_bookmarks: bool,
     show_band_plan: bool,
@@ -201,6 +204,8 @@ impl SpectrumAnalyzer {
             signal_history: std::collections::VecDeque::new(),
             signal_history_max: 600,
             show_signal_history: false,
+            audio_waveform: VecDeque::with_capacity(2048),
+            show_audio_waveform: false,
             bookmark_freqs: Vec::new(),
             show_bookmarks: true,
             show_band_plan: true,
@@ -623,6 +628,10 @@ impl SpectrumAnalyzer {
             ui.separator();
             ui.toggle_value(&mut self.show_signal_history, "📈 History")
                 .on_hover_text("Show a scrolling chart of peak signal strength over time. Useful for tracking intermittent signals.");
+            if !self.audio_waveform.is_empty() {
+                ui.toggle_value(&mut self.show_audio_waveform, "🎵 Wave")
+                    .on_hover_text("Show the live demodulated audio waveform. Only visible when audio is playing.");
+            }
             ui.separator();
             if ui.small_button("💾 CSV").on_hover_text("Export current spectrum data to CSV (frequency_hz, power_dbfs). Useful for analysis in spreadsheets or Python.").clicked() {
                 self.export_spectrum_csv();
@@ -723,6 +732,51 @@ impl SpectrumAnalyzer {
             painter.text(egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0), egui::Align2::LEFT_TOP,
                 format!("Signal history  ({} pts, floor {:.0} dB)", n, nf),
                 egui::FontId::monospace(8.0), egui::Color32::DARK_GRAY);
+        }
+
+        // Audio waveform display
+        if self.show_audio_waveform && !self.audio_waveform.is_empty() {
+            let wave_height = 50.0;
+            let (wave_rect, wave_resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), wave_height), egui::Sense::hover());
+            let _ = wave_resp.on_hover_text("Demodulated audio waveform. Shows the last ~42 ms of audio signal.");
+            let wf_painter = ui.painter();
+            wf_painter.rect_filled(wave_rect, 2.0, egui::Color32::from_rgb(8, 8, 18));
+            let wf_samples: Vec<f32> = self.audio_waveform.iter().cloned().collect();
+            let n_wf = wf_samples.len();
+            if n_wf > 1 {
+                let mid_y = wave_rect.center().y;
+                let amp = wave_rect.height() * 0.45;
+                // Center line
+                wf_painter.line_segment(
+                    [egui::pos2(wave_rect.left(), mid_y), egui::pos2(wave_rect.right(), mid_y)],
+                    egui::Stroke::new(0.3, egui::Color32::from_rgba_premultiplied(80, 80, 120, 80)),
+                );
+                // Waveform line
+                let mut prev = None;
+                for (i, &s) in wf_samples.iter().enumerate() {
+                    let x = wave_rect.left() + (i as f32 / (n_wf - 1) as f32) * wave_rect.width();
+                    let y = mid_y - s * amp;
+                    if let Some(p) = prev {
+                        let color = if s.abs() > 0.5 {
+                            egui::Color32::from_rgb(231, 76, 60)  // red on loud
+                        } else if s.abs() > 0.25 {
+                            egui::Color32::from_rgb(241, 196, 15) // yellow on moderate
+                        } else {
+                            egui::Color32::from_rgb(46, 204, 113) // green on quiet
+                        };
+                        wf_painter.line_segment([p, egui::pos2(x, y)], egui::Stroke::new(1.0, color));
+                    }
+                    prev = Some(egui::pos2(x, y));
+                }
+                // Label
+                wf_painter.text(
+                    egui::pos2(wave_rect.left() + 2.0, wave_rect.top() + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("Audio waveform  ({} samples)", n_wf),
+                    egui::FontId::monospace(8.0),
+                    egui::Color32::DARK_GRAY,
+                );
+            }
         }
 
         // Info bar

@@ -20,6 +20,8 @@ Implement autonomous night-long codebase improvements for an SDR application (ez
 - Phase 5: Frequency band presets dropdown (commit c23126f)
 - Added Inferno and Turbo waterfall colormaps (commit c5ab379)
 - **VFO B frequency marker** — dashed blue line on spectrum + waterfall, toggle button, right-click "Set as VFO B" (commits eb717d7, 7eabc8e)
+- **Waterfall/CSV export sidecar metadata** — each PNG screenshot and CSV export now writes a companion .json with capture parameters (commit 5a5acfb, 6f39144)
+- **Frequency memory labels** — M1-M9 now store labels alongside frequencies, auto-named on save (commit cf7cb8c)
 
 ### In Progress
 - (none currently)
@@ -33,14 +35,14 @@ Implement autonomous night-long codebase improvements for an SDR application (ez
 
 ## Current Codebase State
 - **Zero compiler warnings** on both `ez-gui` and `dump1090`
-- All phases 1–5 complete + VFO B markers + colormap additions
+- All phases 1–5 complete + VFO B markers + colormaps + export sidecars + freq mem labels
 
 ## Next Steps (if continuing)
 1. Audio waveform display below signal history chart
-2. Waterfall screenshot with metadata overlay
-3. Frequency memory labels for M1-M9
-4. Signal history persistence to disk
-5. CPU/memory usage in status bar
+2. Signal history persistence to disk
+3. CPU/memory usage in status bar
+4. Persist freq memory labels in AppConfig
+5. Add label editing UI for M1-M9 in SDR panel
 
 ## Critical Context
 - Build: `PKG_CONFIG_PATH=/tmp/opencode/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig cargo check -p ez-gui`
@@ -49,7 +51,9 @@ Implement autonomous night-long codebase improvements for an SDR application (ez
 - Current time: ~23:25 GMT+3 on June 30, 2026
 
 ## Relevant Files
-- `ez-gui/src/spectrum.rs`: Waterfall/spectrum rendering, ColorMap, signal_history, VFO B marker, palette, context menus
+- `ez-gui/src/spectrum.rs`: Waterfall/spectrum rendering, ColorMap, signal_history, VFO B marker, palette, context menus, export sidecars
+- `ez-gui/src/sdr_panel.rs`: Central SDR control, frequency, gain, mode, band presets, step controls, memory display
+- `ez-gui/src/app.rs`: Main app shell, status badges, keyboard shortcuts, config save/restore, FreqMemEntry definition, VFO B handling
 - `ez-gui/src/sdr_panel.rs`: Central SDR control, frequency, gain, mode, band presets, step controls
 - `ez-gui/src/app.rs`: Main app shell, status badges, keyboard shortcuts, config save/restore
 - `ez-gui/src/config.rs`: AppConfig persistence
