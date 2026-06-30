@@ -655,13 +655,101 @@ impl AiPanel {
         "Error: could not access SDR state".to_string()
     }
 
-    /// Render message content with proper newline and code-block support.
-    fn render_message_content(ui: &mut egui::Ui, content: &str, text_color: egui::Color32) {
+    /// Scan `text` for the first frequency mention (e.g. "137.1 MHz", "1090 MHz", "433 kHz").
+    /// Returns (start_byte, end_byte, hz) or None.
+    fn find_next_freq(text: &str) -> Option<(usize, usize, u64)> {
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i].is_ascii_digit() {
+                let num_start = i;
+                while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+                if i < bytes.len() && bytes[i] == b'.' {
+                    i += 1;
+                    while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+                }
+                let num_end = i;
+                let suffix = &text[num_end..];
+
+                let (mult, slen): (f64, usize) =
+                    if suffix.starts_with(" MHz") { (1e6, 4) }
+                    else if suffix.starts_with("MHz")  { (1e6, 3) }
+                    else if suffix.starts_with(" GHz") { (1e9, 4) }
+                    else if suffix.starts_with("GHz")  { (1e9, 3) }
+                    else if suffix.starts_with(" kHz") { (1e3, 4) }
+                    else if suffix.starts_with("kHz")  { (1e3, 3) }
+                    else { (0.0, 0) };
+
+                if mult > 0.0 {
+                    if let Ok(val) = text[num_start..num_end].parse::<f64>() {
+                        if val > 0.0 {
+                            let hz = (val * mult) as u64;
+                            return Some((num_start, num_end + slen, hz));
+                        }
+                    }
+                }
+                // Not a frequency — keep scanning from num_end
+            } else {
+                i += 1;
+            }
+        }
+        None
+    }
+
+    /// Render one line of prose with frequency mentions rendered as blue clickable links.
+    /// Returns Some(hz) if a link was clicked this frame.
+    fn render_line_with_freqs(ui: &mut egui::Ui, line: &str, text_color: egui::Color32) -> Option<u64> {
+        let mut clicked: Option<u64> = None;
+        ui.horizontal_wrapped(|ui| {
+            let mut rest = line;
+            while !rest.is_empty() {
+                match Self::find_next_freq(rest) {
+                    Some((start, end, hz)) => {
+                        if start > 0 {
+                            ui.label(egui::RichText::new(&rest[..start]).color(text_color));
+                        }
+                        let link_text = egui::RichText::new(&rest[start..end])
+                            .color(egui::Color32::from_rgb(80, 180, 255))
+                            .underline();
+                        let resp = ui.add(egui::Label::new(link_text).sense(egui::Sense::click()))
+                            .on_hover_text(format!("🎯 Tune to {:.4} MHz", hz as f64 / 1e6));
+                        if resp.clicked() {
+                            clicked = Some(hz);
+                        }
+                        rest = &rest[end..];
+                    }
+                    None => {
+                        ui.label(egui::RichText::new(rest).color(text_color));
+                        break;
+                    }
+                }
+            }
+        });
+        clicked
+    }
+
+    /// Render a prose block (no code fences) line-by-line so \n shows as line breaks,
+    /// with frequency mentions rendered as clickable tune links.
+    fn render_prose(ui: &mut egui::Ui, text: &str, text_color: egui::Color32) -> Option<u64> {
+        let mut clicked: Option<u64> = None;
+        for line in text.split('\n') {
+            if line.is_empty() {
+                ui.add_space(2.0);
+            } else if let Some(hz) = Self::render_line_with_freqs(ui, line, text_color) {
+                clicked = Some(hz);
+            }
+        }
+        clicked
+    }
+
+    /// Render message content: handles ``` code fences, newlines, and clickable frequencies.
+    /// Returns Some(hz) if the user clicked a frequency link.
+    fn render_message_content(ui: &mut egui::Ui, content: &str, text_color: egui::Color32) -> Option<u64> {
+        let mut clicked: Option<u64> = None;
         if content.contains("```") {
             let mut in_code = false;
             for block in content.split("```") {
                 if in_code {
-                    // Strip language tag on first line (e.g. "json\n...")
                     let code = if let Some(nl) = block.find('\n') { &block[nl + 1..] } else { block };
                     let code = code.trim_end();
                     if !code.is_empty() {
@@ -673,14 +761,16 @@ impl AiPanel {
                         });
                     }
                 } else if !block.is_empty() {
-                    // Regular text — ui.label respects \n
-                    ui.label(egui::RichText::new(block).color(text_color));
+                    if let Some(hz) = Self::render_prose(ui, block, text_color) {
+                        clicked = Some(hz);
+                    }
                 }
                 in_code = !in_code;
             }
         } else {
-            ui.label(egui::RichText::new(content).color(text_color));
+            clicked = Self::render_prose(ui, content, text_color);
         }
+        clicked
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
@@ -811,8 +901,12 @@ impl AiPanel {
                         });
                     });
 
-                    // Message content with proper newlines and code blocks
-                    Self::render_message_content(ui, &msg.content, content_color);
+                    // Message content: newlines, code fences, clickable frequency links
+                    if let Some(hz) = Self::render_message_content(ui, &msg.content, content_color) {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            state.source.frequency_hz = hz;
+                        }
+                    }
 
                     if msg.streaming {
                         ui.horizontal(|ui| {
