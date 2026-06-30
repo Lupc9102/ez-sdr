@@ -1079,6 +1079,21 @@ impl eframe::App for CentralApp {
                     .on_hover_text(if running { "SDR source is active and streaming samples." } else { "SDR source is stopped. Press Start or Space to begin." });
                 ui.small(if running { "Running" } else { "Stopped" })
                     .on_hover_text("SDR source status indicator.");
+
+                // Frequency accuracy indicator
+                if state.source.ppm_correction != 0 || state.lo_offset_hz != 0 {
+                    ui.separator();
+                    let accuracy_tips = if state.source.ppm_correction != 0 && state.lo_offset_hz != 0 {
+                        "Both PPM correction and LO offset active"
+                    } else if state.source.ppm_correction != 0 {
+                        "PPM error correction applied"
+                    } else {
+                        "LO offset compensation active"
+                    };
+                    ui.colored_label(egui::Color32::from_rgb(255, 180, 50), "⚙ Adjusted")
+                        .on_hover_text(accuracy_tips);
+                }
+
                 ui.separator();
                 let true_hz = (state.source.frequency_hz as i64 + state.lo_offset_hz).max(0) as u64;
                 let freq_str = if state.lo_offset_hz != 0 {
