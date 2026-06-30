@@ -219,6 +219,41 @@ impl SdrPanel {
                     state.spectrum.frozen = !state.spectrum.frozen;
                 }
             });
+            ui.separator();
+            // Band presets
+            let current_freq = state.source.frequency_hz;
+            let band_presets: &[(&str, u64, &str)] = &[
+                ("LW (153-279 kHz)",        153_000,      "Longwave broadcast"),
+                ("MW/AM (530-1710 kHz)",    1_000_000,    "AM broadcast band"),
+                ("Shortwave (2.3-30 MHz)",  10_000_000,   "Shortwave HF band"),
+                ("CB Radio (27 MHz)",       27_000_000,   "Citizens Band"),
+                ("6m HAM (50-54 MHz)",      50_000_000,   "6m amateur band"),
+                ("FM Broadcast (88-108)",   100_000_000,  "WFM broadcast radio"),
+                ("Air Band (118-137 MHz)",  120_000_000,  "AM aviation"),
+                ("2m HAM (144-148 MHz)",    145_000_000,  "2m amateur band"),
+                ("Marine VHF (156-174)",    160_000_000,  "Marine radio"),
+                ("70cm HAM (430-440 MHz)",  435_000_000,  "70cm amateur band"),
+                ("GMRS/FRS (462-467 MHz)",  462_000_000,  "GMRS/FRS"),
+                ("UHF (700-900 MHz)",       800_000_000,  "Cellular/UHF TV"),
+                ("ADS-B (1090 MHz)",        1_090_000_000,"Aircraft transponder"),
+                ("L-Band (1.5-1.7 GHz)",    1_500_000_000,"GPS/satellite"),
+            ];
+            let selected = band_presets.iter()
+                .position(|(_, freq, _)| {
+                    let diff = if *freq > current_freq { *freq - current_freq } else { current_freq - *freq };
+                    diff < 2_000_000
+                });
+            let combo = egui::ComboBox::from_id_salt("band_presets")
+                .selected_text(if let Some(idx) = selected { band_presets[idx].0 } else { "Band…" })
+                .width(160.0)
+                .show_ui(ui, |ui| {
+                    for (i, &(name, freq, _desc)) in band_presets.iter().enumerate() {
+                        if ui.selectable_label(selected == Some(i), name).clicked() {
+                            state.source.frequency_hz = freq;
+                        }
+                    }
+                });
+            combo.response.on_hover_text("Jump to a common frequency band. The dropdown shows which band your current frequency is nearest to.");
         }
 
         // Frequency information and mode suggestion
