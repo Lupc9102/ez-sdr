@@ -70,6 +70,10 @@ pub struct AppConfig {
     pub last_session_demod: String,
     #[serde(default)]
     pub color_map: String,
+    #[serde(default)]
+    pub freq_memory_hz: Vec<u64>,
+    #[serde(default)]
+    pub freq_memory_labels: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -109,6 +113,8 @@ impl Default for AppConfig {
             last_session_gain_db: -1.0,
             last_session_demod: String::new(),
             color_map: "Classic".to_string(),
+            freq_memory_hz: Vec::new(),
+            freq_memory_labels: Vec::new(),
         }
     }
 }

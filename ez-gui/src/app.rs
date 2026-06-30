@@ -209,6 +209,19 @@ impl CentralApp {
             state.source.ppm_correction = state.config.ppm_correction;
             state.lo_offset_hz = state.config.lo_offset_hz;
             state.vfo_b = if state.config.vfo_b_hz > 0 { state.config.vfo_b_hz } else { state.config.default_freq_hz };
+            // Restore frequency memory labels from config
+            let saved_hz = state.config.freq_memory_hz.clone();
+            let saved_labels = state.config.freq_memory_labels.clone();
+            for (i, mem) in state.freq_memory.iter_mut().enumerate() {
+                if let Some(&hz) = saved_hz.get(i) {
+                    mem.freq_hz = hz;
+                }
+                if let Some(label) = saved_labels.get(i) {
+                    if !label.is_empty() {
+                        mem.label = label.clone();
+                    }
+                }
+            }
             state.source.start();
             state.tle.observer_lat = state.config.observer_lat;
             state.tle.observer_lon = state.config.observer_lon;
@@ -520,6 +533,8 @@ impl eframe::App for CentralApp {
                     state.config.wf_max_db = state.spectrum.wf_max_db;
                     state.config.lo_offset_hz = state.lo_offset_hz;
                     state.config.color_map = state.spectrum.color_map.name().to_string();
+                    state.config.freq_memory_hz = state.freq_memory.iter().map(|m| m.freq_hz).collect();
+                    state.config.freq_memory_labels = state.freq_memory.iter().map(|m| m.label.clone()).collect();
                     // Save current session state so next launch resumes here
                     state.config.last_session_freq_hz = state.source.frequency_hz;
                     state.config.last_session_gain_db = state.source.gain_db;
@@ -1815,6 +1830,8 @@ impl eframe::App for CentralApp {
             cfg.wf_max_db = state.spectrum.wf_max_db;
             cfg.lo_offset_hz = state.lo_offset_hz;
             cfg.color_map = state.spectrum.color_map.name().to_string();
+            cfg.freq_memory_hz = state.freq_memory.iter().map(|m| m.freq_hz).collect();
+            cfg.freq_memory_labels = state.freq_memory.iter().map(|m| m.label.clone()).collect();
             cfg.save();
         }
     }
