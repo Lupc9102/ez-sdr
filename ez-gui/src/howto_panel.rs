@@ -801,6 +801,17 @@ impl HowToPanel {
         Self::tip(ui, "Example: tune to 118 MHz (airband) while in NFM mode — a suggestion to switch to AM appears. One click applies it.");
 
         ui.add_space(10.0);
+        Self::h2(ui, "LO / Upconverter offset");
+        ui.label("Some SDR setups use an upconverter to receive HF (e.g. Ham-It-Up adds a 125 MHz LO offset so your RTL-SDR can tune shortwave). The 'LO Offset' DragValue lets you enter that offset:");
+        ui.label("  •  Drag or type the LO offset in MHz (positive or negative)");
+        ui.label("  •  Quick presets: 0, 125, 100, −125 MHz");
+        ui.label("  •  When set, the SDR panel shows the TRUE frequency (tuned + offset) in amber");
+        ui.label("  •  The status bar frequency also turns amber and shows the true frequency");
+        ui.label("  •  Clicking the status bar copies the true frequency to clipboard");
+        ui.label("  •  Setting is saved with Ctrl+S and restored on next launch");
+        Self::tip(ui, "Example: Ham-It-Up upconverter uses 125 MHz. Set LO Offset = +125 MHz. Then tuning to 7.200 MHz on the SDR slider actually receives 7.200 MHz − 125 MHz = −117.8 MHz… wait, no: you tune the RTL-SDR to 7.200+125 = 132.2 MHz to receive 7.200 MHz. EZ-SDR does this math for you — just set the offset and enter the true frequency you want.");
+
+        ui.add_space(10.0);
         Self::h2(ui, "Gain — overload detection and Smart Gain");
         ui.label("Below the signal meter, two gain-management features help prevent and fix overload:");
         egui::Grid::new("gain_features").num_columns(2).striped(true).show(ui, |ui| {
@@ -831,6 +842,7 @@ impl HowToPanel {
                 ("F",           "Freeze / unfreeze spectrum display."),
                 ("C",           "Cycle waterfall colormap (Classic → Viridis → Plasma → Magma → Hot → Grayscale)."),
                 ("V",           "Swap VFO A ↔ VFO B."),
+                ("T",           "Tune to the strongest visible peak in the spectrum — instantly jumps to the loudest signal on screen."),
                 ("B",           "Tune to the nearest bookmark from the current frequency."),
                 ("1–9",         "Tune instantly to bookmark #1 through #9."),
                 ("Ctrl+R",      "Start / Stop recording (toggle) — no need to go to the Recorder tab."),
@@ -857,12 +869,13 @@ impl HowToPanel {
         Self::h2(ui, "Status bar");
         ui.label("The status bar at the bottom of the window shows:");
         ui.label("  •  ▶ Running / ■ Stopped indicator");
-        ui.label("  •  Current frequency — click it to copy to clipboard");
+        ui.label("  •  Current frequency — click it to copy to clipboard. Turns amber when LO offset is active (shows true receive frequency).");
         ui.label("  •  Demodulation mode · Sample rate · Gain");
         ui.label("  •  ● REC MM:SS — recording in progress with elapsed time (Ctrl+R to toggle)");
         ui.label("  •  🔊 Audio badge — audio is playing");
         ui.label("  •  🔒 SQ badge — squelch is blocking audio (signal below threshold). Hover for details.");
         ui.label("  •  S-meter bargraph — signal strength as a colored fill bar (S1–S9+). Red = weak, yellow = moderate, green = strong.");
+        ui.label("  •  🛰 Doppler badge (green) — satellite is selected and Doppler correction is active. Shows shift in Hz or kHz. Hover for full explanation.");
         ui.label("  •  ⚠ DEMO badge (yellow) when running in simulation mode — no real hardware");
         ui.label("  •  📡 MQTT badge — when connected to an MQTT broker");
         ui.label("  •  ⟳ Layout button (far right) — resets all panels back to the default dock layout");
@@ -964,6 +977,52 @@ impl HowToPanel {
                 ui.end_row();
             }
         });
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Cursor tooltip — frequency and delta");
+        ui.label("Hovering over the spectrum shows a tooltip at the cursor with three pieces of information:");
+        ui.label("  •  Absolute frequency (e.g. '145.500 MHz')");
+        ui.label("  •  Delta from center (e.g. '(+250 kHz)' or '(−1.2 MHz)') — useful for identifying offset channels");
+        ui.label("  •  Signal level at that bin in dBFS");
+        ui.label("The tooltip flips to the left side when the cursor is near the right edge of the spectrum to avoid clipping.");
+        Self::tip(ui, "Use the delta offset to quickly identify adjacent channels. If you're tuned to 145.5 MHz and see a peak at +250 kHz, that's 145.750 MHz — another repeater output.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Spectrum averaging speed");
+        ui.label("The control bar includes preset buttons for spectrum smoothing (averaging between frames):");
+        egui::Grid::new("avg_presets").num_columns(2).striped(true).show(ui, |ui| {
+            for (btn, desc) in &[
+                ("Fast",   "α=0.7 — very responsive, shows individual bursts. Best for fast digital signals and scanning."),
+                ("Med",    "α=0.3 — balanced. Good default for most voice and data signals."),
+                ("Slow",   "α=0.1 — smooth average. Reduces noise spikes, easier to see faint signals."),
+                ("XSlow",  "α=0.03 — heavily averaged. Great for measuring noise floor or tracking weak signals."),
+            ] {
+                ui.monospace(*btn);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+        Self::tip(ui, "For satellite passes: use Slow or XSlow to see the signal emerge from noise. For scanner work: use Fast to catch short bursts.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "VFO BW mode-aware coloring");
+        ui.label("The VFO bandwidth overlay changes color based on the current demodulation mode:");
+        ui.label("  •  Orange = WFM (wide FM broadcast — wide band)");
+        ui.label("  •  Purple = AM");
+        ui.label("  •  Green = USB / LSB (single sideband)");
+        ui.label("  •  Blue = NFM / FM / RAW");
+        ui.label("The label inside the BW overlay shows mode + bandwidth (e.g. 'NFM 12.5 kHz').");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Spectrum context menu (right-click)");
+        ui.label("Right-clicking the spectrum or waterfall shows a context menu with frequency identification inline:");
+        ui.label("  •  Band name and description for the clicked frequency appear at the top");
+        ui.label("  •  Practical tip for that frequency band");
+        ui.label("  •  'Tune here' — tune the SDR to that frequency");
+        ui.label("  •  'Tune + Bookmark' — tune AND save as a bookmark in one click");
+        ui.label("  •  'Bookmark only' — save without tuning");
+        ui.label("  •  'Copy freq', 'Set squelch here', 'Add marker', 'Reset zoom', 'Auto-fit dB'");
+        Self::tip(ui, "Right-click any interesting spectrum peak for instant context — you'll see the band allocation without needing to tune there first.");
 
         ui.add_space(10.0);
         Self::h2(ui, "Info bar (below controls)");
@@ -1185,6 +1244,9 @@ impl HowToPanel {
         ui.label("3.  Upcoming passes appear in the Scheduler tab with start time and max elevation angle");
         ui.label("4.  At pass start, ez-sdr auto-tunes to the correct frequency");
         ui.label("5.  Real-time Doppler correction is applied throughout the pass (~±3 kHz at 137 MHz)");
+        ui.label("   •  The Satellite panel shows the live Doppler shift value in color: green (small), yellow (moderate), orange (large)");
+        ui.label("   •  A '✓ Corrected' indicator appears next to the Doppler value when auto-tune is active");
+        ui.label("   •  A 🛰 badge appears in the status bar showing the current shift — click the Satellite panel label to see details");
         ui.label("6.  Record the audio (Recorder tab) → decode offline with SatDump or WXtoImg");
 
         ui.add_space(8.0);
@@ -1233,8 +1295,11 @@ impl HowToPanel {
         Self::h2(ui, "Hits table");
         ui.label("When a signal exceeds the threshold, it's logged with frequency, strength (dB), and time since last seen.");
         ui.label("  •  Click 📡 to instantly tune the SDR to that frequency");
-        ui.label("  •  Click ✕ to remove a hit from the list");
+        ui.label("  •  Click ✕ to remove a hit from the list (🚫 adds it to the exclude list to skip on future sweeps)");
         ui.label("  •  Click 📌 Bookmark all to save every hit as a bookmark in the 'Scanner' category");
+        ui.label("  •  The '×N' column shows how many times each frequency has been detected — heat colored green (rare) through yellow to orange (≥10 hits)");
+        ui.label("  •  'Sort by hits' reorders the table by detection count — most active channels rise to the top");
+        ui.label("  •  '🎯 Top: X.XXX MHz (×N)' button tunes to the most repeatedly detected frequency — the busiest channel in your scan");
 
         ui.add_space(10.0);
         Self::h2(ui, "Scan presets");
@@ -1365,6 +1430,17 @@ impl HowToPanel {
 
         Self::tip(ui, "For NOAA APT satellite passes: record I/Q during the pass, then replay and decode offline. No real-time pressure — you can re-decode many times with different settings.");
         Self::tip(ui, "The Scheduler tab can auto-start and auto-stop recording when a scheduled satellite pass begins and ends.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Signal event log (📋 Signal Log)");
+        ui.label("A separate, lightweight log in the Recorder tab captures every time the squelch opens — without creating audio files:");
+        ui.label("  •  Toggle '📋 Signal Log' to expand the log view");
+        ui.label("  •  Each entry shows: timestamp, frequency, demod mode, and signal strength (color-coded)");
+        ui.label("  •  Log entries are throttled to 1 per 5 seconds per signal activation (prevents spam for continuous signals)");
+        ui.label("  •  Ring buffer holds up to 200 entries (oldest scroll off when full)");
+        ui.label("  •  'Clear' empties the log; 'Export CSV' saves all entries to a CSV file");
+        ui.label("  •  Signal log is independent of VOX recording — it runs even when 'Auto-record' is off");
+        Self::tip(ui, "Run the signal log unattended overnight. In the morning, export the CSV and see every time any frequency you were monitoring opened squelch — great for understanding band activity patterns.");
     }
 
     fn section_bookmarks(&mut self, ui: &mut egui::Ui) {
@@ -1405,6 +1481,14 @@ impl HowToPanel {
             }
         });
         Self::tip(ui, "Put your most-used frequencies at the top of the list to give them the 1–9 slots. Drag or re-order by editing the category so the ones you tune to most often get the lowest numbers.");
+
+        ui.add_space(6.0);
+        Self::h2(ui, "Category quick-filter chips");
+        ui.label("A row of blue chip buttons appears at the top of the bookmark list — one chip per category in your library:");
+        ui.label("  •  Click a chip to show only bookmarks in that category");
+        ui.label("  •  Click the active (highlighted) chip again to clear the filter and show all bookmarks");
+        ui.label("  •  Combine with the text search box for even finer filtering");
+        Self::tip(ui, "If you have 50+ bookmarks across Aviation, Marine, and Amateur categories, clicking the 'Aviation' chip instantly collapses everything else — useful when you want to quickly scroll through one category.");
 
         ui.add_space(6.0);
         Self::h2(ui, "Suggested bookmarks to start with");
