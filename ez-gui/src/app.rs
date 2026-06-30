@@ -1638,6 +1638,21 @@ impl eframe::App for CentralApp {
                         .on_hover_text(format!("Signal stability (standard deviation): {:.2} dB. <2 dB = stable, 2–5 dB = moderate fluctuation, >5 dB = high variability", std_dev));
                 }
             }
+            // CPU / memory usage
+            {
+                let mem_kb = proc_memory_kb();
+                if let Some(kb) = mem_kb {
+                    let mb = kb as f64 / 1024.0;
+                    ui.separator();
+                    if mb > 200.0 {
+                        ui.colored_label(egui::Color32::from_rgb(220, 160, 80), format!("RAM {:.0} MB", mb))
+                            .on_hover_text(format!("Process memory usage: {:.1} MB RSS. Consider closing other applications if memory is tight.", mb));
+                    } else {
+                        ui.colored_label(egui::Color32::DARK_GRAY, format!("RAM {:.0} MB", mb))
+                            .on_hover_text(format!("Process memory usage: {:.1} MB RSS.", mb));
+                    }
+                }
+            }
             // Status flash (short-lived messages, e.g. "⭐ Bookmark name")
             if let Some((msg, since)) = &self.status_flash {
                 let duration = if msg.starts_with("🎉") { 8.0f32 } else { 3.0f32 };
@@ -2593,6 +2608,18 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             }
         }
     }
+}
+
+/// Read process RSS memory from /proc/self/status (Linux).
+fn proc_memory_kb() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in status.lines() {
+        if let Some(val) = line.strip_prefix("VmRSS:") {
+            let kb: u64 = val.trim().trim_end_matches(" kB").parse().ok()?;
+            return Some(kb);
+        }
+    }
+    None
 }
 
 /// Parse "HH:MM" or "HH:MM:SS" as a unix timestamp for today in local time.
