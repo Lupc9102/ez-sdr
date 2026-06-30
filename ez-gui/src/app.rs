@@ -547,6 +547,13 @@ impl eframe::App for CentralApp {
                         self.status_flash = Some((format!("🔍 Scanner: ON"), std::time::Instant::now()));
                     }
                 }
+                // R key: reset spectrum dB range to default (-120 to 0)
+                if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    state.spectrum.display_min_db = -120.0;
+                    state.spectrum.display_max_db = 0.0;
+                    state.spectrum.waterfall_dirty = true;
+                    self.status_flash = Some((format!("📊 dB range reset to -120…0"), std::time::Instant::now()));
+                }
             }
         });
 
@@ -1302,6 +1309,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
                         ui.monospace("T"); ui.label("Tune to the strongest signal in the visible spectrum"); ui.end_row();
                         ui.monospace("S"); ui.label("Toggle scanner on/off (frequency sweep mode)"); ui.end_row();
+                        ui.monospace("R"); ui.label("Reset spectrum dB range to default (-120 to 0 dB)"); ui.end_row();
                         ui.monospace("J"); ui.label("Open frequency jump dialog — type MHz or band name to jump"); ui.end_row();
                         ui.monospace("Ctrl++"); ui.label("Zoom in on spectrum (×1.5 per press)"); ui.end_row();
                         ui.monospace("Ctrl+-"); ui.label("Zoom out on spectrum"); ui.end_row();
