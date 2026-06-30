@@ -370,20 +370,27 @@ impl SpectrumAnalyzer {
             .add_filter("CSV", &["csv"])
             .set_file_name("spectrum_export.csv")
             .save_file();
-        if let Some(path) = path {
-            let n = self.spectrum_dbs.len();
-            let hz_per_bin = self.sample_rate as f64 / n as f64;
-            let mut lines = String::from("frequency_hz,power_dbfs\n");
-            for (i, &db) in self.spectrum_dbs.iter().enumerate() {
-                // FFT bin order: bins 0..N/2 are 0..+Fs/2, bins N/2..N are -Fs/2..0
-                // Reorder to increasing frequency
-                let bin = (i + n / 2) % n;
-                let offset = (bin as f64 - n as f64 / 2.0) * hz_per_bin;
-                let freq_hz = self.center_freq as f64 + offset;
-                lines.push_str(&format!("{:.0},{:.2}\n", freq_hz, db));
-            }
-            let _ = std::fs::write(&path, lines);
+        let Some(path) = path else { return; };
+        let n = self.spectrum_dbs.len();
+        let hz_per_bin = self.sample_rate as f64 / n as f64;
+        let mut lines = String::from("frequency_hz,power_dbfs\n");
+        for (i, &db) in self.spectrum_dbs.iter().enumerate() {
+            // FFT bin order: bins 0..N/2 are 0..+Fs/2, bins N/2..N are -Fs/2..0
+            // Reorder to increasing frequency
+            let bin = (i + n / 2) % n;
+            let offset = (bin as f64 - n as f64 / 2.0) * hz_per_bin;
+            let freq_hz = self.center_freq as f64 + offset;
+            lines.push_str(&format!("{:.0},{:.2}\n", freq_hz, db));
         }
+        let _ = std::fs::write(&path, lines);
+        // Sidecar metadata
+        let sidecar_path = path.with_extension("json");
+        let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+        let json = format!(
+            "{{\n  \"type\": \"spectrum_csv_export\",\n  \"timestamp_utc\": \"{}\",\n  \"center_freq_hz\": {},\n  \"sample_rate_hz\": {},\n  \"fft_size\": {},\n  \"num_bins\": {}\n}}\n",
+            ts, self.center_freq, self.sample_rate, self.fft_size, n
+        );
+        let _ = std::fs::write(&sidecar_path, json);
     }
 
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
