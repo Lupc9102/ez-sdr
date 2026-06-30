@@ -563,7 +563,15 @@ impl SdrPanel {
             ];
             if let Ok(mut state) = self.shared.try_lock() {
                 for (name, freq_hz, mode_str, tip) in BANDS {
-                    if ui.small_button(*name).on_hover_text(*tip).clicked() {
+                    let mode_color = match *mode_str {
+                        "WFM" => egui::Color32::from_rgb(100, 200, 100), // green
+                        "NFM" => egui::Color32::from_rgb(150, 150, 255), // blue
+                        "AM"  => egui::Color32::from_rgb(255, 200, 100), // orange
+                        "RAW" => egui::Color32::from_rgb(150, 150, 150), // gray
+                        _ => egui::Color32::WHITE,
+                    };
+                    let label = egui::RichText::new(format!("{} {}", name, mode_str)).color(mode_color).small();
+                    if ui.small_button(label).on_hover_text(*tip).clicked() {
                         state.source.frequency_hz = *freq_hz;
                         if let Some(mode) = DemodMode::from_label(mode_str) {
                             state.demod_mode = mode;
