@@ -8,6 +8,7 @@ pub struct SignalHit {
     pub freq_hz: u64,
     pub strength_db: f32,
     pub timestamp: Instant,
+    pub hit_count: u32,
 }
 
 pub struct FrequencyScanner {
@@ -137,7 +138,7 @@ impl FrequencyScanner {
         for hit in &self.hits {
             let entry = grouped.entry(hit.freq_hz).or_insert((-200.0, 0));
             if hit.strength_db > entry.0 { entry.0 = hit.strength_db; }
-            entry.1 += 1;
+            if hit.hit_count > entry.1 { entry.1 = hit.hit_count; }
         }
 
         let mut csv = String::from("Frequency_Hz,Frequency_MHz,Max_Strength_dB,Hit_Count\n");
@@ -211,12 +212,13 @@ impl FrequencyScanner {
         if signal_active {
             let existing = self.hits.iter_mut().find(|h| h.freq_hz == self.current_freq_hz);
             if let Some(hit) = existing {
+                hit.hit_count += 1;
                 if spectrum_peak_db > hit.strength_db {
                     hit.strength_db = spectrum_peak_db;
                     hit.timestamp = now;
                 }
             } else {
-                self.hits.push(SignalHit { freq_hz: self.current_freq_hz, strength_db: spectrum_peak_db, timestamp: now });
+                self.hits.push(SignalHit { freq_hz: self.current_freq_hz, strength_db: spectrum_peak_db, timestamp: now, hit_count: 1 });
                 self.total_hits_logged += 1;
                 self.hit_flash = 45;
             }
@@ -286,6 +288,7 @@ impl FrequencyScanner {
                 diff <= half_step
             });
             if let Some(hit) = existing {
+                hit.hit_count += 1;
                 if spectrum_peak_db > hit.strength_db {
                     hit.strength_db = spectrum_peak_db;
                     hit.freq_hz = self.current_freq_hz;
@@ -296,6 +299,7 @@ impl FrequencyScanner {
                     freq_hz: self.current_freq_hz,
                     strength_db: spectrum_peak_db,
                     timestamp: now,
+                    hit_count: 1,
                 };
                 if self.auto_tune_on_hit {
                     self.tune_request_hz = Some(self.current_freq_hz);
@@ -371,6 +375,9 @@ impl FrequencyScanner {
             }
             if ui.button("Sort by strength").on_hover_text("Sort the hit list by signal strength, strongest first.").clicked() {
                 self.sort_hits_by_strength();
+            }
+            if ui.button("Sort by hits").on_hover_text("Sort by detection count — most frequently detected frequencies first.").clicked() {
+                self.hits.sort_by(|a, b| b.hit_count.cmp(&a.hit_count));
             }
             if ui.button("Clear hits").on_hover_text("Remove all logged signal hits.").clicked() {
                 self.hits.clear();
@@ -707,13 +714,14 @@ impl FrequencyScanner {
 
         egui::ScrollArea::vertical().max_height(400.0).auto_shrink(false).show(ui, |ui| {
             egui::Grid::new("hits_grid")
-                .num_columns(6)
+                .num_columns(7)
                 .striped(true)
-                .min_col_width(50.0)
+                .min_col_width(30.0)
                 .show(ui, |ui| {
                     ui.strong("Freq");
                     ui.strong("Strength");
                     ui.strong("Level");
+                    ui.strong("Hits").on_hover_text("Number of times this frequency was detected above threshold during this scan session.");
                     ui.strong("Time Ago");
                     ui.strong("Tune");
                     ui.strong("Del");
@@ -741,6 +749,12 @@ impl FrequencyScanner {
                             egui::Rect::from_min_size(rect.min, egui::vec2(norm * bar_w, rect.height())),
                             1.0, fill_color,
                         );
+                        // Hit count with heat coloring
+                        let count_color = if hit.hit_count >= 10 { egui::Color32::from_rgb(255, 120, 60) }
+                            else if hit.hit_count >= 5 { egui::Color32::from_rgb(255, 200, 60) }
+                            else { egui::Color32::from_rgb(160, 200, 160) };
+                        ui.colored_label(count_color, format!("×{}", hit.hit_count))
+                            .on_hover_text(format!("Detected {} time(s) this session", hit.hit_count));
                         let ago = hit.timestamp.elapsed().as_secs();
                         ui.label(if ago < 60 { format!("{}s", ago) } else { format!("{}m", ago / 60) });
                         if ui.small_button("📡").on_hover_text("Tune SDR to this frequency.").clicked() {

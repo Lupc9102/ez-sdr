@@ -354,8 +354,21 @@ impl SpectrumAnalyzer {
                 }
             }
             ui.separator();
-            ui.label("Avg:");
-            ui.add(egui::Slider::new(&mut self.avg_alpha, 0.01..=0.99).text("α"));
+            ui.label("Avg:").on_hover_text("Spectrum smoothing. Lower α = slower/smoother (better for weak signals). Higher α = faster response.");
+            for (label, alpha, tip) in [
+                ("Fast",  0.7f32, "Fast (α=0.7) — responds quickly to signal changes, more noise visible"),
+                ("Med",   0.3,    "Medium (α=0.3) — balanced default"),
+                ("Slow",  0.1,    "Slow (α=0.1) — smooth display, best for weak signals"),
+                ("XSlow", 0.03,   "Extra slow (α=0.03) — maximum smoothing, good for noise floor characterization"),
+            ] {
+                let is_active = (self.avg_alpha - alpha).abs() < 0.05;
+                let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
+                    .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 220) }))
+                    .fill(if is_active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(30, 40, 60, 60) })
+                    .small())
+                    .on_hover_text(tip);
+                if btn.clicked() { self.avg_alpha = alpha; }
+            }
             ui.separator();
             ui.label("WF:");
             for (label, n) in [("1x", 1u32), ("2x", 2), ("4x", 4), ("8x", 8)] {
