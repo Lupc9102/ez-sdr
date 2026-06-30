@@ -773,6 +773,28 @@ impl AiPanel {
         clicked
     }
 
+    fn export_chat(&self) {
+        let mut text = String::new();
+        for msg in &self.messages {
+            if msg.role == "system" { continue; }
+            let label = match msg.role.as_str() {
+                "user"      => "You",
+                "assistant" => "AI",
+                _           => &msg.role,
+            };
+            text.push_str(&format!("[{}] {}: {}\n\n", msg.format_time(), label, msg.content));
+        }
+        if text.is_empty() { return; }
+
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name("ez_sdr_ai_chat.txt")
+            .add_filter("Text", &["txt"])
+            .save_file()
+        {
+            let _ = std::fs::write(path, text);
+        }
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll_stream();
 
@@ -933,12 +955,13 @@ impl AiPanel {
 
         ui.separator();
 
-        // Input bar
+        // Input bar — multiline: Enter sends, Shift+Enter inserts newline
         ui.horizontal(|ui| {
             let resp = ui.add(
-                egui::TextEdit::singleline(&mut self.input)
+                egui::TextEdit::multiline(&mut self.input)
                     .desired_width(f32::INFINITY)
-                    .hint_text("Ask to tune, record, scan, track satellites…")
+                    .desired_rows(2)
+                    .hint_text("Ask to tune, record, scan… (Enter to send, Shift+Enter for newline)")
                     .return_key(Some(egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Enter))),
             );
             let send_clicked = ui.add_enabled(
@@ -966,6 +989,15 @@ impl AiPanel {
                 .clicked()
             {
                 self.messages.clear();
+            }
+
+            if !self.messages.is_empty() {
+                if ui.button("💾 Export")
+                    .on_hover_text("Save this conversation to a text file")
+                    .clicked()
+                {
+                    self.export_chat();
+                }
             }
         });
 

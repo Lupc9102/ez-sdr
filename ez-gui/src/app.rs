@@ -1519,6 +1519,11 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     if let Some(hz) = state.spectrum.pending_scan_stop.take() {
                         self.scanner.stop_hz = hz;
                     }
+                    if let Some(mode_str) = state.spectrum.pending_demod_mode.take() {
+                        if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) {
+                            state.demod_mode = mode;
+                        }
+                    }
                     if let Some(freq) = state.spectrum.pending_ai_freq.take() {
                         let freq_mhz = freq as f64 / 1e6;
                         self.ai.input = format!(
