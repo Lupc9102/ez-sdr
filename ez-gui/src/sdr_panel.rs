@@ -70,6 +70,7 @@ pub struct SdrPanel {
     auto_record_enabled: bool,
     auto_record_threshold: f32,
     last_auto_recorded_freq: u64,
+    show_mode_guide: bool,
 }
 
 impl SdrPanel {
@@ -97,6 +98,7 @@ impl SdrPanel {
             auto_record_enabled: false,
             auto_record_threshold: 20.0, // Record when SNR > 20 dB
             last_auto_recorded_freq: 0,
+            show_mode_guide: false,
         }
     }
 
@@ -942,6 +944,32 @@ impl SdrPanel {
         }
 
         ui.separator();
+
+        // Demodulation Mode Quick Guide
+        if ui.button("📖 Mode Guide").on_hover_text("Show a quick reference for what to expect in each demodulation mode").clicked() {
+            self.show_mode_guide = !self.show_mode_guide;
+        }
+
+        if self.show_mode_guide {
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("📖 Demodulation Mode Guide").small().color(egui::Color32::from_rgb(100, 200, 200)));
+                ui.horizontal_wrapped(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new("🎙️ Voice Modes:").small().strong());
+                        ui.label("• AM: Crackly, clear voice (aviation, shortwave)");
+                        ui.label("• NFM: Crystal clear voice (police, fire, repeaters)");
+                        ui.label("• WFM: Stereo, music quality (FM radio broadcast)");
+                        ui.label("• LSB/USB: Weak voice signals (HF, DX, weak stations)");
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new("📊 Data Modes:").small().strong());
+                        ui.label("• RAW: Digital pulses/ADSB (planes, weather, digital)");
+                        ui.label("• CW: Dit-dit-dah morse code (ham radio, beacons)");
+                    });
+                });
+            });
+        }
 
         // Demod mode selector with bandwidth hints
         ui.horizontal(|ui| {
