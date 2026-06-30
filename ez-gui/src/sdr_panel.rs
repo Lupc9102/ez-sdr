@@ -155,6 +155,21 @@ impl SdrPanel {
                     state.vfo_b = state.source.frequency_hz;
                 }
             });
+
+            // LO offset indicator
+            if state.lo_offset_hz != 0 {
+                ui.horizontal(|ui| {
+                    ui.label("LO offset:").on_hover_text("Local oscillator offset for upconverter/downconverter configurations.");
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 180, 50),
+                        format!("{:+.1} MHz", state.lo_offset_hz as f64 / 1e6)
+                    ).on_hover_text(format!("Active LO offset. True frequency = {} + {} = {:.6} MHz",
+                        state.source.frequency_hz as f64 / 1e6,
+                        state.lo_offset_hz as f64 / 1e6,
+                        (state.source.frequency_hz as i64 + state.lo_offset_hz).max(0) as f64 / 1e6
+                    ));
+                });
+            }
         }
         // Nearby bookmark hint
         if let Ok(state) = self.shared.try_lock() {
