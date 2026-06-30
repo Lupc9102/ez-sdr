@@ -1627,7 +1627,18 @@ impl SpectrumAnalyzer {
         }
 
         // Click-to-tune, zoom, and markers on spectrum
-        if response.clicked() {
+        if response.double_clicked() {
+            // Double-click: add frequency marker
+            if let Some(pointer) = response.hover_pos() {
+                let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
+                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+                let offset_hz = left_hz + frac as f64 * zoom_span;
+                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                self.marker_pending_freq = Some(freq);
+            }
+        } else if response.clicked() {
             if let Some(pointer) = response.hover_pos() {
                 let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
                 let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
