@@ -189,9 +189,27 @@ impl SdrPanel {
             });
         }
 
-        // Mode suggestion based on current frequency
+        // Frequency information and mode suggestion
         if let Ok(state) = self.shared.try_lock() {
             if let Some(info) = identify_frequency(state.source.frequency_hz) {
+                // Show band info
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        ui.colored_label(egui::Color32::from_rgb(100, 200, 255),
+                            format!("📍 {}: {}", info.band, info.short_desc));
+                        ui.label(egui::RichText::new(info.detail).small().color(egui::Color32::GRAY));
+
+                        // What to hear section
+                        if !info.what_to_hear.is_empty() {
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label("🔊 You should hear:");
+                                ui.label(egui::RichText::new(info.what_to_hear).small());
+                            });
+                        }
+                    });
+                });
+
                 // Parse the tips field to extract suggested mode
                 let suggested_mode = if info.tips.contains("LSB") {
                     Some(("LSB", "for voice"))
@@ -213,7 +231,7 @@ impl SdrPanel {
                     if state.demod_mode.label() != mode {
                         ui.horizontal(|ui| {
                             ui.colored_label(egui::Color32::from_rgb(200, 200, 100),
-                                format!("💡 {} suggests {} ({})", info.band, mode, desc));
+                                format!("💡 Suggested: {} ({})", mode, desc));
                             if ui.small_button("Apply").on_hover_text(format!("Switch to {} mode for this frequency", mode)).clicked() {
                                 drop(state);
                                 if let Ok(mut state_mut) = self.shared.try_lock() {
