@@ -265,6 +265,23 @@ impl SpectrumAnalyzer {
         sorted[sorted.len() / 4].max(sorted[0])
     }
 
+    pub fn zoom_in(&mut self) {
+        self.zoom_factor = (self.zoom_factor * 1.5).clamp(1.0, 200.0);
+    }
+
+    pub fn zoom_out(&mut self) {
+        self.zoom_factor = (self.zoom_factor / 1.5).max(1.0);
+        if self.zoom_factor <= 1.05 {
+            self.zoom_factor = 1.0;
+            self.zoom_offset = 0.5;
+        }
+    }
+
+    pub fn zoom_reset(&mut self) {
+        self.zoom_factor = 1.0;
+        self.zoom_offset = 0.5;
+    }
+
     pub fn toggle_peak_hold(&mut self) -> bool {
         self.show_peak_hold = !self.show_peak_hold;
         if !self.show_peak_hold {

@@ -441,6 +441,16 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.cycle_colormap();
                 }
+                // Ctrl++ / Ctrl+- / Ctrl+0: zoom in/out/reset
+                if (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) && i.modifiers.ctrl {
+                    state.spectrum.zoom_in();
+                }
+                if i.key_pressed(egui::Key::Minus) && i.modifiers.ctrl && !i.modifiers.alt {
+                    state.spectrum.zoom_out();
+                }
+                if i.key_pressed(egui::Key::Num0) && i.modifiers.ctrl {
+                    state.spectrum.zoom_reset();
+                }
                 // J: open frequency jump dialog
                 if i.key_pressed(egui::Key::J) && !i.modifiers.ctrl && !i.modifiers.alt {
                     self.show_freq_jump = !self.show_freq_jump;
@@ -1243,6 +1253,9 @@ impl eframe::App for CentralApp {
                         ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
                         ui.monospace("T"); ui.label("Tune to the strongest signal in the visible spectrum"); ui.end_row();
                         ui.monospace("J"); ui.label("Open frequency jump dialog — type MHz or band name to jump"); ui.end_row();
+                        ui.monospace("Ctrl++"); ui.label("Zoom in on spectrum (×1.5 per press)"); ui.end_row();
+                        ui.monospace("Ctrl+-"); ui.label("Zoom out on spectrum"); ui.end_row();
+                        ui.monospace("Ctrl+0"); ui.label("Reset spectrum zoom to 1× (full span)"); ui.end_row();
                         ui.monospace("P"); ui.label("Toggle spectrum peak hold on/off"); ui.end_row();
                         ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
                         ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
