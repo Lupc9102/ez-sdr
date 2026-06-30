@@ -69,7 +69,7 @@ Always explain what you are doing before each tool call.";
 enum StreamEvent {
     Chunk(String),
     ToolCallDetected { tool: String, args: serde_json::Value },
-    Done(String),
+    Done(()),
     Error(String),
 }
 
@@ -353,7 +353,7 @@ impl AiPanel {
         let reader = BufReader::new(resp);
         for line in reader.lines() {
             if abort_flag.load(Ordering::Relaxed) {
-                let _ = evt_tx.send(StreamEvent::Done(full_text));
+                let _ = evt_tx.send(StreamEvent::Done(()));
                 return;
             }
             let line = match line { Ok(l) => l, Err(_) => break };
@@ -370,7 +370,7 @@ impl AiPanel {
         }
 
         Self::dispatch_tool_calls(evt_tx, &full_text);
-        let _ = evt_tx.send(StreamEvent::Done(full_text));
+        let _ = evt_tx.send(StreamEvent::Done(()));
     }
 
     fn stream_anthropic(
@@ -423,7 +423,7 @@ impl AiPanel {
         let reader = BufReader::new(resp);
         for line in reader.lines() {
             if abort_flag.load(Ordering::Relaxed) {
-                let _ = evt_tx.send(StreamEvent::Done(full_text));
+                let _ = evt_tx.send(StreamEvent::Done(()));
                 return;
             }
             let line = match line { Ok(l) => l, Err(_) => break };
@@ -445,7 +445,7 @@ impl AiPanel {
         }
 
         Self::dispatch_tool_calls(evt_tx, &full_text);
-        let _ = evt_tx.send(StreamEvent::Done(full_text));
+        let _ = evt_tx.send(StreamEvent::Done(()));
     }
 
     /// Find all {"tool": ..., "args": ...} JSON objects in text and emit a ToolCallDetected for each.

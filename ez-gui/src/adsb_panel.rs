@@ -19,6 +19,8 @@ pub struct AdsBPanel {
     pub show_trails: bool,
     aircraft_trails: std::collections::HashMap<u32, std::collections::VecDeque<(f64, f64)>>,
     pub pending_ai_prompt: Option<String>,
+    pub observer_lat: f64,
+    pub observer_lon: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +78,8 @@ impl AdsBPanel {
             show_trails: true,
             aircraft_trails: std::collections::HashMap::new(),
             pending_ai_prompt: None,
+            observer_lat: 51.5,
+            observer_lon: -0.1,
         }
     }
 
@@ -105,10 +109,41 @@ impl AdsBPanel {
         });
     }
 
+    fn haversine_distance(&self, lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+        const EARTH_RADIUS_KM: f64 = 6371.0;
+        let lat1_rad = lat1.to_radians();
+        let lat2_rad = lat2.to_radians();
+        let delta_lat = (lat2 - lat1).to_radians();
+        let delta_lon = (lon2 - lon1).to_radians();
+        let a = (delta_lat / 2.0).sin().powi(2) + lat1_rad.cos() * lat2_rad.cos() * (delta_lon / 2.0).sin().powi(2);
+        let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+        EARTH_RADIUS_KM * c
+    }
+
+    fn bearing(&self, lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+        let lat1_rad = lat1.to_radians();
+        let lat2_rad = lat2.to_radians();
+        let delta_lon = (lon2 - lon1).to_radians();
+        let y = delta_lon.sin() * lat2_rad.cos();
+        let x = lat1_rad.cos() * lat2_rad.sin() - lat1_rad.sin() * lat2_rad.cos() * delta_lon.cos();
+        let bearing_rad = y.atan2(x);
+        (bearing_rad.to_degrees() + 360.0) % 360.0
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // Poll for aircraft info updates
         while let Ok((icao, info)) = self.info_rx.try_recv() {
             self.aircraft_info.insert(icao, info);
+        }
+
+        // Sync observer location from config
+        if let Ok(state) = self.shared.try_lock() {
+            if (state.config.observer_lat - self.observer_lat).abs() > 0.001
+                || (state.config.observer_lon - self.observer_lon).abs() > 0.001
+            {
+                self.observer_lat = state.config.observer_lat;
+                self.observer_lon = state.config.observer_lon;
+            }
         }
 
         ui.heading("ADS-B / Mode S (1090 MHz)");
@@ -314,7 +349,7 @@ impl AdsBPanel {
 
         // Aircraft table
         egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("adsb_grid").num_columns(9).striped(true).show(ui, |ui| {
+            egui::Grid::new("adsb_grid").num_columns(11).striped(true).show(ui, |ui| {
                 ui.label("ICAO").on_hover_text("24-bit ICAO Mode S address — unique to each aircraft worldwide. Like a tail number but in hex.");
                 ui.label("Callsign").on_hover_text("Flight or aircraft callsign broadcast by the aircraft. May be a flight number (UAL123) or registration (N12345).");
                 ui.label("Alt (ft)").on_hover_text("Barometric altitude in feet above mean sea level (MSL), from the aircraft's Mode C altitude encoder.");
@@ -322,6 +357,8 @@ impl AdsBPanel {
                 ui.label("HDG").on_hover_text("Track angle (degrees true from north), not magnetic heading. Derived from ADS-B velocity message.");
                 ui.label("Lat").on_hover_text("GPS latitude in decimal degrees from ADS-B surface/airborne position message (Type 9-18). Accuracy typically ±10m.");
                 ui.label("Lon").on_hover_text("GPS longitude in decimal degrees from ADS-B surface/airborne position message.");
+                ui.label("Dist (km)").on_hover_text("Distance from your observer location to the aircraft, calculated using great-circle distance (haversine formula).");
+                ui.label("Brng (°)").on_hover_text("Magnetic bearing from your location to the aircraft. 0° = North, 90° = East, 180° = South, 270° = West.");
                 ui.label("Age").on_hover_text("Seconds since the last ADS-B message was received from this aircraft. Aircraft not heard for >60 s may have moved out of range.");
                 ui.label("AI").on_hover_text("Ask the AI Agent about this aircraft.");
                 ui.end_row();
@@ -362,6 +399,12 @@ impl AdsBPanel {
                     ui.colored_label(row_color, format!("{}°", ac.heading));
                     ui.colored_label(row_color, format!("{:.4}", ac.lat));
                     ui.colored_label(row_color, format!("{:.4}", ac.lon));
+                    let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
+                    let bearing = self.bearing(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
+                    ui.colored_label(row_color, format!("{:.1} km", dist))
+                        .on_hover_text(format!("Distance to aircraft: {:.2} km", dist));
+                    ui.colored_label(row_color, format!("{:.0}°", bearing))
+                        .on_hover_text(format!("Bearing from your location: {:.1}°", bearing));
                     let age_color = if age < 10 { egui::Color32::GREEN } else if age < 30 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
                     ui.colored_label(age_color, age_str)
                         .on_hover_text(format!("Last message received {} seconds ago.", age));
@@ -373,14 +416,119 @@ impl AdsBPanel {
                              Altitude: {} ft\n\
                              Speed: {} kt\n\
                              Heading: {}°\n\
-                             Position: {:.4}°N, {:.4}°E\n\n\
+                             Position: {:.4}°N, {:.4}°E\n\
+                             Distance: {:.1} km\n\
+                             Bearing: {:.0}°\n\n\
                              Can you tell me about this aircraft? What airline or operator might it be? Any interesting info about aircraft with this ICAO code?",
-                            ac.callsign, ac.icao, ac.altitude, ac.speed, ac.heading, ac.lat, ac.lon
+                            ac.callsign, ac.icao, ac.altitude, ac.speed, ac.heading, ac.lat, ac.lon, dist, bearing
                         ));
                     }
                     ui.end_row();
                 }
             });
+        });
+
+        ui.separator();
+        ui.heading("3D View");
+
+        // 3D isometric view of aircraft
+        let (rect, _response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 300.0), egui::Sense::click());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(10, 15, 20));
+
+        // Draw background grid
+        let grid_color = egui::Color32::from_rgb(30, 40, 50);
+        let center = rect.center();
+        let scale = 15.0;
+
+        // Isometric projection: 3D (lon, lat, alt) → 2D (x_proj, y_proj)
+        // Isometric: x_proj = (lon - lat) * scale, y_proj = (lon + lat) * scale/2 - alt * scale/40
+        let project_3d = |lon: f64, lat: f64, alt: f32| -> egui::Pos2 {
+            let lon_norm = ((lon + 180.0) / 360.0) as f32;
+            let lat_norm = ((lat + 90.0) / 180.0) as f32;
+            let alt_norm = (alt as f32 / 40000.0).clamp(0.0, 1.0);
+            let x = (lon_norm - lat_norm) * scale;
+            let y = (lon_norm + lat_norm) * scale / 2.0 - alt_norm * scale * 2.0;
+            egui::pos2(center.x + x, center.y + y)
+        };
+
+        // Draw grid at some altitude levels
+        for alt_level in [0.0, 10000.0, 20000.0, 30000.0, 40000.0] {
+            for i in 0..=10 {
+                let t = i as f64 / 10.0;
+                let p1 = project_3d(-180.0 + t * 360.0, -90.0, alt_level as f32);
+                let p2 = project_3d(-180.0 + t * 360.0, -90.0 + t * 180.0, alt_level as f32);
+                if rect.contains(p1) || rect.contains(p2) {
+                    painter.line_segment([p1, p2], egui::Stroke::new(0.5, grid_color));
+                }
+            }
+        }
+
+        // Draw altitude reference lines on the left
+        let ref_lon = -180.0;
+        let ref_lat = -90.0;
+        for alt_level in [0.0, 10000.0, 20000.0, 30000.0, 40000.0] {
+            let p = project_3d(ref_lon, ref_lat, alt_level as f32);
+            if rect.contains(p) {
+                painter.text(
+                    p + egui::vec2(-20.0, 0.0),
+                    egui::Align2::RIGHT_CENTER,
+                    &format!("{}k ft", alt_level as i32 / 1000),
+                    egui::FontId::proportional(8.0),
+                    egui::Color32::GRAY,
+                );
+            }
+        }
+
+        // Draw aircraft in 3D
+        let now_3d = std::time::Instant::now();
+        for ac in &self.aircraft {
+            let age = now_3d.duration_since(ac.seen).as_secs();
+            if age > self.max_age_secs { continue; }
+            if self.altitude_filter_enabled && (ac.altitude < self.min_altitude_ft || ac.altitude > self.max_altitude_ft) { continue; }
+
+            let p = project_3d(ac.lon, ac.lat, ac.altitude as f32);
+            if !rect.contains(p) { continue; }
+
+            // Color by altitude (same as 2D map)
+            let t = (ac.altitude as f32 / 40_000.0).clamp(0.0, 1.0);
+            let color = if t < 0.5 {
+                let u = t * 2.0;
+                egui::Color32::from_rgb((u * 50.0) as u8, (100.0 + u * 155.0) as u8, (200.0 - u * 200.0) as u8)
+            } else {
+                let u = (t - 0.5) * 2.0;
+                egui::Color32::from_rgb((50.0 + u * 205.0) as u8, (255.0 - u * 205.0) as u8, 0)
+            };
+
+            let radius = if self.selected_icao == Some(ac.icao) { 5.0 } else { 3.0 };
+            painter.circle_filled(p, radius, color);
+
+            // Show callsign for selected aircraft
+            if self.selected_icao == Some(ac.icao) {
+                painter.text(
+                    p + egui::vec2(8.0, -8.0),
+                    egui::Align2::LEFT_CENTER,
+                    &ac.callsign,
+                    egui::FontId::proportional(10.0),
+                    color,
+                );
+                // Show distance/altitude info
+                let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
+                painter.text(
+                    p + egui::vec2(8.0, 8.0),
+                    egui::Align2::LEFT_CENTER,
+                    &format!("{:.1}km / {}ft", dist, ac.altitude),
+                    egui::FontId::proportional(8.0),
+                    color,
+                );
+            }
+        }
+
+        // Legend
+        ui.horizontal(|ui| {
+            ui.label("🎨 3D View: Altitude (Z) vs Lon/Lat. Click callsign row to highlight in 3D.");
+            ui.separator();
+            ui.small("Blue=Low | Green=Mid | Red/Yellow=High");
         });
     }
 }
