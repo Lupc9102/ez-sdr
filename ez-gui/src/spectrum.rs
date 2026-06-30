@@ -1478,6 +1478,28 @@ impl SpectrumAnalyzer {
                     ui.ctx().copy_text(format!("{:.4}", freq_mhz));
                     ui.close();
                 }
+                // Instant 3dB bandwidth estimate at cursor frequency
+                if !self.spectrum_dbs.is_empty() {
+                    let n = self.spectrum_dbs.len();
+                    let hz_per_bin = self.sample_rate as f64 / n as f64;
+                    let zoom_span_bw = self.sample_rate as f64;
+                    let center_bin = ((freq as f64 - self.center_freq as f64 + zoom_span_bw / 2.0) / hz_per_bin).round() as usize;
+                    if center_bin < n {
+                        let peak_db = self.spectrum_dbs[center_bin];
+                        let threshold = peak_db - 3.0;
+                        let mut lo = center_bin;
+                        while lo > 0 && self.spectrum_dbs[lo - 1] >= threshold { lo -= 1; }
+                        let mut hi = center_bin;
+                        while hi + 1 < n && self.spectrum_dbs[hi + 1] >= threshold { hi += 1; }
+                        let bw_hz = ((hi - lo) as f64 * hz_per_bin).max(hz_per_bin);
+                        let bw_str = if bw_hz >= 1_000_000.0 { format!("{:.2} MHz", bw_hz / 1e6) }
+                            else if bw_hz >= 1000.0 { format!("{:.1} kHz", bw_hz / 1000.0) }
+                            else { format!("{:.0} Hz", bw_hz) };
+                        ui.colored_label(egui::Color32::from_rgb(180, 255, 180),
+                            format!("📐 3 dB BW ≈ {}", bw_str))
+                            .on_hover_text("Estimated 3 dB bandwidth: bins within 3 dB of the peak at the cursor.");
+                    }
+                }
                 ui.separator();
                 if ui.button(format!("▶ Set as scan start ({:.3} MHz)", freq_mhz)).clicked() {
                     self.pending_scan_start = Some(freq);
