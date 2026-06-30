@@ -1219,6 +1219,23 @@ impl SdrPanel {
                 });
             }
 
+            // Quick RF filter presets based on mode
+            ui.horizontal(|ui| {
+                ui.label("RF Filter Presets:").on_hover_text("Quick filter bandwidth presets optimized for common modes");
+                let presets = [
+                    ("Voice", 12_500u32, "12.5 kHz - NFM voice"),
+                    ("AM Bcast", 8_000, "8 kHz - AM radio"),
+                    ("FM Bcast", 200_000, "200 kHz - WFM stereo"),
+                    ("SSB", 2_400, "2.4 kHz - SSB voice"),
+                    ("CW", 500, "500 Hz - Morse code"),
+                ];
+                for (label, bw, tooltip) in presets.iter() {
+                    if ui.small_button(*label).on_hover_text(*tooltip).clicked() {
+                        self.filter_bw = *bw;
+                    }
+                }
+            });
+
             ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true))
                 .on_hover_text("Low-pass filter on audio output. Cuts high-frequency hiss above this frequency. Default 15 kHz is fine for voice. Lower for CW/Morse (~800 Hz).");
 
