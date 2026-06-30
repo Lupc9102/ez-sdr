@@ -131,3 +131,12 @@ Started: 2026-06-29 (8-hour window)
 ## Session 30 Night Shift Log
 - T+~282min: Adaptive dB grid lines on spectrum — 20/10/5 dB step based on display range; labels on right edge; 0 dB emphasized
 - T+~284min: Recorder quick-start presets — 30s/1m/5m/10m buttons; start recording immediately with auto-stop
+
+## Session 31 Night Shift Log
+- T+~288min: J key opens frequency jump dialog — popup with text input, numeric or band-name search, bookmark search; Enter tunes, Esc closes; Ctrl+J also works
+
+## Session 32 Night Shift Log
+- T+~292min: Ctrl++ / Ctrl+- / Ctrl+0 zoom shortcuts — zoom in, zoom out, reset zoom; documented in shortcut overlay
+
+## Session 33 Night Shift Log
+- T+~297min: Green "● ACTIVE" badge on spectrum when squelch is open — appears top-right below SNR badge; only visible when squelch is engaged (> -90 dB) and signal exceeds threshold
