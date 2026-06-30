@@ -1114,6 +1114,9 @@ impl eframe::App for CentralApp {
                 ui.small(format!("Gain: {:.1} dB", state.source.gain_db))
                     .on_hover_text("RF gain in dB. Higher = more sensitive but more noise and risk of overload. 30–40 dB is typical for outdoor signals.");
                 ui.separator();
+                let lpf_khz = state.lpf_cutoff / 1000.0;
+                ui.small(format!("LPF: {:.1}k", lpf_khz))
+                    .on_hover_text(format!("Audio low-pass filter cutoff: {} Hz. Removes high-frequency hiss.", state.lpf_cutoff as u32));
                 if state.recording {
                     if self.recording_start.is_none() {
                         self.recording_start = Some(std::time::Instant::now());
