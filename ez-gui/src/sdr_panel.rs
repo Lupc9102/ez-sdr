@@ -421,6 +421,60 @@ impl SdrPanel {
             }
         }
 
+        // Quick tuning checklist for beginners
+        if let Ok(state) = self.shared.try_lock() {
+            let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
+            let audio_on = state.audio_running;
+            let gain_ok = state.source.gain_db >= 25.0 && state.source.gain_db <= 45.0;
+            let snr = state.spectrum.peak_level() - state.spectrum.noise_floor();
+            let signal_ok = snr > 8.0;
+
+            // Only show if anything is not optimal (helps reduce clutter)
+            let show_checklist = !is_running || !audio_on || !gain_ok || (is_running && !signal_ok);
+            if show_checklist {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("📋 Tuning Checklist").small().color(egui::Color32::from_rgb(180, 180, 100)));
+                    ui.horizontal(|ui| {
+                        let status_text = if is_running {
+                            "✓ SDR running"
+                        } else {
+                            "⚠️ Press ▶ Start"
+                        };
+                        let color = if is_running { egui::Color32::GREEN } else { egui::Color32::YELLOW };
+                        ui.colored_label(color, egui::RichText::new(status_text).small());
+                        ui.separator();
+                        let audio_text = if audio_on {
+                            "✓ Audio on"
+                        } else {
+                            "⚠️ Start audio"
+                        };
+                        let color = if audio_on { egui::Color32::GREEN } else { egui::Color32::YELLOW };
+                        ui.colored_label(color, egui::RichText::new(audio_text).small());
+                        ui.separator();
+                        let gain_text = if gain_ok {
+                            "✓ Gain OK"
+                        } else if state.source.gain_db < 25.0 {
+                            "⚠️ Gain too low"
+                        } else {
+                            "⚠️ Gain too high"
+                        };
+                        let color = if gain_ok { egui::Color32::GREEN } else { egui::Color32::YELLOW };
+                        ui.colored_label(color, egui::RichText::new(gain_text).small());
+                        ui.separator();
+                        let signal_text = if signal_ok && is_running {
+                            "✓ Signal found"
+                        } else if is_running {
+                            "⚠️ No signal"
+                        } else {
+                            "❌ Start to check"
+                        };
+                        let color = if signal_ok && is_running { egui::Color32::GREEN } else { egui::Color32::RED };
+                        ui.colored_label(color, egui::RichText::new(signal_text).small());
+                    });
+                });
+            }
+        }
+
         // Nearby bookmark hint
         if let Ok(state) = self.shared.try_lock() {
             let cur_freq = state.source.frequency_hz;
