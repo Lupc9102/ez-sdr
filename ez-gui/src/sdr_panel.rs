@@ -52,6 +52,7 @@ pub struct SdrPanel {
     pub squelch: f32,
     pub filter_bw: u32,
     pub bookmark_request: Option<(u64, String)>,
+    pub pending_ai_freq: Option<u64>,
     freq_input: String,
     freq_input_error: String,
     freq_input_error_time: Option<std::time::Instant>,
@@ -68,6 +69,7 @@ impl SdrPanel {
             squelch: -50.0,
             filter_bw: 12_000,
             bookmark_request: None,
+            pending_ai_freq: None,
             freq_input: String::new(),
             freq_input_error: String::new(),
             freq_input_error_time: None,
@@ -119,6 +121,9 @@ impl SdrPanel {
                 let copy_freq_str = format!("{:.6}", bm_freq as f64 / 1e6);
                 if ui.small_button("📋").on_hover_text("Copy current frequency (MHz) to clipboard.").clicked() {
                     ui.ctx().copy_text(copy_freq_str);
+                }
+                if ui.small_button("🤖").on_hover_text("Ask AI about this frequency").clicked() {
+                    self.pending_ai_freq = Some(bm_freq);
                 }
                 // Show freeze state from spectrum
                 let is_frozen = state.spectrum.frozen;

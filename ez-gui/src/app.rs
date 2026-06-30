@@ -741,6 +741,26 @@ impl eframe::App for CentralApp {
             }
         }
 
+        if let Some(freq) = self.sdr_panel.pending_ai_freq.take() {
+            let freq_mhz = freq as f64 / 1e6;
+            let (snr, mode) = if let Ok(state) = self.shared.try_lock() {
+                let snr = state.spectrum.peak_level() - state.spectrum.noise_floor();
+                let mode = state.demod_mode.label().to_string();
+                (snr, mode)
+            } else {
+                (0.0, "unknown".to_string())
+            };
+            self.ai_panel.input = format!(
+                "I'm currently tuned to {:.4} MHz in {} mode (SNR: {:.1} dB). \
+                 What signals should I expect here? What demod mode and settings would you recommend?",
+                freq_mhz, mode, snr
+            );
+            self.status_flash = Some((
+                format!("🤖 AI prompt ready for {:.3} MHz — switch to AI Agent tab", freq_mhz),
+                std::time::Instant::now(),
+            ));
+        }
+
         // Apply config changes triggered from Settings tab
         if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {
@@ -1546,6 +1566,13 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     self.scanner.spectrum_visible_range = Some((state.spectrum.visible_left_hz, state.spectrum.visible_right_hz));
                 }
                 self.scanner.ui(ui);
+                if let Some(prompt) = self.scanner.pending_ai_prompt.take() {
+                    self.ai.input = prompt;
+                    *self.status_flash = Some((
+                        format!("🤖 {} scan hits sent to AI Agent", self.scanner.hits.len()),
+                        std::time::Instant::now(),
+                    ));
+                }
             }
             Tab::AiAgent => self.ai.ui(ui),
             Tab::HowTo => self.howto.ui(ui),
