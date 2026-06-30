@@ -644,22 +644,33 @@ impl SpectrumAnalyzer {
         let max_db = self.display_max_db;
         let range = (max_db - min_db).max(1.0);
 
-        // Horizontal grid lines (dB)
-        for db in (-120..=0).step_by(20) {
-            let db = db as f32;
-            let norm = ((db - min_db) / range).clamp(0.0, 1.0);
-            let y = spectrum_rect.bottom() - norm * spectrum_height;
-            painter.line_segment(
-                [egui::pos2(spectrum_rect.left(), y), egui::pos2(spectrum_rect.right(), y)],
-                egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(40, 40, 50, 128)),
-            );
-            painter.text(
-                egui::pos2(spectrum_rect.left() + 4.0, y - 7.0),
-                egui::Align2::LEFT_CENTER,
-                format!("{:.0}", db),
-                egui::FontId::proportional(9.0),
-                egui::Color32::from_gray(100),
-            );
+        // Horizontal dB grid lines — adaptive step based on display range
+        {
+            let db_step = if range > 80.0 { 20.0f32 } else if range > 40.0 { 10.0 } else { 5.0 };
+            let first = (min_db / db_step).ceil() as i32;
+            let last  = (max_db / db_step).floor() as i32;
+            for i in first..=last {
+                let db = i as f32 * db_step;
+                let norm = ((db - min_db) / range).clamp(0.0, 1.0);
+                let y = spectrum_rect.bottom() - norm * spectrum_height;
+                if y < spectrum_rect.top() + 1.0 || y > spectrum_rect.bottom() - 1.0 { continue; }
+                let is_zero = db.abs() < 0.01;
+                let line_alpha = if is_zero { 100u8 } else if (i % 2) == 0 { 60 } else { 35 };
+                painter.line_segment(
+                    [egui::pos2(spectrum_rect.left(), y), egui::pos2(spectrum_rect.right(), y)],
+                    egui::Stroke::new(if is_zero { 0.7 } else { 0.4 },
+                        egui::Color32::from_rgba_premultiplied(70, 80, 100, line_alpha)),
+                );
+                // dB label on the right side
+                let label_x = spectrum_rect.right() - 2.0;
+                painter.text(
+                    egui::pos2(label_x, y - 1.0),
+                    egui::Align2::RIGHT_BOTTOM,
+                    format!("{:.0}", db),
+                    egui::FontId::proportional(8.5),
+                    egui::Color32::from_rgba_premultiplied(140, 160, 180, 160),
+                );
+            }
         }
 
         // Zoom parameters

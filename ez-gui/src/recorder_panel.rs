@@ -36,6 +36,8 @@ pub struct RecorderPanel {
     signal_last_logged: Option<std::time::Instant>,
     // Filename template
     pub filename_template: String,
+    // Quick-start duration in seconds (0 = use max_duration_mins)
+    quick_duration_secs: u64,
 }
 
 #[derive(Clone)]
@@ -72,6 +74,7 @@ impl RecorderPanel {
             signal_log: std::collections::VecDeque::with_capacity(200),
             signal_last_logged: None,
             filename_template: "{date}_{freq}MHz".to_string(),
+            quick_duration_secs: 0,
         }
     }
 
@@ -446,8 +449,16 @@ impl RecorderPanel {
                 let (free_gb, unit) = self.cached_free_disk_space();
 
                 // Auto-stop when duration limit reached
-                if self.max_duration_mins > 0 && elapsed >= self.max_duration_mins as u64 * 60 {
+                let limit_secs = if self.quick_duration_secs > 0 {
+                    self.quick_duration_secs
+                } else if self.max_duration_mins > 0 {
+                    self.max_duration_mins as u64 * 60
+                } else {
+                    0
+                };
+                if limit_secs > 0 && elapsed >= limit_secs {
                     self.stop_recording();
+                    self.quick_duration_secs = 0;
                     self.last_error.clear();
                 } else {
                     ui.horizontal(|ui| {
@@ -455,10 +466,9 @@ impl RecorderPanel {
                         let mins = elapsed / 60;
                         let secs = elapsed % 60;
                         ui.monospace(format!("{:02}:{:02}", mins, secs));
-                        if self.max_duration_mins > 0 {
-                            let limit_secs = self.max_duration_mins as u64 * 60;
+                        if limit_secs > 0 {
                             let rem = limit_secs.saturating_sub(elapsed);
-                            ui.label(format!("→ {:02}:{:02} left", rem / 60, rem % 60));
+                            ui.label(format!("→ {}:{:02} left", rem / 60, rem % 60));
                         }
                         ui.separator();
                         ui.label(format!("{:.1} MB", size_mb));
@@ -490,6 +500,21 @@ impl RecorderPanel {
                         }
                     });
             });
+            // Quick-start preset buttons
+            if !self.recording {
+                ui.horizontal(|ui| {
+                    ui.label("Quick:").on_hover_text("Start recording immediately with a preset duration — no need to press Start separately.");
+                    for (label, mins, secs) in [("30s", 0u32, 30u64), ("1m", 1, 60), ("5m", 5, 300), ("10m", 10, 600)] {
+                        if ui.small_button(label).on_hover_text(format!("Record for {} then auto-stop.", label)).clicked() {
+                            self.max_duration_mins = mins;
+                            // For sub-minute durations, store as a fractional minute via a special field
+                            // Use 0 mins with the auto_stop hack: set duration_secs override
+                            self.quick_duration_secs = if mins == 0 { secs } else { 0 };
+                            self.start_recording();
+                        }
+                    }
+                });
+            }
         }
 
         // Recordings file browser
