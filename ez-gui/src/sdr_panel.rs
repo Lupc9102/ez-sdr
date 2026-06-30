@@ -694,14 +694,14 @@ impl SdrPanel {
     }
 }
 
-struct FreqIdInfo {
-    band: &'static str,
-    short_desc: &'static str,
-    detail: &'static str,
-    tips: &'static str,
+pub struct FreqIdInfo {
+    pub band: &'static str,
+    pub short_desc: &'static str,
+    pub detail: &'static str,
+    pub tips: &'static str,
 }
 
-fn identify_frequency(freq_hz: u64) -> Option<FreqIdInfo> {
+pub fn identify_frequency(freq_hz: u64) -> Option<FreqIdInfo> {
     let entries: &[(u64, u64, &str, &str, &str, &str)] = &[
         (150_000,   500_000,   "LF/MF",         "Long & medium wave",
             "AM broadcast (MW), maritime beacons, time signals (DCF77/MSF).",

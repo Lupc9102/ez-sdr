@@ -1238,6 +1238,14 @@ impl SpectrumAnalyzer {
             if let Some(freq) = hovered_freq {
                 let freq_mhz = freq as f64 / 1e6;
                 ui.label(egui::RichText::new(format!("{:.4} MHz", freq_mhz)).strong());
+                if let Some(info) = crate::sdr_panel::identify_frequency(freq) {
+                    ui.colored_label(egui::Color32::from_rgb(180, 220, 255),
+                        format!("📻 {} — {}", info.band, info.short_desc));
+                    if !info.tips.is_empty() {
+                        ui.colored_label(egui::Color32::GRAY,
+                            egui::RichText::new(format!("💡 {}", info.tips)).small());
+                    }
+                }
                 ui.separator();
                 if ui.button("📡 Tune here").clicked() {
                     self.clicked_tune_freq = Some(freq);

@@ -1368,6 +1368,39 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 };
                 let _ = total;
 
+                // Category quick-filter chips
+                {
+                    let mut all_cats: Vec<String> = bookmarks_snapshot.iter().map(|b| b.category.clone()).collect();
+                    all_cats.sort();
+                    all_cats.dedup();
+                    if all_cats.len() > 1 {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.small("Filter by:");
+                            for cat in &all_cats {
+                                let is_active = filter_lower == cat.to_lowercase();
+                                let btn = ui.add(egui::Button::new(
+                                    egui::RichText::new(cat.as_str()).small()
+                                        .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 240) })
+                                ).fill(if is_active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(40, 60, 100, 80) })
+                                .small())
+                                .on_hover_text(format!("Click to filter by '{}' category. Click again to clear.", cat));
+                                if btn.clicked() {
+                                    if is_active {
+                                        self.bookmark_filter.clear();
+                                    } else {
+                                        *self.bookmark_filter = cat.clone();
+                                    }
+                                }
+                            }
+                            if !filter_lower.is_empty() {
+                                if ui.small_button("✕ Clear").clicked() {
+                                    self.bookmark_filter.clear();
+                                }
+                            }
+                        });
+                    }
+                }
+
                 let filtered: Vec<(usize, &crate::bookmarks::Bookmark)> = bookmarks_snapshot.iter()
                     .enumerate()
                     .filter(|(_, b)| filter_lower.is_empty()
