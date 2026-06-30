@@ -434,6 +434,14 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.cycle_colormap();
                 }
+                // P: toggle peak hold
+                if i.key_pressed(egui::Key::P) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    let on = state.spectrum.toggle_peak_hold();
+                    self.status_flash = Some((
+                        if on { "Peak Hold ON".to_string() } else { "Peak Hold OFF".to_string() },
+                        std::time::Instant::now()
+                    ));
+                }
                 // V: swap VFO A/B
                 if i.key_pressed(egui::Key::V) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let tmp = state.source.frequency_hz;
@@ -1114,6 +1122,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("V"); ui.label("Swap VFO A ↔ VFO B (quick frequency toggle)"); ui.end_row();
                         ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
                         ui.monospace("T"); ui.label("Tune to the strongest signal in the visible spectrum"); ui.end_row();
+                        ui.monospace("P"); ui.label("Toggle spectrum peak hold on/off"); ui.end_row();
                         ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
                         ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
                         ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies + spectrum dB range + VFO B + waterfall range"); ui.end_row();

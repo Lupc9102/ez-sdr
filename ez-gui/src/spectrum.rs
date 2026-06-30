@@ -265,6 +265,14 @@ impl SpectrumAnalyzer {
         sorted[sorted.len() / 4].max(sorted[0])
     }
 
+    pub fn toggle_peak_hold(&mut self) -> bool {
+        self.show_peak_hold = !self.show_peak_hold;
+        if !self.show_peak_hold {
+            self.peak_hold = vec![-120.0; self.fft_size];
+        }
+        self.show_peak_hold
+    }
+
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
         if self.frozen || iq.len() < 2 { return; }
         let fft = match &self.fft {
@@ -1109,6 +1117,20 @@ impl SpectrumAnalyzer {
             painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160));
             painter.text(text_pos, egui::Align2::RIGHT_TOP, &badge_text,
                 egui::FontId::monospace(10.0), snr_color);
+        }
+
+        // Band name overlay (top-left of spectrum)
+        if let Some(info) = crate::sdr_panel::identify_frequency(self.center_freq) {
+            let band_pos = egui::pos2(spectrum_rect.left() + 4.0, spectrum_rect.top() + 4.0);
+            let band_w = (info.band.len() as f32 * 6.5 + 8.0).min(200.0);
+            let bg_rect = egui::Rect::from_min_size(
+                egui::pos2(band_pos.x - 2.0, band_pos.y - 1.0),
+                egui::vec2(band_w, 14.0),
+            );
+            painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160));
+            painter.text(band_pos, egui::Align2::LEFT_TOP, &info.band,
+                egui::FontId::proportional(10.0),
+                egui::Color32::from_rgba_premultiplied(180, 220, 255, 220));
         }
 
         // Center frequency indicator (dashed vertical line)
