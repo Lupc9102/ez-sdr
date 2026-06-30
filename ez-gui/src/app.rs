@@ -10,7 +10,6 @@ use crate::ai_panel::AiPanel;
 use crate::audio_output::AudioOutput;
 use crate::bookmarks::BookmarkDb;
 use crate::config::AppConfig;
-use crate::database::Database;
 use crate::demod::Demodulator;
 use crate::mqtt::MqttPublisher;
 use crate::recorder_panel::RecorderPanel;
@@ -42,8 +41,6 @@ pub struct SharedState {
     pub source: SourceManager,
     pub spectrum: SpectrumAnalyzer,
     pub config: AppConfig,
-    #[allow(dead_code)]
-    pub db: Database,
     pub bookmarks: BookmarkDb,
     pub scheduler: Scheduler,
     pub tle: TleEngine,
@@ -51,10 +48,6 @@ pub struct SharedState {
     pub recording: bool,
     pub adsb_running: bool,
     pub selected_satellite: Option<String>,
-    #[allow(dead_code)]
-    pub iq_tx: Option<crossbeam_channel::Sender<Vec<f32>>>,
-    #[allow(dead_code)]
-    pub audio_tx: Option<crossbeam_channel::Sender<Vec<f32>>>,
     pub audio_running: bool,
     pub volume: f32,
     pub squelch: f32,
@@ -125,6 +118,10 @@ pub struct CentralApp {
     freq_jump_matches: Vec<(String, u64)>,
     // Session notes
     session_notes: String,
+    // SDR glossary popup
+    show_glossary: bool,
+    // First strong signal celebration
+    first_strong_signal_seen: bool,
 }
 
 impl CentralApp {
@@ -136,7 +133,6 @@ impl CentralApp {
             source: SourceManager::new(),
             spectrum: SpectrumAnalyzer::new(),
             config: AppConfig::load_or_default(),
-            db: Database::open_or_create().unwrap(),
             bookmarks: BookmarkDb::load_or_default(),
             scheduler: Scheduler::new(),
             tle: TleEngine::new(),
@@ -144,8 +140,6 @@ impl CentralApp {
             recording: false,
             adsb_running: false,
             selected_satellite: None,
-            iq_tx: None,
-            audio_tx: None,
             audio_running: false,
             volume: 0.5,
             squelch: -50.0,
@@ -276,6 +270,8 @@ impl CentralApp {
             freq_jump_input: String::new(),
             freq_jump_matches: Vec::new(),
             session_notes: String::new(),
+            show_glossary: false,
+            first_strong_signal_seen: false,
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
@@ -893,7 +889,16 @@ impl eframe::App for CentralApp {
             let peak = state.spectrum.peak_level();
             let noise = state.spectrum.noise_floor();
             let snr = peak - noise;
+            // First strong signal celebration
+            if !self.first_strong_signal_seen && snr > 20.0 {
+                self.first_strong_signal_seen = true;
+                self.status_flash = Some((
+                    format!("🎉 First signal! {:.3} MHz — SNR {:.1} dB — great reception!", freq as f64 / 1e6, snr),
+                    std::time::Instant::now(),
+                ));
+            }
             self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes, squelch, volume, recording, scanner_active, snr);
+            self.mqtt.tick_reconnect();
             if self.last_scheduler_update.elapsed().as_secs() < 1 {
                 self.mqtt.tick(freq, gain);
                 self.mqtt.publish_signal(freq, peak, noise, &mode, recording);
@@ -948,7 +953,6 @@ impl eframe::App for CentralApp {
         let snapshot = {
             if let Ok(state) = self.shared.try_lock() {
                 Some(SharedSnapshot {
-                    bookmarks: state.bookmarks.bookmarks.clone(),
                     jobs: state.scheduler.jobs.clone(),
                     custom_tasks: state.scheduler.custom_tasks.clone(),
                     auto_tune_enabled: state.scheduler.auto_tune_enabled,
@@ -1457,11 +1461,16 @@ impl eframe::App for CentralApp {
                         "⚠ DEMO",
                     ).on_hover_text("Running in simulated (demo) mode — no real SDR device connected. The spectrum shows synthetic test signals. Connect an RTL-SDR and rebuild with the 'rtlsdr' feature, or use File Replay mode.");
                 }
-                // MQTT connected badge
-                if self.mqtt.is_connected() {
+                // MQTT badge
+                if self.mqtt.enabled {
                     ui.separator();
-                    ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "📡 MQTT")
-                        .on_hover_text(format!("Publishing to MQTT broker at {}. Topics: {}/signal, {}/scanner, etc.", self.mqtt.broker, self.mqtt.topic_prefix, self.mqtt.topic_prefix));
+                    if self.mqtt.is_connected() {
+                        ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "📡 MQTT")
+                            .on_hover_text(format!("Publishing to MQTT broker at {}:{} — Topics: {}/signal, {}/scanner, etc.", self.mqtt.broker, self.mqtt.port, self.mqtt.topic_prefix, self.mqtt.topic_prefix));
+                    } else {
+                        ui.colored_label(egui::Color32::from_rgb(200, 150, 50), "📡 MQTT ⏳")
+                            .on_hover_text(format!("MQTT enabled but not connected to {}:{}. Retrying automatically every 10 seconds.", self.mqtt.broker, self.mqtt.port));
+                    }
                 }
             }
             // Doppler correction status badge (outside the lock, uses satellite_panel data)
@@ -1545,17 +1554,23 @@ impl eframe::App for CentralApp {
             }
             // Status flash (short-lived messages, e.g. "⭐ Bookmark name")
             if let Some((msg, since)) = &self.status_flash {
-                if since.elapsed().as_secs_f32() < 3.0 {
+                let duration = if msg.starts_with("🎉") { 8.0f32 } else { 3.0f32 };
+                if since.elapsed().as_secs_f32() < duration {
                     ui.separator();
-                    let alpha = ((3.0 - since.elapsed().as_secs_f32()) / 3.0 * 255.0) as u8;
-                    ui.colored_label(egui::Color32::from_rgba_unmultiplied(220, 200, 80, alpha), msg);
+                    let alpha = ((duration - since.elapsed().as_secs_f32()) / duration * 255.0) as u8;
+                    let color = if msg.starts_with("🎉") {
+                        egui::Color32::from_rgba_unmultiplied(100, 255, 150, alpha)
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(220, 200, 80, alpha)
+                    };
+                    ui.colored_label(color, msg);
                 } else {
                     self.status_flash = None;
                 }
             }
         });
 
-        // Reset layout button in status bar trailing area
+        // Reset layout + glossary buttons in status bar trailing area
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button("⟳ Layout").on_hover_text("Reset all panels to default layout").clicked() {
                 let surface = egui_dock::SurfaceIndex::main();
@@ -1565,6 +1580,9 @@ impl eframe::App for CentralApp {
                 ]);
                 ds[surface].split_left(egui_dock::NodeIndex::root(), 0.25, vec![Tab::Bookmarks, Tab::Scheduler, Tab::Settings]);
                 self.dock_state = ds;
+            }
+            if ui.small_button("❓ Glossary").on_hover_text("SDR term glossary — click to open/close definitions for dBFS, SNR, MSps, LPF, PPM, VFO, BW, squelch, and more.").clicked() {
+                self.show_glossary = !self.show_glossary;
             }
         });
 
@@ -1630,15 +1648,57 @@ impl eframe::App for CentralApp {
                         ui.monospace("Click frequency"); ui.label("Copy frequency value to clipboard"); ui.end_row();
                         ui.monospace("◀ ▶ buttons"); ui.label("Navigate frequency history"); ui.end_row();
                         ui.monospace("⟳ Layout"); ui.label("Reset panel layout to default"); ui.end_row();
+                        ui.monospace("❓ Glossary"); ui.label("Open/close the SDR term glossary"); ui.end_row();
                     });
                 });
+        }
+
+        // SDR Glossary popup
+        if self.show_glossary {
+            let mut open = true;
+            egui::Window::new("SDR Glossary")
+                .id(egui::Id::new("sdr_glossary"))
+                .default_width(480.0)
+                .open(&mut open)
+                .show(ui.ctx(), |ui| {
+                    ui.label(egui::RichText::new("Common SDR terms and what they mean:").italics());
+                    ui.add_space(4.0);
+                    egui::Grid::new("glossary_grid").num_columns(2).striped(true).min_col_width(90.0).show(ui, |ui| {
+                        let h = |ui: &mut egui::Ui, term: &str| {
+                            ui.label(egui::RichText::new(term).strong().color(egui::Color32::from_rgb(100, 200, 255)));
+                        };
+                        h(ui, "dBFS"); ui.label("Decibels relative to Full Scale. 0 dBFS = maximum possible signal; −120 dBFS ≈ noise floor. Negative is normal."); ui.end_row();
+                        h(ui, "SNR"); ui.label("Signal-to-Noise Ratio. How much stronger your signal is vs background noise. >20 dB = great, 8–20 dB = weak but readable, <8 dB = noise."); ui.end_row();
+                        h(ui, "MSps"); ui.label("Megasamples per second — the SDR's sample rate. Higher = wider spectrum view. RTL-SDR supports 0.25–3.2 MSps."); ui.end_row();
+                        h(ui, "LPF"); ui.label("Low-Pass Filter. Removes high-frequency audio hiss above a set cutoff (kHz). Lower cutoff = cleaner audio, narrower bandwidth."); ui.end_row();
+                        h(ui, "PPM"); ui.label("Parts Per Million — crystal frequency error correction. If signals appear off-frequency, adjust PPM to shift the whole spectrum. Calibrate using a known signal (e.g. local FM station)."); ui.end_row();
+                        h(ui, "VFO"); ui.label("Variable Frequency Oscillator — your tuned frequency. VFO A is the main frequency; VFO B is a saved alternate you can swap to with 'V'."); ui.end_row();
+                        h(ui, "BW"); ui.label("Bandwidth — the frequency range occupied by a signal. WFM stations are ~200 kHz wide; NFM (voice) is ~12.5 kHz; AM ~10 kHz."); ui.end_row();
+                        h(ui, "Squelch"); ui.label("A gate that silences audio when signal strength drops below a threshold. Prevents constant static between transmissions. Set 5 dB above noise floor."); ui.end_row();
+                        h(ui, "LO"); ui.label("Local Oscillator — the hardware frequency the SDR chip tunes to. The actual receive frequency = LO ± baseband offset (shown if different from VFO)."); ui.end_row();
+                        h(ui, "Gain"); ui.label("RF amplification in dB. Higher = more sensitive but increases noise and overload risk. Start at 30–40 dB and adjust for best SNR."); ui.end_row();
+                        h(ui, "IQ / I-Q"); ui.label("In-phase and Quadrature — two channels the SDR captures to preserve both amplitude and phase. Together they describe the complex baseband signal."); ui.end_row();
+                        h(ui, "FFT"); ui.label("Fast Fourier Transform — converts the raw IQ time-domain data into the frequency-domain spectrum display you see."); ui.end_row();
+                        h(ui, "Waterfall"); ui.label("A time-frequency plot: frequencies on the X axis, time scrolling down. Bright spots = signals. Great for spotting intermittent transmissions."); ui.end_row();
+                        h(ui, "WFM"); ui.label("Wideband FM — used for broadcast FM radio stations (~88–108 MHz). Requires ≥200 kHz bandwidth."); ui.end_row();
+                        h(ui, "NFM"); ui.label("Narrowband FM — used for VHF/UHF voice (police, aircraft, amateur). ~12.5 kHz bandwidth."); ui.end_row();
+                        h(ui, "AM"); ui.label("Amplitude Modulation — used for shortwave/HF broadcasts and aircraft voice (108–137 MHz). Envelope of the carrier carries audio."); ui.end_row();
+                        h(ui, "SSB/USB/LSB"); ui.label("Single Sideband — used for amateur radio HF voice. USB = Upper Sideband (>10 MHz), LSB = Lower Sideband (<10 MHz). Very efficient."); ui.end_row();
+                        h(ui, "Bias Tee"); ui.label("Passes DC voltage (4.5V) through the antenna port to power an external LNA (low-noise amplifier). Only on compatible hardware (RTL-SDR Blog V3+)."); ui.end_row();
+                        h(ui, "ADS-B"); ui.label("Automatic Dependent Surveillance-Broadcast — 1090 MHz signals from aircraft reporting position, altitude, speed. Received by the ADS-B tab."); ui.end_row();
+                        h(ui, "S-meter"); ui.label("Signal strength meter using the IARU S-unit scale: S1 ≈ −121 dBm, each S-unit = 6 dB. S9 ≈ −73 dBm. 'S9+20dB' means 20 dB above S9."); ui.end_row();
+                    });
+                    ui.add_space(4.0);
+                    if ui.button("Close").clicked() {
+                        self.show_glossary = false;
+                    }
+                });
+            if !open { self.show_glossary = false; }
         }
     }
 }
 
 struct SharedSnapshot {
-    #[allow(dead_code)]
-    bookmarks: Vec<crate::bookmarks::Bookmark>,
     jobs: Vec<crate::scheduler::ScheduledJob>,
     custom_tasks: Vec<crate::scheduler::CustomTask>,
     auto_tune_enabled: bool,

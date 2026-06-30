@@ -68,7 +68,7 @@ impl TleEngine {
     pub fn compute_passes(&self, lat: f64, lon: f64, hours: f64) -> Vec<PassInfo> {
         let mut passes = vec![];
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64();
         let dt = 60.0;
         let steps = (hours * 3600.0 / dt) as usize;
 

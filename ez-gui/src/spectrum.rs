@@ -280,7 +280,7 @@ impl SpectrumAnalyzer {
         let n = self.spectrum_dbs.len();
         let peak_bin = self.spectrum_dbs.iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, _)| i)
             .unwrap_or(n / 2);
         // DC bin is at n/2; offset from center = (bin - n/2) * (sample_rate / n)
@@ -288,15 +288,10 @@ impl SpectrumAnalyzer {
         (self.center_freq as i64 + offset_hz).max(0) as u64
     }
 
-    #[allow(dead_code)]
-    pub fn min_level(&self) -> f32 {
-        self.spectrum_dbs.iter().cloned().fold(0.0f32, f32::min)
-    }
-
     pub fn noise_floor(&self) -> f32 {
         if self.spectrum_dbs.is_empty() { return -120.0; }
         let mut sorted = self.spectrum_dbs.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         sorted[sorted.len() / 4].max(sorted[0])
     }
 
@@ -642,7 +637,9 @@ impl SpectrumAnalyzer {
             if pts.len() > 1 {
                 // Filled polygon under the curve
                 let mut poly = pts.clone();
-                poly.push(egui::pos2(pts.last().unwrap().x, hist_rect.bottom()));
+                if let Some(last) = pts.last() {
+                    poly.push(egui::pos2(last.x, hist_rect.bottom()));
+                }
                 poly.push(egui::pos2(pts[0].x, hist_rect.bottom()));
                 painter.add(egui::Shape::convex_polygon(
                     poly,

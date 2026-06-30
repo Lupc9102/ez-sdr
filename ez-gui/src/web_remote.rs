@@ -55,7 +55,10 @@ impl WebRemote {
             let port = self.port;
 
             thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
+                let rt = match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt,
+                    Err(e) => { eprintln!("[web_remote] failed to create tokio runtime: {e}"); return; }
+                };
                 rt.block_on(async move {
                     use axum::{routing::get, Router, extract::State, extract::ws::{WebSocket, WebSocketUpgrade, Message}, response::IntoResponse};
 
@@ -133,8 +136,13 @@ impl WebRemote {
 
                     let addr = format!("0.0.0.0:{}", port);
                     println!("[web_remote] listening on http://{}", addr);
-                    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-                    axum::serve(listener, app).await.unwrap();
+                    let listener = match tokio::net::TcpListener::bind(&addr).await {
+                        Ok(l) => l,
+                        Err(e) => { eprintln!("[web_remote] bind failed on {addr}: {e}"); return; }
+                    };
+                    if let Err(e) = axum::serve(listener, app).await {
+                        eprintln!("[web_remote] server error: {e}");
+                    }
                 });
             });
         }

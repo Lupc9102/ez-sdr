@@ -167,12 +167,23 @@ impl RecorderPanel {
 
     pub fn start_recording(&mut self) {
         if self.recording { return; }
-        let dir = std::path::Path::new(&self.output_dir);
+        let output_dir = self.output_dir.clone();
         self.last_error.clear();
-        if let Err(e) = std::fs::create_dir_all(dir) {
+        if let Err(e) = std::fs::create_dir_all(&output_dir) {
             self.last_error = format!("Failed to create directory: {}", e);
             return;
         }
+        // Pre-flight: disk space check (warn if < 500 MB free)
+        let (free_gb, unit) = self.cached_free_disk_space();
+        let free_mb = if unit == "MB" { free_gb } else { free_gb * 1024.0 };
+        if free_mb < 500.0 {
+            self.last_error = format!(
+                "⚠ Low disk space: only {:.0} {} free on recording drive. Recording may fail or be cut short.",
+                free_gb, unit
+            );
+            // Don't block — just warn. User can still record.
+        }
+        let dir = std::path::Path::new(&output_dir);
         let now = chrono::Local::now();
         let ts_str = now.format("%Y%m%d_%H%M%S").to_string();
         let timestamp_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();

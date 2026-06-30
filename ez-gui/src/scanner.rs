@@ -12,7 +12,6 @@ pub struct SignalHit {
 }
 
 pub struct FrequencyScanner {
-    #[allow(dead_code)]
     shared: Arc<Mutex<SharedState>>,
     pub enabled: bool,
     pub paused: bool,
@@ -895,11 +894,12 @@ impl FrequencyScanner {
 
         egui::ScrollArea::vertical().max_height(400.0).auto_shrink(false).show(ui, |ui| {
             egui::Grid::new("hits_grid")
-                .num_columns(8)
+                .num_columns(9)
                 .striped(true)
                 .min_col_width(30.0)
                 .show(ui, |ui| {
                     ui.strong("Freq");
+                    ui.strong("Band / Service");
                     ui.strong("Strength");
                     ui.strong("Level");
                     ui.strong("Hits").on_hover_text("Number of times this frequency was detected above threshold during this scan session.");
@@ -934,6 +934,23 @@ impl FrequencyScanner {
                                 ui.ctx().copy_text(format!("{:.6}", hit.freq_hz as f64 / 1e6));
                             }
                         });
+                        // Band / service identification
+                        {
+                            let band_label = if let Some(info) = crate::sdr_panel::identify_frequency(hit.freq_hz) {
+                                let short = if info.short_desc.len() > 22 {
+                                    format!("{}…", &info.short_desc[..20])
+                                } else {
+                                    info.short_desc.to_string()
+                                };
+                                let tip = format!("{} — {}\n{}{}", info.band, info.short_desc, info.tips,
+                                    if info.what_to_hear.is_empty() { String::new() } else { format!("\n🔊 Expect: {}", info.what_to_hear) });
+                                (short, tip)
+                            } else {
+                                ("—".to_string(), "No band plan entry for this frequency.".to_string())
+                            };
+                            ui.small(egui::RichText::new(&band_label.0).color(egui::Color32::from_rgb(180, 220, 255)))
+                                .on_hover_text(band_label.1);
+                        }
                         ui.colored_label(hit_color(hit.strength_db), format!("{:.1} dB", hit.strength_db));
                         // Mini strength bar
                         let norm = ((hit.strength_db + 120.0) / 120.0).clamp(0.0, 1.0);

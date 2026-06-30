@@ -9,10 +9,8 @@ pub struct Bookmark {
     pub name: String,
     pub frequency_hz: u64,
     pub mode: String,
-    #[allow(dead_code)]
     pub bandwidth_hz: u32,
     pub category: String,
-    #[allow(dead_code)]
     pub notes: String,
 }
 

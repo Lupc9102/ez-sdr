@@ -1,5 +1,6 @@
 use rumqttc::{Client, MqttOptions, QoS};
-use std::time::Duration;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::time::{Duration, Instant};
 
 use crate::adsb_panel::AircraftEntry;
 use crate::tle_engine::PassInfo;
@@ -10,6 +11,8 @@ pub struct MqttPublisher {
     pub port: u16,
     pub topic_prefix: String,
     client: Option<Client>,
+    connected_flag: Arc<AtomicBool>,
+    reconnect_after: Option<Instant>,
 }
 
 impl MqttPublisher {
@@ -20,6 +23,8 @@ impl MqttPublisher {
             port: 1883,
             topic_prefix: "ezsdr".to_string(),
             client: None,
+            connected_flag: Arc::new(AtomicBool::new(false)),
+            reconnect_after: None,
         }
     }
 
@@ -40,23 +45,45 @@ impl MqttPublisher {
         opts.set_keep_alive(Duration::from_secs(10));
         let (client, mut connection) = Client::new(opts, 128);
 
+        let flag = Arc::clone(&self.connected_flag);
+        flag.store(true, Ordering::Relaxed);
         std::thread::spawn(move || {
             for notification in connection.iter() {
                 if notification.is_err() {
                     break;
                 }
             }
+            flag.store(false, Ordering::Relaxed);
         });
 
         self.client = Some(client);
+        self.reconnect_after = None;
     }
 
     pub fn disconnect(&mut self) {
+        self.connected_flag.store(false, Ordering::Relaxed);
         self.client = None;
+        self.reconnect_after = None;
     }
 
     pub fn is_connected(&self) -> bool {
-        self.enabled && self.client.is_some()
+        self.enabled && self.client.is_some() && self.connected_flag.load(Ordering::Relaxed)
+    }
+
+    /// Call once per frame to auto-reconnect after connection drops.
+    pub fn tick_reconnect(&mut self) {
+        if !self.enabled { return; }
+        // If the background thread died, drop the stale client and schedule reconnect
+        if self.client.is_some() && !self.connected_flag.load(Ordering::Relaxed) {
+            eprintln!("[mqtt] connection lost — will retry in 10s");
+            self.client = None;
+            self.reconnect_after = Some(Instant::now() + Duration::from_secs(10));
+        }
+        // Reconnect when timer expires
+        if self.client.is_none() && self.reconnect_after.map(|t| Instant::now() >= t).unwrap_or(false) {
+            self.reconnect_after = None;
+            self.connect();
+        }
     }
 
     pub fn publish(&mut self, subtopic: &str, payload: &str) {

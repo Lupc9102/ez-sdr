@@ -127,7 +127,7 @@ impl Database {
 
     pub fn log_event(&self, event: &str, freq: u64, gain: f64, notes: &str) -> Result<()> {
         let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64();
         self.conn.execute(
             "INSERT INTO sdr_logs (timestamp, event, frequency_hz, gain_db, notes) VALUES (?1, ?2, ?3, ?4, ?5)",
             rusqlite::params![ts, event, freq as i64, gain, notes],
