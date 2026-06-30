@@ -266,6 +266,21 @@ impl SdrPanel {
                     }
                 }
             });
+
+            // Recent frequencies quick access
+            if !state.config.recent_frequencies.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("📜 Recent:").on_hover_text("Frequencies you've tuned to recently. Click to jump back.");
+                    let recent = state.config.recent_frequencies.clone();
+                    for (idx, freq_hz) in recent.iter().rev().enumerate() {
+                        if idx >= 5 { break; } // Show last 5
+                        let freq_mhz = *freq_hz as f64 / 1e6;
+                        if ui.small_button(format!("{:.3}", freq_mhz)).on_hover_text(format!("{:.6} MHz", freq_mhz)).clicked() {
+                            state.source.frequency_hz = *freq_hz;
+                        }
+                    }
+                });
+            }
         }
 
         // VFO A/B swap
