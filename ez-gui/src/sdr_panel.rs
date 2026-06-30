@@ -616,6 +616,16 @@ impl SdrPanel {
             }
         }
 
+        // Peak finder: find and auto-tune to strongest signal
+        if let Ok(mut state) = self.shared.try_lock() {
+            if ui.button("🔍 Find Peak: Auto-Tune to Strongest Signal").on_hover_text("Instantly jump to the strongest signal currently visible. Perfect for discovering what's on air!").clicked() {
+                let peak_freq = state.spectrum.peak_freq_hz();
+                if peak_freq > 0 {
+                    state.source.frequency_hz = peak_freq;
+                }
+            }
+        }
+
         // Display reception statistics
         let session_duration = self.session_start.elapsed().as_secs();
         let session_mins = session_duration / 60;
