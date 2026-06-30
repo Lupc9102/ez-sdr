@@ -34,6 +34,8 @@ pub struct RecorderPanel {
     pub signal_monitor: bool,
     pub signal_log: std::collections::VecDeque<SignalEvent>,
     signal_last_logged: Option<std::time::Instant>,
+    // Filename template
+    pub filename_template: String,
 }
 
 #[derive(Clone)]
@@ -69,7 +71,18 @@ impl RecorderPanel {
             signal_monitor: false,
             signal_log: std::collections::VecDeque::with_capacity(200),
             signal_last_logged: None,
+            filename_template: "{date}_{freq}MHz".to_string(),
         }
+    }
+
+    fn apply_filename_template(&self, template: &str, ts_str: &str, freq_mhz: f64, mode: &str) -> String {
+        template
+            .replace("{date}", ts_str)
+            .replace("{freq}", &format!("{:.3}", freq_mhz))
+            .replace("{mode}", mode)
+            .replace("{freq1}", &format!("{:.1}", freq_mhz))
+            .replace("{freq0}", &format!("{:.0}", freq_mhz))
+            .replace(' ', "_")
     }
 
     pub fn tick_squelch_record(&mut self, signal_db: f32, squelch_db: f32, freq_hz: u64, mode: &str) {
@@ -173,8 +186,11 @@ impl RecorderPanel {
         let mut iq_filename = String::new();
         let mut wav_filename = String::new();
 
+        let template = self.filename_template.clone();
+        let base_name = self.apply_filename_template(&template, &ts_str, freq_mhz, &demod_label);
+
         if self.record_iq {
-            let filename = format!("{}_{:.1}MHz.iq", ts_str, freq_mhz);
+            let filename = format!("{}.iq", base_name);
             let path = dir.join(&filename);
             match std::fs::File::create(&path) {
                 Ok(file) => {
@@ -189,7 +205,7 @@ impl RecorderPanel {
             }
         }
         if self.record_audio {
-            let wf = format!("{}_{:.1}MHz_audio.wav", ts_str, freq_mhz);
+            let wf = format!("{}_audio.wav", base_name);
             let wav_path = dir.join(&wf);
             let spec = hound::WavSpec {
                 channels: 1,
@@ -210,7 +226,7 @@ impl RecorderPanel {
         }
 
         // Write sidecar JSON with recording metadata
-        let sidecar_name = format!("{}_{:.1}MHz.json", ts_str, freq_mhz);
+        let sidecar_name = format!("{}.json", base_name);
         let sidecar_path = dir.join(&sidecar_name);
         let mut files_json = String::from("[");
         if !iq_filename.is_empty() {
@@ -295,6 +311,28 @@ impl RecorderPanel {
             ui.label("Output dir:");
             ui.add(egui::TextEdit::singleline(&mut self.output_dir).desired_width(200.0));
         });
+
+        ui.horizontal(|ui| {
+            ui.label("Filename:").on_hover_text("Filename template for recordings. Tokens: {date}=timestamp, {freq}=frequency (3dp), {freq1}=frequency (1dp), {mode}=demod mode. Extension is added automatically.");
+            ui.add(egui::TextEdit::singleline(&mut self.filename_template).desired_width(200.0))
+                .on_hover_text("Example: '{date}_{freq}MHz' → '20240615_120000_145.500MHz.iq'\nTokens: {date} {freq} {freq1} {freq0} {mode}");
+            if ui.small_button("Reset").clicked() {
+                self.filename_template = "{date}_{freq}MHz".to_string();
+            }
+        });
+        // Show preview of the next filename
+        {
+            let preview_ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+            let freq_mhz_preview = if let Ok(state) = self.shared.try_lock() {
+                state.source.frequency_hz as f64 / 1e6
+            } else { 145.5 };
+            let mode_preview = if let Ok(state) = self.shared.try_lock() {
+                state.demod_mode.label().to_string()
+            } else { "NFM".to_string() };
+            let preview = self.apply_filename_template(&self.filename_template.clone(), &preview_ts, freq_mhz_preview, &mode_preview);
+            ui.label(egui::RichText::new(format!("→ {}.iq / .wav", preview)).small().color(egui::Color32::from_gray(150)))
+                .on_hover_text("Preview of the next recording filename with current frequency and time.");
+        }
 
         if !self.last_filename.is_empty() {
             ui.label(format!("Last file: {}", self.last_filename));
