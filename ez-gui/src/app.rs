@@ -964,14 +964,45 @@ impl eframe::App for CentralApp {
                         edit.request_focus();
                     }
 
-                    // Show matches
-                    if !self.freq_jump_matches.is_empty() {
+                    // Show matches or suggestions if empty
+                    let has_input = !self.freq_jump_input.trim().is_empty();
+                    let should_show_suggestions = self.freq_jump_matches.is_empty() && !has_input;
+
+                    if !self.freq_jump_matches.is_empty() || should_show_suggestions {
                         ui.separator();
                         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                            // Show search matches if any
                             for (label, freq) in self.freq_jump_matches.clone() {
                                 if ui.selectable_label(false, &label).clicked() {
                                     tune_to = Some(freq);
                                     close = true;
+                                }
+                            }
+
+                            // Show suggestions (recent freqs + bookmarks) when input is empty
+                            if should_show_suggestions {
+                                ui.label(egui::RichText::new("Recent:").italics().small());
+                                if let Ok(state) = self.shared.try_lock() {
+                                    let recent: Vec<u64> = state.freq_history.iter().cloned().rev().take(5).collect();
+                                    for freq in recent {
+                                        let label = format!("  {:.3} MHz", freq as f64 / 1e6);
+                                        if ui.selectable_label(false, &label).clicked() {
+                                            tune_to = Some(freq);
+                                            close = true;
+                                        }
+                                    }
+                                }
+
+                                ui.label(egui::RichText::new("Bookmarks:").italics().small());
+                                if let Ok(state) = self.shared.try_lock() {
+                                    let bookmarks_to_show = state.bookmarks.bookmarks.iter().take(5);
+                                    for bm in bookmarks_to_show {
+                                        let label = format!("  ⭐ {} ({:.3} MHz)", &bm.name, bm.frequency_hz as f64 / 1e6);
+                                        if ui.selectable_label(false, &label).clicked() {
+                                            tune_to = Some(bm.frequency_hz);
+                                            close = true;
+                                        }
+                                    }
                                 }
                             }
                         });
