@@ -120,6 +120,8 @@ pub struct CentralApp {
     show_freq_jump: bool,
     freq_jump_input: String,
     freq_jump_matches: Vec<(String, u64)>,
+    // Session notes
+    session_notes: String,
 }
 
 impl CentralApp {
@@ -267,6 +269,7 @@ impl CentralApp {
             show_freq_jump: false,
             freq_jump_input: String::new(),
             freq_jump_matches: Vec::new(),
+            session_notes: String::new(),
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
@@ -857,6 +860,7 @@ impl eframe::App for CentralApp {
                 new_task_freq_mhz: &mut self.new_task_freq_mhz,
                 new_task_time: &mut self.new_task_time,
                 new_task_error: &mut self.new_task_error,
+                session_notes: &mut self.session_notes,
             });
 
         // First-run welcome banner
@@ -1316,6 +1320,7 @@ struct TabViewer<'a> {
     new_task_freq_mhz: &'a mut String,
     new_task_time: &'a mut String,
     new_task_error: &'a mut String,
+    session_notes: &'a mut String,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -1925,6 +1930,30 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         }
                     });
                 }
+
+                // Session notes — lightweight text scratchpad
+                ui.separator();
+                ui.collapsing("📝 Session Notes", |ui| {
+                    ui.label(egui::RichText::new("Jot down frequencies, signal notes, or observations for this session.").small().color(egui::Color32::GRAY));
+                    ui.add(egui::TextEdit::multiline(&mut *self.session_notes)
+                        .desired_rows(6)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("e.g. 'Strong signal at 145.500 MHz — probably a local repeater. Heard voice at 156.800 MHz marine ch16.'"));
+                    ui.horizontal(|ui| {
+                        if ui.small_button("💾 Save to file").on_hover_text("Save session notes to a text file.").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("sdr_session_notes.txt")
+                                .add_filter("Text", &["txt"])
+                                .save_file()
+                            {
+                                let _ = std::fs::write(&path, &self.session_notes);
+                            }
+                        }
+                        if ui.small_button("Clear").on_hover_text("Clear all session notes.").clicked() {
+                            self.session_notes.clear();
+                        }
+                    });
+                });
             }
             Tab::Settings => {
                 if let Ok(mut state) = self.shared.try_lock() {
