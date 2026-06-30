@@ -249,6 +249,21 @@ impl SdrPanel {
                         }
                     }
                 }
+
+                // Current step indicator
+                let fine_label = if state.tune_step_fine_hz >= 1_000_000 {
+                    format!("{:.1}M", state.tune_step_fine_hz as f64 / 1e6)
+                } else {
+                    format!("{:.0}k", state.tune_step_fine_hz as f64 / 1e3)
+                };
+                let coarse_label = if state.tune_step_coarse_hz >= 1_000_000 {
+                    format!("{:.1}M", state.tune_step_coarse_hz as f64 / 1e6)
+                } else {
+                    format!("{:.0}k", state.tune_step_coarse_hz as f64 / 1e3)
+                };
+                ui.colored_label(egui::Color32::GRAY, format!("←→:{} ↑↓:{}", fine_label, coarse_label))
+                    .on_hover_text(format!("Fine step (← →): {} Hz. Coarse step (↑ ↓): {} Hz. Shift×10 for multiplier.",
+                        state.tune_step_fine_hz, state.tune_step_coarse_hz));
             });
         }
         // Recent frequencies quick-access bar
