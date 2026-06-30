@@ -2,6 +2,16 @@ use std::sync::{Arc, Mutex};
 
 use crate::app::SharedState;
 
+fn format_hz(hz: u32) -> String {
+    if hz >= 1_000_000 {
+        format!("{:.2} MHz", hz as f64 / 1e6)
+    } else if hz >= 1_000 {
+        format!("{:.1} kHz", hz as f64 / 1e3)
+    } else {
+        format!("{} Hz", hz)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DemodMode {
     Raw,
@@ -711,9 +721,28 @@ impl SdrPanel {
         }
 
         // Filter bandwidth and squelch
-        ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
-            .on_hover_text("Receiver filter bandwidth. Set just wider than the signal. WFM: 200 kHz, NFM voice: 12–16 kHz, AM voice: 8 kHz, SSB: 2.4 kHz. Too wide = more noise.");
         if let Ok(mut state) = self.shared.try_lock() {
+            let bw_resp = ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
+                .on_hover_text("Receiver filter bandwidth. Set just wider than the signal. WFM: 200 kHz, NFM voice: 12–16 kHz, AM voice: 8 kHz, SSB: 2.4 kHz. Too wide = more noise.");
+
+            // Suggested bandwidth for current demod mode
+            let (suggested_hz, tip) = match state.demod_mode {
+                DemodMode::Raw => (0, "RAW: no filter applied"),
+                DemodMode::Am => (8_000, "AM: 8 kHz typical for voice"),
+                DemodMode::Fm => (12_500, "NFM: 12.5 kHz standard"),
+                DemodMode::Wfm => (200_000, "WFM: 200 kHz for stereo broadcast"),
+                DemodMode::Lsb | DemodMode::Usb => (2_400, "SSB: 2.4 kHz for voice"),
+            };
+            if suggested_hz > 0 && (self.filter_bw as i32 - suggested_hz as i32).abs() > 1000 {
+                let suggestion_color = if self.filter_bw < suggested_hz {
+                    egui::Color32::from_rgb(180, 200, 100) // yellow: too narrow
+                } else {
+                    egui::Color32::from_rgb(100, 150, 255) // blue: too wide
+                };
+                ui.colored_label(suggestion_color, format!("💡 {}: {}", state.demod_mode.label(), format_hz(suggested_hz)))
+                    .on_hover_text(tip);
+            }
+
             ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true))
                 .on_hover_text("Low-pass filter on audio output. Cuts high-frequency hiss above this frequency. Default 15 kHz is fine for voice. Lower for CW/Morse (~800 Hz).");
         }
