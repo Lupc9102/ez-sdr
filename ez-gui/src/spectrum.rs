@@ -105,6 +105,8 @@ pub enum ColorMap {
     Magma,
     Grayscale,
     Hot,
+    Inferno,
+    Turbo,
 }
 
 impl ColorMap {
@@ -116,6 +118,8 @@ impl ColorMap {
             ColorMap::Magma => "Magma",
             ColorMap::Grayscale => "Grayscale",
             ColorMap::Hot => "Hot",
+            ColorMap::Inferno => "Inferno",
+            ColorMap::Turbo => "Turbo",
         }
     }
 }
@@ -258,8 +262,10 @@ impl SpectrumAnalyzer {
             ColorMap::Classic   => ColorMap::Viridis,
             ColorMap::Viridis   => ColorMap::Plasma,
             ColorMap::Plasma    => ColorMap::Magma,
-            ColorMap::Magma     => ColorMap::Hot,
-            ColorMap::Hot       => ColorMap::Grayscale,
+            ColorMap::Magma     => ColorMap::Inferno,
+            ColorMap::Inferno   => ColorMap::Hot,
+            ColorMap::Hot       => ColorMap::Turbo,
+            ColorMap::Turbo     => ColorMap::Grayscale,
             ColorMap::Grayscale => ColorMap::Classic,
         };
         self.waterfall_dirty = true;
@@ -471,7 +477,7 @@ impl SpectrumAnalyzer {
             }
             ui.separator();
             ui.label("Palette:");
-            for (label, cmap) in [("Classic", ColorMap::Classic), ("Viridis", ColorMap::Viridis), ("Plasma", ColorMap::Plasma), ("Magma", ColorMap::Magma), ("Gray", ColorMap::Grayscale), ("Hot", ColorMap::Hot)] {
+            for (label, cmap) in [("Classic", ColorMap::Classic), ("Viridis", ColorMap::Viridis), ("Plasma", ColorMap::Plasma), ("Magma", ColorMap::Magma), ("Inferno", ColorMap::Inferno), ("Turbo", ColorMap::Turbo), ("Gray", ColorMap::Grayscale), ("Hot", ColorMap::Hot)] {
                 if ui.selectable_label(self.color_map == cmap, label).clicked() {
                     self.color_map = cmap;
                     self.waterfall_dirty = true;
@@ -1961,6 +1967,23 @@ fn color_map(cmap: ColorMap, t: f32) -> (u8, u8, u8) {
             let g = (((t * 3.0 - 1.0).max(0.0).min(1.0)) * 255.0) as u8;
             let b = (((t * 3.0 - 2.0).max(0.0).min(1.0)) * 255.0) as u8;
             (r, g, b)
+        }
+        ColorMap::Inferno => {
+            const I: &[(u8,u8,u8)] = &[
+                (0, 0, 4), (10, 7, 34), (43, 14, 76), (85, 17, 109),
+                (128, 24, 124), (171, 41, 113), (210, 71, 82), (240, 113, 39),
+                (246, 162, 16), (246, 214, 50), (252, 255, 164),
+            ];
+            sample_palette(I, t)
+        }
+        ColorMap::Turbo => {
+            const T: &[(u8,u8,u8)] = &[
+                (48, 18, 59), (62, 37, 137), (58, 72, 195), (39, 115, 215),
+                (24, 158, 196), (34, 196, 149), (76, 226, 94), (144, 242, 44),
+                (213, 239, 24), (255, 219, 28), (255, 198, 37), (255, 173, 46),
+                (255, 130, 57), (247, 79, 67), (222, 33, 69), (186, 9, 58),
+            ];
+            sample_palette(T, t)
         }
     }
 }

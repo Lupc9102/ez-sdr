@@ -226,6 +226,8 @@ impl CentralApp {
                     "Viridis" => crate::spectrum::ColorMap::Viridis,
                     "Plasma" => crate::spectrum::ColorMap::Plasma,
                     "Magma" => crate::spectrum::ColorMap::Magma,
+                    "Inferno" => crate::spectrum::ColorMap::Inferno,
+                    "Turbo" => crate::spectrum::ColorMap::Turbo,
                     "Grayscale" => crate::spectrum::ColorMap::Grayscale,
                     "Hot" => crate::spectrum::ColorMap::Hot,
                     _ => crate::spectrum::ColorMap::Classic,
