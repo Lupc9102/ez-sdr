@@ -18,6 +18,7 @@ pub struct AdsBPanel {
     pub callsign_filter: String,
     pub show_trails: bool,
     aircraft_trails: std::collections::HashMap<u32, std::collections::VecDeque<(f64, f64)>>,
+    pub pending_ai_prompt: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +75,7 @@ impl AdsBPanel {
             callsign_filter: String::new(),
             show_trails: true,
             aircraft_trails: std::collections::HashMap::new(),
+            pending_ai_prompt: None,
         }
     }
 
@@ -118,8 +120,26 @@ impl AdsBPanel {
             } else {
                 0.0
             };
-            ui.label(format!("Aircraft: {} | Messages: {} ({:.0}/s)", self.aircraft.len(), self.total_messages, msg_rate))
-                .on_hover_text("Live count of tracked aircraft and Mode S/ADS-B messages received. Message rate shows decode throughput.");
+            let now_inst = std::time::Instant::now();
+            let active_count = self.aircraft.iter()
+                .filter(|ac| now_inst.duration_since(ac.seen).as_secs() <= self.max_age_secs)
+                .count();
+            let with_pos = self.aircraft.iter()
+                .filter(|ac| now_inst.duration_since(ac.seen).as_secs() <= self.max_age_secs && (ac.lat != 0.0 || ac.lon != 0.0))
+                .count();
+            let altitudes: Vec<u32> = self.aircraft.iter()
+                .filter(|ac| now_inst.duration_since(ac.seen).as_secs() <= self.max_age_secs && ac.altitude > 0)
+                .map(|ac| ac.altitude)
+                .collect();
+            let alt_range = if altitudes.len() >= 2 {
+                let lo = altitudes.iter().min().copied().unwrap_or(0);
+                let hi = altitudes.iter().max().copied().unwrap_or(0);
+                format!(" | Alt: {}-{} ft", lo, hi)
+            } else {
+                String::new()
+            };
+            ui.label(format!("✈ {} aircraft ({} w/pos) | {} msgs ({:.0}/s){}", active_count, with_pos, self.total_messages, msg_rate, alt_range))
+                .on_hover_text("Active aircraft count, position count, total Mode S messages decoded, message rate, and altitude range of tracked aircraft.");
             if self.start_time.is_some() {
                 if ui.button("Stop").on_hover_text("Stop the ADS-B decoder and SDR.").clicked() {
                     if let Ok(mut state) = self.shared.try_lock() {
@@ -294,7 +314,7 @@ impl AdsBPanel {
 
         // Aircraft table
         egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("adsb_grid").num_columns(8).striped(true).show(ui, |ui| {
+            egui::Grid::new("adsb_grid").num_columns(9).striped(true).show(ui, |ui| {
                 ui.label("ICAO").on_hover_text("24-bit ICAO Mode S address — unique to each aircraft worldwide. Like a tail number but in hex.");
                 ui.label("Callsign").on_hover_text("Flight or aircraft callsign broadcast by the aircraft. May be a flight number (UAL123) or registration (N12345).");
                 ui.label("Alt (ft)").on_hover_text("Barometric altitude in feet above mean sea level (MSL), from the aircraft's Mode C altitude encoder.");
@@ -303,6 +323,7 @@ impl AdsBPanel {
                 ui.label("Lat").on_hover_text("GPS latitude in decimal degrees from ADS-B surface/airborne position message (Type 9-18). Accuracy typically ±10m.");
                 ui.label("Lon").on_hover_text("GPS longitude in decimal degrees from ADS-B surface/airborne position message.");
                 ui.label("Age").on_hover_text("Seconds since the last ADS-B message was received from this aircraft. Aircraft not heard for >60 s may have moved out of range.");
+                ui.label("AI").on_hover_text("Ask the AI Agent about this aircraft.");
                 ui.end_row();
 
                 let now = std::time::Instant::now();
@@ -329,7 +350,13 @@ impl AdsBPanel {
                         format!("{}s", age)
                     };
                     ui.colored_label(row_color, format!("{:06X}", ac.icao));
-                    ui.colored_label(row_color, &ac.callsign);
+                    ui.horizontal(|ui| {
+                        ui.set_width(80.0);
+                        ui.colored_label(row_color, &ac.callsign);
+                        if ui.small_button("📋").on_hover_text("Copy callsign").clicked() {
+                            ui.ctx().copy_text(ac.callsign.clone());
+                        }
+                    });
                     ui.colored_label(row_color, format!("{}", ac.altitude));
                     ui.colored_label(row_color, format!("{}", ac.speed));
                     ui.colored_label(row_color, format!("{}°", ac.heading));
@@ -338,6 +365,19 @@ impl AdsBPanel {
                     let age_color = if age < 10 { egui::Color32::GREEN } else if age < 30 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
                     ui.colored_label(age_color, age_str)
                         .on_hover_text(format!("Last message received {} seconds ago.", age));
+                    if ui.small_button("🤖").on_hover_text("Ask AI about this aircraft").clicked() {
+                        self.pending_ai_prompt = Some(format!(
+                            "I'm tracking an aircraft on ADS-B. Here are the details:\n\
+                             Callsign: {}\n\
+                             ICAO: {:06X}\n\
+                             Altitude: {} ft\n\
+                             Speed: {} kt\n\
+                             Heading: {}°\n\
+                             Position: {:.4}°N, {:.4}°E\n\n\
+                             Can you tell me about this aircraft? What airline or operator might it be? Any interesting info about aircraft with this ICAO code?",
+                            ac.callsign, ac.icao, ac.altitude, ac.speed, ac.heading, ac.lat, ac.lon
+                        ));
+                    }
                     ui.end_row();
                 }
             });

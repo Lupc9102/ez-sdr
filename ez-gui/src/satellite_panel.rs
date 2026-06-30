@@ -14,6 +14,7 @@ pub struct SatellitePanel {
     pub auto_tune: bool,
     cached_passes: Vec<crate::tle_engine::PassInfo>,
     pass_cache_at: std::time::Instant,
+    pub pending_ai_prompt: Option<String>,
 }
 
 impl SatellitePanel {
@@ -31,6 +32,7 @@ impl SatellitePanel {
             auto_tune: true,
             cached_passes: vec![],
             pass_cache_at: std::time::Instant::now(),
+            pending_ai_prompt: None,
         }
     }
 
@@ -115,7 +117,7 @@ impl SatellitePanel {
             .unwrap_or(0.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("pass_grid").num_columns(6).striped(true).show(ui, |ui| {
+            egui::Grid::new("pass_grid").num_columns(7).striped(true).show(ui, |ui| {
                 ui.label(egui::RichText::new("Satellite").strong())
                     .on_hover_text("Satellite name from TLE catalog");
                 ui.label(egui::RichText::new("AOS").strong())
@@ -126,7 +128,8 @@ impl SatellitePanel {
                     .on_hover_text("Maximum elevation above horizon during the pass. >20° = good pass. >45° = excellent.");
                 ui.label(egui::RichText::new("In").strong())
                     .on_hover_text("Time remaining until AOS. Green = pass in progress. Yellow = within 10 minutes.");
-                ui.label(egui::RichText::new("Action").strong());
+                ui.label(egui::RichText::new("Tune").strong());
+                ui.label(egui::RichText::new("AI").strong());
                 ui.end_row();
 
                 for pass in &passes {
@@ -185,6 +188,32 @@ impl SatellitePanel {
                                 state.source.frequency_hz = pass.frequency_hz;
                             }
                         }
+                    }
+
+                    let pass_status = if is_active {
+                        format!("IN PROGRESS — {:.0}s remaining", secs_until_los.max(0.0))
+                    } else if secs_until_aos > 0.0 {
+                        format!("in {:.0}m {:.0}s", secs_until_aos / 60.0, secs_until_aos % 60.0)
+                    } else {
+                        "past".to_string()
+                    };
+                    if ui.small_button("🤖")
+                        .on_hover_text(format!("Ask AI about {} pass", pass.satellite))
+                        .clicked()
+                    {
+                        self.pending_ai_prompt = Some(format!(
+                            "Tell me about the {} satellite pass:\n\
+                            - Frequency: {:.3} MHz\n\
+                            - AOS: {}, LOS: {}\n\
+                            - Max elevation: {:.0}°\n\
+                            - Status: {}\n\
+                            What can I receive from this satellite, and what settings should I use?",
+                            pass.satellite,
+                            pass.frequency_hz as f64 / 1e6,
+                            pass.aos, pass.los,
+                            pass.max_elevation,
+                            pass_status,
+                        ));
                     }
                     ui.end_row();
                 }

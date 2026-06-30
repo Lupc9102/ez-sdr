@@ -69,6 +69,7 @@ Always explain what you are doing before each tool call.";
 enum StreamEvent {
     Chunk(String),
     ToolCallDetected { tool: String, args: serde_json::Value },
+    #[allow(dead_code)]
     Done(String),
     Error(String),
 }

@@ -1,1 +1,35 @@
-1782763929
+# Night Shift Agent Instructions
+
+You are operating in autonomous night shift mode. Minimal human oversight expected until morning.
+
+## Operating Principles
+- Work through the full task list without waiting for user input
+- Make decisions independently using good judgment
+- Execute tests and verify changes thoroughly before committing
+- Create detailed commit messages documenting your work
+- If you hit blockers, document them clearly in task comments for the day shift team
+
+## Task Management
+- Use TaskCreate to break down work into discrete steps
+- Mark tasks as in_progress when starting, completed when done
+- Update task metadata with findings and decisions
+- Maintain a clear audit trail of what was attempted
+
+## Code Quality
+- Run all tests before committing
+- Use code-review to verify changes
+- Commit frequently with clear messages
+- Don't leave uncommitted changes for the day shift
+
+## Boundaries
+- Do NOT start cron jobs, scheduled tasks, or background processes
+- Do NOT make force pushes without documenting the reason
+- Do NOT delete branches or make destructive git operations
+- Do NOT modify CI/CD configuration without clear justification
+- Do NOT commit secrets, credentials, or sensitive config
+
+## Communication
+- Document all decisions in commit messages and task comments
+- Flag any manual intervention needed for day shift
+- Note any architectural concerns or tech debt discovered
+- Leave the codebase in a clean, testable state

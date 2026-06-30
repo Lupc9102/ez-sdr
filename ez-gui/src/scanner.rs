@@ -51,6 +51,17 @@ pub struct FrequencyScanner {
     pub exclude_hz: Vec<u64>,
     exclude_input: String,
     pub pending_ai_prompt: Option<String>,
+    // Hits sort mode
+    hits_sort: HitsSort,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum HitsSort {
+    Discovery,
+    Frequency,
+    Strength,
+    HitCount,
+    Recent,
 }
 
 impl FrequencyScanner {
@@ -92,6 +103,7 @@ impl FrequencyScanner {
             exclude_hz: Vec::new(),
             exclude_input: String::new(),
             pending_ai_prompt: None,
+            hits_sort: HitsSort::Discovery,
         }
     }
 
@@ -854,9 +866,36 @@ impl FrequencyScanner {
             else { egui::Color32::GRAY }
         };
 
+        // Sort controls
+        if !self.hits.is_empty() {
+            ui.horizontal(|ui| {
+                ui.small("Sort:");
+                for (label, sort_mode, tip) in [
+                    ("Discovery", HitsSort::Discovery, "Sort by discovery order (oldest first)"),
+                    ("Freq↑", HitsSort::Frequency, "Sort by frequency (lowest first)"),
+                    ("Signal↓", HitsSort::Strength, "Sort by signal strength (strongest first)"),
+                    ("Hits↓", HitsSort::HitCount, "Sort by hit count (most active first)"),
+                    ("Recent", HitsSort::Recent, "Sort by most recently seen"),
+                ] {
+                    let active = self.hits_sort == sort_mode;
+                    let btn = ui.add(egui::Button::new(
+                        egui::RichText::new(label).small()
+                            .color(if active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 240) })
+                    ).fill(if active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(40, 60, 100, 80) })
+                    .small())
+                    .on_hover_text(tip);
+                    if btn.clicked() {
+                        self.hits_sort = sort_mode;
+                    }
+                }
+                ui.separator();
+                ui.small(format!("{} hits", self.hits.len()));
+            });
+        }
+
         egui::ScrollArea::vertical().max_height(400.0).auto_shrink(false).show(ui, |ui| {
             egui::Grid::new("hits_grid")
-                .num_columns(7)
+                .num_columns(8)
                 .striped(true)
                 .min_col_width(30.0)
                 .show(ui, |ui| {
@@ -866,20 +905,35 @@ impl FrequencyScanner {
                     ui.strong("Hits").on_hover_text("Number of times this frequency was detected above threshold during this scan session.");
                     ui.strong("Time Ago");
                     ui.strong("Tune");
+                    ui.strong("🔖").on_hover_text("Bookmark this hit");
                     ui.strong("Del");
                     ui.strong("Skip");
                     ui.end_row();
 
-                    let hits_copy = self.hits.clone();
+                    let mut hits_copy = self.hits.clone();
+                    match self.hits_sort {
+                        HitsSort::Discovery => {}
+                        HitsSort::Frequency => hits_copy.sort_by_key(|h| h.freq_hz),
+                        HitsSort::Strength => hits_copy.sort_by(|a, b| b.strength_db.partial_cmp(&a.strength_db).unwrap_or(std::cmp::Ordering::Equal)),
+                        HitsSort::HitCount => hits_copy.sort_by(|a, b| b.hit_count.cmp(&a.hit_count)),
+                        HitsSort::Recent => hits_copy.sort_by(|a, b| b.timestamp.cmp(&a.timestamp)),
+                    }
                     let mut remove_idx = None;
                     let mut exclude_freq = None;
+                    let mut bookmark_freq: Option<u64> = None;
                     for (i, hit) in hits_copy.iter().enumerate() {
                         let already_excluded = self.exclude_hz.contains(&hit.freq_hz);
-                        if already_excluded {
-                            ui.monospace(egui::RichText::new(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6)).strikethrough().color(egui::Color32::GRAY));
-                        } else {
-                            ui.monospace(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6));
-                        }
+                        ui.horizontal(|ui| {
+                            ui.set_width(150.0);
+                            if already_excluded {
+                                ui.monospace(egui::RichText::new(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6)).strikethrough().color(egui::Color32::GRAY));
+                            } else {
+                                ui.monospace(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6));
+                            }
+                            if ui.small_button("📋").on_hover_text("Copy frequency to clipboard").clicked() {
+                                ui.ctx().copy_text(format!("{:.6}", hit.freq_hz as f64 / 1e6));
+                            }
+                        });
                         ui.colored_label(hit_color(hit.strength_db), format!("{:.1} dB", hit.strength_db));
                         // Mini strength bar
                         let norm = ((hit.strength_db + 120.0) / 120.0).clamp(0.0, 1.0);
@@ -901,6 +955,9 @@ impl FrequencyScanner {
                         ui.label(if ago < 60 { format!("{}s", ago) } else { format!("{}m", ago / 60) });
                         if ui.small_button("📡").on_hover_text("Tune SDR to this frequency.").clicked() {
                             self.tune_request_hz = Some(hit.freq_hz);
+                        }
+                        if ui.small_button("🔖").on_hover_text("Save as bookmark in Scanner category.").clicked() {
+                            bookmark_freq = Some(hit.freq_hz);
                         }
                         if ui.small_button("✕").on_hover_text("Remove this hit from the list.").clicked() {
                             remove_idx = Some(i);
@@ -928,6 +985,21 @@ impl FrequencyScanner {
                     if let Some(f) = exclude_freq {
                         if !self.exclude_hz.contains(&f) {
                             self.exclude_hz.push(f);
+                        }
+                    }
+                    if let Some(f) = bookmark_freq {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            let already = state.bookmarks.bookmarks.iter().any(|b| b.frequency_hz == f);
+                            if !already {
+                                state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                                    name: format!("Scanner {:.3} MHz", f as f64 / 1e6),
+                                    frequency_hz: f,
+                                    mode: "NFM".to_string(),
+                                    bandwidth_hz: 12_500,
+                                    category: "Scanner".to_string(),
+                                    notes: "Saved from scanner hit".to_string(),
+                                });
+                            }
                         }
                     }
                 });

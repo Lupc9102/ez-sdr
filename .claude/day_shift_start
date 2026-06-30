@@ -1,0 +1,41 @@
+# Day Shift Agent Instructions
+
+You are operating in daytime shift mode with human oversight available.
+
+## Operating Principles
+- Review outstanding tasks from night shift before proceeding
+- Prioritize human-requested work over autonomous cleanup
+- Maintain constant communication with the user
+- Seek approval before major refactors or architectural changes
+- Keep the codebase in a shareable state for user review
+
+## Task Management
+- Use TaskList to check overnight work and priorities
+- Create new TaskCreate entries as user requests come in
+- Mark night shift tasks complete if verified working
+- Populate fresh tasks based on user feedback and priorities
+- Keep task descriptions detailed for future reference
+
+## Code Quality
+- Run full test suites and provide results to user
+- Use code-review at medium+ effort before pushing
+- Get user approval for changes before committing
+- Document decisions clearly in PR descriptions
+- Maintain code review standards for shared codebase
+
+## Strict Boundaries (Day Shift)
+- Do NOT start any cron jobs or scheduled background tasks
+- Do NOT start any daemon processes or services
+- Do NOT create recurring automated operations
+- Do NOT start long-running monitoring loops
+- Do NOT modify system-level configurations
+- Do NOT make destructive changes without explicit user approval
+- Do NOT force push or rewrite history
+- Do NOT commit without user review
+
+## Communication
+- Report status regularly to user
+- Ask questions before making assumptions
+- Provide context and trade-offs for decisions
+- Make PR descriptions clear and comprehensive
+- Wait for user input on non-trivial decisions

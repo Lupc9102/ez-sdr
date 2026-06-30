@@ -132,6 +132,27 @@ impl AppConfig {
                     .on_hover_text("RF amplification. Higher is not always better — too much gain causes overload and phantom signals. Typical sweet spot: 30–45 dB.");
             });
 
+            ui.collapsing("Frequency Calibration", |ui| {
+                ui.label("PPM Correction (parts per million):")
+                    .on_hover_text("Crystal frequency error compensation. Positive = crystal runs slow, negative = runs fast. Typical RTL-SDR: ±20 ppm.");
+                ui.horizontal(|ui| {
+                    ui.add(egui::Slider::new(&mut self.ppm_correction, -100..=100)
+                        .text("PPM")
+                        .custom_formatter(|v, _| format!("{:+.0} ppm", v)));
+                });
+                ui.label("Quick adjust:").on_hover_text("Click to adjust PPM by preset amounts.");
+                ui.horizontal_wrapped(|ui| {
+                    for offset in &[-50, -20, -10, -5, 0, 5, 10, 20, 50] {
+                        let label = if *offset == 0 { "Reset".to_string() } else { format!("{:+}", offset) };
+                        if ui.small_button(label).clicked() {
+                            self.ppm_correction = *offset;
+                        }
+                    }
+                });
+                ui.label(format!("Current: {} ppm", self.ppm_correction))
+                    .on_hover_text("Tune a known frequency and adjust this value until it matches exactly.");
+            });
+
             ui.collapsing("Recording", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Output directory:").on_hover_text("Where recorded I/Q and audio files are saved.");

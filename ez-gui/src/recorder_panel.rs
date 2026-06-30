@@ -38,6 +38,9 @@ pub struct RecorderPanel {
     pub filename_template: String,
     // Quick-start duration in seconds (0 = use max_duration_mins)
     quick_duration_secs: u64,
+    // Peak audio level monitoring
+    pub peak_level_dbfs: f32,
+    peak_hold_time: Option<std::time::Instant>,
 }
 
 #[derive(Clone)]
@@ -75,6 +78,8 @@ impl RecorderPanel {
             signal_last_logged: None,
             filename_template: "{date}_{freq}MHz".to_string(),
             quick_duration_secs: 0,
+            peak_level_dbfs: -120.0,
+            peak_hold_time: None,
         }
     }
 
@@ -260,6 +265,8 @@ impl RecorderPanel {
             let _ = w.finalize();
         }
         self.recording = false;
+        self.peak_level_dbfs = -120.0;
+        self.peak_hold_time = None;
         if let Ok(mut state) = self.shared.try_lock() {
             state.recording = false;
         }
@@ -281,6 +288,19 @@ impl RecorderPanel {
 
     pub fn write_audio_samples(&mut self, audio: &[f32]) {
         if self.recording {
+            // Track peak level during recording
+            if !audio.is_empty() {
+                let peak = audio.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                let peak_dbfs = if peak > 0.0 {
+                    20.0 * peak.log10()
+                } else {
+                    -120.0
+                };
+                if peak_dbfs > self.peak_level_dbfs {
+                    self.peak_level_dbfs = peak_dbfs;
+                    self.peak_hold_time = Some(std::time::Instant::now());
+                }
+            }
             if let Some(writer) = &mut self.wav_writer {
                 for &s in audio {
                     let sample = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
@@ -480,6 +500,46 @@ impl RecorderPanel {
                     if elapsed > 0 {
                         let rate_mbps = self.bytes_written as f64 / elapsed as f64 / 1_048_576.0;
                         ui.label(format!("Rate: {:.2} MB/s", rate_mbps));
+                        // Estimate time until disk full
+                        let (free_gb, unit) = self.cached_free_disk_space();
+                        if rate_mbps > 0.0 {
+                            let free_bytes = free_gb * if unit == "GB" { 1_073_741_824.0 } else { 1_099_511_627_776.0 };
+                            let seconds_until_full = (free_bytes / 1_048_576.0) / rate_mbps;
+                            let time_str = if seconds_until_full > 3600.0 {
+                                format!("~{:.1}h until full", seconds_until_full / 3600.0)
+                            } else if seconds_until_full > 60.0 {
+                                format!("~{:.0}m until full", seconds_until_full / 60.0)
+                            } else {
+                                format!("~{:.0}s until full", seconds_until_full)
+                            };
+                            ui.colored_label(
+                                if seconds_until_full < 3600.0 { egui::Color32::YELLOW } else { egui::Color32::GRAY },
+                                time_str
+                            ).on_hover_text("Estimated time before disk is full at current data rate");
+                        }
+                    }
+                    // Peak audio level indicator (only if recording audio)
+                    if self.record_audio {
+                        ui.horizontal(|ui| {
+                            ui.label("Peak:");
+                            let peak_norm = ((self.peak_level_dbfs + 120.0) / 120.0).clamp(0.0, 1.0);
+                            let clipping = self.peak_level_dbfs > -3.0;
+                            let bar_color = if clipping { egui::Color32::RED } else if peak_norm > 0.7 { egui::Color32::YELLOW } else { egui::Color32::GREEN };
+                            ui.add(egui::ProgressBar::new(peak_norm).text(format!("{:.1} dBFS", self.peak_level_dbfs))
+                                .fill(bar_color)
+                                .desired_width(150.0))
+                                .on_hover_text(if clipping { "⚠ Clipping detected! Peak exceeds -3 dBFS" } else { "Audio level in decibels relative to full scale" });
+                        });
+                        // Decay peak hold after 3 seconds of not seeing a new peak
+                        if let Some(hold_time) = self.peak_hold_time {
+                            if hold_time.elapsed() > std::time::Duration::from_secs(3) {
+                                self.peak_level_dbfs = self.peak_level_dbfs * 0.95 - 2.0;
+                                if self.peak_level_dbfs < -120.0 {
+                                    self.peak_level_dbfs = -120.0;
+                                    self.peak_hold_time = None;
+                                }
+                            }
+                        }
                     }
                     if ui.button("■ Stop").clicked() {
                         self.stop_recording();

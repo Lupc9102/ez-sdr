@@ -171,7 +171,7 @@ impl SdrPanel {
                 } else {
                     format!("Δ {} Hz", diff_hz)
                 };
-                ui.colored_label(egui::Color32::from_rgb(180, 150, 200), diff_str)
+                ui.colored_label(egui::Color32::from_rgb(180, 150, 200), &diff_str)
                     .on_hover_text(format!("Frequency offset between VFO A and VFO B: {}", diff_str));
             }
 
@@ -190,6 +190,59 @@ impl SdrPanel {
                 });
             }
         }
+
+        // Sample rate quick buttons
+        if let Ok(mut state) = self.shared.try_lock() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Sample rate:").on_hover_text("Receiver sample rate. Higher = wider spectrum, slower updates.");
+                for (label, rate_hz) in [
+                    ("1M", 1_000_000u32),
+                    ("1.536M", 1_536_000),
+                    ("2M", 2_000_000),
+                    ("2.4M", 2_400_000),
+                    ("2.88M", 2_880_000),
+                ] {
+                    let is_active = state.source.sample_rate_hz == rate_hz;
+                    if ui.selectable_label(is_active, label)
+                        .on_hover_text(format!("Set sample rate to {} SPS", rate_hz))
+                        .clicked()
+                    {
+                        state.source.sample_rate_hz = rate_hz;
+                    }
+                }
+                let current_rate = state.source.sample_rate_hz / 1_000_000;
+                let rate_remainder = (state.source.sample_rate_hz % 1_000_000) / 1000;
+                if rate_remainder > 0 {
+                    ui.label(format!("({}.{}M)", current_rate, rate_remainder))
+                        .on_hover_text("Current sample rate");
+                }
+            });
+        }
+
+        // Gain quick buttons
+        if let Ok(mut state) = self.shared.try_lock() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Gain:").on_hover_text("RF amplifier gain. Higher = more sensitivity but risks overload. Sweet spot usually 30-45 dB.");
+                for (label, gain_db) in [
+                    ("Off", 0.0f64),
+                    ("15dB", 15.0),
+                    ("30dB", 30.0),
+                    ("40dB", 40.0),
+                    ("Max", 49.6),
+                ] {
+                    let is_active = (state.source.gain_db - gain_db).abs() < 0.5;
+                    if ui.selectable_label(is_active, label)
+                        .on_hover_text(format!("Set gain to {:.1} dB", gain_db))
+                        .clicked()
+                    {
+                        state.source.gain_db = gain_db;
+                    }
+                }
+                ui.label(format!("({:.1} dB)", state.source.gain_db))
+                    .on_hover_text("Current gain setting");
+            });
+        }
+
         // Nearby bookmark hint
         if let Ok(state) = self.shared.try_lock() {
             let cur_freq = state.source.frequency_hz;
@@ -345,7 +398,7 @@ impl SdrPanel {
         // Show frequency entry error if recent
         if let Some(error_time) = self.freq_input_error_time {
             if error_time.elapsed().as_secs_f32() < 3.0 {
-                let alpha = (1.0 - error_time.elapsed().as_secs_f32() / 3.0) * 255.0 as u8;
+                let alpha = ((1.0 - error_time.elapsed().as_secs_f32() / 3.0) * 255.0) as u8;
                 ui.colored_label(
                     egui::Color32::from_rgba_unmultiplied(220, 100, 80, alpha),
                     &self.freq_input_error
@@ -355,12 +408,61 @@ impl SdrPanel {
             }
         }
 
+        // Popular frequency bands quick-jump
+        ui.collapsing("📻 Quick bands", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if let Ok(mut state) = self.shared.try_lock() {
+                    for (name, freq_hz, tip) in [
+                        ("CB", 27_000_000u64, "Citizen Band (27 MHz)"),
+                        ("2m", 145_500_000, "2-meter amateur band (145–146 MHz)"),
+                        ("70cm", 435_000_000, "70-centimeter amateur band (430–440 MHz)"),
+                        ("Airband", 118_000_000, "Aviation band (118–137 MHz)"),
+                        ("Marine", 156_800_000, "Marine VHF (156–163 MHz)"),
+                        ("NOAA", 137_500_000, "Weather satellites (137–138 MHz)"),
+                        ("FM Bcast", 100_000_000, "FM radio (88–108 MHz)"),
+                        ("800 MHz", 800_000_000, "800 MHz trunked radio"),
+                        ("1.2G", 1_200_000_000, "1.2 GHz ISM / amateur"),
+                    ] {
+                        if ui.small_button(name)
+                            .on_hover_text(tip)
+                            .clicked()
+                        {
+                            state.source.frequency_hz = freq_hz;
+                        }
+                    }
+                }
+            });
+        });
+
+        // Frequency memory display
+        if let Ok(state) = self.shared.try_lock() {
+            let has_memory = state.freq_memory.iter().any(|&f| f > 0);
+            if has_memory {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("📝 Memory:").strong());
+                    for (i, &freq) in state.freq_memory.iter().enumerate() {
+                        if freq > 0 {
+                            let label = format!("M{}: {:.3}M", i + 1, freq as f64 / 1e6);
+                            if ui.small_button(&label)
+                                .on_hover_text(format!("Click to recall M{}, or press Alt+{} to recall, Alt+Shift+{} to save", i + 1, i + 1, i + 1))
+                                .clicked()
+                            {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    state.source.frequency_hz = freq;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
         ui.separator();
 
         // Demod mode selector with bandwidth hints
         ui.horizontal(|ui| {
             if let Ok(mut state) = self.shared.try_lock() {
-                for (mode, bw_hint, tip, detailed_tip) in [
+                for (mode, bw_hint, _tip, detailed_tip) in [
                     (DemodMode::Raw, "",       "RAW I/Q", "Raw I/Q samples — pass to external decoders like GQRX plugins. No audio filtering."),
                     (DemodMode::Am,  "8 kHz",  "AM", "Amplitude Modulation with 8 kHz audio bandwidth. Aviation (118–137 MHz), AM broadcast, shortwave. Good for voice and morse."),
                     (DemodMode::Fm,  "12.5 k", "NFM", "Narrowband FM (12.5 kHz) for digital and voice. Land mobile radio: police, fire, repeaters, NOAA weather. Crystal clear voice."),
@@ -704,6 +806,16 @@ impl SdrPanel {
             {
                 volume = vol;
             }
+            // Volume presets
+            for (label, preset_vol) in [("Mute", 0.0f32), ("25%", 0.25), ("50%", 0.50), ("75%", 0.75), ("Max", 1.0)] {
+                if ui.small_button(label)
+                    .on_hover_text(format!("Set volume to {}", label))
+                    .clicked()
+                {
+                    volume = preset_vol;
+                    vol = preset_vol;
+                }
+            }
             if start_audio || stop_audio || vol != volume {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.volume = volume;
@@ -789,20 +901,26 @@ impl SdrPanel {
         }
 
         // Recent frequencies (last 8 from history, most recent first)
-        if let Ok(state) = self.shared.try_lock() {
+        if let Ok(mut state) = self.shared.try_lock() {
             if state.freq_history.len() > 1 {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Recent:").on_hover_text("Last tuned frequencies — click to jump back.");
                     let hist: Vec<u64> = state.freq_history.iter().cloned().rev().skip(1).take(8).collect();
                     for freq in hist {
                         let label = format!("{:.3}", freq as f64 / 1e6);
-                        if ui.small_button(&label).on_hover_text(format!("{:.3} MHz — click to retune", freq as f64 / 1e6)).clicked() {
-                            drop(state); // release lock before re-acquiring
-                            if let Ok(mut st) = self.shared.try_lock() {
-                                st.source.frequency_hz = freq;
+                        ui.horizontal(|ui| {
+                            ui.set_width_range(0.0..=120.0);
+                            if ui.small_button(&label).on_hover_text(format!("{:.3} MHz — click to retune", freq as f64 / 1e6)).clicked() {
+                                state.source.frequency_hz = freq;
+                                return;
                             }
-                            return;
-                        }
+                            if ui.small_button("📋").on_hover_text("Copy frequency").clicked() {
+                                ui.ctx().copy_text(format!("{:.6}", freq as f64 / 1e6));
+                            }
+                        });
+                    }
+                    if ui.small_button("🗑").on_hover_text("Clear all frequency history").clicked() {
+                        state.freq_history.clear();
                     }
                 });
             }
@@ -810,7 +928,7 @@ impl SdrPanel {
 
         // Filter bandwidth and squelch
         if let Ok(mut state) = self.shared.try_lock() {
-            let bw_resp = ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
+            let _bw_resp = ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
                 .on_hover_text("Receiver filter bandwidth. Set just wider than the signal. WFM: 200 kHz, NFM voice: 12–16 kHz, AM voice: 8 kHz, SSB: 2.4 kHz. Too wide = more noise.");
 
             // Suggested bandwidth for current demod mode
@@ -884,6 +1002,19 @@ impl SdrPanel {
                 };
                 ui.colored_label(offset_color, format!("+{:.1}dB", offset))
                     .on_hover_text(format!("Squelch is {:.1} dB above noise floor ({:.1} dB). Ideal: 3–10 dB above floor.", offset, noise));
+
+                // Squelch open indicator
+                let signal_level = state.spectrum.signal_level();
+                let is_open = signal_level > self.squelch;
+                let indicator_text = if is_open { "◉ OPEN" } else { "◉ closed" };
+                let indicator_color = if is_open {
+                    egui::Color32::from_rgb(80, 220, 120)
+                } else {
+                    egui::Color32::GRAY
+                };
+                ui.colored_label(indicator_color, indicator_text)
+                    .on_hover_text(format!("Squelch status: signal {:.1} dB {} threshold {:.1} dB",
+                        signal_level, if is_open { "above" } else { "below" }, self.squelch));
             }
 
             if sq_resp.changed() || ui.input(|i| i.pointer.any_down()) {
@@ -924,27 +1055,33 @@ impl SdrPanel {
                     state.squelch = -120.0;
                 }
             }
+        });
+
+        // Squelch presets row
+        ui.horizontal(|ui| {
+            ui.label("Squelch presets:").on_hover_text("Quick squelch level adjustment");
+            for (label, level_db) in [
+                ("Very Loose", -100.0f32),
+                ("Loose", -80.0),
+                ("Normal", -60.0),
+                ("Tight", -40.0),
+                ("Very Tight", -20.0),
+            ] {
+                if ui.small_button(label)
+                    .on_hover_text(format!("Set squelch to {} dB", level_db))
+                    .clicked()
+                {
+                    self.squelch = level_db;
+                    self.auto_squelch = false;
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.squelch = level_db;
+                    }
+                }
+            }
             if ui.small_button("📋").on_hover_text("Copy current squelch value to clipboard.").clicked() {
                 ui.ctx().copy_text(format!("{:.1}", self.squelch));
             }
         });
-
-        // Squelch quick presets
-        if let Ok(mut state) = self.shared.try_lock() {
-            ui.horizontal(|ui| {
-                ui.label("SQ Presets:").on_hover_text("Quick squelch presets");
-                for (label, db, tip) in [
-                    ("Loose", -80.0f32, "Loose: -80 dB (catches weak signals)"),
-                    ("Normal", -50.0, "Normal: -50 dB (typical)"),
-                    ("Tight", -30.0, "Tight: -30 dB (strong signals only)"),
-                ] {
-                    if ui.small_button(label).on_hover_text(tip).clicked() {
-                        self.squelch = db;
-                        state.squelch = db;
-                    }
-                }
-            });
-        }
 
         // Frequency identification
         if let Ok(state) = self.shared.try_lock() {

@@ -63,6 +63,7 @@ pub struct SharedState {
     pub audio_peak: f32,
     pub freq_history: VecDeque<u64>,
     pub vfo_b: u64,
+    pub freq_memory: [u64; 9],
     pub tune_step_fine_hz: u64,
     pub tune_step_coarse_hz: u64,
     pub lo_offset_hz: i64,
@@ -102,6 +103,7 @@ pub struct CentralApp {
     new_bm_freq_mhz: String,
     new_bm_mode: String,
     new_bm_category: String,
+    new_bm_notes: String,
     new_bm_error: String,
     show_add_bm: bool,
     bm_import_msg: String,
@@ -111,6 +113,7 @@ pub struct CentralApp {
     edit_bm_freq_mhz: String,
     edit_bm_mode: String,
     edit_bm_category: String,
+    edit_bm_notes: String,
     // Custom task form
     new_task_label: String,
     new_task_freq_mhz: String,
@@ -151,6 +154,7 @@ impl CentralApp {
             audio_peak: 0.0,
             freq_history: VecDeque::with_capacity(20),
             vfo_b: 0,
+            freq_memory: [0u64; 9],
             tune_step_fine_hz: 100_000,
             tune_step_coarse_hz: 1_000_000,
             lo_offset_hz: 0,
@@ -254,6 +258,7 @@ impl CentralApp {
             new_bm_freq_mhz: String::new(),
             new_bm_mode: "NFM".to_string(),
             new_bm_category: "Custom".to_string(),
+            new_bm_notes: String::new(),
             new_bm_error: String::new(),
             show_add_bm: false,
             bm_import_msg: String::new(),
@@ -262,6 +267,7 @@ impl CentralApp {
             edit_bm_freq_mhz: String::new(),
             edit_bm_mode: String::new(),
             edit_bm_category: String::new(),
+            edit_bm_notes: String::new(),
             new_task_label: String::new(),
             new_task_freq_mhz: String::new(),
             new_task_time: String::new(),
@@ -414,6 +420,31 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::F4) { state.demod_mode = crate::sdr_panel::DemodMode::Wfm; }
                 if i.key_pressed(egui::Key::F5) { state.demod_mode = crate::sdr_panel::DemodMode::Lsb; }
                 if i.key_pressed(egui::Key::F6) { state.demod_mode = crate::sdr_panel::DemodMode::Usb; }
+                // Alt+letter: quick demod mode shortcuts
+                if i.modifiers.alt && i.key_pressed(egui::Key::F) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Fm;
+                    self.status_flash = Some(("NFM".to_string(), std::time::Instant::now()));
+                }
+                if i.modifiers.alt && i.key_pressed(egui::Key::W) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Wfm;
+                    self.status_flash = Some(("WFM".to_string(), std::time::Instant::now()));
+                }
+                if i.modifiers.alt && i.key_pressed(egui::Key::A) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Am;
+                    self.status_flash = Some(("AM".to_string(), std::time::Instant::now()));
+                }
+                if i.modifiers.alt && i.key_pressed(egui::Key::U) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Usb;
+                    self.status_flash = Some(("USB".to_string(), std::time::Instant::now()));
+                }
+                if i.modifiers.alt && i.key_pressed(egui::Key::L) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Lsb;
+                    self.status_flash = Some(("LSB".to_string(), std::time::Instant::now()));
+                }
+                if i.modifiers.alt && i.key_pressed(egui::Key::R) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Raw;
+                    self.status_flash = Some(("RAW".to_string(), std::time::Instant::now()));
+                }
                 // Ctrl+R: toggle recording
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::R) {
                     ctrl_r_pressed = true;
@@ -476,19 +507,42 @@ impl eframe::App for CentralApp {
                     state.source.frequency_hz = state.vfo_b;
                     state.vfo_b = tmp;
                 }
-                // 1-9: tune to bookmark #N
+                // 1-9: tune to bookmark #N (no modifiers)
+                // Alt+Shift+1-9: save frequency memory M1-M9
+                // Alt+1-9: recall frequency memory M1-M9
                 {
-                    let bm_keys = [
+                    let mem_keys = [
                         (egui::Key::Num1, 0usize), (egui::Key::Num2, 1), (egui::Key::Num3, 2),
                         (egui::Key::Num4, 3), (egui::Key::Num5, 4), (egui::Key::Num6, 5),
                         (egui::Key::Num7, 6), (egui::Key::Num8, 7), (egui::Key::Num9, 8),
                     ];
-                    for (key, idx) in bm_keys {
-                        if i.key_pressed(key) && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.shift {
-                            if let Some(bm) = state.bookmarks.bookmarks.get(idx) {
-                                state.source.frequency_hz = bm.frequency_hz;
+                    for (key, idx) in mem_keys {
+                        if i.key_pressed(key) && !i.modifiers.ctrl {
+                            if i.modifiers.alt && i.modifiers.shift {
+                                // Save memory
+                                state.freq_memory[idx] = state.source.frequency_hz;
+                                self.status_flash = Some((
+                                    format!("💾 M{} saved: {:.4} MHz", idx + 1, state.source.frequency_hz as f64 / 1e6),
+                                    std::time::Instant::now()
+                                ));
+                                break;
+                            } else if i.modifiers.alt {
+                                // Recall memory
+                                if state.freq_memory[idx] > 0 {
+                                    state.source.frequency_hz = state.freq_memory[idx];
+                                    self.status_flash = Some((
+                                        format!("🔁 M{} recalled: {:.4} MHz", idx + 1, state.freq_memory[idx] as f64 / 1e6),
+                                        std::time::Instant::now()
+                                    ));
+                                }
+                                break;
+                            } else if !i.modifiers.shift {
+                                // Bookmark 1-9 (no modifiers)
+                                if let Some(bm) = state.bookmarks.bookmarks.get(idx) {
+                                    state.source.frequency_hz = bm.frequency_hz;
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
                 }
@@ -529,6 +583,45 @@ impl eframe::App for CentralApp {
                     }
                 }
 
+                // G / Shift+G: gain step up / down by 5 dB
+                if i.key_pressed(egui::Key::G) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    if i.modifiers.shift {
+                        state.source.gain_db = (state.source.gain_db - 5.0).max(0.0);
+                        self.status_flash = Some((format!("Gain: {:.0} dB", state.source.gain_db), std::time::Instant::now()));
+                    } else {
+                        state.source.gain_db = (state.source.gain_db + 5.0).min(49.0);
+                        self.status_flash = Some((format!("Gain: {:.0} dB", state.source.gain_db), std::time::Instant::now()));
+                    }
+                }
+                // Ctrl+Up/Down: volume up / down by 10%
+                if i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowUp) {
+                    state.volume = (state.volume + 0.1).min(1.0);
+                    self.status_flash = Some((format!("Volume: {:.0}%", state.volume * 100.0), std::time::Instant::now()));
+                }
+                if i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowDown) {
+                    state.volume = (state.volume - 0.1).max(0.0);
+                    self.status_flash = Some((format!("Volume: {:.0}%", state.volume * 100.0), std::time::Instant::now()));
+                }
+                // Ctrl+B: quick bookmark current frequency
+                if i.modifiers.ctrl && i.key_pressed(egui::Key::B) {
+                    let freq = state.source.frequency_hz;
+                    let mode = state.demod_mode.label().to_string();
+                    let name = format!("{:.3} MHz", freq as f64 / 1e6);
+                    let already = state.bookmarks.bookmarks.iter().any(|b| b.frequency_hz == freq);
+                    if !already {
+                        state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                            name: name.clone(),
+                            frequency_hz: freq,
+                            mode,
+                            bandwidth_hz: 12_500,
+                            category: "Custom".to_string(),
+                            notes: String::new(),
+                        });
+                        self.status_flash = Some((format!("🔖 Bookmarked {}", name), std::time::Instant::now()));
+                    } else {
+                        self.status_flash = Some((format!("⭐ Already bookmarked"), std::time::Instant::now()));
+                    }
+                }
                 // T: tune to spectrum peak frequency
                 if i.key_pressed(egui::Key::T) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let peak_hz = state.spectrum.peak_freq_hz();
@@ -549,9 +642,7 @@ impl eframe::App for CentralApp {
                 }
                 // R key: reset spectrum dB range to default (-120 to 0)
                 if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl && !i.modifiers.alt {
-                    state.spectrum.display_min_db = -120.0;
-                    state.spectrum.display_max_db = 0.0;
-                    state.spectrum.waterfall_dirty = true;
+                    state.spectrum.set_display_range(-120.0, 0.0);
                     self.status_flash = Some((format!("📊 dB range reset to -120…0"), std::time::Instant::now()));
                 }
             }
@@ -867,6 +958,72 @@ impl eframe::App for CentralApp {
             }
         };
 
+        // Top status bar with signal strength, recording status, and satellite countdown
+        ui.horizontal(|ui| {
+            if let Ok(state) = self.shared.try_lock() {
+                let signal_db = state.spectrum.signal_level();
+                let signal_color = if signal_db < -100.0 {
+                    egui::Color32::RED
+                } else if signal_db < -60.0 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::GREEN
+                };
+                ui.colored_label(signal_color, format!("📶 {:.1} dB", signal_db));
+                ui.separator();
+
+                if state.recording {
+                    ui.colored_label(egui::Color32::RED, "● RECORDING");
+                    ui.separator();
+                }
+
+                // Source status
+                let status_text = match &state.source.status {
+                    crate::source_manager::SourceStatus::Idle => "🔴 Idle".to_string(),
+                    crate::source_manager::SourceStatus::Opening => "🟡 Opening…".to_string(),
+                    crate::source_manager::SourceStatus::Running => "🟢 Running".to_string(),
+                    crate::source_manager::SourceStatus::Error(e) => {
+                        let short_err = if e.len() > 30 { format!("{}…", &e[..27]) } else { e.clone() };
+                        format!("⚠ Error: {}", short_err)
+                    }
+                };
+                ui.label(status_text);
+
+                // Satellite next-pass countdown
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64())
+                    .unwrap_or(0.0);
+                let active = state.scheduler.jobs.iter().find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt);
+                let next_future = state.scheduler.jobs.iter()
+                    .filter(|j| j.aos_dt > now_unix)
+                    .min_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal));
+                if let Some(job) = active {
+                    ui.separator();
+                    let remaining = (job.los_dt - now_unix).max(0.0) as u64;
+                    ui.colored_label(
+                        egui::Color32::from_rgb(50, 255, 100),
+                        format!("🛰 {} IN PASS {:02}:{:02}", job.satellite, remaining / 60, remaining % 60),
+                    ).on_hover_text(format!("Active pass: {} — LOS in {}m {}s. Freq: {:.3} MHz",
+                        job.satellite, remaining / 60, remaining % 60, job.frequency_hz as f64 / 1e6));
+                } else if let Some(job) = next_future {
+                    let secs = (job.aos_dt - now_unix) as u64;
+                    ui.separator();
+                    let (color, text) = if secs < 600 {
+                        (egui::Color32::YELLOW, format!("🛰 {} in {:02}:{:02}", job.satellite, secs / 60, secs % 60))
+                    } else {
+                        let h = secs / 3600;
+                        let m = (secs % 3600) / 60;
+                        (egui::Color32::GRAY, format!("🛰 {} in {}h{:02}m", job.satellite, h, m))
+                    };
+                    ui.colored_label(color, text)
+                        .on_hover_text(format!("Next pass: {} — AOS in {}m {}s. Freq: {:.3} MHz",
+                            job.satellite, secs / 60, secs % 60, job.frequency_hz as f64 / 1e6));
+                }
+            }
+        });
+        ui.separator();
+
         let style = Style::from_egui(ui.style().as_ref());
         DockArea::new(&mut self.dock_state)
             .style(style)
@@ -885,6 +1042,7 @@ impl eframe::App for CentralApp {
                 new_bm_freq_mhz: &mut self.new_bm_freq_mhz,
                 new_bm_mode: &mut self.new_bm_mode,
                 new_bm_category: &mut self.new_bm_category,
+                new_bm_notes: &mut self.new_bm_notes,
                 new_bm_error: &mut self.new_bm_error,
                 show_add_bm: &mut self.show_add_bm,
                 bm_import_msg: &mut self.bm_import_msg,
@@ -893,6 +1051,7 @@ impl eframe::App for CentralApp {
                 edit_bm_freq_mhz: &mut self.edit_bm_freq_mhz,
                 edit_bm_mode: &mut self.edit_bm_mode,
                 edit_bm_category: &mut self.edit_bm_category,
+                edit_bm_notes: &mut self.edit_bm_notes,
                 new_task_label: &mut self.new_task_label,
                 new_task_freq_mhz: &mut self.new_task_freq_mhz,
                 new_task_time: &mut self.new_task_time,
@@ -1163,7 +1322,7 @@ impl eframe::App for CentralApp {
                     } else {
                         format!("● REC {:02}:{:02}", elapsed / 60, elapsed % 60)
                     };
-                    let rec_type = if state.recording_iq { "IQ" } else { "WAV" };
+                    let rec_type = if self.recorder_panel.record_iq { "IQ" } else { "WAV" };
                     ui.colored_label(egui::Color32::RED, format!("{} [{}]", rec_label, rec_type))
                         .on_hover_text(format!("Recording {} format in progress. Go to the Recorder tab to stop.", rec_type));
                 } else {
@@ -1306,8 +1465,8 @@ impl eframe::App for CentralApp {
                 let peak_pct = ((peak + 120.0) / 120.0 * 100.0).clamp(0.0, 100.0);
                 ui.colored_label(peak_color, format!("Peak: {:.1}dB ({:.0}%)", peak, peak_pct))
                     .on_hover_text("Strongest signal in the current spectrum view (dBFS). Percentage: 0% = -120dB (weakest), 100% = 0dB (clipping risk).");
-                let noise_trend = if (noise_floor - state.spectrum.noise_baseline).abs() > 3.0 {
-                    let arrow = if noise_floor > state.spectrum.noise_baseline { "📈" } else { "📉" };
+                let noise_trend = if (noise_floor - state.spectrum.noise_baseline()).abs() > 3.0 {
+                    let arrow = if noise_floor > state.spectrum.noise_baseline() { "📈" } else { "📉" };
                     format!("{} {:.1}dB", arrow, noise_floor)
                 } else {
                     format!("{:.1}dB", noise_floor)
@@ -1386,6 +1545,12 @@ impl eframe::App for CentralApp {
                         ui.monospace("F4"); ui.label("Demod: WFM"); ui.end_row();
                         ui.monospace("F5"); ui.label("Demod: LSB"); ui.end_row();
                         ui.monospace("F6"); ui.label("Demod: USB"); ui.end_row();
+                        ui.monospace("Alt+F"); ui.label("Demod: NFM (quick shortcut)"); ui.end_row();
+                        ui.monospace("Alt+W"); ui.label("Demod: WFM (quick shortcut)"); ui.end_row();
+                        ui.monospace("Alt+A"); ui.label("Demod: AM (quick shortcut)"); ui.end_row();
+                        ui.monospace("Alt+U"); ui.label("Demod: USB (quick shortcut)"); ui.end_row();
+                        ui.monospace("Alt+L"); ui.label("Demod: LSB (quick shortcut)"); ui.end_row();
+                        ui.monospace("Alt+R"); ui.label("Demod: RAW (quick shortcut)"); ui.end_row();
                         ui.monospace("M"); ui.label("Toggle audio mute on/off"); ui.end_row();
                         ui.monospace("F"); ui.label("Freeze / unfreeze spectrum display"); ui.end_row();
                         ui.monospace("C"); ui.label("Cycle waterfall colormap (Classic→Viridis→Plasma→…)"); ui.end_row();
@@ -1400,6 +1565,11 @@ impl eframe::App for CentralApp {
                         ui.monospace("Ctrl+0"); ui.label("Reset spectrum zoom to 1× (full span)"); ui.end_row();
                         ui.monospace("P"); ui.label("Toggle spectrum peak hold on/off"); ui.end_row();
                         ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
+                        ui.monospace("Alt+1–9"); ui.label("Recall frequency memory M1–M9 (empty slots do nothing)"); ui.end_row();
+                        ui.monospace("Alt+Shift+1–9"); ui.label("Save current frequency to memory M1–M9"); ui.end_row();
+                        ui.monospace("G / Shift+G"); ui.label("Gain +5 dB / −5 dB step"); ui.end_row();
+                        ui.monospace("Ctrl+↑ / Ctrl+↓"); ui.label("Volume +10% / −10%"); ui.end_row();
+                        ui.monospace("Ctrl+B"); ui.label("Quick-bookmark current frequency"); ui.end_row();
                         ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
                         ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies + spectrum dB range + VFO B + waterfall range"); ui.end_row();
                         ui.monospace("?"); ui.label("Toggle this shortcut reference"); ui.end_row();
@@ -1446,6 +1616,7 @@ struct TabViewer<'a> {
     new_bm_freq_mhz: &'a mut String,
     new_bm_mode: &'a mut String,
     new_bm_category: &'a mut String,
+    new_bm_notes: &'a mut String,
     new_bm_error: &'a mut String,
     show_add_bm: &'a mut bool,
     bm_import_msg: &'a mut String,
@@ -1454,6 +1625,7 @@ struct TabViewer<'a> {
     edit_bm_freq_mhz: &'a mut String,
     edit_bm_mode: &'a mut String,
     edit_bm_category: &'a mut String,
+    edit_bm_notes: &'a mut String,
     new_task_label: &'a mut String,
     new_task_freq_mhz: &'a mut String,
     new_task_time: &'a mut String,
@@ -1471,7 +1643,13 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Spectrum => "📊 Spectrum".into(),
             Tab::Satellite => "🛸 Satellite".into(),
             Tab::AdsB => "✈ ADS-B".into(),
-            Tab::Recorder => "⏺ Recorder".into(),
+            Tab::Recorder => {
+                if self.recorder.recording {
+                    egui::RichText::new("⏺ Recorder • REC").color(egui::Color32::RED).into()
+                } else {
+                    "⏺ Recorder".into()
+                }
+            }
             Tab::Scanner => "🔍 Scanner".into(),
             Tab::AiAgent => "🤖 AI Agent".into(),
             Tab::Bookmarks => "⭐ Bookmarks".into(),
@@ -1558,8 +1736,26 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     }
                 }
             }
-            Tab::Satellite => self.satellite.ui(ui),
-            Tab::AdsB => self.adsb.ui(ui),
+            Tab::Satellite => {
+                self.satellite.ui(ui);
+                if let Some(prompt) = self.satellite.pending_ai_prompt.take() {
+                    self.ai.input = prompt;
+                    *self.status_flash = Some((
+                        "🤖 Satellite details sent to AI Agent".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+            Tab::AdsB => {
+                self.adsb.ui(ui);
+                if let Some(prompt) = self.adsb.pending_ai_prompt.take() {
+                    self.ai.input = prompt;
+                    *self.status_flash = Some((
+                        "🤖 Aircraft details sent to AI Agent".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
             Tab::Recorder => self.recorder.ui(ui),
             Tab::Scanner => {
                 if let Ok(state) = self.shared.try_lock() {
@@ -1667,6 +1863,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             ui.label("Category:");
                             ui.add(egui::TextEdit::singleline(self.new_bm_category).desired_width(150.0).hint_text("Custom"));
                             ui.end_row();
+                            ui.label("Notes:");
+                            ui.add(egui::TextEdit::singleline(self.new_bm_notes).desired_width(250.0).hint_text("Optional notes about this signal"));
+                            ui.end_row();
                         });
                         if !self.new_bm_error.is_empty() {
                             ui.colored_label(egui::Color32::RED, self.new_bm_error.as_str());
@@ -1682,12 +1881,13 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                         mode: self.new_bm_mode.clone(),
                                         bandwidth_hz: 12_500,
                                         category: if self.new_bm_category.trim().is_empty() { "Custom".to_string() } else { self.new_bm_category.trim().to_string() },
-                                        notes: String::new(),
+                                        notes: self.new_bm_notes.trim().to_string(),
                                     };
                                     if let Ok(mut state) = self.shared.try_lock() {
                                         state.bookmarks.bookmarks.push(bm);
                                     }
                                     self.new_bm_name.clear();
+                                    self.new_bm_notes.clear();
                                     self.new_bm_error.clear();
                                     *self.show_add_bm = false;
                                 }
@@ -1761,14 +1961,15 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 categories.dedup();
 
                 let mut delete_idx: Option<usize> = None;
+                let mut duplicate_idx: Option<usize> = None;
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for cat in &categories {
                         let cat_count = filtered.iter().filter(|(_, b)| &b.category == cat).count();
                         let cat_header = format!("{} ({})", cat, cat_count);
                         ui.collapsing(cat_header, |ui| {
                             for (orig_idx, bm) in filtered.iter().filter(|(_, b)| &b.category == cat) {
-                                ui.horizontal(|ui| {
-                                    let is_editing = *self.edit_bm_idx == Some(*orig_idx);
+                                let is_editing = *self.edit_bm_idx == Some(*orig_idx);
+                                let row_response = ui.horizontal(|ui| {
                                     if is_editing {
                                         // Inline edit row
                                         ui.add(egui::TextEdit::singleline(self.edit_bm_name).desired_width(120.0).hint_text("Name"));
@@ -1781,6 +1982,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                                 }
                                             });
                                         ui.add(egui::TextEdit::singleline(self.edit_bm_category).desired_width(80.0).hint_text("Category"));
+                                        ui.add(egui::TextEdit::singleline(self.edit_bm_notes).desired_width(120.0).hint_text("Notes"));
                                         if ui.small_button("✓").on_hover_text("Save changes").clicked() {
                                             if let Ok(freq_mhz) = self.edit_bm_freq_mhz.trim().parse::<f64>() {
                                                 if let Ok(mut state) = self.shared.try_lock() {
@@ -1789,6 +1991,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                                         bm.frequency_hz = (freq_mhz * 1e6) as u64;
                                                         bm.mode = self.edit_bm_mode.clone();
                                                         bm.category = if self.edit_bm_category.trim().is_empty() { "Custom".into() } else { self.edit_bm_category.trim().to_string() };
+                                                        bm.notes = self.edit_bm_notes.trim().to_string();
                                                     }
                                                 }
                                             }
@@ -1806,12 +2009,12 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                         ui.monospace(bm.freq_display());
                                         ui.small(&bm.mode);
                                         let tune_tip = if bm.notes.is_empty() {
-                                            format!("Tune to {} and switch to {} mode", bm.freq_display(), bm.mode)
+                                            format!("Double-click or click 'Tune' to tune to {} in {} mode", bm.freq_display(), bm.mode)
                                         } else {
-                                            format!("Tune to {} and switch to {} mode\n{}", bm.freq_display(), bm.mode, bm.notes)
+                                            format!("Double-click or click 'Tune' to tune to {} in {} mode\n{}", bm.freq_display(), bm.mode, bm.notes)
                                         };
                                         if ui.small_button("Tune")
-                                            .on_hover_text(tune_tip)
+                                            .on_hover_text(&tune_tip)
                                             .clicked()
                                         {
                                             if let Ok(mut state) = self.shared.try_lock() {
@@ -1830,6 +2033,19 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                             *self.edit_bm_freq_mhz = format!("{:.4}", bm.frequency_hz as f64 / 1e6);
                                             *self.edit_bm_mode = bm.mode.clone();
                                             *self.edit_bm_category = bm.category.clone();
+                                            *self.edit_bm_notes = bm.notes.clone();
+                                        }
+                                        if ui.small_button("📋")
+                                            .on_hover_text(format!("Copy {} to clipboard", bm.freq_display()))
+                                            .clicked()
+                                        {
+                                            ui.ctx().copy_text(bm.freq_display());
+                                        }
+                                        if ui.small_button("⧉")
+                                            .on_hover_text("Duplicate this bookmark")
+                                            .clicked()
+                                        {
+                                            duplicate_idx = Some(*orig_idx);
                                         }
                                         if ui.small_button("🗑")
                                             .on_hover_text("Delete this bookmark")
@@ -1854,6 +2070,15 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                         }
                                     }
                                 });
+                                // Double-click to tune
+                                if !is_editing && row_response.response.double_clicked() {
+                                    if let Ok(mut state) = self.shared.try_lock() {
+                                        state.source.frequency_hz = bm.frequency_hz;
+                                        if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) {
+                                            state.demod_mode = mode;
+                                        }
+                                    }
+                                }
                             }
                         });
                     }
@@ -1862,6 +2087,15 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     if let Ok(mut state) = self.shared.try_lock() {
                         if idx < state.bookmarks.bookmarks.len() {
                             state.bookmarks.bookmarks.remove(idx);
+                        }
+                    }
+                }
+                if let Some(idx) = duplicate_idx {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        if let Some(bm) = state.bookmarks.bookmarks.get(idx).cloned() {
+                            let mut copy = bm;
+                            copy.name = format!("{} (copy)", copy.name);
+                            state.bookmarks.bookmarks.push(copy);
                         }
                     }
                 }
