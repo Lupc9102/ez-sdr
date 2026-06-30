@@ -46,3 +46,19 @@ Usage: `/tmp/opencode/build.sh build --release -p ez-gui`
 - T+30m: Completed beginner-friendliness audit (14 concrete improvements identified). Wrote new task list.
 - T+60m: Fixed 5 compile errors from prior session (borrow lifetime, missing field, match type). Implemented A1–A3, B1–B4 (welcome banner, howto sections). Implemented C1 (clickable ▶ Start overlay on spectrum), C2 (band-info what-to-hear hint), C3 (recorder empty CTA), D1 (Bias Tee/Direct Sampling/PPM tooltips), E1 (Start/Stop hoisted to top of SDR panel). Clean build.
 - T+morning: Resumed after context compaction. Fixed NaN crash risks in spectrum.rs (3 unwrap() panics — partial_cmp + pts.last). Fixed web_remote.rs network unwraps (Runtime/bind/serve). Fixed UNIX_EPOCH unwraps in tle_engine.rs + database.rs. Added D3 SDR Glossary popup (❓ button in status bar, 20-term reference). Added MQTT reconnection with atomic connection flag and auto-retry. Added recorder disk-space pre-flight check (<500MB warns user). Added "first signal" celebration flash (8s green message on first SNR>20). Added Band/Service column to scanner hits table (calls identify_frequency()). Dead code cleanup: removed unused SharedState.db, iq_tx, audio_tx fields; removed dead min_level() function; removed unnecessary #[allow(dead_code)] suppressor annotations. All items complete. Clean build.
+
+## Sprint 2: ADS-B Enhancement + Beginner UX Polish
+Continued after context summary. Focus: improve visualization & beginner UX.
+
+### Completed (10 improvements)
+1. **ADS-B 3D View + Distance/Bearing**: Isometric projection of aircraft altitude vs position, haversine distance and bearing calculation, new table columns showing distance/bearing from observer. Syncs observer location from config.
+2. **Frequency-based Mode Suggestion**: When tuned to known frequency, shows band ID and suggests appropriate demod mode with one-click Apply.
+3. **Enhanced Frequency Info Display**: Detailed band info, plain-language description, and "what to hear" tips for known frequencies.
+4. **Gain Optimization Suggestions**: Real-time alerts: clipping warning (>95%), caution (85-95%), suggestion to increase gain when weak signal (SNR <10dB, gain <40dB).
+5. **Quick-Tune Presets**: One-click buttons for popular frequencies (FM, ADS-B, Weather Satellites, 2m Ham, ISS, GPS L1) with auto-mode.
+6. **Recent Frequencies**: Last 5 tuned frequencies as quick buttons for easy exploration.
+7. **Tuning Checklist**: Smart status display (SDR running, audio on, gain level, signal detected) that only shows when something needs attention.
+8. **Nearby Bookmarks**: Bookmarks within 2 MHz displayed with one-click jump and auto-mode selection.
+9. **RF Filter Presets**: Quick bandwidth buttons (Voice 12.5k, AM 8k, FM 200k, SSB 2.4k, CW 500Hz) for mode optimization.
+
+All committed individually. Clean build throughout.
