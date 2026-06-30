@@ -43,6 +43,8 @@ pub struct SdrPanel {
     pub filter_bw: u32,
     pub bookmark_request: Option<(u64, String)>,
     freq_input: String,
+    freq_input_error: String,
+    freq_input_error_time: Option<std::time::Instant>,
     auto_squelch: bool,
     auto_squelch_offset: f32,
 }
@@ -55,6 +57,8 @@ impl SdrPanel {
             filter_bw: 12_000,
             bookmark_request: None,
             freq_input: String::new(),
+            freq_input_error: String::new(),
+            freq_input_error_time: None,
             auto_squelch: false,
             auto_squelch_offset: 5.0,
         }
@@ -256,9 +260,26 @@ impl SdrPanel {
                         state.source.frequency_hz = hz;
                     }
                     self.freq_input.clear();
+                    self.freq_input_error.clear();
+                    self.freq_input_error_time = None;
+                } else if !s.is_empty() {
+                    self.freq_input_error = format!("Could not parse '{}' — use MHz/kHz/GHz or raw Hz", s);
+                    self.freq_input_error_time = Some(std::time::Instant::now());
                 }
             }
         });
+        // Show frequency entry error if recent
+        if let Some(error_time) = self.freq_input_error_time {
+            if error_time.elapsed().as_secs_f32() < 3.0 {
+                let alpha = (1.0 - error_time.elapsed().as_secs_f32() / 3.0) * 255.0 as u8;
+                ui.colored_label(
+                    egui::Color32::from_rgba_unmultiplied(220, 100, 80, alpha),
+                    &self.freq_input_error
+                );
+            } else {
+                self.freq_input_error_time = None;
+            }
+        }
 
         ui.separator();
 
