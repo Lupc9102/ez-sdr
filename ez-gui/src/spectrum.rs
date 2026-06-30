@@ -1264,11 +1264,16 @@ impl SpectrumAnalyzer {
                     self.clicked_tune_freq = Some(freq);
                     ui.close();
                 }
+                if ui.button("📡⭐ Tune + Bookmark").on_hover_text("Tune to this frequency AND add a bookmark in one click.").clicked() {
+                    self.clicked_tune_freq = Some(freq);
+                    self.pending_bookmark_freq = Some(freq);
+                    ui.close();
+                }
                 if ui.button("📍 Add marker").clicked() {
                     self.marker_pending_freq = Some(freq);
                     ui.close();
                 }
-                if ui.button("⭐ Bookmark this frequency").clicked() {
+                if ui.button("⭐ Bookmark only").clicked() {
                     self.pending_bookmark_freq = Some(freq);
                     ui.close();
                 }

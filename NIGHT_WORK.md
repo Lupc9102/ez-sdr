@@ -102,3 +102,11 @@ Started: 2026-06-29 (8-hour window)
 - T+~220min: Signal event log — timestamped ring buffer (200 entries) in Recorder tab, throttled to 1 entry/5s per signal, color-coded dB, "Export CSV" button, separate from VOX recording
 - T+~225min: VFO BW overlay enhanced with mode-aware colors (orange=WFM, purple=AM, green=SSB, blue=NFM/FM/RAW) + mode label shown in BW indicator text
 - T+~230min: Spectrum cursor tooltip enhanced — now shows absolute freq + Δ offset from center (±kHz/MHz) + dB level; tooltip flips to left when near right edge
+
+## Session 22 Night Shift Log
+- T+~235min: Spectrum right-click: inline frequency ID (band, description, tips) from identify_frequency
+- T+~238min: Bookmark panel: category quick-filter chip row (blue chips, click to filter, click again to clear)
+- T+~242min: Spectrum averaging: Fast/Med/Slow/XSlow preset buttons replace raw α slider
+- T+~248min: Scanner: hit_count field tracks repeat detections; ×N column in hits table with heat coloring; "Sort by hits" button
+- T+~250min: Scanner: "🎯 Top: X.XXX MHz (×N)" button tunes to most-active frequency
+- T+~254min: Spectrum context menu: "Tune + Bookmark" combined action; "Bookmark only" renamed for clarity

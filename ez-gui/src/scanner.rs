@@ -379,6 +379,19 @@ impl FrequencyScanner {
             if ui.button("Sort by hits").on_hover_text("Sort by detection count — most frequently detected frequencies first.").clicked() {
                 self.hits.sort_by(|a, b| b.hit_count.cmp(&a.hit_count));
             }
+            // Tune to most active frequency
+            if !self.hits.is_empty() {
+                let most_active = self.hits.iter().max_by_key(|h| h.hit_count);
+                if let Some(best) = most_active {
+                    let freq_mhz = best.freq_hz as f64 / 1e6;
+                    if ui.button(format!("🎯 Top: {:.3} MHz (×{})", freq_mhz, best.hit_count))
+                        .on_hover_text(format!("Tune to the most-detected frequency: {:.3} MHz (hit {} times, peak {:.1} dB)", freq_mhz, best.hit_count, best.strength_db))
+                        .clicked()
+                    {
+                        self.tune_request_hz = Some(best.freq_hz);
+                    }
+                }
+            }
             if ui.button("Clear hits").on_hover_text("Remove all logged signal hits.").clicked() {
                 self.hits.clear();
             }
