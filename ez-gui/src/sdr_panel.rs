@@ -828,6 +828,21 @@ impl SdrPanel {
 
             ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true))
                 .on_hover_text("Low-pass filter on audio output. Cuts high-frequency hiss above this frequency. Default 15 kHz is fine for voice. Lower for CW/Morse (~800 Hz).");
+
+            // LPF quick presets
+            ui.horizontal(|ui| {
+                ui.label("Presets:").on_hover_text("Quick audio filter presets");
+                for (label, hz, tip) in [
+                    ("CW", 800.0f32, "Morse/CW: 800 Hz narrow filter"),
+                    ("Voice", 3000.0, "Voice: 3 kHz standard"),
+                    ("Music", 8000.0, "Music/broadcast: 8 kHz"),
+                    ("Wide", 15000.0, "Default: 15 kHz"),
+                ] {
+                    if ui.small_button(label).on_hover_text(tip).clicked() {
+                        state.lpf_cutoff = hz;
+                    }
+                }
+            });
         }
         // Auto-squelch tracking: update squelch every frame when enabled
         if self.auto_squelch {
