@@ -281,6 +281,29 @@ impl SdrPanel {
                     }
                 });
             }
+
+            // Favorite bookmarks quick access
+            let bookmarks = state.bookmarks.bookmarks.clone();
+            let relevant_bms: Vec<_> = bookmarks.iter()
+                .filter(|bm| (bm.frequency_hz as i64 - state.source.frequency_hz as i64).abs() < 2_000_000) // Within 2 MHz
+                .take(5)
+                .collect();
+
+            if !relevant_bms.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("⭐ Nearby:").on_hover_text("Bookmarked frequencies near your current tuning. Quick jump to known signals.");
+                    for bm in relevant_bms {
+                        let bm_mhz = bm.frequency_hz as f64 / 1e6;
+                        let tooltip = format!("{} @ {:.3} MHz ({})", bm.name, bm_mhz, bm.category);
+                        if ui.small_button(&bm.name).on_hover_text(tooltip).clicked() {
+                            state.source.frequency_hz = bm.frequency_hz;
+                            if let Some(mode) = DemodMode::from_label(&bm.mode) {
+                                state.demod_mode = mode;
+                            }
+                        }
+                    }
+                });
+            }
         }
 
         // VFO A/B swap
