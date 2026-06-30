@@ -292,6 +292,29 @@ impl SpectrumAnalyzer {
         self.show_peak_hold
     }
 
+    pub fn export_spectrum_csv(&self) {
+        if self.spectrum_dbs.is_empty() { return; }
+        let path = rfd::FileDialog::new()
+            .set_title("Export Spectrum to CSV")
+            .add_filter("CSV", &["csv"])
+            .set_file_name("spectrum_export.csv")
+            .save_file();
+        if let Some(path) = path {
+            let n = self.spectrum_dbs.len();
+            let hz_per_bin = self.sample_rate as f64 / n as f64;
+            let mut lines = String::from("frequency_hz,power_dbfs\n");
+            for (i, &db) in self.spectrum_dbs.iter().enumerate() {
+                // FFT bin order: bins 0..N/2 are 0..+Fs/2, bins N/2..N are -Fs/2..0
+                // Reorder to increasing frequency
+                let bin = (i + n / 2) % n;
+                let offset = (bin as f64 - n as f64 / 2.0) * hz_per_bin;
+                let freq_hz = self.center_freq as f64 + offset;
+                lines.push_str(&format!("{:.0},{:.2}\n", freq_hz, db));
+            }
+            let _ = std::fs::write(&path, lines);
+        }
+    }
+
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
         if self.frozen || iq.len() < 2 { return; }
         let fft = match &self.fft {
@@ -493,6 +516,10 @@ impl SpectrumAnalyzer {
             ui.separator();
             ui.toggle_value(&mut self.show_signal_history, "📈 History")
                 .on_hover_text("Show a scrolling chart of peak signal strength over time. Useful for tracking intermittent signals.");
+            ui.separator();
+            if ui.small_button("💾 CSV").on_hover_text("Export current spectrum data to CSV (frequency_hz, power_dbfs). Useful for analysis in spreadsheets or Python.").clicked() {
+                self.export_spectrum_csv();
+            }
         });
 
         // Signal history mini-chart
