@@ -110,3 +110,14 @@ Started: 2026-06-29 (8-hour window)
 - T+~248min: Scanner: hit_count field tracks repeat detections; ×N column in hits table with heat coloring; "Sort by hits" button
 - T+~250min: Scanner: "🎯 Top: X.XXX MHz (×N)" button tunes to most-active frequency
 - T+~254min: Spectrum context menu: "Tune + Bookmark" combined action; "Bookmark only" renamed for clarity
+
+## Session 25 Night Shift Log
+- T+~260min: Satellite panel: live Doppler display with color coding (green/yellow/orange by magnitude kHz/Hz), "✓ Corrected" inline badge when auto-tune active; app.rs feeds real doppler_hz back into satellite_panel each frame; Doppler correction now respects satellite_panel.auto_tune flag
+- T+~262min: Status bar: 🛰 Doppler badge shows live shift when satellite selected; green=correcting, yellow=not correcting
+
+## Session 26 Night Shift Log
+- T+~265min: HowTo panel updates for Sessions 21-25: LO offset docs, T key shortcut, status bar amber/Doppler badge, spectrum cursor delta tooltip, averaging presets, VFO BW mode colors, context menu freq-ID, scanner hit counts/sort/Top button, signal event log, bookmark category chips, satellite Doppler display
+
+## Session 27 Night Shift Log
+- T+~270min: Band name overlay on spectrum top-left corner (calls identify_frequency; semi-transparent badge shows e.g. "FM Broadcast" for recognized bands)
+- T+~272min: P key toggles spectrum peak hold on/off with status flash; toggle_peak_hold() pub method; P documented in shortcut overlay and HowTo
