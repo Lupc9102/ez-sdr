@@ -128,6 +128,7 @@ impl AiPanel {
                     state.vfo_b,
                     state.bookmarks.bookmarks.len(),
                     state.lo_offset_hz,
+                    state.source.ppm_correction,
                     !state.freq_history.is_empty(),
                 ))
             } else {
@@ -137,7 +138,7 @@ impl AiPanel {
 
         let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt,
              freq, rate, gain, mode, recording, sat, adsb, noise_floor, peak_db, squelch,
-             volume, lpf_cutoff, audio_peak, vfo_b, bookmark_count, lo_offset_hz, has_history) =
+             volume, lpf_cutoff, audio_peak, vfo_b, bookmark_count, lo_offset_hz, ppm, has_history) =
             match state_snapshot {
                 Some(s) => s,
                 None => return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new()),
@@ -160,6 +161,11 @@ impl AiPanel {
             } else {
                 String::new()
             };
+            let ppm_info = if ppm != 0 {
+                format!("\n - PPM correction: {:+} ppm", ppm)
+            } else {
+                String::new()
+            };
             format!(
                 "{}\n\nCurrent SDR state:\
                  \n - Frequency: {:.4} MHz\
@@ -176,7 +182,7 @@ impl AiPanel {
                  \n - Recording: {}\
                  \n - Satellite: {}\
                  \n - ADS-B: {}\
-                 \n - Bookmarks: {}{}{}\
+                 \n - Bookmarks: {}{}{}{}\
                  \n - Recent frequency history: {}",
                 DEFAULT_SYSTEM,
                 freq as f64 / 1e6,
@@ -196,6 +202,7 @@ impl AiPanel {
                 bookmark_count,
                 vfo_b_info,
                 lo_info,
+                ppm_info,
                 if has_history { "available" } else { "empty" },
             )
         } else {
@@ -874,6 +881,16 @@ impl AiPanel {
                 ui.label(egui::RichText::new(&line[3..]).strong().heading().color(text_color));
             } else if line.starts_with("# ") {
                 ui.label(egui::RichText::new(&line[2..]).strong().heading().color(text_color));
+            // Horizontal rule
+            } else if line == "---" || line == "***" || line == "___" {
+                ui.separator();
+            // Blockquote: "> text"
+            } else if line.starts_with("> ") {
+                let body = &line[2..];
+                ui.horizontal_wrapped(|ui| {
+                    ui.add(egui::Separator::default().vertical().spacing(6.0));
+                    ui.label(egui::RichText::new(body).color(egui::Color32::from_gray(180)).italics());
+                });
             // Bullet: "- text" or "* text"
             } else if (line.starts_with("- ") || line.starts_with("* "))
                 && !line.starts_with("**")
