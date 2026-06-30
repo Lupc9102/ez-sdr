@@ -439,10 +439,29 @@ impl SdrPanel {
                 ui.horizontal(|ui| {
                     ui.colored_label(dev_color, format!("FM dev: {:.1} kHz", dev_khz))
                         .on_hover_text("FM frequency deviation. NFM: 5–12.5 kHz is normal. WFM broadcast: up to 75 kHz. >75 kHz = overmodulated.");
-                    let peak_pct = (state.audio_peak * 100.0).min(100.0);
-                    let peak_col = if peak_pct > 90.0 { egui::Color32::RED } else if peak_pct > 60.0 { egui::Color32::GREEN } else { egui::Color32::GRAY };
-                    ui.colored_label(peak_col, format!("Audio: {:.0}%", peak_pct))
-                        .on_hover_text("Normalized audio output level. 0% = silent, 100% = clipping risk. Adjust volume if consistently above 90%.");
+                });
+                // Audio level meter bar
+                let peak_frac = (state.audio_peak).clamp(0.0, 1.0);
+                ui.horizontal(|ui| {
+                    ui.label("Audio:");
+                    let bar_w = 100.0f32;
+                    let bar_h = 10.0f32;
+                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
+                    let painter = ui.painter();
+                    painter.rect_filled(rect, 2.0, egui::Color32::from_rgb(20, 20, 30));
+                    let fill_w = rect.width() * peak_frac;
+                    let bar_color = if peak_frac > 0.9 { egui::Color32::from_rgb(220, 50, 50) }
+                        else if peak_frac > 0.6 { egui::Color32::from_rgb(50, 200, 80) }
+                        else if peak_frac > 0.05 { egui::Color32::from_rgb(40, 160, 60) }
+                        else { egui::Color32::from_rgb(50, 70, 50) };
+                    if fill_w > 0.5 {
+                        painter.rect_filled(
+                            egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, bar_h)),
+                            2.0, bar_color,
+                        );
+                    }
+                    painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 70, 80)), egui::StrokeKind::Middle);
+                    resp.on_hover_text(format!("Audio output level: {:.0}%. >90% = clipping risk — lower volume.", peak_frac * 100.0));
                 });
             }
         }
