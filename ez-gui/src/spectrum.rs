@@ -1826,8 +1826,13 @@ impl SpectrumAnalyzer {
         if response.hovered() {
             let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
             let shift = ui.input(|i| i.modifiers.shift);
+            let ctrl = ui.input(|i| i.modifiers.ctrl);
             if scroll_delta.y != 0.0 {
-                if shift {
+                if ctrl {
+                    let step = (self.vfo_bw_hz as f32 * 0.1).max(100.0);
+                    self.vfo_bw_hz = (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
+                    self.show_vfo_bw = true;
+                } else if shift {
                     self.zoom_offset = (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
                 } else {
                     self.zoom_factor = (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
@@ -1985,8 +1990,13 @@ impl SpectrumAnalyzer {
         if wf_response.hovered() {
             let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
             let shift = ui.input(|i| i.modifiers.shift);
+            let ctrl = ui.input(|i| i.modifiers.ctrl);
             if scroll_delta.y != 0.0 {
-                if shift {
+                if ctrl {
+                    let step = (self.vfo_bw_hz as f32 * 0.1).max(100.0);
+                    self.vfo_bw_hz = (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
+                    self.show_vfo_bw = true;
+                } else if shift {
                     self.zoom_offset = (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
                 } else {
                     self.zoom_factor = (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
