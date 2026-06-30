@@ -138,6 +138,26 @@ impl SdrPanel {
                 }
             });
         }
+        // Nearby bookmark hint
+        if let Ok(state) = self.shared.try_lock() {
+            let cur_freq = state.source.frequency_hz;
+            let threshold_hz = 100_000u64; // ±100 kHz
+            let nearest = state.bookmarks.bookmarks.iter()
+                .map(|b| (b, if b.frequency_hz > cur_freq { b.frequency_hz - cur_freq } else { cur_freq - b.frequency_hz }))
+                .min_by_key(|(_, d)| *d);
+            if let Some((bm, dist)) = nearest {
+                if dist > 0 && dist <= threshold_hz {
+                    let dir = if bm.frequency_hz > cur_freq { "↑" } else { "↓" };
+                    let dist_str = if dist >= 1000 { format!("{:.1} kHz", dist as f64 / 1000.0) } else { format!("{} Hz", dist) };
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(180, 200, 255),
+                            format!("Near: {} ({}{} away)", bm.name, dir, dist_str),
+                        ).on_hover_text(format!("Bookmark '{}' at {:.4} MHz is {} {} — press B to snap to it.", bm.name, bm.frequency_hz as f64 / 1e6, dist_str, if bm.frequency_hz > cur_freq { "above" } else { "below" }));
+                    });
+                }
+            }
+        }
         // Tuning step presets
         if let Ok(mut state) = self.shared.try_lock() {
             ui.horizontal(|ui| {
