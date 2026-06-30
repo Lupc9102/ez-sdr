@@ -919,6 +919,23 @@ impl SdrPanel {
             }
         });
 
+        // Squelch quick presets
+        if let Ok(mut state) = self.shared.try_lock() {
+            ui.horizontal(|ui| {
+                ui.label("SQ Presets:").on_hover_text("Quick squelch presets");
+                for (label, db, tip) in [
+                    ("Loose", -80.0f32, "Loose: -80 dB (catches weak signals)"),
+                    ("Normal", -50.0, "Normal: -50 dB (typical)"),
+                    ("Tight", -30.0, "Tight: -30 dB (strong signals only)"),
+                ] {
+                    if ui.small_button(label).on_hover_text(tip).clicked() {
+                        self.squelch = db;
+                        state.squelch = db;
+                    }
+                }
+            });
+        }
+
         // Frequency identification
         if let Ok(state) = self.shared.try_lock() {
             let freq = state.source.frequency_hz;
