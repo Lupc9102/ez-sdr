@@ -62,6 +62,9 @@ pub struct SdrPanel {
     audio_peak_hold_time: Option<std::time::Instant>,
     signal_log: Vec<(u64, f32, std::time::SystemTime)>, // freq_hz, snr_db, timestamp
     last_logged_freq: u64,
+    session_start: std::time::Instant,
+    best_snr_this_session: f32,
+    frequencies_explored: std::collections::HashSet<u64>,
 }
 
 impl SdrPanel {
@@ -81,6 +84,9 @@ impl SdrPanel {
             audio_peak_hold_time: None,
             signal_log: Vec::new(),
             last_logged_freq: 0,
+            session_start: std::time::Instant::now(),
+            best_snr_this_session: 0.0,
+            frequencies_explored: std::collections::HashSet::new(),
         }
     }
 
@@ -584,12 +590,20 @@ impl SdrPanel {
             });
         }
 
-        // Signal logging: auto-record strong signals
+        // Signal logging: auto-record strong signals and track statistics
         if let Ok(state) = self.shared.try_lock() {
             let peak = state.spectrum.peak_level();
             let noise = state.spectrum.noise_floor();
             let snr = peak - noise;
             let current_freq = state.source.frequency_hz;
+
+            // Track best SNR
+            if snr > self.best_snr_this_session {
+                self.best_snr_this_session = snr;
+            }
+
+            // Track explored frequencies
+            self.frequencies_explored.insert(current_freq);
 
             // Log if we found a new strong signal (SNR > 8dB and different frequency)
             if snr > 8.0 && current_freq != self.last_logged_freq {
@@ -601,6 +615,26 @@ impl SdrPanel {
                 }
             }
         }
+
+        // Display reception statistics
+        let session_duration = self.session_start.elapsed().as_secs();
+        let session_mins = session_duration / 60;
+        let session_secs = session_duration % 60;
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("📈 Session Stats").small().color(egui::Color32::from_rgb(100, 200, 100)));
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("⏱️ Duration: {:.0}m {:.0}s", session_mins, session_secs)).small());
+                ui.separator();
+                ui.label(egui::RichText::new(format!("📍 Frequencies: {}", self.frequencies_explored.len())).small());
+                ui.separator();
+                ui.label(egui::RichText::new(format!("📡 Signals: {}", self.signal_log.len())).small());
+                ui.separator();
+                let best_color = if self.best_snr_this_session > 20.0 { egui::Color32::GREEN }
+                                 else if self.best_snr_this_session > 10.0 { egui::Color32::YELLOW }
+                                 else { egui::Color32::WHITE };
+                ui.colored_label(best_color, egui::RichText::new(format!("🎯 Best SNR: {:.0}dB", self.best_snr_this_session)).small());
+            });
+        });
 
         // Display signal log
         if !self.signal_log.is_empty() {
