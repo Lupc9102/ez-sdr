@@ -1773,6 +1773,10 @@ impl SpectrumAnalyzer {
                 }
             }
             ui.separator();
+            if ui.button("📸 Save waterfall screenshot").on_hover_text("Save the entire waterfall history as a PNG image with metadata sidecar.").clicked() {
+                self.save_waterfall_png();
+                ui.close();
+            }
             if ui.button("🔍 Reset zoom (1x)").clicked() {
                 self.zoom_factor = 1.0;
                 self.zoom_offset = 0.5;
