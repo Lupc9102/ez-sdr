@@ -60,6 +60,8 @@ pub struct SdrPanel {
     auto_squelch_offset: f32,
     audio_peak_hold: f32,
     audio_peak_hold_time: Option<std::time::Instant>,
+    signal_log: Vec<(u64, f32, std::time::SystemTime)>, // freq_hz, snr_db, timestamp
+    last_logged_freq: u64,
 }
 
 impl SdrPanel {
@@ -77,6 +79,8 @@ impl SdrPanel {
             auto_squelch_offset: 5.0,
             audio_peak_hold: 0.0,
             audio_peak_hold_time: None,
+            signal_log: Vec::new(),
+            last_logged_freq: 0,
         }
     }
 
@@ -577,6 +581,49 @@ impl SdrPanel {
                 let s_text = if s_value == 0 { "S0".to_string() } else if s_value == 9 { "S9+".to_string() } else { format!("S{}", s_value) };
                 ui.colored_label(meter_color, format!("{} (SNR {:.0}dB)", s_text, snr))
                     .on_hover_text(format!("Signal strength: {} | Peak: {:.0}dBFS | Noise floor: {:.0}dBFS", s_text, peak, noise));
+            });
+        }
+
+        // Signal logging: auto-record strong signals
+        if let Ok(state) = self.shared.try_lock() {
+            let peak = state.spectrum.peak_level();
+            let noise = state.spectrum.noise_floor();
+            let snr = peak - noise;
+            let current_freq = state.source.frequency_hz;
+
+            // Log if we found a new strong signal (SNR > 8dB and different frequency)
+            if snr > 8.0 && current_freq != self.last_logged_freq {
+                self.signal_log.push((current_freq, snr, std::time::SystemTime::now()));
+                self.last_logged_freq = current_freq;
+                // Keep only last 20 signals
+                if self.signal_log.len() > 20 {
+                    self.signal_log.remove(0);
+                }
+            }
+        }
+
+        // Display signal log
+        if !self.signal_log.is_empty() {
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("📊 Signal Log (Strong signals detected)").small().color(egui::Color32::from_rgb(100, 180, 200)));
+                ui.horizontal_wrapped(|ui| {
+                    for (freq_hz, snr, _time) in self.signal_log.iter().rev().take(8) {
+                        let freq_mhz = *freq_hz as f64 / 1e6;
+                        let snr_str = format!("{:.0}dB", snr);
+                        let btn_text = format!("{:.3}MHz ({})", freq_mhz, snr_str);
+                        if ui.small_button(&btn_text)
+                            .on_hover_text(format!("Tune to {:.6}MHz — SNR was {:.1}dB when detected", freq_mhz, snr))
+                            .clicked()
+                        {
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                state.source.frequency_hz = *freq_hz;
+                            }
+                        }
+                    }
+                    if ui.small_button("🗑️ Clear").on_hover_text("Clear signal log").clicked() {
+                        self.signal_log.clear();
+                    }
+                });
             });
         }
 
