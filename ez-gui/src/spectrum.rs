@@ -646,6 +646,22 @@ impl SpectrumAnalyzer {
             let snr_col = if snr > 20.0 { egui::Color32::GREEN } else if snr > 10.0 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
             ui.colored_label(snr_col, format!("SNR {:.0} dB", snr))
                 .on_hover_text("Signal-to-noise ratio: peak minus floor. >20 dB = excellent.");
+            // Peak frequency in visible span
+            if !self.spectrum_dbs.is_empty() {
+                let zoom_span_info = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let zoom_center_offset_info = (self.zoom_offset as f64 - 0.5) * zoom_span_info;
+                let left_hz_info = -zoom_span_info / 2.0 + zoom_center_offset_info;
+                let n = self.spectrum_dbs.len();
+                if let Some((peak_bin, _)) = self.spectrum_dbs.iter().enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                {
+                    let offset_hz = left_hz_info + (peak_bin as f64 / n as f64) * zoom_span_info;
+                    let peak_freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
+                    ui.separator();
+                    ui.monospace(format!("⊕ {:.3} MHz", peak_freq_mhz))
+                        .on_hover_text(format!("Frequency of strongest visible signal: {:.4} MHz. Press T to tune here.", peak_freq_mhz));
+                }
+            }
             if self.frozen {
                 ui.separator();
                 ui.colored_label(egui::Color32::from_rgb(100, 180, 255), "❄ FROZEN");
