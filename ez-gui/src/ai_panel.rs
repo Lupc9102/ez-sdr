@@ -829,15 +829,60 @@ impl AiPanel {
         clicked
     }
 
-    /// Render a prose block (no code fences) line-by-line so \n shows as line breaks,
-    /// with frequency mentions rendered as clickable tune links.
+    /// Render a prose block (no code fences) line-by-line so \n shows as line breaks.
+    /// Handles markdown headings (#, ##, ###), bullet lists (- item, * item, N. item),
+    /// and clickable frequency links.
     fn render_prose(ui: &mut egui::Ui, text: &str, text_color: egui::Color32) -> Option<u64> {
         let mut clicked: Option<u64> = None;
         for line in text.split('\n') {
             if line.is_empty() {
                 ui.add_space(2.0);
-            } else if let Some(hz) = Self::render_line_with_freqs(ui, line, text_color) {
-                clicked = Some(hz);
+                continue;
+            }
+
+            // Heading: ### / ## / #
+            if line.starts_with("### ") {
+                ui.label(egui::RichText::new(&line[4..]).strong().color(text_color));
+            } else if line.starts_with("## ") {
+                ui.label(egui::RichText::new(&line[3..]).strong().heading().color(text_color));
+            } else if line.starts_with("# ") {
+                ui.label(egui::RichText::new(&line[2..]).strong().heading().color(text_color));
+            // Bullet: "- text" or "* text"
+            } else if (line.starts_with("- ") || line.starts_with("* "))
+                && !line.starts_with("**")
+            {
+                let body = &line[2..];
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("•").color(text_color));
+                    if let Some(hz) = Self::render_line_with_freqs(ui, body, text_color) {
+                        clicked = Some(hz);
+                    }
+                });
+            // Numbered list: "1. text", "2. text", etc.
+            } else if line.len() > 2 && line.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                let dot_pos = line.find(". ");
+                if let Some(dot) = dot_pos {
+                    let num = &line[..dot];
+                    let body = &line[dot + 2..];
+                    if num.chars().all(|c| c.is_ascii_digit()) {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(egui::RichText::new(format!("{}.", num)).color(text_color));
+                            if let Some(hz) = Self::render_line_with_freqs(ui, body, text_color) {
+                                clicked = Some(hz);
+                            }
+                        });
+                        continue;
+                    }
+                }
+                if let Some(hz) = Self::render_line_with_freqs(ui, line, text_color) {
+                    clicked = Some(hz);
+                }
+            } else {
+                if let Some(hz) = Self::render_line_with_freqs(ui, line, text_color) {
+                    clicked = Some(hz);
+                }
             }
         }
         clicked
@@ -977,6 +1022,8 @@ impl AiPanel {
                 ("❓ What can I hear?","What signals can I find near 400 MHz?"),
                 ("🔧 Diagnose",      "Get the current SDR status and tell me if anything looks wrong or could be improved. Give me beginner-friendly advice."),
                 ("🔇 No audio?",     "I can't hear any audio. Diagnose why — check the current SDR state, demod mode, squelch, and audio settings and suggest fixes."),
+                ("📍 Bookmark this", "Get the current SDR status, then add a bookmark for the current frequency with an appropriate name and useful notes about what signal it is."),
+                ("📜 History",       "Get the frequency history and tell me what signals I've been looking at. Group similar frequencies together and comment on any patterns."),
             ];
             for (label, prompt) in &quick_prompts {
                 if ui.small_button(*label).on_hover_text(*prompt).clicked() && !self.thinking {
@@ -988,6 +1035,7 @@ impl AiPanel {
         ui.separator();
 
         // Chat area
+        let mut retry = false;
         egui::ScrollArea::vertical()
             .id_salt("ai_chat_scroll")
             .max_height(ui.available_height() - 90.0)
@@ -1046,6 +1094,12 @@ impl AiPanel {
                         });
                     }
 
+                    if is_error && !self.thinking {
+                        if ui.small_button("↩ Retry").on_hover_text("Resend the last message").clicked() {
+                            retry = true;
+                        }
+                    }
+
                     ui.add_space(6.0);
                 }
 
@@ -1056,6 +1110,19 @@ impl AiPanel {
                     );
                 }
             });
+
+        // Retry: remove the error + last user message, re-queue the user content
+        if retry && !self.thinking {
+            if self.messages.last().map(|m| m.content.starts_with('⚠')).unwrap_or(false) {
+                self.messages.pop();
+            }
+            if let Some(pos) = self.messages.iter().rposition(|m| m.role == "user") {
+                let user_content = self.messages[pos].content.clone();
+                self.messages.truncate(pos);
+                self.input = user_content;
+                self.send_message();
+            }
+        }
 
         ui.separator();
 
