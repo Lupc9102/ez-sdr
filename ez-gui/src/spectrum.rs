@@ -1985,8 +1985,15 @@ impl SpectrumAnalyzer {
                 }
             }
         }
-        // Waterfall click-to-tune
-        if wf_response.clicked() {
+        // Waterfall click-to-tune, double-click to place marker
+        if wf_response.double_clicked() {
+            if let Some(pointer) = wf_response.hover_pos() {
+                let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
+                let offset_hz = left_hz + frac as f64 * zoom_span;
+                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                self.marker_pending_freq = Some(freq);
+            }
+        } else if wf_response.clicked() {
             if let Some(pointer) = wf_response.hover_pos() {
                 let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
                 let offset_hz = left_hz + frac as f64 * zoom_span;
