@@ -856,6 +856,10 @@ impl HowToPanel {
                 ("F4",          "Switch demod to WFM (wideband FM broadcast)."),
                 ("F5",          "Switch demod to LSB (lower sideband HF)."),
                 ("F6",          "Switch demod to USB (upper sideband HF)."),
+                ("J",           "Open frequency jump dialog — type a frequency or band name to jump there. Search bookmarks too."),
+                ("P",           "Toggle peak hold on/off. When on, the spectrum keeps the maximum seen value at each bin."),
+                ("Ctrl++/−",    "Zoom in / zoom out on the spectrum (also Ctrl+Equals / Ctrl+Minus)."),
+                ("Ctrl+0",      "Reset spectrum zoom to 1x."),
                 ("Ctrl+S",      "Save config including VFO B, PPM, waterfall range, dB range, recent freqs."),
                 ("?",           "Toggle keyboard shortcut reference overlay."),
             ] {
@@ -1078,6 +1082,54 @@ impl HowToPanel {
         Self::h2(ui, "Saving your spectrum settings");
         ui.label("Press Ctrl+S at any time to save the current spectrum dB min/max range AND waterfall color range to the config file. Both are restored automatically on next launch.");
         Self::tip(ui, "Adjust the dB range so signals are clearly visible and the noise floor sits near the bottom — then Ctrl+S locks it in for next session.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Band name overlay");
+        ui.label("A band name badge appears in the top-left corner of the spectrum whenever the current center frequency falls within a recognized allocation (e.g. 'FM Broadcast', '2m Amateur', 'Airband').");
+        ui.label("It uses the same 45+ allocation table as the band plan overlay, but shows just the name of the current band at a glance.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Peak hold (P key)");
+        ui.label("Press P to toggle peak hold mode. When enabled, each spectrum bin keeps the maximum value it has ever seen — useful for:");
+        ui.label("  •  Finding intermittent signals that appear briefly");
+        ui.label("  •  Seeing the full occupied bandwidth of a frequency-hopping signal");
+        ui.label("  •  Measuring the spectral envelope of a transmission");
+        ui.label("The top-5 peaks are labelled with stems when peak hold is active. Press P again or click 'Clear WF' to reset the hold.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Frequency jump dialog (J key)");
+        ui.label("Press J to open the frequency jump dialog. You can:");
+        ui.label("  •  Type a numeric frequency (MHz) and press Enter to tune");
+        ui.label("  •  Type a band name (e.g. 'FM', 'airband', '2m') to jump to that band");
+        ui.label("  •  Type a bookmark name to quickly find and tune to a saved bookmark");
+        ui.label("Press Esc or press J again to close without tuning.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Zoom keyboard shortcuts");
+        ui.label("  •  Ctrl++ (or Ctrl+=) — zoom in on the spectrum by 1.5×");
+        ui.label("  •  Ctrl+- — zoom out by 1.5×");
+        ui.label("  •  Ctrl+0 — reset zoom to 1× (full bandwidth view)");
+        ui.label("You can also scroll the mouse wheel over the spectrum to zoom in/out, and Shift+scroll to pan.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Spectrum CSV export");
+        ui.label("Click the '💾 CSV' button in the spectrum toolbar to export the current FFT data to a CSV file. The file contains two columns: frequency_hz and power_dbfs. Frequencies are sorted from lowest to highest. Useful for:");
+        ui.label("  •  Analyzing spectrum data in a spreadsheet");
+        ui.label("  •  Importing into Python/matplotlib for custom plots");
+        ui.label("  •  Comparing spectrum captures before/after antenna changes");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Marker delta measurement");
+        ui.label("When two or more frequency markers are visible on the spectrum simultaneously, a span indicator appears near the bottom of the spectrum showing the frequency distance (Δ) between the first two markers.");
+        ui.label("Use this to measure signal bandwidth, channel spacing, or separation between carriers. To add markers: right-click on the spectrum → 'Add marker here'.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Last-signal activity badge");
+        ui.label("When squelch is active (set to anything above −90 dB), a live activity badge appears in the top-right of the spectrum:");
+        ui.label("  •  Green '● ACTIVE' — signal is currently above squelch threshold");
+        ui.label("  •  Grey 'Last: Xs/Xm/Xh ago' — shows how long since the last signal (fades over 10 minutes)");
+        ui.label("  •  Dim 'No activity' — squelch has been on but no signal has appeared yet");
+        Self::tip(ui, "Use the last-signal badge to monitor a frequency for rare activity. If you saw a signal 5 minutes ago, the badge tells you at a glance — no need to watch the waterfall scroll.");
 
         ui.add_space(8.0);
         Self::tip(ui, "Band plan overlays show what each portion of spectrum is allocated for — labels appear automatically based on your current frequency range.");
@@ -1349,6 +1401,13 @@ impl HowToPanel {
         ui.label("Hits are grouped and sorted by frequency, so repeated detections of the same signal are merged into one row (best peak + total count).");
         Self::tip(ui, "Open the CSV in a spreadsheet, filter by Hit_Count to find the most active channels, or sort by Strength to investigate the strongest signals first.");
 
+        ui.add_space(10.0);
+        Self::h2(ui, "Save and load hits (JSON)");
+        ui.label("Use the '💾 Save Hits' and '📂 Load Hits' buttons in the Scanner tab to persist your hit list across sessions:");
+        ui.label("  •  Save Hits — opens a file dialog and writes a JSON file with all current hits (frequency, strength, hit count, timestamp)");
+        ui.label("  •  Load Hits — opens a file dialog and merges hits from a previously saved JSON into the current list (deduplicates by frequency)");
+        Self::tip(ui, "Save your hits before closing ez-sdr and load them next session to continue building up a picture of local radio activity. Hits from multiple sessions accumulate hit counts correctly.");
+
         Self::tip(ui, "After scanning, click Sort by Strength to bubble the strongest signals to the top, then investigate each one in turn.");
         Self::warn(ui, "Very short dwell times (<100 ms) will miss bursty signals like digital voice, APRS packets, or FSK data bursts.");
     }
@@ -1430,6 +1489,38 @@ impl HowToPanel {
 
         Self::tip(ui, "For NOAA APT satellite passes: record I/Q during the pass, then replay and decode offline. No real-time pressure — you can re-decode many times with different settings.");
         Self::tip(ui, "The Scheduler tab can auto-start and auto-stop recording when a scheduled satellite pass begins and ends.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Filename template");
+        ui.label("Customize recording filenames in the Recorder tab using the 'Filename template' field. Supported tokens:");
+        egui::Grid::new("filename_tokens").num_columns(2).striped(true).show(ui, |ui| {
+            for (token, desc) in &[
+                ("{date}",  "Date and time at recording start (YYYYMMDD_HHMMSS)"),
+                ("{freq}",  "Frequency with 3 decimal places, e.g. 145.500MHz"),
+                ("{freq1}", "Frequency integer part only (MHz), e.g. 145"),
+                ("{freq0}", "Frequency with no decimal point, e.g. 145500"),
+                ("{mode}",  "Demod mode label, e.g. NFM, AM, WFM"),
+            ] {
+                ui.monospace(*token);
+                ui.label(*desc);
+                ui.end_row();
+            }
+        });
+        ui.label("Example: '{date}_{freq}_{mode}' → '20260130_145500_NFM.iq'");
+        ui.label("Click Reset to restore the default template. A live preview below the field shows the filename that will be used.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Quick-start recording presets");
+        ui.label("Buttons for common short durations appear below the manual controls: 30s / 1m / 5m / 10m. Clicking any of them starts recording immediately and auto-stops when the time is up. No need to configure a duration first.");
+        Self::tip(ui, "Use quick-start presets to capture a single satellite pass (5m or 10m) with one click — no need to remember to stop recording.");
+
+        ui.add_space(10.0);
+        Self::h2(ui, "Audio level meter");
+        ui.label("A green bar meter appears in the SDR panel below the FM deviation indicator when audio is active. It shows the normalized audio output level:");
+        ui.label("  •  Green — normal level");
+        ui.label("  •  Red — approaching clipping (above 90%)");
+        ui.label("  •  Dark — silent (below squelch or audio not started)");
+        Self::tip(ui, "If the bar is consistently red, lower the volume slider to prevent audio distortion. If it never moves, check that audio is started and squelch isn't blocking the signal.");
 
         ui.add_space(10.0);
         Self::h2(ui, "Signal event log (📋 Signal Log)");
