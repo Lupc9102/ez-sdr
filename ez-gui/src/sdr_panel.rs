@@ -326,13 +326,13 @@ impl SdrPanel {
         // Demod mode selector with bandwidth hints
         ui.horizontal(|ui| {
             if let Ok(mut state) = self.shared.try_lock() {
-                for (mode, bw_hint, tip) in [
-                    (DemodMode::Raw, "",       "RAW I/Q — pass raw complex samples to external decoders"),
-                    (DemodMode::Am,  "8 kHz",  "AM — Amplitude Modulation. Aviation (118–137 MHz), AM broadcast, shortwave"),
-                    (DemodMode::Fm,  "12.5 k", "NFM — Narrowband FM. Land mobile radio: police, fire, repeaters, NOAA weather"),
-                    (DemodMode::Wfm, "200 k",  "WFM — Wideband FM. Commercial FM broadcast (88–108 MHz). Stereo + RDS"),
-                    (DemodMode::Lsb, "2.4 k",  "LSB — Lower Sideband. Amateur HF voice below 10 MHz"),
-                    (DemodMode::Usb, "2.4 k",  "USB — Upper Sideband. Amateur HF voice above 10 MHz, utility/military"),
+                for (mode, bw_hint, tip, detailed_tip) in [
+                    (DemodMode::Raw, "",       "RAW I/Q", "Raw I/Q samples — pass to external decoders like GQRX plugins. No audio filtering."),
+                    (DemodMode::Am,  "8 kHz",  "AM", "Amplitude Modulation with 8 kHz audio bandwidth. Aviation (118–137 MHz), AM broadcast, shortwave. Good for voice and morse."),
+                    (DemodMode::Fm,  "12.5 k", "NFM", "Narrowband FM (12.5 kHz) for digital and voice. Land mobile radio: police, fire, repeaters, NOAA weather. Crystal clear voice."),
+                    (DemodMode::Wfm, "200 k",  "WFM", "Wideband FM (200 kHz) with full audio fidelity and stereo. FM broadcast (88–108 MHz). Music broadcasts, RDS data included."),
+                    (DemodMode::Lsb, "2.4 k",  "LSB", "Lower Sideband (2.4 kHz audio) for HF below 10 MHz. Amateur voice, CW, digital modes. SSB efficiency uses half the spectrum."),
+                    (DemodMode::Usb, "2.4 k",  "USB", "Upper Sideband (2.4 kHz audio) for HF above 10 MHz, utility, military. Narrow bandwidth for weak signal DX."),
                 ] {
                     let selected = state.demod_mode == mode;
                     let label = if bw_hint.is_empty() {
@@ -341,7 +341,7 @@ impl SdrPanel {
                         format!("{} {}", mode.label(), bw_hint)
                     };
                     if ui.selectable_label(selected, label)
-                        .on_hover_text(tip)
+                        .on_hover_text(detailed_tip)
                         .clicked()
                     {
                         state.demod_mode = mode;
