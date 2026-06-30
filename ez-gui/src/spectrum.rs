@@ -440,6 +440,18 @@ impl SpectrumAnalyzer {
             ui.separator();
             ui.colored_label(egui::Color32::from_rgb(150, 180, 255), format!("{}·{}", self.fft_size, self.window_type.name()))
                 .on_hover_text(format!("Current FFT: {} bins, {} window. Larger FFT = better frequency resolution but slower updates.", self.fft_size, self.window_type.name()));
+
+            // Sample rate span and resolution indicator
+            let span_mhz = self.sample_rate as f64 / 1e6;
+            let res_hz = self.sample_rate as f64 / self.fft_size as f64;
+            let res_label = if res_hz >= 1000.0 {
+                format!("{:.1}kHz", res_hz / 1000.0)
+            } else {
+                format!("{:.0}Hz", res_hz)
+            };
+            ui.colored_label(egui::Color32::from_rgb(180, 150, 180), format!("{}MSps·{}", span_mhz as u32, res_label))
+                .on_hover_text(format!("Sample rate: {} MSps (Nyquist: ±{:.1} MHz). Frequency resolution: {} per bin.",
+                    self.sample_rate as f64 / 1e6, span_mhz / 2.0, res_label));
             ui.separator();
             if ui.toggle_value(&mut self.show_peak_hold, "Peak").clicked() {
                 if !self.show_peak_hold {
