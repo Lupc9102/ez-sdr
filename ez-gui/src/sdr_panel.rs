@@ -765,6 +765,9 @@ impl SdrPanel {
                     state.squelch = -120.0;
                 }
             }
+            if ui.small_button("📋").on_hover_text("Copy current squelch value to clipboard.").clicked() {
+                ui.ctx().copy_text(format!("{:.1}", self.squelch));
+            }
         });
 
         // Frequency identification
