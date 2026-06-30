@@ -1884,6 +1884,10 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                         state.source.frequency_hz = freq;
                     }
+                    if let Some(freq) = state.spectrum.pending_vfo_b_freq.take() {
+                        state.vfo_b = freq;
+                        *self.status_flash = Some((format!("🔷 VFO B set to {:.4} MHz", freq as f64 / 1e6), std::time::Instant::now()));
+                    }
                     if let Some(freq) = state.spectrum.pending_bookmark_freq.take() {
                         let freq_mhz = freq as f64 / 1e6;
                         let mode = state.demod_mode.label().to_string();

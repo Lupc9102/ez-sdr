@@ -64,6 +64,7 @@ pub struct SpectrumAnalyzer {
     pub waterfall_paused: bool,
     pub clicked_tune_freq: Option<u64>,
     pub pending_bookmark_freq: Option<u64>,
+    pub pending_vfo_b_freq: Option<u64>,
     signal_history: std::collections::VecDeque<f32>,
     signal_history_max: usize,
     show_signal_history: bool,
@@ -196,6 +197,7 @@ impl SpectrumAnalyzer {
             waterfall_paused: false,
             clicked_tune_freq: None,
             pending_bookmark_freq: None,
+            pending_vfo_b_freq: None,
             signal_history: std::collections::VecDeque::new(),
             signal_history_max: 600,
             show_signal_history: false,
@@ -1601,6 +1603,10 @@ impl SpectrumAnalyzer {
                     self.pending_bookmark_freq = Some(freq);
                     ui.close();
                 }
+                if ui.button("🔷 Set as VFO B").on_hover_text("Save this frequency as VFO B for quick A/B comparison.").clicked() {
+                    self.pending_vfo_b_freq = Some(freq);
+                    ui.close();
+                }
                 if ui.button("📍 Add marker").clicked() {
                     self.marker_pending_freq = Some(freq);
                     ui.close();
@@ -1928,6 +1934,11 @@ impl SpectrumAnalyzer {
                     }
                     if ui.button("⭐ Bookmark this frequency").clicked() {
                         self.pending_bookmark_freq = Some(freq);
+                        ui.close();
+                    }
+                    if ui.button("🔷 Set as VFO B").on_hover_text("Save this frequency as VFO B for quick A/B comparison.").clicked() {
+                        self.clicked_tune_freq = Some(freq);
+                        self.pending_vfo_b_freq = Some(freq);
                         ui.close();
                     }
                     if ui.button("📋 Copy frequency").clicked() {
