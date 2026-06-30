@@ -140,3 +140,18 @@ Started: 2026-06-29 (8-hour window)
 
 ## Session 33 Night Shift Log
 - T+~297min: Green "● ACTIVE" badge on spectrum when squelch is open — appears top-right below SNR badge; only visible when squelch is engaged (> -90 dB) and signal exceeds threshold
+
+## Session 34 Night Shift Log
+- T+~305min: Spectrum CSV export — "💾 CSV" toolbar button exports current FFT (frequency_hz, power_dbfs) to CSV file via file dialog; frequencies reordered low→high
+
+## Session 35 Night Shift Log
+- T+~308min: Audio level bar meter in SDR panel — replaces plain "Audio: X%" with visual green/red bar; shows normalized audio output level with hover tooltip
+
+## Session 36 Night Shift Log
+- T+~312min: Marker delta measurement on spectrum — when 2+ markers visible, draws span indicator between first two with Δ kHz/MHz label at bottom of spectrum
+
+## Session 37 Night Shift Log
+- T+~318min: Last-signal activity badge on spectrum — when squelch configured: green "● ACTIVE" when open, fading "Last: Xs/Xm/Xh ago" after drop, dim "No activity" if never seen
+
+## Session 38 Night Shift Log
+- T+~330min: HowTo panel updates for Sessions 27-37: band name overlay, P key peak hold, J key freq jump, Ctrl±/0 zoom shortcuts, CSV export, marker delta, last-signal badge, scanner JSON save/load, recorder filename template, quick-start presets, audio level meter
