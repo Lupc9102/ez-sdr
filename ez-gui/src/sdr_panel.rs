@@ -228,6 +228,28 @@ impl SdrPanel {
             }
         }
 
+        // Quick tune presets
+        if let Ok(mut state) = self.shared.try_lock() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("🎯 Quick Tune:").on_hover_text("One-click tuning to popular frequencies with auto-mode selection");
+                let presets = [
+                    ("📻 FM", 100_000_000u64, DemodMode::Wfm, "FM radio broadcast"),
+                    ("🛩️ ADS-B", 1_090_000_000, DemodMode::Raw, "Aircraft tracking"),
+                    ("🛰️ NOAA 15", 137_620_000, DemodMode::Wfm, "Weather satellite APT"),
+                    ("☁️ NOAA WX", 162_550_000, DemodMode::Fm, "NOAA weather radio"),
+                    ("📡 ISS", 145_800_000, DemodMode::Fm, "International Space Station"),
+                    ("📍 GPS L1", 1_575_420_000, DemodMode::Raw, "GPS L1 signal"),
+                    ("🔬 2m Ham", 145_500_000, DemodMode::Fm, "2m Amateur band"),
+                ];
+                for (label, freq, mode, tooltip) in presets.iter() {
+                    if ui.small_button(*label).on_hover_text(*tooltip).clicked() {
+                        state.source.frequency_hz = *freq;
+                        state.demod_mode = *mode;
+                    }
+                }
+            });
+        }
+
         // VFO A/B swap
         if let Ok(mut state) = self.shared.try_lock() {
             let vfo_b_mhz = state.vfo_b as f64 / 1e6;
