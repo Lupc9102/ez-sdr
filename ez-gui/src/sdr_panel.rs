@@ -583,12 +583,35 @@ impl SdrPanel {
             let mode = state.demod_mode;
             if mode == DemodMode::Fm || mode == DemodMode::Wfm {
                 let dev_khz = state.fm_deviation_hz / 1000.0;
-                let dev_color = if dev_khz > 75.0 { egui::Color32::RED }
-                    else if dev_khz > 5.0 { egui::Color32::GREEN }
-                    else { egui::Color32::GRAY };
+                // Color coding based on mode
+                let (dev_color, dev_tip) = match mode {
+                    DemodMode::Fm => {
+                        if dev_khz > 13.0 {
+                            (egui::Color32::RED, "NFM deviation too high (>13 kHz) — signal clipping/overmodulation")
+                        } else if dev_khz >= 4.5 && dev_khz <= 12.5 {
+                            (egui::Color32::GREEN, "NFM deviation in ideal range (4.5–12.5 kHz)")
+                        } else if dev_khz >= 2.0 && dev_khz < 4.5 {
+                            (egui::Color32::YELLOW, "NFM deviation low (2–4.5 kHz) — weak signal?")
+                        } else {
+                            (egui::Color32::GRAY, "NFM deviation too low (<2 kHz)")
+                        }
+                    },
+                    DemodMode::Wfm => {
+                        if dev_khz > 80.0 {
+                            (egui::Color32::RED, "WFM deviation excessive (>80 kHz)")
+                        } else if dev_khz >= 50.0 && dev_khz <= 75.0 {
+                            (egui::Color32::GREEN, "WFM deviation ideal (50–75 kHz)")
+                        } else if dev_khz >= 30.0 && dev_khz < 50.0 {
+                            (egui::Color32::YELLOW, "WFM deviation low (30–50 kHz) — weak signal")
+                        } else {
+                            (egui::Color32::GRAY, "WFM deviation very low")
+                        }
+                    },
+                    _ => (egui::Color32::GRAY, "N/A"),
+                };
                 ui.horizontal(|ui| {
                     ui.colored_label(dev_color, format!("FM dev: {:.1} kHz", dev_khz))
-                        .on_hover_text("FM frequency deviation. NFM: 5–12.5 kHz is normal. WFM broadcast: up to 75 kHz. >75 kHz = overmodulated.");
+                        .on_hover_text(dev_tip);
                 });
                 // Audio level meter bar with peak hold
                 let peak_frac = (state.audio_peak).clamp(0.0, 1.0);
