@@ -103,6 +103,19 @@ pub enum ColorMap {
     Hot,
 }
 
+impl ColorMap {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ColorMap::Classic => "Classic",
+            ColorMap::Viridis => "Viridis",
+            ColorMap::Plasma => "Plasma",
+            ColorMap::Magma => "Magma",
+            ColorMap::Grayscale => "Grayscale",
+            ColorMap::Hot => "Hot",
+        }
+    }
+}
+
 impl WindowType {
     fn generate(&self, len: usize) -> Vec<f32> {
         match self {
@@ -508,6 +521,9 @@ impl SpectrumAnalyzer {
                 .clicked() && !self.frozen {
                 // unfreeze: clear peak hold too
             }
+            ui.separator();
+            ui.colored_label(egui::Color32::GRAY, format!("WF: {}", self.color_map.name()))
+                .on_hover_text(format!("Current waterfall colormap: {}. Press C to cycle through colormaps.", self.color_map.name()));
             ui.separator();
             ui.toggle_value(&mut self.show_vfo_bw, "VFO BW")
                 .on_hover_text("Show shaded VFO filter bandwidth region centered on the tuned frequency.");
