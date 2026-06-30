@@ -116,6 +116,10 @@ pub struct CentralApp {
     new_task_freq_mhz: String,
     new_task_time: String,
     new_task_error: String,
+    // Frequency jump dialog
+    show_freq_jump: bool,
+    freq_jump_input: String,
+    freq_jump_matches: Vec<(String, u64)>,
 }
 
 impl CentralApp {
@@ -260,6 +264,9 @@ impl CentralApp {
             new_task_freq_mhz: String::new(),
             new_task_time: String::new(),
             new_task_error: String::new(),
+            show_freq_jump: false,
+            freq_jump_input: String::new(),
+            freq_jump_matches: Vec::new(),
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
@@ -433,6 +440,14 @@ impl eframe::App for CentralApp {
                 // C: cycle waterfall colormap
                 if i.key_pressed(egui::Key::C) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.cycle_colormap();
+                }
+                // J: open frequency jump dialog
+                if i.key_pressed(egui::Key::J) && !i.modifiers.ctrl && !i.modifiers.alt {
+                    self.show_freq_jump = !self.show_freq_jump;
+                    if self.show_freq_jump {
+                        self.freq_jump_input.clear();
+                        self.freq_jump_matches.clear();
+                    }
                 }
                 // P: toggle peak hold
                 if i.key_pressed(egui::Key::P) && !i.modifiers.ctrl && !i.modifiers.alt {
@@ -858,6 +873,111 @@ impl eframe::App for CentralApp {
                 });
         }
 
+        // Frequency jump dialog (J key)
+        if self.show_freq_jump {
+            let mut close = false;
+            let mut tune_to: Option<u64> = None;
+            egui::Window::new("⤵ Jump to Frequency")
+                .id(egui::Id::new("freq_jump_dialog"))
+                .default_width(380.0)
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label("Enter a frequency (MHz) or band name:");
+                    let edit = ui.add(egui::TextEdit::singleline(&mut self.freq_jump_input)
+                        .desired_width(340.0)
+                        .hint_text("e.g. '145.5', '88.0', 'aviation', 'weather', 'noaa'"));
+                    if edit.changed() {
+                        self.freq_jump_matches.clear();
+                        let q = self.freq_jump_input.trim().to_lowercase();
+                        if !q.is_empty() {
+                            // Try numeric parse first
+                            if let Ok(mhz) = q.parse::<f64>() {
+                                self.freq_jump_matches.push((format!("{:.3} MHz", mhz), (mhz * 1e6) as u64));
+                            } else {
+                                // Search known band allocations
+                                let bands: &[(&str, u64)] = &[
+                                    ("AM Broadcast (530 kHz)", 530_000),
+                                    ("Shortwave 49m (5.9 MHz)", 5_900_000),
+                                    ("Shortwave 31m (9.5 MHz)", 9_500_000),
+                                    ("Shortwave 25m (11.7 MHz)", 11_700_000),
+                                    ("FM Broadcast (88 MHz)", 88_000_000),
+                                    ("Aviation VHF (118 MHz)", 118_000_000),
+                                    ("NOAA APT satellites (137.6 MHz)", 137_620_000),
+                                    ("NOAA Weather Radio (162.4 MHz)", 162_400_000),
+                                    ("Marine VHF Ch16 distress (156.8 MHz)", 156_800_000),
+                                    ("APRS North America (144.39 MHz)", 144_390_000),
+                                    ("Amateur 2m simplex (146.52 MHz)", 146_520_000),
+                                    ("Amateur 70cm simplex (446 MHz)", 446_000_000),
+                                    ("PMR446 (446.006 MHz)", 446_006_250),
+                                    ("ISM 433 MHz band", 433_920_000),
+                                    ("ISM 868 MHz band", 868_000_000),
+                                    ("ADS-B aircraft transponder (1090 MHz)", 1_090_000_000),
+                                    ("GPS L1 (1575.42 MHz)", 1_575_420_000),
+                                    ("GOES satellite downlink (1691 MHz)", 1_691_000_000),
+                                ];
+                                for (name, freq) in bands {
+                                    if name.to_lowercase().contains(&q) {
+                                        self.freq_jump_matches.push((name.to_string(), *freq));
+                                    }
+                                }
+                                // Also search bookmarks
+                                if let Ok(state) = self.shared.try_lock() {
+                                    for bm in &state.bookmarks.bookmarks {
+                                        if bm.name.to_lowercase().contains(&q) || bm.category.to_lowercase().contains(&q) {
+                                            self.freq_jump_matches.push((
+                                                format!("⭐ {} ({:.3} MHz)", bm.name, bm.frequency_hz as f64 / 1e6),
+                                                bm.frequency_hz
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Focus the text field when dialog opens
+                    if edit.hovered() || self.freq_jump_input.is_empty() {
+                        edit.request_focus();
+                    }
+
+                    // Show matches
+                    if !self.freq_jump_matches.is_empty() {
+                        ui.separator();
+                        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                            for (label, freq) in self.freq_jump_matches.clone() {
+                                if ui.selectable_label(false, &label).clicked() {
+                                    tune_to = Some(freq);
+                                    close = true;
+                                }
+                            }
+                        });
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        // Enter key tunes to first match or numeric entry
+                        if ui.button("Tune").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            if let Some((_, freq)) = self.freq_jump_matches.first() {
+                                tune_to = Some(*freq);
+                            } else if let Ok(mhz) = self.freq_jump_input.trim().parse::<f64>() {
+                                tune_to = Some((mhz * 1e6) as u64);
+                            }
+                            close = true;
+                        }
+                        if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            close = true;
+                        }
+                    });
+                });
+            if close { self.show_freq_jump = false; }
+            if let Some(freq) = tune_to {
+                if let Ok(mut state) = self.shared.try_lock() {
+                    state.source.frequency_hz = freq;
+                    self.status_flash = Some((format!("⤵ {:.3} MHz", freq as f64 / 1e6), std::time::Instant::now()));
+                }
+            }
+        }
+
         // Status bar
         ui.separator();
         ui.horizontal(|ui| {
@@ -1122,6 +1242,7 @@ impl eframe::App for CentralApp {
                         ui.monospace("V"); ui.label("Swap VFO A ↔ VFO B (quick frequency toggle)"); ui.end_row();
                         ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
                         ui.monospace("T"); ui.label("Tune to the strongest signal in the visible spectrum"); ui.end_row();
+                        ui.monospace("J"); ui.label("Open frequency jump dialog — type MHz or band name to jump"); ui.end_row();
                         ui.monospace("P"); ui.label("Toggle spectrum peak hold on/off"); ui.end_row();
                         ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
                         ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
