@@ -1423,6 +1423,19 @@ impl SpectrumAnalyzer {
             }
         }
 
+        // Frozen indicator overlay
+        if self.frozen {
+            let top_left = spectrum_rect.left_top() + egui::vec2(8.0, 6.0);
+            let msg = "❄ FROZEN — press F to unfreeze";
+            painter.text(
+                top_left,
+                egui::Align2::LEFT_TOP,
+                msg,
+                egui::FontId::proportional(12.0),
+                egui::Color32::from_rgb(100, 180, 255),
+            );
+        }
+
         // Empty-state overlay when no SDR source is running
         if !self.source_running {
             let center = spectrum_rect.center();
