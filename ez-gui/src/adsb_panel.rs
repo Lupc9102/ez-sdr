@@ -280,6 +280,40 @@ impl AdsBPanel {
                 );
             }
 
+            // Draw observer position and range rings
+            let obs_x = rect.left() + ((self.observer_lon + 180.0) / 360.0) as f32 * rect.width();
+            let obs_y = rect.top() + ((90.0 - self.observer_lat) / 180.0) as f32 * rect.height();
+            if rect.contains(egui::pos2(obs_x, obs_y)) {
+                // Range rings at 50, 100, 200 km
+                for (dist_km, alpha) in [(50.0_f64, 40), (100.0_f64, 30), (200.0_f64, 20)] {
+                    let ang_dist = dist_km / 6371.0;
+                    let mut ring_points: Vec<egui::Pos2> = Vec::with_capacity(36);
+                    for deg in (0..360).step_by(10) {
+                        let brng = (deg as f64).to_radians();
+                        let lat2 = (self.observer_lat.to_radians().sin() * ang_dist.cos()
+                            + self.observer_lat.to_radians().cos() * ang_dist.sin() * brng.cos())
+                            .asin();
+                        let lon2 = self.observer_lon.to_radians()
+                            + (brng.sin() * ang_dist.sin() * self.observer_lat.to_radians().cos())
+                                .atan2(ang_dist.cos() - self.observer_lat.to_radians().sin() * lat2.sin());
+                        let rx = rect.left() + ((lon2.to_degrees() + 180.0) / 360.0) as f32 * rect.width();
+                        let ry = rect.top() + ((90.0 - lat2.to_degrees()) / 180.0) as f32 * rect.height();
+                        ring_points.push(egui::pos2(rx, ry));
+                    }
+                    for w in ring_points.windows(2) {
+                        painter.line_segment([w[0], w[1]], egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(100, 200, 100, alpha)));
+                    }
+                    if let Some(first) = ring_points.first() {
+                        painter.text(*first + egui::vec2(2.0, -2.0), egui::Align2::LEFT_BOTTOM,
+                            &format!("{}km", dist_km), egui::FontId::proportional(7.0),
+                            egui::Color32::from_rgba_unmultiplied(100, 200, 100, alpha));
+                    }
+                }
+                // Observer crosshair
+                painter.circle_stroke(egui::pos2(obs_x, obs_y), 6.0, egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 255, 100)));
+                painter.circle_filled(egui::pos2(obs_x, obs_y), 2.0, egui::Color32::from_rgb(255, 255, 100));
+            }
+
             // Plot trails
             if self.show_trails {
                 for (icao, trail) in &self.aircraft_trails {
@@ -330,6 +364,29 @@ impl AdsBPanel {
                     color,
                 );
             }
+
+            // Altitude color legend
+            let legend_x = rect.right() - 30.0;
+            let legend_top = rect.top() + 5.0;
+            let legend_h = rect.height() - 10.0;
+            for i in 0..=40 {
+                let t = i as f32 / 40.0;
+                let ly = legend_top + legend_h * (1.0 - t);
+                let color = if t < 0.5 {
+                    let u = t * 2.0;
+                    egui::Color32::from_rgb((u * 50.0) as u8, (100.0 + u * 155.0) as u8, (200.0 - u * 200.0) as u8)
+                } else {
+                    let u = (t - 0.5) * 2.0;
+                    egui::Color32::from_rgb((50.0 + u * 205.0) as u8, (255.0 - u * 205.0) as u8, 0)
+                };
+                painter.line_segment(
+                    [egui::pos2(legend_x, ly), egui::pos2(legend_x + 12.0, ly)],
+                    egui::Stroke::new(2.0, color),
+                );
+            }
+            painter.text(egui::pos2(legend_x + 6.0, legend_top), egui::Align2::CENTER_TOP, "40k", egui::FontId::proportional(6.0), egui::Color32::GRAY);
+            painter.text(egui::pos2(legend_x + 6.0, legend_top + legend_h / 2.0), egui::Align2::CENTER_CENTER, "20k", egui::FontId::proportional(6.0), egui::Color32::GRAY);
+            painter.text(egui::pos2(legend_x + 6.0, legend_top + legend_h), egui::Align2::CENTER_BOTTOM, "0 ft", egui::FontId::proportional(6.0), egui::Color32::GRAY);
         }
 
         ui.separator();
