@@ -365,10 +365,13 @@ impl SourceManager {
                 });
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.bias_tee, "Bias Tee (4.5V)");
-                ui.checkbox(&mut self.direct_sampling, "Direct Sampling");
+                ui.checkbox(&mut self.bias_tee, "Bias Tee (4.5V)")
+                    .on_hover_text("Sends 4.5V DC down the coax center pin to power a mast-mounted LNA or filtered LNA. RTL-SDR Blog V3 only. Do NOT enable with passive antennas — it can damage cheap dongles.");
+                ui.checkbox(&mut self.direct_sampling, "Direct Sampling")
+                    .on_hover_text("Bypasses the RTL-SDR tuner and feeds the ADC directly — enables HF reception below 24 MHz (typically 500 kHz–14 MHz). RTL-SDR V3 only. Reduces sensitivity significantly.");
             });
-            ui.add(egui::Slider::new(&mut self.ppm_correction, -100..=100).text("PPM correction"));
+            ui.add(egui::Slider::new(&mut self.ppm_correction, -100..=100).text("PPM correction"))
+                .on_hover_text("Frequency error correction in parts-per-million. RTL-SDR crystals typically drift ±20–50 PPM. At 1090 MHz, 10 PPM = 10.9 kHz error. Tune to a known frequency (FM station, GPS L1) and adjust until it aligns.");
         }
         ui.horizontal(|ui| {
             if ui.button("Start").clicked() { self.start(); }

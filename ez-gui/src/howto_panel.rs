@@ -4,6 +4,8 @@ pub struct HowToPanel {
 }
 
 const SECTIONS: &[&str] = &[
+    "Getting Started",
+    "No SDR Hardware? Start Here",
     "What is SDR?",
     "RTL-SDR Hardware",
     "Antennas & Positioning",
@@ -24,68 +26,76 @@ const SECTIONS: &[&str] = &[
 
 // Keyword index: maps search terms to section indices (multiple matches allowed)
 const KEYWORD_INDEX: &[(&str, &[usize])] = &[
-    ("gain",        &[3, 15]),
-    ("squelch",     &[3, 15]),
-    ("noise",       &[3, 11, 15]),
-    ("frequency",   &[3, 12]),
-    ("tune",        &[3, 10]),
-    ("waterfall",   &[4]),
-    ("spectrum",    &[4]),
-    ("zoom",        &[4]),
-    ("colormap",    &[4]),
-    ("color",       &[4]),
-    ("am",          &[5]),
-    ("fm",          &[3, 5]),
-    ("nfm",         &[3, 5]),
-    ("wfm",         &[3, 5]),
-    ("ssb",         &[5]),
-    ("lsb",         &[5]),
-    ("usb",         &[5]),
-    ("demod",       &[5]),
-    ("aircraft",    &[6]),
-    ("adsb",        &[6]),
-    ("ads-b",       &[6]),
-    ("satellite",   &[7]),
-    ("noaa",        &[7, 12]),
-    ("apt",         &[7]),
-    ("scanner",     &[8]),
-    ("scan",        &[8]),
-    ("record",      &[9]),
-    ("wav",         &[9]),
-    ("iq",          &[9]),
-    ("bookmark",    &[10]),
-    ("scheduler",   &[10]),
-    ("schedule",    &[10]),
-    ("interference", &[11]),
-    ("intermod",    &[11]),
-    ("usb 3",       &[11]),
-    ("reference",   &[12]),
-    ("soapy",       &[13]),
-    ("hackrf",      &[13]),
-    ("airspy",      &[13]),
-    ("rtlsdr",      &[1]),
-    ("rtl-sdr",     &[1]),
-    ("dongle",      &[1]),
-    ("antenna",     &[2]),
-    ("coax",        &[2]),
-    ("ai",          &[14]),
-    ("troubleshoot", &[15]),
-    ("audio",       &[3, 5, 15]),
-    ("vfo",         &[3]),
-    ("step",        &[3]),
-    ("sparkline",   &[3]),
-    ("vox",         &[9]),
-    ("bias tee",    &[1, 13]),
-    ("ppm",         &[3]),
-    ("memory scan", &[8]),
-    ("csv",         &[8, 10]),
-    ("export",      &[8, 10]),
-    ("import",      &[10]),
-    ("bandwidth",   &[3, 4]),
-    ("png",         &[4]),
-    ("screenshot",  &[4]),
-    ("notes",       &[10]),
-    ("preset",      &[3]),
+    ("getting started", &[0]),
+    ("first signal",    &[0]),
+    ("beginner",        &[0, 1]),
+    ("no hardware",     &[1]),
+    ("demo",            &[1]),
+    ("replay",          &[1]),
+    ("sample",          &[1, 11]),
+    ("gain",        &[5, 17]),
+    ("squelch",     &[5, 17]),
+    ("noise",       &[5, 13, 17]),
+    ("frequency",   &[5, 14]),
+    ("tune",        &[5, 12]),
+    ("waterfall",   &[6]),
+    ("spectrum",    &[6]),
+    ("zoom",        &[6]),
+    ("colormap",    &[6]),
+    ("color",       &[6]),
+    ("am",          &[7]),
+    ("fm",          &[5, 7]),
+    ("nfm",         &[5, 7]),
+    ("wfm",         &[5, 7]),
+    ("ssb",         &[7]),
+    ("lsb",         &[7]),
+    ("usb",         &[7]),
+    ("demod",       &[7]),
+    ("aircraft",    &[8]),
+    ("adsb",        &[8]),
+    ("ads-b",       &[8]),
+    ("satellite",   &[9]),
+    ("noaa",        &[9, 14]),
+    ("apt",         &[9]),
+    ("scanner",     &[10]),
+    ("scan",        &[10]),
+    ("record",      &[11]),
+    ("wav",         &[11]),
+    ("iq",          &[11]),
+    ("bookmark",    &[12]),
+    ("scheduler",   &[12]),
+    ("schedule",    &[12]),
+    ("interference", &[13]),
+    ("intermod",    &[13]),
+    ("usb 3",       &[13]),
+    ("reference",   &[14]),
+    ("soapy",       &[15]),
+    ("hackrf",      &[15]),
+    ("airspy",      &[15]),
+    ("rtlsdr",      &[3]),
+    ("rtl-sdr",     &[3]),
+    ("dongle",      &[3]),
+    ("antenna",     &[4]),
+    ("coax",        &[4]),
+    ("ai",          &[16]),
+    ("troubleshoot", &[17]),
+    ("audio",       &[5, 7, 17]),
+    ("vfo",         &[5]),
+    ("step",        &[5]),
+    ("sparkline",   &[5]),
+    ("vox",         &[11]),
+    ("bias tee",    &[3, 15]),
+    ("ppm",         &[5]),
+    ("memory scan", &[10]),
+    ("csv",         &[10, 12]),
+    ("export",      &[10, 12]),
+    ("import",      &[12]),
+    ("bandwidth",   &[5, 6]),
+    ("png",         &[6]),
+    ("screenshot",  &[6]),
+    ("notes",       &[12]),
+    ("preset",      &[5]),
+    ("blank",       &[17]),
 ];
 
 impl HowToPanel {
@@ -155,22 +165,24 @@ impl HowToPanel {
                 .id_salt("howto_content")
                 .show(ui, |ui| {
                     match self.selected_section {
-                        0  => self.section_what_is_sdr(ui),
-                        1  => self.section_rtlsdr_hardware(ui),
-                        2  => self.section_antennas(ui),
-                        3  => self.section_sdr_panel(ui),
-                        4  => self.section_spectrum(ui),
-                        5  => self.section_demod_modes(ui),
-                        6  => self.section_adsb(ui),
-                        7  => self.section_satellite(ui),
-                        8  => self.section_scanner(ui),
-                        9  => self.section_recorder(ui),
-                        10 => self.section_bookmarks(ui),
-                        11 => self.section_noise(ui),
-                        12 => self.section_freq_reference(ui),
-                        13 => self.section_soapy(ui),
-                        14 => self.section_ai_agent(ui),
-                        15 => self.section_troubleshooting(ui),
+                        0  => self.section_getting_started(ui),
+                        1  => self.section_no_hardware(ui),
+                        2  => self.section_what_is_sdr(ui),
+                        3  => self.section_rtlsdr_hardware(ui),
+                        4  => self.section_antennas(ui),
+                        5  => self.section_sdr_panel(ui),
+                        6  => self.section_spectrum(ui),
+                        7  => self.section_demod_modes(ui),
+                        8  => self.section_adsb(ui),
+                        9  => self.section_satellite(ui),
+                        10 => self.section_scanner(ui),
+                        11 => self.section_recorder(ui),
+                        12 => self.section_bookmarks(ui),
+                        13 => self.section_noise(ui),
+                        14 => self.section_freq_reference(ui),
+                        15 => self.section_soapy(ui),
+                        16 => self.section_ai_agent(ui),
+                        17 => self.section_troubleshooting(ui),
                         _  => {}
                     }
                 });
@@ -485,10 +497,96 @@ impl HowToPanel {
 
     // ─── sections ─────────────────────────────────────────────────────────
 
+    fn section_getting_started(&mut self, ui: &mut egui::Ui) {
+        Self::h1(ui, "Getting Started — Your First Signal in 5 Steps");
+
+        ui.label(egui::RichText::new("Never used an SDR before? You can hear real radio signals in under a minute — no hardware required. Follow these steps:").strong());
+        ui.add_space(8.0);
+
+        egui::Grid::new("gs_steps").num_columns(1).striped(true).spacing([4.0, 6.0]).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("①").size(18.0).strong().color(egui::Color32::from_rgb(100, 200, 255)));
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Open the SDR tab").strong());
+                    ui.label("Click the 'SDR' tab on the left side of the window. This is where you tune frequencies and control the receiver.");
+                });
+            });
+            ui.end_row();
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("②").size(18.0).strong().color(egui::Color32::from_rgb(100, 200, 255)));
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Click a 'Bands:' preset button").strong());
+                    ui.label("In the SDR panel, find the row of colored buttons labeled 'Bands:'. Click 'BC FM WFM' to jump to the FM broadcast band. The button auto-tunes the frequency, picks Wide-FM mode, sets a sensible gain, and starts audio — all in one click.");
+                });
+            });
+            ui.end_row();
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("③").size(18.0).strong().color(egui::Color32::from_rgb(100, 200, 255)));
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Look at the waterfall").strong());
+                    ui.label("The scrolling colored band at the bottom of the screen is the waterfall. Bright spots are signals. You should see a bright block somewhere in the FM band — that's a radio station.");
+                });
+            });
+            ui.end_row();
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("④").size(18.0).strong().color(egui::Color32::from_rgb(100, 200, 255)));
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Click a bright spot to tune to it").strong());
+                    ui.label("Left-click directly on a bright part of the waterfall or spectrum. The frequency jumps there. If audio is running, you'll hear that station through your speakers.");
+                });
+            });
+            ui.end_row();
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("⑤").size(18.0).strong().color(egui::Color32::from_rgb(100, 200, 255)));
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Adjust gain if it's noisy or quiet").strong());
+                    ui.label("In the SDR panel, drag the Gain slider. Too low = hissy/quiet. Too high = distorted with phantom signals. ~30–40 dB is a good starting point. Press 'M' to mute/unmute audio.");
+                });
+            });
+            ui.end_row();
+        });
+        ui.add_space(8.0);
+        Self::tip(ui, "No sound? Check your computer's volume and that 'Audio Running' shows in the status bar. Click '🔊 Start Audio' in the SDR panel if needed.");
+        Self::tip(ui, "In demo mode you'll see simulated signals. To receive real signals, connect an RTL-SDR dongle (see the 'RTL-SDR Hardware' section) or replay a recorded IQ file (see 'No SDR Hardware? Start Here').");
+    }
+
+    fn section_no_hardware(&mut self, ui: &mut egui::Ui) {
+        Self::h1(ui, "No SDR Hardware? Start Here");
+
+        ui.label("EZ-SDR runs perfectly well with no physical radio hardware at all. Here are the three ways to play with it:");
+        ui.add_space(8.0);
+
+        Self::h2(ui, "1. Demo mode (default)");
+        ui.label("When you launch EZ-SDR without an SDR dongle plugged in, it runs in DEMO mode. A simulated signal source generates realistic-looking signals on the spectrum and waterfall so you can explore every feature — tuning, modes, gain, recording, the scanner — without any hardware.");
+        ui.label(egui::RichText::new("Look for the 'DEMO' badge in the bottom status bar.").italics().color(egui::Color32::GRAY));
+        ui.add_space(6.0);
+
+        Self::h2(ui, "2. File Replay — listen to a recording");
+        ui.label("If you have a raw I/Q recording (a .iq, .cu8, .cs8, .cf32, .bin or .raw file), you can replay it just like a live SDR:");
+        ui.label("  •  Open the SDR tab and scroll to the 'Source' section at the bottom");
+        ui.label("  •  Click 'File Replay' next to 'Mode:'");
+        ui.label("  •  Type a path or click '📂 Browse' to pick an IQ file");
+        ui.label("  •  Click 'Start'. The spectrum will show the recorded signal in real time");
+        ui.label("  •  Use 'Loop' to play continuously, and the 'Speed' slider to slow down or speed up");
+        ui.add_space(6.0);
+        Self::tip(ui, "IQ files are large (~2 MB per second at 2.4 MSps). A 30-second clip is ~60 MB. They contain the raw radio data, so you can re-demodulate them later with any mode.");
+        ui.add_space(6.0);
+
+        Self::h2(ui, "3. Get an RTL-SDR dongle (cheapest real hardware)");
+        ui.label("An RTL-SDR is a ~$25–35 USB TV tuner stick that can receive anything from 24 MHz to 1766 MHz — FM radio, aircraft, ships, weather satellites, ham radio, and more. It's the most popular SDR for beginners.");
+        ui.label("See the 'RTL-SDR Hardware' section for setup, antenna tips, and Linux udev rules.");
+        ui.add_space(8.0);
+        Self::warn(ui, "On Linux you need a udev rule so your user can access the USB device without root. See the Troubleshooting section if you get 'usb_claim_interface error'.");
+    }
+
     fn section_what_is_sdr(&mut self, ui: &mut egui::Ui) {
         Self::h1(ui, "What is Software Defined Radio?");
 
-        ui.label("In a traditional radio, every processing step — mixing, filtering, demodulation — is done in dedicated analog hardware. In an SDR the antenna feeds raw RF into an Analog-to-Digital Converter (ADC), and nearly all signal processing happens in software on a CPU.");
+        ui.label(egui::RichText::new("A software-defined radio (SDR) is a radio where a computer does the tuning and listening in software instead of fixed hardware.").strong());
+        ui.add_space(4.0);
+        ui.label("A normal radio — like a car stereo or a handheld scanner — is built to do one job: pick up one kind of signal on specific bands. Change what you want to listen to and you need different hardware. An SDR turns radio signals into numbers a computer can work with, so the same cheap USB stick can act as an FM radio, an aircraft receiver, a ship radio, a weather-satellite decoder — anything its frequency range can reach — just by changing the software.");
+        ui.add_space(4.0);
+        ui.label("In short: the antenna catches real radio waves; the SDR dongle digitizes them; the computer (and EZ-SDR) does all the rest. You can change mode, filter, record, and replay purely in software, with no hardware changes.");
         ui.add_space(8.0);
 
         Self::draw_signal_chain(ui);
@@ -496,19 +594,7 @@ impl HowToPanel {
             .color(egui::Color32::GRAY).size(10.0));
         ui.add_space(10.0);
 
-        Self::h2(ui, "I/Q Sampling — the core concept");
-        ui.label("A single real-valued ADC cannot capture phase information. SDRs sample two components simultaneously, offset by exactly 90°:");
-        ui.label("  •  I (In-phase)    — samples the signal directly");
-        ui.label("  •  Q (Quadrature) — same signal shifted 90°");
-        ui.label("Each instant produces one complex number I + jQ. This preserves amplitude AND phase, which is required to demodulate AM, FM, SSB, PSK, QAM, or anything else entirely in software.");
-        ui.add_space(8.0);
-
-        Self::draw_iq_diagram(ui);
-        ui.label(egui::RichText::new("Each red dot is one I/Q sample. The distance from origin = amplitude; angle = phase.")
-            .italics().color(egui::Color32::GRAY).size(10.0));
-        ui.add_space(10.0);
-
-        Self::h2(ui, "Why SDR beats a fixed-function radio for exploration");
+        Self::h2(ui, "Why SDR is great for exploring the radio spectrum");
         ui.label("  •  One piece of hardware covers the entire spectrum your dongle can reach");
         ui.label("  •  Switch modulation mode in software — no hardware changes");
         ui.label("  •  Record raw I/Q and replay it offline, months later, with different demodulation");
@@ -516,6 +602,20 @@ impl HowToPanel {
 
         ui.add_space(8.0);
         Self::tip(ui, "The RTL-SDR processes all signals across its 2.4 MHz bandwidth simultaneously. Even if you're listening to one FM station, you can see all adjacent FM stations in the waterfall.");
+
+        ui.add_space(8.0);
+        ui.collapsing("Deeper dive: I/Q sampling and how the magic works", |ui| {
+            ui.label("Radio signals are waves with two properties we care about: how strong they are (amplitude) and where in their cycle they are (phase). A single number stream from an ordinary ADC can capture amplitude but loses phase — and without phase you can't cleanly demodulate FM or SSB.");
+            ui.add_space(4.0);
+            ui.label("SDRs solve this by sampling two streams at once, offset by exactly 90°:");
+            ui.label("  •  I (In-phase)    — samples the signal directly");
+            ui.label("  •  Q (Quadrature) — the same signal shifted 90°");
+            ui.label("Each instant produces one complex number I + jQ. This preserves amplitude AND phase, which is required to demodulate AM, FM, SSB, PSK, QAM, or anything else entirely in software.");
+            ui.add_space(8.0);
+            Self::draw_iq_diagram(ui);
+            ui.label(egui::RichText::new("Each red dot is one I/Q sample. The distance from origin = amplitude; angle = phase.")
+                .italics().color(egui::Color32::GRAY).size(10.0));
+        });
     }
 
     fn section_rtlsdr_hardware(&mut self, ui: &mut egui::Ui) {
@@ -1929,6 +2029,23 @@ impl HowToPanel {
 
     fn section_troubleshooting(&mut self, ui: &mut egui::Ui) {
         Self::h1(ui, "Troubleshooting");
+
+        Self::h2(ui, "Why is the waterfall blank?");
+        ui.label("The waterfall (scrolling colored band) is empty or frozen when there is no signal data flowing. This is the #1 confusion for new users:");
+        egui::Grid::new("ts_blank").num_columns(2).striped(true).show(ui, |ui| {
+            for (symptom, fix) in &[
+                ("Waterfall is completely blank", "The signal source isn't running. Open the SDR tab, scroll to the 'Source' section at the bottom, and click 'Start'. In demo mode the simulated source must be started just like a real one."),
+                ("Waterfall frozen but spectrum moves", "Press 'F' to unfreeze the spectrum, or click the ❄ button in the SDR panel frequency row. Freeze is a feature, not a bug."),
+                ("Waterfall is one flat color (no variation)", "The display dB range is wrong. Click 'Auto-fit' in the spectrum toolbar, or widen the min/max dB range so the noise floor sits near the bottom."),
+                ("Waterfall shows noise but no signals", "Gain too low (raise to ~40 dB), wrong frequency, or no antenna / indoors with weak signals. Try the FM broadcast band first — it's the easiest place to see strong signals."),
+                ("Status bar shows 'DEMO'", "You're in simulated mode — that's fine for exploring. The signals are synthetic. To receive real signals, plug in an SDR dongle or replay an IQ file (see 'No SDR Hardware? Start Here')."),
+            ] {
+                ui.label(egui::RichText::new(*symptom).monospace().color(egui::Color32::YELLOW));
+                ui.label(*fix);
+                ui.end_row();
+            }
+        });
+        ui.add_space(6.0);
 
         Self::h2(ui, "SDR Won't Start");
         egui::Grid::new("ts_start").num_columns(2).striped(true).show(ui, |ui| {

@@ -83,6 +83,59 @@ impl SdrPanel {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("SDR Receiver");
 
+        // Start/Stop + source mode at the very top for discoverability
+        if let Ok(mut state) = self.shared.try_lock() {
+            let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
+            let is_opening = state.source.status == crate::source_manager::SourceStatus::Opening;
+            ui.horizontal(|ui| {
+                if is_running {
+                    if ui.add(egui::Button::new(egui::RichText::new("■ Stop").color(egui::Color32::from_rgb(220, 80, 80)))
+                            .min_size(egui::vec2(80.0, 24.0)))
+                        .on_hover_text("Stop the SDR source (keyboard: Space)")
+                        .clicked()
+                    {
+                        state.source.stop();
+                    }
+                } else if is_opening {
+                    ui.add_enabled(false, egui::Button::new("⌛ Starting…").min_size(egui::vec2(80.0, 24.0)));
+                } else {
+                    if ui.add(egui::Button::new(egui::RichText::new("▶ Start").color(egui::Color32::from_rgb(80, 220, 120)))
+                            .min_size(egui::vec2(80.0, 24.0)))
+                        .on_hover_text("Start the SDR source and begin receiving (keyboard: Space)")
+                        .clicked()
+                    {
+                        state.source.start();
+                    }
+                }
+                ui.separator();
+                // Source mode selector
+                ui.label("Mode:").on_hover_text("Select how to receive signals: Demo = simulated signals (no hardware), File = replay a recorded IQ file.");
+                if ui.selectable_label(state.source.source_mode == crate::source_manager::SourceMode::Simulated, "Demo")
+                    .on_hover_text("Simulated demo mode — generates realistic signals so you can explore without hardware.")
+                    .clicked()
+                {
+                    state.source.source_mode = crate::source_manager::SourceMode::Simulated;
+                }
+                if ui.selectable_label(state.source.source_mode == crate::source_manager::SourceMode::Replay, "File Replay")
+                    .on_hover_text("Replay a previously recorded IQ file (.iq / .bin / .raw). Configure the path in the Source section below.")
+                    .clicked()
+                {
+                    state.source.source_mode = crate::source_manager::SourceMode::Replay;
+                }
+                ui.separator();
+                // Compact status indicator
+                let (dot_color, status_text) = match &state.source.status {
+                    crate::source_manager::SourceStatus::Running => (egui::Color32::from_rgb(50, 220, 80), "Running"),
+                    crate::source_manager::SourceStatus::Idle    => (egui::Color32::GRAY, "Idle"),
+                    crate::source_manager::SourceStatus::Opening => (egui::Color32::YELLOW, "Opening…"),
+                    crate::source_manager::SourceStatus::Error(_)=> (egui::Color32::RED, "Error"),
+                };
+                ui.colored_label(dot_color, format!("● {}", status_text))
+                    .on_hover_text("SDR source status. Press Space to toggle start/stop from anywhere.");
+            });
+        }
+        ui.separator();
+
         // Big frequency display with fine/coarse tuning
         if let Ok(mut state) = self.shared.try_lock() {
             ui.horizontal(|ui| {
@@ -827,27 +880,27 @@ impl SdrPanel {
 
         ui.separator();
 
-        // Frequency presets (band quick-tune) — also auto-sets demod mode
+        // Frequency presets (band quick-tune) — one-click: tune + mode + gain + filter BW + start audio
         ui.horizontal_wrapped(|ui| {
-            ui.label("Bands:").on_hover_text("Quick-tune presets. Click to jump to that frequency and automatically switch to the right demodulation mode.");
-            // (name, freq_hz, demod_mode_label, tip)
-            const BANDS: &[(&str, u64, &str, &str)] = &[
-                ("BC FM",   100_000_000, "WFM",  "FM Broadcast band center (88–108 MHz) → WFM mode"),
-                ("Air",     118_000_000, "AM",   "Aviation VHF voice band (118–137 MHz) → AM mode (not FM!)"),
-                ("NOAA WX", 162_400_000, "NFM",  "NOAA Weather Radio (162.400–162.550 MHz) → NFM mode"),
-                ("Marine",  156_800_000, "NFM",  "Marine VHF distress channel 16 (156.8 MHz) → NFM mode"),
-                ("2m",      144_000_000, "NFM",  "Amateur 2-meter band. Repeaters, APRS at 144.390 MHz → NFM"),
-                ("APRS",    144_390_000, "NFM",  "APRS digipeater/tracker beacon (144.390 MHz US) → NFM mode"),
-                ("70cm",    430_000_000, "NFM",  "Amateur 70cm band. FM repeaters, digital modes → NFM"),
-                ("PMR446",  446_006_250, "NFM",  "PMR446 licence-free walkie-talkies (446.006–446.194 MHz) → NFM"),
-                ("NOAA 15", 137_620_000, "WFM",  "NOAA 15 weather satellite (137.620 MHz) → WFM 34 kHz"),
-                ("NOAA 18", 137_912_500, "WFM",  "NOAA 18 weather satellite (137.9125 MHz) → WFM 34 kHz"),
-                ("NOAA 19", 137_100_000, "WFM",  "NOAA 19 weather satellite (137.100 MHz) → WFM 34 kHz"),
-                ("ISS",     145_800_000, "NFM",  "International Space Station voice (145.800 MHz) → NFM"),
-                ("ADS-B",  1_090_000_000, "RAW", "Mode-S/ADS-B aircraft transponders (1090 MHz) → RAW (ADS-B decoder)"),
+            ui.label("Bands:").on_hover_text("One-click quick-start presets. Each button tunes to that frequency, picks the right demodulation mode, sets a sensible gain and filter bandwidth, and starts audio — so you hear sound immediately.");
+            // (name, freq_hz, demod_mode_label, gain_db, filter_bw_hz, tip)
+            const BANDS: &[(&str, u64, &str, f64, u32, &str)] = &[
+                ("BC FM",   100_000_000, "WFM",  40.0, 200_000, "FM Broadcast band center (88–108 MHz) → WFM mode. Hear music/talk radio."),
+                ("Air",     118_000_000, "AM",   40.0, 8_000,   "Aviation VHF voice band (118–137 MHz) → AM mode (not FM!). Hear air traffic control."),
+                ("NOAA WX", 162_400_000, "NFM",  40.0, 12_500,  "NOAA Weather Radio (162.400–162.550 MHz) → NFM mode. Continuous weather broadcast."),
+                ("Marine",  156_800_000, "NFM",  40.0, 12_500,  "Marine VHF distress channel 16 (156.8 MHz) → NFM mode."),
+                ("2m",      144_000_000, "NFM",  40.0, 12_500,  "Amateur 2-meter band. Repeaters, APRS at 144.390 MHz → NFM"),
+                ("APRS",    144_390_000, "NFM",  40.0, 12_500,  "APRS digipeater/tracker beacon (144.390 MHz US) → NFM mode"),
+                ("70cm",    430_000_000, "NFM",  42.0, 12_500,  "Amateur 70cm band. FM repeaters, digital modes → NFM"),
+                ("PMR446",  446_006_250, "NFM",  42.0, 12_500,  "PMR446 licence-free walkie-talkies (446.006–446.194 MHz) → NFM"),
+                ("NOAA 15", 137_620_000, "WFM",  45.0, 200_000, "NOAA 15 weather satellite (137.620 MHz) → WFM 34 kHz"),
+                ("NOAA 18", 137_912_500, "WFM",  45.0, 200_000, "NOAA 18 weather satellite (137.9125 MHz) → WFM 34 kHz"),
+                ("NOAA 19", 137_100_000, "WFM",  45.0, 200_000, "NOAA 19 weather satellite (137.100 MHz) → WFM 34 kHz"),
+                ("ISS",     145_800_000, "NFM",  45.0, 12_500,  "International Space Station voice (145.800 MHz) → NFM"),
+                ("ADS-B",  1_090_000_000, "RAW", 40.0, 250_000, "Mode-S/ADS-B aircraft transponders (1090 MHz) → RAW (use ADS-B tab)"),
             ];
             if let Ok(mut state) = self.shared.try_lock() {
-                for (name, freq_hz, mode_str, tip) in BANDS {
+                for (name, freq_hz, mode_str, gain_db, filter_bw, tip) in BANDS {
                     let mode_color = match *mode_str {
                         "WFM" => egui::Color32::from_rgb(100, 200, 100), // green
                         "NFM" => egui::Color32::from_rgb(150, 150, 255), // blue
@@ -861,6 +914,16 @@ impl SdrPanel {
                         if let Some(mode) = DemodMode::from_label(mode_str) {
                             state.demod_mode = mode;
                         }
+                        // One-click quick-start: set gain + filter BW + start audio so a beginner hears sound
+                        state.source.gain_db = *gain_db;
+                        state.audio_running = true;
+                        self.filter_bw = *filter_bw;
+                        // Mode-aware audio low-pass filter for clean sound
+                        state.lpf_cutoff = match *mode_str {
+                            "WFM" => 15000.0,
+                            "NFM" | "AM" => 3000.0,
+                            _ => state.lpf_cutoff,
+                        };
                     }
                 }
             }
@@ -1086,6 +1149,7 @@ impl SdrPanel {
         // Frequency identification
         if let Ok(state) = self.shared.try_lock() {
             let freq = state.source.frequency_hz;
+            let audio_running = state.audio_running;
             if let Some(info) = identify_frequency(freq) {
                 ui.separator();
                 ui.collapsing(format!("📻 {} — {}", info.band, info.short_desc), |ui| {
@@ -1095,6 +1159,12 @@ impl SdrPanel {
                         ui.label(egui::RichText::new(format!("💡 {}", info.tips)).small().color(egui::Color32::GRAY));
                     }
                 });
+                if !info.what_to_hear.is_empty() && !audio_running {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(egui::Color32::from_rgb(100, 220, 140),
+                            format!("🔊 Press Start Audio above to hear: {}", info.what_to_hear));
+                    });
+                }
             }
         }
 
@@ -1151,6 +1221,7 @@ pub struct FreqIdInfo {
     pub short_desc: &'static str,
     pub detail: &'static str,
     pub tips: &'static str,
+    pub what_to_hear: &'static str,
 }
 
 pub fn identify_frequency(freq_hz: u64) -> Option<FreqIdInfo> {
@@ -1248,10 +1319,29 @@ pub fn identify_frequency(freq_hz: u64) -> Option<FreqIdInfo> {
     ];
     for &(lo, hi, band, short_desc, detail, tips) in entries {
         if freq_hz >= lo && freq_hz <= hi.max(lo) {
-            return Some(FreqIdInfo { band, short_desc, detail, tips });
+            let what_to_hear = what_to_hear_for_band(band);
+            return Some(FreqIdInfo { band, short_desc, detail, tips, what_to_hear });
         }
     }
     None
+}
+
+fn what_to_hear_for_band(band: &str) -> &'static str {
+    match band {
+        "FM Broadcast"      => "music, news, or talk radio",
+        "Aviation VHF"      => "air traffic control voice (pilots + towers)",
+        "Marine VHF"        => "coast guard, ships, harbour calls",
+        "NOAA WX Radio"     => "automated weather forecast and alerts",
+        "NOAA Satellites"   => "a distinctive chirping APT image data signal",
+        "Amateur 2m"        => "amateur radio voice, APRS data bursts",
+        "Amateur 70cm"      => "amateur radio repeaters and digital modes",
+        "Land Mobile"       => "professional voice radio (police, fire, business)",
+        "CB (Citizens Band)"=> "truckers and CB radio operators",
+        "LF/MF"             => "AM broadcast stations or navigation beacons",
+        "ADS-B"             => "nothing audible — use the ADS-B tab to see aircraft",
+        "VOR/ILS"           => "a morse-code station identifier and nav tone",
+        _                   => "",
+    }
 }
 
 /// Returns (suggested_mode, band_name, reason) if the frequency matches a well-known band

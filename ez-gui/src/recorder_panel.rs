@@ -590,7 +590,21 @@ impl RecorderPanel {
                 }
             });
             if self.file_list.is_empty() {
-                ui.label(egui::RichText::new("No .iq or .wav files found in output directory.").color(egui::Color32::GRAY));
+                ui.add_space(6.0);
+                ui.vertical_centered(|ui| {
+                    ui.colored_label(egui::Color32::GRAY, "No recordings yet.");
+                    ui.add_space(4.0);
+                    if ui.add(egui::Button::new(egui::RichText::new("⏺  Record a 30-second sample").size(13.0))
+                            .min_size(egui::vec2(240.0, 30.0)))
+                        .on_hover_text("Starts a 30-second timed WAV recording of whatever you're currently listening to. Great first recording!")
+                        .clicked() && !self.recording
+                    {
+                        self.start_recording();
+                    }
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Recordings are saved to the output directory above.").small().color(egui::Color32::GRAY));
+                });
+                ui.add_space(6.0);
             } else {
                 egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                     egui::Grid::new("rec_file_grid").num_columns(4).striped(true).min_col_width(60.0).show(ui, |ui| {

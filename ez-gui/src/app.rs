@@ -279,10 +279,10 @@ impl CentralApp {
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
-            // Show welcome if config is fresh (default frequency = 100 MHz means unconfigured)
+            // Show welcome banner only on the very first launch (until dismissed)
             show_welcome: {
                 let state = shared.lock().unwrap();
-                state.config.ai_api_key.is_empty() && state.config.mqtt_broker == "localhost:1883"
+                !state.config.welcome_seen
             },
         }
     }
@@ -1062,26 +1062,69 @@ impl eframe::App for CentralApp {
 
         // First-run welcome banner
         if self.show_welcome {
+            let mut dismiss = false;
+            let mut listen_fm = false;
+            let mut show_again = false; // local toggle for "show again next launch"
             egui::Window::new("👋 Welcome to EZ-SDR!")
                 .id(egui::Id::new("welcome_banner"))
                 .default_width(480.0)
                 .collapsible(false)
+                .resizable(false)
                 .show(ui.ctx(), |ui| {
-                    ui.label(egui::RichText::new("You're running in DEMO mode — no real SDR hardware required to explore!").strong());
-                    ui.add_space(4.0);
-                    egui::Grid::new("welcome_tips").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-                        ui.label("📡"); ui.label("Connect an RTL-SDR dongle and rebuild with '--features rtlsdr' for live reception."); ui.end_row();
-                        ui.label("📻"); ui.label("Click a band in 'Bands:' row (SDR tab) to jump to common frequencies."); ui.end_row();
-                        ui.label("📊"); ui.label("Left-click the spectrum to tune. Scroll to zoom. Right-click for more options."); ui.end_row();
-                        ui.label("🔊"); ui.label("Press Start Audio or M key to toggle audio output."); ui.end_row();
-                        ui.label("❓"); ui.label("Open the How To tab for a full beginner guide."); ui.end_row();
-                        ui.label("?");  ui.label("Press ? anywhere to show keyboard shortcuts."); ui.end_row();
+                    ui.label(egui::RichText::new("No SDR hardware needed — you're in DEMO mode. Hear sound in one click:").strong());
+                    ui.add_space(6.0);
+                    ui.vertical_centered(|ui| {
+                        if ui.add(egui::Button::new(egui::RichText::new("📻  Listen to FM Radio").size(16.0)).min_size(egui::vec2(260.0, 36.0)))
+                            .on_hover_text("Tunes to 98 MHz, switches to Wide FM, sets a sensible gain, and starts audio — so you hear something immediately.")
+                            .clicked()
+                        {
+                            listen_fm = true;
+                        }
                     });
                     ui.add_space(6.0);
-                    if ui.button("Got it — dismiss").clicked() {
-                        self.show_welcome = false;
-                    }
+                    ui.collapsing("Quick tips", |ui| {
+                        egui::Grid::new("welcome_tips").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+                            ui.label("📻"); ui.label("Click any button in the 'Bands:' row (SDR tab) to jump to a common frequency and auto-pick the right mode."); ui.end_row();
+                            ui.label("📊"); ui.label("Left-click the spectrum to tune. Scroll to zoom. Right-click for more options."); ui.end_row();
+                            ui.label("🔊"); ui.label("Press Start Audio (or the M key) to toggle audio output."); ui.end_row();
+                            ui.label("❓"); ui.label("Open the How To tab for a full beginner guide."); ui.end_row();
+                            ui.label("?");  ui.label("Press ? anywhere to show keyboard shortcuts."); ui.end_row();
+                        });
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Got it — dismiss").clicked() {
+                            dismiss = true;
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.checkbox(&mut show_again, "Show again next launch");
+                        });
+                    });
                 });
+            if listen_fm {
+                // One-click quick start: tune to FM broadcast, WFM, sensible gain, start audio
+                if let Ok(mut state) = self.shared.try_lock() {
+                    state.source.frequency_hz = 98_000_000;
+                    state.demod_mode = crate::sdr_panel::DemodMode::Wfm;
+                    state.source.gain_db = 40.0;
+                    state.audio_running = true;
+                    state.lpf_cutoff = 15000.0;
+                    state.spectrum.zoom_reset();
+                }
+                self.sdr_panel.filter_bw = 200_000;
+                self.status_flash = Some(("📻 FM Radio — 98.0 MHz".to_string(), std::time::Instant::now()));
+                dismiss = true;
+            }
+            if dismiss {
+                // Persist welcome_seen unless the user asked to see the banner again
+                if !show_again {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.config.welcome_seen = true;
+                        state.config.save();
+                    }
+                }
+                self.show_welcome = false;
+            }
         }
 
         // Frequency jump dialog (J key)
@@ -1721,6 +1764,10 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) {
                             state.demod_mode = mode;
                         }
+                    }
+                    if state.spectrum.pending_start_source {
+                        state.spectrum.pending_start_source = false;
+                        state.source.start();
                     }
                     if let Some(freq) = state.spectrum.pending_ai_freq.take() {
                         let freq_mhz = freq as f64 / 1e6;

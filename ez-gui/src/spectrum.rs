@@ -87,6 +87,7 @@ pub struct SpectrumAnalyzer {
     pub visible_right_hz: u64,
     ctx_menu_pos: Option<egui::Pos2>,
     pub pending_ai_freq: Option<u64>,
+    pub pending_start_source: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -213,6 +214,7 @@ impl SpectrumAnalyzer {
             visible_right_hz: 101_000_000,
             ctx_menu_pos: None,
             pending_ai_freq: None,
+            pending_start_source: false,
         }
     }
 
@@ -1487,20 +1489,23 @@ impl SpectrumAnalyzer {
             );
         }
 
-        // Empty-state overlay when no SDR source is running
+        // Empty-state overlay when no SDR source is running — clickable ▶ Start button
         if !self.source_running {
             let center = spectrum_rect.center();
-            let msg = "No SDR source running";
-            let hint = "Go to the SDR tab → Start, or use Demo mode to explore.";
             painter.rect_filled(
-                egui::Rect::from_center_size(center, egui::vec2(340.0, 52.0)),
-                6.0,
-                egui::Color32::from_rgba_premultiplied(10, 10, 20, 200),
+                egui::Rect::from_center_size(center, egui::vec2(360.0, 80.0)),
+                8.0,
+                egui::Color32::from_rgba_premultiplied(10, 10, 20, 210),
             );
-            painter.text(center - egui::vec2(0.0, 10.0), egui::Align2::CENTER_CENTER, msg,
+            painter.text(center - egui::vec2(0.0, 26.0), egui::Align2::CENTER_CENTER,
+                "No SDR source running",
                 egui::FontId::proportional(15.0), egui::Color32::from_rgb(200, 200, 200));
-            painter.text(center + egui::vec2(0.0, 12.0), egui::Align2::CENTER_CENTER, hint,
-                egui::FontId::proportional(10.0), egui::Color32::from_gray(130));
+            let btn_rect = egui::Rect::from_center_size(center + egui::vec2(0.0, 8.0), egui::vec2(180.0, 32.0));
+            if ui.put(btn_rect, egui::Button::new(
+                egui::RichText::new("▶  Start SDR").size(14.0).strong()
+            ).fill(egui::Color32::from_rgb(30, 100, 50))).on_hover_text("Click to start the SDR source and begin receiving signals (or press Space).").clicked() {
+                self.pending_start_source = true;
+            }
         }
 
         // Capture right-click position for context menu squelch action
