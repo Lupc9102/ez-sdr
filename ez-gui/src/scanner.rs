@@ -157,6 +157,101 @@ impl FrequencyScanner {
         }
     }
 
+    pub fn save_hits_json(&mut self) {
+        if self.hits.is_empty() {
+            self.last_export_msg = "No hits to save.".to_string();
+            return;
+        }
+        let default_name = format!("scanner_hits_{}.json", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let path = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("JSON", &["json"])
+            .save_file();
+        let path = match path {
+            Some(p) => p,
+            None => { self.last_export_msg = "Save cancelled.".to_string(); return; }
+        };
+
+        // Build JSON array manually (no serde dependency beyond what already exists)
+        let mut json = String::from("[\n");
+        for (i, hit) in self.hits.iter().enumerate() {
+            let comma = if i + 1 < self.hits.len() { "," } else { "" };
+            let elapsed_s = hit.timestamp.elapsed().as_secs();
+            let ts = chrono::Local::now() - chrono::Duration::seconds(elapsed_s as i64);
+            json.push_str(&format!(
+                "  {{\"freq_hz\":{},\"strength_db\":{:.1},\"hit_count\":{},\"timestamp\":\"{}\"}}{}\n",
+                hit.freq_hz, hit.strength_db, hit.hit_count,
+                ts.format("%Y-%m-%dT%H:%M:%S"),
+                comma
+            ));
+        }
+        json.push(']');
+
+        match std::fs::write(&path, &json) {
+            Ok(_) => self.last_export_msg = format!("Saved {} hits to {}", self.hits.len(), path.display()),
+            Err(e) => self.last_export_msg = format!("Save failed: {}", e),
+        }
+    }
+
+    pub fn load_hits_json(&mut self) {
+        let path = rfd::FileDialog::new()
+            .add_filter("JSON", &["json"])
+            .pick_file();
+        let path = match path {
+            Some(p) => p,
+            None => { self.last_export_msg = "Load cancelled.".to_string(); return; }
+        };
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => { self.last_export_msg = format!("Read failed: {}", e); return; }
+        };
+
+        // Simple JSON parsing: extract freq_hz, strength_db, hit_count fields
+        let existing: std::collections::HashSet<u64> = self.hits.iter().map(|h| h.freq_hz).collect();
+        let mut added = 0u32;
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some(freq) = Self::parse_json_u64(line, "freq_hz") {
+                if existing.contains(&freq) { continue; }
+                let strength = Self::parse_json_f32(line, "strength_db").unwrap_or(-60.0);
+                let count = Self::parse_json_u32(line, "hit_count").unwrap_or(1);
+                self.hits.push(SignalHit {
+                    freq_hz: freq,
+                    strength_db: strength,
+                    timestamp: Instant::now(),
+                    hit_count: count,
+                });
+                added += 1;
+            }
+        }
+        self.last_export_msg = format!("Loaded {} new hits from {}", added, path.file_name().unwrap_or_default().to_string_lossy());
+    }
+
+    fn parse_json_u64(line: &str, key: &str) -> Option<u64> {
+        let needle = format!("\"{}\":", key);
+        let pos = line.find(&needle)?;
+        let rest = &line[pos + needle.len()..].trim_start_matches(' ');
+        let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        rest[..end].parse().ok()
+    }
+
+    fn parse_json_f32(line: &str, key: &str) -> Option<f32> {
+        let needle = format!("\"{}\":", key);
+        let pos = line.find(&needle)?;
+        let rest = &line[pos + needle.len()..].trim_start_matches(' ');
+        let end = rest.find(|c: char| c != '-' && c != '.' && !c.is_ascii_digit()).unwrap_or(rest.len());
+        rest[..end].parse().ok()
+    }
+
+    fn parse_json_u32(line: &str, key: &str) -> Option<u32> {
+        let needle = format!("\"{}\":", key);
+        let pos = line.find(&needle)?;
+        let rest = &line[pos + needle.len()..].trim_start_matches(' ');
+        let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        rest[..end].parse().ok()
+    }
+
     pub fn start(&mut self) {
         self.enabled = true;
         if self.reset_on_start {
@@ -397,6 +492,15 @@ impl FrequencyScanner {
             }
             if ui.button("Export CSV").on_hover_text("Save all hits to a CSV file in the current directory.").clicked() {
                 self.export_hits_csv();
+            }
+            if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("💾 Save Hits"))
+                .on_hover_text("Save the current hit list to a JSON file so you can reload it in a future session.")
+                .clicked()
+            {
+                self.save_hits_json();
+            }
+            if ui.button("📂 Load Hits").on_hover_text("Load a previously saved hit list from a JSON file (merges with current hits).").clicked() {
+                self.load_hits_json();
             }
             if let Some((vis_start, vis_stop)) = self.spectrum_visible_range {
                 if ui.button("🔭 Scan visible").on_hover_text(
