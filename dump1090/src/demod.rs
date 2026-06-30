@@ -28,6 +28,7 @@ pub const MODES_SHORT_MSG_BITS: usize = MODES_SHORT_MSG_BYTES * 8;
 pub const MODES_MAX_BITERRORS: usize = 2;
 
 /// Timestamp is expressed in units of a 12 MHz clock.
+#[allow(dead_code)]
 const TIMESTAMP_CLOCK_MHZ: u64 = 12;
 
 // ========================================================================
@@ -281,11 +282,13 @@ fn correct_message(
 // Scoring
 // ========================================================================
 
+#[allow(dead_code)]
 fn is_long_pi_message(msg: &[u8]) -> bool {
     let df = msg[0] >> 3;
     df == 17 || df == 18
 }
 
+#[allow(dead_code)]
 fn is_short_pi_message(msg: &[u8]) -> bool {
     (msg[0] >> 3) == 11
 }
@@ -546,7 +549,7 @@ fn slice_phase4(m: &[u16]) -> i32 {
 // ========================================================================
 
 /// Bitset of acceptable DF values for short messages (without correction).
-fn valid_df_short(enable_df24: bool, fix_df: bool, nfix_crc: usize) -> u32 {
+fn valid_df_short(fix_df: bool, nfix_crc: usize) -> u32 {
     let mut bitset: u32 = (1 << 0) | (1 << 4) | (1 << 5) | (1 << 11);
     if fix_df && nfix_crc > 0 {
         // DF11 with one damaged bit.
@@ -616,7 +619,7 @@ impl Demod2400 {
         let nfix_crc = 0;
         Demod2400 {
             last_message_end: 0,
-            valid_df_short: valid_df_short(enable_df24, fix_df, nfix_crc),
+            valid_df_short: valid_df_short(fix_df, nfix_crc),
             valid_df_long: valid_df_long(enable_df24, fix_df, nfix_crc),
             msg1: [0; MODES_LONG_MSG_BYTES],
             msg2: [0; MODES_LONG_MSG_BYTES],
@@ -629,7 +632,7 @@ impl Demod2400 {
 
     /// Recompute DF bitsets when configuration changes.
     pub fn reconfigure(&mut self) {
-        self.valid_df_short = valid_df_short(self.enable_df24, self.fix_df, self.nfix_crc);
+        self.valid_df_short = valid_df_short(self.fix_df, self.nfix_crc);
         self.valid_df_long = valid_df_long(self.enable_df24, self.fix_df, self.nfix_crc);
     }
 
@@ -657,9 +660,6 @@ impl Demod2400 {
         let mut sum_scaled_signal_power: u64 = 0;
         let mut msg = self.msg1;
         let mut best_msg = self.msg2;
-        let mut best_score = ScoreRank::NotSet;
-        let mut best_phase = 0;
-        let mut decoded_mm = ModesMessage::default();
 
         let mut j = self.last_message_end;
         while j < mlen {
@@ -675,10 +675,9 @@ impl Demod2400 {
                 continue;
             }
 
-            let mut high: u32 = 0;
-            let mut base_signal: u32 = 0;
-            let mut base_noise: u32 = 0;
-            let phase_detected;
+            let high: u32;
+            let base_signal: u32;
+            let base_noise: u32;
 
             // Preamble peak detection for phases 3..7.
             if preamble[1] > preamble[2]
@@ -699,7 +698,6 @@ impl Demod2400 {
                     preamble[1] as u32 + preamble[3] as u32 + preamble[9] as u32;
                 base_noise =
                     preamble[5] as u32 + preamble[6] as u32 + preamble[7] as u32;
-                phase_detected = Some(3);
             } else if preamble[1] > preamble[2]
                 && preamble[2] < preamble[3]
                 && preamble[3] > preamble[4]
@@ -721,7 +719,6 @@ impl Demod2400 {
                     + preamble[6] as u32
                     + preamble[7] as u32
                     + preamble[8] as u32;
-                phase_detected = Some(4);
             } else if preamble[1] > preamble[2]
                 && preamble[2] < preamble[3]
                 && preamble[4] > preamble[5]
@@ -741,7 +738,6 @@ impl Demod2400 {
                     preamble[1] as u32 + preamble[12] as u32;
                 base_noise =
                     preamble[6] as u32 + preamble[7] as u32;
-                phase_detected = Some(5);
             } else if preamble[1] > preamble[2]
                 && preamble[3] < preamble[4]
                 && preamble[4] > preamble[5]
@@ -763,7 +759,6 @@ impl Demod2400 {
                     + preamble[6] as u32
                     + preamble[7] as u32
                     + preamble[8] as u32;
-                phase_detected = Some(6);
             } else if preamble[2] > preamble[3]
                 && preamble[3] < preamble[4]
                 && preamble[4] > preamble[5]
@@ -784,7 +779,6 @@ impl Demod2400 {
                 base_noise = preamble[6] as u32
                     + preamble[7] as u32
                     + preamble[8] as u32;
-                phase_detected = Some(7);
             } else {
                 j += 1;
                 continue;
@@ -812,8 +806,8 @@ impl Demod2400 {
             }
 
             stats.demod_preambles += 1;
-            best_score = ScoreRank::NotSet;
-            best_phase = -1;
+            let mut best_score = ScoreRank::NotSet;
+            let mut best_phase = -1;
 
             // Try all phases 4..8 (these map to try_phase values).
             for try_phase in 4..=8 {
@@ -934,7 +928,7 @@ impl Demod2400 {
 
             let msglen = mode_s_message_len_by_type(best_msg[0] >> 3);
 
-            decoded_mm = ModesMessage::default();
+            let mut decoded_mm = ModesMessage::default();
             // Timestamp at the end of bit 56, adjusted for phase.
             decoded_mm.timestamp_msg = mag.sample_timestamp
                 + j as u64 * 5

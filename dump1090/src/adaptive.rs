@@ -23,6 +23,7 @@ pub struct DecodedMessage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RangeScanState {
     Idle,
+    #[allow(dead_code)]
     ScanUp,
     ScanDown,
     RescanUp,
@@ -488,9 +489,7 @@ impl AdaptiveGain {
 
     fn control_update(&mut self) {
         let mut gain_up = false;
-        let mut gain_up_reason: Option<&str> = None;
         let mut gain_down = false;
-        let mut gain_down_reason: Option<&str> = None;
         let mut gain_not_up = false;
 
         let current_gain = self.current_gain_step;
@@ -521,7 +520,6 @@ impl AdaptiveGain {
             if self.burst_loud_blocks >= self.burst_loud_runlength {
                 gain_down = true;
                 gain_not_up = true;
-                gain_down_reason = Some("high rate of loud undecoded messages");
 
                 if matches!(self.range_state, RangeScanState::ScanDown | RangeScanState::RescanDown)
                 {
@@ -532,7 +530,6 @@ impl AdaptiveGain {
                 gain_not_up = true;
             } else if current_gain < self.range_gain_limit {
                 gain_up = true;
-                gain_up_reason = Some("low loud message rate and gain below dynamic range limit");
             }
         }
 
@@ -549,7 +546,6 @@ impl AdaptiveGain {
                     if available_range < self.range_target_db as f64 {
                         gain_down = true;
                         gain_not_up = true;
-                        gain_down_reason = Some("probing dynamic range gain lower bound");
                         self.range_state = if self.range_state == RangeScanState::RescanUp {
                             RangeScanState::RescanDown
                         } else {
@@ -563,7 +559,6 @@ impl AdaptiveGain {
                         self.range_rescan_timer = self.range_rescan_delay;
                     } else if !gain_not_up {
                         gain_up = true;
-                        gain_up_reason = Some("probing dynamic range gain upper bound");
                     }
                 }
 
@@ -584,7 +579,6 @@ impl AdaptiveGain {
                         } else {
                             gain_down = true;
                             gain_not_up = true;
-                            gain_down_reason = Some("probing dynamic range gain lower bound");
                         }
                     }
                 }
@@ -600,15 +594,11 @@ impl AdaptiveGain {
                         self.range_state = RangeScanState::ScanDown;
                         gain_down = true;
                         gain_not_up = true;
-                        gain_down_reason = Some("dynamic range fell below target value");
                     } else if self.range_rescan_timer == 0 && !gain_not_up {
                         if available_range >= self.range_target_db as f64
                             && current_gain < self.gain_max
                         {
                             gain_up = true;
-                            gain_up_reason = Some(
-                                "periodic re-probing of dynamic range gain upper bound",
-                            );
                             self.range_state = RangeScanState::RescanUp;
                         } else {
                             self.range_rescan_timer = self.range_rescan_delay;

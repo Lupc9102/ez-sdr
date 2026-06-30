@@ -34,6 +34,7 @@ pub struct SoapySDRRange {
 pub const SOAPY_SDR_RX: i32 = 2;
 pub const SOAPY_SDR_CS16: *const c_char = b"CS16\0".as_ptr() as *const c_char;
 
+#[allow(dead_code)]
 extern "C" {
     fn SoapySDRDevice_enumerateStrArgs(args: *const c_char, length: *mut usize) -> *mut SoapySDRKwargs;
     fn SoapySDRKwargsList_clear(args: *mut SoapySDRKwargs, length: usize);

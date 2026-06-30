@@ -8,6 +8,7 @@ use std::thread;
 /// A connected client.
 struct Client {
     stream: TcpStream,
+    #[allow(dead_code)]
     addr: SocketAddr,
 }
 
