@@ -1269,8 +1269,14 @@ impl eframe::App for CentralApp {
                 let peak_pct = ((peak + 120.0) / 120.0 * 100.0).clamp(0.0, 100.0);
                 ui.colored_label(peak_color, format!("Peak: {:.1}dB ({:.0}%)", peak, peak_pct))
                     .on_hover_text("Strongest signal in the current spectrum view (dBFS). Percentage: 0% = -120dB (weakest), 100% = 0dB (clipping risk).");
-                ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {:.1}dB", noise_floor))
-                    .on_hover_text("Estimated noise floor — the average background noise level. The gap between floor and peak is SNR (signal-to-noise ratio).");
+                let noise_trend = if (noise_floor - state.spectrum.noise_baseline).abs() > 3.0 {
+                    let arrow = if noise_floor > state.spectrum.noise_baseline { "📈" } else { "📉" };
+                    format!("{} {:.1}dB", arrow, noise_floor)
+                } else {
+                    format!("{:.1}dB", noise_floor)
+                };
+                ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {}", noise_trend))
+                    .on_hover_text("Estimated noise floor — the average background noise level. The gap between floor and peak is SNR (signal-to-noise ratio). 📈📉 = significant change detected.");
                 let snr = peak - noise_floor;
                 let (badge, badge_color, badge_tip) = if snr > 20.0 {
                     ("🟢 Signal", egui::Color32::GREEN,     "Strong signal detected (SNR > 20 dB). Good reception.")
