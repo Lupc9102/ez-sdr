@@ -822,8 +822,13 @@ impl SdrPanel {
                 } else {
                     egui::Color32::from_rgb(100, 150, 255) // blue: too wide
                 };
-                ui.colored_label(suggestion_color, format!("💡 {}: {}", state.demod_mode.label(), format_hz(suggested_hz)))
-                    .on_hover_text(tip);
+                ui.horizontal(|ui| {
+                    ui.colored_label(suggestion_color, format!("💡 {}: {}", state.demod_mode.label(), format_hz(suggested_hz)))
+                        .on_hover_text(tip);
+                    if ui.small_button("Apply").on_hover_text(format!("Set filter to {} Hz", suggested_hz)).clicked() {
+                        self.filter_bw = suggested_hz as u32;
+                    }
+                });
             }
 
             ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true))
