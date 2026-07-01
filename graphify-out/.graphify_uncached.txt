@@ -1,0 +1,4 @@
+/home/lupc/Documents/ez-sdr/ez-sdr/ANCHORED_SUMMARY.md
+/home/lupc/Documents/ez-sdr/ez-sdr/NIGHT_WORK.md
+/home/lupc/Documents/ez-sdr/ez-sdr/README.md
+/home/lupc/Documents/ez-sdr/ez-sdr/ez-gui/src/web_remote.html

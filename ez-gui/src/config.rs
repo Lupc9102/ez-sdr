@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::theme::ThemeConfig;
 
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-3-haiku";
@@ -74,6 +75,8 @@ pub struct AppConfig {
     pub freq_memory_hz: Vec<u64>,
     #[serde(default)]
     pub freq_memory_labels: Vec<String>,
+    #[serde(default)]
+    pub theme_config: ThemeConfig,
 }
 
 impl Default for AppConfig {
@@ -115,6 +118,7 @@ impl Default for AppConfig {
             color_map: "Classic".to_string(),
             freq_memory_hz: Vec::new(),
             freq_memory_labels: Vec::new(),
+            theme_config: ThemeConfig::default(),
         }
     }
 }
@@ -308,16 +312,6 @@ impl AppConfig {
             });
 
             ui.collapsing("Appearance", |ui| {
-                ui.label("Theme:").on_hover_text("Switch between dark and light UI themes.");
-                ui.horizontal(|ui| {
-                    for t in &["dark", "light"] {
-                        if ui.selectable_label(&self.theme == *t, *t).clicked() {
-                            self.theme = t.to_string();
-                            self.needs_apply = true;
-                        }
-                    }
-                });
-                ui.add_space(4.0);
                 ui.label("Font scale:").on_hover_text("Scale all UI text. 1.0 is default. Increase for high-DPI displays or if text is too small.");
                 let resp = ui.add(egui::Slider::new(&mut self.font_scale, 0.6..=2.0)
                     .step_by(0.05)
@@ -334,6 +328,15 @@ impl AppConfig {
                         }
                     }
                 });
+
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Theme").strong());
+                self.theme_config.ui_editor(ui, &mut self.theme);
+                if ui.button("Apply theme").clicked() {
+                    self.needs_apply = true;
+                }
             });
 
             ui.collapsing("Satellite Observer Location", |ui| {

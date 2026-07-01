@@ -20,6 +20,7 @@ mod demod;
 mod audio_output;
 mod scanner;
 mod howto_panel;
+mod theme;
 
 fn main() -> eframe::Result {
     // Force X11 on Linux — winit's Wayland backend has broken mouse input

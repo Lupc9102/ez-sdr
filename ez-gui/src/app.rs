@@ -30,6 +30,7 @@ use crate::source_manager::SourceManager;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
 use crate::howto_panel::HowToPanel;
+use crate::theme::ThemeColors;
 use crate::web_remote::{RemoteCommand, WebRemote};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -72,6 +73,7 @@ pub struct SharedState {
     pub lo_offset_hz: i64,
     pub mqtt_connected: bool,
     pub mqtt_enabled: bool,
+    pub theme_colors: ThemeColors,
 }
 
 pub struct CentralApp {
@@ -136,6 +138,7 @@ pub struct CentralApp {
     first_strong_signal_seen: bool,
     // Track demod mode changes to reset demodulator and avoid clicks
     last_demod_mode: crate::sdr_panel::DemodMode,
+    theme_applied: bool,
 }
 
 impl CentralApp {
@@ -143,10 +146,12 @@ impl CentralApp {
         let (audio_tx, audio_rx) = crossbeam_channel::bounded(64);
         let audio_rx = Arc::new(Mutex::new(audio_rx));
 
+        let config = AppConfig::load_or_default();
+        let theme_colors = ThemeColors::from(&config.theme_config);
         let shared = Arc::new(Mutex::new(SharedState {
             source: SourceManager::new(),
             spectrum: SpectrumAnalyzer::new(),
-            config: AppConfig::load_or_default(),
+            config,
             bookmarks: BookmarkDb::load_or_default(),
             scheduler: Scheduler::new(),
             tle: TleEngine::new(),
@@ -168,6 +173,7 @@ impl CentralApp {
             lo_offset_hz: 0,
             mqtt_connected: false,
             mqtt_enabled: false,
+            theme_colors,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -329,6 +335,7 @@ impl CentralApp {
             show_glossary: false,
             first_strong_signal_seen: false,
             last_demod_mode: crate::sdr_panel::DemodMode::Fm,
+            theme_applied: false,
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
@@ -935,16 +942,24 @@ impl eframe::App for CentralApp {
             ));
         }
 
+        // Apply theme on first frame (retry until the lock is available)
+        if !self.theme_applied {
+            if let Ok(mut state) = self.shared.try_lock() {
+                state.theme_colors = ThemeColors::from(&state.config.theme_config);
+                state.config.theme_config.apply_to_ctx(ctx);
+                let scale = state.config.font_scale as f32;
+                ctx.set_pixels_per_point(scale);
+                self.theme_applied = true;
+            }
+        }
+
         // Apply config changes triggered from Settings tab
         if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {
                 state.config.needs_apply = false;
                 // Apply theme
-                if state.config.theme == "light" {
-                    ctx.set_visuals(egui::Visuals::light());
-                } else {
-                    ctx.set_visuals(egui::Visuals::dark());
-                }
+                state.theme_colors = ThemeColors::from(&state.config.theme_config);
+                state.config.theme_config.apply_to_ctx(ctx);
                 // Apply font scale
                 let scale = state.config.font_scale as f32;
                 ctx.set_pixels_per_point(scale);
