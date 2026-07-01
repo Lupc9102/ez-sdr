@@ -784,7 +784,6 @@ impl eframe::App for CentralApp {
                         if self.audio.start(rx).is_ok() {
                             self.demod.reset();
                         } else {
-                            eprintln!("Failed to start audio");
                             self.audio.mark_failed();
                         }
                     }
