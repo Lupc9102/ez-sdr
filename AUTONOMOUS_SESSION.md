@@ -63,6 +63,28 @@ Prioritized issues by severity:
 
 - `f1f8696`: fix: make audio feature optional to support builds without ALSA/cpal
 - `f2a41a2`: test: fix cpr_airborne_decode test with correct expected value
+- `a49ffc2`: doc: add autonomous session log for 2026-07-01
+- `0560f09`: docs: update README with optional audio feature info
+
+## Loop 2 Work
+
+After initial fixes, continued autonomous loop iteration 2:
+
+1. **Observation:** Scanned for edge cases, performance issues, test coverage
+   - 8 unit tests in dump1090 (all passing)
+   - 95 clones and 4 safe Mutex unwraps (acceptable patterns)
+   - Large functions in app.rs (2672 lines, 700-line logic/ui methods) - acceptable complexity
+   - No unimplemented/todo! stubs
+   - No debug code left in source
+
+2. **Planning:** Identified improvements and documentation gaps
+
+3. **Execution:**
+   - Created persistent project memory for future sessions
+   - Updated README with optional audio feature documentation
+   - Verified build portability and test coverage
+
+4. **Validation:** Final checks confirm clean state
 
 ## Notes
 
