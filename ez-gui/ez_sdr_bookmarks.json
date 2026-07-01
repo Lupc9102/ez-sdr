@@ -1,0 +1,227 @@
+[
+  {
+    "name": "NOAA 15 APT",
+    "frequency_hz": 137620000,
+    "mode": "WFM",
+    "bandwidth_hz": 34000,
+    "category": "Weather",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "NOAA 18 APT",
+    "frequency_hz": 137912500,
+    "mode": "WFM",
+    "bandwidth_hz": 34000,
+    "category": "Weather",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "NOAA 19 APT",
+    "frequency_hz": 137100000,
+    "mode": "WFM",
+    "bandwidth_hz": 34000,
+    "category": "Weather",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Meteor-M2 LRPT",
+    "frequency_hz": 137900000,
+    "mode": "WFM",
+    "bandwidth_hz": 140000,
+    "category": "Weather",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Meteor-M2-2 LRPT",
+    "frequency_hz": 137100000,
+    "mode": "WFM",
+    "bandwidth_hz": 140000,
+    "category": "Weather",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "GOES-16 HRIT",
+    "frequency_hz": 1694100000,
+    "mode": "WFM",
+    "bandwidth_hz": 600000,
+    "category": "Weather",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "GOES-17 HRIT",
+    "frequency_hz": 1694100000,
+    "mode": "WFM",
+    "bandwidth_hz": 600000,
+    "category": "Weather",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "ADS-B 1090",
+    "frequency_hz": 1090000000,
+    "mode": "RAW",
+    "bandwidth_hz": 2000000,
+    "category": "Aviation",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Airband VHF",
+    "frequency_hz": 118000000,
+    "mode": "AM",
+    "bandwidth_hz": 8000,
+    "category": "Aviation",
+    "notes": "118-136 MHz",
+    "starred": false
+  },
+  {
+    "name": "Marine VHF Ch16",
+    "frequency_hz": 156800000,
+    "mode": "NFM",
+    "bandwidth_hz": 12500,
+    "category": "Marine",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Pager 2m",
+    "frequency_hz": 153000000,
+    "mode": "RAW",
+    "bandwidth_hz": 25000,
+    "category": "Pager",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "FM Radio",
+    "frequency_hz": 100000000,
+    "mode": "WFM",
+    "bandwidth_hz": 200000,
+    "category": "Broadcast",
+    "notes": "87.5-108 MHz",
+    "starred": false
+  },
+  {
+    "name": "DAB Band III",
+    "frequency_hz": 220000000,
+    "mode": "WFM",
+    "bandwidth_hz": 1500000,
+    "category": "Broadcast",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Ham 2m",
+    "frequency_hz": 145500000,
+    "mode": "NFM",
+    "bandwidth_hz": 12500,
+    "category": "Ham",
+    "notes": "144-146 MHz",
+    "starred": false
+  },
+  {
+    "name": "Ham 70cm",
+    "frequency_hz": 435000000,
+    "mode": "NFM",
+    "bandwidth_hz": 12500,
+    "category": "Ham",
+    "notes": "430-440 MHz",
+    "starred": false
+  },
+  {
+    "name": "ISS Voice",
+    "frequency_hz": 145800000,
+    "mode": "NFM",
+    "bandwidth_hz": 12500,
+    "category": "Space",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "ISS SSTV",
+    "frequency_hz": 145800000,
+    "mode": "WFM",
+    "bandwidth_hz": 34000,
+    "category": "Space",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Inmarsat Aero",
+    "frequency_hz": 1541500000,
+    "mode": "WFM",
+    "bandwidth_hz": 600000,
+    "category": "Satellite",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Iridium",
+    "frequency_hz": 1626000000,
+    "mode": "WFM",
+    "bandwidth_hz": 41000,
+    "category": "Satellite",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "GPS L1",
+    "frequency_hz": 1575420000,
+    "mode": "RAW",
+    "bandwidth_hz": 2000000,
+    "category": "Navigation",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "Galileo E1",
+    "frequency_hz": 1575420000,
+    "mode": "RAW",
+    "bandwidth_hz": 2000000,
+    "category": "Navigation",
+    "notes": "",
+    "starred": false
+  },
+  {
+    "name": "GSM 900 UL",
+    "frequency_hz": 890000000,
+    "mode": "RAW",
+    "bandwidth_hz": 200000,
+    "category": "Cellular",
+    "notes": "Uplink",
+    "starred": false
+  },
+  {
+    "name": "GSM 900 DL",
+    "frequency_hz": 935000000,
+    "mode": "RAW",
+    "bandwidth_hz": 200000,
+    "category": "Cellular",
+    "notes": "Downlink",
+    "starred": false
+  },
+  {
+    "name": "LoRa 868",
+    "frequency_hz": 868100000,
+    "mode": "RAW",
+    "bandwidth_hz": 125000,
+    "category": "IoT",
+    "notes": "EU ISM band",
+    "starred": false
+  },
+  {
+    "name": "ISM 433",
+    "frequency_hz": 433920000,
+    "mode": "RAW",
+    "bandwidth_hz": 300000,
+    "category": "IoT",
+    "notes": "",
+    "starred": false
+  }
+]

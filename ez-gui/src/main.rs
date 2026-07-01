@@ -23,6 +23,10 @@ mod audio_output;
 mod scanner;
 mod howto_panel;
 mod theme;
+mod antenna_checklist;
+mod airport_db;
+mod user_level;
+mod tutorial;
 
 fn main() -> eframe::Result {
     // Force X11 on Linux — winit's Wayland backend has broken mouse input

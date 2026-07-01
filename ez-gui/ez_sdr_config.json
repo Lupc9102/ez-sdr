@@ -1,0 +1,316 @@
+{
+  "version": "0.1.0",
+  "default_freq_hz": 100000000,
+  "default_sample_rate": 2048000,
+  "default_gain": 40.0,
+  "output_directory": "./recordings",
+  "theme": "dark",
+  "ai_api_key": "",
+  "ai_endpoint": "https://openrouter.ai/api/v1/chat/completions",
+  "ai_model": "anthropic/claude-3-haiku",
+  "ai_max_tokens": 2048,
+  "ai_temperature": 0.7,
+  "ai_system_prompt": "",
+  "ai_provider": "OpenRouter",
+  "mqtt_broker": "localhost:1883",
+  "mqtt_topic_prefix": "ezsdr",
+  "web_remote_enabled": false,
+  "web_remote_port": 5259,
+  "observer_lat": 51.5,
+  "observer_lon": -0.1,
+  "font_scale": 1.0,
+  "needs_apply": false,
+  "recent_frequencies": [
+    100000000,
+    99000000,
+    98000000,
+    97000000,
+    98000000,
+    99000000,
+    100000000,
+    101000000,
+    102000000,
+    103000000,
+    104000000,
+    105000000,
+    106000000,
+    107000000,
+    108000000,
+    109000000,
+    110000000,
+    111000000,
+    112000000,
+    113000000,
+    114000000,
+    115000000,
+    116000000,
+    117000000,
+    118000000,
+    119000000,
+    120000000,
+    121000000,
+    122000000,
+    123000000,
+    124000000,
+    125000000,
+    125100000,
+    125200000,
+    125300000,
+    125400000,
+    125500000,
+    1090000000,
+    118000000
+  ],
+  "spectrum_min_db": -120.0,
+  "spectrum_max_db": 0.0,
+  "ppm_correction": 0,
+  "vfo_b_hz": 100000000,
+  "wf_min_db": -120.0,
+  "wf_max_db": -20.0,
+  "lo_offset_hz": 0,
+  "welcome_seen": false,
+  "last_session_freq_hz": 118000000,
+  "last_session_gain_db": 40.0,
+  "last_session_demod": "AM",
+  "color_map": "Classic",
+  "freq_memory_hz": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "freq_memory_labels": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "theme_config": {
+    "preset": "dark",
+    "accent": [
+      52,
+      152,
+      219,
+      255
+    ],
+    "bg": [
+      20,
+      22,
+      28,
+      255
+    ],
+    "surface": [
+      28,
+      30,
+      38,
+      255
+    ],
+    "text_normal": [
+      220,
+      220,
+      230,
+      255
+    ],
+    "text_heading": [
+      255,
+      255,
+      255,
+      255
+    ],
+    "text_dim": [
+      130,
+      130,
+      140,
+      255
+    ],
+    "success": [
+      46,
+      204,
+      113,
+      255
+    ],
+    "warning": [
+      241,
+      196,
+      15,
+      255
+    ],
+    "error": [
+      231,
+      76,
+      60,
+      255
+    ],
+    "spectrum_line": [
+      52,
+      152,
+      219,
+      255
+    ],
+    "spectrum_fill_top": [
+      30,
+      120,
+      200,
+      100
+    ],
+    "spectrum_fill_bot": [
+      10,
+      30,
+      60,
+      20
+    ],
+    "spectrum_grid": [
+      60,
+      65,
+      80,
+      120
+    ],
+    "noise_floor_line": [
+      100,
+      100,
+      200,
+      80
+    ],
+    "waterfall_bg": [
+      0,
+      0,
+      5,
+      255
+    ],
+    "bm_aviation": [
+      100,
+      180,
+      255,
+      200
+    ],
+    "bm_weather": [
+      80,
+      220,
+      80,
+      200
+    ],
+    "bm_marine": [
+      0,
+      200,
+      200,
+      200
+    ],
+    "bm_amateur": [
+      200,
+      100,
+      255,
+      200
+    ],
+    "bm_broadcast": [
+      255,
+      140,
+      60,
+      200
+    ],
+    "bm_scanner": [
+      255,
+      80,
+      80,
+      200
+    ],
+    "bm_default": [
+      255,
+      215,
+      0,
+      200
+    ],
+    "smeter_low": [
+      46,
+      204,
+      113,
+      255
+    ],
+    "smeter_mid": [
+      241,
+      196,
+      15,
+      255
+    ],
+    "smeter_high": [
+      231,
+      76,
+      60,
+      255
+    ],
+    "smeter_bg": [
+      30,
+      30,
+      40,
+      255
+    ],
+    "smeter_border": [
+      80,
+      80,
+      80,
+      255
+    ],
+    "vfo_a_color": [
+      52,
+      200,
+      100,
+      255
+    ],
+    "vfo_b_color": [
+      100,
+      180,
+      255,
+      255
+    ],
+    "status_signal": [
+      46,
+      204,
+      113,
+      255
+    ],
+    "status_recording": [
+      231,
+      76,
+      60,
+      255
+    ]
+  },
+  "discord": {
+    "enabled": false,
+    "bot_token": "",
+    "channel_id": "",
+    "user_id": "",
+    "ping_user": true,
+    "enabled_kinds": {},
+    "starred_kinds": [
+      "aircraft_new",
+      "first_signal",
+      "rec_error",
+      "rec_started",
+      "rec_stopped",
+      "sat_aos",
+      "sat_los",
+      "sat_upcoming",
+      "scanner_hit",
+      "source_error",
+      "strong_signal",
+      "task_fired"
+    ],
+    "summary_enabled": false,
+    "summary_interval_min": 30,
+    "min_send_interval_ms": 1500
+  },
+  "skip_antenna_checklists": false,
+  "user_level": "beginner",
+  "tutorial_seen": true,
+  "tutorial_step": 0
+}

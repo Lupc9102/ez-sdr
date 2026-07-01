@@ -260,7 +260,8 @@ impl SourceManager {
         // Source mode selection
         ui.horizontal(|ui| {
             ui.label("Mode:");
-            if ui.selectable_label(self.source_mode == SourceMode::Simulated, "Simulated").clicked() {
+            let src_label = if cfg!(feature = "rtlsdr") { "RTL-SDR" } else { "Simulated" };
+            if ui.selectable_label(self.source_mode == SourceMode::Simulated, src_label).clicked() {
                 self.source_mode = SourceMode::Simulated;
             }
             if ui.selectable_label(self.source_mode == SourceMode::Replay, "File Replay").clicked() {

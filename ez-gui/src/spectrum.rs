@@ -94,6 +94,12 @@ pub struct SpectrumAnalyzer {
     ctx_menu_pos: Option<egui::Pos2>,
     pub pending_ai_freq: Option<u64>,
     pub pending_start_source: bool,
+    pub bookmark_freqs_dirty: bool,
+
+    // Cached stats updated once per push_iq_samples to avoid redundant O(N) scans
+    cached_signal_level: f32,
+    cached_peak_level: f32,
+    cached_noise_floor: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -230,6 +236,10 @@ impl SpectrumAnalyzer {
             ctx_menu_pos: None,
             pending_ai_freq: None,
             pending_start_source: false,
+            bookmark_freqs_dirty: true,
+            cached_signal_level: -100.0,
+            cached_peak_level: -100.0,
+            cached_noise_floor: -100.0,
         }
     }
 
@@ -283,13 +293,11 @@ impl SpectrumAnalyzer {
     }
 
     pub fn signal_level(&self) -> f32 {
-        if self.spectrum_dbs.is_empty() { return -120.0; }
-        let sum: f32 = self.spectrum_dbs.iter().sum();
-        sum / self.spectrum_dbs.len() as f32
+        self.cached_signal_level
     }
 
     pub fn peak_level(&self) -> f32 {
-        self.spectrum_dbs.iter().cloned().fold(-120.0f32, f32::max)
+        self.cached_peak_level
     }
 
     pub fn peak_freq_hz(&self) -> u64 {
@@ -306,10 +314,7 @@ impl SpectrumAnalyzer {
     }
 
     pub fn noise_floor(&self) -> f32 {
-        if self.spectrum_dbs.is_empty() { return -120.0; }
-        let mut sorted = self.spectrum_dbs.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        sorted[sorted.len() / 4].max(sorted[0])
+        self.cached_noise_floor
     }
 
     pub fn noise_baseline(&self) -> f32 {
@@ -418,29 +423,50 @@ impl SpectrumAnalyzer {
         fft.process(&mut self.fft_input_buf);
 
         let scale = 1.0 / (fft_len as f32);
+        let mut sum = 0.0f32;
+        let mut peak = -120.0f32;
+        let mut hist = [0u32; 120];
         for (i, c) in self.fft_input_buf.iter().enumerate() {
             let mag = c.norm() * scale;
             let db = if mag > 1e-10 { 20.0 * mag.log10() } else { -120.0 };
-            self.spectrum_dbs[i] = self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[i];
+            let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[i];
+            self.spectrum_dbs[i] = smoothed;
+            sum += smoothed;
+            if smoothed > peak { peak = smoothed; }
+            let bin = ((smoothed + 120.0).clamp(0.0, 119.9) as usize).min(119);
+            hist[bin] += 1;
             if db > self.peak_hold[i] {
                 self.peak_hold[i] = db;
             } else {
                 self.peak_hold[i] = 0.999 * self.peak_hold[i] + 0.001 * db;
             }
         }
+        self.cached_signal_level = sum / self.fft_size as f32;
+        self.cached_peak_level = peak;
+        // 25th percentile from histogram
+        let target = (self.fft_size as u32 * 25) / 100;
+        let mut accum = 0u32;
+        let mut floor = -120.0f32;
+        for (b, &count) in hist.iter().enumerate() {
+            accum += count;
+            if accum >= target {
+                floor = -120.0 + b as f32;
+                break;
+            }
+        }
+        self.cached_noise_floor = floor;
+
         // Record peak dB to signal history (every 10th frame to avoid overwhelming)
         if self.frame_counter % 10 == 0 {
-            let peak = self.peak_level();
             self.signal_history.push_back(peak);
             if self.signal_history.len() > self.signal_history_max {
                 self.signal_history.pop_front();
             }
             // Update slow-tracking noise baseline (α=0.005 ≈ ~2000 frame time constant)
-            let current_floor = self.noise_floor();
             if self.noise_baseline <= -119.0 {
-                self.noise_baseline = current_floor;
+                self.noise_baseline = floor;
             } else {
-                self.noise_baseline = 0.995 * self.noise_baseline + 0.005 * current_floor;
+                self.noise_baseline = 0.995 * self.noise_baseline + 0.005 * floor;
             }
         }
     }
@@ -570,8 +596,10 @@ impl SpectrumAnalyzer {
             }
             if ui.small_button("WF Auto").on_hover_text("Set waterfall color range to current signal min/max for best contrast.").clicked() {
                 if !self.spectrum_dbs.is_empty() {
-                    let cur_min = self.spectrum_dbs.iter().cloned().fold(f32::INFINITY, f32::min);
-                    let cur_max = self.spectrum_dbs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
+                        (f32::INFINITY, f32::NEG_INFINITY),
+                        |(mn, mx), &v| (mn.min(v), mx.max(v))
+                    );
                     self.wf_min_db = (cur_min - 5.0).max(-160.0);
                     self.wf_max_db = (cur_max + 5.0).min(20.0);
                     self.waterfall_dirty = true;
@@ -603,8 +631,10 @@ impl SpectrumAnalyzer {
             }
             if ui.small_button("Auto-fit").on_hover_text("Automatically set the dB range to the current signal min/max, centering the display on your signals.").clicked() {
                 if !self.spectrum_dbs.is_empty() {
-                    let cur_min = self.spectrum_dbs.iter().cloned().fold(f32::INFINITY, f32::min);
-                    let cur_max = self.spectrum_dbs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
+                        (f32::INFINITY, f32::NEG_INFINITY),
+                        |(mn, mx), &v| (mn.min(v), mx.max(v))
+                    );
                     let margin = ((cur_max - cur_min) * 0.1).max(5.0);
                     self.display_min_db = (cur_min - margin).max(-160.0);
                     self.display_max_db = (cur_max + margin).min(20.0);
@@ -1805,8 +1835,10 @@ impl SpectrumAnalyzer {
             }
             if ui.button("Auto-fit dB range").clicked() {
                 if !self.spectrum_dbs.is_empty() {
-                    let cur_min = self.spectrum_dbs.iter().cloned().fold(f32::INFINITY, f32::min);
-                    let cur_max = self.spectrum_dbs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
+                        (f32::INFINITY, f32::NEG_INFINITY),
+                        |(mn, mx), &v| (mn.min(v), mx.max(v))
+                    );
                     let margin = ((cur_max - cur_min) * 0.1).max(5.0);
                     self.display_min_db = (cur_min - margin).max(-160.0);
                     self.display_max_db = (cur_max + margin).min(20.0);

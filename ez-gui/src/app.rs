@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use egui_dock::{DockArea, DockState, NodeIndex, Style, SurfaceIndex};
+use egui_dock::{DockState, NodeIndex, SurfaceIndex};
 
 #[derive(Debug, Clone)]
 pub struct FreqMemEntry {
@@ -33,6 +33,8 @@ use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
 use crate::howto_panel::HowToPanel;
 use crate::theme::ThemeColors;
+use crate::tutorial;
+use crate::user_level::{TutorialState, UserLevel};
 use crate::web_remote::{RemoteCommand, WebRemote};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -49,6 +51,13 @@ pub enum Tab {
     Settings,
     HowTo,
     Discord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AppTab {
+    Sdr,
+    AdsB,
+    Satellite,
 }
 
 pub struct SharedState {
@@ -77,6 +86,7 @@ pub struct SharedState {
     pub mqtt_connected: bool,
     pub mqtt_enabled: bool,
     pub theme_colors: ThemeColors,
+    pub bookmarks_modified: bool,
 }
 
 pub struct CentralApp {
@@ -105,7 +115,7 @@ pub struct CentralApp {
     freq_history_idx: Option<usize>,
     status_flash: Option<(String, std::time::Instant)>,
     recording_start: Option<std::time::Instant>,
-    show_welcome: bool,
+    tutorial: TutorialState,
     bm_last_len: usize,
     bm_dirty_since: Option<std::time::Instant>,
     // New-bookmark form state
@@ -152,7 +162,9 @@ pub struct CentralApp {
     seen_aircraft: std::collections::HashSet<u32>,
     last_active_pass_sat: String,
     discord_summary_last: std::time::Instant,
+    current_tab: AppTab,
     last_traffic_bucket: usize,
+    last_manual_tune_time: std::time::Instant,
 }
 
 impl CentralApp {
@@ -188,6 +200,7 @@ impl CentralApp {
             mqtt_connected: false,
             mqtt_enabled: false,
             theme_colors,
+            bookmarks_modified: true,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -357,10 +370,24 @@ impl CentralApp {
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
-            // Show welcome banner only on the very first launch (until dismissed)
-            show_welcome: {
+            // Tutorial: first boot or resume incomplete tutorial
+            tutorial: {
                 let state = shared.lock().expect("shared state mutex poisoned");
-                !state.config.welcome_seen
+                let mut t = TutorialState::new();
+                if !state.config.tutorial_seen {
+                    // First boot — show level selector
+                    t.active = true;
+                    t.level = UserLevel::from_str(&state.config.user_level);
+                    t.level_chosen = false;
+                    // Check if we have a saved step to resume
+                    if state.config.tutorial_step > 0 {
+                        t.step = state.config.tutorial_step;
+                        t.asked_resume = true;
+                    }
+                } else {
+                    t.active = false;
+                }
+                t
             },
             show_starred_only: false,
             last_recording: false,
@@ -369,8 +396,21 @@ impl CentralApp {
             last_mqtt_connected: false,
             seen_aircraft: std::collections::HashSet::new(),
             last_active_pass_sat: String::new(),
+            current_tab: AppTab::Sdr,
             discord_summary_last: std::time::Instant::now(),
             last_traffic_bucket: 0,
+            last_manual_tune_time: std::time::Instant::now(),
+        }
+    }
+}
+
+impl CentralApp {
+    /// Programmatically focus a tab in the dock (used by tutorial navigation).
+    fn focus_tab(&mut self, tab: &Tab) {
+        match tab {
+            Tab::AdsB => self.current_tab = AppTab::AdsB,
+            Tab::Satellite => self.current_tab = AppTab::Satellite,
+            _ => self.current_tab = AppTab::Sdr,
         }
     }
 }
@@ -462,6 +502,12 @@ impl eframe::App for CentralApp {
         if let Some(msg) = self.adsb_panel.pending_status_flash.take() {
             self.status_flash = Some((msg, std::time::Instant::now()));
         }
+        if let Some(msg) = self.sdr_panel.pending_status.take() {
+            self.status_flash = Some((msg, std::time::Instant::now()));
+        }
+        if let Some(msg) = self.satellite_panel.pending_status.take() {
+            self.status_flash = Some((msg, std::time::Instant::now()));
+        }
         // Fire Discord notifications for new aircraft
         for ac in &self.adsb_panel.aircraft {
             if self.seen_aircraft.insert(ac.icao) {
@@ -473,9 +519,9 @@ impl eframe::App for CentralApp {
                     &ac.callsign,
                     ac.lat,
                     ac.lon,
-                    ac.altitude.unwrap_or(0),
-                    ac.speed.unwrap_or(0),
-                    ac.heading.unwrap_or(0),
+                    ac.altitude,
+                    ac.speed,
+                    ac.heading,
                     image_url,
                 );
                 self.discord.fire("aircraft_new", embed);
@@ -497,6 +543,7 @@ impl eframe::App for CentralApp {
 
         // Keyboard shortcuts
         let mut ctrl_r_pressed = false;
+        let mut freq_changed = false;
         ctx.input(|i| {
             // ? : toggle keyboard help
             if i.key_pressed(egui::Key::Questionmark) {
@@ -517,15 +564,19 @@ impl eframe::App for CentralApp {
                 let coarse = state.tune_step_coarse_hz * if i.modifiers.shift { 10 } else { 1 };
                 if i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.alt {
                     state.source.frequency_hz = (state.source.frequency_hz + coarse).min(1_770_000_000);
+                    freq_changed = true;
                 }
                 if i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.alt {
                     state.source.frequency_hz = state.source.frequency_hz.saturating_sub(coarse).max(500_000);
+                    freq_changed = true;
                 }
                 if i.key_pressed(egui::Key::ArrowRight) && !i.modifiers.alt {
                     state.source.frequency_hz = (state.source.frequency_hz + fine).min(1_770_000_000);
+                    freq_changed = true;
                 }
                 if i.key_pressed(egui::Key::ArrowLeft) && !i.modifiers.alt {
                     state.source.frequency_hz = state.source.frequency_hz.saturating_sub(fine).max(500_000);
+                    freq_changed = true;
                 }
                 // Alt+Left/Right: frequency history back/forward
                 if i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft) {
@@ -537,6 +588,7 @@ impl eframe::App for CentralApp {
                             self.freq_history_idx = Some(new_idx);
                             state.source.frequency_hz = hist[new_idx];
                             self.last_history_freq = hist[new_idx];
+                            freq_changed = true;
                         }
                     }
                 }
@@ -549,6 +601,7 @@ impl eframe::App for CentralApp {
                             self.freq_history_idx = Some(new_idx);
                             state.source.frequency_hz = hist[new_idx];
                             self.last_history_freq = hist[new_idx];
+                            freq_changed = true;
                         }
                     }
                 }
@@ -658,6 +711,7 @@ impl eframe::App for CentralApp {
                     let tmp = state.source.frequency_hz;
                     state.source.frequency_hz = state.vfo_b;
                     state.vfo_b = tmp;
+                    freq_changed = true;
                 }
                 // 1-9: tune to bookmark #N (no modifiers)
                 // Alt+Shift+1-9: save frequency memory M1-M9
@@ -685,6 +739,7 @@ impl eframe::App for CentralApp {
                                 // Recall memory
                                 if state.freq_memory[idx].freq_hz > 0 {
                                     state.source.frequency_hz = state.freq_memory[idx].freq_hz;
+                                    freq_changed = true;
                                     self.status_flash = Some((
                                         format!("🔁 M{} recalled: {:.4} MHz", idx + 1, state.freq_memory[idx].freq_hz as f64 / 1e6),
                                         std::time::Instant::now()
@@ -695,6 +750,7 @@ impl eframe::App for CentralApp {
                                 // Bookmark 1-9 (no modifiers)
                                 if let Some(bm) = state.bookmarks.bookmarks.get(idx) {
                                     state.source.frequency_hz = bm.frequency_hz;
+                                    freq_changed = true;
                                 }
                                 break;
                             }
@@ -709,6 +765,7 @@ impl eframe::App for CentralApp {
                         .map(|bm| (bm.frequency_hz, bm.name.clone()));
                     if let Some((freq, name)) = nearest {
                         state.source.frequency_hz = freq;
+                        freq_changed = true;
                         self.status_flash = Some((format!("⭐ {}", name), std::time::Instant::now()));
                     }
                 }
@@ -722,6 +779,7 @@ impl eframe::App for CentralApp {
                             self.freq_history_idx = Some(new_idx);
                             state.source.frequency_hz = hist[new_idx];
                             self.last_history_freq = hist[new_idx];
+                            freq_changed = true;
                         }
                     }
                 }
@@ -734,6 +792,7 @@ impl eframe::App for CentralApp {
                             self.freq_history_idx = Some(new_idx);
                             state.source.frequency_hz = hist[new_idx];
                             self.last_history_freq = hist[new_idx];
+                            freq_changed = true;
                         }
                     }
                 }
@@ -765,14 +824,16 @@ impl eframe::App for CentralApp {
                     let already = state.bookmarks.bookmarks.iter().any(|b| b.frequency_hz == freq);
                     if !already {
                         state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
-                            name: name.clone(),
+                            name: "Quick".to_string(),
                             frequency_hz: freq,
-                            mode,
+                            mode: mode.clone(),
                             bandwidth_hz: 12_500,
-                            category: "Custom".to_string(),
+                            category: "Quick".to_string(),
                             notes: String::new(),
                             starred: false,
                         });
+                        state.bookmarks_modified = true;
+                        state.spectrum.bookmark_freqs_dirty = true;
                         self.status_flash = Some((format!("🔖 Bookmarked {}", name), std::time::Instant::now()));
                     } else {
                         self.status_flash = Some((format!("⭐ Already bookmarked"), std::time::Instant::now()));
@@ -783,6 +844,7 @@ impl eframe::App for CentralApp {
                     let peak_hz = state.spectrum.peak_freq_hz();
                     if peak_hz > 0 {
                         state.source.frequency_hz = peak_hz;
+                        freq_changed = true;
                         self.status_flash = Some((format!("📡 Peak: {:.3} MHz", peak_hz as f64 / 1e6), std::time::Instant::now()));
                     }
                 }
@@ -803,6 +865,9 @@ impl eframe::App for CentralApp {
                 }
             }
         });
+        if freq_changed {
+            self.last_manual_tune_time = std::time::Instant::now();
+        }
 
         // Ctrl+R: toggle recording (must be outside ctx.input to access recorder_panel)
         if ctrl_r_pressed {
@@ -907,7 +972,7 @@ impl eframe::App for CentralApp {
                     state.scheduler.update_from_passes(&passes);
                     self.last_scheduler_update = now;
                 }
-                // Auto-tune to the first active pass
+                // Auto-tune to the first active pass (with cooldown after manual tuning)
                 let now_unix = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs_f64())
@@ -923,15 +988,19 @@ impl eframe::App for CentralApp {
                         }
                         self.last_active_pass_sat = sat.clone();
                     }
-                    if sat != self.last_auto_tuned_satellite {
+                    // Only auto-tune if user hasn't manually changed frequency recently (15s cooldown)
+                    let manual_tune_recent = self.last_manual_tune_time.elapsed().as_secs() < 15;
+                    if !manual_tune_recent && sat != self.last_auto_tuned_satellite {
                         state.source.frequency_hz = freq;
                         self.last_auto_tuned_satellite = sat.clone();
+                        self.status_flash = Some((format!("🛰 Auto-tuned to {} ({:.3} MHz)", sat, freq as f64 / 1e6), std::time::Instant::now()));
                     }
-                    // Apply doppler correction
+                    // Apply doppler correction (round to avoid jitter)
                     let doppler = state.tle.doppler_shift_for_sat(&sat, freq as f64, now_unix);
                     self.satellite_panel.doppler_hz = doppler;
-                    if self.satellite_panel.auto_tune && doppler.abs() > 1.0 {
-                        let corrected = (freq as f64 + doppler) as u64;
+                    if self.satellite_panel.auto_tune && doppler.abs() > 1000.0 {
+                        let corrected_hz = ((freq as f64 + doppler) / 1000.0).round() * 1000.0;
+                        let corrected = corrected_hz.max(0.0) as u64;
                         if corrected != state.source.frequency_hz {
                             state.source.frequency_hz = corrected;
                         }
@@ -1003,6 +1072,8 @@ impl eframe::App for CentralApp {
                     notes: String::new(),
                             starred: false,
                 });
+                state.bookmarks_modified = true;
+                state.spectrum.bookmark_freqs_dirty = true;
             }
         }
 
@@ -1217,176 +1288,38 @@ impl eframe::App for CentralApp {
             }
         };
 
-        // Top status bar with signal strength, recording status, and satellite countdown
-        ui.horizontal(|ui| {
-            if let Ok(state) = self.shared.try_lock() {
-                let signal_db = state.spectrum.signal_level();
-                let signal_color = if signal_db < -100.0 {
-                    egui::Color32::RED
-                } else if signal_db < -60.0 {
-                    egui::Color32::YELLOW
-                } else {
-                    egui::Color32::GREEN
-                };
-                ui.colored_label(signal_color, format!("📶 {:.1} dB", signal_db));
-                ui.separator();
+        egui::Panel::top("main_tab_bar")
+            .exact_size(44.0)
+            .show_inside(ui, |ui| self.render_tab_bar(ui));
 
-                if state.recording {
-                    ui.colored_label(egui::Color32::RED, "● RECORDING");
-                    ui.separator();
-                }
+        match self.current_tab {
+            AppTab::Sdr => self.render_sdr_tab(ui, &snapshot),
+            AppTab::AdsB => self.render_adsb_tab(ui),
+            AppTab::Satellite => self.render_satellite_tab(ui, &snapshot),
+        }
 
-                // Source status
-                let status_text = match &state.source.status {
-                    crate::source_manager::SourceStatus::Idle => "🔴 Idle".to_string(),
-                    crate::source_manager::SourceStatus::Opening => "🟡 Opening…".to_string(),
-                    crate::source_manager::SourceStatus::Running => "🟢 Running".to_string(),
-                    crate::source_manager::SourceStatus::Error(e) => {
-                        let short_err = if e.len() > 30 { format!("{}…", &e[..27]) } else { e.clone() };
-                        format!("⚠ Error: {}", short_err)
-                    }
-                };
-                ui.label(status_text);
-
-                // Satellite next-pass countdown
-                let now_unix = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs_f64())
-                    .unwrap_or(0.0);
-                let active = state.scheduler.jobs.iter().find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt);
-                let next_future = state.scheduler.jobs.iter()
-                    .filter(|j| j.aos_dt > now_unix)
-                    .min_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal));
-                if let Some(job) = active {
-                    ui.separator();
-                    let remaining = (job.los_dt - now_unix).max(0.0) as u64;
-                    ui.colored_label(
-                        egui::Color32::from_rgb(50, 255, 100),
-                        format!("🛰 {} IN PASS {:02}:{:02}", job.satellite, remaining / 60, remaining % 60),
-                    ).on_hover_text(format!("Active pass: {} — LOS in {}m {}s. Freq: {:.3} MHz",
-                        job.satellite, remaining / 60, remaining % 60, job.frequency_hz as f64 / 1e6));
-                } else if let Some(job) = next_future {
-                    let secs = (job.aos_dt - now_unix) as u64;
-                    ui.separator();
-                    let (color, text) = if secs < 600 {
-                        (egui::Color32::YELLOW, format!("🛰 {} in {:02}:{:02}", job.satellite, secs / 60, secs % 60))
-                    } else {
-                        let h = secs / 3600;
-                        let m = (secs % 3600) / 60;
-                        (egui::Color32::GRAY, format!("🛰 {} in {}h{:02}m", job.satellite, h, m))
-                    };
-                    ui.colored_label(color, text)
-                        .on_hover_text(format!("Next pass: {} — AOS in {}m {}s. Freq: {:.3} MHz",
-                            job.satellite, secs / 60, secs % 60, job.frequency_hz as f64 / 1e6));
-                }
-            }
-        });
-        ui.separator();
-
-        let style = Style::from_egui(ui.style().as_ref());
-        DockArea::new(&mut self.dock_state)
-            .style(style)
-            .show_inside(ui, &mut TabViewer {
-                snapshot,
-                shared: self.shared.clone(),
-                sdr: &mut self.sdr_panel,
-                satellite: &mut self.satellite_panel,
-                adsb: &mut self.adsb_panel,
-                recorder: &mut self.recorder_panel,
-                scanner: &mut self.scanner,
-                ai: &mut self.ai_panel,
-                howto: &mut self.howto_panel,
-                bookmark_filter: &mut self.bookmark_filter,
-                new_bm_name: &mut self.new_bm_name,
-                new_bm_freq_mhz: &mut self.new_bm_freq_mhz,
-                new_bm_mode: &mut self.new_bm_mode,
-                new_bm_category: &mut self.new_bm_category,
-                new_bm_notes: &mut self.new_bm_notes,
-                new_bm_error: &mut self.new_bm_error,
-                show_add_bm: &mut self.show_add_bm,
-                bm_import_msg: &mut self.bm_import_msg,
-                edit_bm_idx: &mut self.edit_bm_idx,
-                edit_bm_name: &mut self.edit_bm_name,
-                edit_bm_freq_mhz: &mut self.edit_bm_freq_mhz,
-                edit_bm_mode: &mut self.edit_bm_mode,
-                edit_bm_category: &mut self.edit_bm_category,
-                edit_bm_notes: &mut self.edit_bm_notes,
-                new_task_label: &mut self.new_task_label,
-                new_task_freq_mhz: &mut self.new_task_freq_mhz,
-                new_task_time: &mut self.new_task_time,
-                new_task_error: &mut self.new_task_error,
-                session_notes: &mut self.session_notes,
-                status_flash: &mut self.status_flash,
-                show_starred_only: &mut self.show_starred_only,
-                discord: &mut self.discord,
-                discord_panel: &mut self.discord_panel,
-            });
-
-        // First-run welcome banner
-        if self.show_welcome {
-            let mut dismiss = false;
-            let mut listen_fm = false;
-            let mut show_again = false; // local toggle for "show again next launch"
-            egui::Window::new("👋 Welcome to EZ-SDR!")
-                .id(egui::Id::new("welcome_banner"))
-                .default_width(480.0)
-                .collapsible(false)
-                .resizable(false)
-                .show(ui.ctx(), |ui| {
-                    ui.label(egui::RichText::new("No SDR hardware needed — you're in DEMO mode. Hear sound in one click:").strong());
-                    ui.add_space(6.0);
-                    ui.vertical_centered(|ui| {
-                        if ui.add(egui::Button::new(egui::RichText::new("📻  Listen to FM Radio").size(16.0)).min_size(egui::vec2(260.0, 36.0)))
-                            .on_hover_text("Tunes to 98 MHz, switches to Wide FM, sets a sensible gain, and starts audio — so you hear something immediately.")
-                            .clicked()
-                        {
-                            listen_fm = true;
-                        }
-                    });
-                    ui.add_space(6.0);
-                    ui.collapsing("Quick tips", |ui| {
-                        egui::Grid::new("welcome_tips").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-                            ui.label("📻"); ui.label("Click any button in the 'Bands:' row (SDR tab) to jump to a common frequency and auto-pick the right mode."); ui.end_row();
-                            ui.label("📊"); ui.label("Left-click the spectrum to tune. Scroll to zoom. Right-click for more options."); ui.end_row();
-                            ui.label("🔊"); ui.label("Press Start Audio (or the M key) to toggle audio output."); ui.end_row();
-                            ui.label("❓"); ui.label("Open the How To tab for a full beginner guide."); ui.end_row();
-                            ui.label("?");  ui.label("Press ? anywhere to show keyboard shortcuts."); ui.end_row();
-                        });
-                    });
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Got it — dismiss").clicked() {
-                            dismiss = true;
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.checkbox(&mut show_again, "Show again next launch");
-                        });
-                    });
-                });
-            if listen_fm {
-                // One-click quick start: tune to FM broadcast, WFM, sensible gain, start audio
+        // Tutorial / first-run onboarding
+        if self.tutorial.active {
+            let dismissed = tutorial::render_tutorial(
+                &mut self.tutorial,
+                &self.shared,
+                ui,
+            );
+            if dismissed && !self.tutorial.active {
                 if let Ok(mut state) = self.shared.try_lock() {
-                    state.source.frequency_hz = 98_000_000;
-                    state.demod_mode = crate::sdr_panel::DemodMode::Wfm;
-                    state.source.gain_db = 40.0;
-                    state.audio_running = true;
-                    state.lpf_cutoff = 15000.0;
-                    state.spectrum.zoom_reset();
+                    state.config.tutorial_seen = true;
+                    state.config.user_level = self.tutorial.level.to_str().to_string();
+                    state.config.tutorial_step = 0;
+                    state.config.save();
                 }
-                self.sdr_panel.filter_bw = 200_000;
-                self.status_flash = Some(("📻 FM Radio — 98.0 MHz".to_string(), std::time::Instant::now()));
-                dismiss = true;
             }
-            if dismiss {
-                // Persist welcome_seen unless the user asked to see the banner again
-                if !show_again {
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        state.config.welcome_seen = true;
-                        state.config.save();
-                    }
-                }
-                self.show_welcome = false;
-            }
+            return; // Don't render main UI during tutorial
+        }
+
+        // Handle tab navigation from tutorial
+        if let Some(tab) = self.tutorial.tab_to_open.take() {
+            // Focus the tab by selecting it in the dock
+            self.focus_tab(&tab);
         }
 
         // Frequency jump dialog (J key)
@@ -1395,7 +1328,7 @@ impl eframe::App for CentralApp {
             let mut tune_to: Option<u64> = None;
             egui::Window::new("⤵ Jump to Frequency")
                 .id(egui::Id::new("freq_jump_dialog"))
-                .default_width(380.0)
+                .default_size([380.0, 400.0])
                 .collapsible(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
@@ -1520,6 +1453,7 @@ impl eframe::App for CentralApp {
             if let Some(freq) = tune_to {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.source.frequency_hz = freq;
+                    self.last_manual_tune_time = std::time::Instant::now();
                     self.status_flash = Some((format!("⤵ {:.3} MHz", freq as f64 / 1e6), std::time::Instant::now()));
                 }
             }
@@ -1542,6 +1476,7 @@ impl eframe::App for CentralApp {
                         self.freq_history_idx = Some(new_idx);
                         state.source.frequency_hz = hist[new_idx];
                         self.last_history_freq = hist[new_idx];
+                        self.last_manual_tune_time = std::time::Instant::now();
                     }
                 }
             }
@@ -1553,6 +1488,7 @@ impl eframe::App for CentralApp {
                         self.freq_history_idx = Some(new_idx);
                         state.source.frequency_hz = hist[new_idx];
                         self.last_history_freq = hist[new_idx];
+                        self.last_manual_tune_time = std::time::Instant::now();
                     }
                 }
             }
@@ -1698,13 +1634,18 @@ impl eframe::App for CentralApp {
                             .on_hover_text(format!("RF signal saturating! Peak at {:.1} dB — reduce gain or antenna signal level to prevent distortion.", peak));
                     }
                 }
-                // Demo mode badge — helps beginners know they are in simulation
+                // Source mode badge
                 if state.source.source_mode == crate::source_manager::SourceMode::Simulated {
+                    let (label, tooltip) = if cfg!(feature = "rtlsdr") {
+                        ("RTL-SDR", "Receiving live signals from the connected RTL-SDR device.")
+                    } else {
+                        ("⚠ DEMO", "Running in simulated (demo) mode — no real SDR device connected. The spectrum shows synthetic test signals. Connect an RTL-SDR and rebuild with the 'rtlsdr' feature, or use File Replay mode.")
+                    };
                     ui.separator();
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 180, 50),
-                        "⚠ DEMO",
-                    ).on_hover_text("Running in simulated (demo) mode — no real SDR device connected. The spectrum shows synthetic test signals. Connect an RTL-SDR and rebuild with the 'rtlsdr' feature, or use File Replay mode.");
+                        label,
+                    ).on_hover_text(tooltip);
                 }
                 // MQTT badge
                 {
@@ -1822,7 +1763,7 @@ impl eframe::App for CentralApp {
         if self.show_keyboard_help {
             egui::Window::new("Keyboard Shortcuts (?)")
                 .id(egui::Id::new("keyboard_help"))
-                .default_width(400.0)
+                .default_size([400.0, 500.0])
                 .movable(true)
                 .show(ui.ctx(), |ui| {
                     egui::Grid::new("shortcuts_grid").num_columns(2).striped(true).show(ui, |ui| {
@@ -1883,7 +1824,7 @@ impl eframe::App for CentralApp {
             let mut open = true;
             egui::Window::new("SDR Glossary")
                 .id(egui::Id::new("sdr_glossary"))
-                .default_width(480.0)
+                .default_size([480.0, 600.0])
                 .open(&mut open)
                 .show(ui.ctx(), |ui| {
                     ui.label(egui::RichText::new("Common SDR terms and what they mean:").italics());
@@ -1944,6 +1885,13 @@ impl eframe::App for CentralApp {
             cfg.color_map = state.spectrum.color_map.name().to_string();
             cfg.freq_memory_hz = state.freq_memory.iter().map(|m| m.freq_hz).collect();
             cfg.freq_memory_labels = state.freq_memory.iter().map(|m| m.label.clone()).collect();
+            // Save tutorial state for resume support
+            if self.tutorial.active {
+                cfg.tutorial_step = if self.tutorial.level_chosen { self.tutorial.step } else { 0 };
+                if self.tutorial.level_chosen {
+                    cfg.user_level = self.tutorial.level.to_str().to_string();
+                }
+            }
             cfg.save();
         }
     }
@@ -1958,6 +1906,7 @@ struct SharedSnapshot {
 struct TabViewer<'a> {
     snapshot: Option<SharedSnapshot>,
     shared: Arc<Mutex<SharedState>>,
+    highlight_target: Option<String>,
     sdr: &'a mut SdrPanel,
     satellite: &'a mut SatellitePanel,
     adsb: &'a mut AdsBPanel,
@@ -2017,10 +1966,25 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
         }
     }
 
+    fn scroll_bars(&self, _tab: &Self::Tab) -> [bool; 2] {
+        [false, true]
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        let highlight = self.highlight_target.clone();
+        let glow = |ui: &mut egui::Ui, target: &str| {
+            if highlight.as_deref() == Some(target) {
+                egui::Frame::new()
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::new(3.0, egui::Color32::from_rgb(0, 200, 255)))
+            } else {
+                egui::Frame::new().fill(egui::Color32::TRANSPARENT)
+            }
+        };
         match tab {
-            Tab::Sdr => self.sdr.ui(ui),
+            Tab::Sdr => { glow(ui, "sdr_panel").show(ui, |ui| self.sdr.ui(ui)); },
             Tab::Spectrum => {
+                glow(ui, "spectrum").show(ui, |ui| {
                 if let Ok(mut state) = self.shared.try_lock() {
                     // Sync bookmarks and VFO BW to spectrum for overlays
                     state.spectrum.bookmark_freqs = state.bookmarks.bookmarks.iter()
@@ -2071,6 +2035,8 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             notes: String::new(),
                             starred: false,
                         });
+                        state.bookmarks_modified = true;
+                        state.spectrum.bookmark_freqs_dirty = true;
                     }
                     if let Some(sq) = state.spectrum.pending_squelch_db.take() {
                         state.squelch = sq;
@@ -2103,8 +2069,10 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         ));
                     }
                 }
+            });
             }
             Tab::Satellite => {
+                glow(ui, "satellite_panel").show(ui, |ui| {
                 self.satellite.ui(ui);
                 if let Some(prompt) = self.satellite.pending_ai_prompt.take() {
                     self.ai.input = prompt;
@@ -2113,8 +2081,10 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         std::time::Instant::now(),
                     ));
                 }
+            });
             }
             Tab::AdsB => {
+                glow(ui, "adsb_panel").show(ui, |ui| {
                 self.adsb.ui(ui);
                 if let Some(prompt) = self.adsb.pending_ai_prompt.take() {
                     self.ai.input = prompt;
@@ -2123,9 +2093,11 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         std::time::Instant::now(),
                     ));
                 }
+                });
             }
             Tab::Recorder => self.recorder.ui(ui),
             Tab::Scanner => {
+                glow(ui, "scanner_panel").show(ui, |ui| {
                 if let Ok(state) = self.shared.try_lock() {
                     self.scanner.spectrum_visible_range = Some((state.spectrum.visible_left_hz, state.spectrum.visible_right_hz));
                 }
@@ -2137,8 +2109,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                         std::time::Instant::now(),
                     ));
                 }
+                });
             }
-            Tab::AiAgent => self.ai.ui(ui),
+            Tab::AiAgent => { glow(ui, "ai_panel").show(ui, |ui| self.ai.ui(ui)); }
             Tab::HowTo => self.howto.ui(ui),
             Tab::Bookmarks => {
                 let bm_count = if let Ok(state) = self.shared.try_lock() { state.bookmarks.bookmarks.len() } else { 0 };
@@ -2186,11 +2159,15 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     if ui.small_button("A→Z").on_hover_text("Sort all bookmarks alphabetically by name within each category.").clicked() {
                         if let Ok(mut state) = self.shared.try_lock() {
                             state.bookmarks.bookmarks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                            state.bookmarks_modified = true;
+                            state.spectrum.bookmark_freqs_dirty = true;
                         }
                     }
                     if ui.small_button("Hz↑").on_hover_text("Sort all bookmarks by frequency (lowest first) within each category.").clicked() {
                         if let Ok(mut state) = self.shared.try_lock() {
                             state.bookmarks.bookmarks.sort_by_key(|b| b.frequency_hz);
+                            state.bookmarks_modified = true;
+                            state.spectrum.bookmark_freqs_dirty = true;
                         }
                     }
                     if ui.button(if *self.show_add_bm { "✕ Cancel" } else { "+ Add" })
@@ -2223,6 +2200,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             ui.label("Mode:");
                             egui::ComboBox::from_id_salt("bm_mode_combo")
                                 .selected_text(self.new_bm_mode.as_str())
+                                .width(ui.available_width().min(100.0))
                                 .show_ui(ui, |ui| {
                                     for m in ["NFM", "WFM", "AM", "USB", "LSB", "RAW"] {
                                         ui.selectable_value(self.new_bm_mode, m.to_string(), m);
@@ -2255,6 +2233,8 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                     };
                                     if let Ok(mut state) = self.shared.try_lock() {
                                         state.bookmarks.bookmarks.push(bm);
+                                        state.bookmarks_modified = true;
+                                        state.spectrum.bookmark_freqs_dirty = true;
                                     }
                                     self.new_bm_name.clear();
                                     self.new_bm_notes.clear();
@@ -2350,6 +2330,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                         ui.add(egui::TextEdit::singleline(self.edit_bm_freq_mhz).desired_width(70.0).hint_text("MHz"));
                                         egui::ComboBox::from_id_salt(format!("edit_mode_{}", orig_idx))
                                             .selected_text(self.edit_bm_mode.as_str())
+                                            .width(ui.available_width().min(80.0))
                                             .show_ui(ui, |ui| {
                                                 for m in ["NFM", "WFM", "AM", "USB", "LSB", "RAW"] {
                                                     ui.selectable_value(self.edit_bm_mode, m.to_string(), m);
@@ -2472,6 +2453,8 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     if let Ok(mut state) = self.shared.try_lock() {
                         if idx < state.bookmarks.bookmarks.len() {
                             state.bookmarks.bookmarks.remove(idx);
+                            state.bookmarks_modified = true;
+                            state.spectrum.bookmark_freqs_dirty = true;
                         }
                     }
                 }
@@ -2481,6 +2464,8 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             let mut copy = bm;
                             copy.name = format!("{} (copy)", copy.name);
                             state.bookmarks.bookmarks.push(copy);
+                            state.bookmarks_modified = true;
+                            state.spectrum.bookmark_freqs_dirty = true;
                         }
                     }
                 }
@@ -2491,6 +2476,23 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                     None => return,
                 };
                 ui.heading("Scheduler");
+
+                // User level check for adaptive UI
+                let user_level = self.shared.try_lock()
+                    .map(|s| crate::user_level::UserLevel::from_str(&s.config.user_level))
+                    .unwrap_or(crate::user_level::UserLevel::Beginner);
+                if user_level.simplify_layout() {
+                    ui.add_space(4.0);
+                    if ui.add(egui::Button::new(egui::RichText::new("🤖 Ask AI about scheduling").size(14.0))
+                        .min_size(egui::vec2(240.0, 28.0))
+                        .fill(egui::Color32::from_rgb(40, 60, 120)))
+                        .on_hover_text("Let the AI assistant help you schedule satellite passes or recordings.")
+                        .clicked()
+                    {
+                        // Send prompt to AI panel
+                    }
+                    ui.add_space(4.0);
+                }
 
                 // Next event countdown summary
                 let now_unix = std::time::SystemTime::now()
@@ -2758,9 +2760,557 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 }
             }
             Tab::Discord => {
-                self.discord_panel.ui(ui, self.discord, self.shared);
+                self.discord_panel.ui(ui, self.discord, &self.shared);
             }
         }
+    }
+}
+
+// ── New 3-tab render methods ──────────────────────────────────────────────────
+
+impl CentralApp {
+    fn render_tab_bar(&mut self, ui: &mut egui::Ui) {
+        ui.painter().rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(13, 17, 23));
+        ui.horizontal_centered(|ui| {
+            ui.add_space(8.0);
+            for (tab, label, tip) in [
+                (AppTab::Sdr,       "📻 SDR",       "Spectrum, tuning, demodulation"),
+                (AppTab::AdsB,      "✈ ADS-B",      "Aircraft tracking — 1090 MHz decoder"),
+                (AppTab::Satellite, "🛰 Satellite",  "Pass predictions, Doppler correction"),
+            ] {
+                let is_active = self.current_tab == tab;
+                let fg = if is_active { egui::Color32::from_rgb(0, 168, 255) } else { egui::Color32::from_rgb(155, 165, 175) };
+                let bg = if is_active { egui::Color32::from_rgb(20, 26, 34) } else { egui::Color32::TRANSPARENT };
+                let btn = egui::Button::new(egui::RichText::new(label).color(fg).size(13.5))
+                    .fill(bg)
+                    .min_size(egui::vec2(112.0, 36.0));
+                let resp = ui.add(btn).on_hover_text(tip);
+                if is_active {
+                    let r = resp.rect;
+                    ui.painter().line_segment(
+                        [egui::pos2(r.left() + 6.0, r.bottom()), egui::pos2(r.right() - 6.0, r.bottom())],
+                        egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 168, 255)),
+                    );
+                }
+                if resp.clicked() { self.current_tab = tab; }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(12.0);
+                if let Ok(state) = self.shared.try_lock() {
+                    let (dot, dot_color) = match &state.source.status {
+                        crate::source_manager::SourceStatus::Running => ("●", egui::Color32::from_rgb(80, 220, 80)),
+                        crate::source_manager::SourceStatus::Error(_) => ("●", egui::Color32::RED),
+                        crate::source_manager::SourceStatus::Opening => ("●", egui::Color32::YELLOW),
+                        _ => ("○", egui::Color32::DARK_GRAY),
+                    };
+                    ui.colored_label(dot_color, dot);
+                    if state.recording {
+                        ui.separator();
+                        ui.colored_label(egui::Color32::RED, "● REC");
+                    }
+                    if self.current_tab == AppTab::Sdr {
+                        ui.separator();
+                        let freq_mhz = state.source.frequency_hz as f64 / 1e6;
+                        ui.monospace(egui::RichText::new(format!("{:.4} MHz", freq_mhz))
+                            .size(15.0).color(egui::Color32::from_rgb(0, 168, 255)));
+                    }
+                }
+            });
+        });
+    }
+
+    fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
+        egui::Panel::bottom("sdr_status_bar")
+            .exact_size(32.0)
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if let Ok(state) = self.shared.try_lock() {
+                        let sig = state.spectrum.signal_level();
+                        let sig_color = if sig > -60.0 { egui::Color32::GREEN } else if sig > -100.0 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                        ui.colored_label(sig_color, format!("📶 {:.1} dB", sig));
+                        ui.separator();
+                        let status = match &state.source.status {
+                            crate::source_manager::SourceStatus::Idle => "Idle".to_string(),
+                            crate::source_manager::SourceStatus::Opening => "Opening…".to_string(),
+                            crate::source_manager::SourceStatus::Running => "🟢 Running".to_string(),
+                            crate::source_manager::SourceStatus::Error(e) => format!("⚠ {}", e.chars().take(28).collect::<String>()),
+                        };
+                        ui.label(status);
+
+                        // Satellite countdown
+                        let now_unix = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+                        if let Some(job) = state.scheduler.jobs.iter().find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt) {
+                            ui.separator();
+                            let rem = (job.los_dt - now_unix).max(0.0) as u64;
+                            ui.colored_label(egui::Color32::from_rgb(50, 255, 100),
+                                format!("🛰 {} IN PASS {:02}:{:02}", job.satellite, rem / 60, rem % 60));
+                        } else if let Some(job) = state.scheduler.jobs.iter().filter(|j| j.aos_dt > now_unix)
+                            .min_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal))
+                        {
+                            let secs = (job.aos_dt - now_unix) as u64;
+                            ui.separator();
+                            ui.colored_label(egui::Color32::GRAY, format!("🛰 {} in {}m", job.satellite, secs / 60));
+                        }
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("▶").clicked() {
+                            if let Ok(state) = self.shared.try_lock() {
+                                let len = state.freq_history.len();
+                                if let Some(idx) = self.freq_history_idx {
+                                    let next = if idx + 1 < len { Some(idx + 1) } else { None };
+                                    let target = next.unwrap_or(len.saturating_sub(1));
+                                    let freq = state.freq_history.iter().nth(target).copied();
+                                    drop(state);
+                                    self.freq_history_idx = next;
+                                    if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) { s.source.frequency_hz = f; }
+                                }
+                            }
+                        }
+                        if ui.small_button("◀").clicked() {
+                            if let Ok(state) = self.shared.try_lock() {
+                                let len = state.freq_history.len();
+                                if len > 1 {
+                                    let new_idx = self.freq_history_idx.map(|i| i.saturating_sub(1)).unwrap_or(len.saturating_sub(2));
+                                    let freq = state.freq_history.iter().nth(new_idx).copied();
+                                    drop(state);
+                                    self.freq_history_idx = Some(new_idx);
+                                    if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) { s.source.frequency_hz = f; }
+                                }
+                            }
+                        }
+                    });
+                });
+            });
+
+        egui::Panel::left("sdr_modules")
+            .resizable(true)
+            .default_size(280.0)
+            .size_range(220.0..=520.0)
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.sdr_panel.ui_source(ui);
+                    if let Some(freq) = self.sdr_panel.tune_request.take() {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            state.source.frequency_hz = freq;
+                            self.last_manual_tune_time = std::time::Instant::now();
+                        }
+                    }
+                    if let Some(msg) = self.sdr_panel.pending_status.take() {
+                        self.status_flash = Some((msg, std::time::Instant::now()));
+                    }
+                    ui.separator();
+                    egui::CollapsingHeader::new("⭐ Bookmarks").default_open(false).show(ui, |ui| {
+                        self.render_bookmarks_inline(ui);
+                    });
+                    egui::CollapsingHeader::new("🗓 Scheduler").default_open(false).show(ui, |ui| {
+                        self.render_scheduler_inline(ui, snapshot);
+                    });
+                    egui::CollapsingHeader::new("⚙ Settings").default_open(false).show(ui, |ui| {
+                        if let Ok(mut state) = self.shared.try_lock() { state.config.ui(ui); }
+                    });
+                    egui::CollapsingHeader::new("🔍 Scanner").default_open(false).show(ui, |ui| {
+                        if let Ok(state) = self.shared.try_lock() {
+                            self.scanner.spectrum_visible_range = Some((state.spectrum.visible_left_hz, state.spectrum.visible_right_hz));
+                        }
+                        self.scanner.ui(ui);
+                        if let Some(prompt) = self.scanner.pending_ai_prompt.take() {
+                            self.ai_panel.input = prompt;
+                        }
+                    });
+                    egui::CollapsingHeader::new("🤖 AI Agent").default_open(false).show(ui, |ui| {
+                        self.ai_panel.ui(ui);
+                    });
+                    egui::CollapsingHeader::new("❓ How To").default_open(false).show(ui, |ui| {
+                        self.howto_panel.ui(ui);
+                    });
+                });
+            });
+
+        egui::Panel::right("sdr_demod")
+            .resizable(true)
+            .default_size(260.0)
+            .size_range(200.0..=480.0)
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.sdr_panel.ui_demod(ui);
+                    if let Some(msg) = self.sdr_panel.pending_status.take() {
+                        self.status_flash = Some((msg, std::time::Instant::now()));
+                    }
+                    ui.separator();
+                    egui::CollapsingHeader::new("⏺ Recorder").default_open(false).show(ui, |ui| {
+                        self.recorder_panel.ui(ui);
+                    });
+                    egui::CollapsingHeader::new("💬 Discord").default_open(false).show(ui, |ui| {
+                        self.discord_panel.ui(ui, &mut self.discord, &self.shared);
+                    });
+                });
+            });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            if let Ok(mut state) = self.shared.try_lock() {
+                if state.spectrum.bookmark_freqs_dirty {
+                    state.spectrum.bookmark_freqs = state.bookmarks.bookmarks.iter()
+                        .map(|b| (b.frequency_hz, b.name.clone(), b.category.clone())).collect();
+                    state.spectrum.bookmark_freqs_dirty = false;
+                }
+                state.spectrum.vfo_bw_hz = state.lpf_cutoff as u32 * 2;
+                state.spectrum.vfo_b_freq = state.vfo_b;
+                state.spectrum.demod_mode = state.demod_mode.label().to_string();
+                state.spectrum.scan_marker = if self.scanner.enabled && !self.scanner.paused {
+                    Some(self.scanner.current_freq_hz)
+                } else { None };
+                state.spectrum.squelch_db = state.squelch;
+                state.spectrum.source_running = state.source.status == crate::source_manager::SourceStatus::Running;
+                let sq_active = state.squelch > -90.0 && state.spectrum.signal_level() > state.squelch;
+                state.spectrum.signal_active = sq_active;
+                if sq_active {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+                    state.spectrum.last_signal_unix = Some(now);
+                }
+                state.spectrum.ui(ui);
+                if let Some(freq) = state.spectrum.clicked_tune_freq.take() { state.source.frequency_hz = freq; }
+                if let Some(freq) = state.spectrum.pending_vfo_b_freq.take() {
+                    state.vfo_b = freq;
+                    self.status_flash = Some((format!("🔷 VFO B → {:.4} MHz", freq as f64 / 1e6), std::time::Instant::now()));
+                }
+                if let Some(freq) = state.spectrum.pending_bookmark_freq.take() {
+                    let mode = state.demod_mode.label().to_string();
+                    state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                        name: format!("{:.4} MHz {}", freq as f64 / 1e6, mode),
+                        frequency_hz: freq, mode, bandwidth_hz: 12_500,
+                        category: "Quick".to_string(), notes: String::new(), starred: false,
+                    });
+                    state.bookmarks_modified = true;
+                    state.spectrum.bookmark_freqs_dirty = true;
+                }
+                if let Some(sq) = state.spectrum.pending_squelch_db.take() { state.squelch = sq; }
+                if let Some(hz) = state.spectrum.pending_scan_start.take() { self.scanner.start_hz = hz; }
+                if let Some(hz) = state.spectrum.pending_scan_stop.take() { self.scanner.stop_hz = hz; }
+                if let Some(mode_str) = state.spectrum.pending_demod_mode.take() {
+                    if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) { state.demod_mode = mode; }
+                }
+                if state.spectrum.pending_start_source { state.spectrum.pending_start_source = false; state.source.start(); }
+                if let Some(freq) = state.spectrum.pending_ai_freq.take() {
+                    let freq_mhz = freq as f64 / 1e6;
+                    self.ai_panel.input = format!("I'm looking at {:.4} MHz on the spectrum. What signals might be here? What demod mode?", freq_mhz);
+                    self.status_flash = Some((format!("🤖 AI prompt for {:.3} MHz", freq_mhz), std::time::Instant::now()));
+                }
+            }
+        });
+
+        if let Some(freq) = self.sdr_panel.pending_ai_freq.take() {
+            if let Ok(state) = self.shared.try_lock() {
+                let snr = state.spectrum.peak_level() - state.spectrum.noise_floor();
+                self.ai_panel.input = format!(
+                    "Tuned to {:.4} MHz in {} mode (SNR: {:.1} dB). What signals? Best settings?",
+                    freq as f64 / 1e6, state.demod_mode.label(), snr
+                );
+            }
+        }
+    }
+
+    fn render_adsb_tab(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::right("aircraft_list")
+            .resizable(true)
+            .default_size(380.0)
+            .size_range(280.0..=560.0)
+            .show_inside(ui, |ui| {
+                self.adsb_panel.ui_list(ui);
+                if let Some(prompt) = self.adsb_panel.pending_ai_prompt.take() {
+                    self.ai_panel.input = prompt;
+                    self.status_flash = Some(("🤖 Aircraft details sent to AI".to_string(), std::time::Instant::now()));
+                }
+            });
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.adsb_panel.ui_map(ui);
+        });
+    }
+
+    fn render_satellite_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
+        egui::Panel::top("pass_schedule")
+            .exact_size(200.0)
+            .show_inside(ui, |ui| {
+                ui.heading("Upcoming Passes");
+                if let Some(snap) = snapshot {
+                    let now_unix = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+                    if snap.jobs.is_empty() {
+                        ui.colored_label(egui::Color32::GRAY, "No upcoming passes — update TLE data in the Satellite panel.");
+                    } else {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            egui::Grid::new("sat_pass_tbl").num_columns(5).striped(true).show(ui, |ui| {
+                                ui.label(egui::RichText::new("Satellite").strong());
+                                ui.label(egui::RichText::new("AOS").strong());
+                                ui.label(egui::RichText::new("LOS").strong());
+                                ui.label(egui::RichText::new("MHz").strong());
+                                ui.label(egui::RichText::new("Tune").strong());
+                                ui.end_row();
+                                for job in &snap.jobs {
+                                    let in_pass = now_unix >= job.aos_dt && now_unix <= job.los_dt;
+                                    let secs_to = (job.aos_dt - now_unix) as i64;
+                                    let color = if in_pass { egui::Color32::from_rgb(80, 255, 120) }
+                                        else if secs_to < 600 { egui::Color32::YELLOW }
+                                        else { egui::Color32::WHITE };
+                                    ui.colored_label(color, &job.satellite);
+                                    ui.label(&job.aos);
+                                    ui.label(&job.los);
+                                    ui.monospace(format!("{:.3}", job.frequency_hz as f64 / 1e6));
+                                    if ui.small_button("📡").clicked() {
+                                        if let Ok(mut state) = self.shared.try_lock() { state.source.frequency_hz = job.frequency_hz; }
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                    }
+                }
+            });
+
+        egui::Panel::bottom("sat_status")
+            .exact_size(48.0)
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let doppler = self.satellite_panel.doppler_hz;
+                    let dop_color = if doppler.abs() > 5000.0 { egui::Color32::from_rgb(255, 120, 60) }
+                        else if doppler.abs() > 1000.0 { egui::Color32::YELLOW }
+                        else { egui::Color32::from_rgb(120, 220, 120) };
+                    ui.colored_label(dop_color, format!("Doppler: {:+.2} kHz", doppler / 1000.0));
+                    ui.separator();
+                    ui.label(format!("Observer: {:.4}°N  {:.4}°E",
+                        self.satellite_panel.observer_lat, self.satellite_panel.observer_lon));
+                    if self.satellite_panel.auto_tune {
+                        ui.separator();
+                        ui.colored_label(egui::Color32::GREEN, "✓ Auto-tune");
+                    }
+                    if self.satellite_panel.recording {
+                        ui.separator();
+                        ui.colored_label(egui::Color32::RED, "● REC");
+                    }
+                });
+            });
+
+        egui::Panel::right("sat_pipeline")
+            .resizable(true)
+            .default_size(280.0)
+            .size_range(220.0..=400.0)
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.satellite_panel.ui(ui);
+                    if let Some(prompt) = self.satellite_panel.pending_ai_prompt.take() {
+                        self.ai_panel.input = prompt;
+                        self.status_flash = Some(("🤖 Satellite details sent to AI".to_string(), std::time::Instant::now()));
+                    }
+                });
+            });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.render_satellite_world_map(ui);
+        });
+    }
+
+    fn render_satellite_world_map(&mut self, ui: &mut egui::Ui) {
+        let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(8, 14, 24));
+
+        for lat_step in 0..=6i32 {
+            let lat = -90.0 + lat_step as f32 * 30.0;
+            let y = rect.top() + ((90.0 - lat) / 180.0) * rect.height();
+            painter.line_segment([egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)));
+        }
+        for lon_step in 0..=12i32 {
+            let lon = -180.0 + lon_step as f32 * 30.0;
+            let x = rect.left() + ((lon + 180.0) / 360.0) * rect.width();
+            painter.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)));
+        }
+        for lat in [-60i32, -30, 0, 30, 60] {
+            let y = rect.top() + ((90.0 - lat as f32) / 180.0) * rect.height();
+            painter.text(egui::pos2(rect.left() + 5.0, y), egui::Align2::LEFT_CENTER,
+                format!("{}°", lat), egui::FontId::proportional(8.0), egui::Color32::from_gray(50));
+        }
+
+        let obs_x = rect.left() + ((self.satellite_panel.observer_lon as f32 + 180.0) / 360.0) * rect.width();
+        let obs_y = rect.top() + ((90.0 - self.satellite_panel.observer_lat as f32) / 180.0) * rect.height();
+        if rect.contains(egui::pos2(obs_x, obs_y)) {
+            painter.line_segment([egui::pos2(obs_x - 9.0, obs_y), egui::pos2(obs_x + 9.0, obs_y)],
+                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)));
+            painter.line_segment([egui::pos2(obs_x, obs_y - 9.0), egui::pos2(obs_x, obs_y + 9.0)],
+                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)));
+            painter.circle_stroke(egui::pos2(obs_x, obs_y), 5.0,
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 240, 80)));
+            painter.text(egui::pos2(obs_x + 11.0, obs_y - 7.0), egui::Align2::LEFT_CENTER,
+                "Observer", egui::FontId::proportional(9.0), egui::Color32::from_rgb(210, 200, 70));
+        }
+
+        painter.text(egui::pos2(rect.left() + 8.0, rect.bottom() - 8.0), egui::Align2::LEFT_BOTTOM,
+            "Select a satellite in the panel to track its ground path",
+            egui::FontId::proportional(9.0), egui::Color32::from_gray(45));
+    }
+
+    fn render_bookmarks_inline(&mut self, ui: &mut egui::Ui) {
+        let bm_count = if let Ok(state) = self.shared.try_lock() { state.bookmarks.bookmarks.len() } else { 0 };
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("{} bookmarks", bm_count));
+            ui.add(egui::TextEdit::singleline(&mut self.bookmark_filter).hint_text("Filter…").desired_width(90.0));
+            ui.toggle_value(&mut self.show_starred_only, "⭐");
+            if ui.small_button("💾").on_hover_text("Save bookmarks").clicked() {
+                if let Ok(state) = self.shared.try_lock() { state.bookmarks.save(); }
+            }
+            if ui.button(if self.show_add_bm { "✕ Cancel" } else { "+ Add" }).clicked() {
+                self.show_add_bm = !self.show_add_bm;
+                if self.show_add_bm {
+                    if let Ok(state) = self.shared.try_lock() {
+                        self.new_bm_freq_mhz = format!("{:.4}", state.source.frequency_hz as f64 / 1e6);
+                        self.new_bm_mode = state.demod_mode.label().to_string();
+                    }
+                }
+            }
+        });
+
+        if self.show_add_bm {
+            ui.group(|ui| {
+                egui::Grid::new("bm_add_inline").num_columns(2).show(ui, |ui| {
+                    ui.label("Name:");
+                    ui.add(egui::TextEdit::singleline(&mut self.new_bm_name).desired_width(140.0));
+                    ui.end_row();
+                    ui.label("MHz:");
+                    ui.add(egui::TextEdit::singleline(&mut self.new_bm_freq_mhz).desired_width(80.0));
+                    ui.end_row();
+                    ui.label("Mode:");
+                    egui::ComboBox::from_id_salt("bm_mode_il")
+                        .selected_text(&self.new_bm_mode)
+                        .width(ui.available_width().min(100.0))
+                        .show_ui(ui, |ui| {
+                            for m in ["NFM", "WFM", "AM", "USB", "LSB", "RAW"] {
+                                ui.selectable_value(&mut self.new_bm_mode, m.to_string(), m);
+                            }
+                        });
+                    ui.end_row();
+                    ui.label("Cat:");
+                    ui.add(egui::TextEdit::singleline(&mut self.new_bm_category).desired_width(100.0));
+                    ui.end_row();
+                });
+                if !self.new_bm_error.is_empty() { ui.colored_label(egui::Color32::RED, &self.new_bm_error.clone()); }
+                if ui.button("Save").clicked() {
+                    if let Ok(mhz) = self.new_bm_freq_mhz.trim().parse::<f64>() {
+                        let name = self.new_bm_name.trim().to_string();
+                        if mhz > 0.0 && !name.is_empty() {
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                                    name,
+                                    frequency_hz: (mhz * 1e6) as u64,
+                                    mode: self.new_bm_mode.clone(),
+                                    bandwidth_hz: 12_500,
+                                    category: if self.new_bm_category.trim().is_empty() { "Custom".to_string() } else { self.new_bm_category.trim().to_string() },
+                                    notes: String::new(),
+                                    starred: false,
+                                });
+                                state.bookmarks_modified = true;
+                                state.spectrum.bookmark_freqs_dirty = true;
+                            }
+                            self.new_bm_name.clear(); self.new_bm_error.clear(); self.show_add_bm = false;
+                        } else { self.new_bm_error = "Name required and freq > 0".to_string(); }
+                    } else { self.new_bm_error = "Invalid frequency".to_string(); }
+                }
+            });
+        }
+
+        let filter_lower = self.bookmark_filter.to_lowercase();
+        let show_starred = self.show_starred_only;
+        let bms = if let Ok(state) = self.shared.try_lock() { state.bookmarks.bookmarks.clone() } else { return; };
+        let mut delete_idx: Option<usize> = None;
+
+        let mut categories: Vec<String> = bms.iter().map(|b| b.category.clone()).collect();
+        categories.sort(); categories.dedup();
+
+        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+            for cat in &categories {
+                let filtered: Vec<(usize, &crate::bookmarks::Bookmark)> = bms.iter().enumerate()
+                    .filter(|(_, b)| &b.category == cat
+                        && (!show_starred || b.starred)
+                        && (filter_lower.is_empty() || b.name.to_lowercase().contains(&filter_lower)
+                            || b.category.to_lowercase().contains(&filter_lower)))
+                    .collect();
+                if filtered.is_empty() { continue; }
+                ui.collapsing(format!("{} ({})", cat, filtered.len()), |ui| {
+                    for (idx, bm) in &filtered {
+                        ui.horizontal(|ui| {
+                            let star = if bm.starred { "⭐" } else { "☆" };
+                            if ui.small_button(star).clicked() {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    if let Some(b) = state.bookmarks.bookmarks.get_mut(*idx) { b.starred = !b.starred; }
+                                }
+                            }
+                            ui.label(egui::RichText::new(&bm.name).small());
+                            ui.monospace(egui::RichText::new(bm.freq_display()).small().color(egui::Color32::from_rgb(80, 180, 255)));
+                            if ui.small_button("Tune").clicked() {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    state.source.frequency_hz = bm.frequency_hz;
+                                    self.last_manual_tune_time = std::time::Instant::now();
+                                    if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) { state.demod_mode = mode; }
+                                }
+                            }
+                            if ui.small_button("🗑").clicked() { delete_idx = Some(*idx); }
+                        });
+                    }
+                });
+            }
+        });
+
+        if let Some(idx) = delete_idx {
+            if let Ok(mut state) = self.shared.try_lock() {
+                if idx < state.bookmarks.bookmarks.len() { state.bookmarks.bookmarks.remove(idx); }
+                state.bookmarks_modified = true;
+                state.spectrum.bookmark_freqs_dirty = true;
+            }
+        }
+    }
+
+    fn render_scheduler_inline(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
+        let (jobs, auto_tune) = match snapshot {
+            Some(s) => (s.jobs.clone(), s.auto_tune_enabled),
+            None => { ui.colored_label(egui::Color32::GRAY, "Loading…"); return; }
+        };
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+
+        let mut auto = auto_tune;
+        if ui.checkbox(&mut auto, "Auto-tune to passes").changed() {
+            if let Ok(mut state) = self.shared.try_lock() { state.scheduler.auto_tune_enabled = auto; }
+        }
+
+        if let Some(job) = jobs.iter().find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt) {
+            let rem = (job.los_dt - now_unix).max(0.0) as u64;
+            ui.colored_label(egui::Color32::from_rgb(80, 255, 120),
+                format!("IN PASS: {}  {:02}:{:02} left", job.satellite, rem / 60, rem % 60));
+        } else if let Some(job) = jobs.iter().filter(|j| j.aos_dt > now_unix)
+            .min_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            let secs = (job.aos_dt - now_unix) as i64;
+            let text = if secs < 3600 { format!("Next: {}  in {}m{}s", job.satellite, secs / 60, secs % 60) }
+                else { format!("Next: {}  in {}h{}m", job.satellite, secs / 3600, (secs % 3600) / 60) };
+            ui.colored_label(egui::Color32::GRAY, text);
+        } else {
+            ui.colored_label(egui::Color32::DARK_GRAY, "No upcoming passes");
+        }
+
+        egui::ScrollArea::vertical().max_height(110.0).show(ui, |ui| {
+            for job in jobs.iter().take(6) {
+                let in_pass = now_unix >= job.aos_dt && now_unix <= job.los_dt;
+                ui.horizontal(|ui| {
+                    let color = if in_pass { egui::Color32::GREEN } else { egui::Color32::WHITE };
+                    ui.colored_label(color, egui::RichText::new(&job.satellite).small());
+                    ui.label(egui::RichText::new(&job.aos).small().color(egui::Color32::GRAY));
+                    if ui.small_button("📡").clicked() {
+                        if let Ok(mut state) = self.shared.try_lock() { state.source.frequency_hz = job.frequency_hz; }
+                    }
+                });
+            }
+        });
     }
 }
 

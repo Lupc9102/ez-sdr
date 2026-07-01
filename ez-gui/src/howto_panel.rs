@@ -125,45 +125,49 @@ impl HowToPanel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("howto_sidebar")
-                .max_height(f32::INFINITY)
-                .show(ui, |ui| {
-                    ui.set_width(175.0);
-                    ui.heading("Topics");
-                    ui.add(egui::TextEdit::singleline(&mut self.search_query)
-                        .desired_width(160.0)
-                        .hint_text("🔍 Search topics…"))
-                        .on_hover_text("Filter topics by keyword — e.g. 'gain', 'scanner', 'recording', 'waterfall', 'vfo'.");
-                    if !self.search_query.is_empty() && ui.small_button("✕").clicked() {
-                        self.search_query.clear();
-                    }
-                    ui.separator();
-                    let matches = Self::search_matches(&self.search_query);
-                    for (i, section) in SECTIONS.iter().enumerate() {
-                        let visible = self.search_query.is_empty() || matches.contains(&i);
-                        if !visible { continue; }
-                        let highlighted = !self.search_query.is_empty() && matches.contains(&i);
-                        let label = if highlighted {
-                            egui::RichText::new(*section).color(egui::Color32::from_rgb(255, 220, 80))
-                        } else {
-                            egui::RichText::new(*section)
-                        };
-                        if ui.selectable_label(self.selected_section == i, label).clicked() {
-                            self.selected_section = i;
+        egui::Panel::left("howto_sidebar")
+            .resizable(false)
+            .exact_size(185.0)
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("howto_sidebar_scroll")
+                    .show(ui, |ui| {
+                        ui.heading("Topics");
+                        ui.add_space(4.0);
+                        ui.add(egui::TextEdit::singleline(&mut self.search_query)
+                            .desired_width(f32::INFINITY)
+                            .hint_text("🔍 Search…"))
+                            .on_hover_text("Filter by keyword — e.g. 'gain', 'scanner', 'waterfall'.");
+                        if !self.search_query.is_empty() && ui.small_button("✕ Clear").clicked() {
+                            self.search_query.clear();
                         }
-                    }
-                    if !self.search_query.is_empty() && matches.is_empty() {
-                        ui.colored_label(egui::Color32::GRAY, "No topics found.");
-                    }
-                });
+                        ui.separator();
+                        let matches = Self::search_matches(&self.search_query);
+                        for (i, section) in SECTIONS.iter().enumerate() {
+                            let visible = self.search_query.is_empty() || matches.contains(&i);
+                            if !visible { continue; }
+                            let highlighted = !self.search_query.is_empty() && matches.contains(&i);
+                            let label = if highlighted {
+                                egui::RichText::new(*section).color(egui::Color32::from_rgb(255, 220, 80))
+                            } else {
+                                egui::RichText::new(*section)
+                            };
+                            if ui.selectable_label(self.selected_section == i, label).clicked() {
+                                self.selected_section = i;
+                            }
+                        }
+                        if !self.search_query.is_empty() && matches.is_empty() {
+                            ui.colored_label(egui::Color32::GRAY, "No topics found.");
+                        }
+                    });
+            });
 
-            ui.separator();
-
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             egui::ScrollArea::vertical()
                 .id_salt("howto_content")
                 .show(ui, |ui| {
+                    ui.set_max_width(740.0);
+                    ui.add_space(4.0);
                     match self.selected_section {
                         0  => self.section_getting_started(ui),
                         1  => self.section_no_hardware(ui),
@@ -192,39 +196,80 @@ impl HowToPanel {
     // ─── helpers ──────────────────────────────────────────────────────────
 
     fn h1(ui: &mut egui::Ui, text: &str) {
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new(text).size(20.0).strong());
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(text).size(22.0).strong());
+        ui.separator();
         ui.add_space(6.0);
     }
 
     fn h2(ui: &mut egui::Ui, text: &str) {
-        ui.add_space(10.0);
-        ui.label(egui::RichText::new(text).size(14.0).strong());
+        ui.add_space(14.0);
+        ui.label(egui::RichText::new(text).size(15.0).strong());
+        ui.add_space(4.0);
+    }
+
+    fn h3(ui: &mut egui::Ui, text: &str) {
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(text).size(13.0).strong());
         ui.add_space(2.0);
     }
 
     fn tip(ui: &mut egui::Ui, text: &str) {
-        ui.horizontal_wrapped(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
-            ui.separator();
-            ui.label(text);
-        });
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgba_unmultiplied(35, 134, 54, 28))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 160, 67)))
+            .inner_margin(egui::Margin::same(10))
+            .corner_radius(egui::CornerRadius::same(5))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("💡 Note").strong().color(egui::Color32::from_rgb(80, 210, 120)));
+                ui.add_space(2.0);
+                ui.label(text);
+            });
+        ui.add_space(4.0);
     }
 
     fn warn(ui: &mut egui::Ui, text: &str) {
-        ui.horizontal_wrapped(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
-            ui.separator();
-            ui.label(text);
-        });
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgba_unmultiplied(187, 128, 9, 28))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(187, 128, 9)))
+            .inner_margin(egui::Margin::same(10))
+            .corner_radius(egui::CornerRadius::same(5))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("⚠️ Warning").strong().color(egui::Color32::from_rgb(255, 185, 50)));
+                ui.add_space(2.0);
+                ui.label(text);
+            });
+        ui.add_space(4.0);
     }
 
     fn bad(ui: &mut egui::Ui, text: &str) {
-        ui.horizontal_wrapped(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
-            ui.separator();
-            ui.label(text);
-        });
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgba_unmultiplied(220, 60, 50, 25))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 60, 50)))
+            .inner_margin(egui::Margin::same(10))
+            .corner_radius(egui::CornerRadius::same(5))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("⛔ Avoid").strong().color(egui::Color32::from_rgb(255, 90, 80)));
+                ui.add_space(2.0);
+                ui.label(text);
+            });
+        ui.add_space(4.0);
+    }
+
+    fn code_block(ui: &mut egui::Ui, text: &str) {
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(22, 27, 34))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(55)))
+            .inner_margin(egui::Margin::same(10))
+            .corner_radius(egui::CornerRadius::same(5))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(text).monospace().color(egui::Color32::from_rgb(225, 225, 225)));
+            });
+        ui.add_space(4.0);
     }
 
     // ─── diagrams ─────────────────────────────────────────────────────────

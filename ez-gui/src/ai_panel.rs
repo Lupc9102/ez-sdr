@@ -688,6 +688,8 @@ impl AiPanel {
                         notes,
                         starred: false,
                     });
+                    state.bookmarks_modified = true;
+                    state.spectrum.bookmark_freqs_dirty = true;
                     return format!("Bookmark '{}' saved at {:.4} MHz", name, freq_mhz);
                 }
                 "set_lpf_cutoff" => {

@@ -96,6 +96,25 @@ impl Database {
                 satellite TEXT,
                 pass_id INTEGER REFERENCES passes(id)
             );
+            CREATE TABLE IF NOT EXISTS airports (
+                ident TEXT PRIMARY KEY,
+                icao TEXT DEFAULT '',
+                iata TEXT DEFAULT '',
+                name TEXT NOT NULL,
+                lat REAL DEFAULT 0.0,
+                lon REAL DEFAULT 0.0,
+                country TEXT DEFAULT '',
+                type TEXT DEFAULT '',
+                scheduled INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS airport_freqs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                airport_ident TEXT NOT NULL,
+                type TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                frequency_mhz REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_freqs_airport ON airport_freqs(airport_ident);
         ")?;
         Ok(Self { conn })
     }

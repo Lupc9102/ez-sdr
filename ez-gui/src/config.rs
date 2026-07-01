@@ -80,6 +80,14 @@ pub struct AppConfig {
     pub theme_config: ThemeConfig,
     #[serde(default)]
     pub discord: DiscordSettings,
+    #[serde(default)]
+    pub skip_antenna_checklists: bool,
+    #[serde(default)]
+    pub user_level: String,
+    #[serde(default)]
+    pub tutorial_seen: bool,
+    #[serde(default)]
+    pub tutorial_step: usize,
 }
 
 impl Default for AppConfig {
@@ -123,16 +131,25 @@ impl Default for AppConfig {
             freq_memory_labels: Vec::new(),
             theme_config: ThemeConfig::default(),
             discord: DiscordSettings::default(),
+            skip_antenna_checklists: false,
+            user_level: "beginner".to_string(),
+            tutorial_seen: false,
+            tutorial_step: 0,
         }
     }
 }
 
 impl AppConfig {
     pub fn load_or_default() -> Self {
-        std::fs::read_to_string("ez_sdr_config.json")
+        let mut cfg = std::fs::read_to_string("ez_sdr_config.json")
             .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+            .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
+            .unwrap_or_default();
+        // Migrate from old welcome_seen to tutorial_seen
+        if cfg.welcome_seen && !cfg.tutorial_seen {
+            cfg.tutorial_seen = true;
+        }
+        cfg
     }
 
     pub fn save(&self) {
@@ -292,8 +309,9 @@ impl AppConfig {
                     .on_hover_text("Maximum response length in tokens (~4 chars each). 2048 is plenty for most tasks.");
                 ui.collapsing("System prompt", |ui| {
                     ui.label("Leave empty for default (tool-enabled assistant).");
-                    ui.add_sized([400.0, 120.0],
-                        egui::TextEdit::multiline(&mut self.ai_system_prompt));
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.ai_system_prompt)
+                            .desired_width(f32::INFINITY));
                 });
             });
 
@@ -333,15 +351,42 @@ impl AppConfig {
                     }
                 });
 
-                ui.add_space(6.0);
-                ui.separator();
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new("Theme").strong());
-                self.theme_config.ui_editor(ui, &mut self.theme);
-                if ui.button("Apply theme").clicked() {
-                    self.needs_apply = true;
-                }
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Theme").strong());
+            self.theme_config.ui_editor(ui, &mut self.theme);
+            if ui.button("Apply theme").clicked() {
+                self.needs_apply = true;
+            }
+        });
+
+        ui.collapsing("User Experience", |ui| {
+            ui.label(egui::RichText::new("Knowledge Level").strong())
+                .on_hover_text("Controls which UI controls and features are visible. Beginners see simplified panels with more hints; Experts see everything.");
+            let user_level = crate::user_level::UserLevel::from_str(&self.user_level);
+            let mut level_idx = user_level as usize;
+            ui.horizontal(|ui| {
+                ui.add(egui::Slider::new(&mut level_idx, 0..=3).step_by(1.0).text("Level"))
+                    .on_hover_text("Drag to change your experience level.");
             });
+            // Show the name + description below the slider
+            if let Some(level) = [crate::user_level::UserLevel::Beginner,
+                                  crate::user_level::UserLevel::Intermediate,
+                                  crate::user_level::UserLevel::Advanced,
+                                  crate::user_level::UserLevel::ClerkMaxwell].get(level_idx) {
+                ui.colored_label(egui::Color32::from_rgb(100, 200, 255),
+                    format!("{} — {}", level.label(), level.description()));
+                self.user_level = level.to_str().to_string();
+            }
+
+            ui.add_space(4.0);
+            if ui.button("🔁 Restart Tutorial").on_hover_text("Re-open the first-run tutorial on next launch.").clicked() {
+                self.tutorial_seen = false;
+                self.tutorial_step = 0;
+                self.needs_apply = true;
+            }
+        });
 
             ui.collapsing("Satellite Observer Location", |ui| {
                 ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))

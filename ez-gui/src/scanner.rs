@@ -464,7 +464,25 @@ impl FrequencyScanner {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Frequency Scanner");
 
-        ui.horizontal(|ui| {
+        // User level check for adaptive UI
+        let user_level = self.shared.try_lock()
+            .map(|s| crate::user_level::UserLevel::from_str(&s.config.user_level))
+            .unwrap_or(crate::user_level::UserLevel::Beginner);
+        if user_level.simplify_layout() {
+            ui.add_space(4.0);
+            if ui.add(egui::Button::new(egui::RichText::new("🤖 Ask AI to configure scanning").size(14.0))
+                .min_size(egui::vec2(240.0, 28.0))
+                .fill(egui::Color32::from_rgb(40, 60, 120)))
+                .on_hover_text("Let the AI assistant set up frequency scanning for you. Tell it what bands you want to scan.")
+                .clicked()
+            {
+                self.pending_ai_prompt = Some("Help me set up the frequency scanner. What frequencies should I scan and how do I configure it?".to_string());
+            }
+            ui.add_space(4.0);
+        }
+
+        // Row 1: Transport + sort
+        ui.horizontal_wrapped(|ui| {
             if self.enabled {
                 if ui.button("⏹ Stop").on_hover_text("Stop the scan and keep hits.").clicked() {
                     self.stop();
@@ -500,6 +518,9 @@ impl FrequencyScanner {
                     }
                 }
             }
+        });
+        // Row 2: Manage hits
+        ui.horizontal_wrapped(|ui| {
             if ui.button("Clear hits").on_hover_text("Remove all logged signal hits.").clicked() {
                 self.hits.clear();
             }
@@ -563,14 +584,19 @@ impl FrequencyScanner {
                                 bandwidth_hz: self.step_hz.max(12_500) as u32,
                                 category: "Scanner".to_string(),
                                 notes: format!("{:.1} dB", hit.strength_db),
-                                starred: false,
-                            });
-                            added += 1;
+                            starred: false,
+                        });
+                        state.bookmarks_modified = true;
+                        state.spectrum.bookmark_freqs_dirty = true;
+                        added += 1;
                         }
                     }
                     self.last_export_msg = format!("Added {} to Bookmarks/Scanner.", added);
                 }
             }
+        });
+        // Row 3: Options + status
+        ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut self.auto_tune_on_hit, "Auto-tune on hit")
                 .on_hover_text("When enabled, the SDR tunes to each new signal hit immediately so you can hear it. Pauses the sweep while listening.");
             ui.checkbox(&mut self.hold_on_active, "Hold on activity")
@@ -582,7 +608,6 @@ impl FrequencyScanner {
                     .custom_formatter(|v, _| format!("{:.0} ms", v)))
                     .on_hover_text("How long to wait after signal drops before resuming the sweep. Longer values prevent premature resume on intermittent signals.");
             }
-            ui.separator();
             let color = if self.enabled { egui::Color32::GREEN } else { egui::Color32::GRAY };
             ui.colored_label(color, &self.status_text);
             if !self.last_export_msg.is_empty() {
@@ -925,7 +950,7 @@ impl FrequencyScanner {
                     for (i, hit) in hits_copy.iter().enumerate() {
                         let already_excluded = self.exclude_hz.contains(&hit.freq_hz);
                         ui.horizontal(|ui| {
-                            ui.set_width(150.0);
+                            ui.set_min_width(80.0);
                             if already_excluded {
                                 ui.monospace(egui::RichText::new(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6)).strikethrough().color(egui::Color32::GRAY));
                             } else {
@@ -938,8 +963,8 @@ impl FrequencyScanner {
                         // Band / service identification
                         {
                             let band_label = if let Some(info) = crate::sdr_panel::identify_frequency(hit.freq_hz) {
-                                let short = if info.short_desc.len() > 22 {
-                                    format!("{}…", &info.short_desc[..20])
+                                let short = if info.short_desc.len() > 35 {
+                                    format!("{}…", &info.short_desc[..33])
                                 } else {
                                     info.short_desc.to_string()
                                 };
@@ -1018,6 +1043,8 @@ impl FrequencyScanner {
                                     notes: "Saved from scanner hit".to_string(),
                                     starred: false,
                                 });
+                                state.bookmarks_modified = true;
+                                state.spectrum.bookmark_freqs_dirty = true;
                             }
                         }
                     }

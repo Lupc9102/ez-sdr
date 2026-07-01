@@ -53,6 +53,7 @@ pub struct SdrPanel {
     pub filter_bw: u32,
     pub bookmark_request: Option<(u64, String)>,
     pub pending_ai_freq: Option<u64>,
+    pub tune_request: Option<u64>,
     freq_input: String,
     freq_input_error: String,
     freq_input_error_time: Option<std::time::Instant>,
@@ -73,16 +74,36 @@ pub struct SdrPanel {
     show_mode_guide: bool,
     show_memory_editor: bool,
     memory_labels_edit: [String; 9],
+    // Antenna setup checklist gate (shown before panel content)
+    checklist: crate::antenna_checklist::AntennaChecklist,
+    pub pending_status: Option<String>,
+    // Airport frequency finder
+    airport_db: crate::airport_db::AirportDb,
+    airport_search: String,
+    airport_type_filter: String,
+    selected_airport: Option<String>,
+    expanded_antenna_for: Option<f64>,
+    airport_dl_progress: Option<(usize, usize)>,
+    airport_dl_msg: String,
+    // Inline expand toggles for lower user levels
+    expand_ppm: bool,
+    expand_lo_offset: bool,
+    expand_vfo_b: bool,
+    expand_memory: bool,
+    expand_airport: bool,
+    expand_bias_tee: bool,
+    expand_step: bool,
 }
 
 impl SdrPanel {
     pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
         Self {
-            shared,
+            shared: shared.clone(),
             squelch: -50.0,
             filter_bw: 12_000,
             bookmark_request: None,
             pending_ai_freq: None,
+            tune_request: None,
             freq_input: String::new(),
             freq_input_error: String::new(),
             freq_input_error_time: None,
@@ -103,30 +124,63 @@ impl SdrPanel {
             show_mode_guide: false,
             show_memory_editor: false,
             memory_labels_edit: std::array::from_fn(|_| String::new()),
+            checklist: crate::antenna_checklist::AntennaChecklist::for_sdr(shared.clone()),
+            pending_status: None,
+            airport_db: crate::airport_db::AirportDb::load(),
+            airport_search: String::new(),
+            airport_type_filter: "all".to_string(),
+            selected_airport: None,
+            expanded_antenna_for: None,
+            airport_dl_progress: None,
+            airport_dl_msg: String::new(),
+            expand_ppm: false,
+            expand_lo_offset: false,
+            expand_vfo_b: false,
+            expand_memory: false,
+            expand_airport: false,
+            expand_bias_tee: false,
+            expand_step: false,
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui_source(&mut self, ui: &mut egui::Ui) {
+        // Antenna setup checklist gate — must pass before showing panel content.
+        if !self.checklist.ui(ui) {
+            if let Some(msg) = self.checklist.pending_status.take() {
+                self.pending_status = Some(msg);
+            }
+            return;
+        }
+        if let Some(msg) = self.checklist.pending_status.take() {
+            self.pending_status = Some(msg);
+        }
+
+        // Determine user level for adaptive UI
+        let user_level = self.shared.try_lock()
+            .map(|s| crate::user_level::UserLevel::from_str(&s.config.user_level))
+            .unwrap_or(crate::user_level::UserLevel::Beginner);
+        let show_advanced = user_level.show_advanced_controls();
+        let has_expand = user_level.has_inline_expand();
+        let is_beginner = user_level.simplify_layout();
+
         ui.heading("SDR Receiver");
 
         // Start/Stop + source mode at the very top for discoverability
         if let Ok(mut state) = self.shared.try_lock() {
             let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
             let is_opening = state.source.status == crate::source_manager::SourceStatus::Opening;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if is_running {
-                    if ui.add(egui::Button::new(egui::RichText::new("■ Stop").color(egui::Color32::from_rgb(220, 80, 80)))
-                            .min_size(egui::vec2(80.0, 24.0)))
+                    if ui.add(egui::Button::new(egui::RichText::new("■ Stop").color(egui::Color32::from_rgb(220, 80, 80))))
                         .on_hover_text("Stop the SDR source (keyboard: Space)")
                         .clicked()
                     {
                         state.source.stop();
                     }
                 } else if is_opening {
-                    ui.add_enabled(false, egui::Button::new("⌛ Starting…").min_size(egui::vec2(80.0, 24.0)));
+                    ui.add_enabled(false, egui::Button::new("⌛ Starting…"));
                 } else {
-                    if ui.add(egui::Button::new(egui::RichText::new("▶ Start").color(egui::Color32::from_rgb(80, 220, 120)))
-                            .min_size(egui::vec2(80.0, 24.0)))
+                    if ui.add(egui::Button::new(egui::RichText::new("▶ Start").color(egui::Color32::from_rgb(80, 220, 120))))
                         .on_hover_text("Start the SDR source and begin receiving (keyboard: Space)")
                         .clicked()
                     {
@@ -135,9 +189,15 @@ impl SdrPanel {
                 }
                 ui.separator();
                 // Source mode selector
-                ui.label("Mode:").on_hover_text("Select how to receive signals: Demo = simulated signals (no hardware), File = replay a recorded IQ file.");
-                if ui.selectable_label(state.source.source_mode == crate::source_manager::SourceMode::Simulated, "Demo")
-                    .on_hover_text("Simulated demo mode — generates realistic signals so you can explore without hardware.")
+                let source_label = if cfg!(feature = "rtlsdr") { "RTL-SDR" } else { "Demo" };
+                let source_help = if cfg!(feature = "rtlsdr") {
+                    "Real RTL-SDR hardware — receiving live signals from the connected device."
+                } else {
+                    "Simulated demo mode — generates realistic signals so you can explore without hardware."
+                };
+                ui.label("Mode:").on_hover_text("Select how to receive signals: RTL-SDR = live hardware, File = replay a recorded IQ file.");
+                if ui.selectable_label(state.source.source_mode == crate::source_manager::SourceMode::Simulated, source_label)
+                    .on_hover_text(source_help)
                     .clicked()
                 {
                     state.source.source_mode = crate::source_manager::SourceMode::Simulated;
@@ -174,422 +234,384 @@ impl SdrPanel {
 
         // Big frequency display with fine/coarse tuning
         if let Ok(mut state) = self.shared.try_lock() {
+            // Row 1: Frequency readout + DragValue
             ui.horizontal(|ui| {
                 let mut freq_mhz = state.source.frequency_hz as f64 / 1e6;
                 ui.monospace(egui::RichText::new(format!("{:.6}", freq_mhz)).size(24.0).color(egui::Color32::from_rgb(52, 152, 219)))
-                    .on_hover_text("Current tuned center frequency. The SDR receives a band centered here. RTL-SDR range: 24 MHz – 1766 MHz.");
+                    .on_hover_text("Current tuned frequency. RTL-SDR range: 24 MHz – 1766 MHz.");
                 ui.label(egui::RichText::new("MHz").size(14.0).color(egui::Color32::GRAY));
                 let is_dragging = ui.add(egui::DragValue::new(&mut freq_mhz).speed(0.0001).range(0.5..=1770.0).suffix(" MHz"))
-                    .on_hover_text("Drag left/right or type to tune. You can also click on the spectrum display to tune there.");
+                    .on_hover_text("Drag or type to tune. Click spectrum to tune there.");
                 if is_dragging.changed() || is_dragging.dragged() {
-                    state.source.frequency_hz = (freq_mhz * 1e6) as u64;
+                    self.tune_request = Some((freq_mhz * 1e6) as u64);
                 }
-                if ui.small_button("-1M").on_hover_text("Tune down 1 MHz (keyboard: ↓)").clicked() {
-                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(1_000_000).max(500_000);
+            });
+            // Row 2: Tuning buttons + actions (wraps when tab is narrow)
+            let cur_freq_for_btns = state.source.frequency_hz;
+            ui.horizontal_wrapped(|ui| {
+                if ui.small_button("-1M").on_hover_text("−1 MHz (↓)").clicked() {
+                    self.tune_request = Some(cur_freq_for_btns.saturating_sub(1_000_000).max(500_000));
                 }
-                if ui.small_button("+1M").on_hover_text("Tune up 1 MHz (keyboard: ↑)").clicked() {
-                    state.source.frequency_hz = (state.source.frequency_hz + 1_000_000).min(1_770_000_000);
+                if ui.small_button("+1M").on_hover_text("+1 MHz (↑)").clicked() {
+                    self.tune_request = Some((cur_freq_for_btns + 1_000_000).min(1_770_000_000));
                 }
-                if ui.small_button("-100k").on_hover_text("Tune down 100 kHz (keyboard: ←)").clicked() {
-                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(100_000).max(500_000);
+                if ui.small_button("-100k").on_hover_text("−100 kHz (←)").clicked() {
+                    self.tune_request = Some(cur_freq_for_btns.saturating_sub(100_000).max(500_000));
                 }
-                if ui.small_button("+100k").on_hover_text("Tune up 100 kHz (keyboard: →)").clicked() {
-                    state.source.frequency_hz = (state.source.frequency_hz + 100_000).min(1_770_000_000);
+                if ui.small_button("+100k").on_hover_text("+100 kHz (→)").clicked() {
+                    self.tune_request = Some((cur_freq_for_btns + 100_000).min(1_770_000_000));
                 }
-                if ui.small_button("-10k").on_hover_text("Tune down 10 kHz — fine channel step").clicked() {
-                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(10_000).max(500_000);
-                }
-                if ui.small_button("+10k").on_hover_text("Tune up 10 kHz — fine channel step").clicked() {
-                    state.source.frequency_hz = (state.source.frequency_hz + 10_000).min(1_770_000_000);
-                }
+                ui.separator();
                 let bm_freq = state.source.frequency_hz;
                 let bm_mode = state.demod_mode.label().to_string();
-                if ui.small_button("⭐").on_hover_text("Bookmark this frequency — saves it to your bookmarks list with the current mode.").clicked() {
+                if ui.small_button("⭐").on_hover_text("Bookmark this frequency").clicked() {
                     self.bookmark_request = Some((bm_freq, bm_mode));
-                }
-                let copy_freq_str = format!("{:.6}", bm_freq as f64 / 1e6);
-                if ui.small_button("📋").on_hover_text("Copy current frequency (MHz) to clipboard.").clicked() {
-                    ui.ctx().copy_text(copy_freq_str);
                 }
                 if ui.small_button("🤖").on_hover_text("Ask AI about this frequency").clicked() {
                     self.pending_ai_freq = Some(bm_freq);
                 }
-                // Show freeze state from spectrum
                 let is_frozen = state.spectrum.frozen;
-                if ui.small_button(if is_frozen { "▶ Unfreeze" } else { "❄" })
-                    .on_hover_text(if is_frozen { "Unfreeze spectrum display" } else { "Freeze spectrum display (stops updating)" })
+                if ui.small_button(if is_frozen { "▶" } else { "❄" })
+                    .on_hover_text(if is_frozen { "Unfreeze spectrum" } else { "Freeze spectrum" })
                     .clicked()
                 {
                     state.spectrum.frozen = !state.spectrum.frozen;
                 }
             });
-            ui.separator();
-            // Band presets
-            let current_freq = state.source.frequency_hz;
-            let band_presets: &[(&str, u64, &str)] = &[
-                ("LW (153-279 kHz)",        153_000,      "Longwave broadcast"),
-                ("MW/AM (530-1710 kHz)",    1_000_000,    "AM broadcast band"),
-                ("Shortwave (2.3-30 MHz)",  10_000_000,   "Shortwave HF band"),
-                ("CB Radio (27 MHz)",       27_000_000,   "Citizens Band"),
-                ("6m HAM (50-54 MHz)",      50_000_000,   "6m amateur band"),
-                ("FM Broadcast (88-108)",   100_000_000,  "WFM broadcast radio"),
-                ("Air Band (118-137 MHz)",  120_000_000,  "AM aviation"),
-                ("2m HAM (144-148 MHz)",    145_000_000,  "2m amateur band"),
-                ("Marine VHF (156-174)",    160_000_000,  "Marine radio"),
-                ("70cm HAM (430-440 MHz)",  435_000_000,  "70cm amateur band"),
-                ("GMRS/FRS (462-467 MHz)",  462_000_000,  "GMRS/FRS"),
-                ("UHF (700-900 MHz)",       800_000_000,  "Cellular/UHF TV"),
-                ("ADS-B (1090 MHz)",        1_090_000_000,"Aircraft transponder"),
-                ("L-Band (1.5-1.7 GHz)",    1_500_000_000,"GPS/satellite"),
-            ];
-            let selected = band_presets.iter()
-                .position(|(_, freq, _)| {
-                    let diff = if *freq > current_freq { *freq - current_freq } else { current_freq - *freq };
-                    diff < 2_000_000
-                });
-            let combo = egui::ComboBox::from_id_salt("band_presets")
-                .selected_text(if let Some(idx) = selected { band_presets[idx].0 } else { "Band…" })
-                .width(160.0)
-                .show_ui(ui, |ui| {
-                    for (i, &(name, freq, _desc)) in band_presets.iter().enumerate() {
-                        if ui.selectable_label(selected == Some(i), name).clicked() {
-                            state.source.frequency_hz = freq;
+            if !is_beginner {
+                ui.separator();
+                // Band presets
+                let current_freq = state.source.frequency_hz;
+                let band_presets: &[(&str, u64, &str)] = &[
+                    ("LW (153-279 kHz)",        153_000,      "Longwave broadcast"),
+                    ("MW/AM (530-1710 kHz)",    1_000_000,    "AM broadcast band"),
+                    ("Shortwave (2.3-30 MHz)",  10_000_000,   "Shortwave HF band"),
+                    ("CB Radio (27 MHz)",       27_000_000,   "Citizens Band"),
+                    ("6m HAM (50-54 MHz)",      50_000_000,   "6m amateur band"),
+                    ("FM Broadcast (88-108)",   100_000_000,  "WFM broadcast radio"),
+                    ("Air Band (118-137 MHz)",  120_000_000,  "AM aviation"),
+                    ("2m HAM (144-148 MHz)",    145_000_000,  "2m amateur band"),
+                    ("Marine VHF (156-174)",    160_000_000,  "Marine radio"),
+                    ("70cm HAM (430-440 MHz)",  435_000_000,  "70cm amateur band"),
+                    ("GMRS/FRS (462-467 MHz)",  462_000_000,  "GMRS/FRS"),
+                    ("UHF (700-900 MHz)",       800_000_000,  "Cellular/UHF TV"),
+                    ("ADS-B (1090 MHz)",        1_090_000_000,"Aircraft transponder"),
+                    ("L-Band (1.5-1.7 GHz)",    1_500_000_000,"GPS/satellite"),
+                ];
+                let selected = band_presets.iter()
+                    .position(|(_, freq, _)| {
+                        let diff = if *freq > current_freq { *freq - current_freq } else { current_freq - *freq };
+                        diff < 2_000_000
+                    });
+                let combo = egui::ComboBox::from_id_salt("band_presets")
+                    .selected_text(if let Some(idx) = selected { band_presets[idx].0 } else { "Band…" })
+                    .width(ui.available_width().min(250.0).max(80.0))
+                    .show_ui(ui, |ui| {
+                        for (i, &(name, freq, _desc)) in band_presets.iter().enumerate() {
+                            if ui.selectable_label(selected == Some(i), name).clicked() {
+                                self.tune_request = Some(freq);
+                            }
                         }
-                    }
-                });
-            combo.response.on_hover_text("Jump to a common frequency band. The dropdown shows which band your current frequency is nearest to.");
+                    });
+                combo.response.on_hover_text("Jump to a common frequency band. The dropdown shows which band your current frequency is nearest to.");
+            }
         }
 
         // Frequency information and mode suggestion
-        if let Ok(state) = self.shared.try_lock() {
-            if let Some(info) = identify_frequency(state.source.frequency_hz) {
-                // Show band info
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.colored_label(egui::Color32::from_rgb(100, 200, 255),
-                            format!("📍 {}: {}", info.band, info.short_desc));
-                        ui.label(egui::RichText::new(info.detail).small().color(egui::Color32::GRAY));
+        if !is_beginner {
+            if let Ok(state) = self.shared.try_lock() {
+                if let Some(info) = identify_frequency(state.source.frequency_hz) {
+                    // Show band info
+                    let hover = if info.what_to_hear.is_empty() {
+                        format!("{}", info.detail)
+                    } else {
+                        format!("{}\n🔊 {}", info.detail, info.what_to_hear)
+                    };
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255),
+                        format!("📍 {}: {}", info.band, info.short_desc))
+                        .on_hover_text(hover);
 
-                        // What to hear section
-                        if !info.what_to_hear.is_empty() {
-                            ui.separator();
+                    // Parse the tips field to extract suggested mode
+                    let suggested_mode = if info.tips.contains("LSB") {
+                        Some(("LSB", "for voice"))
+                    } else if info.tips.contains("USB") {
+                        Some(("USB", "for voice"))
+                    } else if info.tips.contains("WFM") {
+                        Some(("WFM", "for broadcast"))
+                    } else if info.tips.contains("NFM") || info.tips.contains("FM") {
+                        Some(("FM", "for narrowband"))
+                    } else if info.tips.contains("AM") {
+                        Some(("AM", "for AM broadcast"))
+                    } else if info.tips.contains("RAW") {
+                        Some(("RAW", "for digital"))
+                    } else {
+                        None
+                    };
+
+                    if let Some((mode, desc)) = suggested_mode {
+                        if state.demod_mode.label() != mode {
                             ui.horizontal(|ui| {
-                                ui.label("🔊 You should hear:");
-                                ui.label(egui::RichText::new(info.what_to_hear).small());
+                                ui.colored_label(egui::Color32::from_rgb(200, 200, 100),
+                                    format!("💡 Suggested: {} ({})", mode, desc));
+                                if ui.small_button("Apply").on_hover_text(format!("Switch to {} mode for this frequency", mode)).clicked() {
+                                    drop(state);
+                                    if let Ok(mut state_mut) = self.shared.try_lock() {
+                                        if let Some(new_mode) = DemodMode::from_label(mode) {
+                                            state_mut.demod_mode = new_mode;
+                                        }
+                                    }
+                                }
                             });
                         }
-                    });
+                    }
+                }
+            }
+
+            // Quick tune presets
+            if let Ok(mut state) = self.shared.try_lock() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("🎯 Quick Tune:").on_hover_text("One-click tuning to popular frequencies with auto-mode selection");
+                    let presets = [
+                        ("📻 FM", 100_000_000u64, DemodMode::Wfm, "FM radio broadcast"),
+                        ("🛩️ ADS-B", 1_090_000_000, DemodMode::Raw, "Aircraft tracking"),
+                        ("🛰️ NOAA 15", 137_620_000, DemodMode::Wfm, "Weather satellite APT"),
+                        ("☁️ NOAA WX", 162_550_000, DemodMode::Fm, "NOAA weather radio"),
+                        ("📡 ISS", 145_800_000, DemodMode::Fm, "International Space Station"),
+                        ("📍 GPS L1", 1_575_420_000, DemodMode::Raw, "GPS L1 signal"),
+                        ("🔬 2m Ham", 145_500_000, DemodMode::Fm, "2m Amateur band"),
+                    ];
+                    for (label, freq, mode, tooltip) in presets.iter() {
+                        if ui.small_button(*label).on_hover_text(*tooltip).clicked() {
+                            self.tune_request = Some(*freq);
+                            state.demod_mode = *mode;
+                        }
+                    }
                 });
 
-                // Parse the tips field to extract suggested mode
-                let suggested_mode = if info.tips.contains("LSB") {
-                    Some(("LSB", "for voice"))
-                } else if info.tips.contains("USB") {
-                    Some(("USB", "for voice"))
-                } else if info.tips.contains("WFM") {
-                    Some(("WFM", "for broadcast"))
-                } else if info.tips.contains("NFM") || info.tips.contains("FM") {
-                    Some(("FM", "for narrowband"))
-                } else if info.tips.contains("AM") {
-                    Some(("AM", "for AM broadcast"))
-                } else if info.tips.contains("RAW") {
-                    Some(("RAW", "for digital"))
+                // Recent frequencies quick access
+                if !state.config.recent_frequencies.is_empty() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("📜 Recent:").on_hover_text("Frequencies you've tuned to recently. Click to jump back.");
+                        let recent = state.config.recent_frequencies.clone();
+                        for (idx, freq_hz) in recent.iter().rev().enumerate() {
+                            if idx >= 5 { break; } // Show last 5
+                            let freq_mhz = *freq_hz as f64 / 1e6;
+                            if ui.small_button(format!("{:.3}", freq_mhz)).on_hover_text(format!("{:.6} MHz", freq_mhz)).clicked() {
+                                self.tune_request = Some(*freq_hz);
+                            }
+                        }
+                    });
+                }
+
+            }
+        }
+
+        // VFO A/B swap (hidden for beginners unless expanded)
+        let show_vfo_b = show_advanced || !user_level.simplify_layout();
+        if show_vfo_b || (has_expand && self.expand_vfo_b) {
+            if let Ok(mut state) = self.shared.try_lock() {
+                let vfo_b_mhz = state.vfo_b as f64 / 1e6;
+                let cur_mhz = state.source.frequency_hz as f64 / 1e6;
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("VFO A").strong().color(egui::Color32::from_rgb(52, 200, 100)));
+                    ui.monospace(format!("{:.3} MHz", cur_mhz));
+                    ui.separator();
+                    ui.label(egui::RichText::new("VFO B").color(egui::Color32::from_rgb(100, 180, 255)));
+                    ui.monospace(format!("{:.3} MHz", vfo_b_mhz));
+                    if ui.small_button("⇄ Swap")
+                        .on_hover_text("Swap between VFO A and VFO B frequencies (keyboard: V). VFO B stores an alternate frequency for quick A/B comparison.")
+                        .clicked()
+                    {
+                        let tmp = state.source.frequency_hz;
+                        state.source.frequency_hz = state.vfo_b;
+                        state.vfo_b = tmp;
+                    }
+                    if ui.small_button("Set B here")
+                        .on_hover_text("Save current frequency as VFO B without switching.")
+                        .clicked()
+                    {
+                        state.vfo_b = state.source.frequency_hz;
+                    }
+                });
+
+                // VFO A/B difference indicator
+                if state.vfo_b > 0 {
+                    let diff_hz = (state.source.frequency_hz as i64 - state.vfo_b as i64).abs();
+                    let diff_str = if diff_hz >= 1_000_000 {
+                        format!("Δ {:.3} MHz", diff_hz as f64 / 1e6)
+                    } else if diff_hz >= 1_000 {
+                        format!("Δ {:.1} kHz", diff_hz as f64 / 1e3)
+                    } else {
+                        format!("Δ {} Hz", diff_hz)
+                    };
+                    ui.colored_label(egui::Color32::from_rgb(180, 150, 200), &diff_str)
+                        .on_hover_text(format!("Frequency offset between VFO A and VFO B: {}", diff_str));
+                }
+            }
+        } else if has_expand {
+            if ui.button(egui::RichText::new("⚙ Show VFO B (advanced)").size(12.0)).clicked() {
+                self.expand_vfo_b = true;
+            }
+        }
+
+        // LO offset indicator (hidden for Beginner/Intermediate unless expanded)
+        let show_lo = show_advanced;
+        if show_lo || (has_expand && self.expand_lo_offset) {
+            if let Ok(state) = self.shared.try_lock() {
+                if state.lo_offset_hz != 0 {
+                    ui.horizontal(|ui| {
+                        ui.label("LO offset:").on_hover_text("Local oscillator offset for upconverter/downconverter configurations.");
+                        ui.colored_label(
+                            egui::Color32::from_rgb(255, 180, 50),
+                            format!("{:+.1} MHz", state.lo_offset_hz as f64 / 1e6)
+                        ).on_hover_text(format!("Active LO offset. True frequency = {} + {} = {:.6} MHz",
+                            state.source.frequency_hz as f64 / 1e6,
+                            state.lo_offset_hz as f64 / 1e6,
+                            (state.source.frequency_hz as i64 + state.lo_offset_hz).max(0) as f64 / 1e6
+                        ));
+                    });
+                }
+            }
+        } else if has_expand {
+            if ui.button(egui::RichText::new("⚙ Show LO offset (advanced)").size(12.0)).clicked() {
+                self.expand_lo_offset = true;
+            }
+        }
+
+        if !is_beginner {
+            // Sample rate quick buttons
+            if let Ok(mut state) = self.shared.try_lock() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Sample rate:").on_hover_text("Receiver sample rate. Higher = wider spectrum, slower updates.");
+                    for (label, rate_hz) in [
+                        ("1M", 1_000_000u32),
+                        ("1.536M", 1_536_000),
+                        ("2M", 2_000_000),
+                        ("2.4M", 2_400_000),
+                        ("2.88M", 2_880_000),
+                    ] {
+                        let is_active = state.source.sample_rate_hz == rate_hz;
+                        if ui.selectable_label(is_active, label)
+                            .on_hover_text(format!("Set sample rate to {} SPS", rate_hz))
+                            .clicked()
+                        {
+                            state.source.sample_rate_hz = rate_hz;
+                        }
+                    }
+                    let current_rate = state.source.sample_rate_hz / 1_000_000;
+                    let rate_remainder = (state.source.sample_rate_hz % 1_000_000) / 1000;
+                    if rate_remainder > 0 {
+                        ui.label(format!("({}.{}M)", current_rate, rate_remainder))
+                            .on_hover_text("Current sample rate");
+                    }
+                });
+            }
+
+            // Gain quick buttons
+            if let Ok(mut state) = self.shared.try_lock() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Gain:").on_hover_text("RF amplifier gain. Higher = more sensitivity but risks overload. Sweet spot usually 30-45 dB.");
+                    for (label, gain_db) in [
+                        ("Off", 0.0f64),
+                        ("15dB", 15.0),
+                        ("30dB", 30.0),
+                        ("40dB", 40.0),
+                        ("Max", 49.6),
+                    ] {
+                        let is_active = (state.source.gain_db - gain_db).abs() < 0.5;
+                        if ui.selectable_label(is_active, label)
+                            .on_hover_text(format!("Set gain to {:.1} dB", gain_db))
+                            .clicked()
+                        {
+                            state.source.gain_db = gain_db;
+                        }
+                    }
+                    ui.label(format!("({:.1} dB)", state.source.gain_db))
+                        .on_hover_text("Current gain setting");
+                });
+
+                // Gain optimization suggestion
+                let audio_peak = state.audio_peak;
+                let snr_db = state.spectrum.peak_level() - state.spectrum.noise_floor();
+                let gain_suggestion = if audio_peak > 0.95 {
+                    Some((
+                        "⚠️ Reduce gain — audio clipping!",
+                        egui::Color32::from_rgb(220, 80, 80),
+                        "Your signal is too strong and causing distortion. Lower the gain by 3–5 dB.",
+                    ))
+                } else if audio_peak > 0.85 {
+                    Some((
+                        "⚠️ Gain is high (clipping risk)",
+                        egui::Color32::from_rgb(255, 180, 80),
+                        "Signal is strong but approaching saturation. Consider reducing gain slightly.",
+                    ))
+                } else if snr_db > 0.0 && snr_db < 10.0 && state.source.gain_db < 40.0 {
+                    Some((
+                        "💡 Try increasing gain",
+                        egui::Color32::from_rgb(100, 200, 255),
+                        "Signal is weak. You might improve reception by increasing gain (up to 45 dB).",
+                    ))
                 } else {
                     None
                 };
 
-                if let Some((mode, desc)) = suggested_mode {
-                    if state.demod_mode.label() != mode {
+                if let Some((msg, color, tooltip)) = gain_suggestion {
+                    ui.colored_label(color, msg)
+                        .on_hover_text(tooltip);
+                }
+            }
+
+            // Quick tuning checklist for beginners
+            if let Ok(state) = self.shared.try_lock() {
+                let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
+                let audio_on = state.audio_running;
+                let gain_ok = state.source.gain_db >= 25.0 && state.source.gain_db <= 45.0;
+                let snr = state.spectrum.peak_level() - state.spectrum.noise_floor();
+                let signal_ok = snr > 8.0;
+
+                let show_checklist = !is_running;
+                if show_checklist {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("📋 Tuning Checklist").small().color(egui::Color32::from_rgb(180, 180, 100)));
                         ui.horizontal(|ui| {
-                            ui.colored_label(egui::Color32::from_rgb(200, 200, 100),
-                                format!("💡 Suggested: {} ({})", mode, desc));
-                            if ui.small_button("Apply").on_hover_text(format!("Switch to {} mode for this frequency", mode)).clicked() {
-                                drop(state);
-                                if let Ok(mut state_mut) = self.shared.try_lock() {
-                                    if let Some(new_mode) = DemodMode::from_label(mode) {
-                                        state_mut.demod_mode = new_mode;
-                                    }
-                                }
-                            }
+                            let status_text = if is_running {
+                                "✓ SDR running"
+                            } else {
+                                "⚠️ Press ▶ Start"
+                            };
+                            let color = if is_running { egui::Color32::GREEN } else { egui::Color32::YELLOW };
+                            ui.colored_label(color, egui::RichText::new(status_text).small());
+                            ui.separator();
+                            let audio_text = if audio_on {
+                                "✓ Audio on"
+                            } else {
+                                "⚠️ Start audio"
+                            };
+                            let color = if audio_on { egui::Color32::GREEN } else { egui::Color32::YELLOW };
+                            ui.colored_label(color, egui::RichText::new(audio_text).small());
+                            ui.separator();
+                            let gain_text = if gain_ok {
+                                "✓ Gain OK"
+                            } else if state.source.gain_db < 25.0 {
+                                "⚠️ Gain too low"
+                            } else {
+                                "⚠️ Gain too high"
+                            };
+                            let color = if gain_ok { egui::Color32::GREEN } else { egui::Color32::YELLOW };
+                            ui.colored_label(color, egui::RichText::new(gain_text).small());
+                            ui.separator();
+                            let signal_text = if signal_ok && is_running {
+                                "✓ Signal found"
+                            } else if is_running {
+                                "⚠️ No signal"
+                            } else {
+                                "❌ Start to check"
+                            };
+                            let color = if signal_ok && is_running { egui::Color32::GREEN } else { egui::Color32::RED };
+                            ui.colored_label(color, egui::RichText::new(signal_text).small());
                         });
-                    }
-                }
-            }
-        }
-
-        // Quick Setup Wizard for beginners
-        if let Ok(mut state) = self.shared.try_lock() {
-            let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
-            if !is_running {
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("🚀 Quick Setup").small().color(egui::Color32::from_rgb(100, 200, 255)));
-                    ui.horizontal(|ui| {
-                        if ui.small_button("▶ Start & Optimize")
-                            .on_hover_text("Start SDR, set gain to 40 dB, enable auto-squelch, and start audio so you can hear signals immediately")
-                            .clicked()
-                        {
-                            state.source.start();
-                            state.source.gain_db = 40.0;
-                            state.audio_running = true;
-                            self.auto_squelch = true;
-                            self.squelch = -120.0 + 5.0; // 5 dB above noise floor when tracking starts
-                        }
-                        ui.separator();
-                        ui.label(egui::RichText::new("or tune to a frequency →").small());
                     });
-                });
-            }
-        }
-
-        // Quick tune presets
-        if let Ok(mut state) = self.shared.try_lock() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label("🎯 Quick Tune:").on_hover_text("One-click tuning to popular frequencies with auto-mode selection");
-                let presets = [
-                    ("📻 FM", 100_000_000u64, DemodMode::Wfm, "FM radio broadcast"),
-                    ("🛩️ ADS-B", 1_090_000_000, DemodMode::Raw, "Aircraft tracking"),
-                    ("🛰️ NOAA 15", 137_620_000, DemodMode::Wfm, "Weather satellite APT"),
-                    ("☁️ NOAA WX", 162_550_000, DemodMode::Fm, "NOAA weather radio"),
-                    ("📡 ISS", 145_800_000, DemodMode::Fm, "International Space Station"),
-                    ("📍 GPS L1", 1_575_420_000, DemodMode::Raw, "GPS L1 signal"),
-                    ("🔬 2m Ham", 145_500_000, DemodMode::Fm, "2m Amateur band"),
-                ];
-                for (label, freq, mode, tooltip) in presets.iter() {
-                    if ui.small_button(*label).on_hover_text(*tooltip).clicked() {
-                        state.source.frequency_hz = *freq;
-                        state.demod_mode = *mode;
-                    }
                 }
-            });
-
-            // Recent frequencies quick access
-            if !state.config.recent_frequencies.is_empty() {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("📜 Recent:").on_hover_text("Frequencies you've tuned to recently. Click to jump back.");
-                    let recent = state.config.recent_frequencies.clone();
-                    for (idx, freq_hz) in recent.iter().rev().enumerate() {
-                        if idx >= 5 { break; } // Show last 5
-                        let freq_mhz = *freq_hz as f64 / 1e6;
-                        if ui.small_button(format!("{:.3}", freq_mhz)).on_hover_text(format!("{:.6} MHz", freq_mhz)).clicked() {
-                            state.source.frequency_hz = *freq_hz;
-                        }
-                    }
-                });
-            }
-
-            // Favorite bookmarks quick access
-            let bookmarks = state.bookmarks.bookmarks.clone();
-            let relevant_bms: Vec<_> = bookmarks.iter()
-                .filter(|bm| (bm.frequency_hz as i64 - state.source.frequency_hz as i64).abs() < 2_000_000) // Within 2 MHz
-                .take(5)
-                .collect();
-
-            if !relevant_bms.is_empty() {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("⭐ Nearby:").on_hover_text("Bookmarked frequencies near your current tuning. Quick jump to known signals.");
-                    for bm in relevant_bms {
-                        let bm_mhz = bm.frequency_hz as f64 / 1e6;
-                        let tooltip = format!("{} @ {:.3} MHz ({})", bm.name, bm_mhz, bm.category);
-                        if ui.small_button(&bm.name).on_hover_text(tooltip).clicked() {
-                            state.source.frequency_hz = bm.frequency_hz;
-                            if let Some(mode) = DemodMode::from_label(&bm.mode) {
-                                state.demod_mode = mode;
-                            }
-                        }
-                    }
-                });
-            }
-        }
-
-        // VFO A/B swap
-        if let Ok(mut state) = self.shared.try_lock() {
-            let vfo_b_mhz = state.vfo_b as f64 / 1e6;
-            let cur_mhz = state.source.frequency_hz as f64 / 1e6;
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("VFO A").strong().color(egui::Color32::from_rgb(52, 200, 100)));
-                ui.monospace(format!("{:.3} MHz", cur_mhz));
-                ui.separator();
-                ui.label(egui::RichText::new("VFO B").color(egui::Color32::from_rgb(100, 180, 255)));
-                ui.monospace(format!("{:.3} MHz", vfo_b_mhz));
-                if ui.small_button("⇄ Swap")
-                    .on_hover_text("Swap between VFO A and VFO B frequencies (keyboard: V). VFO B stores an alternate frequency for quick A/B comparison.")
-                    .clicked()
-                {
-                    let tmp = state.source.frequency_hz;
-                    state.source.frequency_hz = state.vfo_b;
-                    state.vfo_b = tmp;
-                }
-                if ui.small_button("Set B here")
-                    .on_hover_text("Save current frequency as VFO B without switching.")
-                    .clicked()
-                {
-                    state.vfo_b = state.source.frequency_hz;
-                }
-            });
-
-            // VFO A/B difference indicator
-            if state.vfo_b > 0 {
-                let diff_hz = (state.source.frequency_hz as i64 - state.vfo_b as i64).abs();
-                let diff_str = if diff_hz >= 1_000_000 {
-                    format!("Δ {:.3} MHz", diff_hz as f64 / 1e6)
-                } else if diff_hz >= 1_000 {
-                    format!("Δ {:.1} kHz", diff_hz as f64 / 1e3)
-                } else {
-                    format!("Δ {} Hz", diff_hz)
-                };
-                ui.colored_label(egui::Color32::from_rgb(180, 150, 200), &diff_str)
-                    .on_hover_text(format!("Frequency offset between VFO A and VFO B: {}", diff_str));
-            }
-
-            // LO offset indicator
-            if state.lo_offset_hz != 0 {
-                ui.horizontal(|ui| {
-                    ui.label("LO offset:").on_hover_text("Local oscillator offset for upconverter/downconverter configurations.");
-                    ui.colored_label(
-                        egui::Color32::from_rgb(255, 180, 50),
-                        format!("{:+.1} MHz", state.lo_offset_hz as f64 / 1e6)
-                    ).on_hover_text(format!("Active LO offset. True frequency = {} + {} = {:.6} MHz",
-                        state.source.frequency_hz as f64 / 1e6,
-                        state.lo_offset_hz as f64 / 1e6,
-                        (state.source.frequency_hz as i64 + state.lo_offset_hz).max(0) as f64 / 1e6
-                    ));
-                });
-            }
-        }
-
-        // Sample rate quick buttons
-        if let Ok(mut state) = self.shared.try_lock() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Sample rate:").on_hover_text("Receiver sample rate. Higher = wider spectrum, slower updates.");
-                for (label, rate_hz) in [
-                    ("1M", 1_000_000u32),
-                    ("1.536M", 1_536_000),
-                    ("2M", 2_000_000),
-                    ("2.4M", 2_400_000),
-                    ("2.88M", 2_880_000),
-                ] {
-                    let is_active = state.source.sample_rate_hz == rate_hz;
-                    if ui.selectable_label(is_active, label)
-                        .on_hover_text(format!("Set sample rate to {} SPS", rate_hz))
-                        .clicked()
-                    {
-                        state.source.sample_rate_hz = rate_hz;
-                    }
-                }
-                let current_rate = state.source.sample_rate_hz / 1_000_000;
-                let rate_remainder = (state.source.sample_rate_hz % 1_000_000) / 1000;
-                if rate_remainder > 0 {
-                    ui.label(format!("({}.{}M)", current_rate, rate_remainder))
-                        .on_hover_text("Current sample rate");
-                }
-            });
-        }
-
-        // Gain quick buttons
-        if let Ok(mut state) = self.shared.try_lock() {
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Gain:").on_hover_text("RF amplifier gain. Higher = more sensitivity but risks overload. Sweet spot usually 30-45 dB.");
-                for (label, gain_db) in [
-                    ("Off", 0.0f64),
-                    ("15dB", 15.0),
-                    ("30dB", 30.0),
-                    ("40dB", 40.0),
-                    ("Max", 49.6),
-                ] {
-                    let is_active = (state.source.gain_db - gain_db).abs() < 0.5;
-                    if ui.selectable_label(is_active, label)
-                        .on_hover_text(format!("Set gain to {:.1} dB", gain_db))
-                        .clicked()
-                    {
-                        state.source.gain_db = gain_db;
-                    }
-                }
-                ui.label(format!("({:.1} dB)", state.source.gain_db))
-                    .on_hover_text("Current gain setting");
-            });
-
-            // Gain optimization suggestion
-            let audio_peak = state.audio_peak;
-            let snr_db = state.spectrum.peak_level() - state.spectrum.noise_floor();
-            let gain_suggestion = if audio_peak > 0.95 {
-                Some((
-                    "⚠️ Reduce gain — audio clipping!",
-                    egui::Color32::from_rgb(220, 80, 80),
-                    "Your signal is too strong and causing distortion. Lower the gain by 3–5 dB.",
-                ))
-            } else if audio_peak > 0.85 {
-                Some((
-                    "⚠️ Gain is high (clipping risk)",
-                    egui::Color32::from_rgb(255, 180, 80),
-                    "Signal is strong but approaching saturation. Consider reducing gain slightly.",
-                ))
-            } else if snr_db > 0.0 && snr_db < 10.0 && state.source.gain_db < 40.0 {
-                Some((
-                    "💡 Try increasing gain",
-                    egui::Color32::from_rgb(100, 200, 255),
-                    "Signal is weak. You might improve reception by increasing gain (up to 45 dB).",
-                ))
-            } else {
-                None
-            };
-
-            if let Some((msg, color, tooltip)) = gain_suggestion {
-                ui.colored_label(color, msg)
-                    .on_hover_text(tooltip);
-            }
-        }
-
-        // Quick tuning checklist for beginners
-        if let Ok(state) = self.shared.try_lock() {
-            let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
-            let audio_on = state.audio_running;
-            let gain_ok = state.source.gain_db >= 25.0 && state.source.gain_db <= 45.0;
-            let snr = state.spectrum.peak_level() - state.spectrum.noise_floor();
-            let signal_ok = snr > 8.0;
-
-            // Only show if anything is not optimal (helps reduce clutter)
-            let show_checklist = !is_running || !audio_on || !gain_ok || (is_running && !signal_ok);
-            if show_checklist {
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("📋 Tuning Checklist").small().color(egui::Color32::from_rgb(180, 180, 100)));
-                    ui.horizontal(|ui| {
-                        let status_text = if is_running {
-                            "✓ SDR running"
-                        } else {
-                            "⚠️ Press ▶ Start"
-                        };
-                        let color = if is_running { egui::Color32::GREEN } else { egui::Color32::YELLOW };
-                        ui.colored_label(color, egui::RichText::new(status_text).small());
-                        ui.separator();
-                        let audio_text = if audio_on {
-                            "✓ Audio on"
-                        } else {
-                            "⚠️ Start audio"
-                        };
-                        let color = if audio_on { egui::Color32::GREEN } else { egui::Color32::YELLOW };
-                        ui.colored_label(color, egui::RichText::new(audio_text).small());
-                        ui.separator();
-                        let gain_text = if gain_ok {
-                            "✓ Gain OK"
-                        } else if state.source.gain_db < 25.0 {
-                            "⚠️ Gain too low"
-                        } else {
-                            "⚠️ Gain too high"
-                        };
-                        let color = if gain_ok { egui::Color32::GREEN } else { egui::Color32::YELLOW };
-                        ui.colored_label(color, egui::RichText::new(gain_text).small());
-                        ui.separator();
-                        let signal_text = if signal_ok && is_running {
-                            "✓ Signal found"
-                        } else if is_running {
-                            "⚠️ No signal"
-                        } else {
-                            "❌ Start to check"
-                        };
-                        let color = if signal_ok && is_running { egui::Color32::GREEN } else { egui::Color32::RED };
-                        ui.colored_label(color, egui::RichText::new(signal_text).small());
-                    });
-                });
             }
         }
 
@@ -620,7 +642,7 @@ impl SdrPanel {
                 ui.label("📶 S-Meter:").on_hover_text("Signal strength meter (S0-S9+). S1-3 = weak, S4-6 = good, S7-9 = strong, S9+ = very strong.");
 
                 // Visual bar
-                let bar_width = 120.0f32;
+                let bar_width = ui.available_width().min(180.0).max(60.0);
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_width, 14.0), egui::Sense::hover());
                 let painter = ui.painter();
 
@@ -633,270 +655,261 @@ impl SdrPanel {
                     );
                 }
 
-                // S1-S9 labels
-                for s in 1..=9 {
-                    let x = rect.left() + ((s as f32 - 0.5) / 9.0) * rect.width();
-                    painter.text(
-                        egui::pos2(x, rect.top() - 2.0),
-                        egui::Align2::CENTER_BOTTOM,
-                        format!("S{}", s),
-                        egui::FontId::proportional(7.0),
-                        egui::Color32::from_gray(100)
-                    );
-                }
-
                 let s_text = if s_value == 0 { "S0".to_string() } else if s_value == 9 { "S9+".to_string() } else { format!("S{}", s_value) };
                 ui.colored_label(meter_color, format!("{} (SNR {:.0}dB)", s_text, snr))
                     .on_hover_text(format!("Signal strength: {} | Peak: {:.0}dBFS | Noise floor: {:.0}dBFS", s_text, peak, noise));
             });
         }
 
-        // Signal logging: auto-record strong signals and track statistics
-        if let Ok(state) = self.shared.try_lock() {
-            let peak = state.spectrum.peak_level();
-            let noise = state.spectrum.noise_floor();
-            let snr = peak - noise;
-            let current_freq = state.source.frequency_hz;
+        if !is_beginner {
+            // Signal logging: auto-record strong signals and track statistics
+            if let Ok(state) = self.shared.try_lock() {
+                let peak = state.spectrum.peak_level();
+                let noise = state.spectrum.noise_floor();
+                let snr = peak - noise;
+                let current_freq = state.source.frequency_hz;
 
-            // Track best SNR
-            if snr > self.best_snr_this_session {
-                self.best_snr_this_session = snr;
-            }
+                // Track best SNR
+                if snr > self.best_snr_this_session {
+                    self.best_snr_this_session = snr;
+                }
 
-            // Track explored frequencies
-            self.frequencies_explored.insert(current_freq);
+                // Track explored frequencies
+                self.frequencies_explored.insert(current_freq);
 
-            // Log if we found a new strong signal (SNR > 8dB and different frequency)
-            if snr > 8.0 && current_freq != self.last_logged_freq {
-                self.signal_log.push((current_freq, snr, std::time::SystemTime::now()));
-                self.last_logged_freq = current_freq;
-                // Keep only last 20 signals
-                if self.signal_log.len() > 20 {
-                    self.signal_log.remove(0);
+                // Log if we found a new strong signal (SNR > 8dB and different frequency)
+                if snr > 8.0 && current_freq != self.last_logged_freq {
+                    self.signal_log.push((current_freq, snr, std::time::SystemTime::now()));
+                    self.last_logged_freq = current_freq;
+                    // Keep only last 20 signals
+                    if self.signal_log.len() > 20 {
+                        self.signal_log.remove(0);
+                    }
                 }
             }
-        }
 
-        // Signal alert system
-        if let Ok(state) = self.shared.try_lock() {
-            let peak = state.spectrum.peak_level();
-            let noise = state.spectrum.noise_floor();
-            let snr = peak - noise;
-            let current_freq = state.source.frequency_hz;
+            // Signal alert system
+            if let Ok(state) = self.shared.try_lock() {
+                let peak = state.spectrum.peak_level();
+                let noise = state.spectrum.noise_floor();
+                let snr = peak - noise;
+                let current_freq = state.source.frequency_hz;
 
-            // Check if a strong signal appeared
-            if snr > self.signal_alert_threshold && current_freq != self.last_alert_freq && self.signal_alert_threshold > 0.0 {
-                self.last_alert_freq = current_freq;
-            }
+                // Check if a strong signal appeared
+                if snr > self.signal_alert_threshold && current_freq != self.last_alert_freq && self.signal_alert_threshold > 0.0 {
+                    self.last_alert_freq = current_freq;
+                }
 
-            // Auto-record indicator (actual recording control is in recorder panel)
-            if self.auto_record_enabled && snr > self.auto_record_threshold && current_freq != self.last_auto_recorded_freq {
-                self.last_auto_recorded_freq = current_freq;
-                // Note: actual recording start should be handled by recorder panel
-                // This just tracks that a strong signal was found
-            }
+                // Auto-record indicator (actual recording control is in recorder panel)
+                if self.auto_record_enabled && snr > self.auto_record_threshold && current_freq != self.last_auto_recorded_freq {
+                    self.last_auto_recorded_freq = current_freq;
+                }
 
-            // Show alert indicator if threshold set and strong signal active
-            if self.signal_alert_threshold > 0.0 && snr > self.signal_alert_threshold {
-                let freq_mhz = current_freq as f64 / 1e6;
-                ui.colored_label(egui::Color32::from_rgb(255, 100, 100),
-                    format!("🔔 ALERT! Strong signal {:.3} MHz, SNR {:.0}dB", freq_mhz, snr))
-                    .on_hover_text("A strong signal detected! Adjust threshold to change sensitivity.");
-            }
-        }
-
-        // Alert and auto-record controls
-        ui.horizontal(|ui| {
-            ui.label("🔔 Alert Threshold:").on_hover_text("Get notified when a strong signal appears. Set to 0 to disable.");
-            ui.add(egui::Slider::new(&mut self.signal_alert_threshold, 0.0..=30.0).text("dB").step_by(1.0))
-                .on_hover_text("Alert when SNR exceeds this value");
-        });
-
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.auto_record_enabled, "🎙️ Auto-Record").on_hover_text("Automatically record audio when strong signal detected");
-            if self.auto_record_enabled {
-                ui.label("at SNR > ");
-                ui.add(egui::Slider::new(&mut self.auto_record_threshold, 10.0..=30.0).text("dB").step_by(1.0))
-                    .on_hover_text("Auto-record when SNR exceeds this threshold");
-            }
-        });
-
-        // Peak finder: find and auto-tune to strongest signal
-        if let Ok(mut state) = self.shared.try_lock() {
-            if ui.button("🔍 Find Peak: Auto-Tune to Strongest Signal").on_hover_text("Instantly jump to the strongest signal currently visible. Perfect for discovering what's on air!").clicked() {
-                let peak_freq = state.spectrum.peak_freq_hz();
-                if peak_freq > 0 {
-                    state.source.frequency_hz = peak_freq;
+                // Show alert indicator if threshold set and strong signal active
+                if self.signal_alert_threshold > 0.0 && snr > self.signal_alert_threshold {
+                    let freq_mhz = current_freq as f64 / 1e6;
+                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100),
+                        format!("🔔 ALERT! Strong signal {:.3} MHz, SNR {:.0}dB", freq_mhz, snr))
+                        .on_hover_text("A strong signal detected! Adjust threshold to change sensitivity.");
                 }
             }
-        }
 
-        // Display reception statistics
-        let session_duration = self.session_start.elapsed().as_secs();
-        let session_mins = session_duration / 60;
-        let session_secs = session_duration % 60;
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("📈 Session Stats").small().color(egui::Color32::from_rgb(100, 200, 100)));
+            // Alert and auto-record controls
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("⏱️ Duration: {:.0}m {:.0}s", session_mins, session_secs)).small());
+                ui.label("🔔 Alert Threshold:").on_hover_text("Get notified when a strong signal appears. Set to 0 to disable.");
+                ui.add(egui::Slider::new(&mut self.signal_alert_threshold, 0.0..=30.0).text("dB").step_by(1.0))
+                    .on_hover_text("Alert when SNR exceeds this value");
+            });
+
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.auto_record_enabled, "🎙️ Auto-Record").on_hover_text("Automatically record audio when strong signal detected");
+                if self.auto_record_enabled {
+                    ui.label("at SNR > ");
+                    ui.add(egui::Slider::new(&mut self.auto_record_threshold, 10.0..=30.0).text("dB").step_by(1.0))
+                        .on_hover_text("Auto-record when SNR exceeds this threshold");
+                }
+            });
+
+            // Peak finder: find and auto-tune to strongest signal
+            if let Ok(mut state) = self.shared.try_lock() {
+                if ui.button("🔍 Find Peak: Auto-Tune to Strongest Signal").on_hover_text("Instantly jump to the strongest signal currently visible. Perfect for discovering what's on air!").clicked() {
+                    let peak_freq = state.spectrum.peak_freq_hz();
+                    if peak_freq > 0 {
+                        self.tune_request = Some(peak_freq);
+                    }
+                }
+            }
+
+            // Display reception statistics
+            let session_duration = self.session_start.elapsed().as_secs();
+            let session_mins = session_duration / 60;
+            let session_secs = session_duration % 60;
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("⏱ {:.0}m{:.0}s", session_mins, session_secs)).small().color(egui::Color32::GRAY))
+                    .on_hover_text("Session duration");
                 ui.separator();
-                ui.label(egui::RichText::new(format!("📍 Frequencies: {}", self.frequencies_explored.len())).small());
+                ui.label(egui::RichText::new(format!("📍 {}", self.frequencies_explored.len())).small().color(egui::Color32::GRAY))
+                    .on_hover_text("Frequencies explored");
                 ui.separator();
-                ui.label(egui::RichText::new(format!("📡 Signals: {}", self.signal_log.len())).small());
+                ui.label(egui::RichText::new(format!("📡 {}", self.signal_log.len())).small().color(egui::Color32::GRAY))
+                    .on_hover_text("Signals detected");
                 ui.separator();
                 let best_color = if self.best_snr_this_session > 20.0 { egui::Color32::GREEN }
                                  else if self.best_snr_this_session > 10.0 { egui::Color32::YELLOW }
-                                 else { egui::Color32::WHITE };
-                ui.colored_label(best_color, egui::RichText::new(format!("🎯 Best SNR: {:.0}dB", self.best_snr_this_session)).small());
+                                 else { egui::Color32::GRAY };
+                ui.colored_label(best_color, egui::RichText::new(format!("🎯 {:.0}dB", self.best_snr_this_session)).small())
+                    .on_hover_text("Best SNR this session");
             });
-        });
 
-        // Display signal log
-        if !self.signal_log.is_empty() {
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("📊 Signal Log (Strong signals detected)").small().color(egui::Color32::from_rgb(100, 180, 200)));
-                ui.horizontal_wrapped(|ui| {
-                    for (freq_hz, snr, _time) in self.signal_log.iter().rev().take(8) {
-                        let freq_mhz = *freq_hz as f64 / 1e6;
-                        let snr_str = format!("{:.0}dB", snr);
-                        let btn_text = format!("{:.3}MHz ({})", freq_mhz, snr_str);
-                        if ui.small_button(&btn_text)
-                            .on_hover_text(format!("Tune to {:.6}MHz — SNR was {:.1}dB when detected", freq_mhz, snr))
-                            .clicked()
-                        {
-                            if let Ok(mut state) = self.shared.try_lock() {
-                                state.source.frequency_hz = *freq_hz;
+            // Display signal log
+            if !self.signal_log.is_empty() {
+                egui::CollapsingHeader::new(
+                    egui::RichText::new(format!("📊 Signal Log ({})", self.signal_log.len())).small()
+                )
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        for (freq_hz, snr, _time) in self.signal_log.iter().rev().take(8) {
+                            let freq_mhz = *freq_hz as f64 / 1e6;
+                            let btn_text = format!("{:.3}MHz ({:.0}dB)", freq_mhz, snr);
+                            if ui.small_button(&btn_text)
+                                .on_hover_text(format!("Tune to {:.6} MHz — SNR {:.1} dB", freq_mhz, snr))
+                                .clicked()
+                            {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    state.source.frequency_hz = *freq_hz;
+                                }
                             }
                         }
-                    }
-                    if ui.small_button("🗑️ Clear").on_hover_text("Clear signal log").clicked() {
-                        self.signal_log.clear();
-                    }
+                        if ui.small_button("🗑").on_hover_text("Clear signal log").clicked() {
+                            self.signal_log.clear();
+                        }
+                    });
                 });
-            });
+            }
         }
 
-        // Nearest bookmark distance indicator
-        if let Ok(state) = self.shared.try_lock() {
-            let cur_freq = state.source.frequency_hz;
-            if !state.bookmarks.bookmarks.is_empty() {
-                let nearest = state.bookmarks.bookmarks.iter()
-                    .map(|b| (b, if b.frequency_hz > cur_freq { b.frequency_hz - cur_freq } else { cur_freq - b.frequency_hz }))
-                    .min_by_key(|(_, d)| *d);
-                if let Some((bm, dist)) = nearest {
-                    let threshold_hz = 100_000u64; // ±100 kHz
-                    if dist > 0 && dist <= threshold_hz {
-                        let dir = if bm.frequency_hz > cur_freq { "↑" } else { "↓" };
-                        let dist_str = if dist >= 1000 { format!("{:.1} kHz", dist as f64 / 1000.0) } else { format!("{} Hz", dist) };
-                        let is_very_close = dist <= 1_000; // Within 1 kHz
-                        let label_color = if is_very_close {
-                            egui::Color32::from_rgb(100, 220, 100) // bright green for very close
-                        } else {
-                            egui::Color32::from_rgb(180, 200, 255) // blue for nearby
-                        };
-                        let label_text = if is_very_close {
-                            format!("🎯 {} ({}{}!)", bm.name, dir, dist_str)
-                        } else {
-                            format!("Near: {} ({}{} away)", bm.name, dir, dist_str)
-                        };
-                        ui.horizontal(|ui| {
-                            ui.colored_label(
-                                label_color,
-                                label_text,
-                            ).on_hover_text(format!("Bookmark '{}' at {:.4} MHz is {} {} — press B to snap to it.", bm.name, bm.frequency_hz as f64 / 1e6, dist_str, if bm.frequency_hz > cur_freq { "above" } else { "below" }));
-                        });
+        if !is_beginner {
+            // Nearest bookmark distance indicator
+            if let Ok(state) = self.shared.try_lock() {
+                let cur_freq = state.source.frequency_hz;
+                if !state.bookmarks.bookmarks.is_empty() {
+                    let nearest = state.bookmarks.bookmarks.iter()
+                        .map(|b| (b, if b.frequency_hz > cur_freq { b.frequency_hz - cur_freq } else { cur_freq - b.frequency_hz }))
+                        .min_by_key(|(_, d)| *d);
+                    if let Some((bm, dist)) = nearest {
+                        let threshold_hz = 100_000u64; // ±100 kHz
+                        if dist > 0 && dist <= threshold_hz {
+                            let dir = if bm.frequency_hz > cur_freq { "↑" } else { "↓" };
+                            let dist_str = if dist >= 1000 { format!("{:.1} kHz", dist as f64 / 1000.0) } else { format!("{} Hz", dist) };
+                            let is_very_close = dist <= 1_000; // Within 1 kHz
+                            let label_color = if is_very_close {
+                                egui::Color32::from_rgb(100, 220, 100) // bright green for very close
+                            } else {
+                                egui::Color32::from_rgb(180, 200, 255) // blue for nearby
+                            };
+                            let label_text = if is_very_close {
+                                format!("🎯 {} ({}{}!)", bm.name, dir, dist_str)
+                            } else {
+                                format!("Near: {} ({}{} away)", bm.name, dir, dist_str)
+                            };
+                            ui.horizontal(|ui| {
+                                ui.colored_label(
+                                    label_color,
+                                    label_text,
+                                ).on_hover_text(format!("Bookmark '{}' at {:.4} MHz is {} {} — press B to snap to it.", bm.name, bm.frequency_hz as f64 / 1e6, dist_str, if bm.frequency_hz > cur_freq { "above" } else { "below" }));
+                            });
+                        }
                     }
                 }
             }
-        }
-        // Tuning step presets
-        if let Ok(mut state) = self.shared.try_lock() {
-            ui.horizontal(|ui| {
-                ui.label("Step:").on_hover_text("Arrow key tuning step. ←→ = fine step, ↑↓ = coarse step. Shift multiplies by 10.");
-                for (label, hz, tip) in [
-                    ("1k",  1_000u64,   "1 kHz step — for SSB/CW tuning"),
-                    ("5k",  5_000,       "5 kHz step — NFM channel spacing (narrow)"),
-                    ("8.33k",8_333,      "8.33 kHz step — ICAO aviation channel spacing"),
-                    ("10k", 10_000,      "10 kHz step"),
-                    ("12.5k",12_500,     "12.5 kHz step — NFM standard spacing"),
-                    ("25k", 25_000,      "25 kHz step — wide NFM / older PMR"),
-                    ("50k", 50_000,      "50 kHz step"),
-                    ("100k",100_000,     "100 kHz step (default fine)"),
-                    ("200k",200_000,     "200 kHz step — FM broadcast channel spacing"),
-                    ("1M",  1_000_000,   "1 MHz step (default coarse)"),
-                ] {
-                    let is_fine = state.tune_step_fine_hz == hz;
-                    let is_coarse = state.tune_step_coarse_hz == hz;
-                    let btn = ui.add(egui::Button::new(egui::RichText::new(label)
-                        .color(if is_fine { egui::Color32::from_rgb(80, 200, 120) }
-                               else if is_coarse { egui::Color32::from_rgb(100, 160, 255) }
-                               else { egui::Color32::GRAY }))
-                        .small())
-                        .on_hover_text(format!("{} — click once: fine step (←→), click twice: coarse step (↑↓). Current fine: {} Hz, coarse: {} Hz.",
-                            tip, state.tune_step_fine_hz, state.tune_step_coarse_hz));
-                    if btn.clicked() {
-                        if !is_fine {
-                            state.tune_step_fine_hz = hz;
-                        } else {
-                            state.tune_step_coarse_hz = hz;
+            // Tuning step presets
+            if let Ok(mut state) = self.shared.try_lock() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Step:").on_hover_text("Arrow key tuning step. ←→ = fine step, ↑↓ = coarse step. Shift multiplies by 10.");
+                    for (label, hz, tip) in [
+                        ("1k",  1_000u64,   "1 kHz step — for SSB/CW tuning"),
+                        ("5k",  5_000,       "5 kHz step — NFM channel spacing (narrow)"),
+                        ("8.33k",8_333,      "8.33 kHz step — ICAO aviation channel spacing"),
+                        ("10k", 10_000,      "10 kHz step"),
+                        ("12.5k",12_500,     "12.5 kHz step — NFM standard spacing"),
+                        ("25k", 25_000,      "25 kHz step — wide NFM / older PMR"),
+                        ("50k", 50_000,      "50 kHz step"),
+                        ("100k",100_000,     "100 kHz step (default fine)"),
+                        ("200k",200_000,     "200 kHz step — FM broadcast channel spacing"),
+                        ("1M",  1_000_000,   "1 MHz step (default coarse)"),
+                    ] {
+                        let is_fine = state.tune_step_fine_hz == hz;
+                        let is_coarse = state.tune_step_coarse_hz == hz;
+                        let btn = ui.add(egui::Button::new(egui::RichText::new(label)
+                            .color(if is_fine { egui::Color32::from_rgb(80, 200, 120) }
+                                   else if is_coarse { egui::Color32::from_rgb(100, 160, 255) }
+                                   else { egui::Color32::GRAY }))
+                            .small())
+                            .on_hover_text(format!("{} — click once: fine step (←→), click twice: coarse step (↑↓). Current fine: {} Hz, coarse: {} Hz.",
+                                tip, state.tune_step_fine_hz, state.tune_step_coarse_hz));
+                        if btn.clicked() {
+                            if !is_fine {
+                                state.tune_step_fine_hz = hz;
+                            } else {
+                                state.tune_step_coarse_hz = hz;
+                            }
                         }
+                    }
+
+                    // Current step indicator
+                    let fine_label = if state.tune_step_fine_hz >= 1_000_000 {
+                        format!("{:.1}M", state.tune_step_fine_hz as f64 / 1e6)
+                    } else {
+                        format!("{:.0}k", state.tune_step_fine_hz as f64 / 1e3)
+                    };
+                    let coarse_label = if state.tune_step_coarse_hz >= 1_000_000 {
+                        format!("{:.1}M", state.tune_step_coarse_hz as f64 / 1e6)
+                    } else {
+                        format!("{:.0}k", state.tune_step_coarse_hz as f64 / 1e3)
+                    };
+                    ui.colored_label(egui::Color32::GRAY, format!("←→:{} ↑↓:{}", fine_label, coarse_label))
+                        .on_hover_text(format!("Fine step (← →): {} Hz. Coarse step (↑ ↓): {} Hz. Shift×10 for multiplier.",
+                            state.tune_step_fine_hz, state.tune_step_coarse_hz));
+                });
+            }
+            // Recent frequencies quick-access bar
+            if let Ok(mut state) = self.shared.try_lock() {
+                let cur = state.source.frequency_hz;
+                // collect last 6 unique recent freqs that differ from current
+                let mut recents: Vec<u64> = Vec::with_capacity(8);
+                for &f in state.freq_history.iter().rev() {
+                    if f != cur && !recents.contains(&f) {
+                        recents.push(f);
+                        if recents.len() >= 8 { break; }
                     }
                 }
-
-                // Current step indicator
-                let fine_label = if state.tune_step_fine_hz >= 1_000_000 {
-                    format!("{:.1}M", state.tune_step_fine_hz as f64 / 1e6)
-                } else {
-                    format!("{:.0}k", state.tune_step_fine_hz as f64 / 1e3)
-                };
-                let coarse_label = if state.tune_step_coarse_hz >= 1_000_000 {
-                    format!("{:.1}M", state.tune_step_coarse_hz as f64 / 1e6)
-                } else {
-                    format!("{:.0}k", state.tune_step_coarse_hz as f64 / 1e3)
-                };
-                ui.colored_label(egui::Color32::GRAY, format!("←→:{} ↑↓:{}", fine_label, coarse_label))
-                    .on_hover_text(format!("Fine step (← →): {} Hz. Coarse step (↑ ↓): {} Hz. Shift×10 for multiplier.",
-                        state.tune_step_fine_hz, state.tune_step_coarse_hz));
-            });
-        }
-        // Recent frequencies quick-access bar
-        if let Ok(mut state) = self.shared.try_lock() {
-            let cur = state.source.frequency_hz;
-            // collect last 6 unique recent freqs that differ from current
-            let recents: Vec<u64> = state.freq_history.iter()
-                .cloned()
-                .rev()
-                .filter(|&f| f != cur)
-                .collect::<std::collections::HashSet<u64>>()
-                .into_iter()
-                .take(8)
-                .collect();
-            if !recents.is_empty() {
-                let mut sorted = recents;
-                sorted.sort_by(|a, b| {
-                    let da = if *a > cur { a - cur } else { cur - a };
-                    let db = if *b > cur { b - cur } else { cur - b };
-                    da.cmp(&db)
-                });
-                let sorted_clone = sorted.clone();
-                ui.horizontal(|ui| {
-                    ui.small("Recent:");
-                    for &f in sorted_clone.iter().take(6) {
-                        let label = if f >= 1_000_000_000 {
-                            format!("{:.2}G", f as f64 / 1e9)
-                        } else if f >= 100_000_000 {
-                            format!("{:.1}M", f as f64 / 1e6)
-                        } else {
-                            format!("{:.3}M", f as f64 / 1e6)
-                        };
-                        if ui.small_button(egui::RichText::new(label).color(egui::Color32::from_rgb(160, 200, 255)))
-                            .on_hover_text(format!("{:.6} MHz", f as f64 / 1e6))
-                            .clicked()
-                        {
-                            state.source.frequency_hz = f;
+                if !recents.is_empty() {
+                    let mut sorted = recents;
+                    sorted.sort_by(|a, b| {
+                        let da = if *a > cur { a - cur } else { cur - a };
+                        let db = if *b > cur { b - cur } else { cur - b };
+                        da.cmp(&db)
+                    });
+                    ui.horizontal(|ui| {
+                        ui.small("Recent:");
+                        for &f in sorted.iter().take(6) {
+                            let label = if f >= 1_000_000_000 {
+                                format!("{:.2}G", f as f64 / 1e9)
+                            } else if f >= 100_000_000 {
+                                format!("{:.1}M", f as f64 / 1e6)
+                            } else {
+                                format!("{:.3}M", f as f64 / 1e6)
+                            };
+                            if ui.small_button(egui::RichText::new(label).color(egui::Color32::from_rgb(160, 200, 255)))
+                                .on_hover_text(format!("{:.6} MHz", f as f64 / 1e6))
+                                .clicked()
+                            {
+                                state.source.frequency_hz = f;
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
         }
         // Direct frequency entry
@@ -918,9 +931,7 @@ impl SdrPanel {
                 };
                 if let Some(hz) = parsed_hz {
                     let hz = hz.clamp(500_000, 1_770_000_000);
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        state.source.frequency_hz = hz;
-                    }
+                    self.tune_request = Some(hz);
                     self.freq_input.clear();
                     self.freq_input_error.clear();
                     self.freq_input_error_time = None;
@@ -943,104 +954,113 @@ impl SdrPanel {
             }
         }
 
-        // Popular frequency bands quick-jump
-        ui.collapsing("📻 Quick bands", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                if let Ok(mut state) = self.shared.try_lock() {
-                    for (name, freq_hz, tip) in [
-                        ("CB", 27_000_000u64, "Citizen Band (27 MHz)"),
-                        ("2m", 145_500_000, "2-meter amateur band (145–146 MHz)"),
-                        ("70cm", 435_000_000, "70-centimeter amateur band (430–440 MHz)"),
-                        ("Airband", 118_000_000, "Aviation band (118–137 MHz)"),
-                        ("Marine", 156_800_000, "Marine VHF (156–163 MHz)"),
-                        ("NOAA", 137_500_000, "Weather satellites (137–138 MHz)"),
-                        ("FM Bcast", 100_000_000, "FM radio (88–108 MHz)"),
-                        ("800 MHz", 800_000_000, "800 MHz trunked radio"),
-                        ("1.2G", 1_200_000_000, "1.2 GHz ISM / amateur"),
-                    ] {
-                        if ui.small_button(name)
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            state.source.frequency_hz = freq_hz;
-                        }
-                    }
-                }
-            });
-        });
-
-        // Frequency memory display
-        if let Ok(state) = self.shared.try_lock() {
-            let has_memory = state.freq_memory.iter().any(|m: &crate::app::FreqMemEntry| m.freq_hz > 0);
-            if has_memory {
+        if !is_beginner {
+            // Popular frequency bands quick-jump
+            ui.collapsing("📻 Quick bands", |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("📝 Memory:").strong());
-                    for (i, mem) in state.freq_memory.iter().enumerate() {
-                        if mem.freq_hz > 0 {
-                            let display = if mem.label.is_empty() {
-                                format!("M{}: {:.3}M", i + 1, mem.freq_hz as f64 / 1e6)
-                            } else {
-                                format!("M{}: {}", i + 1, mem.label)
-                            };
-                            if ui.small_button(&display)
-                                .on_hover_text(format!("{:.4} MHz — click to recall, or press Alt+{} to recall, Alt+Shift+{} to save",
-                                    mem.freq_hz as f64 / 1e6, i + 1, i + 1))
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        for (name, freq_hz, tip) in [
+                            ("CB", 27_000_000u64, "Citizen Band (27 MHz)"),
+                            ("2m", 145_500_000, "2-meter amateur band (145–146 MHz)"),
+                            ("70cm", 435_000_000, "70-centimeter amateur band (430–440 MHz)"),
+                            ("Airband", 118_000_000, "Aviation band (118–137 MHz)"),
+                            ("Marine", 156_800_000, "Marine VHF (156–163 MHz)"),
+                            ("NOAA", 137_500_000, "Weather satellites (137–138 MHz)"),
+                            ("FM Bcast", 100_000_000, "FM radio (88–108 MHz)"),
+                            ("800 MHz", 800_000_000, "800 MHz trunked radio"),
+                            ("1.2G", 1_200_000_000, "1.2 GHz ISM / amateur"),
+                        ] {
+                            if ui.small_button(name)
+                                .on_hover_text(tip)
                                 .clicked()
                             {
-                                if let Ok(mut state) = self.shared.try_lock() {
-                                    state.source.frequency_hz = mem.freq_hz;
-                                }
+                                state.source.frequency_hz = freq_hz;
                             }
                         }
                     }
                 });
-            }
-        }
+            });
 
-        ui.separator();
-
-        // Memory label editor
-        if let Ok(state) = self.shared.try_lock() {
-            let has_memory = state.freq_memory.iter().any(|m| m.freq_hz > 0);
-            if has_memory {
-                if ui.button("✏ Edit Memory Labels").on_hover_text("Click to customize names for your frequency memory slots (M1–M9)").clicked() {
-                    self.show_memory_editor = !self.show_memory_editor;
-                    if self.show_memory_editor {
+            // Frequency memory display
+            if let Ok(state) = self.shared.try_lock() {
+                let has_memory = state.freq_memory.iter().any(|m: &crate::app::FreqMemEntry| m.freq_hz > 0);
+                if has_memory {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(egui::RichText::new("📝 Memory:").strong());
                         for (i, mem) in state.freq_memory.iter().enumerate() {
-                            self.memory_labels_edit[i] = mem.label.clone();
-                        }
-                    }
-                }
-                if self.show_memory_editor {
-                    ui.label("Customize memory slot names:");
-                    for (i, mem) in state.freq_memory.iter().enumerate() {
-                        if mem.freq_hz > 0 {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("M{}:", i + 1)).on_hover_text(format!("{:.4} MHz", mem.freq_hz as f64 / 1e6));
-                                ui.text_edit_singleline(&mut self.memory_labels_edit[i]);
-                            });
-                        }
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.button("Save").on_hover_text("Save custom labels for memory slots").clicked() {
-                            if let Ok(mut state) = self.shared.try_lock() {
-                                for (i, mem) in state.freq_memory.iter_mut().enumerate() {
-                                    if mem.freq_hz > 0 {
-                                        mem.label = self.memory_labels_edit[i].clone();
-                                    }
+                            if mem.freq_hz > 0 {
+                                let display = if mem.label.is_empty() {
+                                    format!("M{}: {:.3}M", i + 1, mem.freq_hz as f64 / 1e6)
+                                } else {
+                                    format!("M{}: {}", i + 1, mem.label)
+                                };
+                                if ui.small_button(&display)
+                                    .on_hover_text(format!("{:.4} MHz — click to recall, or press Alt+{} to recall, Alt+Shift+{} to save",
+                                        mem.freq_hz as f64 / 1e6, i + 1, i + 1))
+                                    .clicked()
+                                {
+                                    self.tune_request = Some(mem.freq_hz);
                                 }
                             }
-                            self.show_memory_editor = false;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.show_memory_editor = false;
                         }
                     });
                 }
             }
-        }
 
-        ui.separator();
+            ui.separator();
+
+            // Memory label editor
+            if let Ok(state) = self.shared.try_lock() {
+                let has_memory = state.freq_memory.iter().any(|m| m.freq_hz > 0);
+                if has_memory {
+                    if ui.button("✏ Edit Memory Labels").on_hover_text("Click to customize names for your frequency memory slots (M1–M9)").clicked() {
+                        self.show_memory_editor = !self.show_memory_editor;
+                        if self.show_memory_editor {
+                            for (i, mem) in state.freq_memory.iter().enumerate() {
+                                self.memory_labels_edit[i] = mem.label.clone();
+                            }
+                        }
+                    }
+                    if self.show_memory_editor {
+                        ui.label("Customize memory slot names:");
+                        for (i, mem) in state.freq_memory.iter().enumerate() {
+                            if mem.freq_hz > 0 {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("M{}:", i + 1)).on_hover_text(format!("{:.4} MHz", mem.freq_hz as f64 / 1e6));
+                                    ui.text_edit_singleline(&mut self.memory_labels_edit[i]);
+                                });
+                            }
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Save").on_hover_text("Save custom labels for memory slots").clicked() {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    for (i, mem) in state.freq_memory.iter_mut().enumerate() {
+                                        if mem.freq_hz > 0 {
+                                            mem.label = self.memory_labels_edit[i].clone();
+                                        }
+                                    }
+                                }
+                                self.show_memory_editor = false;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.show_memory_editor = false;
+                            }
+                        });
+                    }
+                }
+            }
+
+            ui.separator();
+        }
+    }
+
+    pub fn ui_demod(&mut self, ui: &mut egui::Ui) {
+        let user_level = self.shared.try_lock()
+            .map(|s| crate::user_level::UserLevel::from_str(&s.config.user_level))
+            .unwrap_or(crate::user_level::UserLevel::Beginner);
+        let show_advanced = user_level.show_advanced_controls();
+        let has_expand = user_level.has_inline_expand();
+        let is_beginner = user_level.simplify_layout();
 
         // Demodulation Mode Quick Guide
         if ui.button("📖 Mode Guide").on_hover_text("Show a quick reference for what to expect in each demodulation mode").clicked() {
@@ -1068,8 +1088,8 @@ impl SdrPanel {
             });
         }
 
-        // Demod mode selector with bandwidth hints
-        ui.horizontal(|ui| {
+        // Demod mode selector with bandwidth hints (wraps when tab is narrow)
+        ui.horizontal_wrapped(|ui| {
             if let Ok(mut state) = self.shared.try_lock() {
                 for (mode, bw_hint, _tip, detailed_tip) in [
                     (DemodMode::Raw, "",       "RAW I/Q", "Raw I/Q samples — pass to external decoders like GQRX plugins. No audio filtering."),
@@ -1095,23 +1115,25 @@ impl SdrPanel {
             }
         });
 
-        // Band-aware demod auto-suggest
-        if let Ok(mut state) = self.shared.try_lock() {
-            let freq = state.source.frequency_hz;
-            let current = state.demod_mode;
-            if let Some((suggested, band_name, reason)) = suggest_demod_for_freq(freq) {
-                if suggested != current {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "💡");
-                        ui.label(egui::RichText::new(format!("{} →", band_name)).color(egui::Color32::from_rgb(180, 180, 180)));
-                        if ui.small_button(suggested.label())
-                            .on_hover_text(format!("Switch to {} — {}", suggested.label(), reason))
-                            .clicked()
-                        {
-                            state.demod_mode = suggested;
-                        }
-                        ui.label(egui::RichText::new(format!("({})", reason)).color(egui::Color32::GRAY).small());
-                    });
+        if !is_beginner {
+            // Band-aware demod auto-suggest
+            if let Ok(mut state) = self.shared.try_lock() {
+                let freq = state.source.frequency_hz;
+                let current = state.demod_mode;
+                if let Some((suggested, band_name, reason)) = suggest_demod_for_freq(freq) {
+                    if suggested != current {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "💡");
+                            ui.label(egui::RichText::new(format!("{} →", band_name)).color(egui::Color32::from_rgb(180, 180, 180)));
+                            if ui.small_button(suggested.label())
+                                .on_hover_text(format!("Switch to {} — {}", suggested.label(), reason))
+                                .clicked()
+                            {
+                                state.demod_mode = suggested;
+                            }
+                            ui.label(egui::RichText::new(format!("({})", reason)).color(egui::Color32::GRAY).small());
+                        });
+                    }
                 }
             }
         }
@@ -1128,8 +1150,8 @@ impl SdrPanel {
             ui.horizontal(|ui| {
                 ui.label("Signal:").on_hover_text("RF signal level in dBFS. Green zone (>-40 dB) = strong. Yellow (−60–40) = moderate. Red (<-60) = weak/noise.");
                 // Draw custom colored bar using painter
-                let desired = egui::vec2(180.0, 14.0);
-                let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::hover());
+                let bar_w = ui.available_width().min(200.0).max(60.0);
+                let (rect, response) = ui.allocate_exact_size(egui::vec2(bar_w, 14.0), egui::Sense::hover());
                 let response = response.on_hover_text(format!("Signal: {:.1} dBFS  SNR: {:.1} dB  Noise: {:.1} dB", signal, snr, noise_floor));
                 let p = ui.painter();
                 p.rect_filled(rect, 2.0, egui::Color32::from_rgb(15, 15, 25));
@@ -1189,109 +1211,118 @@ impl SdrPanel {
             });
         }
 
-        // Signal history sparkline
-        if let Ok(state) = self.shared.try_lock() {
-            let history = state.spectrum.signal_history_snapshot();
-            let history_max = state.spectrum.signal_history_max();
-            if history.len() >= 2 {
-                let desired = egui::vec2(180.0, 30.0);
-                let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::hover());
-                let response = response.on_hover_text("Signal strength over time (last 60s). Shows peaks only. Helps identify if a signal is continuous, periodic, or intermittent.");
-                let p = ui.painter();
-                p.rect_filled(rect, 2.0, egui::Color32::from_rgb(10, 10, 20));
-                let n = history.len();
-                let min_db = -120.0f32;
-                let max_db = 0.0f32;
-                let db_range = max_db - min_db;
-                let points: Vec<egui::Pos2> = history.iter().enumerate().map(|(i, &db)| {
-                    let x = rect.left() + (i as f32 / (history_max as f32 - 1.0).max(1.0)) * rect.width();
-                    let norm = ((db - min_db) / db_range).clamp(0.0, 1.0);
-                    let y = rect.bottom() - norm * rect.height();
-                    egui::pos2(x, y)
-                }).collect();
-                for win in points.windows(2) {
-                    let norm = (win[1].y - rect.top()) / rect.height();
-                    let c = if norm < 0.25 { egui::Color32::from_rgb(50, 200, 80) }
-                        else if norm < 0.5 { egui::Color32::from_rgb(180, 160, 30) }
-                        else { egui::Color32::from_rgb(100, 60, 200) };
-                    p.line_segment([win[0], win[1]], egui::Stroke::new(1.0, c));
+        if !is_beginner {
+            // Signal history sparkline
+            if let Ok(state) = self.shared.try_lock() {
+                let history = state.spectrum.signal_history_snapshot();
+                let history_max = state.spectrum.signal_history_max();
+                if history.len() >= 2 {
+                    let spark_w = ui.available_width().min(200.0).max(60.0);
+                    let (rect, response) = ui.allocate_exact_size(egui::vec2(spark_w, 30.0), egui::Sense::hover());
+                    let response = response.on_hover_text("Signal strength over time (last 60s). Shows peaks only. Helps identify if a signal is continuous, periodic, or intermittent.");
+                    let p = ui.painter();
+                    p.rect_filled(rect, 2.0, egui::Color32::from_rgb(10, 10, 20));
+                    let n = history.len();
+                    let min_db = -120.0f32;
+                    let max_db = 0.0f32;
+                    let db_range = max_db - min_db;
+                    let points: Vec<egui::Pos2> = history.iter().enumerate().map(|(i, &db)| {
+                        let x = rect.left() + (i as f32 / (history_max as f32 - 1.0).max(1.0)) * rect.width();
+                        let norm = ((db - min_db) / db_range).clamp(0.0, 1.0);
+                        let y = rect.bottom() - norm * rect.height();
+                        egui::pos2(x, y)
+                    }).collect();
+                    for win in points.windows(2) {
+                        let norm = (win[1].y - rect.top()) / rect.height();
+                        let c = if norm < 0.25 { egui::Color32::from_rgb(50, 200, 80) }
+                            else if norm < 0.5 { egui::Color32::from_rgb(180, 160, 30) }
+                            else { egui::Color32::from_rgb(100, 60, 200) };
+                        p.line_segment([win[0], win[1]], egui::Stroke::new(1.0, c));
+                    }
+                    p.text(egui::pos2(rect.left() + 2.0, rect.top() + 2.0),
+                        egui::Align2::LEFT_TOP, "60s",
+                        egui::FontId::monospace(8.0), egui::Color32::from_gray(100));
+                    let _ = response;
+                    let _ = n;
                 }
-                // Label
-                p.text(egui::pos2(rect.left() + 2.0, rect.top() + 2.0),
-                    egui::Align2::LEFT_TOP, "60s",
-                    egui::FontId::monospace(8.0), egui::Color32::from_gray(100));
-                let _ = response;
-                let _ = n;
             }
         }
 
-        // Overload detection + smart gain
-        if let Ok(mut state) = self.shared.try_lock() {
-            let peak = state.spectrum.peak_level();
-            let gain = state.source.gain_db;
-            if peak > -15.0 && gain > 0.0 {
-                ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(255, 80, 80),
-                        format!("⚠ Overload! Peak {:.0} dBFS", peak))
-                        .on_hover_text("Signal is clipping the ADC — this causes distortion, ghost signals, and desensitization. Reduce gain.");
-                    if ui.small_button("-10 dB")
-                        .on_hover_text("Reduce gain by 10 dB to eliminate overload.")
-                        .clicked()
-                    {
-                        state.source.gain_db = (gain - 10.0).max(0.0);
+        if !is_beginner {
+            // Overload detection + smart gain
+            if let Ok(mut state) = self.shared.try_lock() {
+                let peak = state.spectrum.peak_level();
+                let gain = state.source.gain_db;
+                if peak > -15.0 && gain > 0.0 {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(egui::Color32::from_rgb(255, 80, 80),
+                            format!("⚠ Overload! Peak {:.0} dBFS", peak))
+                            .on_hover_text("Signal is clipping the ADC — this causes distortion, ghost signals, and desensitization. Reduce gain.");
+                        if ui.small_button("-10 dB")
+                            .on_hover_text("Reduce gain by 10 dB to eliminate overload.")
+                            .clicked()
+                        {
+                            state.source.gain_db = (gain - 10.0).max(0.0);
+                        }
+                    });
+                }
+                if ui.small_button("Smart Gain")
+                    .on_hover_text(format!(
+                        "Auto-adjust gain to target -30 dBFS peak. Current peak: {:.0} dBFS, current gain: {:.1} dB.",
+                        peak, gain
+                    ))
+                    .clicked()
+                {
+                    let adjustment = -30.0 - peak as f64;
+                    state.source.gain_db = (gain + adjustment).clamp(0.0, 49.6);
+                }
+                // Gain presets
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Gain:").on_hover_text("Quick gain presets for common scenarios.");
+                    for (label, db, tip) in [
+                        ("Low",  10.0f64, "Low gain (10 dB) — for very strong nearby transmitters or when overloading."),
+                        ("Med",  28.0, "Medium gain (28 dB) — good starting point for most environments."),
+                        ("High", 42.0, "High gain (42 dB) — for weak distant signals. Watch for overload."),
+                        ("Max",  49.6, "Maximum gain (49.6 dB) — only for very weak signals. High overload risk."),
+                    ] {
+                        let is_active = (state.source.gain_db - db).abs() < 0.5;
+                        let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
+                            .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(200, 220, 200) }))
+                            .fill(if is_active { egui::Color32::from_rgb(60, 160, 80) } else { egui::Color32::from_rgba_premultiplied(30, 50, 30, 80) })
+                            .small())
+                            .on_hover_text(tip);
+                        if btn.clicked() { state.source.gain_db = db; }
                     }
                 });
-            }
-            if ui.small_button("Smart Gain")
-                .on_hover_text(format!(
-                    "Auto-adjust gain to target -30 dBFS peak. Current peak: {:.0} dBFS, current gain: {:.1} dB.",
-                    peak, gain
-                ))
-                .clicked()
-            {
-                let adjustment = -30.0 - peak as f64;
-                state.source.gain_db = (gain + adjustment).clamp(0.0, 49.6);
-            }
-            // Gain presets
-            ui.horizontal(|ui| {
-                ui.label("Gain:").on_hover_text("Quick gain presets for common scenarios.");
-                for (label, db, tip) in [
-                    ("Low",  10.0f64, "Low gain (10 dB) — for very strong nearby transmitters or when overloading."),
-                    ("Med",  28.0, "Medium gain (28 dB) — good starting point for most environments."),
-                    ("High", 42.0, "High gain (42 dB) — for weak distant signals. Watch for overload."),
-                    ("Max",  49.6, "Maximum gain (49.6 dB) — only for very weak signals. High overload risk."),
-                ] {
-                    let is_active = (state.source.gain_db - db).abs() < 0.5;
-                    let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
-                        .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(200, 220, 200) }))
-                        .fill(if is_active { egui::Color32::from_rgb(60, 160, 80) } else { egui::Color32::from_rgba_premultiplied(30, 50, 30, 80) })
-                        .small())
-                        .on_hover_text(tip);
-                    if btn.clicked() { state.source.gain_db = db; }
-                }
-            });
 
-            // Gain optimization suggestion
-            {
-                let signal_level = state.spectrum.signal_level();
-                let current_gain = state.source.gain_db;
-                let (suggestion, tip_color) = if signal_level > 0.0 {
-                    ("⚠ Overload!", egui::Color32::from_rgb(220, 80, 80))
-                } else if signal_level > -20.0 {
-                    ("✓ Good level", egui::Color32::from_rgb(100, 200, 80))
-                } else if signal_level > -60.0 && current_gain < 45.0 {
-                    ("↑ Try higher gain", egui::Color32::from_rgb(200, 200, 80))
-                } else if signal_level < -80.0 && current_gain >= 45.0 {
-                    ("↓ Max gain, still weak", egui::Color32::from_rgb(200, 150, 80))
-                } else {
-                    ("", egui::Color32::GRAY)
-                };
-                if !suggestion.is_empty() {
-                    ui.colored_label(tip_color, suggestion)
-                        .on_hover_text("Gain indicator based on current signal level. Adjust gain for best reception without overload.");
-                }
+                // Gain optimization suggestion
+                {
+                    let signal_level = state.spectrum.signal_level();
+                    let current_gain = state.source.gain_db;
+                    let (suggestion, tip_color) = if signal_level > 0.0 {
+                        ("⚠ Overload!", egui::Color32::from_rgb(220, 80, 80))
+                    } else if signal_level > -20.0 {
+                        ("✓ Good level", egui::Color32::from_rgb(100, 200, 80))
+                    } else if signal_level > -60.0 && current_gain < 45.0 {
+                        ("↑ Try higher gain", egui::Color32::from_rgb(200, 200, 80))
+                    } else if signal_level < -80.0 && current_gain >= 45.0 {
+                        ("↓ Max gain, still weak", egui::Color32::from_rgb(200, 150, 80))
+                    } else {
+                        ("", egui::Color32::GRAY)
+                    };
+                    if !suggestion.is_empty() {
+                        ui.colored_label(tip_color, suggestion)
+                            .on_hover_text("Gain indicator based on current signal level. Adjust gain for best reception without overload.");
+                    }
 
-                // PPM correction quick presets
+                }
+            }
+        }
+
+        // PPM correction quick presets (hidden for Beginner/Intermediate unless expanded)
+        let show_ppm = show_advanced;
+        if show_ppm || (has_expand && self.expand_ppm) {
+            if let Ok(mut state) = self.shared.try_lock() {
                 ui.horizontal(|ui| {
                     ui.label("PPM:").on_hover_text("Parts-per-million frequency error correction. RTL-SDR chips often have ±25 PPM error.");
                     for (label, ppm) in [("0", 0i32), ("+10", 10), ("+25", 25), ("-10", -10), ("-25", -25)] {
@@ -1307,90 +1338,93 @@ impl SdrPanel {
                     }
                 });
             }
+        } else if has_expand {
+            if ui.button(egui::RichText::new("⚙ Show PPM (advanced)").size(12.0)).clicked() {
+                self.expand_ppm = true;
+            }
         }
 
-        // Demod quality indicators
-        if let Ok(state) = self.shared.try_lock() {
-            let mode = state.demod_mode;
-            if mode == DemodMode::Fm || mode == DemodMode::Wfm {
-                let dev_khz = state.fm_deviation_hz / 1000.0;
-                // Color coding based on mode
-                let (dev_color, dev_tip) = match mode {
-                    DemodMode::Fm => {
-                        if dev_khz > 13.0 {
-                            (egui::Color32::RED, "NFM deviation too high (>13 kHz) — signal clipping/overmodulation")
-                        } else if dev_khz >= 4.5 && dev_khz <= 12.5 {
-                            (egui::Color32::GREEN, "NFM deviation in ideal range (4.5–12.5 kHz)")
-                        } else if dev_khz >= 2.0 && dev_khz < 4.5 {
-                            (egui::Color32::YELLOW, "NFM deviation low (2–4.5 kHz) — weak signal?")
-                        } else {
-                            (egui::Color32::GRAY, "NFM deviation too low (<2 kHz)")
+        if !is_beginner {
+            // Demod quality indicators
+            if let Ok(state) = self.shared.try_lock() {
+                let mode = state.demod_mode;
+                if mode == DemodMode::Fm || mode == DemodMode::Wfm {
+                    let dev_khz = state.fm_deviation_hz / 1000.0;
+                    let (dev_color, dev_tip) = match mode {
+                        DemodMode::Fm => {
+                            if dev_khz > 13.0 {
+                                (egui::Color32::RED, "NFM deviation too high (>13 kHz) — signal clipping/overmodulation")
+                            } else if dev_khz >= 4.5 && dev_khz <= 12.5 {
+                                (egui::Color32::GREEN, "NFM deviation in ideal range (4.5–12.5 kHz)")
+                            } else if dev_khz >= 2.0 && dev_khz < 4.5 {
+                                (egui::Color32::YELLOW, "NFM deviation low (2–4.5 kHz) — weak signal?")
+                            } else {
+                                (egui::Color32::GRAY, "NFM deviation too low (<2 kHz)")
+                            }
+                        },
+                        DemodMode::Wfm => {
+                            if dev_khz > 80.0 {
+                                (egui::Color32::RED, "WFM deviation excessive (>80 kHz)")
+                            } else if dev_khz >= 50.0 && dev_khz <= 75.0 {
+                                (egui::Color32::GREEN, "WFM deviation ideal (50–75 kHz)")
+                            } else if dev_khz >= 30.0 && dev_khz < 50.0 {
+                                (egui::Color32::YELLOW, "WFM deviation low (30–50 kHz) — weak signal")
+                            } else {
+                                (egui::Color32::GRAY, "WFM deviation very low")
+                            }
+                        },
+                        _ => (egui::Color32::GRAY, "N/A"),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.colored_label(dev_color, format!("FM dev: {:.1} kHz", dev_khz))
+                            .on_hover_text(dev_tip);
+                    });
+                    // Audio level meter bar with peak hold
+                    let peak_frac = (state.audio_peak).clamp(0.0, 1.0);
+                    if peak_frac > self.audio_peak_hold {
+                        self.audio_peak_hold = peak_frac;
+                        self.audio_peak_hold_time = Some(std::time::Instant::now());
+                    } else if let Some(held_since) = self.audio_peak_hold_time {
+                        if held_since.elapsed().as_secs_f32() > 3.0 {
+                            self.audio_peak_hold = 0.0;
+                            self.audio_peak_hold_time = None;
                         }
-                    },
-                    DemodMode::Wfm => {
-                        if dev_khz > 80.0 {
-                            (egui::Color32::RED, "WFM deviation excessive (>80 kHz)")
-                        } else if dev_khz >= 50.0 && dev_khz <= 75.0 {
-                            (egui::Color32::GREEN, "WFM deviation ideal (50–75 kHz)")
-                        } else if dev_khz >= 30.0 && dev_khz < 50.0 {
-                            (egui::Color32::YELLOW, "WFM deviation low (30–50 kHz) — weak signal")
-                        } else {
-                            (egui::Color32::GRAY, "WFM deviation very low")
-                        }
-                    },
-                    _ => (egui::Color32::GRAY, "N/A"),
-                };
-                ui.horizontal(|ui| {
-                    ui.colored_label(dev_color, format!("FM dev: {:.1} kHz", dev_khz))
-                        .on_hover_text(dev_tip);
-                });
-                // Audio level meter bar with peak hold
-                let peak_frac = (state.audio_peak).clamp(0.0, 1.0);
-                // Update peak hold (3-second decay)
-                if peak_frac > self.audio_peak_hold {
-                    self.audio_peak_hold = peak_frac;
-                    self.audio_peak_hold_time = Some(std::time::Instant::now());
-                } else if let Some(held_since) = self.audio_peak_hold_time {
-                    if held_since.elapsed().as_secs_f32() > 3.0 {
-                        self.audio_peak_hold = 0.0;
-                        self.audio_peak_hold_time = None;
                     }
+                    ui.horizontal(|ui| {
+                        ui.label("Audio:");
+                        let bar_w = ui.available_width().min(150.0).max(40.0);
+                        let bar_h = 10.0f32;
+                        let (rect, resp) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
+                        let painter = ui.painter();
+                        painter.rect_filled(rect, 2.0, egui::Color32::from_rgb(20, 20, 30));
+                        let fill_w = rect.width() * peak_frac;
+                        let bar_color = if peak_frac > 0.9 { egui::Color32::from_rgb(220, 50, 50) }
+                            else if peak_frac > 0.6 { egui::Color32::from_rgb(50, 200, 80) }
+                            else if peak_frac > 0.05 { egui::Color32::from_rgb(40, 160, 60) }
+                            else { egui::Color32::from_rgb(50, 70, 50) };
+                        if fill_w > 0.5 {
+                            painter.rect_filled(
+                                egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, bar_h)),
+                                2.0, bar_color,
+                            );
+                        }
+                        if self.audio_peak_hold > 0.01 {
+                            let peak_x = rect.left() + rect.width() * self.audio_peak_hold;
+                            painter.line_segment(
+                                [egui::pos2(peak_x, rect.top()), egui::pos2(peak_x, rect.bottom())],
+                                egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 200, 100)),
+                            );
+                        }
+                        painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 70, 80)), egui::StrokeKind::Middle);
+                        resp.on_hover_text(format!("Audio output level: {:.0}%. Peak hold (orange line): {:.0}%. >90% = clipping risk — lower volume.", peak_frac * 100.0, self.audio_peak_hold * 100.0));
+                    });
                 }
-                ui.horizontal(|ui| {
-                    ui.label("Audio:");
-                    let bar_w = 100.0f32;
-                    let bar_h = 10.0f32;
-                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
-                    let painter = ui.painter();
-                    painter.rect_filled(rect, 2.0, egui::Color32::from_rgb(20, 20, 30));
-                    let fill_w = rect.width() * peak_frac;
-                    let bar_color = if peak_frac > 0.9 { egui::Color32::from_rgb(220, 50, 50) }
-                        else if peak_frac > 0.6 { egui::Color32::from_rgb(50, 200, 80) }
-                        else if peak_frac > 0.05 { egui::Color32::from_rgb(40, 160, 60) }
-                        else { egui::Color32::from_rgb(50, 70, 50) };
-                    if fill_w > 0.5 {
-                        painter.rect_filled(
-                            egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, bar_h)),
-                            2.0, bar_color,
-                        );
-                    }
-                    // Peak hold marker
-                    if self.audio_peak_hold > 0.01 {
-                        let peak_x = rect.left() + rect.width() * self.audio_peak_hold;
-                        painter.line_segment(
-                            [egui::pos2(peak_x, rect.top()), egui::pos2(peak_x, rect.bottom())],
-                            egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 200, 100)),
-                        );
-                    }
-                    painter.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 70, 80)), egui::StrokeKind::Middle);
-                    resp.on_hover_text(format!("Audio output level: {:.0}%. Peak hold (orange line): {:.0}%. >90% = clipping risk — lower volume.", peak_frac * 100.0, self.audio_peak_hold * 100.0));
-                });
             }
         }
 
         // Audio controls
         ui.separator();
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let mut start_audio = false;
             let mut stop_audio = false;
             let mut volume = 0.5f32;
@@ -1436,177 +1470,174 @@ impl SdrPanel {
 
         ui.separator();
 
-        // Frequency presets (band quick-tune) — one-click: tune + mode + gain + filter BW + start audio
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Bands:").on_hover_text("One-click quick-start presets. Each button tunes to that frequency, picks the right demodulation mode, sets a sensible gain and filter bandwidth, and starts audio — so you hear sound immediately.");
-            // (name, freq_hz, demod_mode_label, gain_db, filter_bw_hz, tip)
-            const BANDS: &[(&str, u64, &str, f64, u32, &str)] = &[
-                ("BC FM",   100_000_000, "WFM",  40.0, 200_000, "FM Broadcast band center (88–108 MHz) → WFM mode. Hear music/talk radio."),
-                ("Air",     118_000_000, "AM",   40.0, 8_000,   "Aviation VHF voice band (118–137 MHz) → AM mode (not FM!). Hear air traffic control."),
-                ("NOAA WX", 162_400_000, "NFM",  40.0, 12_500,  "NOAA Weather Radio (162.400–162.550 MHz) → NFM mode. Continuous weather broadcast."),
-                ("Marine",  156_800_000, "NFM",  40.0, 12_500,  "Marine VHF distress channel 16 (156.8 MHz) → NFM mode."),
-                ("2m",      144_000_000, "NFM",  40.0, 12_500,  "Amateur 2-meter band. Repeaters, APRS at 144.390 MHz → NFM"),
-                ("APRS",    144_390_000, "NFM",  40.0, 12_500,  "APRS digipeater/tracker beacon (144.390 MHz US) → NFM mode"),
-                ("70cm",    430_000_000, "NFM",  42.0, 12_500,  "Amateur 70cm band. FM repeaters, digital modes → NFM"),
-                ("PMR446",  446_006_250, "NFM",  42.0, 12_500,  "PMR446 licence-free walkie-talkies (446.006–446.194 MHz) → NFM"),
-                ("NOAA 15", 137_620_000, "WFM",  45.0, 200_000, "NOAA 15 weather satellite (137.620 MHz) → WFM 34 kHz"),
-                ("NOAA 18", 137_912_500, "WFM",  45.0, 200_000, "NOAA 18 weather satellite (137.9125 MHz) → WFM 34 kHz"),
-                ("NOAA 19", 137_100_000, "WFM",  45.0, 200_000, "NOAA 19 weather satellite (137.100 MHz) → WFM 34 kHz"),
-                ("ISS",     145_800_000, "NFM",  45.0, 12_500,  "International Space Station voice (145.800 MHz) → NFM"),
-                ("ADS-B",  1_090_000_000, "RAW", 40.0, 250_000, "Mode-S/ADS-B aircraft transponders (1090 MHz) → RAW (use ADS-B tab)"),
-            ];
-            if let Ok(mut state) = self.shared.try_lock() {
-                for (name, freq_hz, mode_str, gain_db, filter_bw, tip) in BANDS {
-                    let mode_color = match *mode_str {
-                        "WFM" => egui::Color32::from_rgb(100, 200, 100), // green
-                        "NFM" => egui::Color32::from_rgb(150, 150, 255), // blue
-                        "AM"  => egui::Color32::from_rgb(255, 200, 100), // orange
-                        "RAW" => egui::Color32::from_rgb(150, 150, 150), // gray
-                        _ => egui::Color32::WHITE,
-                    };
-                    let label = egui::RichText::new(format!("{} {}", name, mode_str)).color(mode_color).small();
-                    if ui.small_button(label).on_hover_text(*tip).clicked() {
-                        state.source.frequency_hz = *freq_hz;
-                        if let Some(mode) = DemodMode::from_label(mode_str) {
-                            state.demod_mode = mode;
-                        }
-                        // One-click quick-start: set gain + filter BW + start audio so a beginner hears sound
-                        state.source.gain_db = *gain_db;
-                        state.audio_running = true;
-                        self.filter_bw = *filter_bw;
-                        // Mode-aware audio low-pass filter for clean sound
-                        state.lpf_cutoff = match *mode_str {
-                            "WFM" => 15000.0,
-                            "NFM" | "AM" => 3000.0,
-                            _ => state.lpf_cutoff,
-                        };
-                    }
-                }
-            }
-        });
-
-        // Band info hint — tells beginner what they're likely listening to at current freq
-        if let Ok(state) = self.shared.try_lock() {
-            let freq = state.source.frequency_hz;
-            // (start_hz, end_hz, description, color_rgb)
-            const BAND_INFO: &[(u64, u64, &str, (u8, u8, u8))] = &[
-                (148_000,    530_000,    "LW/MW broadcast. Amplitude-modulated radio stations, aviation beacons (NDB).", (180, 160, 100)),
-                (530_000,  1_710_000,   "AM broadcast band. Local radio stations. Use AM mode.", (180, 160, 100)),
-                (1_710_000, 30_000_000, "HF shortwave. International broadcast, amateur radio (use SSB), maritime, military.", (100, 180, 255)),
-                (87_500_000, 108_000_000, "FM broadcast band. Local music/talk radio stations. Use WFM mode.", (80, 200, 120)),
-                (108_000_000, 118_000_000, "VOR/ILS navigation aids. Aircraft instrument approaches. AM mode.", (200, 200, 80)),
-                (118_000_000, 137_000_000, "Aviation VHF band. Air traffic control, ATIS, ground. Use AM mode (not FM!).", (200, 200, 80)),
-                (136_000_000, 138_000_000, "Weather satellite downlink (NOAA APT at 137.1–137.9 MHz). Use WFM or RAW.", (100, 220, 220)),
-                (144_000_000, 148_000_000, "Amateur 2m band. FM voice repeaters, APRS (144.390 MHz). Use NFM.", (160, 120, 255)),
-                (156_000_000, 174_000_000, "Marine VHF. Channel 16 (distress) = 156.8 MHz. Use NFM.", (80, 160, 255)),
-                (162_400_000, 162_600_000, "NOAA Weather Radio. Continuous weather broadcasts. Use NFM.", (100, 220, 220)),
-                (430_000_000, 440_000_000, "Amateur 70cm band. FM repeaters, ATV, digital. Use NFM.", (160, 120, 255)),
-                (433_050_000, 434_790_000, "433 MHz ISM band. Remote controls, key fobs, weather stations. Use NFM/AM.", (200, 140, 80)),
-                (446_000_000, 446_200_000, "PMR446 walkie-talkies (licence-free). Use NFM.", (200, 140, 80)),
-                (460_000_000, 470_000_000, "UHF land mobile. Business radios, public safety (varies by country). Use NFM.", (160, 160, 160)),
-                (850_000_000, 900_000_000, "GSM 850 / cellular. Digital — you'll see wideband signal but no decodable audio.", (120, 120, 120)),
-                (1_090_000_000, 1_090_000_000, "ADS-B Mode-S (1090 MHz). Aircraft transponders — use ADS-B tab with RAW mode.", (80, 200, 255)),
-                (1_575_420_000, 1_575_420_000, "GPS L1 signal (1575.42 MHz). Very weak — needs a GPS LNA to receive.", (120, 200, 80)),
-            ];
-            let band_desc = BAND_INFO.iter().find(|(lo, hi, _, _)| {
-                if lo == hi { freq.abs_diff(*lo) < 500_000 } else { freq >= *lo && freq <= *hi }
-            });
-            if let Some((_, _, desc, (r, g, b))) = band_desc {
-                ui.horizontal(|ui| {
-                    ui.label("📡").on_hover_text("Band information for the current frequency.");
-                    ui.colored_label(egui::Color32::from_rgb(*r, *g, *b), *desc);
-                });
-            }
-        }
-
-        // Recent frequencies (last 8 from history, most recent first)
-        if let Ok(mut state) = self.shared.try_lock() {
-            if state.freq_history.len() > 1 {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Recent:").on_hover_text("Last tuned frequencies — click to jump back.");
-                    let hist: Vec<u64> = state.freq_history.iter().cloned().rev().skip(1).take(8).collect();
-                    for freq in hist {
-                        let label = format!("{:.3}", freq as f64 / 1e6);
-                        ui.horizontal(|ui| {
-                            ui.set_width_range(0.0..=120.0);
-                            if ui.small_button(&label).on_hover_text(format!("{:.3} MHz — click to retune", freq as f64 / 1e6)).clicked() {
-                                state.source.frequency_hz = freq;
-                                return;
-                            }
-                            if ui.small_button("📋").on_hover_text("Copy frequency").clicked() {
-                                ui.ctx().copy_text(format!("{:.6}", freq as f64 / 1e6));
-                            }
-                        });
-                    }
-                    if ui.small_button("🗑").on_hover_text("Clear all frequency history").clicked() {
-                        state.freq_history.clear();
-                    }
-                });
-            }
-        }
-
-        // Filter bandwidth and squelch
-        if let Ok(mut state) = self.shared.try_lock() {
-            let _bw_resp = ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
-                .on_hover_text("Receiver filter bandwidth. Set just wider than the signal. WFM: 200 kHz, NFM voice: 12–16 kHz, AM voice: 8 kHz, SSB: 2.4 kHz. Too wide = more noise.");
-
-            // Suggested bandwidth for current demod mode
-            let (suggested_hz, tip) = match state.demod_mode {
-                DemodMode::Raw => (0, "RAW: no filter applied"),
-                DemodMode::Am => (8_000, "AM: 8 kHz typical for voice"),
-                DemodMode::Fm => (12_500, "NFM: 12.5 kHz standard"),
-                DemodMode::Wfm => (200_000, "WFM: 200 kHz for stereo broadcast"),
-                DemodMode::Lsb | DemodMode::Usb => (2_400, "SSB: 2.4 kHz for voice"),
-            };
-            if suggested_hz > 0 && (self.filter_bw as i32 - suggested_hz as i32).abs() > 1000 {
-                let suggestion_color = if self.filter_bw < suggested_hz {
-                    egui::Color32::from_rgb(180, 200, 100) // yellow: too narrow
-                } else {
-                    egui::Color32::from_rgb(100, 150, 255) // blue: too wide
-                };
-                ui.horizontal(|ui| {
-                    ui.colored_label(suggestion_color, format!("💡 {}: {}", state.demod_mode.label(), format_hz(suggested_hz)))
-                        .on_hover_text(tip);
-                    if ui.small_button("Apply").on_hover_text(format!("Set filter to {} Hz", suggested_hz)).clicked() {
-                        self.filter_bw = suggested_hz as u32;
-                    }
-                });
-            }
-
-            // Quick RF filter presets based on mode
-            ui.horizontal(|ui| {
-                ui.label("RF Filter Presets:").on_hover_text("Quick filter bandwidth presets optimized for common modes");
-                let presets = [
-                    ("Voice", 12_500u32, "12.5 kHz - NFM voice"),
-                    ("AM Bcast", 8_000, "8 kHz - AM radio"),
-                    ("FM Bcast", 200_000, "200 kHz - WFM stereo"),
-                    ("SSB", 2_400, "2.4 kHz - SSB voice"),
-                    ("CW", 500, "500 Hz - Morse code"),
+        if !is_beginner {
+            // Frequency presets (band quick-tune) — one-click: tune + mode + gain + filter BW + start audio
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Bands:").on_hover_text("One-click quick-start presets. Each button tunes to that frequency, picks the right demodulation mode, sets a sensible gain and filter bandwidth, and starts audio — so you hear sound immediately.");
+                const BANDS: &[(&str, u64, &str, f64, u32, &str)] = &[
+                    ("BC FM",   100_000_000, "WFM",  40.0, 200_000, "FM Broadcast band center (88–108 MHz) → WFM mode. Hear music/talk radio."),
+                    ("Air",     118_000_000, "AM",   40.0, 8_000,   "Aviation VHF voice band (118–137 MHz) → AM mode (not FM!). Hear air traffic control."),
+                    ("NOAA WX", 162_400_000, "NFM",  40.0, 12_500,  "NOAA Weather Radio (162.400–162.550 MHz) → NFM mode. Continuous weather broadcast."),
+                    ("Marine",  156_800_000, "NFM",  40.0, 12_500,  "Marine VHF distress channel 16 (156.8 MHz) → NFM mode."),
+                    ("2m",      144_000_000, "NFM",  40.0, 12_500,  "Amateur 2-meter band. Repeaters, APRS at 144.390 MHz → NFM"),
+                    ("APRS",    144_390_000, "NFM",  40.0, 12_500,  "APRS digipeater/tracker beacon (144.390 MHz US) → NFM mode"),
+                    ("70cm",    430_000_000, "NFM",  42.0, 12_500,  "Amateur 70cm band. FM repeaters, digital modes → NFM"),
+                    ("PMR446",  446_006_250, "NFM",  42.0, 12_500,  "PMR446 licence-free walkie-talkies (446.006–446.194 MHz) → NFM"),
+                    ("NOAA 15", 137_620_000, "WFM",  45.0, 200_000, "NOAA 15 weather satellite (137.620 MHz) → WFM 34 kHz"),
+                    ("NOAA 18", 137_912_500, "WFM",  45.0, 200_000, "NOAA 18 weather satellite (137.9125 MHz) → WFM 34 kHz"),
+                    ("NOAA 19", 137_100_000, "WFM",  45.0, 200_000, "NOAA 19 weather satellite (137.100 MHz) → WFM 34 kHz"),
+                    ("ISS",     145_800_000, "NFM",  45.0, 12_500,  "International Space Station voice (145.800 MHz) → NFM"),
+                    ("ADS-B",  1_090_000_000, "RAW", 40.0, 250_000, "Mode-S/ADS-B aircraft transponders (1090 MHz) → RAW (use ADS-B tab)"),
                 ];
-                for (label, bw, tooltip) in presets.iter() {
-                    if ui.small_button(*label).on_hover_text(*tooltip).clicked() {
-                        self.filter_bw = *bw;
+                if let Ok(mut state) = self.shared.try_lock() {
+                    for (name, freq_hz, mode_str, gain_db, filter_bw, tip) in BANDS {
+                        let mode_color = match *mode_str {
+                            "WFM" => egui::Color32::from_rgb(100, 200, 100),
+                            "NFM" => egui::Color32::from_rgb(150, 150, 255),
+                            "AM"  => egui::Color32::from_rgb(255, 200, 100),
+                            "RAW" => egui::Color32::from_rgb(150, 150, 150),
+                            _ => egui::Color32::WHITE,
+                        };
+                        let label = egui::RichText::new(format!("{} {}", name, mode_str)).color(mode_color).small();
+                        if ui.small_button(label).on_hover_text(*tip).clicked() {
+                            state.source.frequency_hz = *freq_hz;
+                            if let Some(mode) = DemodMode::from_label(mode_str) {
+                                state.demod_mode = mode;
+                            }
+                            state.source.gain_db = *gain_db;
+                            state.audio_running = true;
+                            self.filter_bw = *filter_bw;
+                            state.lpf_cutoff = match *mode_str {
+                                "WFM" => 15000.0,
+                                "NFM" | "AM" => 3000.0,
+                                _ => state.lpf_cutoff,
+                            };
+                        }
                     }
                 }
             });
 
-            ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true))
-                .on_hover_text("Low-pass filter on audio output. Cuts high-frequency hiss above this frequency. Default 15 kHz is fine for voice. Lower for CW/Morse (~800 Hz).");
-
-            // LPF quick presets
-            ui.horizontal(|ui| {
-                ui.label("Presets:").on_hover_text("Quick audio filter presets");
-                for (label, hz, tip) in [
-                    ("CW", 800.0f32, "Morse/CW: 800 Hz narrow filter"),
-                    ("Voice", 3000.0, "Voice: 3 kHz standard"),
-                    ("Music", 8000.0, "Music/broadcast: 8 kHz"),
-                    ("Wide", 15000.0, "Default: 15 kHz"),
-                ] {
-                    if ui.small_button(label).on_hover_text(tip).clicked() {
-                        state.lpf_cutoff = hz;
-                    }
+            // Band info hint — tells beginner what they're likely listening to at current freq
+            if let Ok(state) = self.shared.try_lock() {
+                let freq = state.source.frequency_hz;
+                const BAND_INFO: &[(u64, u64, &str, (u8, u8, u8))] = &[
+                    (148_000,    530_000,    "LW/MW broadcast. Amplitude-modulated radio stations, aviation beacons (NDB).", (180, 160, 100)),
+                    (530_000,  1_710_000,   "AM broadcast band. Local radio stations. Use AM mode.", (180, 160, 100)),
+                    (1_710_000, 30_000_000, "HF shortwave. International broadcast, amateur radio (use SSB), maritime, military.", (100, 180, 255)),
+                    (87_500_000, 108_000_000, "FM broadcast band. Local music/talk radio stations. Use WFM mode.", (80, 200, 120)),
+                    (108_000_000, 118_000_000, "VOR/ILS navigation aids. Aircraft instrument approaches. AM mode.", (200, 200, 80)),
+                    (118_000_000, 137_000_000, "Aviation VHF band. Air traffic control, ATIS, ground. Use AM mode (not FM!).", (200, 200, 80)),
+                    (136_000_000, 138_000_000, "Weather satellite downlink (NOAA APT at 137.1–137.9 MHz). Use WFM or RAW.", (100, 220, 220)),
+                    (144_000_000, 148_000_000, "Amateur 2m band. FM voice repeaters, APRS (144.390 MHz). Use NFM.", (160, 120, 255)),
+                    (156_000_000, 174_000_000, "Marine VHF. Channel 16 (distress) = 156.8 MHz. Use NFM.", (80, 160, 255)),
+                    (162_400_000, 162_600_000, "NOAA Weather Radio. Continuous weather broadcasts. Use NFM.", (100, 220, 220)),
+                    (430_000_000, 440_000_000, "Amateur 70cm band. FM repeaters, ATV, digital. Use NFM.", (160, 120, 255)),
+                    (433_050_000, 434_790_000, "433 MHz ISM band. Remote controls, key fobs, weather stations. Use NFM/AM.", (200, 140, 80)),
+                    (446_000_000, 446_200_000, "PMR446 walkie-talkies (licence-free). Use NFM.", (200, 140, 80)),
+                    (460_000_000, 470_000_000, "UHF land mobile. Business radios, public safety (varies by country). Use NFM.", (160, 160, 160)),
+                    (850_000_000, 900_000_000, "GSM 850 / cellular. Digital — you'll see wideband signal but no decodable audio.", (120, 120, 120)),
+                    (1_090_000_000, 1_090_000_000, "ADS-B Mode-S (1090 MHz). Aircraft transponders — use ADS-B tab with RAW mode.", (80, 200, 255)),
+                    (1_575_420_000, 1_575_420_000, "GPS L1 signal (1575.42 MHz). Very weak — needs a GPS LNA to receive.", (120, 200, 80)),
+                ];
+                let band_desc = BAND_INFO.iter().find(|(lo, hi, _, _)| {
+                    if lo == hi { freq.abs_diff(*lo) < 500_000 } else { freq >= *lo && freq <= *hi }
+                });
+                if let Some((_, _, desc, (r, g, b))) = band_desc {
+                    ui.horizontal(|ui| {
+                        ui.label("📡").on_hover_text("Band information for the current frequency.");
+                        ui.colored_label(egui::Color32::from_rgb(*r, *g, *b), *desc);
+                    });
                 }
-            });
+            }
+
+            // Recent frequencies (last 8 from history, most recent first)
+            if let Ok(mut state) = self.shared.try_lock() {
+                if state.freq_history.len() > 1 {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Recent:").on_hover_text("Last tuned frequencies — click to jump back.");
+                        let hist: Vec<u64> = state.freq_history.iter().cloned().rev().skip(1).take(8).collect();
+                        for freq in hist {
+                            let label = format!("{:.3}", freq as f64 / 1e6);
+                            ui.horizontal(|ui| {
+                                ui.set_width_range(0.0..=120.0);
+                                if ui.small_button(&label).on_hover_text(format!("{:.3} MHz — click to retune", freq as f64 / 1e6)).clicked() {
+                                    state.source.frequency_hz = freq;
+                                    return;
+                                }
+                                if ui.small_button("📋").on_hover_text("Copy frequency").clicked() {
+                                    ui.ctx().copy_text(format!("{:.6}", freq as f64 / 1e6));
+                                }
+                            });
+                        }
+                        if ui.small_button("🗑").on_hover_text("Clear all frequency history").clicked() {
+                            state.freq_history.clear();
+                        }
+                    });
+                }
+            }
+        }
+
+        if !is_beginner {
+            // Filter bandwidth controls (hidden for beginners)
+            if let Ok(mut state) = self.shared.try_lock() {
+                let _bw_resp = ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
+                    .on_hover_text("Receiver filter bandwidth. Set just wider than the signal. WFM: 200 kHz, NFM voice: 12–16 kHz, AM voice: 8 kHz, SSB: 2.4 kHz. Too wide = more noise.");
+
+                let (suggested_hz, tip) = match state.demod_mode {
+                    DemodMode::Raw => (0, "RAW: no filter applied"),
+                    DemodMode::Am => (8_000, "AM: 8 kHz typical for voice"),
+                    DemodMode::Fm => (12_500, "NFM: 12.5 kHz standard"),
+                    DemodMode::Wfm => (200_000, "WFM: 200 kHz for stereo broadcast"),
+                    DemodMode::Lsb | DemodMode::Usb => (2_400, "SSB: 2.4 kHz for voice"),
+                };
+                if suggested_hz > 0 && (self.filter_bw as i32 - suggested_hz as i32).abs() > 1000 {
+                    let suggestion_color = if self.filter_bw < suggested_hz {
+                        egui::Color32::from_rgb(180, 200, 100)
+                    } else {
+                        egui::Color32::from_rgb(100, 150, 255)
+                    };
+                    ui.horizontal(|ui| {
+                        ui.colored_label(suggestion_color, format!("💡 {}: {}", state.demod_mode.label(), format_hz(suggested_hz)))
+                            .on_hover_text(tip);
+                        if ui.small_button("Apply").on_hover_text(format!("Set filter to {} Hz", suggested_hz)).clicked() {
+                            self.filter_bw = suggested_hz as u32;
+                        }
+                    });
+                }
+
+                ui.horizontal(|ui| {
+                    ui.label("RF Filter Presets:").on_hover_text("Quick filter bandwidth presets optimized for common modes");
+                    let presets = [
+                        ("Voice", 12_500u32, "12.5 kHz - NFM voice"),
+                        ("AM Bcast", 8_000, "8 kHz - AM radio"),
+                        ("FM Bcast", 200_000, "200 kHz - WFM stereo"),
+                        ("SSB", 2_400, "2.4 kHz - SSB voice"),
+                        ("CW", 500, "500 Hz - Morse code"),
+                    ];
+                    for (label, bw, tooltip) in presets.iter() {
+                        if ui.small_button(*label).on_hover_text(*tooltip).clicked() {
+                            self.filter_bw = *bw;
+                        }
+                    }
+                });
+
+                ui.add(egui::Slider::new(&mut state.lpf_cutoff, 100.0..=20000.0).text("Audio LPF (Hz)").logarithmic(true))
+                    .on_hover_text("Low-pass filter on audio output. Cuts high-frequency hiss above this frequency. Default 15 kHz is fine for voice. Lower for CW/Morse (~800 Hz).");
+
+                ui.horizontal(|ui| {
+                    ui.label("Presets:").on_hover_text("Quick audio filter presets");
+                    for (label, hz, tip) in [
+                        ("CW", 800.0f32, "Morse/CW: 800 Hz narrow filter"),
+                        ("Voice", 3000.0, "Voice: 3 kHz standard"),
+                        ("Music", 8000.0, "Music/broadcast: 8 kHz"),
+                        ("Wide", 15000.0, "Default: 15 kHz"),
+                    ] {
+                        if ui.small_button(label).on_hover_text(tip).clicked() {
+                            state.lpf_cutoff = hz;
+                        }
+                    }
+                });
+            }
         }
         // Auto-squelch tracking: update squelch every frame when enabled
         if self.auto_squelch {
@@ -1619,7 +1650,7 @@ impl SdrPanel {
                 }
             }
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let sq_resp = ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)"))
                 .on_hover_text("Signal level threshold. Audio is muted when signal drops below this value, silencing static between transmissions. Set ~5 dB above your noise floor.");
 
@@ -1788,174 +1819,217 @@ impl SdrPanel {
         }
 
         ui.add_space(16.0);
-        ui.separator();
-        // ── General SDR Antenna Setup Guide ──────────────────────────────
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new("📡 Antenna Setup Guide").size(16.0).strong());
-        ui.add_space(4.0);
+        // ── Airport Frequency Finder (collapsible, optional) ──────────
+        ui.collapsing("✈️ Airport Frequency Finder", |ui| {
+            ui.add_space(4.0);
+            // Download progress
+            if let Some((done, total)) = self.airport_dl_progress {
+                let frac = if total > 0 { done as f32 / total.max(done) as f32 } else { 0.0 };
+                ui.add(egui::ProgressBar::new(frac.clamp(0.0, 1.0)).text(format!("{:.1} / {:.1} MB", done as f64 / 1e6, total.max(done) as f64 / 1e6)));
+                ui.label(&self.airport_dl_msg);
+                if done >= total && total > 0 {
+                    if ui.button("✓ Load airports").clicked() {
+                        let fresh = crate::airport_db::AirportDb::load();
+                        self.airport_db = fresh;
+                        self.airport_dl_progress = None;
+                        self.airport_dl_msg = "Loaded {count} airports".to_string();
+                    }
+                }
+                return;
+            }
+            // Search row
+            ui.horizontal(|ui| {
+                ui.label("Search:");
+                ui.add(egui::TextEdit::singleline(&mut self.airport_search).hint_text("ICAO / IATA / name").desired_width(140.0));
+                ui.label("Type:");
+                let types = ["all", "large_airport", "medium_airport", "small_airport", "heliport"];
+                let cur_idx = types.iter().position(|t| *t == self.airport_type_filter).unwrap_or(0);
+                egui::ComboBox::from_id_salt("ap_type_filter")
+                    .selected_text(types[cur_idx])
+                    .width(120.0)
+                    .show_ui(ui, |ui| {
+                        for &t in &types {
+                            if ui.selectable_label(self.airport_type_filter == t, t).clicked() {
+                                self.airport_type_filter = t.to_string();
+                            }
+                        }
+                    });
+                if !self.airport_db.cached_sqlite {
+                    if ui.small_button("🌐 Download full world DB")
+                        .on_hover_text("Download airports.csv + airport-frequencies.csv (~14 MB) from OurAirports. One-time cache.")
+                        .clicked()
+                    {
+                        self.airport_dl_progress = Some((0, 1));
+                        self.airport_dl_msg = "Downloading airports & frequencies...".to_string();
+                        let result = crate::airport_db::AirportDb::download_full_blocking(|_, _| {});
+                        match result {
+                            Ok(count) => {
+                                self.airport_dl_progress = Some((1, 1));
+                                self.airport_dl_msg = format!("Downloaded {} airports.", count);
+                            }
+                            Err(e) => {
+                                self.airport_dl_progress = None;
+                                self.airport_dl_msg = format!("Error: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "✓ Full DB cached");
+                }
+            });
+            ui.add_space(4.0);
 
-        ui.horizontal_wrapped(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
-            ui.separator();
-            ui.label("The antenna is the most important part of your setup. A great antenna with a modest SDR will outperform a mediocre antenna with an expensive SDR every time.");
-        });
+            // Search results
+            let results = self.airport_db.search(&self.airport_search, &self.airport_type_filter, 50);
+            egui::ScrollArea::vertical().id_salt("airport_results").max_height(200.0).show(ui, |ui| {
+                for a in &results {
+                    let selected = self.selected_airport.as_deref() == Some(&a.ident);
+                    let label = format!("{} — {} ({})", a.code(), a.name, a.country);
+                    if ui.selectable_label(selected, label).clicked() {
+                        self.selected_airport = Some(a.ident.clone());
+                        self.expanded_antenna_for = None;
+                    }
+                }
+            });
+            ui.add_space(4.0);
 
-        ui.add_space(4.0);
-        ui.collapsing("Choose the right antenna for what you want to hear", |ui| {
-            ui.add_space(4.0);
-            egui::Grid::new("sdr_ant_grid").num_columns(2).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("Antenna").strong());
-                ui.label(egui::RichText::new("Best for").strong());
-                ui.end_row();
-                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Dipole (RTL-SDR kit)");
-                ui.label("FM broadcast (88–108 MHz), airband, NOAA satellites, general VHF/UHF. Extend elements to ~75 cm each for FM band. Good starter antenna.");
-                ui.end_row();
-                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Quarter-wave monopole");
-                ui.label("Single vertical element over a ground plane. Omnidirectional. Best for scanning FM, airband, land mobile, ADS-B. Cheap and easy to DIY.");
-                ui.end_row();
-                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Discone (Tram 1411/Diamond D130J)");
-                ui.label("Wideband, covers ~25–1300 MHz with one antenna. Best all-rounder for scanning. No tuning needed. Requires outdoor mast mount. Cost: ~$30–80.");
-                ui.end_row();
-                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Active loop (MLA-30+)");
-                ui.label("Best for shortwave/HF (below 30 MHz). Compact, reduces electrical noise in urban settings. Needs 12V bias. Performs poorly above VHF.");
-                ui.end_row();
-                ui.colored_label(egui::Color32::from_rgb(150, 200, 255), "Long wire / random wire");
-                ui.label("Simple wire antenna for HF/shortwave listening. 10–30 m wire as high as possible. Needs 9:1 balun and good grounding. Excellent for AM broadcast and amateur HF.");
-                ui.end_row();
-            });
-            ui.add_space(4.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
-                ui.separator();
-                ui.label("If you're not sure what to buy: start with the dipole kit included with your RTL-SDR. Once you outgrow it, the next step is a discone for wideband performance.");
-            });
-        });
+            // Selected airport frequency table
+            if let Some(ref ident) = self.selected_airport.clone() {
+                if let Some(ap) = self.airport_db.airport(ident) {
+                    let freqs = self.airport_db.frequencies_for(ident);
 
-        ui.add_space(4.0);
-        ui.collapsing("Coax cable guide — don't throw away signal", |ui| {
-            ui.add_space(4.0);
-            ui.label("Coax loss increases with frequency. A cable that works fine at 100 MHz may lose half your signal at 1 GHz.");
-            ui.add_space(4.0);
-            egui::Grid::new("coax_grid").num_columns(4).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("Cable").strong());
-                ui.label(egui::RichText::new("Loss @ 100 MHz/10m").strong());
-                ui.label(egui::RichText::new("Loss @ 1 GHz/10m").strong());
-                ui.label(egui::RichText::new("Best for").strong());
-                ui.end_row();
-                ui.label("RG-58 / RG-316");
-                ui.label("~1.5 dB");
-                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "~9 dB");
-                ui.label("Short patch cables only");
-                ui.end_row();
-                ui.label("RG-6 (TV coax)");
-                ui.label("~0.8 dB");
-                ui.label("~4 dB");
-                ui.label("Runs under 5 m, okay up to UHF");
-                ui.end_row();
-                ui.label("LMR-240 / RFC240");
-                ui.label("~0.4 dB");
-                ui.label("~2.4 dB");
-                ui.label("Good for runs up to 10 m");
-                ui.end_row();
-                ui.label("LMR-400 / RFC400");
-                ui.colored_label(egui::Color32::from_rgb(80, 220, 80), "~0.2 dB");
-                ui.colored_label(egui::Color32::from_rgb(80, 220, 80), "~1.4 dB");
-                ui.label("Best for permanent outdoor runs up to 30 m");
-                ui.end_row();
-            });
-            ui.add_space(4.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
-                ui.separator();
-                ui.label("Don't coil excess coax — it forms an inductor that can resonate and pick up interference. Cut it to length or lay it flat.");
-            });
-        });
+                    egui::Frame::group(ui.style()).inner_margin(6.0).show(ui, |ui| {
+                        ui.label(egui::RichText::new(format!("{} ({})", ap.name, ap.code())).size(14.0).strong());
+                        ui.label(format!("{} | lat {:.3} lon {:.3} | {}", ap.atype, ap.lat, ap.lon, ap.country));
+                    });
+                    ui.add_space(4.0);
 
-        ui.add_space(4.0);
-        ui.collapsing("Placement — outdoor is always better", |ui| {
-            ui.add_space(4.0);
-            ui.label("Signal strength by antenna location (typical at VHF/UHF):");
-            ui.add_space(2.0);
-            ui.label("  Indoor (next to window):   Reference — works for strong local signals");
-            ui.label("  Attic:                     +3–6 dB — roofing material still attenuates");
-            ui.label("  Outdoor at roofline:       +10–20 dB — dramatic improvement");
-            ui.label("  Mast 5 m above roofline:   +20–30 dB — best possible");
-            ui.add_space(4.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
-                ui.separator();
-                ui.label("Moving the antenna from indoors to outdoors is the single highest-impact improvement you can make. Even a temporary pole in the garden will outperform an attic antenna.");
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
-                ui.separator();
-                ui.label("If you're in an apartment, try placing the antenna in a window facing the direction of interest. A magnetic loop antenna (MLA-30+) works better indoors than a whip because it rejects local electrical noise.");
-            });
-        });
+                    egui::ScrollArea::vertical().id_salt("airport_freq_list").max_height(600.0).show(ui, |ui| {
+                        // Header
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Type").strong());
+                            ui.separator();
+                            ui.label(egui::RichText::new("Function").strong());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(egui::RichText::new("Antenna").strong());
+                                ui.separator();
+                                ui.label(egui::RichText::new("Tune").strong());
+                                ui.separator();
+                                ui.label(egui::RichText::new("Freq (MHz)").strong());
+                            });
+                        });
+                        ui.separator();
 
-        ui.add_space(4.0);
-        ui.collapsing("Polarisation — why it matters", |ui| {
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new("Vertical polarisation:").strong());
-            ui.label("  FM broadcast, land mobile, ADS-B, marine VHF, amateur repeaters, airband");
-            ui.label("  Use a vertical antenna (whip, monopole, discone)");
-            ui.add_space(2.0);
-            ui.label(egui::RichText::new("Horizontal polarisation:").strong());
-            ui.label("  NOAA weather satellites (137 MHz APT), some HF DX, TV broadcast");
-            ui.label("  Use a horizontal dipole or V-dipole");
-            ui.add_space(2.0);
-            ui.label(egui::RichText::new("Polarisation mismatch penalty:").strong());
-            ui.label("  Vertical ↔ Horizontal:     ~20 dB loss (100× weaker)");
-            ui.label("  Linear ↔ Circular:         ~3 dB loss (acceptable)");
-            ui.add_space(2.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
-                ui.separator();
-                ui.label("Below 30 MHz (HF), the ionosphere randomises polarisation — it doesn't matter for shortwave listening.");
-            });
-        });
+                        // Universal emergency always shown
+                        for &(t, desc, mhz) in &[("EMERG", "VHF Guard (International)", 121.5), ("EMERG", "UHF Guard (Military)", 243.0)] {
+                            ui.horizontal(|ui| {
+                                ui.colored_label(egui::Color32::from_rgb(220, 70, 70), egui::RichText::new(t).strong());
+                                ui.separator();
+                                ui.label(desc);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button("📏").clicked() {
+                                        self.expanded_antenna_for = if self.expanded_antenna_for == Some(mhz) { None } else { Some(mhz) };
+                                    }
+                                    if ui.small_button("▶").clicked() {
+                                        if let Ok(mut state) = self.shared.try_lock() {
+                                            self.tune_request = Some((mhz * 1_000_000.0) as u64);
+                                            state.demod_mode = crate::sdr_panel::DemodMode::Am;
+                                            state.lpf_cutoff = 8000.0;
+                                        }
+                                        self.pending_status = Some(format!("Tuned to {:.3} MHz AM (emergency)", mhz));
+                                    }
+                                    ui.colored_label(egui::Color32::from_rgb(255, 220, 80), format!("{:.3}", mhz));
+                                });
+                            });
+                            // Antenna card
+                            if self.expanded_antenna_for == Some(mhz) {
+                                render_antenna_card(ui, mhz);
+                            }
+                        }
 
-        ui.add_space(4.0);
-        ui.collapsing("Quick-start: tune your dipole antenna", |ui| {
-            ui.add_space(4.0);
-            ui.label("If you have the RTL-SDR dipole kit with telescopic elements, here's how to set it up for each band:");
-            ui.add_space(2.0);
-            egui::Grid::new("dipole_tuning").num_columns(3).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("Target").strong());
-                ui.label(egui::RichText::new("Each element length").strong());
-                ui.label(egui::RichText::new("Orientation").strong());
-                ui.end_row();
-                ui.label("FM broadcast (88–108 MHz)");
-                ui.label("~75 cm");
-                ui.label("Vertical (elements up/down)");
-                ui.end_row();
-                ui.label("Airband (118–136 MHz)");
-                ui.label("~60 cm");
-                ui.label("Vertical");
-                ui.end_row();
-                ui.label("NOAA satellites (137 MHz)");
-                ui.label("~54 cm");
-                ui.label("Horizontal V-shape, ~120°");
-                ui.end_row();
-                ui.label("Amateur 2m (144–148 MHz)");
-                ui.label("~52 cm");
-                ui.label("Vertical");
-                ui.end_row();
-                ui.label("ADS-B (1090 MHz)");
-                ui.label("~7 cm");
-                ui.label("Vertical");
-                ui.end_row();
-            });
-            ui.add_space(4.0);
-            ui.label("Formula: quarter-wave length (cm) = 7500 / frequency (MHz). Extend elements to the target length and tighten the screws.");
-            ui.add_space(2.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
-                ui.separator();
-                ui.label("Don't keep the antenna fully collapsed (short) for VHF — it's tuned for UHF at that length. Extend the elements to the correct length for the band you're listening to.");
-            });
+                        if !freqs.is_empty() {
+                            ui.separator();
+                        }
+
+                        for f in freqs {
+                            let ft = f.freq_type;
+                            let desc = if f.description.is_empty() { &f.raw_type } else { &f.description };
+                            let freq_key = f.frequency_mhz;
+                            ui.horizontal(|ui| {
+                                ui.colored_label(ft.badge_color(), egui::RichText::new(ft.label()).strong());
+                                ui.separator();
+                                ui.label(desc);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button("📏").clicked() {
+                                        self.expanded_antenna_for = if self.expanded_antenna_for == Some(freq_key) { None } else { Some(freq_key) };
+                                    }
+                                    if ui.small_button("▶").clicked() {
+                                        let dims = crate::airport_db::antenna_dims(f.frequency_mhz);
+                                        if let Ok(mut state) = self.shared.try_lock() {
+                                            self.tune_request = Some((f.frequency_mhz * 1_000_000.0) as u64);
+                                            if let Some(mode) = crate::sdr_panel::DemodMode::from_label(dims.suggested_mode) {
+                                                state.demod_mode = mode;
+                                            }
+                                            state.lpf_cutoff = dims.suggested_bw_hz as f32;
+                                        }
+                                        self.pending_status = Some(format!("Tuned to {:.3} MHz ({}) — {}", f.frequency_mhz, dims.suggested_mode, dims.suggested_antenna));
+                                    }
+                                    ui.colored_label(egui::Color32::from_rgb(255, 220, 80), format!("{:.3}", f.frequency_mhz));
+                                });
+                            });
+                            // Antenna card for this frequency
+                            if self.expanded_antenna_for == Some(freq_key) {
+                                render_antenna_card(ui, freq_key);
+                            }
+                        }
+                    });
+
+                    if !freqs.is_empty() {
+                        ui.add_space(2.0);
+                        if ui.small_button("📌 Bookmark all").on_hover_text("Save all airport frequencies as bookmarks").clicked() {
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                for f in freqs {
+                                    let name = format!("{} {} — {:.3}", ap.code(), f.freq_type.label(), f.frequency_mhz);
+                                    state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                                        name,
+                                        frequency_hz: (f.frequency_mhz * 1_000_000.0) as u64,
+                                        mode: "AM".to_string(),
+                                        bandwidth_hz: 8_000,
+                                        category: format!("Aviation — {}", ap.code()),
+                                        notes: String::new(),
+                                        starred: false,
+                                    });
+                                    state.bookmarks_modified = true;
+                                    state.spectrum.bookmark_freqs_dirty = true;
+                                }
+                                self.pending_status = Some(format!("Bookmarked {} frequencies for {}", freqs.len(), ap.code()));
+                            }
+                        }
+                    }
+                }
+            }
         });
     }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.ui_source(ui);
+        self.ui_demod(ui);
+    }
+}
+
+fn render_antenna_card(ui: &mut egui::Ui, freq_mhz: f64) {
+    let dims = crate::airport_db::antenna_dims(freq_mhz);
+    egui::Frame::dark_canvas(ui.style()).inner_margin(4.0).show(ui, |ui| {
+        ui.label(egui::RichText::new("📡 Antenna Dimensions").size(12.0).strong());
+        ui.add_space(2.0);
+        ui.label(format!("  ¼-wave element:      {:.1} cm  ({:.0} mm)", dims.quarter_wave_cm, dims.quarter_wave_cm * 10.0));
+        ui.label(format!("  ½-wave dipole total:  {:.1} cm", dims.half_wave_dipole_cm));
+        ui.label(format!("  Ground-plane radial:  {:.1} cm each, 4 × @ 45°", dims.ground_plane_radial_cm));
+        ui.label(format!("  Coax collinear seg:   {:.1} cm (RG-58, VF 0.66)", dims.coax_collinear_segment_cm));
+        ui.label(format!("  Suggested antenna:  {}", dims.suggested_antenna));
+        ui.label(format!("  Mode: {}   BW: {} Hz", dims.suggested_mode, dims.suggested_bw_hz));
+        ui.label(format!("  λ = {:.1} m  |  f = {:.3} MHz", 300.0 / freq_mhz, freq_mhz));
+    });
 }
 
 pub struct FreqIdInfo {
