@@ -26,24 +26,34 @@ A cross-platform SDR application combining a real-time spectrum analyser/waterfa
 
 - **Rust** 1.75+ (edition 2021)
 - **SoapySDR** development libraries (soapysdr, libsoapysdr-dev, or equivalent)
-- **ALSA / PulseAudio / JACK** development headers (for CPAL audio backend)
+- **ALSA / PulseAudio / JACK** development headers (optional, for audio playback)
 
 On Ubuntu/Debian:
 
 ```
-sudo apt install build-essential libsoapysdr-dev libasound2-dev
+sudo apt install build-essential libsoapysdr-dev
+# Optional: audio support
+sudo apt install libasound2-dev
 ```
 
 On Fedora:
 
 ```
-sudo dnf install gcc-c++ SoapySDR-devel alsa-lib-devel
+sudo dnf install gcc-c++ SoapySDR-devel
+# Optional: audio support
+sudo dnf install alsa-lib-devel
 ```
 
 ### Build & Run
 
 ```
 cargo run --release
+```
+
+**Note:** The `audio` feature is enabled by default. To build without audio support (e.g., in containerized environments without ALSA):
+
+```
+cargo run --release --no-default-features
 ```
 
 The first build compiles `dump1090` (the Rust ADS‑B decoder library) and `ez-gui` (the main application). Release builds are strongly recommended — debug builds are noticeably slower for spectrum rendering.
