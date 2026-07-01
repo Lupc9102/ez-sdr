@@ -1477,7 +1477,10 @@ impl eframe::App for CentralApp {
                 } else {
                     self.recording_start = None;
                 }
-                if self.audio.is_running() {
+                if self.audio.has_failed() {
+                    ui.colored_label(egui::Color32::RED, "❌ Audio Failed")
+                        .on_hover_text("Audio device not found or failed to initialize. Check your audio settings. Press M to retry.");
+                } else if self.audio.is_running() {
                     let audio_peak = state.audio_peak;
                     let is_muted = state.volume < 0.01;
                     let (audio_color, audio_label) = if is_muted {
