@@ -1547,6 +1547,8 @@ impl eframe::App for CentralApp {
                         "Signal strength: {:.1} dBFS ({}). S-units follow the IARU standard: S1 = -121 dBm, each S-unit is 6 dB.",
                         signal_db, label
                     ));
+                    // Display numerical dB value next to S-meter
+                    ui.label(format!("{:.0}dB", signal_db)).on_hover_text("Current signal level in dBFS (decibels relative to full scale)");
                 }
                 // RF clipping detection (spectrum saturation warning)
                 {
