@@ -139,6 +139,7 @@ pub struct CentralApp {
     // Track demod mode changes to reset demodulator and avoid clicks
     last_demod_mode: crate::sdr_panel::DemodMode,
     theme_applied: bool,
+    show_starred_only: bool,
 }
 
 impl CentralApp {
@@ -344,6 +345,7 @@ impl CentralApp {
                 let state = shared.lock().unwrap();
                 !state.config.welcome_seen
             },
+            show_starred_only: false,
         }
     }
 }
@@ -1165,6 +1167,7 @@ impl eframe::App for CentralApp {
                 new_task_error: &mut self.new_task_error,
                 session_notes: &mut self.session_notes,
                 status_flash: &mut self.status_flash,
+                show_starred_only: &mut self.show_starred_only,
             });
 
         // First-run welcome banner
@@ -1901,6 +1904,7 @@ struct TabViewer<'a> {
     new_task_error: &'a mut String,
     session_notes: &'a mut String,
     status_flash: &'a mut Option<(String, std::time::Instant)>,
+    show_starred_only: &'a mut bool,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -2057,6 +2061,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} bookmarks", bm_count));
                     ui.add(egui::TextEdit::singleline(self.bookmark_filter).hint_text("Filter...").desired_width(150.0));
+                    ui.toggle_value(&mut self.show_starred_only, "⭐ Starred").on_hover_text("Show only starred (favorite) bookmarks");
                     if ui.button("💾 Save").on_hover_text("Save all bookmarks to ez_sdr_bookmarks.json in the current directory.").clicked() {
                         if let Ok(state) = self.shared.try_lock() {
                             state.bookmarks.save();
@@ -2229,11 +2234,15 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
 
                 let filtered: Vec<(usize, &crate::bookmarks::Bookmark)> = bookmarks_snapshot.iter()
                     .enumerate()
-                    .filter(|(_, b)| filter_lower.is_empty()
-                        || b.name.to_lowercase().contains(&filter_lower)
-                        || b.category.to_lowercase().contains(&filter_lower)
-                        || b.mode.to_lowercase().contains(&filter_lower)
-                        || b.freq_display().contains(&filter_lower))
+                    .filter(|(_, b)| {
+                        let matches_starred = !*self.show_starred_only || b.starred;
+                        let matches_text = filter_lower.is_empty()
+                            || b.name.to_lowercase().contains(&filter_lower)
+                            || b.category.to_lowercase().contains(&filter_lower)
+                            || b.mode.to_lowercase().contains(&filter_lower)
+                            || b.freq_display().contains(&filter_lower);
+                        matches_starred && matches_text
+                    })
                     .collect();
 
                 let mut categories: Vec<String> = filtered.iter().map(|(_, b)| b.category.clone()).collect();
@@ -2314,6 +2323,17 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                             *self.edit_bm_mode = bm.mode.clone();
                                             *self.edit_bm_category = bm.category.clone();
                                             *self.edit_bm_notes = bm.notes.clone();
+                                        }
+                                        let star_icon = if bm.starred { "⭐" } else { "☆" };
+                                        if ui.small_button(star_icon)
+                                            .on_hover_text(if bm.starred { "Remove from favorites" } else { "Add to favorites" })
+                                            .clicked()
+                                        {
+                                            if let Ok(mut state) = self.shared.try_lock() {
+                                                if let Some(bookmark) = state.bookmarks.bookmarks.get_mut(*orig_idx) {
+                                                    bookmark.starred = !bookmark.starred;
+                                                }
+                                            }
                                         }
                                         if ui.small_button("📋")
                                             .on_hover_text(format!("Copy {} to clipboard", bm.freq_display()))
