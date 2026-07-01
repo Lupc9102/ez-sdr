@@ -686,6 +686,7 @@ impl AiPanel {
                         bandwidth_hz: 12_500,
                         category: "AI".to_string(),
                         notes,
+                        starred: false,
                     });
                     return format!("Bookmark '{}' saved at {:.4} MHz", name, freq_mhz);
                 }

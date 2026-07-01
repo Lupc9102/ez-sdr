@@ -563,6 +563,7 @@ impl FrequencyScanner {
                                 bandwidth_hz: self.step_hz.max(12_500) as u32,
                                 category: "Scanner".to_string(),
                                 notes: format!("{:.1} dB", hit.strength_db),
+                                starred: false,
                             });
                             added += 1;
                         }
@@ -1015,6 +1016,7 @@ impl FrequencyScanner {
                                     bandwidth_hz: 12_500,
                                     category: "Scanner".to_string(),
                                     notes: "Saved from scanner hit".to_string(),
+                                    starred: false,
                                 });
                             }
                         }

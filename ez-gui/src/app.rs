@@ -706,6 +706,7 @@ impl eframe::App for CentralApp {
                             bandwidth_hz: 12_500,
                             category: "Custom".to_string(),
                             notes: String::new(),
+                            starred: false,
                         });
                         self.status_flash = Some((format!("🔖 Bookmarked {}", name), std::time::Instant::now()));
                     } else {
@@ -917,6 +918,7 @@ impl eframe::App for CentralApp {
                     bandwidth_hz: 12_500,
                     category: "Quick".to_string(),
                     notes: String::new(),
+                            starred: false,
                 });
             }
         }
@@ -1978,6 +1980,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                             bandwidth_hz: 12_500,
                             category: "Quick".to_string(),
                             notes: String::new(),
+                            starred: false,
                         });
                     }
                     if let Some(sq) = state.spectrum.pending_squelch_db.take() {
@@ -2158,6 +2161,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                                         bandwidth_hz: 12_500,
                                         category: if self.new_bm_category.trim().is_empty() { "Custom".to_string() } else { self.new_bm_category.trim().to_string() },
                                         notes: self.new_bm_notes.trim().to_string(),
+                                        starred: false,
                                     };
                                     if let Ok(mut state) = self.shared.try_lock() {
                                         state.bookmarks.bookmarks.push(bm);
