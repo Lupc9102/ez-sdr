@@ -180,7 +180,7 @@ impl CentralApp {
         let mut web_remote = WebRemote::new();
         let mut mqtt = MqttPublisher::new();
         {
-            let state = shared.lock().unwrap();
+            let state = shared.lock().expect("shared state mutex poisoned");
             if state.config.web_remote_enabled {
                 web_remote.set_enabled(true, state.config.web_remote_port);
             }
@@ -195,7 +195,7 @@ impl CentralApp {
 
         // Start demo source immediately
         {
-            let mut state = shared.lock().unwrap();
+            let mut state = shared.lock().expect("shared state mutex poisoned");
             // Restore last session freq/gain/demod if available, else fall back to config defaults
             state.source.frequency_hz = if state.config.last_session_freq_hz > 0 {
                 state.config.last_session_freq_hz
@@ -306,7 +306,7 @@ impl CentralApp {
             bookmark_filter: String::new(),
             show_keyboard_help: false,
             last_history_freq: {
-                let state = shared.lock().unwrap();
+                let state = shared.lock().expect("shared state mutex poisoned");
                 state.source.frequency_hz
             },
             freq_history_idx: None,
@@ -342,7 +342,7 @@ impl CentralApp {
             bm_dirty_since: None,
             // Show welcome banner only on the very first launch (until dismissed)
             show_welcome: {
-                let state = shared.lock().unwrap();
+                let state = shared.lock().expect("shared state mutex poisoned");
                 !state.config.welcome_seen
             },
             show_starred_only: false,

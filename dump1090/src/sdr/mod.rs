@@ -1,7 +1,10 @@
 //! SDR abstraction - translated from sdr.c
 
+#[cfg(feature = "rtlsdr")]
 pub mod rtlsdr;
+#[cfg(feature = "hackrf")]
 pub mod hackrf;
+#[cfg(feature = "soapy")]
 pub mod soapy;
 pub mod ifile;
 

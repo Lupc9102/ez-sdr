@@ -30,9 +30,10 @@ impl Fifo {
     }
 
     /// Push an item. If the queue is full, blocks up to `timeout_ms`.
+    /// `timeout_ms=0` is non-blocking: returns `Some(item)` immediately if full.
     /// Returns `Some(item)` if it could not be pushed (timeout or halted).
     pub fn push(&self, item: Vec<u8>, timeout_ms: u32) -> Option<Vec<u8>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         let deadline = if timeout_ms > 0 {
             Some(Instant::now() + Duration::from_millis(timeout_ms as u64))
         } else {
@@ -46,14 +47,15 @@ impl Fifo {
                     if dur.is_zero() {
                         return Some(item);
                     }
-                    let (guard, timed_out) = self.not_full.wait_timeout(inner, dur).unwrap();
+                    let (guard, timed_out) = self.not_full.wait_timeout(inner, dur).expect("fifo mutex poisoned");
                     inner = guard;
                     if timed_out.timed_out() {
                         return Some(item);
                     }
                 }
                 None => {
-                    inner = self.not_full.wait(inner).unwrap();
+                    // timeout_ms=0: non-blocking, queue is full
+                    return Some(item);
                 }
             }
         }
@@ -68,9 +70,10 @@ impl Fifo {
     }
 
     /// Pop an item. Blocks up to `timeout_ms` waiting.
+    /// `timeout_ms=0` is non-blocking: returns `None` immediately if empty.
     /// Returns `None` if the queue is empty, halted, or timed out.
     pub fn pop(&self, timeout_ms: u32) -> Option<Vec<u8>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         let deadline = if timeout_ms > 0 {
             Some(Instant::now() + Duration::from_millis(timeout_ms as u64))
         } else {
@@ -84,12 +87,13 @@ impl Fifo {
                     if dur.is_zero() {
                         return None;
                     }
-                    let (guard, timed_out) = self.not_empty.wait_timeout(inner, dur).unwrap();
+                    let (guard, timed_out) = self.not_empty.wait_timeout(inner, dur).expect("fifo mutex poisoned");
                     inner = guard;
                     if timed_out.timed_out() {
                         return None;
                     }
                 }
+                // timeout_ms=0: non-blocking, queue is empty
                 None => return None,
             }
         }
@@ -105,7 +109,7 @@ impl Fifo {
 
     /// Halt the FIFO. Wake all waiters.
     pub fn halt(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         inner.halted = true;
         inner.queue.clear();
         self.not_empty.notify_all();
@@ -114,7 +118,7 @@ impl Fifo {
 
     /// Current number of items in the queue.
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().queue.len()
+        self.inner.lock().expect("fifo mutex poisoned").queue.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -122,6 +126,6 @@ impl Fifo {
     }
 
     pub fn is_halted(&self) -> bool {
-        self.inner.lock().unwrap().halted
+        self.inner.lock().expect("fifo mutex poisoned").halted
     }
 }

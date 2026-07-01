@@ -247,3 +247,91 @@ impl Demodulator {
         self.decim_counter = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sdr_panel::DemodMode;
+
+    fn make_iq_dc(i_val: u8, q_val: u8, count: usize) -> Vec<u8> {
+        // Constant IQ = same byte pair repeated
+        let mut v = Vec::with_capacity(count * 2);
+        for _ in 0..count { v.push(i_val); v.push(q_val); }
+        v
+    }
+
+    #[test]
+    fn demod_raw_output_length() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        let iq = make_iq_dc(127, 127, 64);
+        let out = d.demodulate(&iq, DemodMode::Raw);
+        // raw produces 2 samples per IQ pair
+        assert_eq!(out.len(), 128);
+    }
+
+    #[test]
+    fn demod_am_dc_signal_envelope() {
+        // IQ = (1, 0) normalised → envelope should be ~1.0 before AGC
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        d.decimation = 1;
+        // i=255 → (255-127.4)/128 ≈ 1.0, q=127 → ~0
+        let iq = make_iq_dc(255, 127, 256);
+        let out = d.demodulate(&iq, DemodMode::Am);
+        assert!(!out.is_empty());
+        let mean: f32 = out.iter().sum::<f32>() / out.len() as f32;
+        assert!(mean > 0.5, "AM envelope of near-1.0 IQ should be > 0.5, got {mean}");
+    }
+
+    #[test]
+    fn demod_fm_constant_phase_near_zero() {
+        // Constant IQ → constant phase → phase diff ≈ 0
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        d.decimation = 1;
+        let iq = make_iq_dc(200, 150, 512);
+        let out = d.demodulate(&iq, DemodMode::Fm);
+        assert!(!out.is_empty());
+        // After the first sample sets prev_phase, all subsequent diffs should be ~0
+        let tail_mean: f32 = out[1..].iter().map(|x| x.abs()).sum::<f32>() / (out.len() - 1) as f32;
+        assert!(tail_mean < 0.01, "FM constant-phase output should be ~0, got {tail_mean}");
+    }
+
+    #[test]
+    fn set_lpf_cutoff_clamps() {
+        let mut d = Demodulator::new();
+        d.set_lpf_cutoff(0.0);
+        assert_eq!(d.lpf_cutoff, 100.0);
+        d.set_lpf_cutoff(999_999.0);
+        assert_eq!(d.lpf_cutoff, 20000.0);
+        d.set_lpf_cutoff(5000.0);
+        assert_eq!(d.lpf_cutoff, 5000.0);
+    }
+
+    #[test]
+    fn set_sample_rates_decimation() {
+        let mut d = Demodulator::new();
+        d.set_sample_rates(2_048_000, 48_000);
+        // 2048000 / 48000 = 42
+        assert_eq!(d.decimation, 42);
+        // audio_rate > input_rate should clamp to 1
+        d.set_sample_rates(48_000, 96_000);
+        assert_eq!(d.decimation, 1);
+    }
+
+    #[test]
+    fn demod_wfm_produces_output() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        d.decimation = 1;
+        let iq = make_iq_dc(180, 100, 256);
+        let out = d.demodulate(&iq, DemodMode::Wfm);
+        assert!(!out.is_empty());
+        // De-emphasis settles — output should be finite and bounded
+        for &s in &out {
+            assert!(s.is_finite(), "WFM output must be finite");
+            assert!(s.abs() <= 1.5, "WFM output unexpectedly large: {s}");
+        }
+    }
+}

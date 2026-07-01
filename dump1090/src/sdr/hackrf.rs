@@ -128,6 +128,8 @@ impl HackRf {
 impl Drop for HackRf {
     fn drop(&mut self) {
         if !self.device.is_null() {
+            // Stop RX before close so the callback cannot fire into freed memory.
+            unsafe { hackrf_stop_rx(self.device) };
             unsafe { hackrf_close(self.device) };
             unsafe { hackrf_exit() };
             self.device = ptr::null_mut();
@@ -233,7 +235,7 @@ impl SdrSource for HackRf {
             )?;
         }
 
-        let rx = self.rx.as_ref().unwrap();
+        let rx = self.rx.as_ref().expect("rx channel always set above");
         let need_bytes = buf.len() * 2;
         let mut raw: Vec<u8> = Vec::with_capacity(need_bytes);
 

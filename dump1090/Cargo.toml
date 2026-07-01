@@ -20,3 +20,6 @@ ctrlc = "3"
 
 [features]
 default = []
+rtlsdr = []
+hackrf = []
+soapy = []

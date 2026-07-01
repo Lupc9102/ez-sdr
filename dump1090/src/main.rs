@@ -21,6 +21,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::convert::IqFormat;
 use crate::demod::{DemodStats, MagBuf, MagBufFlags, ModesMessage};
 use crate::sdr::ifile::IFileSdr;
+#[cfg(feature = "rtlsdr")]
 use crate::sdr::rtlsdr::RtlSdr;
 use crate::sdr::SdrSource;
 use crate::stats::{Stats, MAX_BITERRORS};
@@ -125,16 +126,23 @@ fn main() -> anyhow::Result<()> {
         let loop_file = false;
         Box::new(IFileSdr::new(path.as_str(), format, loop_file))
     } else {
-        let gain = args.gain.unwrap_or(0.0);
-        Box::new(RtlSdr::new(
-            args.device_index.clone(),
-            args.freq,
-            args.sample_rate,
-            gain,
-            0,     // ppm
-            0,     // direct_sampling
-            false, // digital_agc
-        ))
+        #[cfg(feature = "rtlsdr")]
+        {
+            let gain = args.gain.unwrap_or(0.0);
+            Box::new(RtlSdr::new(
+                args.device_index.clone(),
+                args.freq,
+                args.sample_rate,
+                gain,
+                0,     // ppm
+                0,     // direct_sampling
+                false, // digital_agc
+            ))
+        }
+        #[cfg(not(feature = "rtlsdr"))]
+        {
+            anyhow::bail!("no SDR backend compiled in; rebuild with --features rtlsdr (or pass --ifile)")
+        }
     };
 
     // 3. Set frequency, sample rate, gain

@@ -344,3 +344,62 @@ fn try_cpr_decode(
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decoder_new_starts_empty() {
+        let d = AdsBDecoder::new();
+        assert!(d.get_aircraft().is_empty());
+        assert_eq!(d.total_messages, 0);
+        assert_eq!(d.frame_count, 0);
+        let (preambles, accepted, rejected) = d.stats();
+        assert_eq!(preambles, 0);
+        assert_eq!(accepted, 0);
+        assert_eq!(rejected, 0);
+    }
+
+    #[test]
+    fn decode_altitude_q_bit_set() {
+        // Q-bit (msg[5] & 0x10) set → 25ft encoding
+        // msg[5]=0x10, msg[6]=0x00 → alt16 = 0x20 = 32 → (32*25+1000)/4 = 450
+        let mut msg = [0u8; 14];
+        msg[5] = 0x10;
+        msg[6] = 0x00;
+        assert_eq!(decode_altitude(&msg), 450);
+    }
+
+    #[test]
+    fn decode_altitude_q_bit_clear_zero_fields() {
+        // Q-bit clear, all data bits zero, m_bit/n_bit both clear → 0
+        let msg = [0u8; 14];
+        assert_eq!(decode_altitude(&msg), 0);
+    }
+
+    #[test]
+    fn decode_altitude_q_bit_set_higher() {
+        // msg[5]=0x10, msg[6]=0x80 → alt16 = 0x21 = 33 → (33*25+1000)/4 = 456
+        let mut msg = [0u8; 14];
+        msg[5] = 0x10;
+        msg[6] = 0x80;
+        assert_eq!(decode_altitude(&msg), 456);
+    }
+
+    #[test]
+    fn try_cpr_decode_none_without_both_frames() {
+        assert!(try_cpr_decode(&None, &None).is_none());
+        let frame = Some(CprFrame { raw_lat: 0, raw_lon: 0, timestamp: 0.0, is_even: true });
+        assert!(try_cpr_decode(&frame, &None).is_none());
+        assert!(try_cpr_decode(&None, &frame).is_none());
+    }
+
+    #[test]
+    fn try_cpr_decode_rejects_stale_frames() {
+        // Timestamps far apart (> 10000) → None
+        let even = Some(CprFrame { raw_lat: 50000, raw_lon: 60000, timestamp: 0.0, is_even: true });
+        let odd  = Some(CprFrame { raw_lat: 50001, raw_lon: 60001, timestamp: 99999.0, is_even: false });
+        assert!(try_cpr_decode(&even, &odd).is_none());
+    }
+}
