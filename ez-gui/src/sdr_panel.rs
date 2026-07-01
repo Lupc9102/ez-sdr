@@ -71,6 +71,8 @@ pub struct SdrPanel {
     auto_record_threshold: f32,
     last_auto_recorded_freq: u64,
     show_mode_guide: bool,
+    show_memory_editor: bool,
+    memory_labels_edit: [String; 9],
 }
 
 impl SdrPanel {
@@ -99,6 +101,8 @@ impl SdrPanel {
             auto_record_threshold: 20.0, // Record when SNR > 20 dB
             last_auto_recorded_freq: 0,
             show_mode_guide: false,
+            show_memory_editor: false,
+            memory_labels_edit: std::array::from_fn(|_| String::new()),
         }
     }
 
@@ -990,6 +994,49 @@ impl SdrPanel {
                         }
                     }
                 });
+            }
+        }
+
+        ui.separator();
+
+        // Memory label editor
+        if let Ok(state) = self.shared.try_lock() {
+            let has_memory = state.freq_memory.iter().any(|m| m.freq_hz > 0);
+            if has_memory {
+                if ui.button("✏ Edit Memory Labels").on_hover_text("Click to customize names for your frequency memory slots (M1–M9)").clicked() {
+                    self.show_memory_editor = !self.show_memory_editor;
+                    if self.show_memory_editor {
+                        for (i, mem) in state.freq_memory.iter().enumerate() {
+                            self.memory_labels_edit[i] = mem.label.clone();
+                        }
+                    }
+                }
+                if self.show_memory_editor {
+                    ui.label("Customize memory slot names:");
+                    for (i, mem) in state.freq_memory.iter().enumerate() {
+                        if mem.freq_hz > 0 {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("M{}:", i + 1)).on_hover_text(format!("{:.4} MHz", mem.freq_hz as f64 / 1e6));
+                                ui.text_edit_singleline(&mut self.memory_labels_edit[i]);
+                            });
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").on_hover_text("Save custom labels for memory slots").clicked() {
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                for (i, mem) in state.freq_memory.iter_mut().enumerate() {
+                                    if mem.freq_hz > 0 {
+                                        mem.label = self.memory_labels_edit[i].clone();
+                                    }
+                                }
+                            }
+                            self.show_memory_editor = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_memory_editor = false;
+                        }
+                    });
+                }
             }
         }
 
