@@ -1619,6 +1619,23 @@ impl SpectrumAnalyzer {
             ).fill(egui::Color32::from_rgb(30, 100, 50))).on_hover_text("Click to start the SDR source and begin receiving signals (or press Space).").clicked() {
                 self.pending_start_source = true;
             }
+        } else if self.source_running && !self.spectrum_dbs.is_empty() && self.spectrum_dbs.iter().all(|&db| db < -100.0) {
+            // Demo mode with no visible signal — help beginner get started
+            let center = spectrum_rect.center();
+            painter.rect_filled(
+                egui::Rect::from_center_size(center, egui::vec2(420.0, 100.0)),
+                8.0,
+                egui::Color32::from_rgba_premultiplied(10, 20, 40, 210),
+            );
+            painter.text(center - egui::vec2(0.0, 30.0), egui::Align2::CENTER_CENTER,
+                "Demo Mode — Try a quick preset to hear signals",
+                egui::FontId::proportional(14.0), egui::Color32::from_rgb(200, 200, 200));
+            painter.text(center + egui::vec2(0.0, -8.0), egui::Align2::CENTER_CENTER,
+                "📻 FM  •  🛰️ ADS-B  •  ☁️ Weather  •  📡 ISS  •  🔬 2m Ham",
+                egui::FontId::monospace(12.0), egui::Color32::from_rgb(150, 220, 150));
+            painter.text(center + egui::vec2(0.0, 18.0), egui::Align2::CENTER_CENTER,
+                "(Buttons in SDR Panel left side, or press Space to see more options)",
+                egui::FontId::monospace(10.0), egui::Color32::from_rgb(150, 150, 200));
         }
 
         // Capture right-click position for context menu squelch action
