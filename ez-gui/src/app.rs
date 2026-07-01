@@ -1496,6 +1496,12 @@ impl eframe::App for CentralApp {
                             if is_muted { "Press M to unmute audio." } else if audio_peak > 0.95 { "⚠ Clipping — reduce volume in the SDR panel." } else { "Use Vol slider in the SDR panel to adjust." },
                             if is_muted { "" } else { "" }
                         ));
+                    // FM deviation indicator (for FM/NFM/WFM modes)
+                    if matches!(state.demod_mode, crate::sdr_panel::DemodMode::Fm | crate::sdr_panel::DemodMode::Wfm) {
+                        let dev_khz = state.fm_deviation_hz / 1000.0;
+                        ui.label(format!("±{:.1}kHz", dev_khz.abs()))
+                            .on_hover_text(format!("FM deviation: ±{:.1} kHz. Indicates the frequency span of the modulated signal.", dev_khz.abs()));
+                    }
                 }
                 // Squelch-blocked indicator
                 {
