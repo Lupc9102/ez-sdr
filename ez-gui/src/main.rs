@@ -15,6 +15,8 @@ mod config;
 mod bookmarks;
 mod web_remote;
 mod mqtt;
+mod discord;
+mod discord_panel;
 mod tle_engine;
 mod demod;
 mod audio_output;

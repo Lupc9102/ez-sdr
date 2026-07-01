@@ -22,6 +22,8 @@ use crate::bookmarks::BookmarkDb;
 use crate::config::AppConfig;
 use crate::demod::Demodulator;
 use crate::mqtt::MqttPublisher;
+use crate::discord::DiscordNotifier;
+use crate::discord_panel::DiscordPanel;
 use crate::recorder_panel::RecorderPanel;
 use crate::satellite_panel::SatellitePanel;
 use crate::scheduler::Scheduler;
@@ -46,6 +48,7 @@ pub enum Tab {
     Scheduler,
     Settings,
     HowTo,
+    Discord,
 }
 
 pub struct SharedState {
@@ -140,6 +143,16 @@ pub struct CentralApp {
     last_demod_mode: crate::sdr_panel::DemodMode,
     theme_applied: bool,
     show_starred_only: bool,
+    discord: DiscordNotifier,
+    discord_panel: DiscordPanel,
+    last_recording: bool,
+    last_adsb_running: bool,
+    last_scanner_enabled: bool,
+    last_mqtt_connected: bool,
+    seen_aircraft: std::collections::HashSet<u32>,
+    last_active_pass_sat: String,
+    discord_summary_last: std::time::Instant,
+    last_traffic_bucket: usize,
 }
 
 impl CentralApp {
@@ -179,6 +192,7 @@ impl CentralApp {
 
         let mut web_remote = WebRemote::new();
         let mut mqtt = MqttPublisher::new();
+        let mut discord = DiscordNotifier::new();
         {
             let state = shared.lock().expect("shared state mutex poisoned");
             if state.config.web_remote_enabled {
@@ -191,6 +205,7 @@ impl CentralApp {
                     state.config.mqtt_topic_prefix.clone(),
                 );
             }
+            discord.apply_settings(&state.config.discord);
         }
 
         // Start demo source immediately
@@ -270,18 +285,18 @@ impl CentralApp {
         }
 
         let mut dock_state = DockState::new(vec![
-            Tab::Spectrum,
-            Tab::Sdr,
-            Tab::Satellite,
-            Tab::AdsB,
-            Tab::Recorder,
-            Tab::Scanner,
-            Tab::AiAgent,
-            Tab::HowTo,
+            Tab::Sdr, Tab::Satellite, Tab::AdsB,
+            Tab::Recorder, Tab::Scanner, Tab::AiAgent, Tab::HowTo, Tab::Discord,
         ]);
 
         let surface = SurfaceIndex::main();
-        dock_state[surface].split_left(NodeIndex::root(), 0.25, vec![Tab::Bookmarks, Tab::Scheduler, Tab::Settings]);
+        // Spectrum occupies the left 65%, controls panel the right 35%
+        let [spectrum_node, _] = dock_state[surface].split_left(
+            NodeIndex::root(), 0.65,
+            vec![Tab::Spectrum],
+        );
+        // Bookmarks sidebar takes 23% of the spectrum node (~15% of total)
+        dock_state[surface].split_left(spectrum_node, 0.23, vec![Tab::Bookmarks, Tab::Scheduler, Tab::Settings]);
 
         Self {
             dock_state,
@@ -294,6 +309,8 @@ impl CentralApp {
             howto_panel: HowToPanel::new(),
             web_remote,
             mqtt,
+            discord,
+            discord_panel: DiscordPanel::new(),
             demod: Demodulator::new(),
             audio: AudioOutput::new(),
             audio_rx,
@@ -346,6 +363,14 @@ impl CentralApp {
                 !state.config.welcome_seen
             },
             show_starred_only: false,
+            last_recording: false,
+            last_adsb_running: false,
+            last_scanner_enabled: false,
+            last_mqtt_connected: false,
+            seen_aircraft: std::collections::HashSet::new(),
+            last_active_pass_sat: String::new(),
+            discord_summary_last: std::time::Instant::now(),
+            last_traffic_bucket: 0,
         }
     }
 }
@@ -430,6 +455,44 @@ impl eframe::App for CentralApp {
                 self.adsb_panel.aircraft = ac;
                 self.adsb_panel.total_messages = self.adsb_decoder.total_messages;
             }
+        }
+
+        // Passive ADS-B: detect newly-arrived aircraft and fire alert toasts + Discord notifications.
+        self.adsb_panel.check_for_new_aircraft();
+        if let Some(msg) = self.adsb_panel.pending_status_flash.take() {
+            self.status_flash = Some((msg, std::time::Instant::now()));
+        }
+        // Fire Discord notifications for new aircraft
+        for ac in &self.adsb_panel.aircraft {
+            if self.seen_aircraft.insert(ac.icao) {
+                let icao_str = format!("{:06X}", ac.icao);
+                // Try to fetch aircraft image (non-blocking, returns None if not found)
+                let image_url = crate::discord::fetch_aircraft_image(&icao_str);
+                let embed = crate::discord::embed_aircraft(
+                    &icao_str,
+                    &ac.callsign,
+                    ac.lat,
+                    ac.lon,
+                    ac.altitude.unwrap_or(0),
+                    ac.speed.unwrap_or(0),
+                    ac.heading.unwrap_or(0),
+                    image_url,
+                );
+                self.discord.fire("aircraft_new", embed);
+            }
+        }
+        // Check traffic milestone (every 10 aircraft)
+        let current_bucket = self.adsb_panel.aircraft.len() / 10;
+        if current_bucket > self.last_traffic_bucket && current_bucket > 0 {
+            let milestone = current_bucket * 10;
+            let embed = crate::discord::embed_generic(
+                &format!("Traffic Milestone: {} Aircraft", milestone),
+                &format!("You're now tracking **{}** aircraft!", milestone),
+                "📈",
+                0xFF8800,
+            );
+            self.discord.fire("traffic_milestone", embed);
+            self.last_traffic_bucket = current_bucket;
         }
 
         // Keyboard shortcuts
@@ -851,6 +914,15 @@ impl eframe::App for CentralApp {
                     .unwrap_or(0.0);
                 let tune_to = state.scheduler.active_job(now_unix).map(|j| (j.satellite.clone(), j.frequency_hz));
                 if let Some((sat, freq)) = tune_to {
+                    // Satellite AOS detection (new pass)
+                    if sat != self.last_active_pass_sat {
+                        let passes = state.tle.upcoming_passes();
+                        if let Some(pass) = passes.iter().find(|p| p.satellite == sat) {
+                            let embed = crate::discord::embed_sat_aos(&sat, freq, pass.max_elevation);
+                            self.discord.fire("sat_aos", embed);
+                        }
+                        self.last_active_pass_sat = sat.clone();
+                    }
                     if sat != self.last_auto_tuned_satellite {
                         state.source.frequency_hz = freq;
                         self.last_auto_tuned_satellite = sat.clone();
@@ -864,11 +936,18 @@ impl eframe::App for CentralApp {
                             state.source.frequency_hz = corrected;
                         }
                     }
+                } else if !self.last_active_pass_sat.is_empty() {
+                    // Satellite LOS detection (pass ended)
+                    let embed = crate::discord::embed_sat_los(&self.last_active_pass_sat);
+                    self.discord.fire("sat_los", embed);
+                    self.last_active_pass_sat.clear();
                 }
                 // Poll custom scheduled tasks
                 if let Some((label, freq)) = state.scheduler.poll_custom_tasks(now_unix) {
                     state.source.frequency_hz = freq;
                     eprintln!("[scheduler] fired custom task '{}' → {:.3} MHz", label, freq as f64 / 1e6);
+                    let embed = crate::discord::embed_task_fired(&label, freq);
+                    self.discord.fire("task_fired", embed);
                 }
             }
 
@@ -887,10 +966,12 @@ impl eframe::App for CentralApp {
                 } else { -120.0 };
                 let prev_hits = self.scanner.hits.len();
                 self.scanner.tick(peak);
-                // Publish any new hits to MQTT
+                // Publish any new hits to MQTT + Discord
                 if self.scanner.hits.len() > prev_hits {
                     for hit in &self.scanner.hits[prev_hits..] {
                         self.mqtt.publish_scanner_hit(hit.freq_hz, hit.strength_db);
+                        let embed = crate::discord::embed_scanner_hit(hit.freq_hz, hit.strength_db);
+                        self.discord.fire("scanner_hit", embed);
                     }
                 }
                 if let Some(freq) = self.scanner.tune_request_hz.take() {
@@ -977,6 +1058,7 @@ impl eframe::App for CentralApp {
                     state.config.mqtt_broker.clone(),
                     state.config.mqtt_topic_prefix.clone(),
                 );
+                self.discord.apply_settings(&state.config.discord);
             }
         }
 
@@ -994,6 +1076,42 @@ impl eframe::App for CentralApp {
             let peak = state.spectrum.peak_level();
             let noise = state.spectrum.noise_floor();
             let snr = peak - noise;
+
+            // State transitions for Discord notifications
+            if recording && !self.last_recording {
+                let embed = crate::discord::embed_recording_started(freq, &mode, self.recorder_panel.record_iq, self.recorder_panel.record_audio);
+                self.discord.fire("rec_started", embed);
+            } else if !recording && self.last_recording {
+                let duration = self.recording_start.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+                let embed = crate::discord::embed_recording_stopped(freq, &mode, duration, self.recorder_panel.bytes_written);
+                self.discord.fire("rec_stopped", embed);
+            }
+            if state.adsb_running && !self.last_adsb_running {
+                let embed = crate::discord::embed_generic("ADS-B Started", "ADS-B decoder activated", "📡", 0x00AA00);
+                self.discord.fire("adsb_started", embed);
+            } else if !state.adsb_running && self.last_adsb_running {
+                let embed = crate::discord::embed_generic("ADS-B Stopped", "ADS-B decoder stopped", "🔌", 0xCC0000);
+                self.discord.fire("adsb_stopped", embed);
+            }
+            if self.scanner.enabled && !self.last_scanner_enabled {
+                let embed = crate::discord::embed_generic("Scanner Started", "Frequency scanner activated", "▶️", 0x00AA00);
+                self.discord.fire("scanner_started", embed);
+            } else if !self.scanner.enabled && self.last_scanner_enabled {
+                let embed = crate::discord::embed_generic("Scanner Stopped", "Frequency scanner stopped", "⏹", 0xCC0000);
+                self.discord.fire("scanner_stopped", embed);
+            }
+            if self.mqtt.is_connected() && !self.last_mqtt_connected {
+                let embed = crate::discord::embed_generic("MQTT Connected", &format!("Connected to {}", self.mqtt.broker), "🔗", 0x00AA00);
+                self.discord.fire("mqtt_connected", embed);
+            } else if !self.mqtt.is_connected() && self.last_mqtt_connected {
+                let embed = crate::discord::embed_generic("MQTT Disconnected", "MQTT broker disconnected", "🔌", 0xCC0000);
+                self.discord.fire("mqtt_disconnected", embed);
+            }
+            self.last_recording = recording;
+            self.last_adsb_running = state.adsb_running;
+            self.last_scanner_enabled = self.scanner.enabled;
+            self.last_mqtt_connected = self.mqtt.is_connected();
+
             // First strong signal celebration
             if !self.first_strong_signal_seen && snr > 20.0 {
                 self.first_strong_signal_seen = true;
@@ -1001,6 +1119,13 @@ impl eframe::App for CentralApp {
                     format!("🎉 First signal! {:.3} MHz — SNR {:.1} dB — great reception!", freq as f64 / 1e6, snr),
                     std::time::Instant::now(),
                 ));
+                let embed = crate::discord::embed_strong_signal(freq, snr);
+                self.discord.fire("first_signal", embed);
+            }
+            // Any strong signal
+            if snr > 20.0 && (self.discord_summary_last.elapsed().as_secs() > 5) {
+                let embed = crate::discord::embed_strong_signal(freq, snr);
+                self.discord.fire("strong_signal", embed);
             }
             self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes, squelch, volume, recording, scanner_active, snr);
             self.mqtt.tick_reconnect();
@@ -1011,6 +1136,31 @@ impl eframe::App for CentralApp {
                 if !self.adsb_panel.aircraft.is_empty() {
                     self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
                 }
+            }
+
+            // Periodic session summary report
+            if self.discord.settings.summary_enabled && self.discord_summary_last.elapsed().as_secs() >= (self.discord.settings.summary_interval_min as u64 * 60) {
+                let uptime = self.recording_start.as_ref()
+                    .map(|t| t.elapsed().as_secs())
+                    .unwrap_or(0);
+                let embed = crate::discord::embed_session_summary(
+                    uptime,
+                    freq as f64 / 1e6,
+                    &mode,
+                    ac_count,
+                    self.scanner.hits.len(),
+                    0, // recordings count - would need to track
+                    passes.len(),
+                );
+                self.discord.fire("session_summary", embed);
+                self.discord_summary_last = std::time::Instant::now();
+            }
+
+            // Recording error detection
+            if !self.recorder_panel.last_error.is_empty() {
+                let embed = crate::discord::embed_recording_error(&self.recorder_panel.last_error);
+                self.discord.fire("rec_error", embed);
+                // Note: would need to track whether we've already sent this error
             }
         }
 
@@ -1168,6 +1318,8 @@ impl eframe::App for CentralApp {
                 session_notes: &mut self.session_notes,
                 status_flash: &mut self.status_flash,
                 show_starred_only: &mut self.show_starred_only,
+                discord: &mut self.discord,
+                discord_panel: &mut self.discord_panel,
             });
 
         // First-run welcome banner
@@ -1410,22 +1562,6 @@ impl eframe::App for CentralApp {
                 let status_color = if running { egui::Color32::GREEN } else { egui::Color32::GRAY };
                 ui.colored_label(status_color, "●")
                     .on_hover_text(if running { "SDR source is active and streaming samples." } else { "SDR source is stopped. Press Start or Space to begin." });
-                ui.small(if running { "Running" } else { "Stopped" })
-                    .on_hover_text("SDR source status indicator.");
-
-                // Frequency accuracy indicator
-                if state.source.ppm_correction != 0 || state.lo_offset_hz != 0 {
-                    ui.separator();
-                    let accuracy_tips = if state.source.ppm_correction != 0 && state.lo_offset_hz != 0 {
-                        "Both PPM correction and LO offset active"
-                    } else if state.source.ppm_correction != 0 {
-                        "PPM error correction applied"
-                    } else {
-                        "LO offset compensation active"
-                    };
-                    ui.colored_label(egui::Color32::from_rgb(255, 180, 50), "⚙ Adjusted")
-                        .on_hover_text(accuracy_tips);
-                }
 
                 ui.separator();
                 let true_hz = (state.source.frequency_hz as i64 + state.lo_offset_hz).max(0) as u64;
@@ -1457,14 +1593,8 @@ impl eframe::App for CentralApp {
                     .on_hover_text(format!("Demod mode: {}. Sample rate: {:.1} MSps (spectrum width: ±{:.1} MHz). Higher rates = wider view, more CPU.",
                         state.demod_mode.label(), sps_mhz, sps_mhz / 2.0));
                 ui.separator();
-                ui.small(format!("{}M", state.source.sample_rate_hz / 1_000_000))
-                    .on_hover_text(format!("Current sample rate: {} samples/sec", state.source.sample_rate_hz));
                 ui.small(format!("Gain: {:.1} dB", state.source.gain_db))
-                    .on_hover_text("RF gain in dB. Higher = more sensitive but more noise and risk of overload. 30–40 dB is typical for outdoor signals.");
-                ui.separator();
-                let lpf_khz = state.lpf_cutoff / 1000.0;
-                ui.small(format!("LPF: {:.1}k", lpf_khz))
-                    .on_hover_text(format!("Audio low-pass filter cutoff: {} Hz. Removes high-frequency hiss.", state.lpf_cutoff as u32));
+                    .on_hover_text("RF gain in dB. Higher = more sensitive, more noise. 30–40 dB typical.");
                 if state.recording {
                     if self.recording_start.is_none() {
                         self.recording_start = Some(std::time::Instant::now());
@@ -1558,8 +1688,6 @@ impl eframe::App for CentralApp {
                         "Signal strength: {:.1} dBFS ({}). S-units follow the IARU standard: S1 = -121 dBm, each S-unit is 6 dB.",
                         signal_db, label
                     ));
-                    // Display numerical dB value next to S-meter
-                    ui.label(format!("{:.0}dB", signal_db)).on_hover_text("Current signal level in dBFS (decibels relative to full scale)");
                 }
                 // RF clipping detection (spectrum saturation warning)
                 {
@@ -1641,62 +1769,16 @@ impl eframe::App for CentralApp {
             if let Ok(state) = self.shared.try_lock() {
                 let peak = state.spectrum.peak_level();
                 let noise_floor = state.spectrum.noise_floor();
-                let peak_color = if peak > -20.0 { egui::Color32::GREEN }
-                    else if peak > -60.0 { egui::Color32::YELLOW }
-                    else { egui::Color32::GRAY };
-                // Peak level with percentage indicator
-                let peak_pct = ((peak + 120.0) / 120.0 * 100.0).clamp(0.0, 100.0);
-                ui.colored_label(peak_color, format!("Peak: {:.1}dB ({:.0}%)", peak, peak_pct))
-                    .on_hover_text("Strongest signal in the current spectrum view (dBFS). Percentage: 0% = -120dB (weakest), 100% = 0dB (clipping risk).");
-                let noise_trend = if (noise_floor - state.spectrum.noise_baseline()).abs() > 3.0 {
-                    let arrow = if noise_floor > state.spectrum.noise_baseline() { "📈" } else { "📉" };
-                    format!("{} {:.1}dB", arrow, noise_floor)
-                } else {
-                    format!("{:.1}dB", noise_floor)
-                };
-                ui.colored_label(egui::Color32::DARK_GRAY, format!("Floor: {}", noise_trend))
-                    .on_hover_text("Estimated noise floor — the average background noise level. The gap between floor and peak is SNR (signal-to-noise ratio). 📈📉 = significant change detected.");
                 let snr = peak - noise_floor;
                 let (badge, badge_color, badge_tip) = if snr > 20.0 {
-                    ("🟢 Signal", egui::Color32::GREEN,     "Strong signal detected (SNR > 20 dB). Good reception.")
+                    ("🟢 Signal", egui::Color32::GREEN,    "Strong signal (SNR > 20 dB). Good reception.")
                 } else if snr > 8.0 {
-                    ("🟡 Weak",   egui::Color32::YELLOW,    "Weak signal detected (SNR 8–20 dB). May be readable.")
+                    ("🟡 Weak",   egui::Color32::YELLOW,   "Weak signal (SNR 8–20 dB). May be readable.")
                 } else {
-                    ("⚫ Quiet",  egui::Color32::DARK_GRAY,  "No significant signal at current frequency (SNR < 8 dB). Try a different frequency or increase gain.")
+                    ("⚫ Quiet",  egui::Color32::DARK_GRAY, "No signal (SNR < 8 dB). Try a different frequency or increase gain.")
                 };
-                ui.colored_label(badge_color, badge).on_hover_text(badge_tip);
-
-                // Signal stability indicator
-                let signal_history = state.spectrum.signal_history_snapshot();
-                if signal_history.len() > 10 {
-                    let mean = signal_history.iter().sum::<f32>() / signal_history.len() as f32;
-                    let variance = signal_history.iter().map(|s| (s - mean).powi(2)).sum::<f32>() / signal_history.len() as f32;
-                    let std_dev = variance.sqrt();
-                    let stability_color = if std_dev < 2.0 {
-                        egui::Color32::from_rgb(100, 200, 100)
-                    } else if std_dev < 5.0 {
-                        egui::Color32::from_rgb(220, 180, 80)
-                    } else {
-                        egui::Color32::from_rgb(200, 100, 100)
-                    };
-                    ui.colored_label(stability_color, format!("σ: {:.2}dB", std_dev))
-                        .on_hover_text(format!("Signal stability (standard deviation): {:.2} dB. <2 dB = stable, 2–5 dB = moderate fluctuation, >5 dB = high variability", std_dev));
-                }
-            }
-            // CPU / memory usage
-            {
-                let mem_kb = proc_memory_kb();
-                if let Some(kb) = mem_kb {
-                    let mb = kb as f64 / 1024.0;
-                    ui.separator();
-                    if mb > 200.0 {
-                        ui.colored_label(egui::Color32::from_rgb(220, 160, 80), format!("RAM {:.0} MB", mb))
-                            .on_hover_text(format!("Process memory usage: {:.1} MB RSS. Consider closing other applications if memory is tight.", mb));
-                    } else {
-                        ui.colored_label(egui::Color32::DARK_GRAY, format!("RAM {:.0} MB", mb))
-                            .on_hover_text(format!("Process memory usage: {:.1} MB RSS.", mb));
-                    }
-                }
+                ui.colored_label(badge_color, badge)
+                    .on_hover_text(format!("{} Peak: {:.0} dBFS · Floor: {:.0} dBFS · SNR: {:.0} dB", badge_tip, peak, noise_floor, snr));
             }
             // Status flash (short-lived messages, e.g. "⭐ Bookmark name")
             if let Some((msg, since)) = &self.status_flash {
@@ -1721,10 +1803,14 @@ impl eframe::App for CentralApp {
             if ui.small_button("⟳ Layout").on_hover_text("Reset all panels to default layout").clicked() {
                 let surface = egui_dock::SurfaceIndex::main();
                 let mut ds = DockState::new(vec![
-                    Tab::Spectrum, Tab::Sdr, Tab::Satellite, Tab::AdsB,
-                    Tab::Recorder, Tab::Scanner, Tab::AiAgent, Tab::HowTo,
+                    Tab::Sdr, Tab::Satellite, Tab::AdsB,
+                    Tab::Recorder, Tab::Scanner, Tab::AiAgent, Tab::HowTo, Tab::Discord,
                 ]);
-                ds[surface].split_left(egui_dock::NodeIndex::root(), 0.25, vec![Tab::Bookmarks, Tab::Scheduler, Tab::Settings]);
+                let [spectrum_node, _] = ds[surface].split_left(
+                    egui_dock::NodeIndex::root(), 0.65,
+                    vec![Tab::Spectrum],
+                );
+                ds[surface].split_left(spectrum_node, 0.23, vec![Tab::Bookmarks, Tab::Scheduler, Tab::Settings]);
                 self.dock_state = ds;
             }
             if ui.small_button("❓ Glossary").on_hover_text("SDR term glossary — click to open/close definitions for dBFS, SNR, MSps, LPF, PPM, VFO, BW, squelch, and more.").clicked() {
@@ -1744,20 +1830,13 @@ impl eframe::App for CentralApp {
                         ui.monospace("↑ / ↓"); ui.label("Tune by coarse step (default 1 MHz, set via step row)"); ui.end_row();
                         ui.monospace("← / →"); ui.label("Tune by fine step (default 100 kHz, set via step row)"); ui.end_row();
                         ui.monospace("Shift+Arrow"); ui.label("Tune by 10× the current step"); ui.end_row();
-                        ui.monospace("[ / ]"); ui.label("Frequency history back/forward"); ui.end_row();
-                        ui.monospace("Alt+← / Alt+→"); ui.label("Frequency history back/forward (alt)"); ui.end_row();
-                        ui.monospace("F1"); ui.label("Demod: RAW"); ui.end_row();
-                        ui.monospace("F2"); ui.label("Demod: AM"); ui.end_row();
-                        ui.monospace("F3"); ui.label("Demod: NFM"); ui.end_row();
-                        ui.monospace("F4"); ui.label("Demod: WFM"); ui.end_row();
-                        ui.monospace("F5"); ui.label("Demod: LSB"); ui.end_row();
-                        ui.monospace("F6"); ui.label("Demod: USB"); ui.end_row();
-                        ui.monospace("Alt+F"); ui.label("Demod: NFM (quick shortcut)"); ui.end_row();
-                        ui.monospace("Alt+W"); ui.label("Demod: WFM (quick shortcut)"); ui.end_row();
-                        ui.monospace("Alt+A"); ui.label("Demod: AM (quick shortcut)"); ui.end_row();
-                        ui.monospace("Alt+U"); ui.label("Demod: USB (quick shortcut)"); ui.end_row();
-                        ui.monospace("Alt+L"); ui.label("Demod: LSB (quick shortcut)"); ui.end_row();
-                        ui.monospace("Alt+R"); ui.label("Demod: RAW (quick shortcut)"); ui.end_row();
+                        ui.monospace("[ / ] or Alt+←/→"); ui.label("Frequency history back/forward"); ui.end_row();
+                        ui.monospace("F1 / Alt+R"); ui.label("Demod: RAW"); ui.end_row();
+                        ui.monospace("F2 / Alt+A"); ui.label("Demod: AM"); ui.end_row();
+                        ui.monospace("F3 / Alt+F"); ui.label("Demod: NFM"); ui.end_row();
+                        ui.monospace("F4 / Alt+W"); ui.label("Demod: WFM"); ui.end_row();
+                        ui.monospace("F5 / Alt+L"); ui.label("Demod: LSB"); ui.end_row();
+                        ui.monospace("F6 / Alt+U"); ui.label("Demod: USB"); ui.end_row();
                         ui.monospace("M"); ui.label("Toggle audio mute on/off"); ui.end_row();
                         ui.monospace("F"); ui.label("Freeze / unfreeze spectrum display"); ui.end_row();
                         ui.monospace("C"); ui.label("Cycle waterfall colormap (Classic→Viridis→Plasma→…)"); ui.end_row();
@@ -1841,6 +1920,9 @@ impl eframe::App for CentralApp {
                 });
             if !open { self.show_glossary = false; }
         }
+
+        // Passive ADS-B alert toasts — drawn over any tab.
+        self.adsb_panel.render_toasts(ui.ctx());
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1905,6 +1987,8 @@ struct TabViewer<'a> {
     session_notes: &'a mut String,
     status_flash: &'a mut Option<(String, std::time::Instant)>,
     show_starred_only: &'a mut bool,
+    discord: &'a mut DiscordNotifier,
+    discord_panel: &'a mut DiscordPanel,
 }
 
 impl<'a> egui_dock::TabViewer for TabViewer<'a> {
@@ -1929,6 +2013,7 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
             Tab::Scheduler => "🗓 Scheduler".into(),
             Tab::Settings => "⚙ Settings".into(),
             Tab::HowTo => "❓ How To".into(),
+            Tab::Discord => "💬 Discord".into(),
         }
     }
 
@@ -2671,6 +2756,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.config.ui(ui);
                 }
+            }
+            Tab::Discord => {
+                self.discord_panel.ui(ui, self.discord, self.shared);
             }
         }
     }

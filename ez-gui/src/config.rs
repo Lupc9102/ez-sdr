@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::theme::ThemeConfig;
+use crate::discord::DiscordSettings;
 
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-3-haiku";
@@ -77,6 +78,8 @@ pub struct AppConfig {
     pub freq_memory_labels: Vec<String>,
     #[serde(default)]
     pub theme_config: ThemeConfig,
+    #[serde(default)]
+    pub discord: DiscordSettings,
 }
 
 impl Default for AppConfig {
@@ -119,6 +122,7 @@ impl Default for AppConfig {
             freq_memory_hz: Vec::new(),
             freq_memory_labels: Vec::new(),
             theme_config: ThemeConfig::default(),
+            discord: DiscordSettings::default(),
         }
     }
 }
