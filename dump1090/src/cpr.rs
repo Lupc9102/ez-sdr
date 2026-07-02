@@ -495,4 +495,71 @@ mod tests {
         assert!((lat - 52.2572).abs() < 0.001);
         assert!((lon - 8.6676).abs() < 0.001);
     }
+
+    #[test]
+    fn cpr_mod_positive() {
+        assert_eq!(cpr_mod(5, 3), 2);
+        assert_eq!(cpr_mod(10, 5), 0);
+    }
+
+    #[test]
+    fn cpr_mod_negative_yields_positive() {
+        assert_eq!(cpr_mod(-1, 360), 359);
+        assert_eq!(cpr_mod(-5, 3), 1);
+    }
+
+    #[test]
+    fn cpr_mod_zero() {
+        assert_eq!(cpr_mod(0, 360), 0);
+    }
+
+    #[test]
+    fn cpr_mod_double_positive() {
+        let r = cpr_mod_double(5.5, 3.0);
+        assert!((r - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cpr_mod_double_negative() {
+        let r = cpr_mod_double(-1.0, 360.0);
+        assert!((r - 359.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cpr_nl_function_equator() {
+        assert_eq!(cpr_nl_function(0.0), 59);
+    }
+
+    #[test]
+    fn cpr_nl_function_boundaries() {
+        // Below first boundary = 59, just above = 58
+        assert_eq!(cpr_nl_function(10.0), 59);
+        assert_eq!(cpr_nl_function(10.5), 58);
+    }
+
+    #[test]
+    fn cpr_nl_function_pole() {
+        // At 87°, lat < 87.000 is false, falls through to 1
+        assert_eq!(cpr_nl_function(87.0), 1);
+        assert_eq!(cpr_nl_function(88.0), 1);
+        assert_eq!(cpr_nl_function(90.0), 1);
+    }
+
+    #[test]
+    fn cpr_nl_function_just_below_87() {
+        // At 86.9, lat < 87.0 = true, returns 2
+        assert_eq!(cpr_nl_function(86.9), 2);
+    }
+
+    #[test]
+    fn cpr_nl_function_negative_lat_same_as_positive() {
+        assert_eq!(cpr_nl_function(-10.0), cpr_nl_function(10.0));
+        assert_eq!(cpr_nl_function(-45.0), cpr_nl_function(45.0));
+    }
+
+    #[test]
+    fn cpr_nl_function_at_45_degrees() {
+        // At 45°, lat < 45.54626723 = true, returns 42
+        assert_eq!(cpr_nl_function(45.0), 42);
+    }
 }
