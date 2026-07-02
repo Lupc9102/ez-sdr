@@ -4,6 +4,20 @@ use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use crate::app::SharedState;
 use crate::config::{DEFAULT_AI_MODEL, PROVIDER_PRESETS};
 
+#[derive(Clone, Copy)]
+struct StreamParams<'a> {
+    client: &'a reqwest::blocking::Client,
+    evt_tx: &'a crossbeam_channel::Sender<StreamEvent>,
+    endpoint: &'a str,
+    api_key: &'a str,
+    model: &'a str,
+    api_messages: &'a [serde_json::Value],
+    max_tokens: u32,
+    temperature: f64,
+    abort_flag: &'a Arc<AtomicBool>,
+    reasoning_effort: &'a str,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
     pub role: String,
@@ -307,29 +321,34 @@ impl AiPanel {
                 }
             };
 
+            let params = StreamParams {
+                client: &client,
+                evt_tx: &evt_tx,
+                endpoint: &endpoint,
+                api_key: &api_key,
+                model: &model,
+                api_messages: &api_messages,
+                max_tokens,
+                temperature,
+                abort_flag: &abort_flag,
+                reasoning_effort: &reasoning_effort,
+            };
             if is_anthropic {
-                Self::stream_anthropic(&client, &evt_tx, &endpoint, &api_key, &model, &system_prompt, &api_messages, max_tokens, temperature, &abort_flag, &reasoning_effort);
+                Self::stream_anthropic(&params, &system_prompt);
             } else {
-                Self::stream_openai_compat(&client, &evt_tx, &endpoint, &api_key, &model, &api_messages, max_tokens, temperature, &abort_flag, &reasoning_effort, web_search_enabled);
+                Self::stream_openai_compat(&params, web_search_enabled);
             }
         });
 
         self.pending_rx = Some(evt_rx);
     }
 
-    fn stream_openai_compat(
-        client: &reqwest::blocking::Client,
-        evt_tx: &crossbeam_channel::Sender<StreamEvent>,
-        endpoint: &str,
-        api_key: &str,
-        model: &str,
-        api_messages: &[serde_json::Value],
-        max_tokens: u32,
-        temperature: f64,
-        abort_flag: &Arc<AtomicBool>,
-        reasoning_effort: &str,
-        web_search_enabled: bool,
-    ) {
+    fn stream_openai_compat(params: &StreamParams, web_search_enabled: bool) {
+        let StreamParams {
+            client, evt_tx, endpoint, api_key, model, api_messages,
+            max_tokens, temperature, abort_flag, reasoning_effort,
+        } = *params;
+
         let mut body = serde_json::json!({
             "model": model,
             "messages": api_messages,
@@ -394,19 +413,11 @@ impl AiPanel {
         let _ = evt_tx.send(StreamEvent::Done(()));
     }
 
-    fn stream_anthropic(
-        client: &reqwest::blocking::Client,
-        evt_tx: &crossbeam_channel::Sender<StreamEvent>,
-        endpoint: &str,
-        api_key: &str,
-        model: &str,
-        system_prompt: &str,
-        api_messages: &[serde_json::Value],
-        max_tokens: u32,
-        temperature: f64,
-        abort_flag: &Arc<AtomicBool>,
-        reasoning_effort: &str,
-    ) {
+    fn stream_anthropic(params: &StreamParams, system_prompt: &str) {
+        let StreamParams {
+            client, evt_tx, endpoint, api_key, model, api_messages,
+            max_tokens, temperature, abort_flag, reasoning_effort,
+        } = *params;
         let non_system: Vec<&serde_json::Value> = api_messages.iter()
             .filter(|m| m["role"].as_str() != Some("system"))
             .collect();
