@@ -300,7 +300,7 @@ impl SdrPanel {
                 ];
                 let selected = band_presets.iter()
                     .position(|(_, freq, _)| {
-                        let diff = if *freq > current_freq { *freq - current_freq } else { current_freq - *freq };
+                        let diff = (*freq).abs_diff(current_freq);
                         diff < 2_000_000
                     });
                 let combo = egui::ComboBox::from_id_salt("band_presets")
@@ -323,7 +323,7 @@ impl SdrPanel {
                 if let Some(info) = identify_frequency(state.source.frequency_hz) {
                     // Show band info
                     let hover = if info.what_to_hear.is_empty() {
-                        format!("{}", info.detail)
+                        info.detail.to_string()
                     } else {
                         format!("{}\n🔊 {}", info.detail, info.what_to_hear)
                     };
@@ -448,11 +448,10 @@ impl SdrPanel {
                         .on_hover_text(format!("Frequency offset between VFO A and VFO B: {}", diff_str));
                 }
             }
-        } else if has_expand {
-            if ui.button(egui::RichText::new("⚙ Show VFO B (advanced)").size(12.0)).clicked() {
+        } else if has_expand
+            && ui.button(egui::RichText::new("⚙ Show VFO B (advanced)").size(12.0)).clicked() {
                 self.expand_vfo_b = true;
             }
-        }
 
         // LO offset indicator (hidden for Beginner/Intermediate unless expanded)
         let show_lo = show_advanced;
@@ -472,11 +471,10 @@ impl SdrPanel {
                     });
                 }
             }
-        } else if has_expand {
-            if ui.button(egui::RichText::new("⚙ Show LO offset (advanced)").size(12.0)).clicked() {
+        } else if has_expand
+            && ui.button(egui::RichText::new("⚙ Show LO offset (advanced)").size(12.0)).clicked() {
                 self.expand_lo_offset = true;
             }
-        }
 
         if !is_beginner {
             // Sample rate quick buttons
@@ -795,7 +793,7 @@ impl SdrPanel {
                 let cur_freq = state.source.frequency_hz;
                 if !state.bookmarks.bookmarks.is_empty() {
                     let nearest = state.bookmarks.bookmarks.iter()
-                        .map(|b| (b, if b.frequency_hz > cur_freq { b.frequency_hz - cur_freq } else { cur_freq - b.frequency_hz }))
+                        .map(|b| (b, b.frequency_hz.abs_diff(cur_freq)))
                         .min_by_key(|(_, d)| *d);
                     if let Some((bm, dist)) = nearest {
                         let threshold_hz = 100_000u64; // ±100 kHz
@@ -1338,11 +1336,10 @@ impl SdrPanel {
                     }
                 });
             }
-        } else if has_expand {
-            if ui.button(egui::RichText::new("⚙ Show PPM (advanced)").size(12.0)).clicked() {
+        } else if has_expand
+            && ui.button(egui::RichText::new("⚙ Show PPM (advanced)").size(12.0)).clicked() {
                 self.expand_ppm = true;
             }
-        }
 
         if !is_beginner {
             // Demod quality indicators
@@ -1354,9 +1351,9 @@ impl SdrPanel {
                         DemodMode::Fm => {
                             if dev_khz > 13.0 {
                                 (egui::Color32::RED, "NFM deviation too high (>13 kHz) — signal clipping/overmodulation")
-                            } else if dev_khz >= 4.5 && dev_khz <= 12.5 {
+                            } else if (4.5..=12.5).contains(&dev_khz) {
                                 (egui::Color32::GREEN, "NFM deviation in ideal range (4.5–12.5 kHz)")
-                            } else if dev_khz >= 2.0 && dev_khz < 4.5 {
+                            } else if (2.0..4.5).contains(&dev_khz) {
                                 (egui::Color32::YELLOW, "NFM deviation low (2–4.5 kHz) — weak signal?")
                             } else {
                                 (egui::Color32::GRAY, "NFM deviation too low (<2 kHz)")
@@ -1365,9 +1362,9 @@ impl SdrPanel {
                         DemodMode::Wfm => {
                             if dev_khz > 80.0 {
                                 (egui::Color32::RED, "WFM deviation excessive (>80 kHz)")
-                            } else if dev_khz >= 50.0 && dev_khz <= 75.0 {
+                            } else if (50.0..=75.0).contains(&dev_khz) {
                                 (egui::Color32::GREEN, "WFM deviation ideal (50–75 kHz)")
-                            } else if dev_khz >= 30.0 && dev_khz < 50.0 {
+                            } else if (30.0..50.0).contains(&dev_khz) {
                                 (egui::Color32::YELLOW, "WFM deviation low (30–50 kHz) — weak signal")
                             } else {
                                 (egui::Color32::GRAY, "WFM deviation very low")
@@ -1600,7 +1597,7 @@ impl SdrPanel {
                         ui.colored_label(suggestion_color, format!("💡 {}: {}", state.demod_mode.label(), format_hz(suggested_hz)))
                             .on_hover_text(tip);
                         if ui.small_button("Apply").on_hover_text(format!("Set filter to {} Hz", suggested_hz)).clicked() {
-                            self.filter_bw = suggested_hz as u32;
+                            self.filter_bw = suggested_hz;
                         }
                     });
                 }
@@ -1827,14 +1824,13 @@ impl SdrPanel {
                 let frac = if total > 0 { done as f32 / total.max(done) as f32 } else { 0.0 };
                 ui.add(egui::ProgressBar::new(frac.clamp(0.0, 1.0)).text(format!("{:.1} / {:.1} MB", done as f64 / 1e6, total.max(done) as f64 / 1e6)));
                 ui.label(&self.airport_dl_msg);
-                if done >= total && total > 0 {
-                    if ui.button("✓ Load airports").clicked() {
+                if done >= total && total > 0
+                    && ui.button("✓ Load airports").clicked() {
                         let fresh = crate::airport_db::AirportDb::load();
                         self.airport_db = fresh;
                         self.airport_dl_progress = None;
                         self.airport_dl_msg = "Loaded {count} airports".to_string();
                     }
-                }
                 return;
             }
             // Search row

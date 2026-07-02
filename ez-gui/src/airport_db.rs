@@ -217,17 +217,13 @@ fn suggested_bw(freq_mhz: f64) -> u32 {
     }
 }
 
+#[derive(Default)]
 pub struct AirportDb {
     pub airports: HashMap<String, Airport>,
     pub freqs: HashMap<String, Vec<AirportFreq>>,
     pub cached_sqlite: bool,
 }
 
-impl Default for AirportDb {
-    fn default() -> Self {
-        Self { airports: HashMap::new(), freqs: HashMap::new(), cached_sqlite: false }
-    }
-}
 
 impl AirportDb {
     /// Load from the SQLite cache if present; otherwise hydrate from the

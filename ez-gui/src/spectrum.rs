@@ -457,7 +457,7 @@ impl SpectrumAnalyzer {
         self.cached_noise_floor = floor;
 
         // Record peak dB to signal history (every 10th frame to avoid overwhelming)
-        if self.frame_counter % 10 == 0 {
+        if self.frame_counter.is_multiple_of(10) {
             self.signal_history.push_back(peak);
             if self.signal_history.len() > self.signal_history_max {
                 self.signal_history.pop_front();
@@ -517,11 +517,10 @@ impl SpectrumAnalyzer {
                 .on_hover_text(format!("Sample rate: {} MSps (Nyquist: ±{:.1} MHz). Frequency resolution: {} per bin.",
                     self.sample_rate as f64 / 1e6, span_mhz / 2.0, res_label));
             ui.separator();
-            if ui.toggle_value(&mut self.show_peak_hold, "Peak").clicked() {
-                if !self.show_peak_hold {
+            if ui.toggle_value(&mut self.show_peak_hold, "Peak").clicked()
+                && !self.show_peak_hold {
                     self.peak_hold = vec![-120.0; self.fft_size];
                 }
-            }
             if ui.small_button("Clear WF").clicked() {
                 self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; self.waterfall_history];
                 self.waterfall_dirty = true;
@@ -594,8 +593,8 @@ impl SpectrumAnalyzer {
                 if self.wf_min_db >= self.wf_max_db - 5.0 { self.wf_min_db = self.wf_max_db - 5.0; }
                 self.waterfall_dirty = true;
             }
-            if ui.small_button("WF Auto").on_hover_text("Set waterfall color range to current signal min/max for best contrast.").clicked() {
-                if !self.spectrum_dbs.is_empty() {
+            if ui.small_button("WF Auto").on_hover_text("Set waterfall color range to current signal min/max for best contrast.").clicked()
+                && !self.spectrum_dbs.is_empty() {
                     let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
                         (f32::INFINITY, f32::NEG_INFINITY),
                         |(mn, mx), &v| (mn.min(v), mx.max(v))
@@ -604,7 +603,6 @@ impl SpectrumAnalyzer {
                     self.wf_max_db = (cur_max + 5.0).min(20.0);
                     self.waterfall_dirty = true;
                 }
-            }
             ui.separator();
             let freeze_label = if self.frozen { "❄ Frozen" } else { "❄ Freeze" };
             if ui.toggle_value(&mut self.frozen, freeze_label)
@@ -629,8 +627,8 @@ impl SpectrumAnalyzer {
                 self.display_max_db = 0.0;
                 self.waterfall_dirty = true;
             }
-            if ui.small_button("Auto-fit").on_hover_text("Automatically set the dB range to the current signal min/max, centering the display on your signals.").clicked() {
-                if !self.spectrum_dbs.is_empty() {
+            if ui.small_button("Auto-fit").on_hover_text("Automatically set the dB range to the current signal min/max, centering the display on your signals.").clicked()
+                && !self.spectrum_dbs.is_empty() {
                     let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
                         (f32::INFINITY, f32::NEG_INFINITY),
                         |(mn, mx), &v| (mn.min(v), mx.max(v))
@@ -640,10 +638,9 @@ impl SpectrumAnalyzer {
                     self.display_max_db = (cur_max + margin).min(20.0);
                     self.waterfall_dirty = true;
                 }
-            }
             ui.separator();
-            if ui.small_button("⊕ Peak").on_hover_text("Tune to the frequency with the strongest signal currently visible in the spectrum.").clicked() {
-                if !self.spectrum_dbs.is_empty() {
+            if ui.small_button("⊕ Peak").on_hover_text("Tune to the frequency with the strongest signal currently visible in the spectrum.").clicked()
+                && !self.spectrum_dbs.is_empty() {
                     let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
                     let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
                     let left_hz = -zoom_span / 2.0 + zoom_center_offset;
@@ -654,7 +651,6 @@ impl SpectrumAnalyzer {
                     let offset_hz = left_hz + (peak_bin as f64 / n as f64) * zoom_span;
                     self.clicked_tune_freq = Some((self.center_freq as f64 + offset_hz) as u64);
                 }
-            }
             ui.separator();
             ui.toggle_value(&mut self.show_signal_history, "📈 History")
                 .on_hover_text("Show a scrolling chart of peak signal strength over time. Useful for tracking intermittent signals.");
@@ -1480,7 +1476,7 @@ impl SpectrumAnalyzer {
                 egui::vec2(band_w, 14.0),
             );
             painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160));
-            painter.text(band_pos, egui::Align2::LEFT_TOP, &info.band,
+            painter.text(band_pos, egui::Align2::LEFT_TOP, info.band,
                 egui::FontId::proportional(10.0),
                 egui::Color32::from_rgba_premultiplied(180, 220, 255, 220));
         }
@@ -1846,12 +1842,11 @@ impl SpectrumAnalyzer {
                 }
                 ui.close();
             }
-            if !self.markers.is_empty() {
-                if ui.button(format!("Clear {} marker(s)", self.markers.len())).clicked() {
+            if !self.markers.is_empty()
+                && ui.button(format!("Clear {} marker(s)", self.markers.len())).clicked() {
                     self.markers.clear();
                     ui.close();
                 }
-            }
         });
         // Middle-click to add frequency marker
         if response.clicked_by(egui::PointerButton::Middle) {
@@ -1890,7 +1885,7 @@ impl SpectrumAnalyzer {
         }
 
         // Waterfall (speed controlled by waterfall_every_n, can be paused)
-        if !self.waterfall_paused && self.frame_counter % self.waterfall_every_n == 0 {
+        if !self.waterfall_paused && self.frame_counter.is_multiple_of(self.waterfall_every_n) {
             let row = self.waterfall_row();
             self.waterfall_pixels.pop();
             self.waterfall_pixels.insert(0, row);

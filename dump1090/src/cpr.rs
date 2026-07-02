@@ -260,7 +260,7 @@ pub fn decode_cpr_airborne(
         rlat1 -= 360.0;
     }
 
-    if rlat0 < -90.0 || rlat0 > 90.0 || rlat1 < -90.0 || rlat1 > 90.0 {
+    if !(-90.0..=90.0).contains(&rlat0) || !(-90.0..=90.0).contains(&rlat1) {
         return None;
     }
 
@@ -328,7 +328,7 @@ pub fn decode_cpr_surface(
         rlat1 -= 90.0;
     }
 
-    if rlat0 < -90.0 || rlat0 > 90.0 || rlat1 < -90.0 || rlat1 > 90.0 {
+    if !(-90.0..=90.0).contains(&rlat0) || !(-90.0..=90.0).contains(&rlat1) {
         return None;
     }
 
@@ -376,7 +376,7 @@ pub fn decode_cpr_relative(
         rlat -= 360.0;
     }
 
-    if rlat < -90.0 || rlat > 90.0 {
+    if !(-90.0..=90.0).contains(&rlat) {
         return None;
     }
     if (rlat - reflat).abs() > air_dlat / 2.0 {

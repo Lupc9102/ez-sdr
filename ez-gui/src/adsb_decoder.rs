@@ -129,14 +129,14 @@ impl AdsBDecoder {
                     1..=4 => {
                         // Aircraft identification
                         let chars = [
-                            ((msg[5] >> 2) & 0x3F) as u8,
-                            (((msg[5] & 0x03) << 4) | (msg[6] >> 4)) as u8,
-                            (((msg[6] & 0x0F) << 2) | (msg[7] >> 6)) as u8,
-                            (msg[7] & 0x3F) as u8,
-                            ((msg[8] >> 2) & 0x3F) as u8,
-                            (((msg[8] & 0x03) << 4) | (msg[9] >> 4)) as u8,
-                            (((msg[9] & 0x0F) << 2) | (msg[10] >> 6)) as u8,
-                            (msg[10] & 0x3F) as u8,
+                            ((msg[5] >> 2) & 0x3F),
+                            (((msg[5] & 0x03) << 4) | (msg[6] >> 4)),
+                            (((msg[6] & 0x0F) << 2) | (msg[7] >> 6)),
+                            (msg[7] & 0x3F),
+                            ((msg[8] >> 2) & 0x3F),
+                            (((msg[8] & 0x03) << 4) | (msg[9] >> 4)),
+                            (((msg[9] & 0x0F) << 2) | (msg[10] >> 6)),
+                            (msg[10] & 0x3F),
                         ];
 
                         let callsign: String = chars
@@ -145,7 +145,7 @@ impl AdsBDecoder {
                                 if c == 0 { return ' '; }
                                 if c < 27 { return (b'A' + c - 1) as char; }
                                 if c == 32 { return ' '; }
-                                if c >= 48 && c <= 57 { return (b'0' + c - 48) as char; }
+                                if (48..=57).contains(&c) { return (b'0' + c - 48) as char; }
                                 ' '
                             })
                             .collect();

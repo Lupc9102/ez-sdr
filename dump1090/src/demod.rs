@@ -121,7 +121,9 @@ pub struct DemodStats {
 
 /// Possible scores for a Mode S message, ordered from worst to best.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default)]
 pub enum ScoreRank {
+    #[default]
     NotSet = 0,
     AllZeros,
     UnknownDf,
@@ -167,11 +169,6 @@ pub enum ScoreRank {
     Df17Known,
 }
 
-impl Default for ScoreRank {
-    fn default() -> Self {
-        ScoreRank::NotSet
-    }
-}
 
 // ========================================================================
 // CRC / error correction helpers (minimal but sufficient for scoring)
@@ -302,7 +299,7 @@ pub fn score_mode_s_message(
     max_errors: usize,
 ) -> ScoreRank {
     const ALL_ZEROS: [u8; MODES_SHORT_MSG_BYTES] = [0; MODES_SHORT_MSG_BYTES];
-    if &uncorrected[..MODES_SHORT_MSG_BYTES] == &ALL_ZEROS[..] {
+    if uncorrected[..MODES_SHORT_MSG_BYTES] == ALL_ZEROS[..] {
         return ScoreRank::AllZeros;
     }
 
@@ -367,69 +364,69 @@ pub fn score_mode_s_message(
             match corrections {
                 0 => {
                     if iid == 0 {
-                        return if recent {
+                        if recent {
                             ScoreRank::Df11AcqKnown
                         } else {
                             ScoreRank::Df11AcqUnknown
-                        };
+                        }
                     } else {
-                        return if recent {
+                        if recent {
                             ScoreRank::Df11IidKnown
                         } else {
                             ScoreRank::Df11IidUnknown
-                        };
+                        }
                     }
                 }
                 1 => {
                     if iid == 0 {
-                        return if recent {
+                        if recent {
                             ScoreRank::Df11Acq1ErrorKnown
                         } else {
                             ScoreRank::Df11Acq1ErrorUnknown
-                        };
+                        }
                     } else {
-                        return if recent {
+                        if recent {
                             ScoreRank::Df11Iid1ErrorKnown
                         } else {
                             ScoreRank::Df11Iid1ErrorUnknown
-                        };
+                        }
                     }
                 }
-                _ => return ScoreRank::Uncorrectable,
+                _ => ScoreRank::Uncorrectable,
             }
         }
         17 => {
             let recent = icao_filter.contains(addr & 0xFFFFFF);
             match corrections {
-                0 => return if recent { ScoreRank::Df17Known } else { ScoreRank::Df17Unknown },
-                1 => return if recent {
+                0 => if recent { ScoreRank::Df17Known } else { ScoreRank::Df17Unknown },
+                1 => if recent {
                     ScoreRank::Df17_1ErrorKnown
                 } else {
                     ScoreRank::Df17_1ErrorUnknown
                 },
-                2 => return if recent {
+                2 => if recent {
                     ScoreRank::Df17_2ErrorKnown
                 } else {
                     ScoreRank::Df17_2ErrorUnknown
                 },
-                _ => return ScoreRank::Uncorrectable,
+                _ => ScoreRank::Uncorrectable,
             }
         }
         18 => {
             let recent = icao_filter.contains(addr | 0x0100_0000); // NT flag
             match corrections {
-                0 => return if recent { ScoreRank::Df18Known } else { ScoreRank::Df18Unknown },
-                1 => return if recent {
+                0 => if recent { ScoreRank::Df18Known } else { ScoreRank::Df18Unknown },
+                1 => if recent {
                     ScoreRank::Df18_1ErrorKnown
                 } else {
                     ScoreRank::Df18_1ErrorUnknown
                 },
-                2 => return if recent {
+                2 => if recent {
                     ScoreRank::Df18_2ErrorKnown
                 } else {
                     ScoreRank::Df18_2ErrorUnknown
                 },
-                _ => return ScoreRank::Uncorrectable,
+                _ => ScoreRank::Uncorrectable,
             }
         }
         _ => ScoreRank::UnknownDf,
@@ -1022,7 +1019,7 @@ impl Demod2400 {
 
         let mut f1_sample = 1usize;
         while f1_sample < mlen {
-            if !(m[f1_sample - 1] < m[f1_sample]) {
+            if m[f1_sample - 1] >= m[f1_sample] {
                 f1_sample += 1;
                 continue;
             }
@@ -1049,7 +1046,7 @@ impl Demod2400 {
                 continue;
             }
 
-            if !(m[f2_sample - 1] < m[f2_sample]) {
+            if m[f2_sample - 1] >= m[f2_sample] {
                 f1_sample += 1;
                 continue;
             }

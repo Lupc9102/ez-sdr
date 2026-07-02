@@ -74,51 +74,48 @@ impl WebRemote {
                                 msg = rx.recv() => {
                                     match msg {
                                         Ok(data) => {
-                                            if socket.send(Message::Text(data.into())).await.is_err() { break; }
+                                            if socket.send(Message::Text(data)).await.is_err() { break; }
                                         }
                                         Err(_) => break,
                                     }
                                 }
                                 Some(Ok(msg)) = socket.recv() => {
-                                    match msg {
-                                        Message::Text(text) => {
-                                            if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(&text) {
-                                                let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
-                                                match action {
-                                                    "tune" => {
-                                                        if let Some(hz) = cmd.get("hz").and_then(|v| v.as_u64()) {
-                                                            let _ = cmd_tx.send(RemoteCommand::Tune { freq_hz: hz });
-                                                        }
+                                    if let Message::Text(text) = msg {
+                                        if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(&text) {
+                                            let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                                            match action {
+                                                "tune" => {
+                                                    if let Some(hz) = cmd.get("hz").and_then(|v| v.as_u64()) {
+                                                        let _ = cmd_tx.send(RemoteCommand::Tune { freq_hz: hz });
                                                     }
-                                                    "set_gain" => {
-                                                        if let Some(db) = cmd.get("db").and_then(|v| v.as_f64()) {
-                                                            let _ = cmd_tx.send(RemoteCommand::SetGain { gain_db: db });
-                                                        }
-                                                    }
-                                                    "set_demod" => {
-                                                        if let Some(mode) = cmd.get("mode").and_then(|v| v.as_str()) {
-                                                            let _ = cmd_tx.send(RemoteCommand::SetDemod { mode: mode.to_string() });
-                                                        }
-                                                    }
-                                                    "set_squelch" => {
-                                                        if let Some(db) = cmd.get("db").and_then(|v| v.as_f64()) {
-                                                            let _ = cmd_tx.send(RemoteCommand::SetSquelch { db: db as f32 });
-                                                        }
-                                                    }
-                                                    "set_volume" => {
-                                                        if let Some(level) = cmd.get("level").and_then(|v| v.as_f64()) {
-                                                            let _ = cmd_tx.send(RemoteCommand::SetVolume { level: level as f32 });
-                                                        }
-                                                    }
-                                                    "start_record" => { let _ = cmd_tx.send(RemoteCommand::StartRecord); }
-                                                    "stop_record" => { let _ = cmd_tx.send(RemoteCommand::StopRecord); }
-                                                    "start_scan" => { let _ = cmd_tx.send(RemoteCommand::StartScan); }
-                                                    "stop_scan" => { let _ = cmd_tx.send(RemoteCommand::StopScan); }
-                                                    _ => {}
                                                 }
+                                                "set_gain" => {
+                                                    if let Some(db) = cmd.get("db").and_then(|v| v.as_f64()) {
+                                                        let _ = cmd_tx.send(RemoteCommand::SetGain { gain_db: db });
+                                                    }
+                                                }
+                                                "set_demod" => {
+                                                    if let Some(mode) = cmd.get("mode").and_then(|v| v.as_str()) {
+                                                        let _ = cmd_tx.send(RemoteCommand::SetDemod { mode: mode.to_string() });
+                                                    }
+                                                }
+                                                "set_squelch" => {
+                                                    if let Some(db) = cmd.get("db").and_then(|v| v.as_f64()) {
+                                                        let _ = cmd_tx.send(RemoteCommand::SetSquelch { db: db as f32 });
+                                                    }
+                                                }
+                                                "set_volume" => {
+                                                    if let Some(level) = cmd.get("level").and_then(|v| v.as_f64()) {
+                                                        let _ = cmd_tx.send(RemoteCommand::SetVolume { level: level as f32 });
+                                                    }
+                                                }
+                                                "start_record" => { let _ = cmd_tx.send(RemoteCommand::StartRecord); }
+                                                "stop_record" => { let _ = cmd_tx.send(RemoteCommand::StopRecord); }
+                                                "start_scan" => { let _ = cmd_tx.send(RemoteCommand::StartScan); }
+                                                "stop_scan" => { let _ = cmd_tx.send(RemoteCommand::StopScan); }
+                                                _ => {}
                                             }
                                         }
-                                        _ => {}
                                     }
                                 }
                             }

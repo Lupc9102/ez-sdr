@@ -179,7 +179,7 @@ impl SatellitePanel {
             ui.label("Signal Strength:");
             let norm = ((self.signal_strength + 120.0) / 120.0).clamp(0.0, 1.0);
             let color = if norm > 0.5 { egui::Color32::GREEN } else if norm > 0.2 { egui::Color32::YELLOW } else { egui::Color32::RED };
-            ui.add(egui::ProgressBar::new(norm as f32).fill(color).text(format!("{:.1} dB", self.signal_strength)));
+            ui.add(egui::ProgressBar::new(norm).fill(color).text(format!("{:.1} dB", self.signal_strength)));
         });
 
         {

@@ -24,7 +24,7 @@ impl Seek for Source {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         match self {
             Source::File(f) => f.seek(pos),
-            Source::Stdin => Err(io::Error::new(io::ErrorKind::Other, "cannot seek stdin")),
+            Source::Stdin => Err(io::Error::other("cannot seek stdin")),
         }
     }
 }

@@ -697,7 +697,7 @@ impl AdsBPanel {
         // Update aircraft trails
         for ac in &self.aircraft {
             if ac.lat == 0.0 && ac.lon == 0.0 { continue; }
-            let trail = self.aircraft_trails.entry(ac.icao).or_insert_with(std::collections::VecDeque::new);
+            let trail = self.aircraft_trails.entry(ac.icao).or_default();
             if trail.back().map(|&(lat, lon)| (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001).unwrap_or(true) {
                 trail.push_back((ac.lat, ac.lon));
                 if trail.len() > 30 { trail.pop_front(); }
@@ -804,7 +804,7 @@ impl AdsBPanel {
                     }
                     if let Some(first) = ring_points.first() {
                         painter.text(*first + egui::vec2(2.0, -2.0), egui::Align2::LEFT_BOTTOM,
-                            &format!("{}km", dist_km), egui::FontId::proportional(7.0),
+                            format!("{}km", dist_km), egui::FontId::proportional(7.0),
                             egui::Color32::from_rgba_unmultiplied(100, 200, 100, alpha));
                     }
                 }
@@ -1002,7 +1002,7 @@ impl AdsBPanel {
         let project_3d = |lon: f64, lat: f64, alt: f32| -> egui::Pos2 {
             let lon_norm = ((lon + 180.0) / 360.0) as f32;
             let lat_norm = ((lat + 90.0) / 180.0) as f32;
-            let alt_norm = (alt as f32 / 40000.0).clamp(0.0, 1.0);
+            let alt_norm = (alt / 40000.0).clamp(0.0, 1.0);
             let x = (lon_norm - lat_norm) * scale;
             let y = (lon_norm + lat_norm) * scale / 2.0 - alt_norm * scale * 2.0;
             egui::pos2(center.x + x, center.y + y)
@@ -1029,7 +1029,7 @@ impl AdsBPanel {
                 painter.text(
                     p + egui::vec2(-20.0, 0.0),
                     egui::Align2::RIGHT_CENTER,
-                    &format!("{}k ft", alt_level as i32 / 1000),
+                    format!("{}k ft", alt_level as i32 / 1000),
                     egui::FontId::proportional(8.0),
                     egui::Color32::GRAY,
                 );
@@ -1068,7 +1068,7 @@ impl AdsBPanel {
             let is_selected = self.selected_icao == Some(ac.icao);
             let model_scale = if is_selected { 11.0_f32 } else { 7.5_f32 };
 
-            draw_plane_model(&painter, p, ac.heading as f32, &category, color, model_scale);
+            draw_plane_model(painter, p, ac.heading as f32, &category, color, model_scale);
 
             if is_selected {
                 painter.text(
@@ -1082,7 +1082,7 @@ impl AdsBPanel {
                 painter.text(
                     p + egui::vec2(14.0, 4.0),
                     egui::Align2::LEFT_CENTER,
-                    &format!("{:.1}km / {}ft", dist, ac.altitude),
+                    format!("{:.1}km / {}ft", dist, ac.altitude),
                     egui::FontId::proportional(8.0),
                     color,
                 );
@@ -1394,7 +1394,7 @@ impl AdsBPanel {
                 }
                 if let Some(first) = ring_points.first() {
                     painter.text(*first + egui::vec2(3.0, -3.0), egui::Align2::LEFT_BOTTOM,
-                        &format!("{}km", dist_km as u32), egui::FontId::proportional(9.0),
+                        format!("{}km", dist_km as u32), egui::FontId::proportional(9.0),
                         egui::Color32::from_rgba_unmultiplied(120, 220, 120, alpha));
                 }
             }
@@ -1545,7 +1545,7 @@ impl AdsBPanel {
         // Update trails here so they're ready when ui_map() renders
         for ac in &self.aircraft {
             if ac.lat == 0.0 && ac.lon == 0.0 { continue; }
-            let trail = self.aircraft_trails.entry(ac.icao).or_insert_with(std::collections::VecDeque::new);
+            let trail = self.aircraft_trails.entry(ac.icao).or_default();
             if trail.back().map(|&(lat, lon)| (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001).unwrap_or(true) {
                 trail.push_back((ac.lat, ac.lon));
                 if trail.len() > 30 { trail.pop_front(); }

@@ -14,6 +14,12 @@ pub struct Tracker {
     pub aircraft: HashMap<u32, AircraftState>,
 }
 
+impl Default for Tracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Tracker {
     pub fn new() -> Self {
         Tracker {

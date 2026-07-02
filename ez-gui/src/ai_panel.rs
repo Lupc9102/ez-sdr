@@ -1020,8 +1020,7 @@ impl AiPanel {
             } else if line == "---" || line == "***" || line == "___" {
                 ui.separator();
             // Blockquote: "> text"
-            } else if line.starts_with("> ") {
-                let body = &line[2..];
+            } else if let Some(body) = line.strip_prefix("> ") {
                 ui.horizontal_wrapped(|ui| {
                     ui.add(egui::Separator::default().vertical().spacing(6.0));
                     ui.label(egui::RichText::new(body).color(egui::Color32::from_gray(180)).italics());
@@ -1317,11 +1316,10 @@ impl AiPanel {
                         });
                     }
 
-                    if is_error && !self.thinking {
-                        if ui.small_button("↩ Retry").on_hover_text("Resend the last message").clicked() {
+                    if is_error && !self.thinking
+                        && ui.small_button("↩ Retry").on_hover_text("Resend the last message").clicked() {
                             retry = true;
                         }
-                    }
 
                     ui.add_space(6.0);
                 }
@@ -1369,14 +1367,13 @@ impl AiPanel {
             }
 
             // Stop button — only shown while streaming
-            if self.thinking {
-                if ui.button("⬛ Stop")
+            if self.thinking
+                && ui.button("⬛ Stop")
                     .on_hover_text("Cancel the current request")
                     .clicked()
                 {
                     self.abort_flag.store(true, Ordering::Relaxed);
                 }
-            }
 
             if ui.add_enabled(!self.thinking, egui::Button::new("Clear"))
                 .on_hover_text("Clear conversation history. Useful when the model seems confused due to long context.")
@@ -1385,14 +1382,13 @@ impl AiPanel {
                 self.messages.clear();
             }
 
-            if !self.messages.is_empty() {
-                if ui.button("💾 Export")
+            if !self.messages.is_empty()
+                && ui.button("💾 Export")
                     .on_hover_text("Save this conversation to a text file")
                     .clicked()
                 {
                     self.export_chat();
                 }
-            }
         });
 
         if self.thinking && self.pending_rx.is_none() {

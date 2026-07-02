@@ -19,6 +19,12 @@ pub struct NetIo {
     raw_clients: Arc<Mutex<Vec<Client>>>,
 }
 
+impl Default for NetIo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetIo {
     pub fn new() -> Self {
         NetIo {

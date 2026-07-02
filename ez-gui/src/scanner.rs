@@ -369,7 +369,7 @@ impl FrequencyScanner {
 
         // Skip excluded frequencies
         let is_excluded = self.exclude_hz.iter().any(|&ex| {
-            let diff = if self.current_freq_hz > ex { self.current_freq_hz - ex } else { ex - self.current_freq_hz };
+            let diff = self.current_freq_hz.abs_diff(ex);
             diff <= self.step_hz / 2
         });
         if is_excluded {
@@ -388,11 +388,7 @@ impl FrequencyScanner {
             // Log the hit (dedup within ±step_hz)
             let half_step = self.step_hz / 2;
             let existing = self.hits.iter_mut().find(|h| {
-                let diff = if h.freq_hz > self.current_freq_hz {
-                    h.freq_hz - self.current_freq_hz
-                } else {
-                    self.current_freq_hz - h.freq_hz
-                };
+                let diff = h.freq_hz.abs_diff(self.current_freq_hz);
                 diff <= half_step
             });
             if let Some(hit) = existing {
@@ -553,7 +549,7 @@ impl FrequencyScanner {
                     "I just ran a frequency scan. Here are the signals found (frequency, strength, hit count):\n"
                 );
                 let mut sorted_hits: Vec<&SignalHit> = self.hits.iter().collect();
-                sorted_hits.sort_by(|a, b| a.freq_hz.cmp(&b.freq_hz));
+                sorted_hits.sort_by_key(|a| a.freq_hz);
                 for hit in sorted_hits.iter().take(30) {
                     lines.push_str(&format!(
                         "  {:.4} MHz  {:.1} dB  ({} hits)\n",

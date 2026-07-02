@@ -74,6 +74,12 @@ pub struct Demodulator {
     inner: demod::Demod2400,
 }
 
+impl Default for Demodulator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Demodulator {
     pub fn new() -> Self {
         Demodulator {
@@ -151,9 +157,8 @@ fn main() -> anyhow::Result<()> {
     source.set_gain(args.gain.unwrap_or(0.0))?;
 
     // 4. Start source
-    source.start().map_err(|e| {
+    source.start().inspect_err(|_e| {
         eprintln!("dump1090: failed to start source. If using RTL-SDR, ensure a device is connected.");
-        e
     })?;
 
     // 5. If --net, start NetOutput

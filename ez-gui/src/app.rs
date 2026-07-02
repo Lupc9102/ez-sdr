@@ -3,14 +3,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct FreqMemEntry {
     pub freq_hz: u64,
     pub label: String,
 }
 
-impl Default for FreqMemEntry {
-    fn default() -> Self { Self { freq_hz: 0, label: String::new() } }
-}
 
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
@@ -871,7 +869,7 @@ impl eframe::App for CentralApp {
                         state.spectrum.bookmark_freqs_dirty = true;
                         self.status_flash = Some((format!("🔖 Bookmarked {}", name), std::time::Instant::now()));
                     } else {
-                        self.status_flash = Some((format!("⭐ Already bookmarked"), std::time::Instant::now()));
+                        self.status_flash = Some(("⭐ Already bookmarked".to_string(), std::time::Instant::now()));
                     }
                 }
                 // T: tune to spectrum peak frequency
@@ -887,16 +885,16 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::S) && !i.modifiers.ctrl && !i.modifiers.alt {
                     if self.scanner.enabled {
                         self.scanner.stop();
-                        self.status_flash = Some((format!("🔍 Scanner: OFF"), std::time::Instant::now()));
+                        self.status_flash = Some(("🔍 Scanner: OFF".to_string(), std::time::Instant::now()));
                     } else {
                         self.scanner.start();
-                        self.status_flash = Some((format!("🔍 Scanner: ON"), std::time::Instant::now()));
+                        self.status_flash = Some(("🔍 Scanner: ON".to_string(), std::time::Instant::now()));
                     }
                 }
                 // R key: reset spectrum dB range to default (-120 to 0)
                 if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.set_display_range(-120.0, 0.0);
-                    self.status_flash = Some((format!("📊 dB range reset to -120…0"), std::time::Instant::now()));
+                    self.status_flash = Some(("📊 dB range reset to -120…0".to_string(), std::time::Instant::now()));
                 }
             }
         });
@@ -1185,11 +1183,11 @@ impl eframe::App for CentralApp {
 
             // State transitions for Discord notifications
             if recording && !self.last_recording {
-                let embed = crate::discord::embed_recording_started(freq, &mode, self.recorder_panel.record_iq, self.recorder_panel.record_audio);
+                let embed = crate::discord::embed_recording_started(freq, mode, self.recorder_panel.record_iq, self.recorder_panel.record_audio);
                 self.discord.fire("rec_started", embed);
             } else if !recording && self.last_recording {
                 let duration = self.recording_start.map(|t| t.elapsed().as_secs()).unwrap_or(0);
-                let embed = crate::discord::embed_recording_stopped(freq, &mode, duration, self.recorder_panel.bytes_written);
+                let embed = crate::discord::embed_recording_stopped(freq, mode, duration, self.recorder_panel.bytes_written);
                 self.discord.fire("rec_stopped", embed);
             }
             if state.adsb_running && !self.last_adsb_running {
@@ -1233,11 +1231,11 @@ impl eframe::App for CentralApp {
                 let embed = crate::discord::embed_strong_signal(freq, snr);
                 self.discord.fire("strong_signal", embed);
             }
-            self.web_remote.broadcast_state(freq, gain, &mode, ac_count, &passes, squelch, volume, recording, scanner_active, snr);
+            self.web_remote.broadcast_state(freq, gain, mode, ac_count, &passes, squelch, volume, recording, scanner_active, snr);
             self.mqtt.tick_reconnect();
             if self.last_scheduler_update.elapsed().as_secs() < 1 {
                 self.mqtt.tick(freq, gain);
-                self.mqtt.publish_signal(freq, peak, noise, &mode, recording);
+                self.mqtt.publish_signal(freq, peak, noise, mode, recording);
                 self.mqtt.publish_passes(&passes);
                 if !self.adsb_panel.aircraft.is_empty() {
                     self.mqtt.publish_aircraft(&self.adsb_panel.aircraft);
@@ -1252,7 +1250,7 @@ impl eframe::App for CentralApp {
                 let embed = crate::discord::embed_session_summary(
                     uptime,
                     freq as f64 / 1e6,
-                    &mode,
+                    mode,
                     ac_count,
                     self.scanner.hits.len(),
                     0, // recordings count - would need to track
@@ -2104,7 +2102,7 @@ impl CentralApp {
                                 if let Some(idx) = self.freq_history_idx {
                                     let next = if idx + 1 < len { Some(idx + 1) } else { None };
                                     let target = next.unwrap_or(len.saturating_sub(1));
-                                    let freq = state.freq_history.iter().nth(target).copied();
+                                    let freq = state.freq_history.get(target).copied();
                                     drop(state);
                                     self.freq_history_idx = next;
                                     if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) { s.source.frequency_hz = f; }
@@ -2116,7 +2114,7 @@ impl CentralApp {
                                 let len = state.freq_history.len();
                                 if len > 1 {
                                     let new_idx = self.freq_history_idx.map(|i| i.saturating_sub(1)).unwrap_or(len.saturating_sub(2));
-                                    let freq = state.freq_history.iter().nth(new_idx).copied();
+                                    let freq = state.freq_history.get(new_idx).copied();
                                     drop(state);
                                     self.freq_history_idx = Some(new_idx);
                                     if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) { s.source.frequency_hz = f; }
@@ -2424,7 +2422,7 @@ impl CentralApp {
             }
             if ui.small_button("A→Z").on_hover_text("Sort all bookmarks alphabetically by name within each category.").clicked() {
                 if let Ok(mut state) = self.shared.try_lock() {
-                    state.bookmarks.bookmarks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                    state.bookmarks.bookmarks.sort_by_key(|a| a.name.to_lowercase());
                     state.bookmarks_modified = true;
                     state.spectrum.bookmark_freqs_dirty = true;
                 }
@@ -2552,11 +2550,10 @@ impl CentralApp {
                             }
                         }
                     }
-                    if !filter_lower.is_empty() {
-                        if ui.small_button("✕ Clear").clicked() {
+                    if !filter_lower.is_empty()
+                        && ui.small_button("✕ Clear").clicked() {
                             self.bookmark_filter.clear();
                         }
-                    }
                 });
             }
         }

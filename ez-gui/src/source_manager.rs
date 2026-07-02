@@ -24,14 +24,13 @@ pub struct SourceManager {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum SourceMode {
+    #[default]
     Simulated,
     Replay,
 }
 
-impl Default for SourceMode {
-    fn default() -> Self { SourceMode::Simulated }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceStatus {
