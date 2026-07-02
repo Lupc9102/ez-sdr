@@ -170,3 +170,50 @@ impl AudioOutput {
         self.failed = false;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AudioOutput;
+
+    #[test]
+    fn audio_output_new_defaults() {
+        let ao = AudioOutput::new();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+        assert_eq!(ao.sample_rate(), 48000);
+    }
+
+    #[test]
+    fn audio_output_stop_clears_state() {
+        let mut ao = AudioOutput::new();
+        ao.mark_failed();
+        assert!(ao.has_failed());
+        ao.stop();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+    }
+
+    #[test]
+    fn audio_output_start_fails_without_feature() {
+        let mut ao = AudioOutput::new();
+        let (_tx, rx) = crossbeam_channel::unbounded::<Vec<f32>>();
+        let result = ao.start(std::sync::Arc::new(std::sync::Mutex::new(rx)));
+        #[cfg(feature = "audio")]
+        {
+            let _ = result;
+        }
+        #[cfg(not(feature = "audio"))]
+        {
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("compiled"));
+        }
+    }
+
+    #[test]
+    fn audio_output_mark_failed() {
+        let mut ao = AudioOutput::new();
+        assert!(!ao.has_failed());
+        ao.mark_failed();
+        assert!(ao.has_failed());
+    }
+}
