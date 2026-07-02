@@ -1070,6 +1070,26 @@
       "norm_label": "test_uc8_magnitude()"
     },
     {
+      "label": "test_sc16_magnitude()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1273",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_sc16_magnitude",
+      "community": 18,
+      "norm_label": "test_sc16_magnitude()"
+    },
+    {
+      "label": "test_sc16q11_magnitude()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1288",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_sc16q11_magnitude",
+      "community": 18,
+      "norm_label": "test_sc16q11_magnitude()"
+    },
+    {
       "label": "fifo.rs",
       "file_type": "code",
       "source_file": "dump1090/src/fifo.rs",
@@ -2346,7 +2366,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod",
-      "community": 8,
+      "community": 7,
       "norm_label": "mod.rs"
     },
     {
@@ -2356,7 +2376,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_sdrsource",
-      "community": 8,
+      "community": 7,
       "norm_label": "sdrsource"
     },
     {
@@ -2366,7 +2386,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_rs_send",
-      "community": 8,
+      "community": 7,
       "norm_label": "send"
     },
     {
@@ -2376,7 +2396,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr",
-      "community": 8,
+      "community": 7,
       "norm_label": "rtlsdr.rs"
     },
     {
@@ -2386,7 +2406,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdrerror",
-      "community": 8,
+      "community": 7,
       "norm_label": "rtlsdrerror"
     },
     {
@@ -2396,7 +2416,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_dev",
-      "community": 8,
+      "community": 7,
       "norm_label": "rtlsdr_dev"
     },
     {
@@ -2406,7 +2426,7 @@
       "source_location": "L67",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_show_devices",
-      "community": 8,
+      "community": 7,
       "norm_label": "show_devices()"
     },
     {
@@ -2416,7 +2436,7 @@
       "source_location": "L93",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_find_device_index",
-      "community": 8,
+      "community": 7,
       "norm_label": "find_device_index()"
     },
     {
@@ -2426,7 +2446,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_result",
-      "community": 8,
+      "community": 7,
       "norm_label": "result"
     },
     {
@@ -2436,7 +2456,7 @@
       "source_location": "L147",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr",
-      "community": 8,
+      "community": 7,
       "norm_label": "rtlsdr"
     },
     {
@@ -2446,7 +2466,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_option",
-      "community": 8,
+      "community": 7,
       "norm_label": "option"
     },
     {
@@ -2456,7 +2476,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_string",
-      "community": 8,
+      "community": 7,
       "norm_label": "string"
     },
     {
@@ -2466,7 +2486,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_vec",
-      "community": 8,
+      "community": 7,
       "norm_label": "vec"
     },
     {
@@ -2476,7 +2496,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_send",
-      "community": 8,
+      "community": 7,
       "norm_label": "send"
     },
     {
@@ -2486,7 +2506,7 @@
       "source_location": "L163",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_new",
-      "community": 8,
+      "community": 7,
       "norm_label": ".new()"
     },
     {
@@ -2496,7 +2516,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_self",
-      "community": 8,
+      "community": 7,
       "norm_label": "self"
     },
     {
@@ -2506,7 +2526,7 @@
       "source_location": "L186",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_list_devices",
-      "community": 8,
+      "community": 7,
       "norm_label": ".list_devices()"
     },
     {
@@ -2516,7 +2536,7 @@
       "source_location": "L192",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_start",
-      "community": 8,
+      "community": 7,
       "norm_label": ".start()"
     },
     {
@@ -2526,7 +2546,7 @@
       "source_location": "L292",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_stop",
-      "community": 8,
+      "community": 7,
       "norm_label": ".stop()"
     },
     {
@@ -2536,7 +2556,7 @@
       "source_location": "L299",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_set_frequency",
-      "community": 8,
+      "community": 7,
       "norm_label": ".set_frequency()"
     },
     {
@@ -2546,7 +2566,7 @@
       "source_location": "L309",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_set_sample_rate",
-      "community": 8,
+      "community": 7,
       "norm_label": ".set_sample_rate()"
     },
     {
@@ -2556,7 +2576,7 @@
       "source_location": "L319",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_set_gain",
-      "community": 8,
+      "community": 7,
       "norm_label": ".set_gain()"
     },
     {
@@ -2566,7 +2586,7 @@
       "source_location": "L347",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_read_samples",
-      "community": 8,
+      "community": 7,
       "norm_label": ".read_samples()"
     },
     {
@@ -2576,7 +2596,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_drop",
-      "community": 8,
+      "community": 7,
       "norm_label": "drop"
     },
     {
@@ -2586,7 +2606,7 @@
       "source_location": "L381",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_drop",
-      "community": 8,
+      "community": 7,
       "norm_label": ".drop()"
     },
     {
@@ -13114,6 +13134,26 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1273",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_sc16_magnitude",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1288",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_sc16q11_magnitude",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
       "source_location": "L1236",
       "weight": 1.0,
       "source": "dump1090_src_demod",
@@ -13945,6 +13985,28 @@
       "weight": 1.0,
       "source": "dump1090_src_demod_test_uc8_magnitude",
       "target": "dump1090_src_demod_compute_magnitude_uc8",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1280",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_sc16_magnitude",
+      "target": "dump1090_src_demod_compute_magnitude_sc16",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1296",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_sc16q11_magnitude",
+      "target": "dump1090_src_demod_compute_magnitude_sc16q11",
       "confidence_score": 1.0
     },
     {
@@ -34559,5 +34621,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "b0396f449453662df1a29ee9d2d540497bf26578"
+  "built_at_commit": "4a21e0f9483d37648b67e2a9c8607d358bdb4fce"
 }

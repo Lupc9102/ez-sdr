@@ -20,8 +20,8 @@
     "semantic_hash": "64323447efadb7d9f53943cfe537d68b"
   },
   "dump1090/src/demod.rs": {
-    "mtime": 1783004145.2179816,
-    "ast_hash": "363391ed4d021f479c4d55242d0ab430",
+    "mtime": 1783004306.0211656,
+    "ast_hash": "ffbf40a4da4d7d010c2ad5fbb2263904",
     "semantic_hash": ""
   },
   "dump1090/src/fifo.rs": {
