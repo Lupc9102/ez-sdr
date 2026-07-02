@@ -700,6 +700,116 @@
       "norm_label": "cpr_airborne_decode()"
     },
     {
+      "label": "cpr_mod_positive()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L500",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_mod_positive",
+      "community": 15,
+      "norm_label": "cpr_mod_positive()"
+    },
+    {
+      "label": "cpr_mod_negative_yields_positive()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L506",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_mod_negative_yields_positive",
+      "community": 15,
+      "norm_label": "cpr_mod_negative_yields_positive()"
+    },
+    {
+      "label": "cpr_mod_zero()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L512",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_mod_zero",
+      "community": 15,
+      "norm_label": "cpr_mod_zero()"
+    },
+    {
+      "label": "cpr_mod_double_positive()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L517",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_mod_double_positive",
+      "community": 15,
+      "norm_label": "cpr_mod_double_positive()"
+    },
+    {
+      "label": "cpr_mod_double_negative()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L523",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_mod_double_negative",
+      "community": 15,
+      "norm_label": "cpr_mod_double_negative()"
+    },
+    {
+      "label": "cpr_nl_function_equator()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L529",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_nl_function_equator",
+      "community": 15,
+      "norm_label": "cpr_nl_function_equator()"
+    },
+    {
+      "label": "cpr_nl_function_boundaries()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L534",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_nl_function_boundaries",
+      "community": 15,
+      "norm_label": "cpr_nl_function_boundaries()"
+    },
+    {
+      "label": "cpr_nl_function_pole()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L541",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_nl_function_pole",
+      "community": 15,
+      "norm_label": "cpr_nl_function_pole()"
+    },
+    {
+      "label": "cpr_nl_function_just_below_87()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L549",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_nl_function_just_below_87",
+      "community": 15,
+      "norm_label": "cpr_nl_function_just_below_87()"
+    },
+    {
+      "label": "cpr_nl_function_negative_lat_same_as_positive()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L555",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_nl_function_negative_lat_same_as_positive",
+      "community": 15,
+      "norm_label": "cpr_nl_function_negative_lat_same_as_positive()"
+    },
+    {
+      "label": "cpr_nl_function_at_45_degrees()",
+      "file_type": "code",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L561",
+      "_origin": "ast",
+      "id": "dump1090_src_cpr_cpr_nl_function_at_45_degrees",
+      "community": 15,
+      "norm_label": "cpr_nl_function_at_45_degrees()"
+    },
+    {
       "label": "crc.rs",
       "file_type": "code",
       "source_file": "dump1090/src/crc.rs",
@@ -780,6 +890,66 @@
       "norm_label": "test_crc24_generates_correct_parity()"
     },
     {
+      "label": "test_crc24_all_table_entries_nonzero_for_nonzero_input()",
+      "file_type": "code",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L114",
+      "_origin": "ast",
+      "id": "dump1090_src_crc_test_crc24_all_table_entries_nonzero_for_nonzero_input",
+      "community": 17,
+      "norm_label": "test_crc24_all_table_entries_nonzero_for_nonzero_input()"
+    },
+    {
+      "label": "test_crc24_table_is_256_entries()",
+      "file_type": "code",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L122",
+      "_origin": "ast",
+      "id": "dump1090_src_crc_test_crc24_table_is_256_entries",
+      "community": 17,
+      "norm_label": "test_crc24_table_is_256_entries()"
+    },
+    {
+      "label": "test_crc24_empty_payload()",
+      "file_type": "code",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L127",
+      "_origin": "ast",
+      "id": "dump1090_src_crc_test_crc24_empty_payload",
+      "community": 17,
+      "norm_label": "test_crc24_empty_payload()"
+    },
+    {
+      "label": "test_crc24_single_byte()",
+      "file_type": "code",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L132",
+      "_origin": "ast",
+      "id": "dump1090_src_crc_test_crc24_single_byte",
+      "community": 17,
+      "norm_label": "test_crc24_single_byte()"
+    },
+    {
+      "label": "test_crc24_parity_short_msg_panics()",
+      "file_type": "code",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L141",
+      "_origin": "ast",
+      "id": "dump1090_src_crc_test_crc24_parity_short_msg_panics",
+      "community": 17,
+      "norm_label": "test_crc24_parity_short_msg_panics()"
+    },
+    {
+      "label": "test_check_crc_multi_bit_flip_detected()",
+      "file_type": "code",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L150",
+      "_origin": "ast",
+      "id": "dump1090_src_crc_test_check_crc_multi_bit_flip_detected",
+      "community": 17,
+      "norm_label": "test_check_crc_multi_bit_flip_detected()"
+    },
+    {
       "label": "demod.rs",
       "file_type": "code",
       "source_file": "dump1090/src/demod.rs",
@@ -846,7 +1016,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "dump1090_src_demod_scorerank",
-      "community": 17,
+      "community": 16,
       "norm_label": "scorerank"
     },
     {
@@ -856,7 +1026,7 @@
       "source_location": "L179",
       "_origin": "ast",
       "id": "dump1090_src_demod_single_bit_syndrome",
-      "community": 17,
+      "community": 16,
       "norm_label": "single_bit_syndrome()"
     },
     {
@@ -866,7 +1036,7 @@
       "source_location": "L206",
       "_origin": "ast",
       "id": "dump1090_src_demod_apply_bit_errors",
-      "community": 17,
+      "community": 16,
       "norm_label": "apply_bit_errors()"
     },
     {
@@ -876,7 +1046,7 @@
       "source_location": "L216",
       "_origin": "ast",
       "id": "dump1090_src_demod_correct_message",
-      "community": 17,
+      "community": 16,
       "norm_label": "correct_message()"
     },
     {
@@ -906,7 +1076,7 @@
       "source_location": "L295",
       "_origin": "ast",
       "id": "dump1090_src_demod_score_mode_s_message",
-      "community": 17,
+      "community": 16,
       "norm_label": "score_mode_s_message()"
     },
     {
@@ -916,7 +1086,7 @@
       "source_location": "L437",
       "_origin": "ast",
       "id": "dump1090_src_demod_mode_s_message_len_by_type",
-      "community": 17,
+      "community": 16,
       "norm_label": "mode_s_message_len_by_type()"
     },
     {
@@ -926,7 +1096,7 @@
       "source_location": "L448",
       "_origin": "ast",
       "id": "dump1090_src_demod_decode_mode_s_message",
-      "community": 17,
+      "community": 16,
       "norm_label": "decode_mode_s_message()"
     },
     {
@@ -936,7 +1106,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_demod_rs_result",
-      "community": 17,
+      "community": 16,
       "norm_label": "result"
     },
     {
@@ -2128,6 +2298,96 @@
       "id": "dump1090_src_net_io_beast_frame_escapes_0x1a_in_payload_only",
       "community": 19,
       "norm_label": "beast_frame_escapes_0x1a_in_payload_only()"
+    },
+    {
+      "label": "beast_frame_indicator_for_2byte_msg()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L199",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_beast_frame_indicator_for_2byte_msg",
+      "community": 19,
+      "norm_label": "beast_frame_indicator_for_2byte_msg()"
+    },
+    {
+      "label": "beast_frame_indicator_for_7byte_msg()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L205",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_beast_frame_indicator_for_7byte_msg",
+      "community": 19,
+      "norm_label": "beast_frame_indicator_for_7byte_msg()"
+    },
+    {
+      "label": "beast_frame_indicator_for_14byte_msg()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L211",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_beast_frame_indicator_for_14byte_msg",
+      "community": 19,
+      "norm_label": "beast_frame_indicator_for_14byte_msg()"
+    },
+    {
+      "label": "beast_frame_indicator_defaults_to_long()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L217",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_beast_frame_indicator_defaults_to_long",
+      "community": 19,
+      "norm_label": "beast_frame_indicator_defaults_to_long()"
+    },
+    {
+      "label": "beast_frame_timestamp_is_6_bytes_be()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L223",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_beast_frame_timestamp_is_6_bytes_be",
+      "community": 19,
+      "norm_label": "beast_frame_timestamp_is_6_bytes_be()"
+    },
+    {
+      "label": "beast_frame_contains_signal_byte()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L234",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_beast_frame_contains_signal_byte",
+      "community": 19,
+      "norm_label": "beast_frame_contains_signal_byte()"
+    },
+    {
+      "label": "hex_digit_0_to_9()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L240",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_hex_digit_0_to_9",
+      "community": 19,
+      "norm_label": "hex_digit_0_to_9()"
+    },
+    {
+      "label": "hex_digit_a_to_f()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L247",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_hex_digit_a_to_f",
+      "community": 19,
+      "norm_label": "hex_digit_a_to_f()"
+    },
+    {
+      "label": "hex_digit_out_of_range()",
+      "file_type": "code",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L253",
+      "_origin": "ast",
+      "id": "dump1090_src_net_io_hex_digit_out_of_range",
+      "community": 19,
+      "norm_label": "hex_digit_out_of_range()"
     },
     {
       "label": "hackrf.rs",
@@ -7586,7 +7846,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_aircraft",
-      "community": 2,
+      "community": 10,
       "norm_label": ".publish_aircraft()"
     },
     {
@@ -7596,7 +7856,7 @@
       "source_location": "L151",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_passes",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish_passes()"
     },
     {
@@ -8376,7 +8636,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler",
-      "community": 76,
+      "community": 22,
       "norm_label": "scheduler.rs"
     },
     {
@@ -8386,7 +8646,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler",
-      "community": 76,
+      "community": 22,
       "norm_label": "scheduler"
     },
     {
@@ -8396,7 +8656,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_vec",
-      "community": 76,
+      "community": 22,
       "norm_label": "vec"
     },
     {
@@ -8406,7 +8666,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduledjob",
-      "community": 76,
+      "community": 22,
       "norm_label": "scheduledjob"
     },
     {
@@ -8416,7 +8676,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_string",
-      "community": 76,
+      "community": 22,
       "norm_label": "string"
     },
     {
@@ -8426,7 +8686,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_customtask",
-      "community": 76,
+      "community": 22,
       "norm_label": "customtask"
     },
     {
@@ -8436,7 +8696,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_new",
-      "community": 76,
+      "community": 22,
       "norm_label": ".new()"
     },
     {
@@ -8446,7 +8706,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_self",
-      "community": 76,
+      "community": 22,
       "norm_label": "self"
     },
     {
@@ -8456,7 +8716,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_update_from_passes",
-      "community": 76,
+      "community": 22,
       "norm_label": ".update_from_passes()"
     },
     {
@@ -8466,7 +8726,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_active_job",
-      "community": 76,
+      "community": 22,
       "norm_label": ".active_job()"
     },
     {
@@ -8476,7 +8736,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_option",
-      "community": 76,
+      "community": 22,
       "norm_label": "option"
     },
     {
@@ -8486,7 +8746,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_poll_custom_tasks",
-      "community": 76,
+      "community": 22,
       "norm_label": ".poll_custom_tasks()"
     },
     {
@@ -8496,7 +8756,7 @@
       "source_location": "L71",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_new_scheduler_starts_empty",
-      "community": 76,
+      "community": 22,
       "norm_label": "new_scheduler_starts_empty()"
     },
     {
@@ -8506,7 +8766,7 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_returns_none_when_disabled",
-      "community": 76,
+      "community": 22,
       "norm_label": "active_job_returns_none_when_disabled()"
     },
     {
@@ -8516,7 +8776,7 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_make_scheduler",
-      "community": 76,
+      "community": 22,
       "norm_label": "make_scheduler()"
     },
     {
@@ -8526,7 +8786,7 @@
       "source_location": "L108",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_finds_job_in_window",
-      "community": 76,
+      "community": 22,
       "norm_label": "active_job_finds_job_in_window()"
     },
     {
@@ -8536,7 +8796,7 @@
       "source_location": "L116",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_returns_none_outside_window",
-      "community": 76,
+      "community": 22,
       "norm_label": "active_job_returns_none_outside_window()"
     },
     {
@@ -8546,7 +8806,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_prefers_first_match",
-      "community": 76,
+      "community": 22,
       "norm_label": "active_job_prefers_first_match()"
     },
     {
@@ -8556,7 +8816,7 @@
       "source_location": "L143",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_returns_pending",
-      "community": 76,
+      "community": 22,
       "norm_label": "poll_custom_tasks_returns_pending()"
     },
     {
@@ -8566,7 +8826,7 @@
       "source_location": "L156",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_skips_fired",
-      "community": 76,
+      "community": 22,
       "norm_label": "poll_custom_tasks_skips_fired()"
     },
     {
@@ -8576,7 +8836,7 @@
       "source_location": "L168",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_not_yet_due",
-      "community": 76,
+      "community": 22,
       "norm_label": "poll_custom_tasks_not_yet_due()"
     },
     {
@@ -8586,7 +8846,7 @@
       "source_location": "L180",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_marks_as_fired",
-      "community": 76,
+      "community": 22,
       "norm_label": "poll_custom_tasks_marks_as_fired()"
     },
     {
@@ -8596,7 +8856,7 @@
       "source_location": "L194",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_update_from_passes_populates_jobs",
-      "community": 76,
+      "community": 22,
       "norm_label": "update_from_passes_populates_jobs()"
     },
     {
@@ -10536,7 +10796,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote",
-      "community": 22,
+      "community": 76,
       "norm_label": "web_remote.rs"
     },
     {
@@ -10546,7 +10806,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_remotecommand",
-      "community": 22,
+      "community": 76,
       "norm_label": "remotecommand"
     },
     {
@@ -10556,7 +10816,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote",
-      "community": 22,
+      "community": 76,
       "norm_label": "webremote"
     },
     {
@@ -10566,7 +10826,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_option",
-      "community": 22,
+      "community": 76,
       "norm_label": "option"
     },
     {
@@ -10576,7 +10836,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_sender",
-      "community": 22,
+      "community": 76,
       "norm_label": "sender"
     },
     {
@@ -10586,7 +10846,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_string",
-      "community": 22,
+      "community": 76,
       "norm_label": "string"
     },
     {
@@ -10596,7 +10856,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_receiver",
-      "community": 22,
+      "community": 76,
       "norm_label": "receiver"
     },
     {
@@ -10606,7 +10866,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_new",
-      "community": 22,
+      "community": 76,
       "norm_label": ".new()"
     },
     {
@@ -10616,7 +10876,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_self",
-      "community": 22,
+      "community": 76,
       "norm_label": "self"
     },
     {
@@ -10626,7 +10886,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_stop",
-      "community": 22,
+      "community": 76,
       "norm_label": ".stop()"
     },
     {
@@ -10636,7 +10896,7 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_set_enabled",
-      "community": 22,
+      "community": 76,
       "norm_label": ".set_enabled()"
     },
     {
@@ -10646,7 +10906,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_start",
-      "community": 22,
+      "community": 76,
       "norm_label": ".start()"
     },
     {
@@ -10656,7 +10916,7 @@
       "source_location": "L148",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_poll_commands",
-      "community": 22,
+      "community": 76,
       "norm_label": ".poll_commands()"
     },
     {
@@ -10666,7 +10926,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_vec",
-      "community": 22,
+      "community": 76,
       "norm_label": "vec"
     },
     {
@@ -13166,6 +13426,56 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L523",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_mod_double_negative",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L517",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_mod_double_positive",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L506",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_mod_negative_yields_positive",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L500",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_mod_positive",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L512",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_mod_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
       "source_location": "L221",
       "weight": 1.0,
       "source": "dump1090_src_cpr",
@@ -13180,6 +13490,66 @@
       "weight": 1.0,
       "source": "dump1090_src_cpr",
       "target": "dump1090_src_cpr_cpr_nl_function",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L561",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_nl_function_at_45_degrees",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L534",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_nl_function_boundaries",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L529",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_nl_function_equator",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L549",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_nl_function_just_below_87",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L555",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_nl_function_negative_lat_same_as_positive",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L541",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr",
+      "target": "dump1090_src_cpr_cpr_nl_function_pole",
       "confidence_score": 1.0
     },
     {
@@ -13316,6 +13686,28 @@
       "weight": 1.0,
       "source": "dump1090_src_cpr_decode_cpr_surface",
       "target": "dump1090_src_cpr_cpr_mod",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L524",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr_cpr_mod_double_negative",
+      "target": "dump1090_src_cpr_cpr_mod_double",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/cpr.rs",
+      "source_location": "L518",
+      "weight": 1.0,
+      "source": "dump1090_src_cpr_cpr_mod_double_positive",
+      "target": "dump1090_src_cpr_cpr_mod_double",
       "confidence_score": 1.0
     },
     {
@@ -13634,6 +14026,36 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/crc.rs",
+      "source_location": "L150",
+      "weight": 1.0,
+      "source": "dump1090_src_crc",
+      "target": "dump1090_src_crc_test_check_crc_multi_bit_flip_detected",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L114",
+      "weight": 1.0,
+      "source": "dump1090_src_crc",
+      "target": "dump1090_src_crc_test_crc24_all_table_entries_nonzero_for_nonzero_input",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L127",
+      "weight": 1.0,
+      "source": "dump1090_src_crc",
+      "target": "dump1090_src_crc_test_crc24_empty_payload",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/crc.rs",
       "source_location": "L104",
       "weight": 1.0,
       "source": "dump1090_src_crc",
@@ -13654,10 +14076,40 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/crc.rs",
+      "source_location": "L141",
+      "weight": 1.0,
+      "source": "dump1090_src_crc",
+      "target": "dump1090_src_crc_test_crc24_parity_short_msg_panics",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/crc.rs",
       "source_location": "L90",
       "weight": 1.0,
       "source": "dump1090_src_crc",
       "target": "dump1090_src_crc_test_crc24_parity_valid_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L132",
+      "weight": 1.0,
+      "source": "dump1090_src_crc",
+      "target": "dump1090_src_crc_test_crc24_single_byte",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L122",
+      "weight": 1.0,
+      "source": "dump1090_src_crc",
+      "target": "dump1090_src_crc_test_crc24_table_is_256_entries",
       "confidence_score": 1.0
     },
     {
@@ -13700,6 +14152,17 @@
       "source_location": "L67",
       "weight": 1.0,
       "source": "dump1090_src_crc_check_crc",
+      "target": "dump1090_src_crc_crc24_parity",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/crc.rs",
+      "source_location": "L144",
+      "weight": 1.0,
+      "source": "dump1090_src_crc_test_crc24_parity_short_msg_panics",
       "target": "dump1090_src_crc_crc24_parity",
       "confidence_score": 1.0
     },
@@ -15954,10 +16417,60 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L234",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_beast_frame_contains_signal_byte",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
       "source_location": "L186",
       "weight": 1.0,
       "source": "dump1090_src_net_io",
       "target": "dump1090_src_net_io_beast_frame_escapes_0x1a_in_payload_only",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L217",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_beast_frame_indicator_defaults_to_long",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L211",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_beast_frame_indicator_for_14byte_msg",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L199",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_beast_frame_indicator_for_2byte_msg",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L205",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_beast_frame_indicator_for_7byte_msg",
       "confidence_score": 1.0
     },
     {
@@ -15978,6 +16491,16 @@
       "weight": 1.0,
       "source": "dump1090_src_net_io",
       "target": "dump1090_src_net_io_beast_frame_starts_with_unescaped_marker",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L223",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_beast_frame_timestamp_is_6_bytes_be",
       "confidence_score": 1.0
     },
     {
@@ -16008,6 +16531,36 @@
       "weight": 1.0,
       "source": "dump1090_src_net_io",
       "target": "dump1090_src_net_io_hex_digit",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L240",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_hex_digit_0_to_9",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L247",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_hex_digit_a_to_f",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L253",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io",
+      "target": "dump1090_src_net_io_hex_digit_out_of_range",
       "confidence_score": 1.0
     },
     {
@@ -16423,6 +16976,17 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L235",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io_beast_frame_contains_signal_byte",
+      "target": "dump1090_src_net_io_encode_beast_frame",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
       "source_location": "L190",
       "weight": 1.0,
       "source": "dump1090_src_net_io_beast_frame_escapes_0x1a_in_payload_only",
@@ -16434,9 +16998,64 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L218",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io_beast_frame_indicator_defaults_to_long",
+      "target": "dump1090_src_net_io_encode_beast_frame",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L212",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io_beast_frame_indicator_for_14byte_msg",
+      "target": "dump1090_src_net_io_encode_beast_frame",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L200",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io_beast_frame_indicator_for_2byte_msg",
+      "target": "dump1090_src_net_io_encode_beast_frame",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L206",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io_beast_frame_indicator_for_7byte_msg",
+      "target": "dump1090_src_net_io_encode_beast_frame",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
       "source_location": "L172",
       "weight": 1.0,
       "source": "dump1090_src_net_io_beast_frame_starts_with_unescaped_marker",
+      "target": "dump1090_src_net_io_encode_beast_frame",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/net_io.rs",
+      "source_location": "L224",
+      "weight": 1.0,
+      "source": "dump1090_src_net_io_beast_frame_timestamp_is_6_bytes_be",
       "target": "dump1090_src_net_io_encode_beast_frame",
       "confidence_score": 1.0
     },
@@ -36888,5 +37507,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "016af2105b574c5338d8fa9fcda6ca00b2fbd032"
+  "built_at_commit": "8078995346d657865a926752a1f015c5bb8a1cc6"
 }
