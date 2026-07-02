@@ -97,3 +97,95 @@ impl TutorialState {
         self.skip_confirm_phase = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_level_from_str_valid() {
+        assert_eq!(UserLevel::from_str("beginner"), UserLevel::Beginner);
+        assert_eq!(UserLevel::from_str("intermediate"), UserLevel::Intermediate);
+        assert_eq!(UserLevel::from_str("advanced"), UserLevel::Advanced);
+        assert_eq!(UserLevel::from_str("clerk_maxwell"), UserLevel::ClerkMaxwell);
+    }
+
+    #[test]
+    fn user_level_from_str_invalid_defaults_to_beginner() {
+        assert_eq!(UserLevel::from_str("unknown"), UserLevel::Beginner);
+        assert_eq!(UserLevel::from_str(""), UserLevel::Beginner);
+    }
+
+    #[test]
+    fn user_level_to_str_roundtrip() {
+        for level in &[UserLevel::Beginner, UserLevel::Intermediate, UserLevel::Advanced, UserLevel::ClerkMaxwell] {
+            assert_eq!(UserLevel::from_str(level.to_str()), *level);
+        }
+    }
+
+    #[test]
+    fn user_level_labels() {
+        assert_eq!(UserLevel::Beginner.label(), "Beginner");
+        assert_eq!(UserLevel::ClerkMaxwell.label(), "Clerk_Maxwell");
+    }
+
+    #[test]
+    fn user_level_descriptions() {
+        assert!(UserLevel::Beginner.description().contains("AI"));
+        assert!(UserLevel::Advanced.description().contains("Full controls"));
+    }
+
+    #[test]
+    fn show_advanced_controls() {
+        assert!(!UserLevel::Beginner.show_advanced_controls());
+        assert!(!UserLevel::Intermediate.show_advanced_controls());
+        assert!(UserLevel::Advanced.show_advanced_controls());
+        assert!(UserLevel::ClerkMaxwell.show_advanced_controls());
+    }
+
+    #[test]
+    fn simplify_layout() {
+        assert!(UserLevel::Beginner.simplify_layout());
+        assert!(!UserLevel::Intermediate.simplify_layout());
+        assert!(!UserLevel::Advanced.simplify_layout());
+        assert!(!UserLevel::ClerkMaxwell.simplify_layout());
+    }
+
+    #[test]
+    fn has_inline_expand() {
+        assert!(UserLevel::Beginner.has_inline_expand());
+        assert!(UserLevel::Intermediate.has_inline_expand());
+        assert!(!UserLevel::Advanced.has_inline_expand());
+        assert!(!UserLevel::ClerkMaxwell.has_inline_expand());
+    }
+
+    #[test]
+    fn levels_returns_all_four() {
+        let lvls = UserLevel::levels();
+        assert_eq!(lvls.len(), 4);
+        assert!(lvls.contains(&UserLevel::Beginner));
+        assert!(lvls.contains(&UserLevel::Intermediate));
+        assert!(lvls.contains(&UserLevel::Advanced));
+        assert!(lvls.contains(&UserLevel::ClerkMaxwell));
+    }
+
+    #[test]
+    fn tutorial_state_new() {
+        let state = TutorialState::new();
+        assert!(state.active);
+        assert_eq!(state.level, UserLevel::Beginner);
+        assert_eq!(state.step, 0);
+        assert!(!state.level_chosen);
+    }
+
+    #[test]
+    fn tutorial_state_dismiss() {
+        let mut state = TutorialState::new();
+        state.step = 5;
+        state.level_chosen = true;
+        state.dismiss();
+        assert!(!state.active);
+        assert!(state.highlight_target.is_none());
+        assert_eq!(state.skip_confirm_phase, 0);
+    }
+}

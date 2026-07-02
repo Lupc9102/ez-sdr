@@ -72,3 +72,64 @@ impl Default for IcaoFilter {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_filter_is_empty() {
+        let f = IcaoFilter::new();
+        assert!(!f.contains(0xABCDEF));
+    }
+
+    #[test]
+    fn contains_after_add() {
+        let mut f = IcaoFilter::new();
+        f.add(0xABCDEF);
+        assert!(f.contains(0xABCDEF));
+    }
+
+    #[test]
+    fn contains_multiple_addresses() {
+        let mut f = IcaoFilter::new();
+        f.add(0x000001);
+        f.add(0xABCDEF);
+        f.add(0xFFFFFF);
+        assert!(f.contains(0x000001));
+        assert!(f.contains(0xABCDEF));
+        assert!(f.contains(0xFFFFFF));
+    }
+
+    #[test]
+    fn clear_removes_all() {
+        let mut f = IcaoFilter::new();
+        f.add(0xABCDEF);
+        f.add(0x123456);
+        f.clear();
+        assert!(!f.contains(0xABCDEF));
+        assert!(!f.contains(0x123456));
+    }
+
+    #[test]
+    fn default_equals_new() {
+        assert_eq!(IcaoFilter::default().contains(0xABCDEF), IcaoFilter::new().contains(0xABCDEF));
+    }
+
+    #[test]
+    fn hash_is_deterministic() {
+        let mut f1 = IcaoFilter::new();
+        let mut f2 = IcaoFilter::new();
+        f1.add(0xDEADBE);
+        f2.add(0xDEADBE);
+        assert!(f1.contains(0xDEADBE));
+        assert!(f2.contains(0xDEADBE));
+    }
+
+    #[test]
+    fn zero_address() {
+        let mut f = IcaoFilter::new();
+        f.add(0x000000);
+        assert!(f.contains(0x000000));
+    }
+}

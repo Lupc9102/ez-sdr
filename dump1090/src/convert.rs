@@ -55,3 +55,72 @@ pub fn convert_sc16q11_to_mag(src: &[u8], dst: &mut [u16]) {
         dst[i] = mag as u16;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_magnitude_passthrough() {
+        let data = [100u16, 200, 300];
+        assert_eq!(to_magnitude(&data), &data as &[u16]);
+    }
+
+    #[test]
+    fn convert_uc8_to_mag_zero_input() {
+        let src = [128u8, 128, 128, 128];
+        let mut dst = [0u16; 2];
+        convert_uc8_to_mag(&src, &mut dst);
+        assert!(dst[0] > 0);
+        assert_eq!(dst[0], dst[1]);
+    }
+
+    #[test]
+    fn convert_uc8_to_mag_max_input() {
+        let src = [255u8, 255];
+        let mut dst = [0u16; 1];
+        convert_uc8_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 65535);
+    }
+
+    #[test]
+    fn convert_uc8_to_mag_shorter_dst() {
+        let src = [100u8, 150, 200, 250];
+        let mut dst = [0u16; 1];
+        convert_uc8_to_mag(&src, &mut dst);
+        assert_ne!(dst[0], 0);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_known() {
+        let src = [100u8, 0, 0, 0, 0, 0, 0, 0];
+        let mut dst = [0u16; 2];
+        convert_sc16_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 200);
+        assert_eq!(dst[1], 0);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_negative_iq() {
+        let src = [0xFFu8, 0xFF, 0xFF, 0xFF];
+        let mut dst = [0u16; 1];
+        convert_sc16_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 2);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_known() {
+        let src = [100u8, 0, 0, 0];
+        let mut dst = [0u16; 1];
+        convert_sc16q11_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 3200);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_clamp() {
+        let src = [0xFFu8, 0x7F, 0, 0];
+        let mut dst = [0u16; 1];
+        convert_sc16q11_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 65535);
+    }
+}
