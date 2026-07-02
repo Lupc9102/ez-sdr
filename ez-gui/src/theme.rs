@@ -13,6 +13,46 @@ impl Rgba {
     fn from_gray(v: u8) -> Self { Self(v, v, v, 255) }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rgba_from_rgb_sets_alpha_255() {
+        let c = Rgba::from_rgb(10, 20, 30);
+        assert_eq!(c, Rgba(10, 20, 30, 255));
+    }
+
+    #[test]
+    fn rgba_from_rgba_preserves_alpha() {
+        let c = Rgba::from_rgba(100, 150, 200, 80);
+        assert_eq!(c, Rgba(100, 150, 200, 80));
+    }
+
+    #[test]
+    fn rgba_to_egui_maps_correctly() {
+        let c = Rgba(64, 128, 192, 255);
+        let egui_c = c.to_egui();
+        assert_eq!(egui_c.r(), 64);
+        assert_eq!(egui_c.g(), 128);
+        assert_eq!(egui_c.b(), 192);
+        assert_eq!(egui_c.a(), 255);
+    }
+
+    #[test]
+    fn rgba_with_alpha_changes_only_alpha() {
+        let c = Rgba(10, 20, 30, 255);
+        let c2 = c.with_alpha(128);
+        assert_eq!(c2, Rgba(10, 20, 30, 128));
+    }
+
+    #[test]
+    fn rgba_partial_eq() {
+        assert_eq!(Rgba(1, 2, 3, 4), Rgba(1, 2, 3, 4));
+        assert_ne!(Rgba(1, 2, 3, 4), Rgba(5, 2, 3, 4));
+    }
+}
+
 // ─── Theme Config ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

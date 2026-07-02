@@ -5740,6 +5740,86 @@
       "norm_label": ".freq_display()"
     },
     {
+      "label": "default_has_all_bookmarks()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L191",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_default_has_all_bookmarks",
+      "community": 24,
+      "norm_label": "default_has_all_bookmarks()"
+    },
+    {
+      "label": "default_bookmarks_have_categories()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L197",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_default_bookmarks_have_categories",
+      "community": 24,
+      "norm_label": "default_bookmarks_have_categories()"
+    },
+    {
+      "label": "freq_display_ghz()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L208",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_freq_display_ghz",
+      "community": 24,
+      "norm_label": "freq_display_ghz()"
+    },
+    {
+      "label": "freq_display_mhz()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L222",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_freq_display_mhz",
+      "community": 24,
+      "norm_label": "freq_display_mhz()"
+    },
+    {
+      "label": "freq_display_khz()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L236",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_freq_display_khz",
+      "community": 24,
+      "norm_label": "freq_display_khz()"
+    },
+    {
+      "label": "default_is_stable_without_file()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L250",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_default_is_stable_without_file",
+      "community": 24,
+      "norm_label": "default_is_stable_without_file()"
+    },
+    {
+      "label": "import_csv_adds_bookmarks()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L257",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
+      "community": 24,
+      "norm_label": "import_csv_adds_bookmarks()"
+    },
+    {
+      "label": "import_csv_dedup_by_frequency()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L274",
+      "_origin": "ast",
+      "id": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
+      "community": 24,
+      "norm_label": "import_csv_dedup_by_frequency()"
+    },
+    {
       "label": "config.rs",
       "file_type": "code",
       "source_file": "ez-gui/src/config.rs",
@@ -9596,7 +9676,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine",
-      "community": 10,
+      "community": 76,
       "norm_label": "tle_engine.rs"
     },
     {
@@ -9606,7 +9686,7 @@
       "source_location": "L2",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleentry",
-      "community": 10,
+      "community": 76,
       "norm_label": "tleentry"
     },
     {
@@ -9616,7 +9696,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_rs_string",
-      "community": 10,
+      "community": 76,
       "norm_label": "string"
     },
     {
@@ -9626,7 +9706,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_passinfo",
-      "community": 10,
+      "community": 76,
       "norm_label": "passinfo"
     },
     {
@@ -9636,7 +9716,7 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleengine",
-      "community": 10,
+      "community": 76,
       "norm_label": "tleengine"
     },
     {
@@ -9646,7 +9726,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_rs_vec",
-      "community": 10,
+      "community": 76,
       "norm_label": "vec"
     },
     {
@@ -9656,7 +9736,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_rs_instant",
-      "community": 10,
+      "community": 76,
       "norm_label": "instant"
     },
     {
@@ -9666,7 +9746,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleengine_new",
-      "community": 10,
+      "community": 76,
       "norm_label": ".new()"
     },
     {
@@ -9676,7 +9756,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_rs_self",
-      "community": 10,
+      "community": 76,
       "norm_label": "self"
     },
     {
@@ -9686,7 +9766,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleengine_load_builtin",
-      "community": 10,
+      "community": 76,
       "norm_label": ".load_builtin()"
     },
     {
@@ -9696,7 +9776,7 @@
       "source_location": "L60",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleengine_upcoming_passes",
-      "community": 10,
+      "community": 76,
       "norm_label": ".upcoming_passes()"
     },
     {
@@ -9706,7 +9786,7 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleengine_compute_passes",
-      "community": 10,
+      "community": 76,
       "norm_label": ".compute_passes()"
     },
     {
@@ -9716,7 +9796,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleengine_doppler_shift",
-      "community": 10,
+      "community": 76,
       "norm_label": ".doppler_shift()"
     },
     {
@@ -9726,7 +9806,7 @@
       "source_location": "L146",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_tleengine_doppler_shift_for_sat",
-      "community": 10,
+      "community": 76,
       "norm_label": ".doppler_shift_for_sat()"
     },
     {
@@ -9736,7 +9816,7 @@
       "source_location": "L156",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_format_time",
-      "community": 10,
+      "community": 76,
       "norm_label": "format_time()"
     },
     {
@@ -9746,8 +9826,108 @@
       "source_location": "L162",
       "_origin": "ast",
       "id": "ez_gui_src_tle_engine_sat_frequency",
-      "community": 10,
+      "community": 76,
       "norm_label": "sat_frequency()"
+    },
+    {
+      "label": "sat_frequency_known()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L179",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_sat_frequency_known",
+      "community": 76,
+      "norm_label": "sat_frequency_known()"
+    },
+    {
+      "label": "sat_frequency_unknown_default()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L186",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_sat_frequency_unknown_default",
+      "community": 76,
+      "norm_label": "sat_frequency_unknown_default()"
+    },
+    {
+      "label": "format_time_epoch_midnight()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L191",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_format_time_epoch_midnight",
+      "community": 76,
+      "norm_label": "format_time_epoch_midnight()"
+    },
+    {
+      "label": "new_engine_has_builtin_sats()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L197",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_new_engine_has_builtin_sats",
+      "community": 76,
+      "norm_label": "new_engine_has_builtin_sats()"
+    },
+    {
+      "label": "new_engine_default_observer_at_london()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L206",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_new_engine_default_observer_at_london",
+      "community": 76,
+      "norm_label": "new_engine_default_observer_at_london()"
+    },
+    {
+      "label": "doppler_shift_for_sat_iss()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L213",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_doppler_shift_for_sat_iss",
+      "community": 76,
+      "norm_label": "doppler_shift_for_sat_iss()"
+    },
+    {
+      "label": "doppler_shift_unknown_sat_returns_zero()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L222",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_doppler_shift_unknown_sat_returns_zero",
+      "community": 76,
+      "norm_label": "doppler_shift_unknown_sat_returns_zero()"
+    },
+    {
+      "label": "compute_passes_returns_sorted()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L228",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_compute_passes_returns_sorted",
+      "community": 76,
+      "norm_label": "compute_passes_returns_sorted()"
+    },
+    {
+      "label": "compute_passes_contains_expected_sats()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L239",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_compute_passes_contains_expected_sats",
+      "community": 76,
+      "norm_label": "compute_passes_contains_expected_sats()"
+    },
+    {
+      "label": "format_time_returns_utc_string()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L248",
+      "_origin": "ast",
+      "id": "ez_gui_src_tle_engine_format_time_returns_utc_string",
+      "community": 76,
+      "norm_label": "format_time_returns_utc_string()"
     },
     {
       "label": "tutorial.rs",
@@ -24131,6 +24311,86 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L197",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_default_bookmarks_have_categories",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L191",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_default_has_all_bookmarks",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L250",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_default_is_stable_without_file",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L208",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_freq_display_ghz",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L236",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_freq_display_khz",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L222",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_freq_display_mhz",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L257",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L274",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks",
+      "target": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
@@ -24321,6 +24581,50 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L198",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks_default_bookmarks_have_categories",
+      "target": "ez_gui_src_bookmarks_bookmarkdb_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L192",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks_default_has_all_bookmarks",
+      "target": "ez_gui_src_bookmarks_bookmarkdb_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L258",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
+      "target": "ez_gui_src_bookmarks_bookmarkdb_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L275",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
+      "target": "ez_gui_src_bookmarks_bookmarkdb_default",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
@@ -24351,6 +24655,39 @@
       "context": "return_type",
       "source": "ez_gui_src_bookmarks_bookmarkdb_load_saved",
       "target": "ez_gui_src_bookmarks_rs_option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L252",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks_default_is_stable_without_file",
+      "target": "ez_gui_src_bookmarks_bookmarkdb_load_or_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L264",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
+      "target": "ez_gui_src_bookmarks_bookmarkdb_import_csv",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/bookmarks.rs",
+      "source_location": "L279",
+      "weight": 1.0,
+      "source": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
+      "target": "ez_gui_src_bookmarks_bookmarkdb_import_csv",
       "confidence_score": 1.0
     },
     {
@@ -33249,10 +33586,90 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L239",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_compute_passes_contains_expected_sats",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L228",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_compute_passes_returns_sorted",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L213",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_doppler_shift_for_sat_iss",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L222",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_doppler_shift_unknown_sat_returns_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
       "source_location": "L156",
       "weight": 1.0,
       "source": "ez_gui_src_tle_engine",
       "target": "ez_gui_src_tle_engine_format_time",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L191",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_format_time_epoch_midnight",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L248",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_format_time_returns_utc_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L206",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_new_engine_default_observer_at_london",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L197",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_new_engine_has_builtin_sats",
       "confidence_score": 1.0
     },
     {
@@ -33273,6 +33690,26 @@
       "weight": 1.0,
       "source": "ez_gui_src_tle_engine",
       "target": "ez_gui_src_tle_engine_sat_frequency",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L179",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_sat_frequency_known",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L186",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine",
+      "target": "ez_gui_src_tle_engine_sat_frequency_unknown_default",
       "confidence_score": 1.0
     },
     {
@@ -33488,6 +33925,72 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L240",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_compute_passes_contains_expected_sats",
+      "target": "ez_gui_src_tle_engine_tleengine_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L229",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_compute_passes_returns_sorted",
+      "target": "ez_gui_src_tle_engine_tleengine_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L214",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_doppler_shift_for_sat_iss",
+      "target": "ez_gui_src_tle_engine_tleengine_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L223",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_doppler_shift_unknown_sat_returns_zero",
+      "target": "ez_gui_src_tle_engine_tleengine_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L207",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_new_engine_default_observer_at_london",
+      "target": "ez_gui_src_tle_engine_tleengine_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L198",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_new_engine_has_builtin_sats",
+      "target": "ez_gui_src_tle_engine_tleengine_new",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/tle_engine.rs",
@@ -33525,6 +34028,28 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L241",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_compute_passes_contains_expected_sats",
+      "target": "ez_gui_src_tle_engine_tleengine_compute_passes",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L230",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_compute_passes_returns_sorted",
+      "target": "ez_gui_src_tle_engine_tleengine_compute_passes",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
       "source_location": "L108",
       "weight": 1.0,
       "source": "ez_gui_src_tle_engine_tleengine_compute_passes",
@@ -33551,6 +34076,39 @@
       "weight": 1.0,
       "source": "ez_gui_src_tle_engine_tleengine_doppler_shift_for_sat",
       "target": "ez_gui_src_tle_engine_tleengine_doppler_shift",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L215",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_doppler_shift_for_sat_iss",
+      "target": "ez_gui_src_tle_engine_tleengine_doppler_shift_for_sat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L192",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_format_time_epoch_midnight",
+      "target": "ez_gui_src_tle_engine_format_time",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/tle_engine.rs",
+      "source_location": "L249",
+      "weight": 1.0,
+      "source": "ez_gui_src_tle_engine_format_time_returns_utc_string",
+      "target": "ez_gui_src_tle_engine_format_time",
       "confidence_score": 1.0
     },
     {
@@ -35637,5 +36195,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "e59e75b2f4820afa067e5163022ca5d9d4c0fbf1"
+  "built_at_commit": "1affabb8e955b805961394e63559e9f9bd2ee61d"
 }
