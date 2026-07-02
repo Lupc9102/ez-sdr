@@ -105,8 +105,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/adsb_panel.rs": {
-    "mtime": 1782973780.2479818,
-    "ast_hash": "27177b399358f9c799b5f8eeffaf3bf3",
+    "mtime": 1783000454.1995673,
+    "ast_hash": "4797c65fbc7b13399e0d106489017244",
     "semantic_hash": ""
   },
   "ez-gui/src/ai_panel.rs": {
@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1782999474.8500884,
-    "ast_hash": "4b938bf19f2ff69730e397ffb9ddcd83",
+    "mtime": 1783000321.6113083,
+    "ast_hash": "3a11b69abbb301df67a402ce513b9723",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -240,8 +240,8 @@
     "semantic_hash": ""
   },
   ".claude/settings.local.json": {
-    "mtime": 1782977788.4128714,
-    "ast_hash": "108ed0123daab98f0926f438c6999362",
+    "mtime": 1783001021.8545337,
+    "ast_hash": "3cf42273207bb1f736784cc68c2f95f0",
     "semantic_hash": ""
   },
   "ez-gui/ez_sdr_bookmarks.json": {

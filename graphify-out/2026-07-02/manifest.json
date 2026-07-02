@@ -110,13 +110,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/ai_panel.rs": {
-    "mtime": 1782934365.523383,
-    "ast_hash": "3ddffbbfc3764d2a1a68b463aef7b7be",
+    "mtime": 1782982329.8098152,
+    "ast_hash": "50f51e5590a0704cbb52f310f6487157",
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1782974358.7940896,
-    "ast_hash": "fbac2e90643cb0c378b2f1b7900c2230",
+    "mtime": 1782999474.8500884,
+    "ast_hash": "4b938bf19f2ff69730e397ffb9ddcd83",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -130,8 +130,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/config.rs": {
-    "mtime": 1782920928.9017637,
-    "ast_hash": "e57c773d133f35d81a1d9ed18360f5e4",
+    "mtime": 1782982339.6370537,
+    "ast_hash": "4e6d9042d4f5101225f99dd84dbed1f9",
     "semantic_hash": ""
   },
   "ez-gui/src/database.rs": {
@@ -145,8 +145,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/howto_panel.rs": {
-    "mtime": 1782904166.5159297,
-    "ast_hash": "a5cdafcc4d0eea2a2e9ccb86ad8e2042",
+    "mtime": 1782999491.0155168,
+    "ast_hash": "4ca61a3a5251155d889d362a3aa6a022",
     "semantic_hash": ""
   },
   "ez-gui/src/main.rs": {
@@ -180,8 +180,8 @@
     "semantic_hash": "4a09cb7bb6ce6dafb1ee9e2e6bae48a3"
   },
   "ez-gui/src/sdr_panel.rs": {
-    "mtime": 1782934493.1916466,
-    "ast_hash": "5aa31402a0c8d959df404e3d60d8aa17",
+    "mtime": 1782999546.7559936,
+    "ast_hash": "d12d48d1fb967b697ef4447d7e18579f",
     "semantic_hash": ""
   },
   "ez-gui/src/source_manager.rs": {
@@ -240,8 +240,8 @@
     "semantic_hash": ""
   },
   ".claude/settings.local.json": {
-    "mtime": 1782972263.4289753,
-    "ast_hash": "7a40d4d18c0505762c97e3fc0aeb4a08",
+    "mtime": 1782977788.4128714,
+    "ast_hash": "108ed0123daab98f0926f438c6999362",
     "semantic_hash": ""
   },
   "ez-gui/ez_sdr_bookmarks.json": {
@@ -265,13 +265,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/discord.rs": {
-    "mtime": 1782907338.8832953,
-    "ast_hash": "7c2b43067eaf8b91e31ba4046168fae2",
+    "mtime": 1782999557.2202709,
+    "ast_hash": "6acffa1636cf8e1cc7caa210590bff0a",
     "semantic_hash": ""
   },
   "ez-gui/src/discord_panel.rs": {
-    "mtime": 1782907385.3454986,
-    "ast_hash": "d6190b710c62f07c4be01979f6d3c14c",
+    "mtime": 1782999575.1567461,
+    "ast_hash": "485d88c8667baaa4767baba237858f18",
     "semantic_hash": ""
   },
   "ez-gui/src/tutorial.rs": {
@@ -285,13 +285,13 @@
     "semantic_hash": ""
   },
   "ez_sdr_bookmarks.json": {
-    "mtime": 1782932776.1149333,
+    "mtime": 1782975553.7826018,
     "ast_hash": "8d523b9c48d6122ca57a2e793e16d8e8",
     "semantic_hash": ""
   },
   "ez_sdr_config.json": {
-    "mtime": 1782933022.439147,
-    "ast_hash": "246902130440d02dedece4e66d7d31fc",
+    "mtime": 1782975652.886275,
+    "ast_hash": "a00b9fbb27919e3920470628df147efc",
     "semantic_hash": ""
   },
   "AUTONOMOUS_DAEMON_FINAL_STATUS.md": {

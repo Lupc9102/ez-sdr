@@ -2316,7 +2316,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod",
-      "community": 7,
+      "community": 8,
       "norm_label": "mod.rs"
     },
     {
@@ -2326,7 +2326,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_sdrsource",
-      "community": 7,
+      "community": 8,
       "norm_label": "sdrsource"
     },
     {
@@ -2336,7 +2336,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_rs_send",
-      "community": 7,
+      "community": 8,
       "norm_label": "send"
     },
     {
@@ -2566,7 +2566,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapy.rs"
     },
     {
@@ -2576,7 +2576,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdrdevice",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapysdrdevice"
     },
     {
@@ -2586,7 +2586,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdrstream",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapysdrstream"
     },
     {
@@ -2596,7 +2596,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdrkwargs",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapysdrkwargs"
     },
     {
@@ -2606,7 +2606,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "c_char",
-      "community": 7,
+      "community": 8,
       "norm_label": "c_char"
     },
     {
@@ -2616,7 +2616,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdrrange",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapysdrrange"
     },
     {
@@ -2626,7 +2626,7 @@
       "source_location": "L104",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_last_err",
-      "community": 7,
+      "community": 8,
       "norm_label": "last_err()"
     },
     {
@@ -2636,7 +2636,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_string",
-      "community": 7,
+      "community": 8,
       "norm_label": "string"
     },
     {
@@ -2646,7 +2646,7 @@
       "source_location": "L115",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapy_check",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapy_check()"
     },
     {
@@ -2656,7 +2656,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_c_int",
-      "community": 7,
+      "community": 8,
       "norm_label": "c_int"
     },
     {
@@ -2666,7 +2666,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_result",
-      "community": 7,
+      "community": 8,
       "norm_label": "result"
     },
     {
@@ -2676,7 +2676,7 @@
       "source_location": "L124",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapyconfig",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapyconfig"
     },
     {
@@ -2686,7 +2686,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_option",
-      "community": 7,
+      "community": 8,
       "norm_label": "option"
     },
     {
@@ -2696,7 +2696,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_vec",
-      "community": 7,
+      "community": 8,
       "norm_label": "vec"
     },
     {
@@ -2706,7 +2706,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_default",
-      "community": 7,
+      "community": 8,
       "norm_label": "default"
     },
     {
@@ -2716,7 +2716,7 @@
       "source_location": "L136",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapyconfig_default",
-      "community": 7,
+      "community": 8,
       "norm_label": ".default()"
     },
     {
@@ -2726,7 +2726,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_self",
-      "community": 7,
+      "community": 8,
       "norm_label": "self"
     },
     {
@@ -2736,7 +2736,7 @@
       "source_location": "L150",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr",
-      "community": 7,
+      "community": 8,
       "norm_label": "soapysdr"
     },
     {
@@ -2746,7 +2746,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_send",
-      "community": 7,
+      "community": 8,
       "norm_label": "send"
     },
     {
@@ -2756,7 +2756,7 @@
       "source_location": "L162",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_new",
-      "community": 7,
+      "community": 8,
       "norm_label": ".new()"
     },
     {
@@ -2766,7 +2766,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_rs_drop",
-      "community": 7,
+      "community": 8,
       "norm_label": "drop"
     },
     {
@@ -2776,7 +2776,7 @@
       "source_location": "L175",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_drop",
-      "community": 7,
+      "community": 8,
       "norm_label": ".drop()"
     },
     {
@@ -2786,7 +2786,7 @@
       "source_location": "L188",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_start",
-      "community": 7,
+      "community": 8,
       "norm_label": ".start()"
     },
     {
@@ -2796,7 +2796,7 @@
       "source_location": "L314",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_stop",
-      "community": 7,
+      "community": 8,
       "norm_label": ".stop()"
     },
     {
@@ -2806,7 +2806,7 @@
       "source_location": "L325",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_set_frequency",
-      "community": 7,
+      "community": 8,
       "norm_label": ".set_frequency()"
     },
     {
@@ -2816,7 +2816,7 @@
       "source_location": "L336",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_set_sample_rate",
-      "community": 7,
+      "community": 8,
       "norm_label": ".set_sample_rate()"
     },
     {
@@ -2826,7 +2826,7 @@
       "source_location": "L347",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_set_gain",
-      "community": 7,
+      "community": 8,
       "norm_label": ".set_gain()"
     },
     {
@@ -2836,7 +2836,7 @@
       "source_location": "L358",
       "_origin": "ast",
       "id": "dump1090_src_sdr_soapy_soapysdr_read_samples",
-      "community": 7,
+      "community": 8,
       "norm_label": ".read_samples()"
     },
     {
@@ -3593,7 +3593,7 @@
       "label": "AcCategory",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L96",
+      "source_location": "L97",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_accategory",
       "community": 2,
@@ -3603,7 +3603,7 @@
       "label": "classify_aircraft()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L98",
+      "source_location": "L100",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_classify_aircraft",
       "community": 2,
@@ -3613,7 +3613,7 @@
       "label": "draw_plane_model()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L129",
+      "source_location": "L132",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_draw_plane_model",
       "community": 2,
@@ -3653,7 +3653,7 @@
       "label": ".new()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L200",
+      "source_location": "L203",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_new",
       "community": 2,
@@ -3663,7 +3663,7 @@
       "label": ".check_for_new_aircraft()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L248",
+      "source_location": "L251",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_check_for_new_aircraft",
       "community": 2,
@@ -3673,7 +3673,7 @@
       "label": ".render_toasts()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L365",
+      "source_location": "L368",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_render_toasts",
       "community": 2,
@@ -3693,7 +3693,7 @@
       "label": ".fetch_aircraft_info()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L464",
+      "source_location": "L467",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_fetch_aircraft_info",
       "community": 2,
@@ -3703,7 +3703,7 @@
       "label": ".haversine_distance()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L490",
+      "source_location": "L493",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_haversine_distance",
       "community": 2,
@@ -3713,7 +3713,7 @@
       "label": ".bearing()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L501",
+      "source_location": "L504",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_bearing",
       "community": 2,
@@ -3723,7 +3723,7 @@
       "label": ".lon_to_tile_x()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L513",
+      "source_location": "L516",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_lon_to_tile_x",
       "community": 2,
@@ -3733,7 +3733,7 @@
       "label": ".lat_to_tile_y()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L518",
+      "source_location": "L521",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_lat_to_tile_y",
       "community": 2,
@@ -3743,7 +3743,7 @@
       "label": ".tile_to_lon()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L524",
+      "source_location": "L527",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_tile_to_lon",
       "community": 2,
@@ -3753,7 +3753,7 @@
       "label": ".tile_to_lat()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L529",
+      "source_location": "L532",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_tile_to_lat",
       "community": 2,
@@ -3763,7 +3763,7 @@
       "label": ".request_tile()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L535",
+      "source_location": "L538",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_request_tile",
       "community": 2,
@@ -3773,7 +3773,7 @@
       "label": ".process_tile_downloads()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L552",
+      "source_location": "L555",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_process_tile_downloads",
       "community": 2,
@@ -3783,7 +3783,7 @@
       "label": ".maybe_geolocate()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L566",
+      "source_location": "L569",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_maybe_geolocate",
       "community": 2,
@@ -3793,7 +3793,7 @@
       "label": ".ui()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L586",
+      "source_location": "L589",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "community": 2,
@@ -3813,7 +3813,7 @@
       "label": ".ui_antenna_guide()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1121",
+      "source_location": "L1124",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_ui_antenna_guide",
       "community": 2,
@@ -3823,7 +3823,7 @@
       "label": ".ui_map()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1227",
+      "source_location": "L1230",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "community": 2,
@@ -3833,7 +3833,7 @@
       "label": ".ui_list()",
       "file_type": "code",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1482",
+      "source_location": "L1485",
       "_origin": "ast",
       "id": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
       "community": 2,
@@ -4876,7 +4876,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_app_rs_vecdeque",
-      "community": 0,
+      "community": 5,
       "norm_label": "vecdeque"
     },
     {
@@ -5180,20 +5180,10 @@
       "norm_label": ".render_scheduler_full()"
     },
     {
-      "label": "proc_memory_kb()",
-      "file_type": "code",
-      "source_file": "ez-gui/src/app.rs",
-      "source_location": "L3007",
-      "_origin": "ast",
-      "id": "ez_gui_src_app_proc_memory_kb",
-      "community": 0,
-      "norm_label": "proc_memory_kb()"
-    },
-    {
       "label": "parse_hhmm_today()",
       "file_type": "code",
       "source_file": "ez-gui/src/app.rs",
-      "source_location": "L3019",
+      "source_location": "L3007",
       "_origin": "ast",
       "id": "ez_gui_src_app_parse_hhmm_today",
       "community": 0,
@@ -7046,7 +7036,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher",
-      "community": 17,
+      "community": 10,
       "norm_label": "mqttpublisher"
     },
     {
@@ -7056,7 +7046,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_string",
-      "community": 17,
+      "community": 10,
       "norm_label": "string"
     },
     {
@@ -7066,7 +7056,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_option",
-      "community": 17,
+      "community": 10,
       "norm_label": "option"
     },
     {
@@ -7076,7 +7066,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_arc",
-      "community": 17,
+      "community": 10,
       "norm_label": "arc"
     },
     {
@@ -7086,7 +7076,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_atomicbool",
-      "community": 17,
+      "community": 10,
       "norm_label": "atomicbool"
     },
     {
@@ -7096,7 +7086,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_instant",
-      "community": 17,
+      "community": 10,
       "norm_label": "instant"
     },
     {
@@ -7106,7 +7096,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_new",
-      "community": 17,
+      "community": 10,
       "norm_label": ".new()"
     },
     {
@@ -7116,7 +7106,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_self",
-      "community": 17,
+      "community": 10,
       "norm_label": "self"
     },
     {
@@ -7126,7 +7116,7 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_set_enabled",
-      "community": 17,
+      "community": 10,
       "norm_label": ".set_enabled()"
     },
     {
@@ -7136,7 +7126,7 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_connect",
-      "community": 17,
+      "community": 10,
       "norm_label": ".connect()"
     },
     {
@@ -7146,7 +7136,7 @@
       "source_location": "L63",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_disconnect",
-      "community": 17,
+      "community": 10,
       "norm_label": ".disconnect()"
     },
     {
@@ -7156,7 +7146,7 @@
       "source_location": "L69",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_is_connected",
-      "community": 17,
+      "community": 10,
       "norm_label": ".is_connected()"
     },
     {
@@ -7166,7 +7156,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_reconnect_in_secs",
-      "community": 17,
+      "community": 10,
       "norm_label": ".reconnect_in_secs()"
     },
     {
@@ -7176,7 +7166,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick_reconnect",
-      "community": 17,
+      "community": 10,
       "norm_label": ".tick_reconnect()"
     },
     {
@@ -7186,7 +7176,7 @@
       "source_location": "L93",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish",
-      "community": 17,
+      "community": 10,
       "norm_label": ".publish()"
     },
     {
@@ -7196,7 +7186,7 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick",
-      "community": 17,
+      "community": 10,
       "norm_label": ".tick()"
     },
     {
@@ -7206,7 +7196,7 @@
       "source_location": "L111",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_signal",
-      "community": 17,
+      "community": 10,
       "norm_label": ".publish_signal()"
     },
     {
@@ -7216,7 +7206,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_scanner_hit",
-      "community": 17,
+      "community": 10,
       "norm_label": ".publish_scanner_hit()"
     },
     {
@@ -7226,7 +7216,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_aircraft",
-      "community": 17,
+      "community": 10,
       "norm_label": ".publish_aircraft()"
     },
     {
@@ -7236,7 +7226,7 @@
       "source_location": "L151",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_passes",
-      "community": 17,
+      "community": 10,
       "norm_label": ".publish_passes()"
     },
     {
@@ -9836,7 +9826,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote",
-      "community": 10,
+      "community": 17,
       "norm_label": "web_remote.rs"
     },
     {
@@ -9846,7 +9836,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_remotecommand",
-      "community": 10,
+      "community": 17,
       "norm_label": "remotecommand"
     },
     {
@@ -9856,7 +9846,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote",
-      "community": 10,
+      "community": 17,
       "norm_label": "webremote"
     },
     {
@@ -9866,7 +9856,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_option",
-      "community": 10,
+      "community": 17,
       "norm_label": "option"
     },
     {
@@ -9876,7 +9866,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_sender",
-      "community": 10,
+      "community": 17,
       "norm_label": "sender"
     },
     {
@@ -9886,7 +9876,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_string",
-      "community": 10,
+      "community": 17,
       "norm_label": "string"
     },
     {
@@ -9896,7 +9886,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_receiver",
-      "community": 10,
+      "community": 17,
       "norm_label": "receiver"
     },
     {
@@ -9906,7 +9896,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_new",
-      "community": 10,
+      "community": 17,
       "norm_label": ".new()"
     },
     {
@@ -9916,7 +9906,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_self",
-      "community": 10,
+      "community": 17,
       "norm_label": "self"
     },
     {
@@ -9926,7 +9916,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_stop",
-      "community": 10,
+      "community": 17,
       "norm_label": ".stop()"
     },
     {
@@ -9936,7 +9926,7 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_set_enabled",
-      "community": 10,
+      "community": 17,
       "norm_label": ".set_enabled()"
     },
     {
@@ -9946,7 +9936,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_start",
-      "community": 10,
+      "community": 17,
       "norm_label": ".start()"
     },
     {
@@ -9956,7 +9946,7 @@
       "source_location": "L151",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_poll_commands",
-      "community": 10,
+      "community": 17,
       "norm_label": ".poll_commands()"
     },
     {
@@ -9966,7 +9956,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_vec",
-      "community": 10,
+      "community": 17,
       "norm_label": "vec"
     },
     {
@@ -9976,7 +9966,7 @@
       "source_location": "L162",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_broadcast_state",
-      "community": 10,
+      "community": 17,
       "norm_label": ".broadcast_state()"
     },
     {
@@ -17731,7 +17721,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L96",
+      "source_location": "L97",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel",
       "target": "ez_gui_src_adsb_panel_accategory",
@@ -17781,7 +17771,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L98",
+      "source_location": "L100",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel",
       "target": "ez_gui_src_adsb_panel_classify_aircraft",
@@ -17791,7 +17781,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L129",
+      "source_location": "L132",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel",
       "target": "ez_gui_src_adsb_panel_draw_plane_model",
@@ -17823,7 +17813,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L501",
+      "source_location": "L504",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_bearing",
@@ -17833,7 +17823,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L248",
+      "source_location": "L251",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_check_for_new_aircraft",
@@ -17843,7 +17833,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L464",
+      "source_location": "L467",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_fetch_aircraft_info",
@@ -17853,7 +17843,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L490",
+      "source_location": "L493",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_haversine_distance",
@@ -17863,7 +17853,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L518",
+      "source_location": "L521",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_lat_to_tile_y",
@@ -17873,7 +17863,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L513",
+      "source_location": "L516",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_lon_to_tile_x",
@@ -17883,7 +17873,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L566",
+      "source_location": "L569",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_maybe_geolocate",
@@ -17893,7 +17883,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L200",
+      "source_location": "L203",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -17903,7 +17893,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L552",
+      "source_location": "L555",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_process_tile_downloads",
@@ -17913,7 +17903,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L365",
+      "source_location": "L368",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_render_toasts",
@@ -17923,7 +17913,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L535",
+      "source_location": "L538",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_request_tile",
@@ -17933,7 +17923,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L529",
+      "source_location": "L532",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_tile_to_lat",
@@ -17943,7 +17933,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L524",
+      "source_location": "L527",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_tile_to_lon",
@@ -17953,7 +17943,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L586",
+      "source_location": "L589",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_ui",
@@ -17963,7 +17953,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1121",
+      "source_location": "L1124",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_ui_antenna_guide",
@@ -17973,7 +17963,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1482",
+      "source_location": "L1485",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
@@ -17983,7 +17973,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1227",
+      "source_location": "L1230",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel",
       "target": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
@@ -18191,7 +18181,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L200",
+      "source_location": "L203",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18202,7 +18192,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L200",
+      "source_location": "L203",
       "weight": 1.0,
       "context": "generic_arg",
       "source": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18322,7 +18312,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L404",
+      "source_location": "L407",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_render_toasts",
       "target": "ez_gui_src_adsb_panel_aircraftentry_default",
@@ -18354,7 +18344,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L200",
+      "source_location": "L203",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18365,7 +18355,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L98",
+      "source_location": "L100",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_adsb_panel_classify_aircraft",
@@ -18376,7 +18366,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L129",
+      "source_location": "L132",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_draw_plane_model",
@@ -18388,7 +18378,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1063",
+      "source_location": "L1066",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "target": "ez_gui_src_adsb_panel_classify_aircraft",
@@ -18399,7 +18389,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1068",
+      "source_location": "L1071",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "target": "ez_gui_src_adsb_panel_draw_plane_model",
@@ -18410,7 +18400,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L140",
+      "source_location": "L143",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_draw_plane_model",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18420,7 +18410,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L129",
+      "source_location": "L132",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_draw_plane_model",
@@ -18431,7 +18421,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L129",
+      "source_location": "L132",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_draw_plane_model",
@@ -18442,7 +18432,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L129",
+      "source_location": "L132",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_draw_plane_model",
@@ -18454,7 +18444,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L345",
+      "source_location": "L348",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_check_for_new_aircraft",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18464,7 +18454,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L200",
+      "source_location": "L203",
       "weight": 1.0,
       "context": "generic_arg",
       "source": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18476,7 +18466,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L394",
+      "source_location": "L397",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_render_toasts",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18487,7 +18477,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L544",
+      "source_location": "L547",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_request_tile",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18498,7 +18488,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L621",
+      "source_location": "L624",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18509,7 +18499,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1123",
+      "source_location": "L1126",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_antenna_guide",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18520,7 +18510,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1537",
+      "source_location": "L1540",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18531,7 +18521,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1390",
+      "source_location": "L1393",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "target": "ez_gui_src_adsb_panel_adsbpanel_new",
@@ -18542,7 +18532,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L285",
+      "source_location": "L288",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_check_for_new_aircraft",
       "target": "ez_gui_src_adsb_panel_adsbpanel_bearing",
@@ -18553,7 +18543,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L284",
+      "source_location": "L287",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_check_for_new_aircraft",
       "target": "ez_gui_src_adsb_panel_adsbpanel_haversine_distance",
@@ -18563,7 +18553,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L365",
+      "source_location": "L368",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_render_toasts",
@@ -18574,7 +18564,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L552",
+      "source_location": "L555",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_process_tile_downloads",
@@ -18586,7 +18576,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L760",
+      "source_location": "L763",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "target": "ez_gui_src_adsb_panel_adsbpanel_fetch_aircraft_info",
@@ -18597,7 +18587,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1640",
+      "source_location": "L1643",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
       "target": "ez_gui_src_adsb_panel_adsbpanel_fetch_aircraft_info",
@@ -18608,7 +18598,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1362",
+      "source_location": "L1365",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "target": "ez_gui_src_adsb_panel_adsbpanel_fetch_aircraft_info",
@@ -18619,7 +18609,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L955",
+      "source_location": "L958",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "target": "ez_gui_src_adsb_panel_adsbpanel_haversine_distance",
@@ -18630,7 +18620,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1626",
+      "source_location": "L1629",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
       "target": "ez_gui_src_adsb_panel_adsbpanel_haversine_distance",
@@ -18641,7 +18631,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L956",
+      "source_location": "L959",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "target": "ez_gui_src_adsb_panel_adsbpanel_bearing",
@@ -18652,7 +18642,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1631",
+      "source_location": "L1634",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
       "target": "ez_gui_src_adsb_panel_adsbpanel_bearing",
@@ -18663,7 +18653,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1245",
+      "source_location": "L1248",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "target": "ez_gui_src_adsb_panel_adsbpanel_lon_to_tile_x",
@@ -18674,7 +18664,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1246",
+      "source_location": "L1249",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "target": "ez_gui_src_adsb_panel_adsbpanel_lat_to_tile_y",
@@ -18685,7 +18675,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1336",
+      "source_location": "L1339",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "target": "ez_gui_src_adsb_panel_adsbpanel_request_tile",
@@ -18696,7 +18686,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1252",
+      "source_location": "L1255",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "target": "ez_gui_src_adsb_panel_adsbpanel_process_tile_downloads",
@@ -18707,7 +18697,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1239",
+      "source_location": "L1242",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
       "target": "ez_gui_src_adsb_panel_adsbpanel_maybe_geolocate",
@@ -18718,7 +18708,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1116",
+      "source_location": "L1119",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
       "target": "ez_gui_src_adsb_panel_adsbpanel_ui_antenna_guide",
@@ -18728,7 +18718,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L586",
+      "source_location": "L589",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui",
@@ -18740,7 +18730,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1483",
+      "source_location": "L1486",
       "weight": 1.0,
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
       "target": "ez_gui_src_adsb_panel_adsbpanel_ui",
@@ -18750,7 +18740,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1121",
+      "source_location": "L1124",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_antenna_guide",
@@ -18761,7 +18751,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1482",
+      "source_location": "L1485",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_list",
@@ -18772,7 +18762,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_panel.rs",
-      "source_location": "L1227",
+      "source_location": "L1230",
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_adsb_panel_adsbpanel_ui_map",
@@ -21329,20 +21319,10 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/app.rs",
-      "source_location": "L3019",
-      "weight": 1.0,
-      "source": "ez_gui_src_app",
-      "target": "ez_gui_src_app_parse_hhmm_today",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/app.rs",
       "source_location": "L3007",
       "weight": 1.0,
       "source": "ez_gui_src_app",
-      "target": "ez_gui_src_app_proc_memory_kb",
+      "target": "ez_gui_src_app_parse_hhmm_today",
       "confidence_score": 1.0
     },
     {
@@ -22298,21 +22278,10 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/app.rs",
-      "source_location": "L3019",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "ez_gui_src_app_parse_hhmm_today",
-      "target": "ez_gui_src_app_rs_option",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/app.rs",
       "source_location": "L3007",
       "weight": 1.0,
       "context": "return_type",
-      "source": "ez_gui_src_app_proc_memory_kb",
+      "source": "ez_gui_src_app_parse_hhmm_today",
       "target": "ez_gui_src_app_rs_option",
       "confidence_score": 1.0
     },
@@ -34679,5 +34648,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "4f465fff84769bbbbd25f745722922be7710842c"
+  "built_at_commit": "b201537dc5351c580817ca9d6cf05dc1891d6d9f"
 }

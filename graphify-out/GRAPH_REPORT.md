@@ -1,16 +1,16 @@
 # Graph Report - ez-sdr  (2026-07-02)
 
 ## Corpus Check
-- 62 files · ~118,328 words
+- 62 files · ~118,297 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1142 nodes · 2168 edges · 75 communities (45 shown, 30 thin omitted)
+- 1141 nodes · 2166 edges · 75 communities (45 shown, 30 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 10 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `4f465fff`
+- Built from commit: `b201537d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -117,14 +117,14 @@
 - 1-file cycle: `ez-gui/src/audio_output.rs -> ez-gui/src/audio_output.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/recorder_panel.rs -> ez-gui/src/app.rs`
-- 2-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_panel.rs`
 - 2-file cycle: `ez-gui/src/ai_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/ai_panel.rs`
-- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/satellite_panel.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs`
+- 2-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_panel.rs`
+- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/satellite_panel.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
-- 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 - 3-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
 - 3-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/mqtt.rs -> ez-gui/src/adsb_panel.rs`
+- 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 - 4-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/demod.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 
 ## Hyperedges (group relationships)
@@ -136,7 +136,7 @@
 
 ### Community 0 - "UI Application Core"
 Cohesion: 0.12
-Nodes (25): App, CreationContext, Demodulator, AppTab, CentralApp, FreqMemEntry, parse_hhmm_today(), proc_memory_kb() (+17 more)
+Nodes (23): App, CreationContext, Demodulator, AppTab, CentralApp, FreqMemEntry, parse_hhmm_today(), Arc (+15 more)
 
 ### Community 1 - "Spectrum Visualization"
 Cohesion: 0.07
@@ -155,20 +155,20 @@ Cohesion: 0.24
 Nodes (5): HowToPanel, Self, String, Ui, Vec
 
 ### Community 5 - "Demodulation"
-Cohesion: 0.08
-Nodes (39): AntennaChecklist, ChecklistItem, crit(), item(), Arc, Mutex, Option, Self (+31 more)
+Cohesion: 0.07
+Nodes (40): AntennaChecklist, ChecklistItem, crit(), item(), Arc, Mutex, Option, Self (+32 more)
 
 ### Community 6 - "AI & Chat"
 Cohesion: 0.16
 Nodes (17): AiPanel, ChatMessage, Arc, AtomicBool, Color32, Instant, Mutex, Option (+9 more)
 
 ### Community 7 - "Sample Conversion"
-Cohesion: 0.05
-Nodes (33): AsRef, c_char, IqFormat, IFileSdr, Option, Result, Self, String (+25 more)
+Cohesion: 0.10
+Nodes (13): AsRef, IqFormat, IFileSdr, Option, Result, Self, String, Vec (+5 more)
 
 ### Community 8 - "SDR Hardware Interface"
-Cohesion: 0.15
-Nodes (12): find_device_index(), Drop, Option, Result, Self, Send, String, Vec (+4 more)
+Cohesion: 0.06
+Nodes (32): c_char, Send, SdrSource, find_device_index(), Drop, Option, Result, Self (+24 more)
 
 ### Community 9 - "Frequency Scanner"
 Cohesion: 0.13
@@ -176,7 +176,7 @@ Nodes (11): FrequencyScanner, HitsSort, Arc, Instant, Mutex, Option, Self, Strin
 
 ### Community 10 - "Community 10"
 Cohesion: 0.07
-Nodes (24): CustomTask, Option, Self, String, Vec, ScheduledJob, Scheduler, format_time() (+16 more)
+Nodes (23): MqttPublisher, Arc, AtomicBool, Instant, Option, Self, String, CustomTask (+15 more)
 
 ### Community 11 - "AI Integration"
 Cohesion: 0.12
@@ -203,8 +203,8 @@ Cohesion: 0.12
 Nodes (7): Display, Default, Result, Self, Stats, Duration, Formatter
 
 ### Community 17 - "Community 17"
-Cohesion: 0.16
-Nodes (7): MqttPublisher, Arc, AtomicBool, Instant, Option, Self, String
+Cohesion: 0.18
+Nodes (8): RemoteCommand, Option, Receiver, Self, Sender, String, Vec, WebRemote
 
 ### Community 18 - "Demodulation Core"
 Cohesion: 0.31
@@ -317,13 +317,13 @@ _Questions this graph is uniquely positioned to answer:_
 - **Why does `CentralApp` connect `UI Application Core` to `ADS-B Decoder`, `Tutorial & Help`, `Demodulation`, `AI & Chat`, `Frequency Scanner`, `Community 10`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 47`, `Community 48`, `Community 17`, `AI & Tools`?**
   _High betweenness centrality (0.144) - this node is a cross-community bridge._
 - **Why does `SharedState` connect `Demodulation` to `UI Application Core`, `Spectrum Visualization`, `ADS-B Decoder`, `Configuration & UI`, `AI & Chat`, `Frequency Scanner`, `Community 10`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 47`, `Community 24`?**
-  _High betweenness centrality (0.137) - this node is a cross-community bridge._
+  _High betweenness centrality (0.141) - this node is a cross-community bridge._
 - **Why does `AdsBDecoder` connect `Community 48` to `UI Application Core`, `Settings`, `Demod Modules`?**
   _High betweenness centrality (0.122) - this node is a cross-community bridge._
 - **What connects `SoapySDRRange`, `ProviderPreset`, `Goal` to the rest of the system?**
   _117 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `UI Application Core` be split into smaller, more focused modules?**
-  _Cohesion score 0.11627906976744186 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.12427409988385599 - nodes in this community are weakly interconnected._
 - **Should `Spectrum Visualization` be split into smaller, more focused modules?**
   _Cohesion score 0.06956521739130435 - nodes in this community are weakly interconnected._
 - **Should `ADS-B Decoder` be split into smaller, more focused modules?**
