@@ -162,3 +162,56 @@ impl MqttPublisher {
         self.publish("satellite/passes", &json.to_string());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mqtt_new_defaults_disabled() {
+        let mqtt = MqttPublisher::new();
+        assert!(!mqtt.enabled);
+        assert_eq!(mqtt.broker, "localhost");
+        assert_eq!(mqtt.port, 1883);
+        assert_eq!(mqtt.topic_prefix, "ezsdr");
+    }
+
+    #[test]
+    fn mqtt_new_not_connected() {
+        let mqtt = MqttPublisher::new();
+        assert!(!mqtt.is_connected());
+    }
+
+    #[test]
+    fn mqtt_new_no_reconnect() {
+        let mqtt = MqttPublisher::new();
+        assert!(mqtt.reconnect_in_secs().is_none());
+    }
+
+    #[test]
+    fn mqtt_set_enabled_disabled_noop() {
+        let mut mqtt = MqttPublisher::new();
+        mqtt.set_enabled(false, "test:1883".into(), "test".into());
+        assert!(!mqtt.enabled);
+        assert_eq!(mqtt.broker, "test:1883");
+        assert_eq!(mqtt.topic_prefix, "test");
+    }
+
+    #[test]
+    fn mqtt_publish_without_client_no_crash() {
+        let mut mqtt = MqttPublisher::new();
+        mqtt.publish("test/topic", "hello");
+        mqtt.publish_signal(100_000_000, -50.0, -90.0, "WFM", false);
+        mqtt.publish_scanner_hit(145_800_000, -45.0);
+        mqtt.tick(100_000_000, 40.0);
+    }
+
+    #[test]
+    fn mqtt_is_connected_requires_enabled_and_client() {
+        let mqtt = MqttPublisher::new();
+        assert!(!mqtt.is_connected());
+        let mut mqtt = MqttPublisher::new();
+        mqtt.enabled = true;
+        assert!(!mqtt.is_connected());
+    }
+}
