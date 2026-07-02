@@ -1,17 +1,27 @@
 use serde::{Deserialize, Serialize};
 
+/// A collection of radio frequency bookmarks stored in memory
+/// and persisted to `ez_sdr_bookmarks.json`.
 pub struct BookmarkDb {
     pub bookmarks: Vec<Bookmark>,
 }
 
+/// A single bookmarked frequency with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bookmark {
+    /// Human-readable label (e.g. "NOAA 15 APT")
     pub name: String,
+    /// Frequency in Hertz
     pub frequency_hz: u64,
+    /// Demodulation mode (e.g. "WFM", "NFM", "AM", "RAW")
     pub mode: String,
+    /// Receiver bandwidth in Hertz
     pub bandwidth_hz: u32,
+    /// Grouping category (e.g. "Weather", "Aviation", "Ham")
     pub category: String,
+    /// Optional user notes
     pub notes: String,
+    /// Whether this bookmark is starred/favourited
     #[serde(default)]
     pub starred: bool,
 }
@@ -53,17 +63,22 @@ impl Default for BookmarkDb {
 const BOOKMARKS_FILE: &str = "ez_sdr_bookmarks.json";
 
 impl BookmarkDb {
+    /// Persist all bookmarks to `ez_sdr_bookmarks.json`. Silently ignores I/O errors.
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(&self.bookmarks) {
             let _ = std::fs::write(BOOKMARKS_FILE, json);
         }
     }
 
+    /// Load bookmarks from `ez_sdr_bookmarks.json`. Returns `None` if the file
+    /// doesn't exist or is malformed.
     pub fn load_saved() -> Option<Vec<Bookmark>> {
         let s = std::fs::read_to_string(BOOKMARKS_FILE).ok()?;
         serde_json::from_str(&s).ok()
     }
 
+    /// Load saved bookmarks, falling back to the built-in default list if no
+    /// saved file exists.
     pub fn load_or_default() -> Self {
         let bookmarks = Self::load_saved().unwrap_or_else(|| Self::default().bookmarks);
         Self { bookmarks }
@@ -172,6 +187,7 @@ impl BookmarkDb {
 }
 
 impl Bookmark {
+    /// Format the frequency for display, automatically selecting GHz / MHz / kHz.
     pub fn freq_display(&self) -> String {
         if self.frequency_hz >= 1_000_000_000 {
             format!("{:.3} GHz", self.frequency_hz as f64 / 1e9)

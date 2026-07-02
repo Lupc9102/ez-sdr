@@ -300,6 +300,56 @@
       "norm_label": "count_loud_samples()"
     },
     {
+      "label": "count_loud_samples_empty()",
+      "file_type": "code",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L632",
+      "_origin": "ast",
+      "id": "dump1090_src_adaptive_count_loud_samples_empty",
+      "community": 13,
+      "norm_label": "count_loud_samples_empty()"
+    },
+    {
+      "label": "count_loud_samples_below_threshold()",
+      "file_type": "code",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L637",
+      "_origin": "ast",
+      "id": "dump1090_src_adaptive_count_loud_samples_below_threshold",
+      "community": 13,
+      "norm_label": "count_loud_samples_below_threshold()"
+    },
+    {
+      "label": "count_loud_samples_at_threshold()",
+      "file_type": "code",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L643",
+      "_origin": "ast",
+      "id": "dump1090_src_adaptive_count_loud_samples_at_threshold",
+      "community": 13,
+      "norm_label": "count_loud_samples_at_threshold()"
+    },
+    {
+      "label": "count_loud_samples_all_loud()",
+      "file_type": "code",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L650",
+      "_origin": "ast",
+      "id": "dump1090_src_adaptive_count_loud_samples_all_loud",
+      "community": 13,
+      "norm_label": "count_loud_samples_all_loud()"
+    },
+    {
+      "label": "count_loud_samples_mixed()",
+      "file_type": "code",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L656",
+      "_origin": "ast",
+      "id": "dump1090_src_adaptive_count_loud_samples_mixed",
+      "community": 13,
+      "norm_label": "count_loud_samples_mixed()"
+    },
+    {
       "label": "convert.rs",
       "file_type": "code",
       "source_file": "dump1090/src/convert.rs",
@@ -656,7 +706,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_crc",
-      "community": 31,
+      "community": 17,
       "norm_label": "crc.rs"
     },
     {
@@ -666,7 +716,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "dump1090_src_crc_crc24",
-      "community": 31,
+      "community": 17,
       "norm_label": "crc24()"
     },
     {
@@ -676,7 +726,7 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "dump1090_src_crc_crc24_parity",
-      "community": 31,
+      "community": 17,
       "norm_label": "crc24_parity()"
     },
     {
@@ -686,7 +736,7 @@
       "source_location": "L66",
       "_origin": "ast",
       "id": "dump1090_src_crc_check_crc",
-      "community": 31,
+      "community": 17,
       "norm_label": "check_crc()"
     },
     {
@@ -696,7 +746,7 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "dump1090_src_crc_test_crc24_table_matches_c_implementation",
-      "community": 31,
+      "community": 17,
       "norm_label": "test_crc24_table_matches_c_implementation()"
     },
     {
@@ -706,7 +756,7 @@
       "source_location": "L90",
       "_origin": "ast",
       "id": "dump1090_src_crc_test_crc24_parity_valid_message",
-      "community": 31,
+      "community": 17,
       "norm_label": "test_crc24_parity_valid_message()"
     },
     {
@@ -716,7 +766,7 @@
       "source_location": "L96",
       "_origin": "ast",
       "id": "dump1090_src_crc_test_crc24_parity_invalid_message",
-      "community": 31,
+      "community": 17,
       "norm_label": "test_crc24_parity_invalid_message()"
     },
     {
@@ -726,7 +776,7 @@
       "source_location": "L104",
       "_origin": "ast",
       "id": "dump1090_src_crc_test_crc24_generates_correct_parity",
-      "community": 31,
+      "community": 17,
       "norm_label": "test_crc24_generates_correct_parity()"
     },
     {
@@ -736,7 +786,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_demod",
-      "community": 31,
+      "community": 16,
       "norm_label": "demod.rs"
     },
     {
@@ -776,7 +826,7 @@
       "source_location": "L74",
       "_origin": "ast",
       "id": "dump1090_src_demod_modesmessage",
-      "community": 31,
+      "community": 32,
       "norm_label": "modesmessage"
     },
     {
@@ -796,7 +846,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "dump1090_src_demod_scorerank",
-      "community": 31,
+      "community": 17,
       "norm_label": "scorerank"
     },
     {
@@ -806,7 +856,7 @@
       "source_location": "L179",
       "_origin": "ast",
       "id": "dump1090_src_demod_single_bit_syndrome",
-      "community": 31,
+      "community": 17,
       "norm_label": "single_bit_syndrome()"
     },
     {
@@ -816,7 +866,7 @@
       "source_location": "L206",
       "_origin": "ast",
       "id": "dump1090_src_demod_apply_bit_errors",
-      "community": 31,
+      "community": 17,
       "norm_label": "apply_bit_errors()"
     },
     {
@@ -826,7 +876,7 @@
       "source_location": "L216",
       "_origin": "ast",
       "id": "dump1090_src_demod_correct_message",
-      "community": 31,
+      "community": 17,
       "norm_label": "correct_message()"
     },
     {
@@ -836,7 +886,7 @@
       "source_location": "L283",
       "_origin": "ast",
       "id": "dump1090_src_demod_is_long_pi_message",
-      "community": 31,
+      "community": 16,
       "norm_label": "is_long_pi_message()"
     },
     {
@@ -846,7 +896,7 @@
       "source_location": "L289",
       "_origin": "ast",
       "id": "dump1090_src_demod_is_short_pi_message",
-      "community": 31,
+      "community": 16,
       "norm_label": "is_short_pi_message()"
     },
     {
@@ -856,7 +906,7 @@
       "source_location": "L295",
       "_origin": "ast",
       "id": "dump1090_src_demod_score_mode_s_message",
-      "community": 31,
+      "community": 17,
       "norm_label": "score_mode_s_message()"
     },
     {
@@ -866,7 +916,7 @@
       "source_location": "L437",
       "_origin": "ast",
       "id": "dump1090_src_demod_mode_s_message_len_by_type",
-      "community": 31,
+      "community": 17,
       "norm_label": "mode_s_message_len_by_type()"
     },
     {
@@ -876,7 +926,7 @@
       "source_location": "L448",
       "_origin": "ast",
       "id": "dump1090_src_demod_decode_mode_s_message",
-      "community": 31,
+      "community": 17,
       "norm_label": "decode_mode_s_message()"
     },
     {
@@ -886,7 +936,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_demod_rs_result",
-      "community": 31,
+      "community": 17,
       "norm_label": "result"
     },
     {
@@ -956,7 +1006,7 @@
       "source_location": "L548",
       "_origin": "ast",
       "id": "dump1090_src_demod_valid_df_short",
-      "community": 31,
+      "community": 16,
       "norm_label": "valid_df_short()"
     },
     {
@@ -966,7 +1016,7 @@
       "source_location": "L558",
       "_origin": "ast",
       "id": "dump1090_src_demod_valid_df_long",
-      "community": 31,
+      "community": 16,
       "norm_label": "valid_df_long()"
     },
     {
@@ -976,7 +1026,7 @@
       "source_location": "L580",
       "_origin": "ast",
       "id": "dump1090_src_demod_generate_damage_set",
-      "community": 31,
+      "community": 16,
       "norm_label": "generate_damage_set()"
     },
     {
@@ -1036,7 +1086,7 @@
       "source_location": "L630",
       "_origin": "ast",
       "id": "dump1090_src_demod_demod2400_reconfigure",
-      "community": 31,
+      "community": 16,
       "norm_label": ".reconfigure()"
     },
     {
@@ -1076,7 +1126,7 @@
       "source_location": "L1148",
       "_origin": "ast",
       "id": "dump1090_src_demod_inputformat",
-      "community": 31,
+      "community": 16,
       "norm_label": "inputformat"
     },
     {
@@ -1086,7 +1136,7 @@
       "source_location": "L1164",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude",
-      "community": 31,
+      "community": 16,
       "norm_label": "compute_magnitude()"
     },
     {
@@ -1096,7 +1146,7 @@
       "source_location": "L1176",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude_uc8",
-      "community": 31,
+      "community": 16,
       "norm_label": "compute_magnitude_uc8()"
     },
     {
@@ -1106,7 +1156,7 @@
       "source_location": "L1193",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude_sc16",
-      "community": 31,
+      "community": 16,
       "norm_label": "compute_magnitude_sc16()"
     },
     {
@@ -1116,7 +1166,7 @@
       "source_location": "L1211",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude_sc16q11",
-      "community": 31,
+      "community": 16,
       "norm_label": "compute_magnitude_sc16q11()"
     },
     {
@@ -1126,7 +1176,7 @@
       "source_location": "L1236",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_slice_phase_dc_invariant",
-      "community": 31,
+      "community": 16,
       "norm_label": "test_slice_phase_dc_invariant()"
     },
     {
@@ -1136,7 +1186,7 @@
       "source_location": "L1250",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_generate_damage_set",
-      "community": 31,
+      "community": 16,
       "norm_label": "test_generate_damage_set()"
     },
     {
@@ -1146,7 +1196,7 @@
       "source_location": "L1262",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_uc8_magnitude",
-      "community": 31,
+      "community": 16,
       "norm_label": "test_uc8_magnitude()"
     },
     {
@@ -1156,7 +1206,7 @@
       "source_location": "L1273",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_sc16_magnitude",
-      "community": 31,
+      "community": 16,
       "norm_label": "test_sc16_magnitude()"
     },
     {
@@ -1166,7 +1216,7 @@
       "source_location": "L1288",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_sc16q11_magnitude",
-      "community": 31,
+      "community": 16,
       "norm_label": "test_sc16q11_magnitude()"
     },
     {
@@ -1516,7 +1566,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_main",
-      "community": 31,
+      "community": 18,
       "norm_label": "main.rs"
     },
     {
@@ -1526,7 +1576,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "dump1090_src_main_args",
-      "community": 31,
+      "community": 18,
       "norm_label": "args"
     },
     {
@@ -1536,7 +1586,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_main_rs_option",
-      "community": 31,
+      "community": 18,
       "norm_label": "option"
     },
     {
@@ -1546,7 +1596,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_main_rs_string",
-      "community": 31,
+      "community": 18,
       "norm_label": "string"
     },
     {
@@ -1556,7 +1606,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "dump1090_src_main_netoutput",
-      "community": 31,
+      "community": 18,
       "norm_label": "netoutput"
     },
     {
@@ -1566,7 +1616,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "dump1090_src_main_netoutput_new",
-      "community": 31,
+      "community": 18,
       "norm_label": ".new()"
     },
     {
@@ -1576,7 +1626,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_main_rs_result",
-      "community": 31,
+      "community": 18,
       "norm_label": "result"
     },
     {
@@ -1586,7 +1636,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_main_rs_self",
-      "community": 31,
+      "community": 18,
       "norm_label": "self"
     },
     {
@@ -1596,7 +1646,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "dump1090_src_main_netoutput_broadcast_beast",
-      "community": 31,
+      "community": 18,
       "norm_label": ".broadcast_beast()"
     },
     {
@@ -1606,7 +1656,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "dump1090_src_main_demodulator",
-      "community": 31,
+      "community": 18,
       "norm_label": "demodulator"
     },
     {
@@ -1616,7 +1666,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_main_rs_default",
-      "community": 31,
+      "community": 18,
       "norm_label": "default"
     },
     {
@@ -1626,7 +1676,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "dump1090_src_main_demodulator_default",
-      "community": 31,
+      "community": 18,
       "norm_label": ".default()"
     },
     {
@@ -1636,7 +1686,7 @@
       "source_location": "L84",
       "_origin": "ast",
       "id": "dump1090_src_main_demodulator_new",
-      "community": 31,
+      "community": 18,
       "norm_label": ".new()"
     },
     {
@@ -1666,7 +1716,7 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "dump1090_src_main_compute_magbuf_stats",
-      "community": 31,
+      "community": 18,
       "norm_label": "compute_magbuf_stats()"
     },
     {
@@ -1676,7 +1726,7 @@
       "source_location": "L119",
       "_origin": "ast",
       "id": "dump1090_src_main_main",
-      "community": 31,
+      "community": 18,
       "norm_label": "main()"
     },
     {
@@ -1716,7 +1766,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_mode_s",
-      "community": 31,
+      "community": 23,
       "norm_label": "mode_s.rs"
     },
     {
@@ -1726,7 +1776,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "dump1090_src_mode_s_decode_mode_s_message",
-      "community": 31,
+      "community": 23,
       "norm_label": "decode_mode_s_message()"
     },
     {
@@ -1736,7 +1786,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_mode_s_rs_option",
-      "community": 31,
+      "community": 23,
       "norm_label": "option"
     },
     {
@@ -1746,7 +1796,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "dump1090_src_mode_s_decode_mode_s",
-      "community": 31,
+      "community": 23,
       "norm_label": "decode_mode_s()"
     },
     {
@@ -1756,7 +1806,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "dump1090_src_mode_s_extract_df",
-      "community": 31,
+      "community": 23,
       "norm_label": "extract_df()"
     },
     {
@@ -1766,7 +1816,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "dump1090_src_mode_s_aircraftmessage",
-      "community": 31,
+      "community": 23,
       "norm_label": "aircraftmessage"
     },
     {
@@ -1776,8 +1826,68 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_mode_s_rs_string",
-      "community": 31,
+      "community": 23,
       "norm_label": "string"
+    },
+    {
+      "label": "extract_df_from_valid_msg()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L46",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_s_extract_df_from_valid_msg",
+      "community": 23,
+      "norm_label": "extract_df_from_valid_msg()"
+    },
+    {
+      "label": "extract_df_from_short_msg_works()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L53",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_s_extract_df_from_short_msg_works",
+      "community": 23,
+      "norm_label": "extract_df_from_short_msg_works()"
+    },
+    {
+      "label": "extract_df_all_ones()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L59",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_s_extract_df_all_ones",
+      "community": 23,
+      "norm_label": "extract_df_all_ones()"
+    },
+    {
+      "label": "decode_mode_s_zero_bits_returns_none()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L66",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_s_decode_mode_s_zero_bits_returns_none",
+      "community": 23,
+      "norm_label": "decode_mode_s_zero_bits_returns_none()"
+    },
+    {
+      "label": "decode_mode_s_with_bits_returns_message()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L75",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_s_decode_mode_s_with_bits_returns_message",
+      "community": 23,
+      "norm_label": "decode_mode_s_with_bits_returns_message()"
+    },
+    {
+      "label": "decode_mode_s_message_stub_returns_none()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L88",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_s_decode_mode_s_message_stub_returns_none",
+      "community": 23,
+      "norm_label": "decode_mode_s_message_stub_returns_none()"
     },
     {
       "label": "net_io.rs",
@@ -3086,7 +3196,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_stats",
-      "community": 16,
+      "community": 11,
       "norm_label": "stats.rs"
     },
     {
@@ -3096,7 +3206,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats",
-      "community": 16,
+      "community": 11,
       "norm_label": "stats"
     },
     {
@@ -3106,7 +3216,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "duration",
-      "community": 16,
+      "community": 11,
       "norm_label": "duration"
     },
     {
@@ -3116,7 +3226,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_stats_rs_default",
-      "community": 16,
+      "community": 11,
       "norm_label": "default"
     },
     {
@@ -3126,7 +3236,7 @@
       "source_location": "L119",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_default",
-      "community": 16,
+      "community": 11,
       "norm_label": ".default()"
     },
     {
@@ -3136,7 +3246,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_stats_rs_self",
-      "community": 16,
+      "community": 11,
       "norm_label": "self"
     },
     {
@@ -3146,7 +3256,7 @@
       "source_location": "L184",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_reset",
-      "community": 16,
+      "community": 11,
       "norm_label": ".reset()"
     },
     {
@@ -3156,7 +3266,7 @@
       "source_location": "L189",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_demod_accepted",
-      "community": 16,
+      "community": 11,
       "norm_label": ".record_demod_accepted()"
     },
     {
@@ -3166,7 +3276,7 @@
       "source_location": "L195",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_remote_accepted",
-      "community": 16,
+      "community": 11,
       "norm_label": ".record_remote_accepted()"
     },
     {
@@ -3176,7 +3286,7 @@
       "source_location": "L201",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_message",
-      "community": 16,
+      "community": 11,
       "norm_label": ".record_message()"
     },
     {
@@ -3186,7 +3296,7 @@
       "source_location": "L210",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_signal_power",
-      "community": 16,
+      "community": 11,
       "norm_label": ".record_signal_power()"
     },
     {
@@ -3196,7 +3306,7 @@
       "source_location": "L229",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_noise_power",
-      "community": 16,
+      "community": 11,
       "norm_label": ".record_noise_power()"
     },
     {
@@ -3206,7 +3316,7 @@
       "source_location": "L235",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_range",
-      "community": 16,
+      "community": 11,
       "norm_label": ".record_range()"
     },
     {
@@ -3216,7 +3326,7 @@
       "source_location": "L245",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_tick_second",
-      "community": 16,
+      "community": 11,
       "norm_label": ".tick_second()"
     },
     {
@@ -3226,7 +3336,7 @@
       "source_location": "L264",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_message_rate",
-      "community": 16,
+      "community": 11,
       "norm_label": ".message_rate()"
     },
     {
@@ -3236,7 +3346,7 @@
       "source_location": "L275",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_add",
-      "community": 16,
+      "community": 11,
       "norm_label": ".add()"
     },
     {
@@ -3246,7 +3356,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "display",
-      "community": 16,
+      "community": 11,
       "norm_label": "display"
     },
     {
@@ -3256,7 +3366,7 @@
       "source_location": "L400",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_fmt",
-      "community": 16,
+      "community": 11,
       "norm_label": ".fmt()"
     },
     {
@@ -3266,7 +3376,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "formatter",
-      "community": 16,
+      "community": 11,
       "norm_label": "formatter"
     },
     {
@@ -3276,7 +3386,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_stats_rs_result",
-      "community": 16,
+      "community": 11,
       "norm_label": "result"
     },
     {
@@ -4685,7 +4795,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "ez_gui_src_airport_db_rs_connection",
+      "id": "connection",
       "community": 26,
       "norm_label": "connection"
     },
@@ -4816,7 +4926,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist",
-      "community": 8,
+      "community": 47,
       "norm_label": "antenna_checklist.rs"
     },
     {
@@ -4826,7 +4936,7 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_checklistitem",
-      "community": 8,
+      "community": 47,
       "norm_label": "checklistitem"
     },
     {
@@ -4836,7 +4946,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_antennachecklist",
-      "community": 8,
+      "community": 47,
       "norm_label": "antennachecklist"
     },
     {
@@ -4846,7 +4956,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_rs_arc",
-      "community": 8,
+      "community": 47,
       "norm_label": "arc"
     },
     {
@@ -4856,7 +4966,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_rs_mutex",
-      "community": 8,
+      "community": 47,
       "norm_label": "mutex"
     },
     {
@@ -4866,7 +4976,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_rs_vec",
-      "community": 8,
+      "community": 47,
       "norm_label": "vec"
     },
     {
@@ -4876,7 +4986,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_rs_option",
-      "community": 8,
+      "community": 47,
       "norm_label": "option"
     },
     {
@@ -4886,7 +4996,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_rs_string",
-      "community": 8,
+      "community": 47,
       "norm_label": "string"
     },
     {
@@ -4896,7 +5006,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_antennachecklist_new",
-      "community": 8,
+      "community": 47,
       "norm_label": ".new()"
     },
     {
@@ -4906,7 +5016,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_rs_self",
-      "community": 8,
+      "community": 47,
       "norm_label": "self"
     },
     {
@@ -4916,7 +5026,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_antennachecklist_for_sdr",
-      "community": 8,
+      "community": 47,
       "norm_label": ".for_sdr()"
     },
     {
@@ -4926,7 +5036,7 @@
       "source_location": "L56",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_antennachecklist_for_satellite",
-      "community": 8,
+      "community": 47,
       "norm_label": ".for_satellite()"
     },
     {
@@ -4936,7 +5046,7 @@
       "source_location": "L77",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_antennachecklist_for_adsb",
-      "community": 8,
+      "community": 47,
       "norm_label": ".for_adsb()"
     },
     {
@@ -4946,7 +5056,7 @@
       "source_location": "L102",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_antennachecklist_ui",
-      "community": 8,
+      "community": 47,
       "norm_label": ".ui()"
     },
     {
@@ -4956,7 +5066,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_rs_ui",
-      "community": 8,
+      "community": 47,
       "norm_label": "ui"
     },
     {
@@ -4966,7 +5076,7 @@
       "source_location": "L183",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_crit",
-      "community": 8,
+      "community": 47,
       "norm_label": "crit()"
     },
     {
@@ -4976,7 +5086,7 @@
       "source_location": "L186",
       "_origin": "ast",
       "id": "ez_gui_src_antenna_checklist_item",
-      "community": 8,
+      "community": 47,
       "norm_label": "item()"
     },
     {
@@ -4986,7 +5096,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_app",
-      "community": 23,
+      "community": 0,
       "norm_label": "app.rs"
     },
     {
@@ -4996,7 +5106,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "ez_gui_src_app_freqmementry",
-      "community": 23,
+      "community": 47,
       "norm_label": "freqmementry"
     },
     {
@@ -5006,7 +5116,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_app_rs_string",
-      "community": 23,
+      "community": 47,
       "norm_label": "string"
     },
     {
@@ -5026,7 +5136,7 @@
       "source_location": "L54",
       "_origin": "ast",
       "id": "ez_gui_src_app_apptab",
-      "community": 23,
+      "community": 0,
       "norm_label": "apptab"
     },
     {
@@ -5066,7 +5176,7 @@
       "source_location": "L97",
       "_origin": "ast",
       "id": "ez_gui_src_app_sharedstate",
-      "community": 8,
+      "community": 47,
       "norm_label": "sharedstate"
     },
     {
@@ -5086,7 +5196,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_app_rs_vecdeque",
-      "community": 23,
+      "community": 0,
       "norm_label": "vecdeque"
     },
     {
@@ -5126,7 +5236,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "demodulator",
-      "community": 23,
+      "community": 0,
       "norm_label": "demodulator"
     },
     {
@@ -5590,6 +5700,46 @@
       "norm_label": ".stop()"
     },
     {
+      "label": "audio_output_new_defaults()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L179",
+      "_origin": "ast",
+      "id": "ez_gui_src_audio_output_audio_output_new_defaults",
+      "community": 20,
+      "norm_label": "audio_output_new_defaults()"
+    },
+    {
+      "label": "audio_output_stop_clears_state()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L187",
+      "_origin": "ast",
+      "id": "ez_gui_src_audio_output_audio_output_stop_clears_state",
+      "community": 20,
+      "norm_label": "audio_output_stop_clears_state()"
+    },
+    {
+      "label": "audio_output_start_fails_without_feature()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L197",
+      "_origin": "ast",
+      "id": "ez_gui_src_audio_output_audio_output_start_fails_without_feature",
+      "community": 20,
+      "norm_label": "audio_output_start_fails_without_feature()"
+    },
+    {
+      "label": "audio_output_mark_failed()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L213",
+      "_origin": "ast",
+      "id": "ez_gui_src_audio_output_audio_output_mark_failed",
+      "community": 20,
+      "norm_label": "audio_output_mark_failed()"
+    },
+    {
       "label": "bookmarks.rs",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
@@ -5826,7 +5976,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_config",
-      "community": 3,
+      "community": 8,
       "norm_label": "config.rs"
     },
     {
@@ -5836,7 +5986,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "ez_gui_src_config_providerpreset",
-      "community": 3,
+      "community": 8,
       "norm_label": "providerpreset"
     },
     {
@@ -5846,7 +5996,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "ez_gui_src_config_appconfig",
-      "community": 3,
+      "community": 8,
       "norm_label": "appconfig"
     },
     {
@@ -5856,7 +6006,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_config_rs_string",
-      "community": 3,
+      "community": 8,
       "norm_label": "string"
     },
     {
@@ -5866,7 +6016,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_config_rs_vec",
-      "community": 3,
+      "community": 8,
       "norm_label": "vec"
     },
     {
@@ -5876,7 +6026,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_config_rs_default",
-      "community": 3,
+      "community": 8,
       "norm_label": "default"
     },
     {
@@ -5886,7 +6036,7 @@
       "source_location": "L98",
       "_origin": "ast",
       "id": "ez_gui_src_config_appconfig_default",
-      "community": 3,
+      "community": 8,
       "norm_label": ".default()"
     },
     {
@@ -5896,7 +6046,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_config_rs_self",
-      "community": 3,
+      "community": 8,
       "norm_label": "self"
     },
     {
@@ -5906,7 +6056,7 @@
       "source_location": "L149",
       "_origin": "ast",
       "id": "ez_gui_src_config_appconfig_load_or_default",
-      "community": 3,
+      "community": 8,
       "norm_label": ".load_or_default()"
     },
     {
@@ -5916,7 +6066,7 @@
       "source_location": "L161",
       "_origin": "ast",
       "id": "ez_gui_src_config_appconfig_save",
-      "community": 3,
+      "community": 8,
       "norm_label": ".save()"
     },
     {
@@ -5926,7 +6076,7 @@
       "source_location": "L174",
       "_origin": "ast",
       "id": "ez_gui_src_config_config_default_has_reasonable_freq",
-      "community": 3,
+      "community": 8,
       "norm_label": "config_default_has_reasonable_freq()"
     },
     {
@@ -5936,7 +6086,7 @@
       "source_location": "L180",
       "_origin": "ast",
       "id": "ez_gui_src_config_config_default_sample_rate",
-      "community": 3,
+      "community": 8,
       "norm_label": "config_default_sample_rate()"
     },
     {
@@ -5946,7 +6096,7 @@
       "source_location": "L186",
       "_origin": "ast",
       "id": "ez_gui_src_config_config_default_theme_is_dark",
-      "community": 3,
+      "community": 8,
       "norm_label": "config_default_theme_is_dark()"
     },
     {
@@ -5956,7 +6106,7 @@
       "source_location": "L192",
       "_origin": "ast",
       "id": "ez_gui_src_config_config_default_observer_at_london",
-      "community": 3,
+      "community": 8,
       "norm_label": "config_default_observer_at_london()"
     },
     {
@@ -5966,7 +6116,7 @@
       "source_location": "L199",
       "_origin": "ast",
       "id": "ez_gui_src_config_config_default_has_theme_and_discord",
-      "community": 3,
+      "community": 8,
       "norm_label": "config_default_has_theme_and_discord()"
     },
     {
@@ -5976,7 +6126,7 @@
       "source_location": "L208",
       "_origin": "ast",
       "id": "ez_gui_src_config_config_serde_roundtrip_preserves_fields",
-      "community": 3,
+      "community": 8,
       "norm_label": "config_serde_roundtrip_preserves_fields()"
     },
     {
@@ -5986,7 +6136,7 @@
       "source_location": "L218",
       "_origin": "ast",
       "id": "ez_gui_src_config_provider_presets_have_names",
-      "community": 3,
+      "community": 8,
       "norm_label": "provider_presets_have_names()"
     },
     {
@@ -5996,7 +6146,7 @@
       "source_location": "L227",
       "_origin": "ast",
       "id": "ez_gui_src_config_appconfig_ui",
-      "community": 3,
+      "community": 8,
       "norm_label": ".ui()"
     },
     {
@@ -6006,168 +6156,8 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_config_rs_ui",
-      "community": 3,
+      "community": 8,
       "norm_label": "ui"
-    },
-    {
-      "label": "database.rs",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L1",
-      "_origin": "ast",
-      "id": "ez_gui_src_database",
-      "community": 22,
-      "norm_label": "database.rs"
-    },
-    {
-      "label": "Database",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L5",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_database",
-      "community": 22,
-      "norm_label": "database"
-    },
-    {
-      "label": "Connection",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_rs_connection",
-      "community": 22,
-      "norm_label": "connection"
-    },
-    {
-      "label": "AircraftRecord",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L11",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_aircraftrecord",
-      "community": 22,
-      "norm_label": "aircraftrecord"
-    },
-    {
-      "label": "String",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_rs_string",
-      "community": 22,
-      "norm_label": "string"
-    },
-    {
-      "label": "PassRecord",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L24",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_passrecord",
-      "community": 22,
-      "norm_label": "passrecord"
-    },
-    {
-      "label": "BookmarkRecord",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L37",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_bookmarkrecord",
-      "community": 22,
-      "norm_label": "bookmarkrecord"
-    },
-    {
-      "label": ".open_or_create()",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L47",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_database_open_or_create",
-      "community": 22,
-      "norm_label": ".open_or_create()"
-    },
-    {
-      "label": "Result",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_rs_result",
-      "community": 22,
-      "norm_label": "result"
-    },
-    {
-      "label": "Self",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_rs_self",
-      "community": 22,
-      "norm_label": "self"
-    },
-    {
-      "label": ".upsert_aircraft()",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L122",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_database_upsert_aircraft",
-      "community": 22,
-      "norm_label": ".upsert_aircraft()"
-    },
-    {
-      "label": ".record_pass()",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L138",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_database_record_pass",
-      "community": 22,
-      "norm_label": ".record_pass()"
-    },
-    {
-      "label": ".log_event()",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L147",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_database_log_event",
-      "community": 22,
-      "norm_label": ".log_event()"
-    },
-    {
-      "label": ".get_all_aircraft()",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L157",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_database_get_all_aircraft",
-      "community": 22,
-      "norm_label": ".get_all_aircraft()"
-    },
-    {
-      "label": "Vec",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_rs_vec",
-      "community": 22,
-      "norm_label": "vec"
-    },
-    {
-      "label": ".get_aircraft_count()",
-      "file_type": "code",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L176",
-      "_origin": "ast",
-      "id": "ez_gui_src_database_database_get_aircraft_count",
-      "community": 22,
-      "norm_label": ".get_aircraft_count()"
     },
     {
       "label": "demod.rs",
@@ -7363,7 +7353,7 @@
       "label": "main()",
       "file_type": "code",
       "source_file": "ez-gui/src/main.rs",
-      "source_location": "L31",
+      "source_location": "L30",
       "_origin": "ast",
       "id": "ez_gui_src_main_main",
       "community": 36,
@@ -7386,7 +7376,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt",
-      "community": 2,
+      "community": 76,
       "norm_label": "mqtt.rs"
     },
     {
@@ -7396,7 +7386,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher",
-      "community": 17,
+      "community": 76,
       "norm_label": "mqttpublisher"
     },
     {
@@ -7406,7 +7396,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_string",
-      "community": 17,
+      "community": 76,
       "norm_label": "string"
     },
     {
@@ -7416,7 +7406,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_option",
-      "community": 17,
+      "community": 76,
       "norm_label": "option"
     },
     {
@@ -7426,7 +7416,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_arc",
-      "community": 17,
+      "community": 76,
       "norm_label": "arc"
     },
     {
@@ -7436,7 +7426,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_atomicbool",
-      "community": 17,
+      "community": 76,
       "norm_label": "atomicbool"
     },
     {
@@ -7446,7 +7436,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_instant",
-      "community": 17,
+      "community": 76,
       "norm_label": "instant"
     },
     {
@@ -7456,7 +7446,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_new",
-      "community": 17,
+      "community": 76,
       "norm_label": ".new()"
     },
     {
@@ -7466,7 +7456,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_self",
-      "community": 17,
+      "community": 76,
       "norm_label": "self"
     },
     {
@@ -7476,7 +7466,7 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_set_enabled",
-      "community": 17,
+      "community": 76,
       "norm_label": ".set_enabled()"
     },
     {
@@ -7486,7 +7476,7 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_connect",
-      "community": 17,
+      "community": 76,
       "norm_label": ".connect()"
     },
     {
@@ -7496,7 +7486,7 @@
       "source_location": "L63",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_disconnect",
-      "community": 17,
+      "community": 76,
       "norm_label": ".disconnect()"
     },
     {
@@ -7506,7 +7496,7 @@
       "source_location": "L69",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_is_connected",
-      "community": 17,
+      "community": 76,
       "norm_label": ".is_connected()"
     },
     {
@@ -7516,7 +7506,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_reconnect_in_secs",
-      "community": 17,
+      "community": 76,
       "norm_label": ".reconnect_in_secs()"
     },
     {
@@ -7526,7 +7516,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick_reconnect",
-      "community": 17,
+      "community": 76,
       "norm_label": ".tick_reconnect()"
     },
     {
@@ -7536,7 +7526,7 @@
       "source_location": "L93",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish",
-      "community": 17,
+      "community": 76,
       "norm_label": ".publish()"
     },
     {
@@ -7546,7 +7536,7 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick",
-      "community": 17,
+      "community": 76,
       "norm_label": ".tick()"
     },
     {
@@ -7556,7 +7546,7 @@
       "source_location": "L111",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_signal",
-      "community": 17,
+      "community": 76,
       "norm_label": ".publish_signal()"
     },
     {
@@ -7566,7 +7556,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_scanner_hit",
-      "community": 17,
+      "community": 76,
       "norm_label": ".publish_scanner_hit()"
     },
     {
@@ -7576,7 +7566,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_aircraft",
-      "community": 17,
+      "community": 2,
       "norm_label": ".publish_aircraft()"
     },
     {
@@ -7586,8 +7576,68 @@
       "source_location": "L151",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_passes",
-      "community": 17,
+      "community": 76,
       "norm_label": ".publish_passes()"
+    },
+    {
+      "label": "mqtt_new_defaults_disabled()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L171",
+      "_origin": "ast",
+      "id": "ez_gui_src_mqtt_mqtt_new_defaults_disabled",
+      "community": 76,
+      "norm_label": "mqtt_new_defaults_disabled()"
+    },
+    {
+      "label": "mqtt_new_not_connected()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L180",
+      "_origin": "ast",
+      "id": "ez_gui_src_mqtt_mqtt_new_not_connected",
+      "community": 76,
+      "norm_label": "mqtt_new_not_connected()"
+    },
+    {
+      "label": "mqtt_new_no_reconnect()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L186",
+      "_origin": "ast",
+      "id": "ez_gui_src_mqtt_mqtt_new_no_reconnect",
+      "community": 76,
+      "norm_label": "mqtt_new_no_reconnect()"
+    },
+    {
+      "label": "mqtt_set_enabled_disabled_noop()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L192",
+      "_origin": "ast",
+      "id": "ez_gui_src_mqtt_mqtt_set_enabled_disabled_noop",
+      "community": 76,
+      "norm_label": "mqtt_set_enabled_disabled_noop()"
+    },
+    {
+      "label": "mqtt_publish_without_client_no_crash()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L201",
+      "_origin": "ast",
+      "id": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
+      "community": 76,
+      "norm_label": "mqtt_publish_without_client_no_crash()"
+    },
+    {
+      "label": "mqtt_is_connected_requires_enabled_and_client()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L210",
+      "_origin": "ast",
+      "id": "ez_gui_src_mqtt_mqtt_is_connected_requires_enabled_and_client",
+      "community": 76,
+      "norm_label": "mqtt_is_connected_requires_enabled_and_client()"
     },
     {
       "label": "recorder_panel.rs",
@@ -7866,7 +7916,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel",
-      "community": 18,
+      "community": 47,
       "norm_label": "satellite_panel.rs"
     },
     {
@@ -7876,7 +7926,7 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_satellitepanel",
-      "community": 18,
+      "community": 47,
       "norm_label": "satellitepanel"
     },
     {
@@ -7886,7 +7936,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_arc",
-      "community": 18,
+      "community": 47,
       "norm_label": "arc"
     },
     {
@@ -7896,7 +7946,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_mutex",
-      "community": 18,
+      "community": 47,
       "norm_label": "mutex"
     },
     {
@@ -7906,7 +7956,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_option",
-      "community": 18,
+      "community": 47,
       "norm_label": "option"
     },
     {
@@ -7916,7 +7966,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_string",
-      "community": 18,
+      "community": 47,
       "norm_label": "string"
     },
     {
@@ -7926,7 +7976,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_vec",
-      "community": 18,
+      "community": 47,
       "norm_label": "vec"
     },
     {
@@ -7936,7 +7986,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_instant",
-      "community": 18,
+      "community": 47,
       "norm_label": "instant"
     },
     {
@@ -7946,7 +7996,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_satellitepanel_new",
-      "community": 18,
+      "community": 47,
       "norm_label": ".new()"
     },
     {
@@ -7956,7 +8006,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_self",
-      "community": 18,
+      "community": 47,
       "norm_label": "self"
     },
     {
@@ -7966,7 +8016,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_satellitepanel_ui_simple",
-      "community": 18,
+      "community": 47,
       "norm_label": ".ui_simple()"
     },
     {
@@ -7976,7 +8026,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_rs_ui",
-      "community": 18,
+      "community": 47,
       "norm_label": "ui"
     },
     {
@@ -7986,7 +8036,7 @@
       "source_location": "L145",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_satellitepanel_ui_advanced",
-      "community": 18,
+      "community": 47,
       "norm_label": ".ui_advanced()"
     },
     {
@@ -7996,7 +8046,7 @@
       "source_location": "L226",
       "_origin": "ast",
       "id": "ez_gui_src_satellite_panel_satellitepanel_ui_pass_table",
-      "community": 18,
+      "community": 47,
       "norm_label": ".ui_pass_table()"
     },
     {
@@ -10466,7 +10516,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote",
-      "community": 76,
+      "community": 22,
       "norm_label": "web_remote.rs"
     },
     {
@@ -10476,7 +10526,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_remotecommand",
-      "community": 76,
+      "community": 22,
       "norm_label": "remotecommand"
     },
     {
@@ -10486,7 +10536,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote",
-      "community": 76,
+      "community": 22,
       "norm_label": "webremote"
     },
     {
@@ -10496,7 +10546,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_option",
-      "community": 76,
+      "community": 22,
       "norm_label": "option"
     },
     {
@@ -10506,7 +10556,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_sender",
-      "community": 76,
+      "community": 22,
       "norm_label": "sender"
     },
     {
@@ -10516,7 +10566,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_string",
-      "community": 76,
+      "community": 22,
       "norm_label": "string"
     },
     {
@@ -10526,7 +10576,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_receiver",
-      "community": 76,
+      "community": 22,
       "norm_label": "receiver"
     },
     {
@@ -10536,7 +10586,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_new",
-      "community": 76,
+      "community": 22,
       "norm_label": ".new()"
     },
     {
@@ -10546,7 +10596,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_self",
-      "community": 76,
+      "community": 22,
       "norm_label": "self"
     },
     {
@@ -10556,7 +10606,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_stop",
-      "community": 76,
+      "community": 22,
       "norm_label": ".stop()"
     },
     {
@@ -10566,7 +10616,7 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_set_enabled",
-      "community": 76,
+      "community": 22,
       "norm_label": ".set_enabled()"
     },
     {
@@ -10576,7 +10626,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_start",
-      "community": 76,
+      "community": 22,
       "norm_label": ".start()"
     },
     {
@@ -10586,7 +10636,7 @@
       "source_location": "L148",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_poll_commands",
-      "community": 76,
+      "community": 22,
       "norm_label": ".poll_commands()"
     },
     {
@@ -10596,7 +10646,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_vec",
-      "community": 76,
+      "community": 22,
       "norm_label": "vec"
     },
     {
@@ -12218,6 +12268,56 @@
       "weight": 1.0,
       "source": "dump1090_src_adaptive",
       "target": "dump1090_src_adaptive_count_loud_samples",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L650",
+      "weight": 1.0,
+      "source": "dump1090_src_adaptive",
+      "target": "dump1090_src_adaptive_count_loud_samples_all_loud",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L643",
+      "weight": 1.0,
+      "source": "dump1090_src_adaptive",
+      "target": "dump1090_src_adaptive_count_loud_samples_at_threshold",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L637",
+      "weight": 1.0,
+      "source": "dump1090_src_adaptive",
+      "target": "dump1090_src_adaptive_count_loud_samples_below_threshold",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L632",
+      "weight": 1.0,
+      "source": "dump1090_src_adaptive",
+      "target": "dump1090_src_adaptive_count_loud_samples_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/adaptive.rs",
+      "source_location": "L656",
+      "weight": 1.0,
+      "source": "dump1090_src_adaptive",
+      "target": "dump1090_src_adaptive_count_loud_samples_mixed",
       "confidence_score": 1.0
     },
     {
@@ -13969,6 +14069,28 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/main.rs",
+      "source_location": "L22",
+      "weight": 1.0,
+      "context": "import",
+      "source": "dump1090_src_main",
+      "target": "dump1090_src_demod",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/adsb_decoder.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import",
+      "source": "ez_gui_src_adsb_decoder",
+      "target": "dump1090_src_demod",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
@@ -15314,17 +15436,6 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "dump1090/src/main.rs",
-      "source_location": "L22",
-      "weight": 1.0,
-      "context": "import",
-      "source": "dump1090_src_main",
-      "target": "ez_gui_src_demod",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/main.rs",
@@ -15687,10 +15798,70 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L88",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_s",
+      "target": "dump1090_src_mode_s_decode_mode_s_message_stub_returns_none",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L75",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_s",
+      "target": "dump1090_src_mode_s_decode_mode_s_with_bits_returns_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L66",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_s",
+      "target": "dump1090_src_mode_s_decode_mode_s_zero_bits_returns_none",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_s.rs",
       "source_location": "L27",
       "weight": 1.0,
       "source": "dump1090_src_mode_s",
       "target": "dump1090_src_mode_s_extract_df",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L59",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_s",
+      "target": "dump1090_src_mode_s_extract_df_all_ones",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L53",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_s",
+      "target": "dump1090_src_mode_s_extract_df_from_short_msg_works",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L46",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_s",
+      "target": "dump1090_src_mode_s_extract_df_from_valid_msg",
       "confidence_score": 1.0
     },
     {
@@ -15746,6 +15917,17 @@
       "context": "generic_arg",
       "source": "dump1090_src_mode_s_decode_mode_s",
       "target": "dump1090_src_mode_s_aircraftmessage",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_s.rs",
+      "source_location": "L82",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_s_decode_mode_s_with_bits_returns_message",
+      "target": "dump1090_src_mode_s_decode_mode_s",
       "confidence_score": 1.0
     },
     {
@@ -18502,17 +18684,6 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/adsb_decoder.rs",
-      "source_location": "L1",
-      "weight": 1.0,
-      "context": "import",
-      "source": "ez_gui_src_adsb_decoder",
-      "target": "ez_gui_src_demod",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/adsb_decoder.rs",
@@ -21177,6 +21348,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/airport_db.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "context": "import",
+      "source": "ez_gui_src_airport_db",
+      "target": "connection",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/airport_db.rs",
@@ -21244,17 +21426,6 @@
       "weight": 1.0,
       "source": "ez_gui_src_airport_db",
       "target": "ez_gui_src_airport_db_freqtype",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/airport_db.rs",
-      "source_location": "L3",
-      "weight": 1.0,
-      "context": "import",
-      "source": "ez_gui_src_airport_db",
-      "target": "ez_gui_src_airport_db_rs_connection",
       "confidence_score": 1.0
     },
     {
@@ -21842,7 +22013,7 @@
       "weight": 1.0,
       "context": "parameter_type",
       "source": "ez_gui_src_airport_db_airportdb_load_from_sqlite",
-      "target": "ez_gui_src_airport_db_rs_connection",
+      "target": "connection",
       "confidence_score": 1.0
     },
     {
@@ -24209,10 +24380,50 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L213",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output",
+      "target": "ez_gui_src_audio_output_audio_output_mark_failed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L179",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output",
+      "target": "ez_gui_src_audio_output_audio_output_new_defaults",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L197",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output",
+      "target": "ez_gui_src_audio_output_audio_output_start_fails_without_feature",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L187",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output",
+      "target": "ez_gui_src_audio_output_audio_output_stop_clears_state",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/audio_output.rs",
-      "source_location": "L129",
+      "source_location": "L176",
       "weight": 1.0,
       "context": "import",
       "source": "ez_gui_src_audio_output",
@@ -24323,6 +24534,50 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L214",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_mark_failed",
+      "target": "ez_gui_src_audio_output_audiooutput_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L180",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_new_defaults",
+      "target": "ez_gui_src_audio_output_audiooutput_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L198",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_start_fails_without_feature",
+      "target": "ez_gui_src_audio_output_audiooutput_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L188",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_stop_clears_state",
+      "target": "ez_gui_src_audio_output_audiooutput_new",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/audio_output.rs",
@@ -24331,6 +24586,17 @@
       "context": "return_type",
       "source": "ez_gui_src_audio_output_audiooutput_new",
       "target": "ez_gui_src_audio_output_rs_self",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L200",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_start_fails_without_feature",
+      "target": "ez_gui_src_audio_output_audiooutput_start",
       "confidence_score": 1.0
     },
     {
@@ -24408,6 +24674,39 @@
       "context": "generic_arg",
       "source": "ez_gui_src_audio_output_audiooutput_start",
       "target": "ez_gui_src_audio_output_rs_vec",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L216",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_mark_failed",
+      "target": "ez_gui_src_audio_output_audiooutput_mark_failed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L189",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_stop_clears_state",
+      "target": "ez_gui_src_audio_output_audiooutput_mark_failed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/audio_output.rs",
+      "source_location": "L191",
+      "weight": 1.0,
+      "source": "ez_gui_src_audio_output_audio_output_stop_clears_state",
+      "target": "ez_gui_src_audio_output_audiooutput_stop",
       "confidence_score": 1.0
     },
     {
@@ -25135,271 +25434,6 @@
       "context": "parameter_type",
       "source": "ez_gui_src_config_appconfig_ui",
       "target": "ez_gui_src_config_rs_ui",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L11",
-      "weight": 1.0,
-      "source": "ez_gui_src_database",
-      "target": "ez_gui_src_database_aircraftrecord",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L37",
-      "weight": 1.0,
-      "source": "ez_gui_src_database",
-      "target": "ez_gui_src_database_bookmarkrecord",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L5",
-      "weight": 1.0,
-      "source": "ez_gui_src_database",
-      "target": "ez_gui_src_database_database",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L24",
-      "weight": 1.0,
-      "source": "ez_gui_src_database",
-      "target": "ez_gui_src_database_passrecord",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L176",
-      "weight": 1.0,
-      "source": "ez_gui_src_database_database",
-      "target": "ez_gui_src_database_database_get_aircraft_count",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L157",
-      "weight": 1.0,
-      "source": "ez_gui_src_database_database",
-      "target": "ez_gui_src_database_database_get_all_aircraft",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L147",
-      "weight": 1.0,
-      "source": "ez_gui_src_database_database",
-      "target": "ez_gui_src_database_database_log_event",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L47",
-      "weight": 1.0,
-      "source": "ez_gui_src_database_database",
-      "target": "ez_gui_src_database_database_open_or_create",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L138",
-      "weight": 1.0,
-      "source": "ez_gui_src_database_database",
-      "target": "ez_gui_src_database_database_record_pass",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L122",
-      "weight": 1.0,
-      "source": "ez_gui_src_database_database",
-      "target": "ez_gui_src_database_database_upsert_aircraft",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L6",
-      "weight": 1.0,
-      "context": "field",
-      "source": "ez_gui_src_database_database",
-      "target": "ez_gui_src_database_rs_connection",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L13",
-      "weight": 1.0,
-      "context": "field",
-      "source": "ez_gui_src_database_aircraftrecord",
-      "target": "ez_gui_src_database_rs_string",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L157",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "source": "ez_gui_src_database_database_get_all_aircraft",
-      "target": "ez_gui_src_database_aircraftrecord",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L122",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "source": "ez_gui_src_database_database_upsert_aircraft",
-      "target": "ez_gui_src_database_aircraftrecord",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L42",
-      "weight": 1.0,
-      "context": "field",
-      "source": "ez_gui_src_database_bookmarkrecord",
-      "target": "ez_gui_src_database_rs_string",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L31",
-      "weight": 1.0,
-      "context": "field",
-      "source": "ez_gui_src_database_passrecord",
-      "target": "ez_gui_src_database_rs_string",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L138",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "source": "ez_gui_src_database_database_record_pass",
-      "target": "ez_gui_src_database_passrecord",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L47",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "ez_gui_src_database_database_open_or_create",
-      "target": "ez_gui_src_database_rs_result",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L47",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "source": "ez_gui_src_database_database_open_or_create",
-      "target": "ez_gui_src_database_rs_self",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L176",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "ez_gui_src_database_database_get_aircraft_count",
-      "target": "ez_gui_src_database_rs_result",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L157",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "ez_gui_src_database_database_get_all_aircraft",
-      "target": "ez_gui_src_database_rs_result",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L147",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "ez_gui_src_database_database_log_event",
-      "target": "ez_gui_src_database_rs_result",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L138",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "ez_gui_src_database_database_record_pass",
-      "target": "ez_gui_src_database_rs_result",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L122",
-      "weight": 1.0,
-      "context": "return_type",
-      "source": "ez_gui_src_database_database_upsert_aircraft",
-      "target": "ez_gui_src_database_rs_result",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/database.rs",
-      "source_location": "L157",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "source": "ez_gui_src_database_database_get_all_aircraft",
-      "target": "ez_gui_src_database_rs_vec",
       "confidence_score": 1.0
     },
     {
@@ -29165,7 +29199,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/main.rs",
-      "source_location": "L31",
+      "source_location": "L30",
       "weight": 1.0,
       "source": "ez_gui_src_main",
       "target": "ez_gui_src_main_main",
@@ -29175,11 +29209,71 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/main.rs",
-      "source_location": "L31",
+      "source_location": "L30",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_main_main",
       "target": "ez_gui_src_main_rs_result",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L210",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt",
+      "target": "ez_gui_src_mqtt_mqtt_is_connected_requires_enabled_and_client",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L171",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt",
+      "target": "ez_gui_src_mqtt_mqtt_new_defaults_disabled",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L186",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt",
+      "target": "ez_gui_src_mqtt_mqtt_new_no_reconnect",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L180",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt",
+      "target": "ez_gui_src_mqtt_mqtt_new_not_connected",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L201",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt",
+      "target": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L192",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt",
+      "target": "ez_gui_src_mqtt_mqtt_set_enabled_disabled_noop",
       "confidence_score": 1.0
     },
     {
@@ -29415,6 +29509,72 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L211",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_is_connected_requires_enabled_and_client",
+      "target": "ez_gui_src_mqtt_mqttpublisher_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L172",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_new_defaults_disabled",
+      "target": "ez_gui_src_mqtt_mqttpublisher_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L187",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_new_no_reconnect",
+      "target": "ez_gui_src_mqtt_mqttpublisher_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L181",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_new_not_connected",
+      "target": "ez_gui_src_mqtt_mqttpublisher_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L202",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
+      "target": "ez_gui_src_mqtt_mqttpublisher_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L193",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_set_enabled_disabled_noop",
+      "target": "ez_gui_src_mqtt_mqttpublisher_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
       "source_location": "L44",
       "weight": 1.0,
       "source": "ez_gui_src_mqtt_mqttpublisher_connect",
@@ -29430,6 +29590,17 @@
       "context": "return_type",
       "source": "ez_gui_src_mqtt_mqttpublisher_new",
       "target": "ez_gui_src_mqtt_rs_self",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L194",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_set_enabled_disabled_noop",
+      "target": "ez_gui_src_mqtt_mqttpublisher_set_enabled",
       "confidence_score": 1.0
     },
     {
@@ -29463,6 +29634,17 @@
       "weight": 1.0,
       "source": "ez_gui_src_mqtt_mqttpublisher_tick_reconnect",
       "target": "ez_gui_src_mqtt_mqttpublisher_connect",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L203",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
+      "target": "ez_gui_src_mqtt_mqttpublisher_publish",
       "confidence_score": 1.0
     },
     {
@@ -29518,6 +29700,39 @@
       "weight": 1.0,
       "source": "ez_gui_src_mqtt_mqttpublisher_tick",
       "target": "ez_gui_src_mqtt_mqttpublisher_publish",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L206",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
+      "target": "ez_gui_src_mqtt_mqttpublisher_tick",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L204",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
+      "target": "ez_gui_src_mqtt_mqttpublisher_publish_signal",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/mqtt.rs",
+      "source_location": "L205",
+      "weight": 1.0,
+      "source": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
+      "target": "ez_gui_src_mqtt_mqttpublisher_publish_scanner_hit",
       "confidence_score": 1.0
     },
     {
@@ -36567,5 +36782,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "db50e8f12fc5a44d615ab24bb57ee7a8a354523e"
+  "built_at_commit": "6e30f933eeb6a8f21aedb5f16e68d4a6f57660c2"
 }
