@@ -40,8 +40,8 @@ impl SatellitePanel {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        // Antenna setup checklist gate
+    /// SatDump-style simplified view: preset picker + pass tracking, front and center.
+    pub fn ui_simple(&mut self, ui: &mut egui::Ui) {
         if !self.checklist.ui(ui) {
             if let Some(msg) = self.checklist.pending_status.take() {
                 self.pending_status = Some(msg);
@@ -53,23 +53,98 @@ impl SatellitePanel {
         }
 
         ui.heading("Satellite Tracking");
+        ui.add_space(4.0);
 
-        // User level check for adaptive UI
-        let user_level = self.shared.try_lock()
-            .map(|s| crate::user_level::UserLevel::from_str(&s.config.user_level))
-            .unwrap_or(crate::user_level::UserLevel::Beginner);
-        if user_level.simplify_layout() {
-            ui.add_space(4.0);
-            if ui.add(egui::Button::new(egui::RichText::new("🤖 Ask AI to track a satellite").size(14.0))
-                .min_size(egui::vec2(220.0, 28.0))
-                .fill(egui::Color32::from_rgb(40, 60, 120)))
-                .on_hover_text("Let the AI assistant set up satellite tracking for you. Just tell it which satellite to track.")
-                .clicked()
-            {
-                self.pending_ai_prompt = Some("Help me track a satellite. What satellites are currently active and how do I set up tracking?".to_string());
+        // Satellite preset picker — one-click track/tune
+        ui.label(egui::RichText::new("Satellites").strong());
+        let presets: &[(&str, u64, &str)] = &[
+            ("NOAA 15", 137_620_000, "APT weather imagery"),
+            ("NOAA 18", 137_912_500, "APT weather imagery"),
+            ("NOAA 19", 137_100_000, "APT weather imagery"),
+            ("Meteor-M2-2", 137_100_000, "LRPT weather imagery"),
+            ("ISS", 145_800_000, "Voice / APRS / SSTV"),
+        ];
+        egui::Grid::new("sat_preset_grid").num_columns(1).spacing([0.0, 4.0]).show(ui, |ui| {
+            for (name, freq_hz, desc) in presets {
+                let selected = self.selected_sat.as_deref() == Some(*name);
+                let fg = if selected { egui::Color32::BLACK } else { egui::Color32::from_rgb(210, 220, 235) };
+                let bg = if selected { egui::Color32::from_rgb(0, 168, 255) } else { egui::Color32::from_rgb(24, 30, 40) };
+                let btn = egui::Button::new(
+                    egui::RichText::new(format!("🛰 {}\n{:.3} MHz — {}", name, *freq_hz as f64 / 1e6, desc))
+                        .color(fg).size(13.0)
+                )
+                .fill(bg)
+                .min_size(egui::vec2(ui.available_width(), 40.0));
+                if ui.add(btn).on_hover_text(format!("Track {} and tune to its downlink frequency", name)).clicked() {
+                    self.selected_sat = Some(name.to_string());
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.source.frequency_hz = *freq_hz;
+                    }
+                    self.auto_tune = true;
+                }
+                ui.end_row();
             }
-            ui.add_space(4.0);
+        });
+
+        ui.add_space(8.0);
+        ui.separator();
+
+        // Pass tracking, front and center
+        if self.pass_cache_at.elapsed() > std::time::Duration::from_secs(5) {
+            if let Ok(mut state) = self.shared.try_lock() {
+                self.cached_passes = state.tle.upcoming_passes().to_vec();
+                self.pass_cache_at = std::time::Instant::now();
+            }
         }
+        let passes = self.cached_passes.clone();
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+
+        if let Some(active) = passes.iter().find(|p| p.aos_dt <= now_unix && p.los_dt > now_unix) {
+            let remaining = (active.los_dt - now_unix).max(0.0) as u64;
+            ui.group(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(50, 255, 100),
+                    egui::RichText::new(format!("▶ {} — IN PASS", active.satellite)).size(15.0).strong());
+                ui.label(format!("{:02}:{:02} remaining · max elevation {:.0}°", remaining / 60, remaining % 60, active.max_elevation));
+                if self.auto_tune {
+                    ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "✓ Auto-tune & Doppler correction active");
+                }
+            });
+        } else if let Some(next) = passes.iter().filter(|p| p.aos_dt > now_unix)
+            .min_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            let secs = (next.aos_dt - now_unix).max(0.0) as u64;
+            ui.group(|ui| {
+                ui.label(egui::RichText::new(format!("Next pass: {}", next.satellite)).size(14.0).strong());
+                let countdown = if secs < 3600 { format!("{}m {}s", secs / 60, secs % 60) } else { format!("{}h {}m", secs / 3600, (secs % 3600) / 60) };
+                ui.label(format!("in {} · AOS {} · max elevation {:.0}°", countdown, next.aos, next.max_elevation));
+                if ui.button("▶ Track this pass").on_hover_text("Select this satellite and enable auto-tune for the upcoming pass").clicked() {
+                    self.selected_sat = Some(next.satellite.clone());
+                    self.auto_tune = true;
+                }
+            });
+        } else {
+            ui.colored_label(egui::Color32::GRAY, "No upcoming passes — update TLE data or check observer location in Advanced.");
+        }
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.auto_tune, "Auto-tune + Doppler");
+            ui.checkbox(&mut self.auto_record, "Auto-record");
+        });
+
+        ui.add_space(4.0);
+        if ui.button("🤖 Ask AI to track a satellite").clicked() {
+            self.pending_ai_prompt = Some("Help me track a satellite. What satellites are currently active and how do I set up tracking?".to_string());
+        }
+    }
+
+    /// Advanced sub-tab: Doppler detail, manual observer/frequency overrides, full pass table.
+    pub fn ui_advanced(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Satellite — Advanced");
+        ui.add_space(4.0);
 
         // Sync observer location from shared state (e.g., when Settings → Save applies config values)
         if let Ok(state) = self.shared.try_lock() {
@@ -134,7 +209,21 @@ impl SatellitePanel {
         });
 
         ui.separator();
+        ui.heading("Manual Frequency Override");
+        ui.horizontal(|ui| {
+            if let Ok(mut state) = self.shared.try_lock() {
+                let mut mhz = state.source.frequency_hz as f64 / 1e6;
+                if ui.add(egui::DragValue::new(&mut mhz).speed(0.001).suffix(" MHz")).changed() {
+                    state.source.frequency_hz = (mhz * 1e6) as u64;
+                }
+            }
+        });
 
+        ui.separator();
+        self.ui_pass_table(ui);
+    }
+
+    fn ui_pass_table(&mut self, ui: &mut egui::Ui) {
         ui.heading("Upcoming Passes");
         if self.pass_cache_at.elapsed() > std::time::Duration::from_secs(5) {
             if let Ok(mut state) = self.shared.try_lock() {

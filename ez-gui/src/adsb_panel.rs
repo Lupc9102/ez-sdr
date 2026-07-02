@@ -1113,7 +1113,12 @@ impl AdsBPanel {
 
         ui.add_space(16.0);
         ui.separator();
-        // ── ADS-B Antenna Setup Tutorial ─────────────────────────────────
+        self.ui_antenna_guide(ui);
+    }
+
+    /// Renders the standalone ADS-B receive/antenna setup guide — used as an
+    /// on-page instructions banner on the ADS-B tab.
+    pub fn ui_antenna_guide(&mut self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
         ui.label(egui::RichText::new("📡 ADS-B Antenna Setup Guide").size(16.0).strong());
         ui.add_space(4.0);
