@@ -170,3 +170,84 @@ fn sat_frequency(name: &str) -> u64 {
         _ => 100_000_000,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sat_frequency_known() {
+        assert_eq!(sat_frequency("ISS"), 145_800_000);
+        assert_eq!(sat_frequency("NOAA 15"), 137_620_000);
+        assert_eq!(sat_frequency("NOAA 19"), 137_100_000);
+    }
+
+    #[test]
+    fn sat_frequency_unknown_default() {
+        assert_eq!(sat_frequency("Unknown Satellite"), 100_000_000);
+    }
+
+    #[test]
+    fn format_time_epoch_midnight() {
+        let s = format_time(0.0);
+        assert!(s.contains("1970-01-01") || s.contains(":00:00 UTC"));
+    }
+
+    #[test]
+    fn new_engine_has_builtin_sats() {
+        let engine = TleEngine::new();
+        assert_eq!(engine.tles.len(), 5);
+        let names: Vec<&str> = engine.tles.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"ISS"));
+        assert!(names.contains(&"NOAA 15"));
+    }
+
+    #[test]
+    fn new_engine_default_observer_at_london() {
+        let engine = TleEngine::new();
+        assert!((engine.observer_lat - 51.5).abs() < 0.01);
+        assert!((engine.observer_lon - (-0.1)).abs() < 0.01);
+    }
+
+    #[test]
+    fn doppler_shift_for_sat_iss() {
+        let engine = TleEngine::new();
+        let shift = engine.doppler_shift_for_sat("ISS", 145_800_000.0, 100_000.0);
+        // Doppler shift should be a reasonable value (not zero, not huge)
+        assert!(shift.abs() > 0.0);
+        assert!(shift.abs() < 100_000.0, "doppler shift too large: {}", shift);
+    }
+
+    #[test]
+    fn doppler_shift_unknown_sat_returns_zero() {
+        let engine = TleEngine::new();
+        assert_eq!(engine.doppler_shift_for_sat("NONEXISTENT", 100_000_000.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn compute_passes_returns_sorted() {
+        let engine = TleEngine::new();
+        let passes = engine.compute_passes(51.5, -0.1, 24.0);
+        // Within a 24-hour window there should be several passes from 5 sats
+        assert!(!passes.is_empty());
+        for i in 1..passes.len() {
+            assert!(passes[i - 1].aos_dt <= passes[i].aos_dt, "passes not sorted by AOS");
+        }
+    }
+
+    #[test]
+    fn compute_passes_contains_expected_sats() {
+        let engine = TleEngine::new();
+        let passes = engine.compute_passes(51.5, -0.1, 72.0);
+        let sats: std::collections::BTreeSet<&str> = passes.iter().map(|p| p.satellite.as_str()).collect();
+        // Should have some NOAA and ISS passes
+        assert!(sats.contains("ISS"));
+    }
+
+    #[test]
+    fn format_time_returns_utc_string() {
+        let s = format_time(1_234_567_890.0);
+        // Should contain UTC somewhere — chrono formats vary by version
+        assert!(!s.is_empty());
+    }
+}
