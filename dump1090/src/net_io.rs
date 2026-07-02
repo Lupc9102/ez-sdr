@@ -194,4 +194,64 @@ mod tests {
         let count = frame.iter().filter(|&&b| b == 0x1a).count();
         assert_eq!(count, 3);
     }
+
+    #[test]
+    fn beast_frame_indicator_for_2byte_msg() {
+        let frame = encode_beast_frame(0, 0, &[0x00, 0x00]);
+        assert_eq!(frame[1], 0x31);
+    }
+
+    #[test]
+    fn beast_frame_indicator_for_7byte_msg() {
+        let frame = encode_beast_frame(0, 0, &[0u8; 7]);
+        assert_eq!(frame[1], 0x32);
+    }
+
+    #[test]
+    fn beast_frame_indicator_for_14byte_msg() {
+        let frame = encode_beast_frame(0, 0, &[0u8; 14]);
+        assert_eq!(frame[1], 0x33);
+    }
+
+    #[test]
+    fn beast_frame_indicator_defaults_to_long() {
+        let frame = encode_beast_frame(0, 0, &[0u8; 20]);
+        assert_eq!(frame[1], 0x33);
+    }
+
+    #[test]
+    fn beast_frame_timestamp_is_6_bytes_be() {
+        let frame = encode_beast_frame(0x123456789ABC, 0, &[0u8; 7]);
+        // to_be_bytes() is [0x00,0x00,0x12,0x34,0x56,0x78,0x9A,0xBC], sliced from [2..]
+        assert_eq!(frame[2], 0x12);
+        assert_eq!(frame[3], 0x34);
+        assert_eq!(frame[4], 0x56);
+        assert_eq!(frame[5], 0x78);
+        assert_eq!(frame.len(), 1 + 1 + 6 + 1 + 7);
+    }
+
+    #[test]
+    fn beast_frame_contains_signal_byte() {
+        let frame = encode_beast_frame(0, 0xAB, &[0u8; 7]);
+        assert_eq!(frame[8], 0xAB);
+    }
+
+    #[test]
+    fn hex_digit_0_to_9() {
+        assert_eq!(hex_digit(0), b'0');
+        assert_eq!(hex_digit(5), b'5');
+        assert_eq!(hex_digit(9), b'9');
+    }
+
+    #[test]
+    fn hex_digit_a_to_f() {
+        assert_eq!(hex_digit(10), b'A');
+        assert_eq!(hex_digit(15), b'F');
+    }
+
+    #[test]
+    fn hex_digit_out_of_range() {
+        assert_eq!(hex_digit(16), b'?');
+        assert_eq!(hex_digit(255), b'?');
+    }
 }
