@@ -3003,18 +3003,6 @@ impl CentralApp {
     }
 }
 
-/// Read process RSS memory from /proc/self/status (Linux).
-fn proc_memory_kb() -> Option<u64> {
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    for line in status.lines() {
-        if let Some(val) = line.strip_prefix("VmRSS:") {
-            let kb: u64 = val.trim().trim_end_matches(" kB").parse().ok()?;
-            return Some(kb);
-        }
-    }
-    None
-}
-
 /// Parse "HH:MM" or "HH:MM:SS" as a unix timestamp for today in local time.
 fn parse_hhmm_today(s: &str) -> Option<f64> {
     let parts: Vec<&str> = s.split(':').collect();
