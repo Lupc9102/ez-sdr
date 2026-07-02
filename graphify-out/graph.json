@@ -306,7 +306,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_convert",
-      "community": 7,
+      "community": 77,
       "norm_label": "convert.rs"
     },
     {
@@ -316,7 +316,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "dump1090_src_convert_to_magnitude",
-      "community": 7,
+      "community": 77,
       "norm_label": "to_magnitude()"
     },
     {
@@ -326,7 +326,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "dump1090_src_convert_iqformat",
-      "community": 7,
+      "community": 79,
       "norm_label": "iqformat"
     },
     {
@@ -336,7 +336,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "dump1090_src_convert_convert_uc8_to_mag",
-      "community": 7,
+      "community": 77,
       "norm_label": "convert_uc8_to_mag()"
     },
     {
@@ -346,7 +346,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "dump1090_src_convert_convert_sc16_to_mag",
-      "community": 7,
+      "community": 77,
       "norm_label": "convert_sc16_to_mag()"
     },
     {
@@ -356,8 +356,88 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "dump1090_src_convert_convert_sc16q11_to_mag",
-      "community": 7,
+      "community": 77,
       "norm_label": "convert_sc16q11_to_mag()"
+    },
+    {
+      "label": "to_magnitude_passthrough()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L64",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_to_magnitude_passthrough",
+      "community": 77,
+      "norm_label": "to_magnitude_passthrough()"
+    },
+    {
+      "label": "convert_uc8_to_mag_zero_input()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L70",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_convert_uc8_to_mag_zero_input",
+      "community": 77,
+      "norm_label": "convert_uc8_to_mag_zero_input()"
+    },
+    {
+      "label": "convert_uc8_to_mag_max_input()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L79",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_convert_uc8_to_mag_max_input",
+      "community": 77,
+      "norm_label": "convert_uc8_to_mag_max_input()"
+    },
+    {
+      "label": "convert_uc8_to_mag_shorter_dst()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L87",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_convert_uc8_to_mag_shorter_dst",
+      "community": 77,
+      "norm_label": "convert_uc8_to_mag_shorter_dst()"
+    },
+    {
+      "label": "convert_sc16_to_mag_known()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L95",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_convert_sc16_to_mag_known",
+      "community": 77,
+      "norm_label": "convert_sc16_to_mag_known()"
+    },
+    {
+      "label": "convert_sc16_to_mag_negative_iq()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L104",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_convert_sc16_to_mag_negative_iq",
+      "community": 77,
+      "norm_label": "convert_sc16_to_mag_negative_iq()"
+    },
+    {
+      "label": "convert_sc16q11_to_mag_known()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L112",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_convert_sc16q11_to_mag_known",
+      "community": 77,
+      "norm_label": "convert_sc16q11_to_mag_known()"
+    },
+    {
+      "label": "convert_sc16q11_to_mag_clamp()",
+      "file_type": "code",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L120",
+      "_origin": "ast",
+      "id": "dump1090_src_convert_convert_sc16q11_to_mag_clamp",
+      "community": 77,
+      "norm_label": "convert_sc16q11_to_mag_clamp()"
     },
     {
       "label": "cpr.rs",
@@ -1350,6 +1430,76 @@
       "norm_label": ".default()"
     },
     {
+      "label": "new_filter_is_empty()",
+      "file_type": "code",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L81",
+      "_origin": "ast",
+      "id": "dump1090_src_icao_filter_new_filter_is_empty",
+      "community": 29,
+      "norm_label": "new_filter_is_empty()"
+    },
+    {
+      "label": "contains_after_add()",
+      "file_type": "code",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L87",
+      "_origin": "ast",
+      "id": "dump1090_src_icao_filter_contains_after_add",
+      "community": 29,
+      "norm_label": "contains_after_add()"
+    },
+    {
+      "label": "contains_multiple_addresses()",
+      "file_type": "code",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L94",
+      "_origin": "ast",
+      "id": "dump1090_src_icao_filter_contains_multiple_addresses",
+      "community": 29,
+      "norm_label": "contains_multiple_addresses()"
+    },
+    {
+      "label": "clear_removes_all()",
+      "file_type": "code",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L105",
+      "_origin": "ast",
+      "id": "dump1090_src_icao_filter_clear_removes_all",
+      "community": 29,
+      "norm_label": "clear_removes_all()"
+    },
+    {
+      "label": "default_equals_new()",
+      "file_type": "code",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L115",
+      "_origin": "ast",
+      "id": "dump1090_src_icao_filter_default_equals_new",
+      "community": 29,
+      "norm_label": "default_equals_new()"
+    },
+    {
+      "label": "hash_is_deterministic()",
+      "file_type": "code",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L120",
+      "_origin": "ast",
+      "id": "dump1090_src_icao_filter_hash_is_deterministic",
+      "community": 29,
+      "norm_label": "hash_is_deterministic()"
+    },
+    {
+      "label": "zero_address()",
+      "file_type": "code",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L130",
+      "_origin": "ast",
+      "id": "dump1090_src_icao_filter_zero_address",
+      "community": 29,
+      "norm_label": "zero_address()"
+    },
+    {
       "label": "lib.rs",
       "file_type": "code",
       "source_file": "dump1090/src/lib.rs",
@@ -2156,7 +2306,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile",
-      "community": 7,
+      "community": 80,
       "norm_label": "ifile.rs"
     },
     {
@@ -2166,7 +2316,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_source",
-      "community": 7,
+      "community": 30,
       "norm_label": "source"
     },
     {
@@ -2176,7 +2326,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "read",
-      "community": 7,
+      "community": 30,
       "norm_label": "read"
     },
     {
@@ -2186,7 +2336,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_source_read",
-      "community": 7,
+      "community": 30,
       "norm_label": ".read()"
     },
     {
@@ -2196,7 +2346,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_rs_result",
-      "community": 7,
+      "community": 30,
       "norm_label": "result"
     },
     {
@@ -2206,7 +2356,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "seek",
-      "community": 7,
+      "community": 30,
       "norm_label": "seek"
     },
     {
@@ -2216,7 +2366,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_source_seek",
-      "community": 7,
+      "community": 30,
       "norm_label": ".seek()"
     },
     {
@@ -2226,7 +2376,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "seekfrom",
-      "community": 7,
+      "community": 30,
       "norm_label": "seekfrom"
     },
     {
@@ -2236,7 +2386,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr",
-      "community": 7,
+      "community": 30,
       "norm_label": "ifilesdr"
     },
     {
@@ -2246,7 +2396,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_rs_option",
-      "community": 7,
+      "community": 30,
       "norm_label": "option"
     },
     {
@@ -2256,7 +2406,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_rs_string",
-      "community": 7,
+      "community": 30,
       "norm_label": "string"
     },
     {
@@ -2266,7 +2416,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_rs_vec",
-      "community": 7,
+      "community": 30,
       "norm_label": "vec"
     },
     {
@@ -2276,7 +2426,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_new",
-      "community": 7,
+      "community": 79,
       "norm_label": ".new()"
     },
     {
@@ -2286,7 +2436,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "asref",
-      "community": 7,
+      "community": 79,
       "norm_label": "asref"
     },
     {
@@ -2296,7 +2446,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_rs_self",
-      "community": 7,
+      "community": 79,
       "norm_label": "self"
     },
     {
@@ -2306,7 +2456,7 @@
       "source_location": "L64",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_set_loop",
-      "community": 7,
+      "community": 30,
       "norm_label": ".set_loop()"
     },
     {
@@ -2316,7 +2466,7 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_open",
-      "community": 7,
+      "community": 79,
       "norm_label": ".open()"
     },
     {
@@ -2326,7 +2476,7 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_read_raw",
-      "community": 7,
+      "community": 30,
       "norm_label": ".read_raw()"
     },
     {
@@ -2336,7 +2486,7 @@
       "source_location": "L103",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_convert",
-      "community": 7,
+      "community": 30,
       "norm_label": ".convert()"
     },
     {
@@ -2346,7 +2496,7 @@
       "source_location": "L114",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_start",
-      "community": 7,
+      "community": 30,
       "norm_label": ".start()"
     },
     {
@@ -2356,7 +2506,7 @@
       "source_location": "L118",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_stop",
-      "community": 7,
+      "community": 30,
       "norm_label": ".stop()"
     },
     {
@@ -2366,7 +2516,7 @@
       "source_location": "L122",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_set_frequency",
-      "community": 7,
+      "community": 30,
       "norm_label": ".set_frequency()"
     },
     {
@@ -2376,7 +2526,7 @@
       "source_location": "L127",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_set_sample_rate",
-      "community": 7,
+      "community": 30,
       "norm_label": ".set_sample_rate()"
     },
     {
@@ -2386,7 +2536,7 @@
       "source_location": "L132",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_set_gain",
-      "community": 7,
+      "community": 30,
       "norm_label": ".set_gain()"
     },
     {
@@ -2396,7 +2546,7 @@
       "source_location": "L137",
       "_origin": "ast",
       "id": "dump1090_src_sdr_ifile_ifilesdr_read_samples",
-      "community": 7,
+      "community": 30,
       "norm_label": ".read_samples()"
     },
     {
@@ -2406,7 +2556,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod",
-      "community": 7,
+      "community": 80,
       "norm_label": "mod.rs"
     },
     {
@@ -2416,7 +2566,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_sdrsource",
-      "community": 7,
+      "community": 80,
       "norm_label": "sdrsource"
     },
     {
@@ -2426,7 +2576,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_rs_send",
-      "community": 7,
+      "community": 80,
       "norm_label": "send"
     },
     {
@@ -7386,7 +7536,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "file",
-      "community": 7,
+      "community": 80,
       "norm_label": "file"
     },
     {
@@ -8118,6 +8268,116 @@
       "id": "ez_gui_src_scheduler_scheduler_poll_custom_tasks",
       "community": 10,
       "norm_label": ".poll_custom_tasks()"
+    },
+    {
+      "label": "new_scheduler_starts_empty()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L71",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_new_scheduler_starts_empty",
+      "community": 10,
+      "norm_label": "new_scheduler_starts_empty()"
+    },
+    {
+      "label": "active_job_returns_none_when_disabled()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L79",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_active_job_returns_none_when_disabled",
+      "community": 10,
+      "norm_label": "active_job_returns_none_when_disabled()"
+    },
+    {
+      "label": "make_scheduler()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L94",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_make_scheduler",
+      "community": 10,
+      "norm_label": "make_scheduler()"
+    },
+    {
+      "label": "active_job_finds_job_in_window()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L108",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_active_job_finds_job_in_window",
+      "community": 10,
+      "norm_label": "active_job_finds_job_in_window()"
+    },
+    {
+      "label": "active_job_returns_none_outside_window()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L116",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_active_job_returns_none_outside_window",
+      "community": 10,
+      "norm_label": "active_job_returns_none_outside_window()"
+    },
+    {
+      "label": "active_job_prefers_first_match()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L125",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_active_job_prefers_first_match",
+      "community": 10,
+      "norm_label": "active_job_prefers_first_match()"
+    },
+    {
+      "label": "poll_custom_tasks_returns_pending()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L143",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_poll_custom_tasks_returns_pending",
+      "community": 10,
+      "norm_label": "poll_custom_tasks_returns_pending()"
+    },
+    {
+      "label": "poll_custom_tasks_skips_fired()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L156",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_poll_custom_tasks_skips_fired",
+      "community": 10,
+      "norm_label": "poll_custom_tasks_skips_fired()"
+    },
+    {
+      "label": "poll_custom_tasks_not_yet_due()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L168",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_poll_custom_tasks_not_yet_due",
+      "community": 10,
+      "norm_label": "poll_custom_tasks_not_yet_due()"
+    },
+    {
+      "label": "poll_custom_tasks_marks_as_fired()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L180",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_poll_custom_tasks_marks_as_fired",
+      "community": 10,
+      "norm_label": "poll_custom_tasks_marks_as_fired()"
+    },
+    {
+      "label": "update_from_passes_populates_jobs()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L194",
+      "_origin": "ast",
+      "id": "ez_gui_src_scheduler_update_from_passes_populates_jobs",
+      "community": 10,
+      "norm_label": "update_from_passes_populates_jobs()"
     },
     {
       "label": "sdr_panel.rs",
@@ -9790,13 +10050,123 @@
       "norm_label": ".dismiss()"
     },
     {
+      "label": "user_level_from_str_valid()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L106",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_user_level_from_str_valid",
+      "community": 45,
+      "norm_label": "user_level_from_str_valid()"
+    },
+    {
+      "label": "user_level_from_str_invalid_defaults_to_beginner()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L114",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_user_level_from_str_invalid_defaults_to_beginner",
+      "community": 45,
+      "norm_label": "user_level_from_str_invalid_defaults_to_beginner()"
+    },
+    {
+      "label": "user_level_to_str_roundtrip()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L120",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_user_level_to_str_roundtrip",
+      "community": 45,
+      "norm_label": "user_level_to_str_roundtrip()"
+    },
+    {
+      "label": "user_level_labels()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L127",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_user_level_labels",
+      "community": 45,
+      "norm_label": "user_level_labels()"
+    },
+    {
+      "label": "user_level_descriptions()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L133",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_user_level_descriptions",
+      "community": 45,
+      "norm_label": "user_level_descriptions()"
+    },
+    {
+      "label": "show_advanced_controls()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L139",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_show_advanced_controls",
+      "community": 45,
+      "norm_label": "show_advanced_controls()"
+    },
+    {
+      "label": "simplify_layout()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L147",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_simplify_layout",
+      "community": 45,
+      "norm_label": "simplify_layout()"
+    },
+    {
+      "label": "has_inline_expand()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L155",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_has_inline_expand",
+      "community": 45,
+      "norm_label": "has_inline_expand()"
+    },
+    {
+      "label": "levels_returns_all_four()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L163",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_levels_returns_all_four",
+      "community": 45,
+      "norm_label": "levels_returns_all_four()"
+    },
+    {
+      "label": "tutorial_state_new()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L173",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_tutorial_state_new",
+      "community": 45,
+      "norm_label": "tutorial_state_new()"
+    },
+    {
+      "label": "tutorial_state_dismiss()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L182",
+      "_origin": "ast",
+      "id": "ez_gui_src_user_level_tutorial_state_dismiss",
+      "community": 45,
+      "norm_label": "tutorial_state_dismiss()"
+    },
+    {
       "label": "web_remote.rs",
       "file_type": "code",
       "source_file": "ez-gui/src/web_remote.rs",
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote",
-      "community": 10,
+      "community": 76,
       "norm_label": "web_remote.rs"
     },
     {
@@ -9806,7 +10176,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_remotecommand",
-      "community": 10,
+      "community": 76,
       "norm_label": "remotecommand"
     },
     {
@@ -9816,7 +10186,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote",
-      "community": 10,
+      "community": 76,
       "norm_label": "webremote"
     },
     {
@@ -9826,7 +10196,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_option",
-      "community": 10,
+      "community": 76,
       "norm_label": "option"
     },
     {
@@ -9836,7 +10206,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_sender",
-      "community": 10,
+      "community": 76,
       "norm_label": "sender"
     },
     {
@@ -9846,7 +10216,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_string",
-      "community": 10,
+      "community": 76,
       "norm_label": "string"
     },
     {
@@ -9856,7 +10226,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_receiver",
-      "community": 10,
+      "community": 76,
       "norm_label": "receiver"
     },
     {
@@ -9866,7 +10236,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_new",
-      "community": 10,
+      "community": 76,
       "norm_label": ".new()"
     },
     {
@@ -9876,7 +10246,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_self",
-      "community": 10,
+      "community": 76,
       "norm_label": "self"
     },
     {
@@ -9886,7 +10256,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_stop",
-      "community": 10,
+      "community": 76,
       "norm_label": ".stop()"
     },
     {
@@ -9896,7 +10266,7 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_set_enabled",
-      "community": 10,
+      "community": 76,
       "norm_label": ".set_enabled()"
     },
     {
@@ -9906,7 +10276,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_start",
-      "community": 10,
+      "community": 76,
       "norm_label": ".start()"
     },
     {
@@ -9916,7 +10286,7 @@
       "source_location": "L148",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_poll_commands",
-      "community": 10,
+      "community": 76,
       "norm_label": ".poll_commands()"
     },
     {
@@ -9926,7 +10296,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_rs_vec",
-      "community": 10,
+      "community": 76,
       "norm_label": "vec"
     },
     {
@@ -9936,7 +10306,7 @@
       "source_location": "L159",
       "_origin": "ast",
       "id": "ez_gui_src_web_remote_webremote_broadcast_state",
-      "community": 10,
+      "community": 76,
       "norm_label": ".broadcast_state()"
     },
     {
@@ -12062,6 +12432,26 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/convert.rs",
+      "source_location": "L95",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_convert_sc16_to_mag_known",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L104",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_convert_sc16_to_mag_negative_iq",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
       "source_location": "L47",
       "weight": 1.0,
       "source": "dump1090_src_convert",
@@ -12072,10 +12462,60 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/convert.rs",
+      "source_location": "L120",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_convert_sc16q11_to_mag_clamp",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L112",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_convert_sc16q11_to_mag_known",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
       "source_location": "L23",
       "weight": 1.0,
       "source": "dump1090_src_convert",
       "target": "dump1090_src_convert_convert_uc8_to_mag",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L79",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_convert_uc8_to_mag_max_input",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L87",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_convert_uc8_to_mag_shorter_dst",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L70",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_convert_uc8_to_mag_zero_input",
       "confidence_score": 1.0
     },
     {
@@ -12096,6 +12536,16 @@
       "weight": 1.0,
       "source": "dump1090_src_convert",
       "target": "dump1090_src_convert_to_magnitude",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L64",
+      "weight": 1.0,
+      "source": "dump1090_src_convert",
+      "target": "dump1090_src_convert_to_magnitude_passthrough",
       "confidence_score": 1.0
     },
     {
@@ -12173,6 +12623,83 @@
       "context": "parameter_type",
       "source": "dump1090_src_sdr_ifile_ifilesdr_new",
       "target": "dump1090_src_convert_iqformat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L82",
+      "weight": 1.0,
+      "source": "dump1090_src_convert_convert_uc8_to_mag_max_input",
+      "target": "dump1090_src_convert_convert_uc8_to_mag",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L90",
+      "weight": 1.0,
+      "source": "dump1090_src_convert_convert_uc8_to_mag_shorter_dst",
+      "target": "dump1090_src_convert_convert_uc8_to_mag",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L73",
+      "weight": 1.0,
+      "source": "dump1090_src_convert_convert_uc8_to_mag_zero_input",
+      "target": "dump1090_src_convert_convert_uc8_to_mag",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L98",
+      "weight": 1.0,
+      "source": "dump1090_src_convert_convert_sc16_to_mag_known",
+      "target": "dump1090_src_convert_convert_sc16_to_mag",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L107",
+      "weight": 1.0,
+      "source": "dump1090_src_convert_convert_sc16_to_mag_negative_iq",
+      "target": "dump1090_src_convert_convert_sc16_to_mag",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L123",
+      "weight": 1.0,
+      "source": "dump1090_src_convert_convert_sc16q11_to_mag_clamp",
+      "target": "dump1090_src_convert_convert_sc16q11_to_mag",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/convert.rs",
+      "source_location": "L115",
+      "weight": 1.0,
+      "source": "dump1090_src_convert_convert_sc16q11_to_mag_known",
+      "target": "dump1090_src_convert_convert_sc16q11_to_mag",
       "confidence_score": 1.0
     },
     {
@@ -13139,6 +13666,28 @@
       "context": "import",
       "source": "dump1090_src_demod",
       "target": "dump1090_src_icao_filter_icaofilter",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/main.rs",
+      "source_location": "L22",
+      "weight": 1.0,
+      "context": "import",
+      "source": "dump1090_src_main",
+      "target": "dump1090_src_demod",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/adsb_decoder.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import",
+      "source": "ez_gui_src_adsb_decoder",
+      "target": "dump1090_src_demod",
       "confidence_score": 1.0
     },
     {
@@ -14153,10 +14702,80 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L105",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter",
+      "target": "dump1090_src_icao_filter_clear_removes_all",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L87",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter",
+      "target": "dump1090_src_icao_filter_contains_after_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L94",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter",
+      "target": "dump1090_src_icao_filter_contains_multiple_addresses",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L115",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter",
+      "target": "dump1090_src_icao_filter_default_equals_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L120",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter",
+      "target": "dump1090_src_icao_filter_hash_is_deterministic",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
       "source_location": "L13",
       "weight": 1.0,
       "source": "dump1090_src_icao_filter",
       "target": "dump1090_src_icao_filter_icaofilter",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L81",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter",
+      "target": "dump1090_src_icao_filter_new_filter_is_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L130",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter",
+      "target": "dump1090_src_icao_filter_zero_address",
       "confidence_score": 1.0
     },
     {
@@ -14234,6 +14853,50 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L106",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_clear_removes_all",
+      "target": "dump1090_src_icao_filter_icaofilter_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L88",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_contains_after_add",
+      "target": "dump1090_src_icao_filter_icaofilter_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L95",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_contains_multiple_addresses",
+      "target": "dump1090_src_icao_filter_icaofilter_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L121",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_hash_is_deterministic",
+      "target": "dump1090_src_icao_filter_icaofilter_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
       "source_location": "L72",
       "weight": 1.0,
       "source": "dump1090_src_icao_filter_icaofilter_default",
@@ -14249,6 +14912,28 @@
       "context": "return_type",
       "source": "dump1090_src_icao_filter_icaofilter_new",
       "target": "dump1090_src_icao_filter_rs_self",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L82",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_new_filter_is_empty",
+      "target": "dump1090_src_icao_filter_icaofilter_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L131",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_zero_address",
+      "target": "dump1090_src_icao_filter_icaofilter_new",
       "confidence_score": 1.0
     },
     {
@@ -14285,14 +14970,69 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports_from",
+      "relation": "calls",
+      "context": "call",
       "confidence": "EXTRACTED",
-      "source_file": "dump1090/src/main.rs",
-      "source_location": "L22",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L107",
       "weight": 1.0,
-      "context": "import",
-      "source": "dump1090_src_main",
-      "target": "ez_gui_src_demod",
+      "source": "dump1090_src_icao_filter_clear_removes_all",
+      "target": "dump1090_src_icao_filter_icaofilter_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L89",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_contains_after_add",
+      "target": "dump1090_src_icao_filter_icaofilter_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L96",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_contains_multiple_addresses",
+      "target": "dump1090_src_icao_filter_icaofilter_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L123",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_hash_is_deterministic",
+      "target": "dump1090_src_icao_filter_icaofilter_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L132",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_zero_address",
+      "target": "dump1090_src_icao_filter_icaofilter_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/icao_filter.rs",
+      "source_location": "L109",
+      "weight": 1.0,
+      "source": "dump1090_src_icao_filter_clear_removes_all",
+      "target": "dump1090_src_icao_filter_icaofilter_clear",
       "confidence_score": 1.0
     },
     {
@@ -17470,17 +18210,6 @@
       "weight": 1.0,
       "source": "dump1090_src_util",
       "target": "dump1090_src_util_mstime",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/adsb_decoder.rs",
-      "source_location": "L1",
-      "weight": 1.0,
-      "context": "import",
-      "source": "ez_gui_src_adsb_decoder",
-      "target": "ez_gui_src_demod",
       "confidence_score": 1.0
     },
     {
@@ -29603,10 +30332,110 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L108",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_active_job_finds_job_in_window",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L125",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_active_job_prefers_first_match",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L116",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_active_job_returns_none_outside_window",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L79",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_active_job_returns_none_when_disabled",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
       "source_location": "L21",
       "weight": 1.0,
       "source": "ez_gui_src_scheduler",
       "target": "ez_gui_src_scheduler_customtask",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L94",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_make_scheduler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L71",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_new_scheduler_starts_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L180",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_poll_custom_tasks_marks_as_fired",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L168",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_poll_custom_tasks_not_yet_due",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L143",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_poll_custom_tasks_returns_pending",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L156",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_poll_custom_tasks_skips_fired",
       "confidence_score": 1.0
     },
     {
@@ -29630,6 +30459,16 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L194",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler",
+      "target": "ez_gui_src_scheduler_update_from_passes_populates_jobs",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/scheduler.rs",
@@ -29638,6 +30477,17 @@
       "context": "import",
       "source": "ez_gui_src_scheduler",
       "target": "ez_gui_src_tle_engine_passinfo",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L94",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "ez_gui_src_scheduler_make_scheduler",
+      "target": "ez_gui_src_scheduler_scheduler",
       "confidence_score": 1.0
     },
     {
@@ -29758,6 +30608,94 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L126",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_active_job_prefers_first_match",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L80",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_active_job_returns_none_when_disabled",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L95",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_make_scheduler",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L72",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_new_scheduler_starts_empty",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L181",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_poll_custom_tasks_marks_as_fired",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L169",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_poll_custom_tasks_not_yet_due",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L144",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_poll_custom_tasks_returns_pending",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L157",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_poll_custom_tasks_skips_fired",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/scheduler.rs",
@@ -29769,6 +30707,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L195",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_update_from_passes_populates_jobs",
+      "target": "ez_gui_src_scheduler_scheduler_new",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/scheduler.rs",
@@ -29777,6 +30726,39 @@
       "context": "parameter_type",
       "source": "ez_gui_src_scheduler_scheduler_update_from_passes",
       "target": "ez_gui_src_tle_engine_passinfo",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L204",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_update_from_passes_populates_jobs",
+      "target": "ez_gui_src_scheduler_scheduler_update_from_passes",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L110",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_active_job_finds_job_in_window",
+      "target": "ez_gui_src_scheduler_scheduler_active_job",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L137",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_active_job_prefers_first_match",
+      "target": "ez_gui_src_scheduler_scheduler_active_job",
       "confidence_score": 1.0
     },
     {
@@ -29799,6 +30781,50 @@
       "context": "return_type",
       "source": "ez_gui_src_scheduler_scheduler_poll_custom_tasks",
       "target": "ez_gui_src_scheduler_rs_option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L188",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_poll_custom_tasks_marks_as_fired",
+      "target": "ez_gui_src_scheduler_scheduler_poll_custom_tasks",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L151",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_poll_custom_tasks_returns_pending",
+      "target": "ez_gui_src_scheduler_scheduler_poll_custom_tasks",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L109",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_active_job_finds_job_in_window",
+      "target": "ez_gui_src_scheduler_make_scheduler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/scheduler.rs",
+      "source_location": "L117",
+      "weight": 1.0,
+      "source": "ez_gui_src_scheduler_active_job_returns_none_outside_window",
+      "target": "ez_gui_src_scheduler_make_scheduler",
       "confidence_score": 1.0
     },
     {
@@ -32864,10 +33890,120 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L155",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_has_inline_expand",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L163",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_levels_returns_all_four",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L139",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_show_advanced_controls",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L147",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_simplify_layout",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L182",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_tutorial_state_dismiss",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L173",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_tutorial_state_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
       "source_location": "L66",
       "weight": 1.0,
       "source": "ez_gui_src_user_level",
       "target": "ez_gui_src_user_level_tutorialstate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L133",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_user_level_descriptions",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L114",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_user_level_from_str_invalid_defaults_to_beginner",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L106",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_user_level_from_str_valid",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L127",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_user_level_labels",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L120",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level",
+      "target": "ez_gui_src_user_level_user_level_to_str_roundtrip",
       "confidence_score": 1.0
     },
     {
@@ -32995,6 +34131,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L164",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level_levels_returns_all_four",
+      "target": "ez_gui_src_user_level_userlevel_levels",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/user_level.rs",
@@ -33034,6 +34181,39 @@
       "weight": 1.0,
       "source": "ez_gui_src_user_level_tutorialstate",
       "target": "ez_gui_src_user_level_tutorialstate_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L183",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level_tutorial_state_dismiss",
+      "target": "ez_gui_src_user_level_tutorialstate_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L174",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level_tutorial_state_new",
+      "target": "ez_gui_src_user_level_tutorialstate_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/user_level.rs",
+      "source_location": "L186",
+      "weight": 1.0,
+      "source": "ez_gui_src_user_level_tutorial_state_dismiss",
+      "target": "ez_gui_src_user_level_tutorialstate_dismiss",
       "confidence_score": 1.0
     },
     {
@@ -34457,5 +35637,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "e69e86e9666fd29bb15614bb02509cf2d280f308"
+  "built_at_commit": "e59e75b2f4820afa067e5163022ca5d9d4c0fbf1"
 }
