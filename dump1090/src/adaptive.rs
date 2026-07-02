@@ -623,3 +623,39 @@ impl AdaptiveGain {
 fn count_loud_samples(buf: &[u16]) -> usize {
     buf.iter().filter(|&&s| s > LOUD_SAMPLE_THRESHOLD).count()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn count_loud_samples_empty() {
+        assert_eq!(count_loud_samples(&[]), 0);
+    }
+
+    #[test]
+    fn count_loud_samples_below_threshold() {
+        let buf = [100, 10000, 20000, 40000, 46394];
+        assert_eq!(count_loud_samples(&buf), 0);
+    }
+
+    #[test]
+    fn count_loud_samples_at_threshold() {
+        // 46395 is the threshold; values above it are "loud"
+        assert_eq!(count_loud_samples(&[46395]), 0);
+        assert_eq!(count_loud_samples(&[46396]), 1);
+    }
+
+    #[test]
+    fn count_loud_samples_all_loud() {
+        let buf = [50000, 60000, 65535];
+        assert_eq!(count_loud_samples(&buf), 3);
+    }
+
+    #[test]
+    fn count_loud_samples_mixed() {
+        let buf = [100, 46395, 50000, 65535];
+        // 46395 is NOT loud (> threshold), 50000 and 65535 are
+        assert_eq!(count_loud_samples(&buf), 2);
+    }
+}
