@@ -40,4 +40,8 @@ impl Tracker {
     pub fn len(&self) -> usize {
         self.aircraft.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.aircraft.is_empty()
+    }
 }

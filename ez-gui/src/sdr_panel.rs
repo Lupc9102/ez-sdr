@@ -2,6 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::app::SharedState;
 
+/// (range start Hz, range end Hz, description, RGB color) for a frequency band hint.
+type BandInfoEntry = (u64, u64, &'static str, (u8, u8, u8));
+
 fn format_hz(hz: u32) -> String {
     if hz >= 1_000_000 {
         format!("{:.2} MHz", hz as f64 / 1e6)
@@ -1517,7 +1520,7 @@ impl SdrPanel {
             // Band info hint — tells beginner what they're likely listening to at current freq
             if let Ok(state) = self.shared.try_lock() {
                 let freq = state.source.frequency_hz;
-                const BAND_INFO: &[(u64, u64, &str, (u8, u8, u8))] = &[
+                const BAND_INFO: &[BandInfoEntry] = &[
                     (148_000,    530_000,    "LW/MW broadcast. Amplitude-modulated radio stations, aviation beacons (NDB).", (180, 160, 100)),
                     (530_000,  1_710_000,   "AM broadcast band. Local radio stations. Use AM mode.", (180, 160, 100)),
                     (1_710_000, 30_000_000, "HF shortwave. International broadcast, amateur radio (use SSB), maritime, military.", (100, 180, 255)),
