@@ -10,7 +10,6 @@ mod adsb_decoder;
 mod recorder_panel;
 mod ai_panel;
 mod scheduler;
-mod database;
 mod config;
 mod bookmarks;
 mod web_remote;
