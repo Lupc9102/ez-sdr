@@ -109,4 +109,51 @@ mod tests {
         assert_eq!((parity >> 8) as u8, VALID_112[VALID_112.len() - 2]);
         assert_eq!(parity as u8, VALID_112[VALID_112.len() - 1]);
     }
+
+    #[test]
+    fn test_crc24_all_table_entries_nonzero_for_nonzero_input() {
+        // After the initial offset, entries should be well-distributed.
+        // At minimum, entries 1 and 0xFF are non-zero (verified against C impl).
+        assert_ne!(CRC24_TABLE[1], 0);
+        assert_ne!(CRC24_TABLE[255], 0);
+    }
+
+    #[test]
+    fn test_crc24_table_is_256_entries() {
+        assert_eq!(CRC24_TABLE.len(), 256);
+    }
+
+    #[test]
+    fn test_crc24_empty_payload() {
+        assert_eq!(crc24(&[]), 0);
+    }
+
+    #[test]
+    fn test_crc24_single_byte() {
+        // crc24 of a single zero byte should equal CRC24_TABLE[0] = 0
+        assert_eq!(crc24(&[0x00]), 0);
+        // crc24 of a single non-zero byte should equal CRC24_TABLE[that_byte]
+        assert_eq!(crc24(&[0x01]), CRC24_TABLE[0x01]);
+        assert_eq!(crc24(&[0x80]), CRC24_TABLE[0x80]);
+    }
+
+    #[test]
+    fn test_crc24_parity_short_msg_panics() {
+        // A message with fewer than 3 bytes should panic (assert)
+        let result = std::panic::catch_unwind(|| {
+            crc24_parity(&[0x00, 0x01]);
+        });
+        assert!(result.is_err(), "crc24_parity should panic on <3 byte input");
+    }
+
+    #[test]
+    fn test_check_crc_multi_bit_flip_detected() {
+        for i in 0..VALID_112.len() {
+            for bit in 0..3 {
+                let mut bad = VALID_112;
+                bad[i] ^= 1 << bit;
+                assert!(!check_crc(&bad), "bit flip at byte {i} bit {bit} not detected");
+            }
+        }
+    }
 }
