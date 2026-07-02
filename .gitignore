@@ -3,7 +3,12 @@ target/
 *.db-shm
 *.db-wal
 *.iq
+*.vsix
 recordings/
+.graphity/
 graphify-out/cache/
 graphify-out/*.html
 graphify-out/2026-*/
+.claude_infinite_fix.log
+.claude/skills/
+ez_sdr_bookmarks_*.csv
