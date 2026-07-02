@@ -38,6 +38,10 @@ pub struct AppConfig {
     pub ai_temperature: f64,
     pub ai_system_prompt: String,
     pub ai_provider: String,
+    #[serde(default)]
+    pub ai_reasoning_effort: String,
+    #[serde(default)]
+    pub ai_web_search: bool,
     pub mqtt_broker: String,
     pub mqtt_topic_prefix: String,
     pub web_remote_enabled: bool,
@@ -106,6 +110,8 @@ impl Default for AppConfig {
             ai_temperature: 0.7,
             ai_system_prompt: String::new(),
             ai_provider: "OpenRouter".to_string(),
+            ai_reasoning_effort: "off".to_string(),
+            ai_web_search: false,
             mqtt_broker: "localhost:1883".to_string(),
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
@@ -304,6 +310,28 @@ impl AppConfig {
                 ui.add(egui::Slider::new(&mut self.ai_temperature, 0.0..=2.0)
                     .step_by(0.05).text("Temperature"))
                     .on_hover_text("Randomness of responses. 0 = deterministic, 1 = balanced, 2 = very creative. 0.5–0.7 works well for radio control.");
+
+                // Reasoning effort
+                ui.horizontal(|ui| {
+                    ui.label("Reasoning:").on_hover_text("Controls how hard the model thinks. Higher = slower but more thorough. 'Off' uses default behavior.");
+                    let current = self.ai_reasoning_effort.clone();
+                    egui::ComboBox::from_id_salt("ai_reasoning_effort")
+                        .selected_text(&current)
+                        .show_ui(ui, |ui| {
+                            for level in &["off", "low", "medium", "high"] {
+                                if ui.selectable_label(current == *level, *level).clicked() {
+                                    self.ai_reasoning_effort = level.to_string();
+                                }
+                            }
+                        });
+                });
+
+                // Web search toggle
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.ai_web_search, " Enable web search")
+                        .on_hover_text("Allow the AI to search the web for external information (current events, specs, frequency databases, etc.). Uses DuckDuckGo — no API key needed.");
+                });
+
                 ui.add(egui::Slider::new(&mut self.ai_max_tokens, 256u32..=16384u32)
                     .step_by(256.0).text("Max tokens"))
                     .on_hover_text("Maximum response length in tokens (~4 chars each). 2048 is plenty for most tasks.");

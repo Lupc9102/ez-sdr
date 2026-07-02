@@ -54,6 +54,7 @@ native-tls = { version = "0.2", features = ["vendored"] }
 anyhow = "1"
 thiserror = "1"
 chrono = "0.4"
+urlencoding = "2"
 
 [features]
 default = ["audio"]

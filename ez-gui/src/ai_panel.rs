@@ -59,11 +59,13 @@ Available tools:
 - add_bookmark(name: string, hz: u64, mode: string, notes: string) — Save a frequency as a bookmark
 - set_lpf_cutoff(hz: f64) — Set audio low-pass filter cutoff in Hz (e.g. 3000 for voice, 15000 for FM)
 - set_ppm(ppm: i32) — Set frequency correction in parts-per-million (corrects oscillator drift)
+- web_search(query: string) — Search the web for external information (current events, technical specs, frequency databases, regulatory info, etc.)
 
 When you want to call a tool respond with exactly:
 {\"tool\": \"name\", \"args\": {}}
 You may call multiple tools sequentially — include one JSON block per tool call in your response.
-Always explain what you are doing before each tool call.";
+Always explain what you are doing before each tool call.
+Use web_search when the user asks about external information not available in your training data (current events, specific product specs, local frequency allocations, etc.).";
 
 // Streaming state sent from worker thread
 enum StreamEvent {
@@ -82,6 +84,8 @@ pub struct AiPanel {
     pending_rx: Option<crossbeam_channel::Receiver<StreamEvent>>,
     abort_flag: Arc<AtomicBool>,
     stream_start: Option<std::time::Instant>,
+    reasoning_effort: String,
+    web_search_enabled: bool,
 }
 
 impl AiPanel {
@@ -95,11 +99,13 @@ impl AiPanel {
             pending_rx: None,
             abort_flag: Arc::new(AtomicBool::new(false)),
             stream_start: None,
+            reasoning_effort: "off".to_string(),
+            web_search_enabled: false,
         }
     }
 
     /// Build the messages JSON array for the API call, injecting system prompt.
-    fn build_api_messages(&self) -> (Vec<serde_json::Value>, String, String, String, String, u32, f64, String) {
+    fn build_api_messages(&self) -> (Vec<serde_json::Value>, String, String, String, String, u32, f64, String, String, bool) {
         let state_snapshot = {
             if let Ok(state) = self.shared.try_lock() {
                 let cfg = &state.config;
@@ -130,6 +136,8 @@ impl AiPanel {
                     state.lo_offset_hz,
                     state.source.ppm_correction,
                     !state.freq_history.is_empty(),
+                    cfg.ai_reasoning_effort.clone(),
+                    cfg.ai_web_search,
                 ))
             } else {
                 None
@@ -138,10 +146,11 @@ impl AiPanel {
 
         let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt,
              freq, rate, gain, mode, recording, sat, adsb, noise_floor, peak_db, squelch,
-             volume, lpf_cutoff, audio_peak, vfo_b, bookmark_count, lo_offset_hz, ppm, has_history) =
+             volume, lpf_cutoff, audio_peak, vfo_b, bookmark_count, lo_offset_hz, ppm, has_history,
+             reasoning_effort, web_search_enabled) =
             match state_snapshot {
                 Some(s) => s,
-                None => return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new()),
+                None => return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new(), String::new(), false),
             };
 
         let snr = peak_db - noise_floor;
@@ -233,7 +242,7 @@ impl AiPanel {
             msgs.push(obj);
         }
 
-        (msgs, endpoint, model, api_key, provider, max_tokens, temperature, sys)
+        (msgs, endpoint, model, api_key, provider, max_tokens, temperature, sys, reasoning_effort, web_search_enabled)
     }
 
     pub fn send_message(&mut self) {
@@ -260,7 +269,7 @@ impl AiPanel {
         self.thinking = true;
         self.stream_start = Some(std::time::Instant::now());
 
-        let (api_messages, endpoint, model, api_key, provider, max_tokens, temperature, system_prompt) = self.build_api_messages();
+        let (api_messages, endpoint, model, api_key, provider, max_tokens, temperature, system_prompt, reasoning_effort, web_search_enabled) = self.build_api_messages();
 
         let needs_key = PROVIDER_PRESETS.iter()
             .find(|p| p.name == provider)
@@ -299,9 +308,9 @@ impl AiPanel {
             };
 
             if is_anthropic {
-                Self::stream_anthropic(&client, &evt_tx, &endpoint, &api_key, &model, &system_prompt, &api_messages, max_tokens, temperature, &abort_flag);
+                Self::stream_anthropic(&client, &evt_tx, &endpoint, &api_key, &model, &system_prompt, &api_messages, max_tokens, temperature, &abort_flag, &reasoning_effort);
             } else {
-                Self::stream_openai_compat(&client, &evt_tx, &endpoint, &api_key, &model, &api_messages, max_tokens, temperature, &abort_flag);
+                Self::stream_openai_compat(&client, &evt_tx, &endpoint, &api_key, &model, &api_messages, max_tokens, temperature, &abort_flag, &reasoning_effort, web_search_enabled);
             }
         });
 
@@ -318,14 +327,26 @@ impl AiPanel {
         max_tokens: u32,
         temperature: f64,
         abort_flag: &Arc<AtomicBool>,
+        reasoning_effort: &str,
+        web_search_enabled: bool,
     ) {
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": model,
             "messages": api_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": true,
         });
+
+        if reasoning_effort != "off" {
+            body["reasoning_effort"] = serde_json::json!(reasoning_effort);
+        }
+
+        if web_search_enabled {
+            body["tools"] = serde_json::json!([
+                {"type": "web_search"}
+            ]);
+        }
 
         let mut req = client.post(endpoint)
             .header("Content-Type", "application/json")
@@ -384,12 +405,13 @@ impl AiPanel {
         max_tokens: u32,
         temperature: f64,
         abort_flag: &Arc<AtomicBool>,
+        reasoning_effort: &str,
     ) {
         let non_system: Vec<&serde_json::Value> = api_messages.iter()
             .filter(|m| m["role"].as_str() != Some("system"))
             .collect();
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": model,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -397,6 +419,24 @@ impl AiPanel {
             "messages": non_system,
             "stream": true,
         });
+
+        if reasoning_effort != "off" {
+            // Anthropic uses thinking.budget_tokens instead of reasoning_effort string
+            let budget = match reasoning_effort {
+                "low" => 2000,
+                "medium" => 5000,
+                "high" => 10000,
+                _ => 0,
+            };
+            if budget > 0 {
+                body["thinking"] = serde_json::json!({
+                    "type": "enabled",
+                    "budget_tokens": budget,
+                });
+                // When thinking is enabled, temperature must be 1.0 for Anthropic
+                body["temperature"] = serde_json::json!(1.0);
+            }
+        }
 
         let resp = match client.post(endpoint)
             .header("x-api-key", api_key)
@@ -706,10 +746,102 @@ impl AiPanel {
                     }
                     return "Error: missing ppm argument".to_string();
                 }
+                "web_search" => {
+                    if let Some(q) = args["query"].as_str() {
+                        drop(state); // Release lock before network call
+                        return Self::web_search(q);
+                    }
+                    return "Error: missing query argument".to_string();
+                }
                 _ => return format!("Unknown tool: {}", name),
             }
         }
         "Error: could not access SDR state".to_string()
+    }
+
+    /// Search the web using DuckDuckGo Lite. Returns formatted results.
+    fn web_search(query: &str) -> String {
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .user_agent("Mozilla/5.0 (compatible; EZ-SDR/1.0)")
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => return format!("Search client error: {}", e),
+        };
+
+        let url = format!("https://lite.duckduckgo.com/lite/?q={}", urlencoding::encode(query));
+        let resp = match client.get(&url).send() {
+            Ok(r) => r,
+            Err(e) => return format!("Search request failed: {}", e),
+        };
+
+        let html = match resp.text() {
+            Ok(t) => t,
+            Err(e) => return format!("Failed to read search response: {}", e),
+        };
+
+        // Parse DuckDuckGo Lite HTML for result snippets
+        // The layout has <td class="result-snippet"> for snippets and <a class="result-link"> for URLs
+        let mut results = Vec::new();
+        let mut remaining = html.as_str();
+
+        // Extract result snippets
+        while let Some(start) = remaining.find("class=\"result-snippet\"") {
+            let after_tag = &remaining[start + 22..];
+            if let Some(end) = after_tag.find("</td>") {
+                let snippet_html = &after_tag[..end];
+                // Strip HTML tags from snippet
+                let mut clean = String::new();
+                let mut in_tag = false;
+                for ch in snippet_html.chars() {
+                    match ch {
+                        '<' => in_tag = true,
+                        '>' => in_tag = false,
+                        '&' => { /* skip HTML entities */ }
+                        _ if !in_tag => clean.push(ch),
+                        _ => {}
+                    }
+                }
+                let clean = clean.trim().to_string();
+                if !clean.is_empty() {
+                    results.push(clean);
+                }
+                remaining = &after_tag[end..];
+            } else {
+                break;
+            }
+        }
+
+        if results.is_empty() {
+            // Fallback: try to extract any text content between <body> tags
+            if let Some(body_start) = html.find("<body>") {
+                if let Some(body_end) = html.find("</body>") {
+                    let body = &html[body_start + 6..body_end];
+                    let mut text = String::new();
+                    let mut in_tag = false;
+                    for ch in body.chars() {
+                        match ch {
+                            '<' => in_tag = true,
+                            '>' => in_tag = false,
+                            _ if !in_tag && !ch.is_control() => text.push(ch),
+                            _ => {}
+                        }
+                    }
+                    let text = text.split_whitespace().collect::<Vec<&_>>().join(" ");
+                    if !text.is_empty() {
+                        return format!("Search results for '{}':\n{}", query, text.chars().take(2000).collect::<String>());
+                    }
+                }
+            }
+            return format!("No results found for '{}'", query);
+        }
+
+        let mut output = format!("Search results for '{}' ({} results):\n\n", query, results.len().min(5));
+        for (i, snippet) in results.iter().take(5).enumerate() {
+            output.push_str(&format!("{}. {}\n\n", i + 1, snippet));
+        }
+        output
     }
 
     /// Scan `text` for the first frequency mention (e.g. "137.1 MHz", "1090 MHz", "433 kHz").
@@ -992,7 +1124,7 @@ impl AiPanel {
         self.poll_stream();
 
         // Header with model/provider info and context token estimate
-        let (model, provider, has_key, temp) = {
+        let (model, provider, has_key, temp, reasoning_effort, web_search) = {
             if let Ok(state) = self.shared.try_lock() {
                 let needs_key = PROVIDER_PRESETS.iter()
                     .find(|p| p.name == state.config.ai_provider)
@@ -1003,12 +1135,16 @@ impl AiPanel {
                     state.config.ai_provider.clone(),
                     !needs_key || !state.config.ai_api_key.is_empty(),
                     state.config.ai_temperature,
+                    state.config.ai_reasoning_effort.clone(),
+                    state.config.ai_web_search,
                 )
             } else {
-                (DEFAULT_AI_MODEL.to_string(), "?".to_string(), false, 0.7)
+                (DEFAULT_AI_MODEL.to_string(), "?".to_string(), false, 0.7, "off".to_string(), false)
             }
         };
         self.temperature = temp;
+        self.reasoning_effort = reasoning_effort;
+        self.web_search_enabled = web_search;
 
         let rough_tokens: usize = self.messages.iter().map(|m| m.content.len() / 4).sum();
 
@@ -1016,6 +1152,44 @@ impl AiPanel {
             ui.heading("AI Agent");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.weak(format!("~{}k tok", rough_tokens / 1000 + 1));
+                ui.separator();
+
+                // Reasoning effort selector (compact)
+                let re_label = match self.reasoning_effort.as_str() {
+                    "low" => "🧠 Low",
+                    "medium" => "🧠 Med",
+                    "high" => "🧠 High",
+                    _ => "🧠 Off",
+                };
+                egui::ComboBox::from_id_salt("ai_panel_reasoning")
+                    .selected_text(re_label)
+                    .width(80.0)
+                    .show_ui(ui, |ui| {
+                        for (val, label) in [("off", "Off"), ("low", "Low"), ("medium", "Medium"), ("high", "High")] {
+                            if ui.selectable_label(self.reasoning_effort == val, label).clicked() {
+                                if let Ok(mut state) = self.shared.try_lock() {
+                                    state.config.ai_reasoning_effort = val.to_string();
+                                    state.config.save();
+                                }
+                            }
+                        }
+                    });
+
+                ui.label(egui::RichText::new("🧠").small())
+                    .on_hover_text("Reasoning effort: controls how hard the model thinks. Higher = slower but more thorough.");
+
+                // Web search toggle
+                let mut ws = self.web_search_enabled;
+                ui.checkbox(&mut ws, "🔍 Search")
+                    .on_hover_text("Toggle web search: allow the AI to search the web for external info (DuckDuckGo, no key needed).");
+                if ws != self.web_search_enabled {
+                    self.web_search_enabled = ws;
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.config.ai_web_search = ws;
+                        state.config.save();
+                    }
+                }
+
                 ui.separator();
                 ui.monospace(format!("{} · {}", provider, model));
                 if !has_key {
@@ -1047,6 +1221,7 @@ impl AiPanel {
                     ("get_freq_history()", "Show recently tuned frequencies"),
                     ("add_bookmark(name,hz,mode,notes)", "Save a frequency as a bookmark"),
                     ("set_ppm(ppm)", "Frequency correction in PPM (oscillator drift)"),
+                    ("web_search(query)", "Search the web for external information"),
                 ];
                 for (name, desc) in &tools {
                     ui.monospace(*name);
