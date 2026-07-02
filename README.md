@@ -18,7 +18,7 @@ A cross-platform SDR application combining a real-time spectrum analyser/waterfa
 - **AI assistant panel** — LLM integration for voice/text queries (configurable endpoint)
 - **Web remote** — embedded HTTP server with a mobile‑friendly control page
 - **MQTT** — publish frequency/status telemetry to an MQTT broker
-- **Persistence** — all settings, window geometry, bookmarks, and scheduler events saved to an SQLite database
+- **Persistence** — settings, bookmarks, and scheduler events saved to JSON files (`ez_sdr_config.json`, `ez_sdr_bookmarks.json`)
 
 ## Build
 
