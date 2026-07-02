@@ -141,7 +141,7 @@ mod tests {
     fn test_crc24_parity_short_msg_panics() {
         // A message with fewer than 3 bytes should panic (assert)
         let result = std::panic::catch_unwind(|| {
-            crc24_parity(&[0x00, 0x01]);
+            let _ = crc24_parity(&[0x00, 0x01]);
         });
         assert!(result.is_err(), "crc24_parity should panic on <3 byte input");
     }
