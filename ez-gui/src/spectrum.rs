@@ -2194,8 +2194,8 @@ fn color_map(cmap: ColorMap, t: f32) -> (u8, u8, u8) {
         }
         ColorMap::Hot => {
             let r = ((t * 3.0).min(1.0) * 255.0) as u8;
-            let g = (((t * 3.0 - 1.0).max(0.0).min(1.0)) * 255.0) as u8;
-            let b = (((t * 3.0 - 2.0).max(0.0).min(1.0)) * 255.0) as u8;
+            let g = ((t * 3.0 - 1.0).clamp(0.0, 1.0) * 255.0) as u8;
+            let b = ((t * 3.0 - 2.0).clamp(0.0, 1.0) * 255.0) as u8;
             (r, g, b)
         }
         ColorMap::Inferno => {

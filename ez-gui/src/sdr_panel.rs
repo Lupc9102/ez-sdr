@@ -305,7 +305,7 @@ impl SdrPanel {
                     });
                 let combo = egui::ComboBox::from_id_salt("band_presets")
                     .selected_text(if let Some(idx) = selected { band_presets[idx].0 } else { "Band…" })
-                    .width(ui.available_width().min(250.0).max(80.0))
+                    .width(ui.available_width().clamp(80.0, 250.0))
                     .show_ui(ui, |ui| {
                         for (i, &(name, freq, _desc)) in band_presets.iter().enumerate() {
                             if ui.selectable_label(selected == Some(i), name).clicked() {
@@ -640,7 +640,7 @@ impl SdrPanel {
                 ui.label("📶 S-Meter:").on_hover_text("Signal strength meter (S0-S9+). S1-3 = weak, S4-6 = good, S7-9 = strong, S9+ = very strong.");
 
                 // Visual bar
-                let bar_width = ui.available_width().min(180.0).max(60.0);
+                let bar_width = ui.available_width().clamp(60.0, 180.0);
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_width, 14.0), egui::Sense::hover());
                 let painter = ui.painter();
 
@@ -1148,7 +1148,7 @@ impl SdrPanel {
             ui.horizontal(|ui| {
                 ui.label("Signal:").on_hover_text("RF signal level in dBFS. Green zone (>-40 dB) = strong. Yellow (−60–40) = moderate. Red (<-60) = weak/noise.");
                 // Draw custom colored bar using painter
-                let bar_w = ui.available_width().min(200.0).max(60.0);
+                let bar_w = ui.available_width().clamp(60.0, 200.0);
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(bar_w, 14.0), egui::Sense::hover());
                 let response = response.on_hover_text(format!("Signal: {:.1} dBFS  SNR: {:.1} dB  Noise: {:.1} dB", signal, snr, noise_floor));
                 let p = ui.painter();
@@ -1215,7 +1215,7 @@ impl SdrPanel {
                 let history = state.spectrum.signal_history_snapshot();
                 let history_max = state.spectrum.signal_history_max();
                 if history.len() >= 2 {
-                    let spark_w = ui.available_width().min(200.0).max(60.0);
+                    let spark_w = ui.available_width().clamp(60.0, 200.0);
                     let (rect, response) = ui.allocate_exact_size(egui::vec2(spark_w, 30.0), egui::Sense::hover());
                     let response = response.on_hover_text("Signal strength over time (last 60s). Shows peaks only. Helps identify if a signal is continuous, periodic, or intermittent.");
                     let p = ui.painter();
@@ -1389,7 +1389,7 @@ impl SdrPanel {
                     }
                     ui.horizontal(|ui| {
                         ui.label("Audio:");
-                        let bar_w = ui.available_width().min(150.0).max(40.0);
+                        let bar_w = ui.available_width().clamp(40.0, 150.0);
                         let bar_h = 10.0f32;
                         let (rect, resp) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
                         let painter = ui.painter();

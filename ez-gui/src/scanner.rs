@@ -499,7 +499,7 @@ impl FrequencyScanner {
                 self.sort_hits_by_strength();
             }
             if ui.button("Sort by hits").on_hover_text("Sort by detection count — most frequently detected frequencies first.").clicked() {
-                self.hits.sort_by(|a, b| b.hit_count.cmp(&a.hit_count));
+                self.hits.sort_by_key(|b| std::cmp::Reverse(b.hit_count));
             }
             // Tune to most active frequency
             if !self.hits.is_empty() {
@@ -767,7 +767,7 @@ impl FrequencyScanner {
             ui.label("Cycle time:").on_hover_text("Estimated time for one complete sweep (start → stop → back to start). = number of steps × dwell time.");
             {
                 let span = self.stop_hz.saturating_sub(self.start_hz);
-                let steps = if self.step_hz > 0 { span / self.step_hz + 1 } else { 1 };
+                let steps = span.checked_div(self.step_hz).map(|s| s + 1).unwrap_or(1);
                 let total_ms = steps * self.dwell_ms;
                 let cycle_str = if total_ms < 1000 {
                     format!("{} ms", total_ms)
@@ -937,8 +937,8 @@ impl FrequencyScanner {
                         HitsSort::Discovery => {}
                         HitsSort::Frequency => hits_copy.sort_by_key(|h| h.freq_hz),
                         HitsSort::Strength => hits_copy.sort_by(|a, b| b.strength_db.partial_cmp(&a.strength_db).unwrap_or(std::cmp::Ordering::Equal)),
-                        HitsSort::HitCount => hits_copy.sort_by(|a, b| b.hit_count.cmp(&a.hit_count)),
-                        HitsSort::Recent => hits_copy.sort_by(|a, b| b.timestamp.cmp(&a.timestamp)),
+                        HitsSort::HitCount => hits_copy.sort_by_key(|b| std::cmp::Reverse(b.hit_count)),
+                        HitsSort::Recent => hits_copy.sort_by_key(|b| std::cmp::Reverse(b.timestamp)),
                     }
                     let mut remove_idx = None;
                     let mut exclude_freq = None;

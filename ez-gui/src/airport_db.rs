@@ -188,13 +188,9 @@ fn suggested_antenna(freq_mhz: f64) -> &'static str {
 fn suggested_mode(freq_mhz: f64) -> &'static str {
     if freq_mhz < 30.0 {
         "AM"
-    } else if (1080.0..=1100.0).contains(&freq_mhz) {
+    } else if (1080.0..=1100.0).contains(&freq_mhz) || freq_mhz > 1500.0 {
         "RAW"
-    } else if freq_mhz > 1500.0 {
-        "RAW"
-    } else if (137.0..=138.0).contains(&freq_mhz) {
-        "WFM"
-    } else if freq_mhz < 200.0 && freq_mhz > 87.0 && (freq_mhz < 108.0) {
+    } else if (137.0..=138.0).contains(&freq_mhz) || (freq_mhz > 87.0 && freq_mhz < 108.0) {
         "WFM"
     } else {
         "AM"
@@ -240,8 +236,10 @@ impl AirportDb {
     }
 
     fn load_from_sqlite(conn: &Connection) -> Self {
-        let mut db = Self::default();
-        db.cached_sqlite = true;
+        let mut db = Self {
+            cached_sqlite: true,
+            ..Default::default()
+        };
         if let Ok(mut stmt) = conn.prepare(
             "SELECT ident, icao, iata, name, lat, lon, country, type, scheduled FROM airports"
         ) {

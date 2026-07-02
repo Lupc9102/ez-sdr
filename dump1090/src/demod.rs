@@ -515,7 +515,6 @@ fn receiveclock_ms_elapsed(t1: u64, t2: u64) -> u64 {
 /// sample, assuming a fixed phase offset 0..4 within `m[0]`.
 ///
 /// The coefficients sum to zero so the result is DC-insensitive.
-
 #[inline]
 fn slice_phase0(m: &[u16]) -> i32 {
     5 * m[0] as i32 - 3 * m[1] as i32 - 2 * m[2] as i32

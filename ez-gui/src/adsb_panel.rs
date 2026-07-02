@@ -404,12 +404,13 @@ impl AdsBPanel {
                 .current_pos(egui::pos2(x, y))
                 .fixed_size(egui::vec2(toast_w, toast_h))
                 .frame({
-                    let mut f = egui::Frame::default();
-                    f.fill = egui::Color32::from_rgba_unmultiplied(20, 35, 22, 245);
-                    f.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 200, 110));
-                    f.inner_margin = egui::Margin::same(8);
-                    f.corner_radius = 6.0.into();
-                    f
+                    egui::Frame {
+                        fill: egui::Color32::from_rgba_unmultiplied(20, 35, 22, 245),
+                        stroke: egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 200, 110)),
+                        inner_margin: egui::Margin::same(8),
+                        corner_radius: 6.0.into(),
+                        ..Default::default()
+                    }
                 })
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {

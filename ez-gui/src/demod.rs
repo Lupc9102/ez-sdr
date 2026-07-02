@@ -39,7 +39,7 @@ impl Demodulator {
     }
 
     pub fn set_lpf_cutoff(&mut self, cutoff_hz: f32) {
-        self.lpf_cutoff = cutoff_hz.max(100.0).min(20000.0);
+        self.lpf_cutoff = cutoff_hz.clamp(100.0, 20000.0);
         let rc = 1.0 / (2.0 * std::f32::consts::PI * self.lpf_cutoff);
         let dt = 1.0 / self.audio_sample_rate as f32;
         self.lpf_alpha = (dt / (rc + dt)).clamp(0.001, 1.0);

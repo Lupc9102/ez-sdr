@@ -1010,12 +1010,12 @@ impl AiPanel {
             }
 
             // Heading: ### / ## / #
-            if line.starts_with("### ") {
-                ui.label(egui::RichText::new(&line[4..]).strong().color(text_color));
-            } else if line.starts_with("## ") {
-                ui.label(egui::RichText::new(&line[3..]).strong().heading().color(text_color));
-            } else if line.starts_with("# ") {
-                ui.label(egui::RichText::new(&line[2..]).strong().heading().color(text_color));
+            if let Some(rest) = line.strip_prefix("### ") {
+                ui.label(egui::RichText::new(rest).strong().color(text_color));
+            } else if let Some(rest) = line.strip_prefix("## ") {
+                ui.label(egui::RichText::new(rest).strong().heading().color(text_color));
+            } else if let Some(rest) = line.strip_prefix("# ") {
+                ui.label(egui::RichText::new(rest).strong().heading().color(text_color));
             // Horizontal rule
             } else if line == "---" || line == "***" || line == "___" {
                 ui.separator();

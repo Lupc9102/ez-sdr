@@ -254,9 +254,11 @@ fn main() -> anyhow::Result<()> {
         if last_stats_print.elapsed() >= Duration::from_secs(1) {
             last_stats_print = Instant::now();
 
-            let mut interval_stats = Stats::default();
-            interval_stats.start_ms = interval_start_ms;
-            interval_stats.end_ms = now_ms;
+            let mut interval_stats = Stats {
+                start_ms: interval_start_ms,
+                end_ms: now_ms,
+                ..Default::default()
+            };
             interval_stats.demod_preambles = demod_stats.demod_preambles as u32;
             interval_stats.demod_rejected_bad = demod_stats.demod_rejected_bad as u32;
             interval_stats.demod_rejected_unknown_icao =

@@ -15,9 +15,11 @@ pub fn decode_mode_s(mm: &ModesMessage) -> Option<AircraftMessage> {
     if mm.msgbits == 0 {
         return None;
     }
-    let mut am = AircraftMessage::default();
-    am.icao = mm.addr;
-    am.df = mm.msgtype;
+    let am = AircraftMessage {
+        icao: mm.addr,
+        df: mm.msgtype,
+        ..Default::default()
+    };
     Some(am)
 }
 
