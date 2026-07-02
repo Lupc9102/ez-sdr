@@ -731,7 +731,7 @@ impl SdrPanel {
             });
 
             // Peak finder: find and auto-tune to strongest signal
-            if let Ok(mut state) = self.shared.try_lock() {
+            if let Ok(state) = self.shared.try_lock() {
                 if ui.button("🔍 Find Peak: Auto-Tune to Strongest Signal").on_hover_text("Instantly jump to the strongest signal currently visible. Perfect for discovering what's on air!").clicked() {
                     let peak_freq = state.spectrum.peak_freq_hz();
                     if peak_freq > 0 {
@@ -1859,8 +1859,6 @@ impl SdrPanel {
                         .on_hover_text("Download airports.csv + airport-frequencies.csv (~14 MB) from OurAirports. One-time cache.")
                         .clicked()
                     {
-                        self.airport_dl_progress = Some((0, 1));
-                        self.airport_dl_msg = "Downloading airports & frequencies...".to_string();
                         let result = crate::airport_db::AirportDb::download_full_blocking(|_, _| {});
                         match result {
                             Ok(count) => {

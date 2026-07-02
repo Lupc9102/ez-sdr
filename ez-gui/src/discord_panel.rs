@@ -1,4 +1,4 @@
-use crate::discord::{self, DiscordNotifier, DiscordSettings};
+use crate::discord::{self, DiscordNotifier};
 use std::sync::{Arc, Mutex};
 
 pub struct DiscordPanel {
@@ -252,7 +252,7 @@ impl DiscordPanel {
     }
 
     fn send_test_kind(&mut self, notifier: &mut DiscordNotifier, kind_id: &str) {
-        let embed = match kind_id {
+        let _embed = match kind_id {
             "aircraft_new" => {
                 let image = discord::fetch_aircraft_image("ABCDEF");
                 discord::embed_aircraft("ABCDEF", "TEST123 ", 51.5, -0.1, 35000, 450, 180, image)

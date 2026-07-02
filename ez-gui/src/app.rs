@@ -1325,17 +1325,17 @@ impl eframe::App for CentralApp {
 
         egui::Panel::top("main_tab_bar")
             .exact_size(44.0)
-            .show_inside(ui, |ui| self.render_tab_bar(ui));
+            .show(ui, |ui| self.render_tab_bar(ui));
 
         egui::Panel::left("secondary_rail")
             .exact_size(44.0)
-            .show_inside(ui, |ui| self.render_secondary_rail(ui));
+            .show(ui, |ui| self.render_secondary_rail(ui));
 
         if let Some(tool) = self.active_secondary_tool {
             egui::Panel::left("secondary_panel")
                 .resizable(true)
                 .default_size(360.0)
-                .show_inside(ui, |ui| self.render_secondary_panel(ui, tool, &snapshot));
+                .show(ui, |ui| self.render_secondary_panel(ui, tool, &snapshot));
         }
 
         match self.current_tab {
@@ -2053,7 +2053,7 @@ impl CentralApp {
     }
 
     fn render_ai_tab(&mut self, ui: &mut egui::Ui) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.ai_panel.ui(ui);
         });
     }
@@ -2061,7 +2061,7 @@ impl CentralApp {
     fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
         egui::Panel::bottom("sdr_status_bar")
             .exact_size(32.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if let Ok(state) = self.shared.try_lock() {
                         let sig = state.spectrum.signal_level();
@@ -2133,7 +2133,7 @@ impl CentralApp {
             egui::Panel::right("sdr_ai_panel")
                 .resizable(true)
                 .default_size(320.0)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("🤖 AI Assistant").strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2148,7 +2148,7 @@ impl CentralApp {
         egui::Panel::left("sdr_modules")
             .resizable(true)
             .default_size(280.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.sdr_panel.ui_source(ui);
                     if let Some(freq) = self.sdr_panel.tune_request.take() {
@@ -2166,7 +2166,7 @@ impl CentralApp {
         egui::Panel::right("sdr_demod")
             .resizable(true)
             .default_size(260.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.sdr_panel.ui_demod(ui);
                     if let Some(msg) = self.sdr_panel.pending_status.take() {
@@ -2175,7 +2175,7 @@ impl CentralApp {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             if let Ok(mut state) = self.shared.try_lock() {
                 if state.spectrum.bookmark_freqs_dirty {
                     state.spectrum.bookmark_freqs = state.bookmarks.bookmarks.iter()
@@ -2243,7 +2243,7 @@ impl CentralApp {
         egui::Panel::right("aircraft_list")
             .resizable(true)
             .default_size(300.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 self.adsb_panel.ui_list(ui);
                 if let Some(prompt) = self.adsb_panel.pending_ai_prompt.take() {
                     self.ai_panel.input = prompt;
@@ -2255,7 +2255,7 @@ impl CentralApp {
         egui::Panel::top("adsb_instructions")
             .resizable(false)
             .exact_size(if self.adsb_instructions_open { 260.0 } else { 24.0 })
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let arrow = if self.adsb_instructions_open { "▼" } else { "▶" };
                     if ui.small_button(format!("{arrow} 📡 How to receive ADS-B (antenna, 1090 MHz setup)"))
@@ -2271,7 +2271,7 @@ impl CentralApp {
                     });
                 }
             });
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.adsb_panel.ui_map(ui);
         });
     }
@@ -2280,7 +2280,7 @@ impl CentralApp {
         let _ = snapshot;
         egui::Panel::top("sat_subtabs")
             .exact_size(36.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.add_space(4.0);
                     for (advanced, label) in [(false, "🛰 Track"), (true, "⚙ Advanced")] {
@@ -2295,7 +2295,7 @@ impl CentralApp {
 
         egui::Panel::bottom("sat_status")
             .exact_size(48.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let doppler = self.satellite_panel.doppler_hz;
                     let dop_color = if doppler.abs() > 5000.0 { egui::Color32::from_rgb(255, 120, 60) }
@@ -2319,7 +2319,7 @@ impl CentralApp {
         egui::Panel::right("sat_pipeline")
             .resizable(true)
             .default_size(280.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if self.satellite_advanced {
                         self.satellite_panel.ui_advanced(ui);
@@ -2333,7 +2333,7 @@ impl CentralApp {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.render_satellite_world_map(ui);
         });
     }

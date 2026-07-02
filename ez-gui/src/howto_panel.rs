@@ -128,7 +128,7 @@ impl HowToPanel {
         egui::Panel::left("howto_sidebar")
             .resizable(false)
             .exact_size(185.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("howto_sidebar_scroll")
                     .show(ui, |ui| {
@@ -162,7 +162,7 @@ impl HowToPanel {
                     });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .id_salt("howto_content")
                 .show(ui, |ui| {

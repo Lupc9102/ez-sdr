@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -456,7 +455,7 @@ impl DiscordNotifier {
         }
     }
 
-    fn post_embed(client: &reqwest::blocking::Client, embed: &DiscordEmbed) -> Result<(), Box<dyn std::error::Error>> {
+    fn post_embed(_client: &reqwest::blocking::Client, _embed: &DiscordEmbed) -> Result<(), Box<dyn std::error::Error>> {
         // This won't be called with invalid creds, but kept simple
         Ok(())
     }
