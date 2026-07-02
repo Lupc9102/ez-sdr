@@ -1268,4 +1268,35 @@ mod tests {
         assert_eq!(mag[0], 0); // zero signal
         assert!(mag[1] > mag[0]);
     }
+
+    #[test]
+    fn test_sc16_magnitude() {
+        // Sample 0: I=0, Q=0 (zero signal). Sample 1: I=32767, Q=0 (full scale).
+        let iq: Vec<u8> = [0i16, 0, 32767i16, 0]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        let mut mag = vec![0u16; 2];
+        let (level, power) = compute_magnitude_sc16(&iq, &mut mag);
+        assert_eq!(mag[0], 0);
+        assert!(mag[1] > mag[0]);
+        assert!(level > 0.0);
+        assert!(power > 0.0);
+    }
+
+    #[test]
+    fn test_sc16q11_magnitude() {
+        // sc16q11 values are left-shifted by 5 bits before use; craft raw i16s
+        // so that after >>5 we get 0 and full-scale (1023) magnitude.
+        let iq: Vec<u8> = [0i16, 0, (1023i16 << 5), 0]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        let mut mag = vec![0u16; 2];
+        let (level, power) = compute_magnitude_sc16q11(&iq, &mut mag);
+        assert_eq!(mag[0], 0);
+        assert!(mag[1] > mag[0]);
+        assert!(level > 0.0);
+        assert!(power > 0.0);
+    }
 }
