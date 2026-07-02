@@ -1,5 +1,8 @@
 use rumqttc::{Client, MqttOptions, QoS};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use crate::adsb_panel::AircraftEntry;
@@ -40,7 +43,9 @@ impl MqttPublisher {
     }
 
     pub fn connect(&mut self) {
-        if !self.enabled || self.client.is_some() { return; }
+        if !self.enabled || self.client.is_some() {
+            return;
+        }
         let mut opts = MqttOptions::new("ez-sdr", &self.broker, self.port);
         opts.set_keep_alive(Duration::from_secs(10));
         let (client, mut connection) = Client::new(opts, 128);
@@ -71,12 +76,15 @@ impl MqttPublisher {
     }
 
     pub fn reconnect_in_secs(&self) -> Option<u64> {
-        self.reconnect_after.map(|t| t.saturating_duration_since(Instant::now()).as_secs())
+        self.reconnect_after
+            .map(|t| t.saturating_duration_since(Instant::now()).as_secs())
     }
 
     /// Call once per frame to auto-reconnect after connection drops.
     pub fn tick_reconnect(&mut self) {
-        if !self.enabled { return; }
+        if !self.enabled {
+            return;
+        }
         // If the background thread died, drop the stale client and schedule reconnect
         if self.client.is_some() && !self.connected_flag.load(Ordering::Relaxed) {
             eprintln!("[mqtt] connection lost — will retry in 10s");
@@ -84,7 +92,12 @@ impl MqttPublisher {
             self.reconnect_after = Some(Instant::now() + Duration::from_secs(10));
         }
         // Reconnect when timer expires
-        if self.client.is_none() && self.reconnect_after.map(|t| Instant::now() >= t).unwrap_or(false) {
+        if self.client.is_none()
+            && self
+                .reconnect_after
+                .map(|t| Instant::now() >= t)
+                .unwrap_or(false)
+        {
             self.reconnect_after = None;
             self.connect();
         }
@@ -92,7 +105,9 @@ impl MqttPublisher {
 
     pub fn publish(&mut self, subtopic: &str, payload: &str) {
         if let Some(client) = &mut self.client {
-            if !self.enabled { return; }
+            if !self.enabled {
+                return;
+            }
             let topic = format!("{}/{}", self.topic_prefix, subtopic);
             let _ = client.publish(topic, QoS::AtLeastOnce, false, payload.as_bytes());
         }
@@ -108,7 +123,14 @@ impl MqttPublisher {
         self.publish("sdr/state", &json.to_string());
     }
 
-    pub fn publish_signal(&mut self, freq_hz: u64, signal_db: f32, noise_db: f32, demod: &str, recording: bool) {
+    pub fn publish_signal(
+        &mut self,
+        freq_hz: u64,
+        signal_db: f32,
+        noise_db: f32,
+        demod: &str,
+        recording: bool,
+    ) {
         let json = serde_json::json!({
             "frequency_hz": freq_hz,
             "frequency_mhz": freq_hz as f64 / 1e6,

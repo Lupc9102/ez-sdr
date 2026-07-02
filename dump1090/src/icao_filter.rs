@@ -113,7 +113,10 @@ mod tests {
 
     #[test]
     fn default_equals_new() {
-        assert_eq!(IcaoFilter::default().contains(0xABCDEF), IcaoFilter::new().contains(0xABCDEF));
+        assert_eq!(
+            IcaoFilter::default().contains(0xABCDEF),
+            IcaoFilter::new().contains(0xABCDEF)
+        );
     }
 
     #[test]

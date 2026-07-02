@@ -1,14 +1,8 @@
 #[derive(Debug, Clone)]
 pub struct TleEntry {
     pub name: String,
-    #[allow(dead_code)]
-    pub line1: String,
-    #[allow(dead_code)]
-    pub line2: String,
     pub mean_motion: f64,
     pub inclination: f64,
-    #[allow(dead_code)]
-    pub eccentricity: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -19,7 +13,6 @@ pub struct PassInfo {
     pub max_elevation: f64,
     pub frequency_hz: u64,
     pub aos_dt: f64,
-    #[allow(dead_code)]
     pub los_dt: f64,
 }
 
@@ -27,8 +20,6 @@ pub struct TleEngine {
     pub tles: Vec<TleEntry>,
     pub observer_lat: f64,
     pub observer_lon: f64,
-    #[allow(dead_code)]
-    pub observer_alt: f64,
     cached_passes: Vec<PassInfo>,
     cached_at: std::time::Instant,
 }
@@ -39,7 +30,6 @@ impl TleEngine {
             tles: vec![],
             observer_lat: 51.5,
             observer_lon: -0.1,
-            observer_alt: 10.0,
             cached_passes: vec![],
             cached_at: std::time::Instant::now() - std::time::Duration::from_secs(999),
         };
@@ -49,11 +39,31 @@ impl TleEngine {
 
     fn load_builtin(&mut self) {
         self.tles = vec![
-            TleEntry { name: "NOAA 15".into(), line1: "1 25338U 98030A   25178.50000000  .00000000  00000-0  00000-0 0  9999".into(), line2: "2 25338  98.7400 180.0000 0011700 120.0000 240.0000 14.26000000    10".into(), mean_motion: 14.26, inclination: 98.74, eccentricity: 0.00117 },
-            TleEntry { name: "NOAA 18".into(), line1: "1 28654U 05018A   25178.50000000  .00000000  00000-0  00000-0 0  9999".into(), line2: "2 28654  99.0100 180.0000 0012000 120.0000 240.0000 14.13000000    10".into(), mean_motion: 14.13, inclination: 99.01, eccentricity: 0.0012 },
-            TleEntry { name: "NOAA 19".into(), line1: "1 33591U 09005A   25178.50000000  .00000000  00000-0  00000-0 0  9999".into(), line2: "2 33591  98.9900 180.0000 0011500 120.0000 240.0000 14.13000000    10".into(), mean_motion: 14.13, inclination: 98.99, eccentricity: 0.00115 },
-            TleEntry { name: "Meteor-M2-2".into(), line1: "1 44387U 19030A   25178.50000000  .00000000  00000-0  00000-0 0  9999".into(), line2: "2 44387  98.5700 180.0000 0011000 120.0000 240.0000 14.21000000    10".into(), mean_motion: 14.21, inclination: 98.57, eccentricity: 0.0011 },
-            TleEntry { name: "ISS".into(), line1: "1 25544U 98067A   25178.50000000  .00020000  00000-0  28000-3 0  9999".into(), line2: "2 25544  51.6400 180.0000 0006000 120.0000 240.0000 15.50000000    10".into(), mean_motion: 15.50, inclination: 51.64, eccentricity: 0.0006 },
+            TleEntry {
+                name: "NOAA 15".into(),
+                mean_motion: 14.26,
+                inclination: 98.74,
+            },
+            TleEntry {
+                name: "NOAA 18".into(),
+                mean_motion: 14.13,
+                inclination: 99.01,
+            },
+            TleEntry {
+                name: "NOAA 19".into(),
+                mean_motion: 14.13,
+                inclination: 98.99,
+            },
+            TleEntry {
+                name: "Meteor-M2-2".into(),
+                mean_motion: 14.21,
+                inclination: 98.57,
+            },
+            TleEntry {
+                name: "ISS".into(),
+                mean_motion: 15.50,
+                inclination: 51.64,
+            },
         ];
     }
 
@@ -68,7 +78,9 @@ impl TleEngine {
     pub fn compute_passes(&self, lat: f64, lon: f64, hours: f64) -> Vec<PassInfo> {
         let mut passes = vec![];
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64();
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
         let dt = 60.0;
         let steps = (hours * 3600.0 / dt) as usize;
 
@@ -127,11 +139,14 @@ impl TleEngine {
                 });
             }
         }
-        passes.sort_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal));
+        passes.sort_by(|a, b| {
+            a.aos_dt
+                .partial_cmp(&b.aos_dt)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         passes
     }
 
-    #[allow(dead_code)]
     pub fn doppler_shift(&self, sat: &TleEntry, freq_hz: f64, t: f64) -> f64 {
         let period_s = 1440.0 / sat.mean_motion * 60.0;
         let orbit_phase = (t % period_s) / period_s;
@@ -215,13 +230,20 @@ mod tests {
         let shift = engine.doppler_shift_for_sat("ISS", 145_800_000.0, 100_000.0);
         // Doppler shift should be a reasonable value (not zero, not huge)
         assert!(shift.abs() > 0.0);
-        assert!(shift.abs() < 100_000.0, "doppler shift too large: {}", shift);
+        assert!(
+            shift.abs() < 100_000.0,
+            "doppler shift too large: {}",
+            shift
+        );
     }
 
     #[test]
     fn doppler_shift_unknown_sat_returns_zero() {
         let engine = TleEngine::new();
-        assert_eq!(engine.doppler_shift_for_sat("NONEXISTENT", 100_000_000.0, 0.0), 0.0);
+        assert_eq!(
+            engine.doppler_shift_for_sat("NONEXISTENT", 100_000_000.0, 0.0),
+            0.0
+        );
     }
 
     #[test]
@@ -231,7 +253,10 @@ mod tests {
         // Within a 24-hour window there should be several passes from 5 sats
         assert!(!passes.is_empty());
         for i in 1..passes.len() {
-            assert!(passes[i - 1].aos_dt <= passes[i].aos_dt, "passes not sorted by AOS");
+            assert!(
+                passes[i - 1].aos_dt <= passes[i].aos_dt,
+                "passes not sorted by AOS"
+            );
         }
     }
 
@@ -239,7 +264,8 @@ mod tests {
     fn compute_passes_contains_expected_sats() {
         let engine = TleEngine::new();
         let passes = engine.compute_passes(51.5, -0.1, 72.0);
-        let sats: std::collections::BTreeSet<&str> = passes.iter().map(|p| p.satellite.as_str()).collect();
+        let sats: std::collections::BTreeSet<&str> =
+            passes.iter().map(|p| p.satellite.as_str()).collect();
         // Should have some NOAA and ISS passes
         assert!(sats.contains("ISS"));
     }

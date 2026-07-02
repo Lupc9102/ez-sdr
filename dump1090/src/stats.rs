@@ -281,17 +281,34 @@ impl Stats {
             self.start_ms.min(other.start_ms)
         };
 
-        let (newer_end_ms, newer_sdr_gain, newer_rate_history, newer_rate_cursor,
-             newer_current_second_start, newer_current_second_messages) =
-            if other.end_ms > self.end_ms
-                || (other.end_ms == self.end_ms && other.start_ms > self.start_ms)
-            {
-                (other.end_ms, other.sdr_gain, other.rate_history, other.rate_cursor,
-                 other.current_second_start, other.current_second_messages)
-            } else {
-                (self.end_ms, self.sdr_gain, self.rate_history, self.rate_cursor,
-                 self.current_second_start, self.current_second_messages)
-            };
+        let (
+            newer_end_ms,
+            newer_sdr_gain,
+            newer_rate_history,
+            newer_rate_cursor,
+            newer_current_second_start,
+            newer_current_second_messages,
+        ) = if other.end_ms > self.end_ms
+            || (other.end_ms == self.end_ms && other.start_ms > self.start_ms)
+        {
+            (
+                other.end_ms,
+                other.sdr_gain,
+                other.rate_history,
+                other.rate_cursor,
+                other.current_second_start,
+                other.current_second_messages,
+            )
+        } else {
+            (
+                self.end_ms,
+                self.sdr_gain,
+                self.rate_history,
+                self.rate_cursor,
+                self.current_second_start,
+                self.current_second_messages,
+            )
+        };
         self.end_ms = newer_end_ms;
         self.sdr_gain = newer_sdr_gain;
 
@@ -374,14 +391,30 @@ impl Stats {
                 if other.end_ms > self.end_ms
                     || (other.end_ms == self.end_ms && other.start_ms > self.start_ms)
                 {
-                    (other.adaptive_valid, other.adaptive_noise_dbfs, other.adaptive_range_gain_limit)
+                    (
+                        other.adaptive_valid,
+                        other.adaptive_noise_dbfs,
+                        other.adaptive_range_gain_limit,
+                    )
                 } else {
-                    (self.adaptive_valid, self.adaptive_noise_dbfs, self.adaptive_range_gain_limit)
+                    (
+                        self.adaptive_valid,
+                        self.adaptive_noise_dbfs,
+                        self.adaptive_range_gain_limit,
+                    )
                 }
             } else if self.adaptive_valid {
-                (self.adaptive_valid, self.adaptive_noise_dbfs, self.adaptive_range_gain_limit)
+                (
+                    self.adaptive_valid,
+                    self.adaptive_noise_dbfs,
+                    self.adaptive_range_gain_limit,
+                )
             } else {
-                (other.adaptive_valid, other.adaptive_noise_dbfs, other.adaptive_range_gain_limit)
+                (
+                    other.adaptive_valid,
+                    other.adaptive_noise_dbfs,
+                    other.adaptive_range_gain_limit,
+                )
             };
 
         self.adaptive_valid = adaptive_best_valid;
@@ -460,14 +493,30 @@ impl fmt::Display for Stats {
         )?;
 
         if self.sdr_gain >= 0 {
-            writeln!(f, "  {:>4.1} dB current SDR gain (step {})", self.sdr_gain as f32, self.sdr_gain)?;
+            writeln!(
+                f,
+                "  {:>4.1} dB current SDR gain (step {})",
+                self.sdr_gain as f32, self.sdr_gain
+            )?;
         }
 
         if self.adaptive_valid {
             writeln!(f, "Adaptive gain:")?;
-            writeln!(f, "  {:>5} loud undecoded bursts", self.adaptive_loud_undecoded)?;
-            writeln!(f, "  {:>5} loud decoded messages", self.adaptive_loud_decoded)?;
-            writeln!(f, "  {:>5.1} dBFS latest noise floor", self.adaptive_noise_dbfs)?;
+            writeln!(
+                f,
+                "  {:>5} loud undecoded bursts",
+                self.adaptive_loud_undecoded
+            )?;
+            writeln!(
+                f,
+                "  {:>5} loud decoded messages",
+                self.adaptive_loud_decoded
+            )?;
+            writeln!(
+                f,
+                "  {:>5.1} dBFS latest noise floor",
+                self.adaptive_noise_dbfs
+            )?;
             writeln!(
                 f,
                 "  {:>5} latest dynamic range gain upper limit (step {})",

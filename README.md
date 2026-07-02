@@ -58,6 +58,24 @@ cargo run --release --no-default-features
 
 The first build compiles `dump1090` (the Rust ADS‑B decoder library) and `ez-gui` (the main application). Release builds are strongly recommended — debug builds are noticeably slower for spectrum rendering.
 
+## Testing
+
+```
+# Run the full test suite (both crates)
+cargo test --workspace
+
+# Run tests with all features
+cargo test --workspace --all-features
+
+# Lint check
+cargo clippy --workspace --all-targets
+```
+
+<!-- CI badge: uncomment once CI is running on a public repo -->
+<!-- [![CI](https://github.com/USER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/USER/REPO/actions/workflows/ci.yml) -->
+
+> **Security auditing:** Run `cargo audit` periodically to check for vulnerable dependencies (`cargo install cargo-audit` first).
+
 ## Controls
 
 | Control | Action |

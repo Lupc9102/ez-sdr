@@ -1,5 +1,8 @@
 use std::io::{BufRead, BufReader};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use crate::app::SharedState;
 use crate::config::{DEFAULT_AI_MODEL, PROVIDER_PRESETS};
@@ -84,7 +87,10 @@ Use web_search when the user asks about external information not available in yo
 // Streaming state sent from worker thread
 enum StreamEvent {
     Chunk(String),
-    ToolCallDetected { tool: String, args: serde_json::Value },
+    ToolCallDetected {
+        tool: String,
+        args: serde_json::Value,
+    },
     Done(()),
     Error(String),
 }
@@ -119,7 +125,20 @@ impl AiPanel {
     }
 
     /// Build the messages JSON array for the API call, injecting system prompt.
-    fn build_api_messages(&self) -> (Vec<serde_json::Value>, String, String, String, String, u32, f64, String, String, bool) {
+    fn build_api_messages(
+        &self,
+    ) -> (
+        Vec<serde_json::Value>,
+        String,
+        String,
+        String,
+        String,
+        u32,
+        f64,
+        String,
+        String,
+        bool,
+    ) {
         let state_snapshot = {
             if let Ok(state) = self.shared.try_lock() {
                 let cfg = &state.config;
@@ -158,14 +177,51 @@ impl AiPanel {
             }
         };
 
-        let (endpoint, model, api_key, provider, max_tokens, temperature, system_prompt,
-             freq, rate, gain, mode, recording, sat, adsb, noise_floor, peak_db, squelch,
-             volume, lpf_cutoff, audio_peak, vfo_b, bookmark_count, lo_offset_hz, ppm, has_history,
-             reasoning_effort, web_search_enabled) =
-            match state_snapshot {
-                Some(s) => s,
-                None => return (vec![], String::new(), String::new(), String::new(), String::new(), 0, 0.0, String::new(), String::new(), false),
-            };
+        let (
+            endpoint,
+            model,
+            api_key,
+            provider,
+            max_tokens,
+            temperature,
+            system_prompt,
+            freq,
+            rate,
+            gain,
+            mode,
+            recording,
+            sat,
+            adsb,
+            noise_floor,
+            peak_db,
+            squelch,
+            volume,
+            lpf_cutoff,
+            audio_peak,
+            vfo_b,
+            bookmark_count,
+            lo_offset_hz,
+            ppm,
+            has_history,
+            reasoning_effort,
+            web_search_enabled,
+        ) = match state_snapshot {
+            Some(s) => s,
+            None => {
+                return (
+                    vec![],
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    0,
+                    0.0,
+                    String::new(),
+                    String::new(),
+                    false,
+                )
+            }
+        };
 
         let snr = peak_db - noise_floor;
 
@@ -173,9 +229,11 @@ impl AiPanel {
 
         let sys = if system_prompt.is_empty() {
             let vfo_b_info = if vfo_b > 0 {
-                format!("\n - VFO-B: {:.4} MHz (offset {:.3} MHz from VFO-A)",
+                format!(
+                    "\n - VFO-B: {:.4} MHz (offset {:.3} MHz from VFO-A)",
                     vfo_b as f64 / 1e6,
-                    (vfo_b as f64 - freq as f64) / 1e6)
+                    (vfo_b as f64 - freq as f64) / 1e6
+                )
             } else {
                 String::new()
             };
@@ -243,20 +301,34 @@ impl AiPanel {
                 "content": m.content,
             });
             if let Some(ref calls) = m.tool_calls {
-                let tools: Vec<serde_json::Value> = calls.iter().map(|tc| {
-                    serde_json::json!({
-                        "function": {
-                            "name": tc.name,
-                            "arguments": tc.arguments.to_string(),
-                        }
+                let tools: Vec<serde_json::Value> = calls
+                    .iter()
+                    .map(|tc| {
+                        serde_json::json!({
+                            "function": {
+                                "name": tc.name,
+                                "arguments": tc.arguments.to_string(),
+                            }
+                        })
                     })
-                }).collect();
+                    .collect();
                 obj["tool_calls"] = serde_json::json!(tools);
             }
             msgs.push(obj);
         }
 
-        (msgs, endpoint, model, api_key, provider, max_tokens, temperature, sys, reasoning_effort, web_search_enabled)
+        (
+            msgs,
+            endpoint,
+            model,
+            api_key,
+            provider,
+            max_tokens,
+            temperature,
+            sys,
+            reasoning_effort,
+            web_search_enabled,
+        )
     }
 
     pub fn send_message(&mut self) {
@@ -283,9 +355,21 @@ impl AiPanel {
         self.thinking = true;
         self.stream_start = Some(std::time::Instant::now());
 
-        let (api_messages, endpoint, model, api_key, provider, max_tokens, temperature, system_prompt, reasoning_effort, web_search_enabled) = self.build_api_messages();
+        let (
+            api_messages,
+            endpoint,
+            model,
+            api_key,
+            provider,
+            max_tokens,
+            temperature,
+            system_prompt,
+            reasoning_effort,
+            web_search_enabled,
+        ) = self.build_api_messages();
 
-        let needs_key = PROVIDER_PRESETS.iter()
+        let needs_key = PROVIDER_PRESETS
+            .iter()
             .find(|p| p.name == provider)
             .map(|p| p.needs_key)
             .unwrap_or(true);
@@ -345,8 +429,16 @@ impl AiPanel {
 
     fn stream_openai_compat(params: &StreamParams, web_search_enabled: bool) {
         let StreamParams {
-            client, evt_tx, endpoint, api_key, model, api_messages,
-            max_tokens, temperature, abort_flag, reasoning_effort,
+            client,
+            evt_tx,
+            endpoint,
+            api_key,
+            model,
+            api_messages,
+            max_tokens,
+            temperature,
+            abort_flag,
+            reasoning_effort,
         } = *params;
 
         let mut body = serde_json::json!({
@@ -367,7 +459,8 @@ impl AiPanel {
             ]);
         }
 
-        let mut req = client.post(endpoint)
+        let mut req = client
+            .post(endpoint)
             .header("Content-Type", "application/json")
             .json(&body);
         if !api_key.is_empty() {
@@ -396,12 +489,21 @@ impl AiPanel {
                 let _ = evt_tx.send(StreamEvent::Done(()));
                 return;
             }
-            let line = match line { Ok(l) => l, Err(_) => break };
-            if !line.starts_with("data: ") { continue; }
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            if !line.starts_with("data: ") {
+                continue;
+            }
             let data = &line[6..];
-            if data == "[DONE]" { break; }
+            if data == "[DONE]" {
+                break;
+            }
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                let content = json["choices"][0]["delta"]["content"].as_str().unwrap_or("");
+                let content = json["choices"][0]["delta"]["content"]
+                    .as_str()
+                    .unwrap_or("");
                 if !content.is_empty() {
                     full_text.push_str(content);
                     let _ = evt_tx.send(StreamEvent::Chunk(content.to_string()));
@@ -415,10 +517,19 @@ impl AiPanel {
 
     fn stream_anthropic(params: &StreamParams, system_prompt: &str) {
         let StreamParams {
-            client, evt_tx, endpoint, api_key, model, api_messages,
-            max_tokens, temperature, abort_flag, reasoning_effort,
+            client,
+            evt_tx,
+            endpoint,
+            api_key,
+            model,
+            api_messages,
+            max_tokens,
+            temperature,
+            abort_flag,
+            reasoning_effort,
         } = *params;
-        let non_system: Vec<&serde_json::Value> = api_messages.iter()
+        let non_system: Vec<&serde_json::Value> = api_messages
+            .iter()
             .filter(|m| m["role"].as_str() != Some("system"))
             .collect();
 
@@ -449,7 +560,8 @@ impl AiPanel {
             }
         }
 
-        let resp = match client.post(endpoint)
+        let resp = match client
+            .post(endpoint)
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
@@ -466,7 +578,10 @@ impl AiPanel {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().unwrap_or_default();
-            let _ = evt_tx.send(StreamEvent::Error(format!("Anthropic HTTP {}: {}", status, text)));
+            let _ = evt_tx.send(StreamEvent::Error(format!(
+                "Anthropic HTTP {}: {}",
+                status, text
+            )));
             return;
         }
 
@@ -477,8 +592,13 @@ impl AiPanel {
                 let _ = evt_tx.send(StreamEvent::Done(()));
                 return;
             }
-            let line = match line { Ok(l) => l, Err(_) => break };
-            if !line.starts_with("data: ") { continue; }
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            if !line.starts_with("data: ") {
+                continue;
+            }
             let data = &line[6..];
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
                 match json["type"].as_str() {
@@ -513,7 +633,9 @@ impl AiPanel {
 
         while search_from < text.len() {
             // Find next candidate
-            let Some(rel_start) = text[search_from..].find("{\"tool\"") else { break };
+            let Some(rel_start) = text[search_from..].find("{\"tool\"") else {
+                break;
+            };
             let abs_start = search_from + rel_start;
             let slice = &text[abs_start..];
 
@@ -569,11 +691,15 @@ impl AiPanel {
                 Ok(StreamEvent::ToolCallDetected { tool, args }) => {
                     let result = self.execute_tool_call(&tool, &args);
                     if let Some(last) = self.messages.last_mut() {
-                        let tc = ToolCall { name: tool.clone(), arguments: args.clone() };
+                        let tc = ToolCall {
+                            name: tool.clone(),
+                            arguments: args.clone(),
+                        };
                         let mut calls = last.tool_calls.take().unwrap_or_default();
                         calls.push(tc);
                         last.tool_calls = Some(calls);
-                        last.content.push_str(&format!("\n\u{25b6} {} \u{2192} {}", tool, result));
+                        last.content
+                            .push_str(&format!("\n\u{25b6} {} \u{2192} {}", tool, result));
                     }
                 }
                 Ok(StreamEvent::Done(_)) => {
@@ -647,12 +773,12 @@ impl AiPanel {
                     if let Some(mode) = args["mode"].as_str() {
                         let demod = match mode.to_uppercase().as_str() {
                             "RAW" => crate::sdr_panel::DemodMode::Raw,
-                            "AM"  => crate::sdr_panel::DemodMode::Am,
+                            "AM" => crate::sdr_panel::DemodMode::Am,
                             "FM" | "NFM" => crate::sdr_panel::DemodMode::Fm,
                             "WFM" => crate::sdr_panel::DemodMode::Wfm,
                             "LSB" => crate::sdr_panel::DemodMode::Lsb,
                             "USB" => crate::sdr_panel::DemodMode::Usb,
-                            _    => crate::sdr_panel::DemodMode::Fm,
+                            _ => crate::sdr_panel::DemodMode::Fm,
                         };
                         state.demod_mode = demod;
                         return format!("Demod mode set to {}", mode.to_uppercase());
@@ -713,10 +839,13 @@ impl AiPanel {
                         "bookmark_count": state.bookmarks.bookmarks.len(),
                         "lo_offset_hz": state.lo_offset_hz,
                         "ppm_correction": state.source.ppm_correction,
-                    }).to_string();
+                    })
+                    .to_string();
                 }
                 "get_freq_history" => {
-                    let history: Vec<String> = state.freq_history.iter()
+                    let history: Vec<String> = state
+                        .freq_history
+                        .iter()
                         .map(|&hz| format!("{:.4} MHz", hz as f64 / 1e6))
                         .collect();
                     if history.is_empty() {
@@ -727,7 +856,10 @@ impl AiPanel {
                 "add_bookmark" => {
                     let name = args["name"].as_str().unwrap_or("AI Bookmark").to_string();
                     let hz = args["hz"].as_u64().unwrap_or(state.source.frequency_hz);
-                    let mode = args["mode"].as_str().unwrap_or(state.demod_mode.label()).to_string();
+                    let mode = args["mode"]
+                        .as_str()
+                        .unwrap_or(state.demod_mode.label())
+                        .to_string();
                     let notes = args["notes"].as_str().unwrap_or("").to_string();
                     let freq_mhz = hz as f64 / 1e6;
                     state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
@@ -781,7 +913,10 @@ impl AiPanel {
             Err(e) => return format!("Search client error: {}", e),
         };
 
-        let url = format!("https://lite.duckduckgo.com/lite/?q={}", urlencoding::encode(query));
+        let url = format!(
+            "https://lite.duckduckgo.com/lite/?q={}",
+            urlencoding::encode(query)
+        );
         let resp = match client.get(&url).send() {
             Ok(r) => r,
             Err(e) => return format!("Search request failed: {}", e),
@@ -841,14 +976,22 @@ impl AiPanel {
                     }
                     let text = text.split_whitespace().collect::<Vec<&_>>().join(" ");
                     if !text.is_empty() {
-                        return format!("Search results for '{}':\n{}", query, text.chars().take(2000).collect::<String>());
+                        return format!(
+                            "Search results for '{}':\n{}",
+                            query,
+                            text.chars().take(2000).collect::<String>()
+                        );
                     }
                 }
             }
             return format!("No results found for '{}'", query);
         }
 
-        let mut output = format!("Search results for '{}' ({} results):\n\n", query, results.len().min(5));
+        let mut output = format!(
+            "Search results for '{}' ({} results):\n\n",
+            query,
+            results.len().min(5)
+        );
         for (i, snippet) in results.iter().take(5).enumerate() {
             output.push_str(&format!("{}. {}\n\n", i + 1, snippet));
         }
@@ -863,22 +1006,33 @@ impl AiPanel {
         while i < bytes.len() {
             if bytes[i].is_ascii_digit() {
                 let num_start = i;
-                while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+                while i < bytes.len() && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
                 if i < bytes.len() && bytes[i] == b'.' {
                     i += 1;
-                    while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+                    while i < bytes.len() && bytes[i].is_ascii_digit() {
+                        i += 1;
+                    }
                 }
                 let num_end = i;
                 let suffix = &text[num_end..];
 
-                let (mult, slen): (f64, usize) =
-                    if suffix.starts_with(" MHz") { (1e6, 4) }
-                    else if suffix.starts_with("MHz")  { (1e6, 3) }
-                    else if suffix.starts_with(" GHz") { (1e9, 4) }
-                    else if suffix.starts_with("GHz")  { (1e9, 3) }
-                    else if suffix.starts_with(" kHz") { (1e3, 4) }
-                    else if suffix.starts_with("kHz")  { (1e3, 3) }
-                    else { (0.0, 0) };
+                let (mult, slen): (f64, usize) = if suffix.starts_with(" MHz") {
+                    (1e6, 4)
+                } else if suffix.starts_with("MHz") {
+                    (1e6, 3)
+                } else if suffix.starts_with(" GHz") {
+                    (1e9, 4)
+                } else if suffix.starts_with("GHz") {
+                    (1e9, 3)
+                } else if suffix.starts_with(" kHz") {
+                    (1e3, 4)
+                } else if suffix.starts_with("kHz") {
+                    (1e3, 3)
+                } else {
+                    (0.0, 0)
+                };
 
                 if mult > 0.0 {
                     if let Ok(val) = text[num_start..num_end].parse::<f64>() {
@@ -898,7 +1052,12 @@ impl AiPanel {
 
     /// Tokenize a line into (text, bold, italic, code, freq_hz) spans for inline rendering.
     fn tokenize_inline(text: &str) -> Vec<(String, bool, bool, bool, Option<u64>)> {
-        enum Span { Plain(String), Bold(String), Italic(String), Code(String) }
+        enum Span {
+            Plain(String),
+            Bold(String),
+            Italic(String),
+            Code(String),
+        }
 
         // Split on **bold**, *italic*, and `code` markers.
         let mut spans: Vec<Span> = Vec::new();
@@ -937,7 +1096,8 @@ impl AiPanel {
                 continue;
             }
             // Advance to the next marker
-            let next = rest.find("**")
+            let next = rest
+                .find("**")
                 .or_else(|| rest.find('*'))
                 .or_else(|| rest.find('`'))
                 .unwrap_or(rest.len());
@@ -949,18 +1109,30 @@ impl AiPanel {
         let mut result: Vec<(String, bool, bool, bool, Option<u64>)> = Vec::new();
         for span in spans {
             match span {
-                Span::Bold(s)   => result.push((s, true,  false, false, None)),
-                Span::Italic(s) => result.push((s, false, true,  false, None)),
-                Span::Code(s)   => result.push((s, false, false, true,  None)),
-                Span::Plain(s)  => {
+                Span::Bold(s) => result.push((s, true, false, false, None)),
+                Span::Italic(s) => result.push((s, false, true, false, None)),
+                Span::Code(s) => result.push((s, false, false, true, None)),
+                Span::Plain(s) => {
                     let mut sub = s.as_str();
                     while !sub.is_empty() {
                         match Self::find_next_freq(sub) {
                             Some((start, end, hz)) => {
                                 if start > 0 {
-                                    result.push((sub[..start].to_string(), false, false, false, None));
+                                    result.push((
+                                        sub[..start].to_string(),
+                                        false,
+                                        false,
+                                        false,
+                                        None,
+                                    ));
                                 }
-                                result.push((sub[start..end].to_string(), false, false, false, Some(hz)));
+                                result.push((
+                                    sub[start..end].to_string(),
+                                    false,
+                                    false,
+                                    false,
+                                    Some(hz),
+                                ));
                                 sub = &sub[end..];
                             }
                             None => {
@@ -978,16 +1150,23 @@ impl AiPanel {
     /// Render one line of prose with frequency mentions rendered as blue clickable links,
     /// and **bold** / *italic* markdown rendered inline.
     /// Returns Some(hz) if a link was clicked this frame.
-    fn render_line_with_freqs(ui: &mut egui::Ui, line: &str, text_color: egui::Color32) -> Option<u64> {
+    fn render_line_with_freqs(
+        ui: &mut egui::Ui,
+        line: &str,
+        text_color: egui::Color32,
+    ) -> Option<u64> {
         let mut clicked: Option<u64> = None;
         ui.horizontal_wrapped(|ui| {
             for (text, bold, italic, code, freq_hz) in Self::tokenize_inline(line) {
-                if text.is_empty() { continue; }
+                if text.is_empty() {
+                    continue;
+                }
                 if let Some(hz) = freq_hz {
                     let link_text = egui::RichText::new(&text)
                         .color(egui::Color32::from_rgb(80, 180, 255))
                         .underline();
-                    let resp = ui.add(egui::Label::new(link_text).sense(egui::Sense::click()))
+                    let resp = ui
+                        .add(egui::Label::new(link_text).sense(egui::Sense::click()))
                         .on_hover_text(format!("🎯 Tune to {:.4} MHz", hz as f64 / 1e6));
                     if resp.clicked() {
                         clicked = Some(hz);
@@ -1000,8 +1179,12 @@ impl AiPanel {
                     );
                 } else {
                     let mut rich = egui::RichText::new(&text).color(text_color);
-                    if bold { rich = rich.strong(); }
-                    if italic { rich = rich.italics(); }
+                    if bold {
+                        rich = rich.strong();
+                    }
+                    if italic {
+                        rich = rich.italics();
+                    }
                     ui.label(rich);
                 }
             }
@@ -1024,9 +1207,19 @@ impl AiPanel {
             if let Some(rest) = line.strip_prefix("### ") {
                 ui.label(egui::RichText::new(rest).strong().color(text_color));
             } else if let Some(rest) = line.strip_prefix("## ") {
-                ui.label(egui::RichText::new(rest).strong().heading().color(text_color));
+                ui.label(
+                    egui::RichText::new(rest)
+                        .strong()
+                        .heading()
+                        .color(text_color),
+                );
             } else if let Some(rest) = line.strip_prefix("# ") {
-                ui.label(egui::RichText::new(rest).strong().heading().color(text_color));
+                ui.label(
+                    egui::RichText::new(rest)
+                        .strong()
+                        .heading()
+                        .color(text_color),
+                );
             // Horizontal rule
             } else if line == "---" || line == "***" || line == "___" {
                 ui.separator();
@@ -1034,11 +1227,14 @@ impl AiPanel {
             } else if let Some(body) = line.strip_prefix("> ") {
                 ui.horizontal_wrapped(|ui| {
                     ui.add(egui::Separator::default().vertical().spacing(6.0));
-                    ui.label(egui::RichText::new(body).color(egui::Color32::from_gray(180)).italics());
+                    ui.label(
+                        egui::RichText::new(body)
+                            .color(egui::Color32::from_gray(180))
+                            .italics(),
+                    );
                 });
             // Bullet: "- text" or "* text"
-            } else if (line.starts_with("- ") || line.starts_with("* "))
-                && !line.starts_with("**")
+            } else if (line.starts_with("- ") || line.starts_with("* ")) && !line.starts_with("**")
             {
                 let body = &line[2..];
                 ui.horizontal_wrapped(|ui| {
@@ -1049,7 +1245,13 @@ impl AiPanel {
                     }
                 });
             // Numbered list: "1. text", "2. text", etc.
-            } else if line.len() > 2 && line.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            } else if line.len() > 2
+                && line
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+            {
                 let dot_pos = line.find(". ");
                 if let Some(dot) = dot_pos {
                     let num = &line[..dot];
@@ -1068,10 +1270,8 @@ impl AiPanel {
                 if let Some(hz) = Self::render_line_with_freqs(ui, line, text_color) {
                     clicked = Some(hz);
                 }
-            } else {
-                if let Some(hz) = Self::render_line_with_freqs(ui, line, text_color) {
-                    clicked = Some(hz);
-                }
+            } else if let Some(hz) = Self::render_line_with_freqs(ui, line, text_color) {
+                clicked = Some(hz);
             }
         }
         clicked
@@ -1079,13 +1279,21 @@ impl AiPanel {
 
     /// Render message content: handles ``` code fences, newlines, and clickable frequencies.
     /// Returns Some(hz) if the user clicked a frequency link.
-    fn render_message_content(ui: &mut egui::Ui, content: &str, text_color: egui::Color32) -> Option<u64> {
+    fn render_message_content(
+        ui: &mut egui::Ui,
+        content: &str,
+        text_color: egui::Color32,
+    ) -> Option<u64> {
         let mut clicked: Option<u64> = None;
         if content.contains("```") {
             let mut in_code = false;
             for block in content.split("```") {
                 if in_code {
-                    let code = if let Some(nl) = block.find('\n') { &block[nl + 1..] } else { block };
+                    let code = if let Some(nl) = block.find('\n') {
+                        &block[nl + 1..]
+                    } else {
+                        block
+                    };
                     let code = code.trim_end();
                     if !code.is_empty() {
                         ui.group(|ui| {
@@ -1111,15 +1319,24 @@ impl AiPanel {
     fn export_chat(&self) {
         let mut text = String::new();
         for msg in &self.messages {
-            if msg.role == "system" { continue; }
+            if msg.role == "system" {
+                continue;
+            }
             let label = match msg.role.as_str() {
-                "user"      => "You",
+                "user" => "You",
                 "assistant" => "AI",
-                _           => &msg.role,
+                _ => &msg.role,
             };
-            text.push_str(&format!("[{}] {}: {}\n\n", msg.format_time(), label, msg.content));
+            text.push_str(&format!(
+                "[{}] {}: {}\n\n",
+                msg.format_time(),
+                label,
+                msg.content
+            ));
         }
-        if text.is_empty() { return; }
+        if text.is_empty() {
+            return;
+        }
 
         if let Some(path) = rfd::FileDialog::new()
             .set_file_name("ez_sdr_ai_chat.txt")
@@ -1136,7 +1353,8 @@ impl AiPanel {
         // Header with model/provider info and context token estimate
         let (model, provider, has_key, temp, reasoning_effort, web_search) = {
             if let Ok(state) = self.shared.try_lock() {
-                let needs_key = PROVIDER_PRESETS.iter()
+                let needs_key = PROVIDER_PRESETS
+                    .iter()
                     .find(|p| p.name == state.config.ai_provider)
                     .map(|p| p.needs_key)
                     .unwrap_or(true);
@@ -1149,7 +1367,14 @@ impl AiPanel {
                     state.config.ai_web_search,
                 )
             } else {
-                (DEFAULT_AI_MODEL.to_string(), "?".to_string(), false, 0.7, "off".to_string(), false)
+                (
+                    DEFAULT_AI_MODEL.to_string(),
+                    "?".to_string(),
+                    false,
+                    0.7,
+                    "off".to_string(),
+                    false,
+                )
             }
         };
         self.temperature = temp;
@@ -1212,33 +1437,45 @@ impl AiPanel {
 
         // Collapsing tools reference
         ui.collapsing("Available Tools", |ui| {
-            egui::Grid::new("ai_tools_grid").num_columns(2).striped(true).show(ui, |ui| {
-                let tools = [
-                    ("tune_frequency(hz)", "Set center frequency in Hz"),
-                    ("set_gain(db)", "RF gain 0–49.6 dB"),
-                    ("set_demod(mode)", "AM / NFM / WFM / USB / LSB / RAW"),
-                    ("set_sample_rate(rate)", "Sample rate in Hz (e.g. 2048000)"),
-                    ("set_squelch(db)", "Squelch threshold in dB"),
-                    ("set_volume(level)", "Audio volume 0.0–1.0"),
-                    ("set_lpf_cutoff(hz)", "Audio low-pass filter cutoff in Hz"),
-                    ("toggle_bias_tee(on)", "Bias tee power for LNAs"),
-                    ("start_recording()", "Begin IQ/WAV recording"),
-                    ("stop_recording()", "Stop recording"),
-                    ("select_satellite(name)", "Auto-track a satellite"),
-                    ("start_adsb()", "Start ADS-B decoder at 1090 MHz"),
-                    ("stop_adsb()", "Stop ADS-B decoder"),
-                    ("get_status()", "Return full SDR state as JSON"),
-                    ("get_freq_history()", "Show recently tuned frequencies"),
-                    ("add_bookmark(name,hz,mode,notes)", "Save a frequency as a bookmark"),
-                    ("set_ppm(ppm)", "Frequency correction in PPM (oscillator drift)"),
-                    ("web_search(query)", "Search the web for external information"),
-                ];
-                for (name, desc) in &tools {
-                    ui.monospace(*name);
-                    ui.label(*desc);
-                    ui.end_row();
-                }
-            });
+            egui::Grid::new("ai_tools_grid")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    let tools = [
+                        ("tune_frequency(hz)", "Set center frequency in Hz"),
+                        ("set_gain(db)", "RF gain 0–49.6 dB"),
+                        ("set_demod(mode)", "AM / NFM / WFM / USB / LSB / RAW"),
+                        ("set_sample_rate(rate)", "Sample rate in Hz (e.g. 2048000)"),
+                        ("set_squelch(db)", "Squelch threshold in dB"),
+                        ("set_volume(level)", "Audio volume 0.0–1.0"),
+                        ("set_lpf_cutoff(hz)", "Audio low-pass filter cutoff in Hz"),
+                        ("toggle_bias_tee(on)", "Bias tee power for LNAs"),
+                        ("start_recording()", "Begin IQ/WAV recording"),
+                        ("stop_recording()", "Stop recording"),
+                        ("select_satellite(name)", "Auto-track a satellite"),
+                        ("start_adsb()", "Start ADS-B decoder at 1090 MHz"),
+                        ("stop_adsb()", "Stop ADS-B decoder"),
+                        ("get_status()", "Return full SDR state as JSON"),
+                        ("get_freq_history()", "Show recently tuned frequencies"),
+                        (
+                            "add_bookmark(name,hz,mode,notes)",
+                            "Save a frequency as a bookmark",
+                        ),
+                        (
+                            "set_ppm(ppm)",
+                            "Frequency correction in PPM (oscillator drift)",
+                        ),
+                        (
+                            "web_search(query)",
+                            "Search the web for external information",
+                        ),
+                    ];
+                    for (name, desc) in &tools {
+                        ui.monospace(*name);
+                        ui.label(*desc);
+                        ui.end_row();
+                    }
+                });
         });
         ui.separator();
 
@@ -1345,7 +1582,12 @@ impl AiPanel {
 
         // Retry: remove the error + last user message, re-queue the user content
         if retry && !self.thinking {
-            if self.messages.last().map(|m| m.content.starts_with('⚠')).unwrap_or(false) {
+            if self
+                .messages
+                .last()
+                .map(|m| m.content.starts_with('⚠'))
+                .unwrap_or(false)
+            {
                 self.messages.pop();
             }
             if let Some(pos) = self.messages.iter().rposition(|m| m.role == "user") {

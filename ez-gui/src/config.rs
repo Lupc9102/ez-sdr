@@ -1,95 +1,199 @@
-use serde::{Deserialize, Serialize};
-use crate::theme::ThemeConfig;
-use crate::discord::DiscordSettings;
+//! Persistent application configuration.
+//!
+//! Provides [`AppConfig`] for serializing/deserializing all SDR, UI, theme,
+//! Discord, and AI settings to/from `ez_sdr_config.json`, including theme
+//! configuration ([`ThemeConfig`]) and Discord integration settings.
 
+use crate::discord::DiscordSettings;
+use crate::theme::ThemeConfig;
+use serde::{Deserialize, Serialize};
+
+/// Default AI provider API endpoint (OpenRouter).
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
+/// Default AI model identifier.
 pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-3-haiku";
 
+/// A known AI provider preset with its endpoint, default model, and notes.
 pub struct ProviderPreset {
+    /// Display name of the provider.
     pub name: &'static str,
+    /// Base URL for the provider's chat completions API.
     pub endpoint: &'static str,
+    /// Recommended default model ID for this provider.
     pub default_model: &'static str,
+    /// Whether this provider requires an API key.
     pub needs_key: bool,
+    /// Short hint about the provider (e.g. "Free tier available").
     pub note: &'static str,
 }
 
 pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
-    ProviderPreset { name: "OpenRouter",    endpoint: "https://openrouter.ai/api/v1/chat/completions",   default_model: "anthropic/claude-3-5-haiku",         needs_key: true,  note: "Access 100+ models with one key. Free tier available." },
-    ProviderPreset { name: "Anthropic",     endpoint: "https://api.anthropic.com/v1/messages",           default_model: "claude-3-5-haiku-20241022",           needs_key: true,  note: "Direct Anthropic API. Uses x-api-key header." },
-    ProviderPreset { name: "OpenAI",        endpoint: "https://api.openai.com/v1/chat/completions",      default_model: "gpt-4o-mini",                         needs_key: true,  note: "Direct OpenAI API." },
-    ProviderPreset { name: "Groq",          endpoint: "https://api.groq.com/openai/v1/chat/completions", default_model: "llama-3.1-8b-instant",                needs_key: true,  note: "Very fast inference. Free tier available." },
-    ProviderPreset { name: "Mistral",       endpoint: "https://api.mistral.ai/v1/chat/completions",      default_model: "mistral-small-latest",                needs_key: true,  note: "European provider, strong multilingual." },
-    ProviderPreset { name: "Ollama (local)",endpoint: "http://localhost:11434/v1/chat/completions",      default_model: "llama3.2",                            needs_key: false, note: "Fully local, no key needed. Install Ollama first." },
-    ProviderPreset { name: "Custom",        endpoint: "",                                                 default_model: "",                                    needs_key: true,  note: "Set endpoint and model manually." },
+    ProviderPreset {
+        name: "OpenRouter",
+        endpoint: "https://openrouter.ai/api/v1/chat/completions",
+        default_model: "anthropic/claude-3-5-haiku",
+        needs_key: true,
+        note: "Access 100+ models with one key. Free tier available.",
+    },
+    ProviderPreset {
+        name: "Anthropic",
+        endpoint: "https://api.anthropic.com/v1/messages",
+        default_model: "claude-3-5-haiku-20241022",
+        needs_key: true,
+        note: "Direct Anthropic API. Uses x-api-key header.",
+    },
+    ProviderPreset {
+        name: "OpenAI",
+        endpoint: "https://api.openai.com/v1/chat/completions",
+        default_model: "gpt-4o-mini",
+        needs_key: true,
+        note: "Direct OpenAI API.",
+    },
+    ProviderPreset {
+        name: "Groq",
+        endpoint: "https://api.groq.com/openai/v1/chat/completions",
+        default_model: "llama-3.1-8b-instant",
+        needs_key: true,
+        note: "Very fast inference. Free tier available.",
+    },
+    ProviderPreset {
+        name: "Mistral",
+        endpoint: "https://api.mistral.ai/v1/chat/completions",
+        default_model: "mistral-small-latest",
+        needs_key: true,
+        note: "European provider, strong multilingual.",
+    },
+    ProviderPreset {
+        name: "Ollama (local)",
+        endpoint: "http://localhost:11434/v1/chat/completions",
+        default_model: "llama3.2",
+        needs_key: false,
+        note: "Fully local, no key needed. Install Ollama first.",
+    },
+    ProviderPreset {
+        name: "Custom",
+        endpoint: "",
+        default_model: "",
+        needs_key: true,
+        note: "Set endpoint and model manually.",
+    },
 ];
 
+/// Top-level application configuration persisted to `ez_sdr_config.json`.
+///
+/// Contains all SDR, UI, theme, AI, MQTT, web remote, satellite, and Discord
+/// settings. Serialised/deserialised with serde.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// Schema version string.
     pub version: String,
+    /// Default centre frequency (Hz) on startup.
     pub default_freq_hz: u64,
+    /// Default sample rate (samples/second).
     pub default_sample_rate: u32,
+    /// Default RF gain (dB).
     pub default_gain: f64,
+    /// Directory for saving recorded I/Q and audio files.
     pub output_directory: String,
+    /// UI theme name ("dark" / "light").
     pub theme: String,
+    /// AI provider API key.
     pub ai_api_key: String,
+    /// AI provider API endpoint URL.
     pub ai_endpoint: String,
+    /// AI model identifier.
     pub ai_model: String,
+    /// Maximum tokens per AI response.
     pub ai_max_tokens: u32,
+    /// AI temperature (0.0 – 2.0).
     pub ai_temperature: f64,
+    /// Custom system prompt for the AI agent.
     pub ai_system_prompt: String,
+    /// AI provider name (matches a [`ProviderPreset`] entry).
     pub ai_provider: String,
+    /// Reasoning effort level ("off", "low", "medium", "high").
     #[serde(default)]
     pub ai_reasoning_effort: String,
+    /// Whether the AI agent has web-search capability enabled.
     #[serde(default)]
     pub ai_web_search: bool,
+    /// MQTT broker address (host:port).
     pub mqtt_broker: String,
+    /// MQTT topic prefix for all published messages.
     pub mqtt_topic_prefix: String,
+    /// Whether the web remote control server is enabled.
     pub web_remote_enabled: bool,
+    /// TCP port for the web remote server.
     pub web_remote_port: u16,
+    /// Observer latitude (decimal degrees, north positive).
     pub observer_lat: f64,
+    /// Observer longitude (decimal degrees, east positive).
     pub observer_lon: f64,
+    /// UI font scale multiplier.
     pub font_scale: f64,
+    /// Flag indicating settings have changed and need to be applied.
     pub needs_apply: bool,
+    /// Recently tuned frequencies (for quick-access menu).
     #[serde(default)]
     pub recent_frequencies: Vec<u64>,
+    /// Spectrum display minimum (dBFS).
     #[serde(default)]
     pub spectrum_min_db: f32,
+    /// Spectrum display maximum (dBFS).
     #[serde(default)]
     pub spectrum_max_db: f32,
+    /// Frequency correction in parts-per-million.
     #[serde(default)]
     pub ppm_correction: i32,
+    /// VFO B frequency (Hz).
     #[serde(default)]
     pub vfo_b_hz: u64,
+    /// Waterfall colour range minimum (dBFS).
     #[serde(default)]
     pub wf_min_db: f32,
+    /// Waterfall colour range maximum (dBFS).
     #[serde(default)]
     pub wf_max_db: f32,
+    /// Local oscillator offset (Hz) for upconverter / downconverter.
     #[serde(default)]
     pub lo_offset_hz: i64,
+    /// Whether the welcome dialog has been shown (migration flag).
     #[serde(default)]
     pub welcome_seen: bool,
+    /// Last-used frequency from previous session.
     #[serde(default)]
     pub last_session_freq_hz: u64,
+    /// Last-used gain from previous session.
     #[serde(default)]
     pub last_session_gain_db: f64,
+    /// Last-used demodulation mode from previous session.
     #[serde(default)]
     pub last_session_demod: String,
+    /// Waterfall colour map name.
     #[serde(default)]
     pub color_map: String,
+    /// Frequency memory slot values (Hz).
     #[serde(default)]
     pub freq_memory_hz: Vec<u64>,
+    /// Frequency memory slot labels.
     #[serde(default)]
     pub freq_memory_labels: Vec<String>,
+    /// Theme configuration (colours, presets).
     #[serde(default)]
     pub theme_config: ThemeConfig,
+    /// Discord notification settings.
     #[serde(default)]
     pub discord: DiscordSettings,
+    /// Whether to skip the antenna-setup checklist on startup.
     #[serde(default)]
     pub skip_antenna_checklists: bool,
+    /// User experience level string (e.g. "beginner", "advanced").
     #[serde(default)]
     pub user_level: String,
+    /// Whether the interactive tutorial has been seen.
     #[serde(default)]
     pub tutorial_seen: bool,
+    /// Current tutorial step index.
     #[serde(default)]
     pub tutorial_step: usize,
 }
@@ -146,6 +250,9 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Load configuration from `ez_sdr_config.json`, or return defaults if the
+    /// file does not exist or cannot be parsed. Also migrates the legacy
+    /// `welcome_seen` flag to the `tutorial_seen` field.
     pub fn load_or_default() -> Self {
         let mut cfg = std::fs::read_to_string("ez_sdr_config.json")
             .ok()
@@ -158,6 +265,7 @@ impl AppConfig {
         cfg
     }
 
+    /// Serialise and write the configuration to `ez_sdr_config.json`.
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(self) {
             let _ = std::fs::write("ez_sdr_config.json", json);
@@ -224,6 +332,7 @@ mod tests {
 }
 
 impl AppConfig {
+    /// Render the egui-based settings panel UI.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Settings");
 

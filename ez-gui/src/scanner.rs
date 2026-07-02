@@ -122,7 +122,11 @@ impl FrequencyScanner {
         self.tune_request_hz = Some(*f);
         self.mode_request = Some(m.clone());
         self.current_freq_hz = *f;
-        self.status_text = format!("Memory scan: {:.3} MHz (1/{})", *f as f64 / 1e6, self.memory_freqs.len());
+        self.status_text = format!(
+            "Memory scan: {:.3} MHz (1/{})",
+            *f as f64 / 1e6,
+            self.memory_freqs.len()
+        );
     }
 
     pub fn stop_memory_scan(&mut self) {
@@ -136,22 +140,33 @@ impl FrequencyScanner {
             self.last_export_msg = "No hits to export.".to_string();
             return;
         }
-        let default_name = format!("scanner_hits_{}.csv", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let default_name = format!(
+            "scanner_hits_{}.csv",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        );
         let path = rfd::FileDialog::new()
             .set_file_name(&default_name)
             .add_filter("CSV", &["csv"])
             .save_file();
         let path = match path {
             Some(p) => p,
-            None => { self.last_export_msg = "Export cancelled.".to_string(); return; }
+            None => {
+                self.last_export_msg = "Export cancelled.".to_string();
+                return;
+            }
         };
 
         // Group hits by frequency: collect max strength and hit count
-        let mut grouped: std::collections::BTreeMap<u64, (f32, u32)> = std::collections::BTreeMap::new();
+        let mut grouped: std::collections::BTreeMap<u64, (f32, u32)> =
+            std::collections::BTreeMap::new();
         for hit in &self.hits {
             let entry = grouped.entry(hit.freq_hz).or_insert((-200.0, 0));
-            if hit.strength_db > entry.0 { entry.0 = hit.strength_db; }
-            if hit.hit_count > entry.1 { entry.1 = hit.hit_count; }
+            if hit.strength_db > entry.0 {
+                entry.0 = hit.strength_db;
+            }
+            if hit.hit_count > entry.1 {
+                entry.1 = hit.hit_count;
+            }
         }
 
         let mut csv = String::from("Frequency_Hz,Frequency_MHz,Max_Strength_dB,Hit_Count\n");
@@ -165,7 +180,14 @@ impl FrequencyScanner {
             ));
         }
         match std::fs::write(&path, &csv) {
-            Ok(_) => self.last_export_msg = format!("Exported {} frequencies ({} hits) to {}", grouped.len(), self.hits.len(), path.display()),
+            Ok(_) => {
+                self.last_export_msg = format!(
+                    "Exported {} frequencies ({} hits) to {}",
+                    grouped.len(),
+                    self.hits.len(),
+                    path.display()
+                )
+            }
             Err(e) => self.last_export_msg = format!("Export failed: {}", e),
         }
     }
@@ -175,14 +197,20 @@ impl FrequencyScanner {
             self.last_export_msg = "No hits to save.".to_string();
             return;
         }
-        let default_name = format!("scanner_hits_{}.json", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let default_name = format!(
+            "scanner_hits_{}.json",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        );
         let path = rfd::FileDialog::new()
             .set_file_name(&default_name)
             .add_filter("JSON", &["json"])
             .save_file();
         let path = match path {
             Some(p) => p,
-            None => { self.last_export_msg = "Save cancelled.".to_string(); return; }
+            None => {
+                self.last_export_msg = "Save cancelled.".to_string();
+                return;
+            }
         };
 
         // Build JSON array manually (no serde dependency beyond what already exists)
@@ -201,7 +229,10 @@ impl FrequencyScanner {
         json.push(']');
 
         match std::fs::write(&path, &json) {
-            Ok(_) => self.last_export_msg = format!("Saved {} hits to {}", self.hits.len(), path.display()),
+            Ok(_) => {
+                self.last_export_msg =
+                    format!("Saved {} hits to {}", self.hits.len(), path.display())
+            }
             Err(e) => self.last_export_msg = format!("Save failed: {}", e),
         }
     }
@@ -212,21 +243,30 @@ impl FrequencyScanner {
             .pick_file();
         let path = match path {
             Some(p) => p,
-            None => { self.last_export_msg = "Load cancelled.".to_string(); return; }
+            None => {
+                self.last_export_msg = "Load cancelled.".to_string();
+                return;
+            }
         };
 
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
-            Err(e) => { self.last_export_msg = format!("Read failed: {}", e); return; }
+            Err(e) => {
+                self.last_export_msg = format!("Read failed: {}", e);
+                return;
+            }
         };
 
         // Simple JSON parsing: extract freq_hz, strength_db, hit_count fields
-        let existing: std::collections::HashSet<u64> = self.hits.iter().map(|h| h.freq_hz).collect();
+        let existing: std::collections::HashSet<u64> =
+            self.hits.iter().map(|h| h.freq_hz).collect();
         let mut added = 0u32;
         for line in content.lines() {
             let line = line.trim();
             if let Some(freq) = Self::parse_json_u64(line, "freq_hz") {
-                if existing.contains(&freq) { continue; }
+                if existing.contains(&freq) {
+                    continue;
+                }
                 let strength = Self::parse_json_f32(line, "strength_db").unwrap_or(-60.0);
                 let count = Self::parse_json_u32(line, "hit_count").unwrap_or(1);
                 self.hits.push(SignalHit {
@@ -238,14 +278,20 @@ impl FrequencyScanner {
                 added += 1;
             }
         }
-        self.last_export_msg = format!("Loaded {} new hits from {}", added, path.file_name().unwrap_or_default().to_string_lossy());
+        self.last_export_msg = format!(
+            "Loaded {} new hits from {}",
+            added,
+            path.file_name().unwrap_or_default().to_string_lossy()
+        );
     }
 
     fn parse_json_u64(line: &str, key: &str) -> Option<u64> {
         let needle = format!("\"{}\":", key);
         let pos = line.find(&needle)?;
         let rest = &line[pos + needle.len()..].trim_start_matches(' ');
-        let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
         rest[..end].parse().ok()
     }
 
@@ -253,7 +299,9 @@ impl FrequencyScanner {
         let needle = format!("\"{}\":", key);
         let pos = line.find(&needle)?;
         let rest = &line[pos + needle.len()..].trim_start_matches(' ');
-        let end = rest.find(|c: char| c != '-' && c != '.' && !c.is_ascii_digit()).unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| c != '-' && c != '.' && !c.is_ascii_digit())
+            .unwrap_or(rest.len());
         rest[..end].parse().ok()
     }
 
@@ -261,7 +309,9 @@ impl FrequencyScanner {
         let needle = format!("\"{}\":", key);
         let pos = line.find(&needle)?;
         let rest = &line[pos + needle.len()..].trim_start_matches(' ');
-        let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
         rest[..end].parse().ok()
     }
 
@@ -289,12 +339,20 @@ impl FrequencyScanner {
 
     pub fn pause(&mut self) {
         self.paused = true;
-        self.status_text = format!("Paused at {:.3} MHz ({} signals)", self.current_freq_hz as f64 / 1e6, self.hits.len());
+        self.status_text = format!(
+            "Paused at {:.3} MHz ({} signals)",
+            self.current_freq_hz as f64 / 1e6,
+            self.hits.len()
+        );
     }
 
     pub fn resume(&mut self) {
         self.paused = false;
-        self.status_text = format!("Scanning {:.3}–{:.3} MHz", self.start_hz as f64 / 1e6, self.stop_hz as f64 / 1e6);
+        self.status_text = format!(
+            "Scanning {:.3}–{:.3} MHz",
+            self.start_hz as f64 / 1e6,
+            self.stop_hz as f64 / 1e6
+        );
     }
 
     pub fn tick(&mut self, spectrum_peak_db: f32) {
@@ -310,15 +368,25 @@ impl FrequencyScanner {
     }
 
     fn tick_memory(&mut self, spectrum_peak_db: f32) {
-        if self.memory_freqs.is_empty() { return; }
+        if self.memory_freqs.is_empty() {
+            return;
+        }
         let now = Instant::now();
         let dwell = Duration::from_millis(self.dwell_ms);
-        let elapsed = self.last_step_time.map(|t| now.duration_since(t)).unwrap_or(dwell);
-        if elapsed < dwell { return; }
+        let elapsed = self
+            .last_step_time
+            .map(|t| now.duration_since(t))
+            .unwrap_or(dwell);
+        if elapsed < dwell {
+            return;
+        }
 
         let signal_active = spectrum_peak_db > self.threshold_db;
         if signal_active {
-            let existing = self.hits.iter_mut().find(|h| h.freq_hz == self.current_freq_hz);
+            let existing = self
+                .hits
+                .iter_mut()
+                .find(|h| h.freq_hz == self.current_freq_hz);
             if let Some(hit) = existing {
                 hit.hit_count += 1;
                 if spectrum_peak_db > hit.strength_db {
@@ -326,7 +394,12 @@ impl FrequencyScanner {
                     hit.timestamp = now;
                 }
             } else {
-                self.hits.push(SignalHit { freq_hz: self.current_freq_hz, strength_db: spectrum_peak_db, timestamp: now, hit_count: 1 });
+                self.hits.push(SignalHit {
+                    freq_hz: self.current_freq_hz,
+                    strength_db: spectrum_peak_db,
+                    timestamp: now,
+                    hit_count: 1,
+                });
                 self.total_hits_logged += 1;
                 self.hit_flash = 45;
             }
@@ -334,12 +407,19 @@ impl FrequencyScanner {
                 self.hold_last_active = Some(now);
                 self.holding = true;
                 self.last_step_time = Some(now);
-                self.status_text = format!("⏸ Holding {:.3} MHz ({:.0} dB)", self.current_freq_hz as f64 / 1e6, spectrum_peak_db);
+                self.status_text = format!(
+                    "⏸ Holding {:.3} MHz ({:.0} dB)",
+                    self.current_freq_hz as f64 / 1e6,
+                    spectrum_peak_db
+                );
                 return;
             }
         }
         if self.holding {
-            let since = self.hold_last_active.map(|t| now.duration_since(t)).unwrap_or(Duration::from_millis(self.hold_resume_delay_ms));
+            let since = self
+                .hold_last_active
+                .map(|t| now.duration_since(t))
+                .unwrap_or(Duration::from_millis(self.hold_resume_delay_ms));
             if since < Duration::from_millis(self.hold_resume_delay_ms) {
                 self.last_step_time = Some(now);
                 return;
@@ -354,15 +434,25 @@ impl FrequencyScanner {
         self.tune_request_hz = Some(*f);
         self.mode_request = Some(m.clone());
         self.progress = self.memory_idx as f32 / self.memory_freqs.len().max(1) as f32;
-        self.status_text = format!("Memory: {:.3} MHz ({}/{})", *f as f64 / 1e6, self.memory_idx + 1, self.memory_freqs.len());
+        self.status_text = format!(
+            "Memory: {:.3} MHz ({}/{})",
+            *f as f64 / 1e6,
+            self.memory_idx + 1,
+            self.memory_freqs.len()
+        );
         self.last_step_time = Some(now);
     }
 
     fn tick_range(&mut self, spectrum_peak_db: f32) {
-        if self.step_hz == 0 { return; }
+        if self.step_hz == 0 {
+            return;
+        }
         let now = Instant::now();
         let dwell = Duration::from_millis(self.dwell_ms);
-        let elapsed = self.last_step_time.map(|t| now.duration_since(t)).unwrap_or(dwell);
+        let elapsed = self
+            .last_step_time
+            .map(|t| now.duration_since(t))
+            .unwrap_or(dwell);
         if elapsed < dwell {
             return;
         }
@@ -374,7 +464,11 @@ impl FrequencyScanner {
         });
         if is_excluded {
             let next = self.current_freq_hz.saturating_add(self.step_hz);
-            self.current_freq_hz = if next > self.stop_hz { self.start_hz } else { next };
+            self.current_freq_hz = if next > self.stop_hz {
+                self.start_hz
+            } else {
+                next
+            };
             self.tune_request_hz = Some(self.current_freq_hz);
             self.last_step_time = Some(now);
             return;
@@ -421,7 +515,11 @@ impl FrequencyScanner {
                 self.hold_last_active = Some(now);
                 self.holding = true;
                 self.last_step_time = Some(now); // keep dwell timer alive
-                self.status_text = format!("⏸ Holding {:.3} MHz ({:.0} dB)", self.current_freq_hz as f64 / 1e6, spectrum_peak_db);
+                self.status_text = format!(
+                    "⏸ Holding {:.3} MHz ({:.0} dB)",
+                    self.current_freq_hz as f64 / 1e6,
+                    spectrum_peak_db
+                );
                 return;
             }
         }
@@ -429,14 +527,21 @@ impl FrequencyScanner {
         // Resume delay after signal drops
         if self.holding {
             let resume_delay = Duration::from_millis(self.hold_resume_delay_ms);
-            let since_signal = self.hold_last_active.map(|t| now.duration_since(t)).unwrap_or(resume_delay);
+            let since_signal = self
+                .hold_last_active
+                .map(|t| now.duration_since(t))
+                .unwrap_or(resume_delay);
             if since_signal < resume_delay {
                 self.last_step_time = Some(now);
                 return;
             }
             self.holding = false;
             self.hold_last_active = None;
-            self.status_text = format!("Scanning {:.3}–{:.3} MHz", self.start_hz as f64 / 1e6, self.stop_hz as f64 / 1e6);
+            self.status_text = format!(
+                "Scanning {:.3}–{:.3} MHz",
+                self.start_hz as f64 / 1e6,
+                self.stop_hz as f64 / 1e6
+            );
         }
 
         let next = self.current_freq_hz.saturating_add(self.step_hz);
@@ -454,14 +559,20 @@ impl FrequencyScanner {
     }
 
     pub fn sort_hits_by_strength(&mut self) {
-        self.hits.sort_by(|a, b| b.strength_db.partial_cmp(&a.strength_db).unwrap_or(std::cmp::Ordering::Equal));
+        self.hits.sort_by(|a, b| {
+            b.strength_db
+                .partial_cmp(&a.strength_db)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Frequency Scanner");
 
         // User level check for adaptive UI
-        let user_level = self.shared.try_lock()
+        let user_level = self
+            .shared
+            .try_lock()
             .map(|s| crate::user_level::UserLevel::from_str(&s.config.user_level))
             .unwrap_or(crate::user_level::UserLevel::Beginner);
         if user_level.simplify_layout() {
@@ -487,10 +598,8 @@ impl FrequencyScanner {
                     if ui.button("▶ Resume").on_hover_text("Continue scanning from where it paused.").clicked() {
                         self.resume();
                     }
-                } else {
-                    if ui.button("⏸ Pause").on_hover_text("Pause the sweep at the current frequency without clearing hits.").clicked() {
-                        self.pause();
-                    }
+                } else if ui.button("⏸ Pause").on_hover_text("Pause the sweep at the current frequency without clearing hits.").clicked() {
+                    self.pause();
                 }
             } else if ui.button("▶ Start Scan").on_hover_text("Begin sweeping the configured frequency range.").clicked() {
                 self.start();
@@ -645,18 +754,79 @@ impl FrequencyScanner {
 
         // Band presets
         ui.horizontal_wrapped(|ui| {
-            ui.label("Presets:").on_hover_text("Quick-fill start/stop/step for common band plans.");
+            ui.label("Presets:")
+                .on_hover_text("Quick-fill start/stop/step for common band plans.");
             const BAND_PRESETS: &[(&str, u64, u64, u64, &str)] = &[
-                ("FM Broadcast",    88_000_000,  108_000_000, 100_000, "88–108 MHz WFM broadcast"),
-                ("Airband",        118_000_000,  137_000_000,  25_000, "118–137 MHz AM aviation voice"),
-                ("Marine VHF",     156_000_000,  174_000_000,  25_000, "156–174 MHz NFM marine"),
-                ("Ham 2m",         144_000_000,  146_000_000,  12_500, "144–146 MHz NFM amateur"),
-                ("Ham 70cm",       430_000_000,  440_000_000,  12_500, "430–440 MHz NFM amateur"),
-                ("PMR446",         446_006_250,  446_193_750,   6_250, "PMR446 licence-free 8-channel"),
-                ("Weather NOAA",   162_400_000,  162_550_000,  25_000, "162.4–162.55 MHz NOAA WX"),
-                ("ISM 433",        433_050_000,  434_790_000,  25_000, "433 MHz ISM/remote controls"),
-                ("POCSAG 153",     153_000_000,  154_000_000,  25_000, "153 MHz pager band"),
-                ("Ham 23cm",     1_240_000_000, 1_300_000_000, 25_000, "1.24–1.3 GHz amateur"),
+                (
+                    "FM Broadcast",
+                    88_000_000,
+                    108_000_000,
+                    100_000,
+                    "88–108 MHz WFM broadcast",
+                ),
+                (
+                    "Airband",
+                    118_000_000,
+                    137_000_000,
+                    25_000,
+                    "118–137 MHz AM aviation voice",
+                ),
+                (
+                    "Marine VHF",
+                    156_000_000,
+                    174_000_000,
+                    25_000,
+                    "156–174 MHz NFM marine",
+                ),
+                (
+                    "Ham 2m",
+                    144_000_000,
+                    146_000_000,
+                    12_500,
+                    "144–146 MHz NFM amateur",
+                ),
+                (
+                    "Ham 70cm",
+                    430_000_000,
+                    440_000_000,
+                    12_500,
+                    "430–440 MHz NFM amateur",
+                ),
+                (
+                    "PMR446",
+                    446_006_250,
+                    446_193_750,
+                    6_250,
+                    "PMR446 licence-free 8-channel",
+                ),
+                (
+                    "Weather NOAA",
+                    162_400_000,
+                    162_550_000,
+                    25_000,
+                    "162.4–162.55 MHz NOAA WX",
+                ),
+                (
+                    "ISM 433",
+                    433_050_000,
+                    434_790_000,
+                    25_000,
+                    "433 MHz ISM/remote controls",
+                ),
+                (
+                    "POCSAG 153",
+                    153_000_000,
+                    154_000_000,
+                    25_000,
+                    "153 MHz pager band",
+                ),
+                (
+                    "Ham 23cm",
+                    1_240_000_000,
+                    1_300_000_000,
+                    25_000,
+                    "1.24–1.3 GHz amateur",
+                ),
             ];
             for &(name, start, stop, step, tip) in BAND_PRESETS {
                 if ui.small_button(name).on_hover_text(tip).clicked() {
@@ -677,21 +847,19 @@ impl FrequencyScanner {
                     if ui.button("⏹ Stop Memory Scan").on_hover_text("Stop memory scan.").clicked() {
                         self.stop_memory_scan();
                     }
-                } else {
-                    if ui.button("▶ Start Memory Scan").on_hover_text("Cycle through all bookmarks in order, dwelling at each frequency.").clicked() {
-                        let freqs: Vec<(u64, String)> = {
-                            let filter = self.memory_category_filter.trim().to_lowercase();
-                            if let Ok(state) = self.shared.try_lock() {
-                                state.bookmarks.bookmarks.iter()
-                                    .filter(|b| filter.is_empty() || b.category.to_lowercase() == filter)
-                                    .map(|b| (b.frequency_hz, b.mode.clone()))
-                                    .collect()
-                            } else {
-                                Vec::new()
-                            }
-                        };
-                        self.start_memory_scan(freqs);
-                    }
+                } else if ui.button("▶ Start Memory Scan").on_hover_text("Cycle through all bookmarks in order, dwelling at each frequency.").clicked() {
+                    let freqs: Vec<(u64, String)> = {
+                        let filter = self.memory_category_filter.trim().to_lowercase();
+                        if let Ok(state) = self.shared.try_lock() {
+                            state.bookmarks.bookmarks.iter()
+                                .filter(|b| filter.is_empty() || b.category.to_lowercase() == filter)
+                                .map(|b| (b.frequency_hz, b.mode.clone()))
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    };
+                    self.start_memory_scan(freqs);
                 }
             });
             if self.memory_scan && self.enabled {
@@ -839,11 +1007,19 @@ impl FrequencyScanner {
                 }
             }
             let min_db_h = self.threshold_db - 10.0;
-            let max_db_h = (self.hits.iter().map(|h| h.strength_db).fold(-120.0f32, f32::max) + 5.0).max(min_db_h + 10.0);
+            let max_db_h = (self
+                .hits
+                .iter()
+                .map(|h| h.strength_db)
+                .fold(-120.0f32, f32::max)
+                + 5.0)
+                .max(min_db_h + 10.0);
             let db_range = (max_db_h - min_db_h).max(1.0);
             let bar_w = hist_rect.width() / n_buckets as f32;
             for (i, &db) in buckets.iter().enumerate() {
-                if db <= min_db_h { continue; }
+                if db <= min_db_h {
+                    continue;
+                }
                 let norm = ((db - min_db_h) / db_range).clamp(0.0, 1.0);
                 let bar_h = norm * hist_h;
                 let x = hist_rect.left() + i as f32 * bar_w;
@@ -851,17 +1027,27 @@ impl FrequencyScanner {
                     egui::pos2(x + 0.5, hist_rect.bottom() - bar_h),
                     egui::vec2(bar_w - 1.0, bar_h),
                 );
-                let col = if db > -20.0 { egui::Color32::from_rgb(46, 204, 113) }
-                    else if db > -40.0 { egui::Color32::from_rgb(241, 196, 15) }
-                    else { egui::Color32::from_rgb(200, 120, 50) };
+                let col = if db > -20.0 {
+                    egui::Color32::from_rgb(46, 204, 113)
+                } else if db > -40.0 {
+                    egui::Color32::from_rgb(241, 196, 15)
+                } else {
+                    egui::Color32::from_rgb(200, 120, 50)
+                };
                 painter.rect_filled(bar_rect, 0.0, col);
             }
             // Threshold line
             let thresh_norm = ((self.threshold_db - min_db_h) / db_range).clamp(0.0, 1.0);
             let thresh_y = hist_rect.bottom() - thresh_norm * hist_h;
             painter.line_segment(
-                [egui::pos2(hist_rect.left(), thresh_y), egui::pos2(hist_rect.right(), thresh_y)],
-                egui::Stroke::new(0.6, egui::Color32::from_rgba_premultiplied(231, 76, 60, 150)),
+                [
+                    egui::pos2(hist_rect.left(), thresh_y),
+                    egui::pos2(hist_rect.right(), thresh_y),
+                ],
+                egui::Stroke::new(
+                    0.6,
+                    egui::Color32::from_rgba_premultiplied(231, 76, 60, 150),
+                ),
             );
             painter.text(
                 egui::pos2(hist_rect.right() - 2.0, thresh_y - 2.0),
@@ -874,17 +1060,26 @@ impl FrequencyScanner {
             painter.text(
                 egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0),
                 egui::Align2::LEFT_TOP,
-                format!("Signal strength histogram  {:.3}–{:.3} MHz", self.start_hz as f64 / 1e6, self.stop_hz as f64 / 1e6),
+                format!(
+                    "Signal strength histogram  {:.3}–{:.3} MHz",
+                    self.start_hz as f64 / 1e6,
+                    self.stop_hz as f64 / 1e6
+                ),
                 egui::FontId::proportional(7.5),
                 egui::Color32::DARK_GRAY,
             );
         }
 
         let hit_color = |db: f32| -> egui::Color32 {
-            if db > -20.0 { egui::Color32::GREEN }
-            else if db > -40.0 { egui::Color32::YELLOW }
-            else if db > -60.0 { egui::Color32::from_rgb(200, 150, 50) }
-            else { egui::Color32::GRAY }
+            if db > -20.0 {
+                egui::Color32::GREEN
+            } else if db > -40.0 {
+                egui::Color32::YELLOW
+            } else if db > -60.0 {
+                egui::Color32::from_rgb(200, 150, 50)
+            } else {
+                egui::Color32::GRAY
+            }
         };
 
         // Sort controls
@@ -892,19 +1087,46 @@ impl FrequencyScanner {
             ui.horizontal(|ui| {
                 ui.small("Sort:");
                 for (label, sort_mode, tip) in [
-                    ("Discovery", HitsSort::Discovery, "Sort by discovery order (oldest first)"),
-                    ("Freq↑", HitsSort::Frequency, "Sort by frequency (lowest first)"),
-                    ("Signal↓", HitsSort::Strength, "Sort by signal strength (strongest first)"),
-                    ("Hits↓", HitsSort::HitCount, "Sort by hit count (most active first)"),
+                    (
+                        "Discovery",
+                        HitsSort::Discovery,
+                        "Sort by discovery order (oldest first)",
+                    ),
+                    (
+                        "Freq↑",
+                        HitsSort::Frequency,
+                        "Sort by frequency (lowest first)",
+                    ),
+                    (
+                        "Signal↓",
+                        HitsSort::Strength,
+                        "Sort by signal strength (strongest first)",
+                    ),
+                    (
+                        "Hits↓",
+                        HitsSort::HitCount,
+                        "Sort by hit count (most active first)",
+                    ),
                     ("Recent", HitsSort::Recent, "Sort by most recently seen"),
                 ] {
                     let active = self.hits_sort == sort_mode;
-                    let btn = ui.add(egui::Button::new(
-                        egui::RichText::new(label).small()
-                            .color(if active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 240) })
-                    ).fill(if active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(40, 60, 100, 80) })
-                    .small())
-                    .on_hover_text(tip);
+                    let btn = ui
+                        .add(
+                            egui::Button::new(egui::RichText::new(label).small().color(
+                                if active {
+                                    egui::Color32::BLACK
+                                } else {
+                                    egui::Color32::from_rgb(180, 200, 240)
+                                },
+                            ))
+                            .fill(if active {
+                                egui::Color32::from_rgb(80, 160, 255)
+                            } else {
+                                egui::Color32::from_rgba_premultiplied(40, 60, 100, 80)
+                            })
+                            .small(),
+                        )
+                        .on_hover_text(tip);
                     if btn.clicked() {
                         self.hits_sort = sort_mode;
                     }

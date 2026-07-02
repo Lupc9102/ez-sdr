@@ -52,7 +52,10 @@ pub fn crc24(data: &[u8]) -> u32 {
 #[must_use]
 pub fn crc24_parity(msg: &[u8]) -> u32 {
     let n = msg.len();
-    assert!(n >= 3, "message must contain at least a 3-byte parity field");
+    assert!(
+        n >= 3,
+        "message must contain at least a 3-byte parity field"
+    );
 
     let mut rem = crc24(&msg[..n - 3]);
     rem ^= (msg[n - 3] as u32) << 16;
@@ -143,7 +146,10 @@ mod tests {
         let result = std::panic::catch_unwind(|| {
             let _ = crc24_parity(&[0x00, 0x01]);
         });
-        assert!(result.is_err(), "crc24_parity should panic on <3 byte input");
+        assert!(
+            result.is_err(),
+            "crc24_parity should panic on <3 byte input"
+        );
     }
 
     #[test]
@@ -152,7 +158,10 @@ mod tests {
             for bit in 0..3 {
                 let mut bad = VALID_112;
                 bad[i] ^= 1 << bit;
-                assert!(!check_crc(&bad), "bit flip at byte {i} bit {bit} not detected");
+                assert!(
+                    !check_crc(&bad),
+                    "bit flip at byte {i} bit {bit} not detected"
+                );
             }
         }
     }

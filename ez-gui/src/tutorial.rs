@@ -579,10 +579,13 @@ pub fn render_tutorial(
             .collapsible(false)
             .resizable(false)
             .show(ui.ctx(), |ui| {
-                ui.label(egui::RichText::new(format!(
-                    "You were on step {} of the tutorial. Continue where you left off?",
-                    state.step + 1
-                )).size(16.0));
+                ui.label(
+                    egui::RichText::new(format!(
+                        "You were on step {} of the tutorial. Continue where you left off?",
+                        state.step + 1
+                    ))
+                    .size(16.0),
+                );
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     if ui.button("▶ Resume").clicked() {
@@ -612,11 +615,15 @@ pub fn render_tutorial(
             .collapsible(false)
             .resizable(false)
             .show(ui.ctx(), |ui| {
-                ui.colored_label(egui::Color32::from_rgb(255, 180, 50),
-                    "⚠ Skipping the tutorial may hide features you're not aware of.");
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 180, 50),
+                    "⚠ Skipping the tutorial may hide features you're not aware of.",
+                );
                 ui.add_space(8.0);
-                ui.label("EZ-SDR has many features that aren't obvious at first glance. \
-                          The tutorial takes just a few minutes.");
+                ui.label(
+                    "EZ-SDR has many features that aren't obvious at first glance. \
+                          The tutorial takes just a few minutes.",
+                );
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     if ui.button("◀ Stay in Tutorial").clicked() {
@@ -646,11 +653,15 @@ pub fn render_tutorial(
             .collapsible(false)
             .resizable(false)
             .show(ui.ctx(), |ui| {
-                ui.colored_label(egui::Color32::from_rgb(255, 120, 80),
-                    "Are you absolutely sure?");
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 120, 80),
+                    "Are you absolutely sure?",
+                );
                 ui.add_space(8.0);
-                ui.label("You can always restart the tutorial from ⚙ Settings → \
-                          User Experience → 'Restart Tutorial'.");
+                ui.label(
+                    "You can always restart the tutorial from ⚙ Settings → \
+                          User Experience → 'Restart Tutorial'.",
+                );
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     if ui.button("◀ Stay").clicked() {
@@ -687,11 +698,16 @@ pub fn render_tutorial(
             .resizable(false)
             .show(ui.ctx(), |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("What's your experience level?")
-                        .size(18.0).strong());
+                    ui.label(
+                        egui::RichText::new("What's your experience level?")
+                            .size(18.0)
+                            .strong(),
+                    );
                     ui.add_space(4.0);
-                    ui.label("This tailors the UI and tutorial to your needs. \
-                              You can change it anytime in Settings.");
+                    ui.label(
+                        "This tailors the UI and tutorial to your needs. \
+                              You can change it anytime in Settings.",
+                    );
                     ui.add_space(12.0);
 
                     let levels = UserLevel::levels();
@@ -701,7 +717,7 @@ pub fn render_tutorial(
                             .step_by(1.0)
                             .show_value(false)
                             .text("")
-                            .custom_formatter(|_, _| String::new())
+                            .custom_formatter(|_, _| String::new()),
                     );
                     _ = slider_resp;
 
@@ -716,10 +732,19 @@ pub fn render_tutorial(
                     ui.columns(4, |cols| {
                         for (i, (col, lv)) in cols.iter_mut().zip(levels.iter()).enumerate() {
                             col.vertical_centered(|ui| {
-                                let color = if i == level_idx { level_colors[i] } else { egui::Color32::GRAY };
-                                ui.colored_label(color, egui::RichText::new(lv.label()).size(14.0).strong());
-                                ui.colored_label(egui::Color32::from_gray(160),
-                                    egui::RichText::new(lv.description()).size(10.0));
+                                let color = if i == level_idx {
+                                    level_colors[i]
+                                } else {
+                                    egui::Color32::GRAY
+                                };
+                                ui.colored_label(
+                                    color,
+                                    egui::RichText::new(lv.label()).size(14.0).strong(),
+                                );
+                                ui.colored_label(
+                                    egui::Color32::from_gray(160),
+                                    egui::RichText::new(lv.description()).size(10.0),
+                                );
                             });
                         }
                     });
@@ -727,11 +752,20 @@ pub fn render_tutorial(
                     state.level = levels[level_idx];
 
                     ui.add_space(16.0);
-                    if ui.add(egui::Button::new(egui::RichText::new(format!(
-                        "🚀 Start as {} — {}",
-                        sel.label(),
-                        sel.description()
-                    )).size(15.0)).min_size(egui::vec2(300.0, 36.0))).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!(
+                                    "🚀 Start as {} — {}",
+                                    sel.label(),
+                                    sel.description()
+                                ))
+                                .size(15.0),
+                            )
+                            .min_size(egui::vec2(300.0, 36.0)),
+                        )
+                        .clicked()
+                    {
                         state.level_chosen = true;
                         state.step = 0;
                         // Save level immediately
@@ -766,97 +800,103 @@ pub fn render_tutorial(
     }
     state.highlight_target = step.highlight.map(|s| s.to_string());
 
-    egui::Window::new(format!("🎓 Tutorial — Step {}/{}", state.step + 1, steps.len()))
-        .id(egui::Id::new("tutorial_step"))
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .default_width(520.0)
-        .default_height(400.0)
-        .collapsible(false)
-        .resizable(false)
-        .show(ui.ctx(), |ui| {
-            // Progress dots
-            ui.horizontal(|ui| {
-                for i in 0..steps.len() {
-                    if i == state.step {
-                        ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "●");
-                    } else if i < state.step {
-                        ui.colored_label(egui::Color32::from_gray(100), "○");
-                    } else {
-                        ui.colored_label(egui::Color32::from_gray(60), "○");
-                    }
+    egui::Window::new(format!(
+        "🎓 Tutorial — Step {}/{}",
+        state.step + 1,
+        steps.len()
+    ))
+    .id(egui::Id::new("tutorial_step"))
+    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    .default_width(520.0)
+    .default_height(400.0)
+    .collapsible(false)
+    .resizable(false)
+    .show(ui.ctx(), |ui| {
+        // Progress dots
+        ui.horizontal(|ui| {
+            for i in 0..steps.len() {
+                if i == state.step {
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "●");
+                } else if i < state.step {
+                    ui.colored_label(egui::Color32::from_gray(100), "○");
+                } else {
+                    ui.colored_label(egui::Color32::from_gray(60), "○");
                 }
+            }
+        });
+
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(step.title).size(18.0).strong());
+        ui.add_space(6.0);
+
+        egui::ScrollArea::vertical()
+            .max_height(220.0)
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(step.body).size(14.0));
             });
 
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new(step.title).size(18.0).strong());
-            ui.add_space(6.0);
+        ui.add_space(8.0);
 
-            egui::ScrollArea::vertical()
-                .max_height(220.0)
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new(step.body).size(14.0));
-                });
-
-            ui.add_space(8.0);
-
-            // Action button if present
-            if let Some((btn_label, action)) = &step.action {
-                if ui.add(egui::Button::new(egui::RichText::new(*btn_label).size(14.0))
-                    .min_size(egui::vec2(200.0, 28.0))).clicked()
-                {
-                    match action {
-                        TutorialAction::TuneFreq(hz) => {
-                            if let Ok(mut s) = shared.try_lock() {
-                                s.source.frequency_hz = *hz;
-                                s.demod_mode = crate::sdr_panel::DemodMode::Wfm;
-                                s.source.gain_db = 40.0;
-                                s.audio_running = true;
-                                s.lpf_cutoff = 15000.0;
-                                s.spectrum.zoom_reset();
-                            }
-                        }
-                        TutorialAction::OpenSettings => {
-                            state.tab_to_open = Some(Tab::Settings);
+        // Action button if present
+        if let Some((btn_label, action)) = &step.action {
+            if ui
+                .add(
+                    egui::Button::new(egui::RichText::new(*btn_label).size(14.0))
+                        .min_size(egui::vec2(200.0, 28.0)),
+                )
+                .clicked()
+            {
+                match action {
+                    TutorialAction::TuneFreq(hz) => {
+                        if let Ok(mut s) = shared.try_lock() {
+                            s.source.frequency_hz = *hz;
+                            s.demod_mode = crate::sdr_panel::DemodMode::Wfm;
+                            s.source.gain_db = 40.0;
+                            s.audio_running = true;
+                            s.lpf_cutoff = 15000.0;
+                            s.spectrum.zoom_reset();
                         }
                     }
+                    TutorialAction::OpenSettings => {
+                        state.tab_to_open = Some(Tab::Settings);
+                    }
                 }
-                ui.add_space(4.0);
+            }
+            ui.add_space(4.0);
+        }
+
+        // Navigation buttons
+        ui.separator();
+        ui.horizontal(|ui| {
+            if state.step > 0 {
+                if ui.button("◀ Previous").clicked() {
+                    state.step -= 1;
+                    state.skip_confirm_phase = 0;
+                }
+            } else {
+                ui.add_enabled(false, egui::Button::new("◀ Previous"));
             }
 
-            // Navigation buttons
-            ui.separator();
-            ui.horizontal(|ui| {
-                if state.step > 0 {
-                    if ui.button("◀ Previous").clicked() {
-                        state.step -= 1;
-                        state.skip_confirm_phase = 0;
-                    }
-                } else {
-                    ui.add_enabled(false, egui::Button::new("◀ Previous"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("⏭ Skip Tutorial").clicked() {
+                    state.skip_confirm_phase = 1;
                 }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("⏭ Skip Tutorial").clicked() {
-                        state.skip_confirm_phase = 1;
+                if state.step + 1 < steps.len() {
+                    if ui.button("Next ▶").clicked() {
+                        state.step += 1;
                     }
-                    if state.step + 1 < steps.len() {
-                        if ui.button("Next ▶").clicked() {
-                            state.step += 1;
-                        }
-                    } else {
-                        if ui.button("✅ Finish").clicked() {
-                            dismissed = true;
-                            state.dismiss();
-                            if let Ok(mut s) = shared.try_lock() {
-                                s.config.tutorial_seen = true;
-                                s.config.user_level = state.level.to_str().to_string();
-                                s.config.save();
-                            }
-                        }
+                } else if ui.button("✅ Finish").clicked() {
+                    dismissed = true;
+                    state.dismiss();
+                    if let Ok(mut s) = shared.try_lock() {
+                        s.config.tutorial_seen = true;
+                        s.config.user_level = state.level.to_str().to_string();
+                        s.config.save();
                     }
-                });
+                }
             });
         });
+    });
 
     dismissed
 }

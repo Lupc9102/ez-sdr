@@ -36,7 +36,10 @@ pub const SOAPY_SDR_CS16: *const c_char = c"CS16".as_ptr();
 
 #[allow(dead_code)]
 extern "C" {
-    fn SoapySDRDevice_enumerateStrArgs(args: *const c_char, length: *mut usize) -> *mut SoapySDRKwargs;
+    fn SoapySDRDevice_enumerateStrArgs(
+        args: *const c_char,
+        length: *mut usize,
+    ) -> *mut SoapySDRKwargs;
     fn SoapySDRKwargsList_clear(args: *mut SoapySDRKwargs, length: usize);
     fn SoapySDRDevice_makeStrArgs(args: *const c_char) -> *mut SoapySDRDevice;
     fn SoapySDRDevice_unmake(dev: *mut SoapySDRDevice);
@@ -46,21 +49,76 @@ extern "C" {
     fn SoapySDRDevice_getDriverKey(dev: *mut SoapySDRDevice) -> *mut c_char;
     fn SoapySDRDevice_getHardwareKey(dev: *mut SoapySDRDevice) -> *mut c_char;
     fn SoapySDR_free(ptr: *mut c_void);
-    fn SoapySDRDevice_writeSetting(dev: *mut SoapySDRDevice, key: *const c_char, value: *const c_char) -> c_int;
+    fn SoapySDRDevice_writeSetting(
+        dev: *mut SoapySDRDevice,
+        key: *const c_char,
+        value: *const c_char,
+    ) -> c_int;
     fn SoapySDRDevice_getNumChannels(dev: *mut SoapySDRDevice, direction: i32) -> usize;
-    fn SoapySDRDevice_setSampleRate(dev: *mut SoapySDRDevice, direction: i32, channel: usize, rate: f64) -> c_int;
-    fn SoapySDRDevice_setAntenna(dev: *mut SoapySDRDevice, direction: i32, channel: usize, name: *const c_char) -> c_int;
-    fn SoapySDRDevice_getAntenna(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> *mut c_char;
-    fn SoapySDRDevice_listAntennas(dev: *mut SoapySDRDevice, direction: i32, channel: usize, length: *mut usize) -> *mut *mut c_char;
+    fn SoapySDRDevice_setSampleRate(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        rate: f64,
+    ) -> c_int;
+    fn SoapySDRDevice_setAntenna(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        name: *const c_char,
+    ) -> c_int;
+    fn SoapySDRDevice_getAntenna(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+    ) -> *mut c_char;
+    fn SoapySDRDevice_listAntennas(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        length: *mut usize,
+    ) -> *mut *mut c_char;
     fn SoapySDRStrings_clear(strs: *mut *mut c_char, length: usize);
-    fn SoapySDRDevice_setFrequency(dev: *mut SoapySDRDevice, direction: i32, channel: usize, freq: f64, args: *const SoapySDRKwargs) -> c_int;
-    fn SoapySDRDevice_getGainRange(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> SoapySDRRange;
-    fn SoapySDRDevice_hasGainMode(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> bool;
-    fn SoapySDRDevice_setGainMode(dev: *mut SoapySDRDevice, direction: i32, channel: usize, automatic: bool) -> c_int;
-    fn SoapySDRDevice_setGain(dev: *mut SoapySDRDevice, direction: i32, channel: usize, gain: f64) -> c_int;
-    fn SoapySDRDevice_setGainElement(dev: *mut SoapySDRDevice, direction: i32, channel: usize, element: *const c_char, gain: f64) -> c_int;
+    fn SoapySDRDevice_setFrequency(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        freq: f64,
+        args: *const SoapySDRKwargs,
+    ) -> c_int;
+    fn SoapySDRDevice_getGainRange(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+    ) -> SoapySDRRange;
+    fn SoapySDRDevice_hasGainMode(dev: *mut SoapySDRDevice, direction: i32, channel: usize)
+        -> bool;
+    fn SoapySDRDevice_setGainMode(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        automatic: bool,
+    ) -> c_int;
+    fn SoapySDRDevice_setGain(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        gain: f64,
+    ) -> c_int;
+    fn SoapySDRDevice_setGainElement(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        element: *const c_char,
+        gain: f64,
+    ) -> c_int;
     fn SoapySDRDevice_getGain(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> f64;
-    fn SoapySDRDevice_setBandwidth(dev: *mut SoapySDRDevice, direction: i32, channel: usize, bw: f64) -> c_int;
+    fn SoapySDRDevice_setBandwidth(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        bw: f64,
+    ) -> c_int;
     fn SoapySDRDevice_setupStream(
         dev: *mut SoapySDRDevice,
         direction: i32,
@@ -86,19 +144,65 @@ extern "C" {
         timeoutUs: c_long,
     ) -> c_int;
     fn SoapySDRDevice_closeStream(dev: *mut SoapySDRDevice, stream: *mut SoapySDRStream);
-    fn SoapySDRDevice_getFrequency(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> f64;
-    fn SoapySDRDevice_getSampleRate(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> f64;
-    fn SoapySDRDevice_getBandwidth(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> f64;
-    fn SoapySDRDevice_getGainMode(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> bool;
-    fn SoapySDRDevice_hasDCOffset(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> bool;
-    fn SoapySDRDevice_getDCOffsetMode(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> bool;
-    fn SoapySDRDevice_getDCOffset(dev: *mut SoapySDRDevice, direction: i32, channel: usize, offsetI: *mut f64, offsetQ: *mut f64) -> c_int;
-    fn SoapySDRDevice_hasIQBalance(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> bool;
-    fn SoapySDRDevice_getIQBalance(dev: *mut SoapySDRDevice, direction: i32, channel: usize, balanceI: *mut f64, balanceQ: *mut f64) -> c_int;
-    fn SoapySDRDevice_hasFrequencyCorrection(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> bool;
-    fn SoapySDRDevice_getFrequencyCorrection(dev: *mut SoapySDRDevice, direction: i32, channel: usize) -> f64;
-    fn SoapySDRDevice_listGains(dev: *mut SoapySDRDevice, direction: i32, channel: usize, length: *mut usize) -> *mut *mut c_char;
-    fn SoapySDRDevice_getGainElement(dev: *mut SoapySDRDevice, direction: i32, channel: usize, element: *const c_char) -> f64;
+    fn SoapySDRDevice_getFrequency(dev: *mut SoapySDRDevice, direction: i32, channel: usize)
+        -> f64;
+    fn SoapySDRDevice_getSampleRate(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+    ) -> f64;
+    fn SoapySDRDevice_getBandwidth(dev: *mut SoapySDRDevice, direction: i32, channel: usize)
+        -> f64;
+    fn SoapySDRDevice_getGainMode(dev: *mut SoapySDRDevice, direction: i32, channel: usize)
+        -> bool;
+    fn SoapySDRDevice_hasDCOffset(dev: *mut SoapySDRDevice, direction: i32, channel: usize)
+        -> bool;
+    fn SoapySDRDevice_getDCOffsetMode(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+    ) -> bool;
+    fn SoapySDRDevice_getDCOffset(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        offsetI: *mut f64,
+        offsetQ: *mut f64,
+    ) -> c_int;
+    fn SoapySDRDevice_hasIQBalance(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+    ) -> bool;
+    fn SoapySDRDevice_getIQBalance(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        balanceI: *mut f64,
+        balanceQ: *mut f64,
+    ) -> c_int;
+    fn SoapySDRDevice_hasFrequencyCorrection(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+    ) -> bool;
+    fn SoapySDRDevice_getFrequencyCorrection(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+    ) -> f64;
+    fn SoapySDRDevice_listGains(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        length: *mut usize,
+    ) -> *mut *mut c_char;
+    fn SoapySDRDevice_getGainElement(
+        dev: *mut SoapySDRDevice,
+        direction: i32,
+        channel: usize,
+        element: *const c_char,
+    ) -> f64;
 }
 
 fn last_err() -> String {
@@ -190,9 +294,8 @@ impl SdrSource for SoapySdr {
         let dev_name_ptr = CString::new(dev_name_c)?;
         let mut length: usize = 0;
 
-        let results = unsafe {
-            SoapySDRDevice_enumerateStrArgs(dev_name_ptr.as_ptr(), &mut length)
-        };
+        let results =
+            unsafe { SoapySDRDevice_enumerateStrArgs(dev_name_ptr.as_ptr(), &mut length) };
 
         if length == 0 {
             unsafe { SoapySDRKwargsList_clear(results, length) };
@@ -200,14 +303,19 @@ impl SdrSource for SoapySdr {
         }
         if length > 1 {
             unsafe { SoapySDRKwargsList_clear(results, length) };
-            return Err(anyhow::anyhow!("soapy: please select a single device with --device"));
+            return Err(anyhow::anyhow!(
+                "soapy: please select a single device with --device"
+            ));
         }
 
         unsafe { SoapySDRKwargsList_clear(results, length) };
 
         self.dev = unsafe { SoapySDRDevice_makeStrArgs(dev_name_ptr.as_ptr()) };
         if self.dev.is_null() {
-            return Err(anyhow::anyhow!("soapy: failed to create device: {}", last_err()));
+            return Err(anyhow::anyhow!(
+                "soapy: failed to create device: {}",
+                last_err()
+            ));
         }
 
         let dev = self.dev;
@@ -326,7 +434,15 @@ impl SdrSource for SoapySdr {
         self.freq = freq as f64;
         if !self.dev.is_null() {
             soapy_check(
-                unsafe { SoapySDRDevice_setFrequency(self.dev, SOAPY_SDR_RX, self.config.channel, self.freq, ptr::null()) },
+                unsafe {
+                    SoapySDRDevice_setFrequency(
+                        self.dev,
+                        SOAPY_SDR_RX,
+                        self.config.channel,
+                        self.freq,
+                        ptr::null(),
+                    )
+                },
                 "setFrequency",
             )?;
         }
@@ -337,7 +453,14 @@ impl SdrSource for SoapySdr {
         self.sample_rate = rate as f64;
         if !self.dev.is_null() {
             soapy_check(
-                unsafe { SoapySDRDevice_setSampleRate(self.dev, SOAPY_SDR_RX, self.config.channel, self.sample_rate) },
+                unsafe {
+                    SoapySDRDevice_setSampleRate(
+                        self.dev,
+                        SOAPY_SDR_RX,
+                        self.config.channel,
+                        self.sample_rate,
+                    )
+                },
                 "setSampleRate",
             )?;
         }
@@ -348,7 +471,9 @@ impl SdrSource for SoapySdr {
         self.gain = gain;
         if !self.dev.is_null() {
             soapy_check(
-                unsafe { SoapySDRDevice_setGain(self.dev, SOAPY_SDR_RX, self.config.channel, gain) },
+                unsafe {
+                    SoapySDRDevice_setGain(self.dev, SOAPY_SDR_RX, self.config.channel, gain)
+                },
                 "setGain",
             )?;
         }

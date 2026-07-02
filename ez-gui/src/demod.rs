@@ -74,8 +74,8 @@ impl Demodulator {
     fn apply_agc(&mut self, mut samples: Vec<f32>) -> Vec<f32> {
         // Soft-knee AGC: target RMS ~0.25, attack fast, decay slow
         const TARGET: f32 = 0.25;
-        const ATTACK: f32 = 0.01;   // fast attack (gain drops quickly on loud signal)
-        const DECAY: f32 = 0.0001;  // slow decay (gain rises slowly when quiet)
+        const ATTACK: f32 = 0.01; // fast attack (gain drops quickly on loud signal)
+        const DECAY: f32 = 0.0001; // slow decay (gain rises slowly when quiet)
         const MAX_GAIN: f32 = 40.0;
         const MIN_GAIN: f32 = 0.1;
 
@@ -94,7 +94,9 @@ impl Demodulator {
     }
 
     fn apply_lpf(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        if self.lpf_alpha >= 0.999 { return samples; }
+        if self.lpf_alpha >= 0.999 {
+            return samples;
+        }
         let mut out = Vec::with_capacity(samples.len());
         for s in samples {
             self.lpf_state_l = self.lpf_state_l + self.lpf_alpha * (s - self.lpf_state_l);
@@ -106,7 +108,9 @@ impl Demodulator {
     fn demod_raw(&mut self, iq: &[u8]) -> Vec<f32> {
         let mut out = Vec::with_capacity(iq.len() / 2);
         for chunk in iq.chunks(2) {
-            if chunk.len() < 2 { break; }
+            if chunk.len() < 2 {
+                break;
+            }
             let i = (chunk[0] as f32 - 127.4) / 128.0;
             let q = (chunk[1] as f32 - 127.4) / 128.0;
             out.push(i * 0.3);
@@ -118,7 +122,9 @@ impl Demodulator {
     fn demod_am(&mut self, iq: &[u8]) -> Vec<f32> {
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
         for (idx, chunk) in iq.chunks(2).enumerate() {
-            if chunk.len() < 2 { break; }
+            if chunk.len() < 2 {
+                break;
+            }
             let i = (chunk[0] as f32 - 127.4) / 128.0;
             let q = (chunk[1] as f32 - 127.4) / 128.0;
             let env = (i * i + q * q).sqrt();
@@ -136,7 +142,9 @@ impl Demodulator {
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
         let mut max_diff: f32 = 0.0;
         for chunk in iq.chunks(2) {
-            if chunk.len() < 2 { break; }
+            if chunk.len() < 2 {
+                break;
+            }
             let i = (chunk[0] as f32 - 127.4) / 128.0;
             let q = (chunk[1] as f32 - 127.4) / 128.0;
 
@@ -151,7 +159,9 @@ impl Demodulator {
                 diff += 2.0 * std::f32::consts::PI;
             }
 
-            if diff.abs() > max_diff { max_diff = diff.abs(); }
+            if diff.abs() > max_diff {
+                max_diff = diff.abs();
+            }
 
             self.prev_i = i;
             self.prev_q = q;
@@ -165,10 +175,15 @@ impl Demodulator {
         }
         // FM deviation = max_phase_diff * sample_rate / (2π)
         if self.input_rate > 0 {
-            self.last_fm_deviation_hz = max_diff * self.input_rate as f32 / (2.0 * std::f32::consts::PI);
+            self.last_fm_deviation_hz =
+                max_diff * self.input_rate as f32 / (2.0 * std::f32::consts::PI);
         }
         // Track audio peak
-        if let Some(&p) = out.iter().max_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap_or(std::cmp::Ordering::Equal)) {
+        if let Some(&p) = out.iter().max_by(|a, b| {
+            a.abs()
+                .partial_cmp(&b.abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }) {
             self.last_audio_peak = 0.9 * self.last_audio_peak + 0.1 * p.abs();
         }
         out
@@ -185,14 +200,20 @@ impl Demodulator {
         let mut deemph_state = 0.0f32;
 
         for chunk in iq.chunks(2) {
-            if chunk.len() < 2 { break; }
+            if chunk.len() < 2 {
+                break;
+            }
             let i = (chunk[0] as f32 - 127.4) / 128.0;
             let q = (chunk[1] as f32 - 127.4) / 128.0;
 
             let phase = q.atan2(i);
             let mut diff = phase - self.prev_phase;
-            while diff > std::f32::consts::PI { diff -= 2.0 * std::f32::consts::PI; }
-            while diff < -std::f32::consts::PI { diff += 2.0 * std::f32::consts::PI; }
+            while diff > std::f32::consts::PI {
+                diff -= 2.0 * std::f32::consts::PI;
+            }
+            while diff < -std::f32::consts::PI {
+                diff += 2.0 * std::f32::consts::PI;
+            }
 
             self.prev_phase = phase;
 
@@ -216,7 +237,9 @@ impl Demodulator {
         let sign = if usb { 1.0 } else { -1.0 };
 
         for (n, chunk) in iq.chunks(2).enumerate() {
-            if chunk.len() < 2 { break; }
+            if chunk.len() < 2 {
+                break;
+            }
             let i = (chunk[0] as f32 - 127.4) / 128.0;
             let q = (chunk[1] as f32 - 127.4) / 128.0;
 
@@ -239,7 +262,6 @@ impl Demodulator {
         out
     }
 
-    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.prev_i = 0.0;
         self.prev_q = 0.0;
@@ -256,7 +278,10 @@ mod tests {
     fn make_iq_dc(i_val: u8, q_val: u8, count: usize) -> Vec<u8> {
         // Constant IQ = same byte pair repeated
         let mut v = Vec::with_capacity(count * 2);
-        for _ in 0..count { v.push(i_val); v.push(q_val); }
+        for _ in 0..count {
+            v.push(i_val);
+            v.push(q_val);
+        }
         v
     }
 
@@ -281,7 +306,10 @@ mod tests {
         let out = d.demodulate(&iq, DemodMode::Am);
         assert!(!out.is_empty());
         let mean: f32 = out.iter().sum::<f32>() / out.len() as f32;
-        assert!(mean > 0.5, "AM envelope of near-1.0 IQ should be > 0.5, got {mean}");
+        assert!(
+            mean > 0.5,
+            "AM envelope of near-1.0 IQ should be > 0.5, got {mean}"
+        );
     }
 
     #[test]
@@ -295,7 +323,10 @@ mod tests {
         assert!(!out.is_empty());
         // After the first sample sets prev_phase, all subsequent diffs should be ~0
         let tail_mean: f32 = out[1..].iter().map(|x| x.abs()).sum::<f32>() / (out.len() - 1) as f32;
-        assert!(tail_mean < 0.01, "FM constant-phase output should be ~0, got {tail_mean}");
+        assert!(
+            tail_mean < 0.01,
+            "FM constant-phase output should be ~0, got {tail_mean}"
+        );
     }
 
     #[test]

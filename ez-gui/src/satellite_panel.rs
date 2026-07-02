@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use crate::app::SharedState;
+use std::sync::{Arc, Mutex};
 
 pub struct SatellitePanel {
     shared: Arc<Mutex<SharedState>>,
@@ -64,27 +64,48 @@ impl SatellitePanel {
             ("Meteor-M2-2", 137_100_000, "LRPT weather imagery"),
             ("ISS", 145_800_000, "Voice / APRS / SSTV"),
         ];
-        egui::Grid::new("sat_preset_grid").num_columns(1).spacing([0.0, 4.0]).show(ui, |ui| {
-            for (name, freq_hz, desc) in presets {
-                let selected = self.selected_sat.as_deref() == Some(*name);
-                let fg = if selected { egui::Color32::BLACK } else { egui::Color32::from_rgb(210, 220, 235) };
-                let bg = if selected { egui::Color32::from_rgb(0, 168, 255) } else { egui::Color32::from_rgb(24, 30, 40) };
-                let btn = egui::Button::new(
-                    egui::RichText::new(format!("🛰 {}\n{:.3} MHz — {}", name, *freq_hz as f64 / 1e6, desc))
-                        .color(fg).size(13.0)
-                )
-                .fill(bg)
-                .min_size(egui::vec2(ui.available_width(), 40.0));
-                if ui.add(btn).on_hover_text(format!("Track {} and tune to its downlink frequency", name)).clicked() {
-                    self.selected_sat = Some(name.to_string());
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        state.source.frequency_hz = *freq_hz;
+        egui::Grid::new("sat_preset_grid")
+            .num_columns(1)
+            .spacing([0.0, 4.0])
+            .show(ui, |ui| {
+                for (name, freq_hz, desc) in presets {
+                    let selected = self.selected_sat.as_deref() == Some(*name);
+                    let fg = if selected {
+                        egui::Color32::BLACK
+                    } else {
+                        egui::Color32::from_rgb(210, 220, 235)
+                    };
+                    let bg = if selected {
+                        egui::Color32::from_rgb(0, 168, 255)
+                    } else {
+                        egui::Color32::from_rgb(24, 30, 40)
+                    };
+                    let btn = egui::Button::new(
+                        egui::RichText::new(format!(
+                            "🛰 {}\n{:.3} MHz — {}",
+                            name,
+                            *freq_hz as f64 / 1e6,
+                            desc
+                        ))
+                        .color(fg)
+                        .size(13.0),
+                    )
+                    .fill(bg)
+                    .min_size(egui::vec2(ui.available_width(), 40.0));
+                    if ui
+                        .add(btn)
+                        .on_hover_text(format!("Track {} and tune to its downlink frequency", name))
+                        .clicked()
+                    {
+                        self.selected_sat = Some(name.to_string());
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            state.source.frequency_hz = *freq_hz;
+                        }
+                        self.auto_tune = true;
                     }
-                    self.auto_tune = true;
+                    ui.end_row();
                 }
-                ui.end_row();
-            }
-        });
+            });
 
         ui.add_space(8.0);
         ui.separator();
@@ -102,31 +123,72 @@ impl SatellitePanel {
             .map(|d| d.as_secs_f64())
             .unwrap_or(0.0);
 
-        if let Some(active) = passes.iter().find(|p| p.aos_dt <= now_unix && p.los_dt > now_unix) {
+        if let Some(active) = passes
+            .iter()
+            .find(|p| p.aos_dt <= now_unix && p.los_dt > now_unix)
+        {
             let remaining = (active.los_dt - now_unix).max(0.0) as u64;
             ui.group(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(50, 255, 100),
-                    egui::RichText::new(format!("▶ {} — IN PASS", active.satellite)).size(15.0).strong());
-                ui.label(format!("{:02}:{:02} remaining · max elevation {:.0}°", remaining / 60, remaining % 60, active.max_elevation));
+                ui.colored_label(
+                    egui::Color32::from_rgb(50, 255, 100),
+                    egui::RichText::new(format!("▶ {} — IN PASS", active.satellite))
+                        .size(15.0)
+                        .strong(),
+                );
+                ui.label(format!(
+                    "{:02}:{:02} remaining · max elevation {:.0}°",
+                    remaining / 60,
+                    remaining % 60,
+                    active.max_elevation
+                ));
                 if self.auto_tune {
-                    ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "✓ Auto-tune & Doppler correction active");
+                    ui.colored_label(
+                        egui::Color32::from_rgb(80, 200, 120),
+                        "✓ Auto-tune & Doppler correction active",
+                    );
                 }
             });
-        } else if let Some(next) = passes.iter().filter(|p| p.aos_dt > now_unix)
-            .min_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal))
+        } else if let Some(next) = passes
+            .iter()
+            .filter(|p| p.aos_dt > now_unix)
+            .min_by(|a, b| {
+                a.aos_dt
+                    .partial_cmp(&b.aos_dt)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         {
             let secs = (next.aos_dt - now_unix).max(0.0) as u64;
             ui.group(|ui| {
-                ui.label(egui::RichText::new(format!("Next pass: {}", next.satellite)).size(14.0).strong());
-                let countdown = if secs < 3600 { format!("{}m {}s", secs / 60, secs % 60) } else { format!("{}h {}m", secs / 3600, (secs % 3600) / 60) };
-                ui.label(format!("in {} · AOS {} · max elevation {:.0}°", countdown, next.aos, next.max_elevation));
-                if ui.button("▶ Track this pass").on_hover_text("Select this satellite and enable auto-tune for the upcoming pass").clicked() {
+                ui.label(
+                    egui::RichText::new(format!("Next pass: {}", next.satellite))
+                        .size(14.0)
+                        .strong(),
+                );
+                let countdown = if secs < 3600 {
+                    format!("{}m {}s", secs / 60, secs % 60)
+                } else {
+                    format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+                };
+                ui.label(format!(
+                    "in {} · AOS {} · max elevation {:.0}°",
+                    countdown, next.aos, next.max_elevation
+                ));
+                if ui
+                    .button("▶ Track this pass")
+                    .on_hover_text(
+                        "Select this satellite and enable auto-tune for the upcoming pass",
+                    )
+                    .clicked()
+                {
                     self.selected_sat = Some(next.satellite.clone());
                     self.auto_tune = true;
                 }
             });
         } else {
-            ui.colored_label(egui::Color32::GRAY, "No upcoming passes — update TLE data or check observer location in Advanced.");
+            ui.colored_label(
+                egui::Color32::GRAY,
+                "No upcoming passes — update TLE data or check observer location in Advanced.",
+            );
         }
 
         ui.add_space(6.0);
@@ -157,8 +219,12 @@ impl SatellitePanel {
         }
 
         ui.collapsing("Observer Location", |ui| {
-            let changed_lat = ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude")).changed();
-            let changed_lon = ui.add(egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude")).changed();
+            let changed_lat = ui
+                .add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
+                .changed();
+            let changed_lon = ui
+                .add(egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"))
+                .changed();
             if changed_lat || changed_lon {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.tle.observer_lat = self.observer_lat;
@@ -178,14 +244,28 @@ impl SatellitePanel {
         ui.horizontal(|ui| {
             ui.label("Signal Strength:");
             let norm = ((self.signal_strength + 120.0) / 120.0).clamp(0.0, 1.0);
-            let color = if norm > 0.5 { egui::Color32::GREEN } else if norm > 0.2 { egui::Color32::YELLOW } else { egui::Color32::RED };
-            ui.add(egui::ProgressBar::new(norm).fill(color).text(format!("{:.1} dB", self.signal_strength)));
+            let color = if norm > 0.5 {
+                egui::Color32::GREEN
+            } else if norm > 0.2 {
+                egui::Color32::YELLOW
+            } else {
+                egui::Color32::RED
+            };
+            ui.add(
+                egui::ProgressBar::new(norm)
+                    .fill(color)
+                    .text(format!("{:.1} dB", self.signal_strength)),
+            );
         });
 
         {
-            let doppler_color = if self.doppler_hz.abs() > 5000.0 { egui::Color32::from_rgb(255, 120, 60) }
-                else if self.doppler_hz.abs() > 1000.0 { egui::Color32::from_rgb(255, 220, 80) }
-                else { egui::Color32::from_rgb(120, 220, 120) };
+            let doppler_color = if self.doppler_hz.abs() > 5000.0 {
+                egui::Color32::from_rgb(255, 120, 60)
+            } else if self.doppler_hz.abs() > 1000.0 {
+                egui::Color32::from_rgb(255, 220, 80)
+            } else {
+                egui::Color32::from_rgb(120, 220, 120)
+            };
             let doppler_str = if self.doppler_hz.abs() >= 1000.0 {
                 format!("Doppler: {:+.2} kHz", self.doppler_hz / 1000.0)
             } else {
@@ -203,8 +283,12 @@ impl SatellitePanel {
         }
 
         ui.horizontal(|ui| {
-            if ui.button("Start Recording").clicked() { self.recording = true; }
-            if ui.button("Stop Recording").clicked() { self.recording = false; }
+            if ui.button("Start Recording").clicked() {
+                self.recording = true;
+            }
+            if ui.button("Stop Recording").clicked() {
+                self.recording = false;
+            }
             ui.label(if self.recording { "● RECORDING" } else { "" });
         });
 
@@ -213,7 +297,10 @@ impl SatellitePanel {
         ui.horizontal(|ui| {
             if let Ok(mut state) = self.shared.try_lock() {
                 let mut mhz = state.source.frequency_hz as f64 / 1e6;
-                if ui.add(egui::DragValue::new(&mut mhz).speed(0.001).suffix(" MHz")).changed() {
+                if ui
+                    .add(egui::DragValue::new(&mut mhz).speed(0.001).suffix(" MHz"))
+                    .changed()
+                {
                     state.source.frequency_hz = (mhz * 1e6) as u64;
                 }
             }
@@ -340,6 +427,5 @@ impl SatellitePanel {
                 }
             });
         });
-
     }
 }

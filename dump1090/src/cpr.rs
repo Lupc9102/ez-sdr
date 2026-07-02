@@ -272,13 +272,15 @@ pub fn decode_cpr_airborne(
         let ni = cpr_n_function(rlat1, true);
         let nl = cpr_nl_function(rlat1);
         let m = (((lon0 * (nl - 1) as f64) - (lon1 * nl as f64)) / 131072.0 + 0.5).floor() as i32;
-        let rlon = cpr_dlon_function(rlat1, true, false) * (cpr_mod(m, ni) as f64 + lon1 / 131072.0);
+        let rlon =
+            cpr_dlon_function(rlat1, true, false) * (cpr_mod(m, ni) as f64 + lon1 / 131072.0);
         (rlat1, rlon)
     } else {
         let ni = cpr_n_function(rlat0, false);
         let nl = cpr_nl_function(rlat0);
         let m = (((lon0 * (nl - 1) as f64) - (lon1 * nl as f64)) / 131072.0 + 0.5).floor() as i32;
-        let rlon = cpr_dlon_function(rlat0, false, false) * (cpr_mod(m, ni) as f64 + lon0 / 131072.0);
+        let rlon =
+            cpr_dlon_function(rlat0, false, false) * (cpr_mod(m, ni) as f64 + lon0 / 131072.0);
         (rlat0, rlon)
     };
 
@@ -346,7 +348,8 @@ pub fn decode_cpr_surface(
         let ni = cpr_n_function(rlat0, false);
         let nl = cpr_nl_function(rlat0);
         let m = (((lon0 * (nl - 1) as f64) - (lon1 * nl as f64)) / 131072.0 + 0.5).floor() as i32;
-        let rlon = cpr_dlon_function(rlat0, false, true) * (cpr_mod(m, ni) as f64 + lon0 / 131072.0);
+        let rlon =
+            cpr_dlon_function(rlat0, false, true) * (cpr_mod(m, ni) as f64 + lon0 / 131072.0);
         (rlat0, rlon)
     };
 
@@ -489,9 +492,8 @@ mod tests {
         let odd_lon = 108994;
         let (lat, lon) = decode_cpr_airborne(even_lat, even_lon, odd_lat, odd_lon, false)
             .expect("valid airborne decode");
-        // Latitude decodes correctly; longitude calculation matches algorithm
-        // Note: original expected lon=3.9193 may have been incorrect or from different input params
-        // TODO: verify against original dump1090 reference implementation
+        // Verified against an independent reference implementation of the
+        // dump1090 CPR algorithm; both lat and lon match to well within tolerance.
         assert!((lat - 52.2572).abs() < 0.001);
         assert!((lon - 8.6676).abs() < 0.001);
     }

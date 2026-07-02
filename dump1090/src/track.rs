@@ -28,11 +28,14 @@ impl Tracker {
     }
 
     pub fn update_from_message(&mut self, msg: &ModesMessage) {
-        let entry = self.aircraft.entry(msg.addr).or_insert_with(|| AircraftState {
-            addr: msg.addr,
-            msg_count: 0,
-            last_seen_ms: 0,
-        });
+        let entry = self
+            .aircraft
+            .entry(msg.addr)
+            .or_insert_with(|| AircraftState {
+                addr: msg.addr,
+                msg_count: 0,
+                last_seen_ms: 0,
+            });
         entry.msg_count += 1;
         entry.last_seen_ms = msg.sys_timestamp_msg;
     }

@@ -5,12 +5,22 @@ use serde::{Deserialize, Serialize};
 pub struct Rgba(pub u8, pub u8, pub u8, pub u8);
 
 impl Rgba {
-    pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self { Self(r, g, b, 255) }
-    pub const fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self { Self(r, g, b, a) }
-    pub fn to_egui(self) -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(self.0, self.1, self.2, self.3) }
-    pub fn with_alpha(&self, a: u8) -> Self { Self(self.0, self.1, self.2, a) }
+    pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
+        Self(r, g, b, 255)
+    }
+    pub const fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self(r, g, b, a)
+    }
+    pub fn to_egui(self) -> egui::Color32 {
+        egui::Color32::from_rgba_unmultiplied(self.0, self.1, self.2, self.3)
+    }
+    pub fn with_alpha(&self, a: u8) -> Self {
+        Self(self.0, self.1, self.2, a)
+    }
 
-    fn from_gray(v: u8) -> Self { Self(v, v, v, 255) }
+    fn from_gray(v: u8) -> Self {
+        Self(v, v, v, 255)
+    }
 }
 
 #[cfg(test)]
@@ -92,7 +102,9 @@ pub struct ThemeConfig {
 }
 
 impl Default for ThemeConfig {
-    fn default() -> Self { Self::dark() }
+    fn default() -> Self {
+        Self::dark()
+    }
 }
 
 impl ThemeConfig {
@@ -366,83 +378,6 @@ fn color_row(ui: &mut egui::Ui, label: &str, color: &mut Rgba) {
         *color = Rgba(r, g, b, a);
     }
     ui.end_row();
-}
-
-// ─── Cached theme colors for panels ────────────────────────────────────────
-
-/// All theme colors pre-converted to egui::Color32 for direct use by panels.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct ThemeColors {
-    pub accent: egui::Color32,
-    pub bg: egui::Color32,
-    pub surface: egui::Color32,
-    pub text_normal: egui::Color32,
-    pub text_heading: egui::Color32,
-    pub text_dim: egui::Color32,
-    pub success: egui::Color32,
-    pub warning: egui::Color32,
-    pub error: egui::Color32,
-    pub spectrum_line: egui::Color32,
-    pub spectrum_fill_top: egui::Color32,
-    pub spectrum_fill_bot: egui::Color32,
-    pub spectrum_grid: egui::Color32,
-    pub noise_floor_line: egui::Color32,
-    pub waterfall_bg: egui::Color32,
-    pub bm_aviation: egui::Color32,
-    pub bm_weather: egui::Color32,
-    pub bm_marine: egui::Color32,
-    pub bm_amateur: egui::Color32,
-    pub bm_broadcast: egui::Color32,
-    pub bm_scanner: egui::Color32,
-    pub bm_default: egui::Color32,
-    pub smeter_low: egui::Color32,
-    pub smeter_mid: egui::Color32,
-    pub smeter_high: egui::Color32,
-    pub smeter_bg: egui::Color32,
-    pub smeter_border: egui::Color32,
-    pub vfo_a: egui::Color32,
-    pub vfo_b: egui::Color32,
-    pub status_signal: egui::Color32,
-    pub status_recording: egui::Color32,
-}
-
-impl From<&ThemeConfig> for ThemeColors {
-    fn from(t: &ThemeConfig) -> Self {
-        Self {
-            accent: t.accent.to_egui(),
-            bg: t.bg.to_egui(),
-            surface: t.surface.to_egui(),
-            text_normal: t.text_normal.to_egui(),
-            text_heading: t.text_heading.to_egui(),
-            text_dim: t.text_dim.to_egui(),
-            success: t.success.to_egui(),
-            warning: t.warning.to_egui(),
-            error: t.error.to_egui(),
-            spectrum_line: t.spectrum_line.to_egui(),
-            spectrum_fill_top: t.spectrum_fill_top.to_egui(),
-            spectrum_fill_bot: t.spectrum_fill_bot.to_egui(),
-            spectrum_grid: t.spectrum_grid.to_egui(),
-            noise_floor_line: t.noise_floor_line.to_egui(),
-            waterfall_bg: t.waterfall_bg.to_egui(),
-            bm_aviation: t.bm_aviation.to_egui(),
-            bm_weather: t.bm_weather.to_egui(),
-            bm_marine: t.bm_marine.to_egui(),
-            bm_amateur: t.bm_amateur.to_egui(),
-            bm_broadcast: t.bm_broadcast.to_egui(),
-            bm_scanner: t.bm_scanner.to_egui(),
-            bm_default: t.bm_default.to_egui(),
-            smeter_low: t.smeter_low.to_egui(),
-            smeter_mid: t.smeter_mid.to_egui(),
-            smeter_high: t.smeter_high.to_egui(),
-            smeter_bg: t.smeter_bg.to_egui(),
-            smeter_border: t.smeter_border.to_egui(),
-            vfo_a: t.vfo_a_color.to_egui(),
-            vfo_b: t.vfo_b_color.to_egui(),
-            status_signal: t.status_signal.to_egui(),
-            status_recording: t.status_recording.to_egui(),
-        }
-    }
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

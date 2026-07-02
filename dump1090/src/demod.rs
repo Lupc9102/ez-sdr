@@ -27,10 +27,6 @@ pub const MODES_LONG_MSG_BITS: usize = MODES_LONG_MSG_BYTES * 8;
 pub const MODES_SHORT_MSG_BITS: usize = MODES_SHORT_MSG_BYTES * 8;
 pub const MODES_MAX_BITERRORS: usize = 2;
 
-/// Timestamp is expressed in units of a 12 MHz clock.
-#[allow(dead_code)]
-const TIMESTAMP_CLOCK_MHZ: u64 = 12;
-
 // ========================================================================
 // Data structures
 // ========================================================================
@@ -120,8 +116,7 @@ pub struct DemodStats {
 // ========================================================================
 
 /// Possible scores for a Mode S message, ordered from worst to best.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum ScoreRank {
     #[default]
     NotSet = 0,
@@ -168,7 +163,6 @@ pub enum ScoreRank {
     Df18Known,
     Df17Known,
 }
-
 
 // ========================================================================
 // CRC / error correction helpers (minimal but sufficient for scoring)
@@ -279,17 +273,6 @@ fn correct_message(
 // Scoring
 // ========================================================================
 
-#[allow(dead_code)]
-fn is_long_pi_message(msg: &[u8]) -> bool {
-    let df = msg[0] >> 3;
-    df == 17 || df == 18
-}
-
-#[allow(dead_code)]
-fn is_short_pi_message(msg: &[u8]) -> bool {
-    (msg[0] >> 3) == 11
-}
-
 /// Score how plausible a raw Mode S message looks.
 /// Higher scores are more reliable.
 pub fn score_mode_s_message(
@@ -306,9 +289,7 @@ pub fn score_mode_s_message(
     let (corrections, corrected) = correct_message(uncorrected, max_errors);
     let df = corrected[0] >> 3;
 
-    let addr = ((corrected[1] as u32) << 16)
-        | ((corrected[2] as u32) << 8)
-        | (corrected[3] as u32);
+    let addr = ((corrected[1] as u32) << 16) | ((corrected[2] as u32) << 8) | (corrected[3] as u32);
 
     match df {
         0 | 4 | 5 => {
@@ -369,12 +350,10 @@ pub fn score_mode_s_message(
                         } else {
                             ScoreRank::Df11AcqUnknown
                         }
+                    } else if recent {
+                        ScoreRank::Df11IidKnown
                     } else {
-                        if recent {
-                            ScoreRank::Df11IidKnown
-                        } else {
-                            ScoreRank::Df11IidUnknown
-                        }
+                        ScoreRank::Df11IidUnknown
                     }
                 }
                 1 => {
@@ -384,12 +363,10 @@ pub fn score_mode_s_message(
                         } else {
                             ScoreRank::Df11Acq1ErrorUnknown
                         }
+                    } else if recent {
+                        ScoreRank::Df11Iid1ErrorKnown
                     } else {
-                        if recent {
-                            ScoreRank::Df11Iid1ErrorKnown
-                        } else {
-                            ScoreRank::Df11Iid1ErrorUnknown
-                        }
+                        ScoreRank::Df11Iid1ErrorUnknown
                     }
                 }
                 _ => ScoreRank::Uncorrectable,
@@ -398,34 +375,54 @@ pub fn score_mode_s_message(
         17 => {
             let recent = icao_filter.contains(addr & 0xFFFFFF);
             match corrections {
-                0 => if recent { ScoreRank::Df17Known } else { ScoreRank::Df17Unknown },
-                1 => if recent {
-                    ScoreRank::Df17_1ErrorKnown
-                } else {
-                    ScoreRank::Df17_1ErrorUnknown
-                },
-                2 => if recent {
-                    ScoreRank::Df17_2ErrorKnown
-                } else {
-                    ScoreRank::Df17_2ErrorUnknown
-                },
+                0 => {
+                    if recent {
+                        ScoreRank::Df17Known
+                    } else {
+                        ScoreRank::Df17Unknown
+                    }
+                }
+                1 => {
+                    if recent {
+                        ScoreRank::Df17_1ErrorKnown
+                    } else {
+                        ScoreRank::Df17_1ErrorUnknown
+                    }
+                }
+                2 => {
+                    if recent {
+                        ScoreRank::Df17_2ErrorKnown
+                    } else {
+                        ScoreRank::Df17_2ErrorUnknown
+                    }
+                }
                 _ => ScoreRank::Uncorrectable,
             }
         }
         18 => {
             let recent = icao_filter.contains(addr | 0x0100_0000); // NT flag
             match corrections {
-                0 => if recent { ScoreRank::Df18Known } else { ScoreRank::Df18Unknown },
-                1 => if recent {
-                    ScoreRank::Df18_1ErrorKnown
-                } else {
-                    ScoreRank::Df18_1ErrorUnknown
-                },
-                2 => if recent {
-                    ScoreRank::Df18_2ErrorKnown
-                } else {
-                    ScoreRank::Df18_2ErrorUnknown
-                },
+                0 => {
+                    if recent {
+                        ScoreRank::Df18Known
+                    } else {
+                        ScoreRank::Df18Unknown
+                    }
+                }
+                1 => {
+                    if recent {
+                        ScoreRank::Df18_1ErrorKnown
+                    } else {
+                        ScoreRank::Df18_1ErrorUnknown
+                    }
+                }
+                2 => {
+                    if recent {
+                        ScoreRank::Df18_2ErrorKnown
+                    } else {
+                        ScoreRank::Df18_2ErrorUnknown
+                    }
+                }
                 _ => ScoreRank::Uncorrectable,
             }
         }
@@ -477,14 +474,12 @@ pub fn decode_mode_s_message(
     match df {
         11 => {
             // All-call reply.
-            mm.addr =
-                ((mm.msg[1] as u32) << 16) | ((mm.msg[2] as u32) << 8) | (mm.msg[3] as u32);
+            mm.addr = ((mm.msg[1] as u32) << 16) | ((mm.msg[2] as u32) << 8) | (mm.msg[3] as u32);
             mm.crc = crc24_parity(&mm.msg[..MODES_SHORT_MSG_BYTES]);
             icao_filter.add(mm.addr);
         }
         17 | 18 => {
-            mm.addr =
-                ((mm.msg[1] as u32) << 16) | ((mm.msg[2] as u32) << 8) | (mm.msg[3] as u32);
+            mm.addr = ((mm.msg[1] as u32) << 16) | ((mm.msg[2] as u32) << 8) | (mm.msg[3] as u32);
             mm.crc = crc24_parity(&mm.msg);
             icao_filter.add(mm.addr);
         }
@@ -556,8 +551,7 @@ fn valid_df_short(fix_df: bool, nfix_crc: usize) -> u32 {
 
 /// Bitset of acceptable DF values for long messages (without correction).
 fn valid_df_long(enable_df24: bool, fix_df: bool, nfix_crc: usize) -> u32 {
-    let mut bitset: u32 =
-        (1 << 16) | (1 << 17) | (1 << 18) | (1 << 20) | (1 << 21);
+    let mut bitset: u32 = (1 << 16) | (1 << 17) | (1 << 18) | (1 << 20) | (1 << 21);
     if enable_df24 {
         bitset |= (1 << 24)
             | (1 << 25)
@@ -690,10 +684,8 @@ impl Demod2400 {
                     + preamble[11] as u32
                     + preamble[12] as u32)
                     / 4;
-                base_signal =
-                    preamble[1] as u32 + preamble[3] as u32 + preamble[9] as u32;
-                base_noise =
-                    preamble[5] as u32 + preamble[6] as u32 + preamble[7] as u32;
+                base_signal = preamble[1] as u32 + preamble[3] as u32 + preamble[9] as u32;
+                base_noise = preamble[5] as u32 + preamble[6] as u32 + preamble[7] as u32;
             } else if preamble[1] > preamble[2]
                 && preamble[2] < preamble[3]
                 && preamble[3] > preamble[4]
@@ -730,10 +722,8 @@ impl Demod2400 {
                     + preamble[10] as u32
                     + preamble[12] as u32)
                     / 4;
-                base_signal =
-                    preamble[1] as u32 + preamble[12] as u32;
-                base_noise =
-                    preamble[6] as u32 + preamble[7] as u32;
+                base_signal = preamble[1] as u32 + preamble[12] as u32;
+                base_noise = preamble[6] as u32 + preamble[7] as u32;
             } else if preamble[1] > preamble[2]
                 && preamble[3] < preamble[4]
                 && preamble[4] > preamble[5]
@@ -769,12 +759,8 @@ impl Demod2400 {
                     + preamble[10] as u32
                     + preamble[12] as u32)
                     / 4;
-                base_signal = preamble[4] as u32
-                    + preamble[10] as u32
-                    + preamble[12] as u32;
-                base_noise = preamble[6] as u32
-                    + preamble[7] as u32
-                    + preamble[8] as u32;
+                base_signal = preamble[4] as u32 + preamble[10] as u32 + preamble[12] as u32;
+                base_noise = preamble[6] as u32 + preamble[7] as u32 + preamble[8] as u32;
             } else {
                 j += 1;
                 continue;
@@ -900,12 +886,8 @@ impl Demod2400 {
                     continue;
                 }
 
-                let score = score_mode_s_message(
-                    &msg,
-                    &self.icao_filter,
-                    self.enable_df24,
-                    self.nfix_crc,
-                );
+                let score =
+                    score_mode_s_message(&msg, &self.icao_filter, self.enable_df24, self.nfix_crc);
                 if score > best_score {
                     best_msg.copy_from_slice(&msg);
                     best_score = score;
@@ -928,10 +910,8 @@ impl Demod2400 {
 
             let mut decoded_mm = ModesMessage::default();
             // Timestamp at the end of bit 56, adjusted for phase.
-            decoded_mm.timestamp_msg = mag.sample_timestamp
-                + j as u64 * 5
-                + (8 + 56) * 12
-                + best_phase as u64;
+            decoded_mm.timestamp_msg =
+                mag.sample_timestamp + j as u64 * 5 + (8 + 56) * 12 + best_phase as u64;
             decoded_mm.sys_timestamp_msg = mag.sys_timestamp
                 + receiveclock_ms_elapsed(mag.sample_timestamp, decoded_mm.timestamp_msg);
             decoded_mm.score = best_score;
@@ -959,8 +939,7 @@ impl Demod2400 {
                     let magv = m[j + 19 + k] as u64;
                     scaled_signal_power += magv * magv;
                 }
-                let signal_power =
-                    scaled_signal_power as f64 / 65535.0 / 65535.0;
+                let signal_power = scaled_signal_power as f64 / 65535.0 / 65535.0;
                 decoded_mm.signal_level = signal_power / signal_len as f64;
                 stats.signal_power_sum += signal_power;
                 stats.signal_power_count += signal_len as u64;
@@ -989,8 +968,7 @@ impl Demod2400 {
 
         // Update noise power.
         {
-            let sum_signal_power =
-                sum_scaled_signal_power as f64 / 65535.0 / 65535.0;
+            let sum_signal_power = sum_scaled_signal_power as f64 / 65535.0 / 65535.0;
             stats.noise_power_sum += mag.mean_power * mlen as f64 - sum_signal_power;
             stats.noise_power_count += mlen as u64;
         }
@@ -1013,10 +991,8 @@ impl Demod2400 {
         let m = &mag.data[..mag.valid_length];
         let mlen = mag.valid_length - mag.overlap;
 
-        let noise_stddev =
-            (mag.mean_power - mag.mean_level * mag.mean_level).sqrt();
-        let noise_level =
-            ((mag.mean_power + noise_stddev) * 65535.0 + 0.5) as u32;
+        let noise_stddev = (mag.mean_power - mag.mean_level * mag.mean_level).sqrt();
+        let noise_level = ((mag.mean_power + noise_stddev) * 65535.0 + 0.5) as u32;
 
         let mut f1_sample = 1usize;
         while f1_sample < mlen {
@@ -1122,8 +1098,8 @@ impl Demod2400 {
 
             let mut mm = ModesMessage::default();
             mm.timestamp_msg = mag.sample_timestamp + (f2_clock / 5) as u64;
-            mm.sys_timestamp_msg = mag.sys_timestamp
-                + receiveclock_ms_elapsed(mag.sample_timestamp, mm.timestamp_msg);
+            mm.sys_timestamp_msg =
+                mag.sys_timestamp + receiveclock_ms_elapsed(mag.sample_timestamp, mm.timestamp_msg);
             // For Mode A/C the "address" is the decoded identity code.
             mm.addr = modeac;
             mm.msgtype = 0xFF; // sentinel for Mode A/C
@@ -1161,11 +1137,7 @@ pub enum InputFormat {
 /// * `fmt`  – sample format.
 ///
 /// Returns the mean normalised level and mean normalised power.
-pub fn compute_magnitude(
-    iq: &[u8],
-    mag: &mut [u16],
-    fmt: InputFormat,
-) -> (f64, f64) {
+pub fn compute_magnitude(iq: &[u8], mag: &mut [u16], fmt: InputFormat) -> (f64, f64) {
     match fmt {
         InputFormat::Uc8 => compute_magnitude_uc8(iq, mag),
         InputFormat::Sc16 => compute_magnitude_sc16(iq, mag),

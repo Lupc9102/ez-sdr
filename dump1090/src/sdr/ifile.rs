@@ -105,7 +105,9 @@ impl IFileSdr {
         match self.format {
             IqFormat::Uc8 => convert::convert_uc8_to_mag(&self.read_buf, &mut out[..samples]),
             IqFormat::Sc16 => convert::convert_sc16_to_mag(&self.read_buf, &mut out[..samples]),
-            IqFormat::Sc16Q11 => convert::convert_sc16q11_to_mag(&self.read_buf, &mut out[..samples]),
+            IqFormat::Sc16Q11 => {
+                convert::convert_sc16q11_to_mag(&self.read_buf, &mut out[..samples])
+            }
         }
     }
 }

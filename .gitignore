@@ -12,3 +12,4 @@ graphify-out/2026-*/
 .claude_infinite_fix.log
 .claude/skills/
 ez_sdr_bookmarks_*.csv
+ez_sdr_config.json

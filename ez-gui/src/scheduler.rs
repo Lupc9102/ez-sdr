@@ -35,20 +35,27 @@ impl Scheduler {
     }
 
     pub fn update_from_passes(&mut self, passes: &[PassInfo]) {
-        self.jobs = passes.iter().map(|p| ScheduledJob {
-            satellite: p.satellite.clone(),
-            aos: p.aos.clone(),
-            los: p.los.clone(),
-            frequency_hz: p.frequency_hz,
-            aos_dt: p.aos_dt,
-            los_dt: p.los_dt,
-        }).collect();
+        self.jobs = passes
+            .iter()
+            .map(|p| ScheduledJob {
+                satellite: p.satellite.clone(),
+                aos: p.aos.clone(),
+                los: p.los.clone(),
+                frequency_hz: p.frequency_hz,
+                aos_dt: p.aos_dt,
+                los_dt: p.los_dt,
+            })
+            .collect();
     }
 
     /// Returns the first job whose AOS-LOS window contains `now_unix`, if any.
     pub fn active_job(&self, now_unix: f64) -> Option<&ScheduledJob> {
-        if !self.auto_tune_enabled { return None; }
-        self.jobs.iter().find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt)
+        if !self.auto_tune_enabled {
+            return None;
+        }
+        self.jobs
+            .iter()
+            .find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt)
     }
 
     /// Check if any custom task should fire now. Returns frequency if fired.
@@ -90,7 +97,6 @@ mod tests {
         assert!(s.active_job(150.0).is_none());
     }
 
-
     fn make_scheduler() -> Scheduler {
         let mut s = Scheduler::new();
         s.jobs.push(ScheduledJob {
@@ -126,13 +132,19 @@ mod tests {
         let mut s = Scheduler::new();
         s.jobs.push(ScheduledJob {
             satellite: "SatA".into(),
-            aos: String::new(), los: String::new(),
-            frequency_hz: 100, aos_dt: 0.0, los_dt: 100.0,
+            aos: String::new(),
+            los: String::new(),
+            frequency_hz: 100,
+            aos_dt: 0.0,
+            los_dt: 100.0,
         });
         s.jobs.push(ScheduledJob {
             satellite: "SatB".into(),
-            aos: String::new(), los: String::new(),
-            frequency_hz: 200, aos_dt: 50.0, los_dt: 150.0,
+            aos: String::new(),
+            los: String::new(),
+            frequency_hz: 200,
+            aos_dt: 50.0,
+            los_dt: 150.0,
         });
         let job = s.active_job(75.0);
         assert!(job.is_some());
@@ -193,14 +205,15 @@ mod tests {
     #[test]
     fn update_from_passes_populates_jobs() {
         let mut s = Scheduler::new();
-        let passes = vec![
-            PassInfo {
-                satellite: "Sat1".into(),
-                aos: "10:00".into(), los: "10:30".into(),
-                frequency_hz: 100, aos_dt: 100.0, los_dt: 200.0,
-                max_elevation: 45.0,
-            },
-        ];
+        let passes = vec![PassInfo {
+            satellite: "Sat1".into(),
+            aos: "10:00".into(),
+            los: "10:30".into(),
+            frequency_hz: 100,
+            aos_dt: 100.0,
+            los_dt: 200.0,
+            max_elevation: 45.0,
+        }];
         s.update_from_passes(&passes);
         assert_eq!(s.jobs.len(), 1);
         assert_eq!(s.jobs[0].satellite, "Sat1");

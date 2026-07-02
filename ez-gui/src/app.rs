@@ -2,13 +2,11 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FreqMemEntry {
     pub freq_hz: u64,
     pub label: String,
 }
-
 
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
@@ -17,9 +15,10 @@ use crate::audio_output::AudioOutput;
 use crate::bookmarks::BookmarkDb;
 use crate::config::AppConfig;
 use crate::demod::Demodulator;
-use crate::mqtt::MqttPublisher;
 use crate::discord::DiscordNotifier;
 use crate::discord_panel::DiscordPanel;
+use crate::howto_panel::HowToPanel;
+use crate::mqtt::MqttPublisher;
 use crate::recorder_panel::RecorderPanel;
 use crate::satellite_panel::SatellitePanel;
 use crate::scheduler::Scheduler;
@@ -27,27 +26,19 @@ use crate::sdr_panel::SdrPanel;
 use crate::source_manager::SourceManager;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
-use crate::howto_panel::HowToPanel;
-use crate::theme::ThemeColors;
 use crate::tutorial;
 use crate::user_level::{TutorialState, UserLevel};
 use crate::web_remote::{RemoteCommand, WebRemote};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
 pub enum Tab {
     Sdr,
     Spectrum,
     Satellite,
     AdsB,
-    Recorder,
     Scanner,
     AiAgent,
-    Bookmarks,
-    Scheduler,
     Settings,
-    HowTo,
-    Discord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,7 +110,6 @@ pub struct SharedState {
     pub lo_offset_hz: i64,
     pub mqtt_connected: bool,
     pub mqtt_enabled: bool,
-    pub theme_colors: ThemeColors,
     pub bookmarks_modified: bool,
 }
 
@@ -210,7 +200,6 @@ impl CentralApp {
         let audio_rx = Arc::new(Mutex::new(audio_rx));
 
         let config = AppConfig::load_or_default();
-        let theme_colors = ThemeColors::from(&config.theme_config);
         let shared = Arc::new(Mutex::new(SharedState {
             source: SourceManager::new(),
             spectrum: SpectrumAnalyzer::new(),
@@ -236,7 +225,6 @@ impl CentralApp {
             lo_offset_hz: 0,
             mqtt_connected: false,
             mqtt_enabled: false,
-            theme_colors,
             bookmarks_modified: true,
         }));
 
@@ -274,13 +262,19 @@ impl CentralApp {
                 state.config.default_gain
             };
             if !state.config.last_session_demod.is_empty() {
-                if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&state.config.last_session_demod) {
+                if let Some(mode) =
+                    crate::sdr_panel::DemodMode::from_label(&state.config.last_session_demod)
+                {
                     state.demod_mode = mode;
                 }
             }
             state.source.ppm_correction = state.config.ppm_correction;
             state.lo_offset_hz = state.config.lo_offset_hz;
-            state.vfo_b = if state.config.vfo_b_hz > 0 { state.config.vfo_b_hz } else { state.config.default_freq_hz };
+            state.vfo_b = if state.config.vfo_b_hz > 0 {
+                state.config.vfo_b_hz
+            } else {
+                state.config.default_freq_hz
+            };
             // Restore frequency memory labels from config
             let saved_hz = state.config.freq_memory_hz.clone();
             let saved_labels = state.config.freq_memory_labels.clone();
@@ -434,17 +428,30 @@ impl CentralApp {
     /// Programmatically focus a tab (used by tutorial navigation).
     fn focus_tab(&mut self, tab: &Tab) {
         match tab {
-            Tab::AdsB => { self.current_tab = AppTab::AdsB; self.active_secondary_tool = None; }
-            Tab::Satellite => { self.current_tab = AppTab::Satellite; self.active_secondary_tool = None; }
-            Tab::AiAgent => { self.current_tab = AppTab::Ai; self.active_secondary_tool = None; }
-            Tab::Bookmarks => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = Some(SecondaryTool::Bookmarks); }
-            Tab::Scheduler => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = Some(SecondaryTool::Scheduler); }
-            Tab::Settings => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = Some(SecondaryTool::Settings); }
-            Tab::Scanner => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = Some(SecondaryTool::Scanner); }
-            Tab::Recorder => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = Some(SecondaryTool::Recorder); }
-            Tab::HowTo => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = Some(SecondaryTool::HowTo); }
-            Tab::Discord => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = Some(SecondaryTool::Discord); }
-            Tab::Sdr | Tab::Spectrum => { self.current_tab = AppTab::Sdr; self.active_secondary_tool = None; }
+            Tab::AdsB => {
+                self.current_tab = AppTab::AdsB;
+                self.active_secondary_tool = None;
+            }
+            Tab::Satellite => {
+                self.current_tab = AppTab::Satellite;
+                self.active_secondary_tool = None;
+            }
+            Tab::AiAgent => {
+                self.current_tab = AppTab::Ai;
+                self.active_secondary_tool = None;
+            }
+            Tab::Settings => {
+                self.current_tab = AppTab::Sdr;
+                self.active_secondary_tool = Some(SecondaryTool::Settings);
+            }
+            Tab::Scanner => {
+                self.current_tab = AppTab::Sdr;
+                self.active_secondary_tool = Some(SecondaryTool::Scanner);
+            }
+            Tab::Sdr | Tab::Spectrum => {
+                self.current_tab = AppTab::Sdr;
+                self.active_secondary_tool = None;
+            }
         }
     }
 }
@@ -458,7 +465,9 @@ impl eframe::App for CentralApp {
                 for _ in 0..4 {
                     if let Some(samples) = state.source.recv_samples() {
                         if samples == b"ERROR" {
-                            state.source.status = crate::source_manager::SourceStatus::Error("Device open failed".to_string());
+                            state.source.status = crate::source_manager::SourceStatus::Error(
+                                "Device open failed".to_string(),
+                            );
                             break;
                         }
                         sample_batch.push(samples);
@@ -471,10 +480,27 @@ impl eframe::App for CentralApp {
 
         // Process samples outside lock
         for samples in &sample_batch {
-            let (freq, rate, demod_mode, audio_running, volume, squelch_db, lpf_cutoff, adsb_running) = {
+            let (
+                freq,
+                rate,
+                demod_mode,
+                audio_running,
+                volume,
+                squelch_db,
+                lpf_cutoff,
+                adsb_running,
+            ) = {
                 if let Ok(state) = self.shared.try_lock() {
-                    (state.source.frequency_hz, state.source.sample_rate_hz,
-                     state.demod_mode, state.audio_running, state.volume, state.squelch, state.lpf_cutoff, state.adsb_running)
+                    (
+                        state.source.frequency_hz,
+                        state.source.sample_rate_hz,
+                        state.demod_mode,
+                        state.audio_running,
+                        state.volume,
+                        state.squelch,
+                        state.lpf_cutoff,
+                        state.adsb_running,
+                    )
                 } else {
                     continue;
                 }
@@ -497,20 +523,32 @@ impl eframe::App for CentralApp {
                 self.demod.set_sample_rates(rate, self.audio.sample_rate());
                 self.demod.set_lpf_cutoff(lpf_cutoff);
                 let audio = self.demod.demodulate(samples, demod_mode);
-                let gate: f32 = if squelch_db < -80.0 { 1.0 } else {
+                let gate: f32 = if squelch_db < -80.0 {
+                    1.0
+                } else {
                     let signal_level = if let Ok(state) = self.shared.try_lock() {
                         state.spectrum.signal_level()
-                    } else { -120.0 };
-                    if signal_level > squelch_db { 1.0 } else { 0.0 }
+                    } else {
+                        -120.0
+                    };
+                    if signal_level > squelch_db {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 };
                 let audio: Vec<f32> = audio.into_iter().map(|s| s * volume * gate).collect();
                 self.recorder_panel.write_audio_samples(&audio);
                 // Push audio to waveform display (decimate to ~1000 samples for visualization)
                 if let Ok(mut state) = self.shared.try_lock() {
                     let wf = &mut state.spectrum.audio_waveform;
-                    if wf.capacity() < 2048 { wf.reserve(2048); }
+                    if wf.capacity() < 2048 {
+                        wf.reserve(2048);
+                    }
                     for &s in audio.iter().step_by((audio.len() / 800).max(1)) {
-                        if wf.len() >= 2048 { wf.pop_front(); }
+                        if wf.len() >= 2048 {
+                            wf.pop_front();
+                        }
                         wf.push_back(s);
                     }
                 }
@@ -523,11 +561,14 @@ impl eframe::App for CentralApp {
             }
 
             // Feed to ADS-B decoder when tuned to 1090 MHz
-            if adsb_running && (freq == 1_090_000_000 || (freq > 1_088_000_000 && freq < 1_092_000_000)) {
+            if adsb_running
+                && (freq == 1_090_000_000 || (freq > 1_088_000_000 && freq < 1_092_000_000))
+            {
                 self.adsb_decoder.feed_iq(samples, rate);
                 let ac = self.adsb_decoder.get_aircraft();
                 self.adsb_panel.aircraft = ac;
                 self.adsb_panel.total_messages = self.adsb_decoder.total_messages;
+                self.adsb_panel.decode_stats = self.adsb_decoder.stats();
             }
         }
 
@@ -599,26 +640,35 @@ impl eframe::App for CentralApp {
                 let fine = state.tune_step_fine_hz * if i.modifiers.shift { 10 } else { 1 };
                 let coarse = state.tune_step_coarse_hz * if i.modifiers.shift { 10 } else { 1 };
                 if i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.alt {
-                    state.source.frequency_hz = (state.source.frequency_hz + coarse).min(1_770_000_000);
+                    state.source.frequency_hz =
+                        (state.source.frequency_hz + coarse).min(1_770_000_000);
                     freq_changed = true;
                 }
                 if i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.alt {
-                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(coarse).max(500_000);
+                    state.source.frequency_hz = state
+                        .source
+                        .frequency_hz
+                        .saturating_sub(coarse)
+                        .max(500_000);
                     freq_changed = true;
                 }
                 if i.key_pressed(egui::Key::ArrowRight) && !i.modifiers.alt {
-                    state.source.frequency_hz = (state.source.frequency_hz + fine).min(1_770_000_000);
+                    state.source.frequency_hz =
+                        (state.source.frequency_hz + fine).min(1_770_000_000);
                     freq_changed = true;
                 }
                 if i.key_pressed(egui::Key::ArrowLeft) && !i.modifiers.alt {
-                    state.source.frequency_hz = state.source.frequency_hz.saturating_sub(fine).max(500_000);
+                    state.source.frequency_hz =
+                        state.source.frequency_hz.saturating_sub(fine).max(500_000);
                     freq_changed = true;
                 }
                 // Alt+Left/Right: frequency history back/forward
                 if i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft) {
                     let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
                     if !hist.is_empty() {
-                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        let cur_idx = self
+                            .freq_history_idx
+                            .unwrap_or(hist.len().saturating_sub(1));
                         if cur_idx > 0 {
                             let new_idx = cur_idx - 1;
                             self.freq_history_idx = Some(new_idx);
@@ -631,7 +681,9 @@ impl eframe::App for CentralApp {
                 if i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight) {
                     let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
                     if !hist.is_empty() {
-                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        let cur_idx = self
+                            .freq_history_idx
+                            .unwrap_or(hist.len().saturating_sub(1));
                         if cur_idx + 1 < hist.len() {
                             let new_idx = cur_idx + 1;
                             self.freq_history_idx = Some(new_idx);
@@ -642,12 +694,24 @@ impl eframe::App for CentralApp {
                     }
                 }
                 // F1-F6: select demod mode
-                if i.key_pressed(egui::Key::F1) { state.demod_mode = crate::sdr_panel::DemodMode::Raw; }
-                if i.key_pressed(egui::Key::F2) { state.demod_mode = crate::sdr_panel::DemodMode::Am; }
-                if i.key_pressed(egui::Key::F3) { state.demod_mode = crate::sdr_panel::DemodMode::Fm; }
-                if i.key_pressed(egui::Key::F4) { state.demod_mode = crate::sdr_panel::DemodMode::Wfm; }
-                if i.key_pressed(egui::Key::F5) { state.demod_mode = crate::sdr_panel::DemodMode::Lsb; }
-                if i.key_pressed(egui::Key::F6) { state.demod_mode = crate::sdr_panel::DemodMode::Usb; }
+                if i.key_pressed(egui::Key::F1) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Raw;
+                }
+                if i.key_pressed(egui::Key::F2) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Am;
+                }
+                if i.key_pressed(egui::Key::F3) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Fm;
+                }
+                if i.key_pressed(egui::Key::F4) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Wfm;
+                }
+                if i.key_pressed(egui::Key::F5) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Lsb;
+                }
+                if i.key_pressed(egui::Key::F6) {
+                    state.demod_mode = crate::sdr_panel::DemodMode::Usb;
+                }
                 // Alt+letter: quick demod mode shortcuts
                 if i.modifiers.alt && i.key_pressed(egui::Key::F) {
                     state.demod_mode = crate::sdr_panel::DemodMode::Fm;
@@ -694,8 +758,10 @@ impl eframe::App for CentralApp {
                     state.config.wf_max_db = state.spectrum.wf_max_db;
                     state.config.lo_offset_hz = state.lo_offset_hz;
                     state.config.color_map = state.spectrum.color_map.name().to_string();
-                    state.config.freq_memory_hz = state.freq_memory.iter().map(|m| m.freq_hz).collect();
-                    state.config.freq_memory_labels = state.freq_memory.iter().map(|m| m.label.clone()).collect();
+                    state.config.freq_memory_hz =
+                        state.freq_memory.iter().map(|m| m.freq_hz).collect();
+                    state.config.freq_memory_labels =
+                        state.freq_memory.iter().map(|m| m.label.clone()).collect();
                     // Save current session state so next launch resumes here
                     state.config.last_session_freq_hz = state.source.frequency_hz;
                     state.config.last_session_gain_db = state.source.gain_db;
@@ -705,7 +771,8 @@ impl eframe::App for CentralApp {
                         flash.0 = "💾 Config saved (freq, gain, demod, spectrum range)".to_string();
                         flash.1 = std::time::Instant::now();
                     } else {
-                        self.status_flash = Some(("💾 Config saved".to_string(), std::time::Instant::now()));
+                        self.status_flash =
+                            Some(("💾 Config saved".to_string(), std::time::Instant::now()));
                     }
                 }
                 // F: freeze/unfreeze spectrum
@@ -717,7 +784,9 @@ impl eframe::App for CentralApp {
                     state.spectrum.cycle_colormap();
                 }
                 // Ctrl++ / Ctrl+- / Ctrl+0: zoom in/out/reset
-                if (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) && i.modifiers.ctrl {
+                if (i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals))
+                    && i.modifiers.ctrl
+                {
                     state.spectrum.zoom_in();
                 }
                 if i.key_pressed(egui::Key::Minus) && i.modifiers.ctrl && !i.modifiers.alt {
@@ -738,8 +807,12 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::P) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let on = state.spectrum.toggle_peak_hold();
                     self.status_flash = Some((
-                        if on { "Peak Hold ON".to_string() } else { "Peak Hold OFF".to_string() },
-                        std::time::Instant::now()
+                        if on {
+                            "Peak Hold ON".to_string()
+                        } else {
+                            "Peak Hold OFF".to_string()
+                        },
+                        std::time::Instant::now(),
                     ));
                 }
                 // V: swap VFO A/B
@@ -754,9 +827,15 @@ impl eframe::App for CentralApp {
                 // Alt+1-9: recall frequency memory M1-M9
                 {
                     let mem_keys = [
-                        (egui::Key::Num1, 0usize), (egui::Key::Num2, 1), (egui::Key::Num3, 2),
-                        (egui::Key::Num4, 3), (egui::Key::Num5, 4), (egui::Key::Num6, 5),
-                        (egui::Key::Num7, 6), (egui::Key::Num8, 7), (egui::Key::Num9, 8),
+                        (egui::Key::Num1, 0usize),
+                        (egui::Key::Num2, 1),
+                        (egui::Key::Num3, 2),
+                        (egui::Key::Num4, 3),
+                        (egui::Key::Num5, 4),
+                        (egui::Key::Num6, 5),
+                        (egui::Key::Num7, 6),
+                        (egui::Key::Num8, 7),
+                        (egui::Key::Num9, 8),
                     ];
                     for (key, idx) in mem_keys {
                         if i.key_pressed(key) && !i.modifiers.ctrl {
@@ -764,11 +843,18 @@ impl eframe::App for CentralApp {
                                 // Save memory
                                 state.freq_memory[idx].freq_hz = state.source.frequency_hz;
                                 if state.freq_memory[idx].label.is_empty() {
-                                    state.freq_memory[idx].label = format!("{:.4} MHz", state.source.frequency_hz as f64 / 1e6);
+                                    state.freq_memory[idx].label = format!(
+                                        "{:.4} MHz",
+                                        state.source.frequency_hz as f64 / 1e6
+                                    );
                                 }
                                 self.status_flash = Some((
-                                    format!("💾 M{} saved: {:.4} MHz", idx + 1, state.source.frequency_hz as f64 / 1e6),
-                                    std::time::Instant::now()
+                                    format!(
+                                        "💾 M{} saved: {:.4} MHz",
+                                        idx + 1,
+                                        state.source.frequency_hz as f64 / 1e6
+                                    ),
+                                    std::time::Instant::now(),
                                 ));
                                 break;
                             } else if i.modifiers.alt {
@@ -777,8 +863,12 @@ impl eframe::App for CentralApp {
                                     state.source.frequency_hz = state.freq_memory[idx].freq_hz;
                                     freq_changed = true;
                                     self.status_flash = Some((
-                                        format!("🔁 M{} recalled: {:.4} MHz", idx + 1, state.freq_memory[idx].freq_hz as f64 / 1e6),
-                                        std::time::Instant::now()
+                                        format!(
+                                            "🔁 M{} recalled: {:.4} MHz",
+                                            idx + 1,
+                                            state.freq_memory[idx].freq_hz as f64 / 1e6
+                                        ),
+                                        std::time::Instant::now(),
                                     ));
                                 }
                                 break;
@@ -796,20 +886,26 @@ impl eframe::App for CentralApp {
                 // B: tune to nearest bookmark
                 if i.key_pressed(egui::Key::B) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let cur = state.source.frequency_hz;
-                    let nearest = state.bookmarks.bookmarks.iter()
+                    let nearest = state
+                        .bookmarks
+                        .bookmarks
+                        .iter()
                         .min_by_key(|b| (b.frequency_hz as i64 - cur as i64).unsigned_abs())
                         .map(|bm| (bm.frequency_hz, bm.name.clone()));
                     if let Some((freq, name)) = nearest {
                         state.source.frequency_hz = freq;
                         freq_changed = true;
-                        self.status_flash = Some((format!("⭐ {}", name), std::time::Instant::now()));
+                        self.status_flash =
+                            Some((format!("⭐ {}", name), std::time::Instant::now()));
                     }
                 }
                 // [ / ] : frequency history back/forward
                 if i.key_pressed(egui::Key::OpenBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
                     if !hist.is_empty() {
-                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        let cur_idx = self
+                            .freq_history_idx
+                            .unwrap_or(hist.len().saturating_sub(1));
                         if cur_idx > 0 {
                             let new_idx = cur_idx - 1;
                             self.freq_history_idx = Some(new_idx);
@@ -822,7 +918,9 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::CloseBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
                     let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
                     if !hist.is_empty() {
-                        let cur_idx = self.freq_history_idx.unwrap_or(hist.len().saturating_sub(1));
+                        let cur_idx = self
+                            .freq_history_idx
+                            .unwrap_or(hist.len().saturating_sub(1));
                         if cur_idx + 1 < hist.len() {
                             let new_idx = cur_idx + 1;
                             self.freq_history_idx = Some(new_idx);
@@ -837,27 +935,43 @@ impl eframe::App for CentralApp {
                 if i.key_pressed(egui::Key::G) && !i.modifiers.ctrl && !i.modifiers.alt {
                     if i.modifiers.shift {
                         state.source.gain_db = (state.source.gain_db - 5.0).max(0.0);
-                        self.status_flash = Some((format!("Gain: {:.0} dB", state.source.gain_db), std::time::Instant::now()));
+                        self.status_flash = Some((
+                            format!("Gain: {:.0} dB", state.source.gain_db),
+                            std::time::Instant::now(),
+                        ));
                     } else {
                         state.source.gain_db = (state.source.gain_db + 5.0).min(49.0);
-                        self.status_flash = Some((format!("Gain: {:.0} dB", state.source.gain_db), std::time::Instant::now()));
+                        self.status_flash = Some((
+                            format!("Gain: {:.0} dB", state.source.gain_db),
+                            std::time::Instant::now(),
+                        ));
                     }
                 }
                 // Ctrl+Up/Down: volume up / down by 10%
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowUp) {
                     state.volume = (state.volume + 0.1).min(1.0);
-                    self.status_flash = Some((format!("Volume: {:.0}%", state.volume * 100.0), std::time::Instant::now()));
+                    self.status_flash = Some((
+                        format!("Volume: {:.0}%", state.volume * 100.0),
+                        std::time::Instant::now(),
+                    ));
                 }
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::ArrowDown) {
                     state.volume = (state.volume - 0.1).max(0.0);
-                    self.status_flash = Some((format!("Volume: {:.0}%", state.volume * 100.0), std::time::Instant::now()));
+                    self.status_flash = Some((
+                        format!("Volume: {:.0}%", state.volume * 100.0),
+                        std::time::Instant::now(),
+                    ));
                 }
                 // Ctrl+B: quick bookmark current frequency
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::B) {
                     let freq = state.source.frequency_hz;
                     let mode = state.demod_mode.label().to_string();
                     let name = format!("{:.3} MHz", freq as f64 / 1e6);
-                    let already = state.bookmarks.bookmarks.iter().any(|b| b.frequency_hz == freq);
+                    let already = state
+                        .bookmarks
+                        .bookmarks
+                        .iter()
+                        .any(|b| b.frequency_hz == freq);
                     if !already {
                         state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
                             name: "Quick".to_string(),
@@ -870,9 +984,13 @@ impl eframe::App for CentralApp {
                         });
                         state.bookmarks_modified = true;
                         state.spectrum.bookmark_freqs_dirty = true;
-                        self.status_flash = Some((format!("🔖 Bookmarked {}", name), std::time::Instant::now()));
+                        self.status_flash =
+                            Some((format!("🔖 Bookmarked {}", name), std::time::Instant::now()));
                     } else {
-                        self.status_flash = Some(("⭐ Already bookmarked".to_string(), std::time::Instant::now()));
+                        self.status_flash = Some((
+                            "⭐ Already bookmarked".to_string(),
+                            std::time::Instant::now(),
+                        ));
                     }
                 }
                 // T: tune to spectrum peak frequency
@@ -881,23 +999,31 @@ impl eframe::App for CentralApp {
                     if peak_hz > 0 {
                         state.source.frequency_hz = peak_hz;
                         freq_changed = true;
-                        self.status_flash = Some((format!("📡 Peak: {:.3} MHz", peak_hz as f64 / 1e6), std::time::Instant::now()));
+                        self.status_flash = Some((
+                            format!("📡 Peak: {:.3} MHz", peak_hz as f64 / 1e6),
+                            std::time::Instant::now(),
+                        ));
                     }
                 }
                 // S key: toggle scanner on/off
                 if i.key_pressed(egui::Key::S) && !i.modifiers.ctrl && !i.modifiers.alt {
                     if self.scanner.enabled {
                         self.scanner.stop();
-                        self.status_flash = Some(("🔍 Scanner: OFF".to_string(), std::time::Instant::now()));
+                        self.status_flash =
+                            Some(("🔍 Scanner: OFF".to_string(), std::time::Instant::now()));
                     } else {
                         self.scanner.start();
-                        self.status_flash = Some(("🔍 Scanner: ON".to_string(), std::time::Instant::now()));
+                        self.status_flash =
+                            Some(("🔍 Scanner: ON".to_string(), std::time::Instant::now()));
                     }
                 }
                 // R key: reset spectrum dB range to default (-120 to 0)
                 if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl && !i.modifiers.alt {
                     state.spectrum.set_display_range(-120.0, 0.0);
-                    self.status_flash = Some(("📊 dB range reset to -120…0".to_string(), std::time::Instant::now()));
+                    self.status_flash = Some((
+                        "📊 dB range reset to -120…0".to_string(),
+                        std::time::Instant::now(),
+                    ));
                 }
             }
         });
@@ -916,7 +1042,10 @@ impl eframe::App for CentralApp {
 
         // Track source status transitions
         if let Ok(mut state) = self.shared.try_lock() {
-            let was_running = matches!(self.last_source_status, crate::source_manager::SourceStatus::Running);
+            let was_running = matches!(
+                self.last_source_status,
+                crate::source_manager::SourceStatus::Running
+            );
             let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
             if was_running && !is_running {
                 state.adsb_running = false;
@@ -925,7 +1054,11 @@ impl eframe::App for CentralApp {
         }
 
         // Repaint rate: 30fps when active, 1fps when idle (saves CPU on battery)
-        ctx.request_repaint_after(Duration::from_millis(if sample_batch.is_empty() { 1000 } else { 33 }));
+        ctx.request_repaint_after(Duration::from_millis(if sample_batch.is_empty() {
+            1000
+        } else {
+            33
+        }));
 
         // Dynamic window title: show current frequency so it's visible in taskbar
         {
@@ -1013,13 +1146,17 @@ impl eframe::App for CentralApp {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs_f64())
                     .unwrap_or(0.0);
-                let tune_to = state.scheduler.active_job(now_unix).map(|j| (j.satellite.clone(), j.frequency_hz));
+                let tune_to = state
+                    .scheduler
+                    .active_job(now_unix)
+                    .map(|j| (j.satellite.clone(), j.frequency_hz));
                 if let Some((sat, freq)) = tune_to {
                     // Satellite AOS detection (new pass)
                     if sat != self.last_active_pass_sat {
                         let passes = state.tle.upcoming_passes();
                         if let Some(pass) = passes.iter().find(|p| p.satellite == sat) {
-                            let embed = crate::discord::embed_sat_aos(&sat, freq, pass.max_elevation);
+                            let embed =
+                                crate::discord::embed_sat_aos(&sat, freq, pass.max_elevation);
                             self.discord.fire("sat_aos", embed);
                         }
                         self.last_active_pass_sat = sat.clone();
@@ -1029,7 +1166,10 @@ impl eframe::App for CentralApp {
                     if !manual_tune_recent && sat != self.last_auto_tuned_satellite {
                         state.source.frequency_hz = freq;
                         self.last_auto_tuned_satellite = sat.clone();
-                        self.status_flash = Some((format!("🛰 Auto-tuned to {} ({:.3} MHz)", sat, freq as f64 / 1e6), std::time::Instant::now()));
+                        self.status_flash = Some((
+                            format!("🛰 Auto-tuned to {} ({:.3} MHz)", sat, freq as f64 / 1e6),
+                            std::time::Instant::now(),
+                        ));
                     }
                     // Apply doppler correction (round to avoid jitter)
                     let doppler = state.tle.doppler_shift_for_sat(&sat, freq as f64, now_unix);
@@ -1050,7 +1190,11 @@ impl eframe::App for CentralApp {
                 // Poll custom scheduled tasks
                 if let Some((label, freq)) = state.scheduler.poll_custom_tasks(now_unix) {
                     state.source.frequency_hz = freq;
-                    eprintln!("[scheduler] fired custom task '{}' → {:.3} MHz", label, freq as f64 / 1e6);
+                    eprintln!(
+                        "[scheduler] fired custom task '{}' → {:.3} MHz",
+                        label,
+                        freq as f64 / 1e6
+                    );
                     let embed = crate::discord::embed_task_fired(&label, freq);
                     self.discord.fire("task_fired", embed);
                 }
@@ -1058,17 +1202,32 @@ impl eframe::App for CentralApp {
 
             // Squelch-triggered recording tick
             {
-                let (signal_db, squelch_db, freq_hz, mode_label) = if let Ok(state) = self.shared.try_lock() {
-                    (state.spectrum.signal_level(), state.squelch, state.source.frequency_hz, state.demod_mode.label().to_string())
-                } else { (-120.0, -50.0, 0u64, "NFM".to_string()) };
-                self.recorder_panel.tick_squelch_record(signal_db, squelch_db, freq_hz, &mode_label);
+                let (signal_db, squelch_db, freq_hz, mode_label) =
+                    if let Ok(state) = self.shared.try_lock() {
+                        (
+                            state.spectrum.signal_level(),
+                            state.squelch,
+                            state.source.frequency_hz,
+                            state.demod_mode.label().to_string(),
+                        )
+                    } else {
+                        (-120.0, -50.0, 0u64, "NFM".to_string())
+                    };
+                self.recorder_panel.tick_squelch_record(
+                    signal_db,
+                    squelch_db,
+                    freq_hz,
+                    &mode_label,
+                );
             }
 
             // Frequency scanner tick (runs every frame, rate-limited by dwell_ms)
             {
                 let peak = if let Ok(state) = self.shared.try_lock() {
                     state.spectrum.peak_level()
-                } else { -120.0 };
+                } else {
+                    -120.0
+                };
                 let prev_hits = self.scanner.hits.len();
                 self.scanner.tick(peak);
                 // Publish any new hits to MQTT + Discord
@@ -1106,7 +1265,7 @@ impl eframe::App for CentralApp {
                     bandwidth_hz: 12_500,
                     category: "Quick".to_string(),
                     notes: String::new(),
-                            starred: false,
+                    starred: false,
                 });
                 state.bookmarks_modified = true;
                 state.spectrum.bookmark_freqs_dirty = true;
@@ -1128,15 +1287,17 @@ impl eframe::App for CentralApp {
                 freq_mhz, mode, snr
             );
             self.status_flash = Some((
-                format!("🤖 AI prompt ready for {:.3} MHz — switch to AI Agent tab", freq_mhz),
+                format!(
+                    "🤖 AI prompt ready for {:.3} MHz — switch to AI Agent tab",
+                    freq_mhz
+                ),
                 std::time::Instant::now(),
             ));
         }
 
         // Apply theme on first frame (retry until the lock is available)
         if !self.theme_applied {
-            if let Ok(mut state) = self.shared.try_lock() {
-                state.theme_colors = ThemeColors::from(&state.config.theme_config);
+            if let Ok(state) = self.shared.try_lock() {
                 state.config.theme_config.apply_to_ctx(ctx);
                 let scale = state.config.font_scale as f32;
                 ctx.set_pixels_per_point(scale);
@@ -1149,7 +1310,6 @@ impl eframe::App for CentralApp {
             if state.config.needs_apply {
                 state.config.needs_apply = false;
                 // Apply theme
-                state.theme_colors = ThemeColors::from(&state.config.theme_config);
                 state.config.theme_config.apply_to_ctx(ctx);
                 // Apply font scale
                 let scale = state.config.font_scale as f32;
@@ -1159,7 +1319,10 @@ impl eframe::App for CentralApp {
                 state.source.gain_db = state.config.default_gain;
                 state.tle.observer_lat = state.config.observer_lat;
                 state.tle.observer_lon = state.config.observer_lon;
-                self.web_remote.set_enabled(state.config.web_remote_enabled, state.config.web_remote_port);
+                self.web_remote.set_enabled(
+                    state.config.web_remote_enabled,
+                    state.config.web_remote_port,
+                );
                 self.mqtt.set_enabled(
                     !state.config.mqtt_broker.is_empty(),
                     state.config.mqtt_broker.clone(),
@@ -1186,32 +1349,75 @@ impl eframe::App for CentralApp {
 
             // State transitions for Discord notifications
             if recording && !self.last_recording {
-                let embed = crate::discord::embed_recording_started(freq, mode, self.recorder_panel.record_iq, self.recorder_panel.record_audio);
+                let embed = crate::discord::embed_recording_started(
+                    freq,
+                    mode,
+                    self.recorder_panel.record_iq,
+                    self.recorder_panel.record_audio,
+                );
                 self.discord.fire("rec_started", embed);
             } else if !recording && self.last_recording {
-                let duration = self.recording_start.map(|t| t.elapsed().as_secs()).unwrap_or(0);
-                let embed = crate::discord::embed_recording_stopped(freq, mode, duration, self.recorder_panel.bytes_written);
+                let duration = self
+                    .recording_start
+                    .map(|t| t.elapsed().as_secs())
+                    .unwrap_or(0);
+                let embed = crate::discord::embed_recording_stopped(
+                    freq,
+                    mode,
+                    duration,
+                    self.recorder_panel.bytes_written,
+                );
                 self.discord.fire("rec_stopped", embed);
             }
             if state.adsb_running && !self.last_adsb_running {
-                let embed = crate::discord::embed_generic("ADS-B Started", "ADS-B decoder activated", "📡", 0x00AA00);
+                let embed = crate::discord::embed_generic(
+                    "ADS-B Started",
+                    "ADS-B decoder activated",
+                    "📡",
+                    0x00AA00,
+                );
                 self.discord.fire("adsb_started", embed);
             } else if !state.adsb_running && self.last_adsb_running {
-                let embed = crate::discord::embed_generic("ADS-B Stopped", "ADS-B decoder stopped", "🔌", 0xCC0000);
+                let embed = crate::discord::embed_generic(
+                    "ADS-B Stopped",
+                    "ADS-B decoder stopped",
+                    "🔌",
+                    0xCC0000,
+                );
                 self.discord.fire("adsb_stopped", embed);
             }
             if self.scanner.enabled && !self.last_scanner_enabled {
-                let embed = crate::discord::embed_generic("Scanner Started", "Frequency scanner activated", "▶️", 0x00AA00);
+                let embed = crate::discord::embed_generic(
+                    "Scanner Started",
+                    "Frequency scanner activated",
+                    "▶️",
+                    0x00AA00,
+                );
                 self.discord.fire("scanner_started", embed);
             } else if !self.scanner.enabled && self.last_scanner_enabled {
-                let embed = crate::discord::embed_generic("Scanner Stopped", "Frequency scanner stopped", "⏹", 0xCC0000);
+                let embed = crate::discord::embed_generic(
+                    "Scanner Stopped",
+                    "Frequency scanner stopped",
+                    "⏹",
+                    0xCC0000,
+                );
                 self.discord.fire("scanner_stopped", embed);
             }
             if self.mqtt.is_connected() && !self.last_mqtt_connected {
-                let embed = crate::discord::embed_generic("MQTT Connected", &format!("Connected to {}", self.mqtt.broker), "🔗", 0x00AA00);
+                let embed = crate::discord::embed_generic(
+                    "MQTT Connected",
+                    &format!("Connected to {}", self.mqtt.broker),
+                    "🔗",
+                    0x00AA00,
+                );
                 self.discord.fire("mqtt_connected", embed);
             } else if !self.mqtt.is_connected() && self.last_mqtt_connected {
-                let embed = crate::discord::embed_generic("MQTT Disconnected", "MQTT broker disconnected", "🔌", 0xCC0000);
+                let embed = crate::discord::embed_generic(
+                    "MQTT Disconnected",
+                    "MQTT broker disconnected",
+                    "🔌",
+                    0xCC0000,
+                );
                 self.discord.fire("mqtt_disconnected", embed);
             }
             self.last_recording = recording;
@@ -1223,7 +1429,11 @@ impl eframe::App for CentralApp {
             if !self.first_strong_signal_seen && snr > 20.0 {
                 self.first_strong_signal_seen = true;
                 self.status_flash = Some((
-                    format!("🎉 First signal! {:.3} MHz — SNR {:.1} dB — great reception!", freq as f64 / 1e6, snr),
+                    format!(
+                        "🎉 First signal! {:.3} MHz — SNR {:.1} dB — great reception!",
+                        freq as f64 / 1e6,
+                        snr
+                    ),
                     std::time::Instant::now(),
                 ));
                 let embed = crate::discord::embed_strong_signal(freq, snr);
@@ -1234,7 +1444,18 @@ impl eframe::App for CentralApp {
                 let embed = crate::discord::embed_strong_signal(freq, snr);
                 self.discord.fire("strong_signal", embed);
             }
-            self.web_remote.broadcast_state(freq, gain, mode, ac_count, &passes, squelch, volume, recording, scanner_active, snr);
+            self.web_remote.broadcast_state(
+                freq,
+                gain,
+                mode,
+                ac_count,
+                &passes,
+                squelch,
+                volume,
+                recording,
+                scanner_active,
+                snr,
+            );
             self.mqtt.tick_reconnect();
             if self.last_scheduler_update.elapsed().as_secs() < 1 {
                 self.mqtt.tick(freq, gain);
@@ -1246,8 +1467,13 @@ impl eframe::App for CentralApp {
             }
 
             // Periodic session summary report
-            if self.discord.settings.summary_enabled && self.discord_summary_last.elapsed().as_secs() >= (self.discord.settings.summary_interval_min as u64 * 60) {
-                let uptime = self.recording_start.as_ref()
+            if self.discord.settings.summary_enabled
+                && self.discord_summary_last.elapsed().as_secs()
+                    >= (self.discord.settings.summary_interval_min as u64 * 60)
+            {
+                let uptime = self
+                    .recording_start
+                    .as_ref()
                     .map(|t| t.elapsed().as_secs())
                     .unwrap_or(0);
                 let embed = crate::discord::embed_session_summary(
@@ -1348,11 +1574,7 @@ impl eframe::App for CentralApp {
 
         // Tutorial / first-run onboarding
         if self.tutorial.active {
-            let dismissed = tutorial::render_tutorial(
-                &mut self.tutorial,
-                &self.shared,
-                ui,
-            );
+            let dismissed = tutorial::render_tutorial(&mut self.tutorial, &self.shared, ui);
             if dismissed && !self.tutorial.active {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.config.tutorial_seen = true;
@@ -1381,16 +1603,19 @@ impl eframe::App for CentralApp {
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
                     ui.label("Enter a frequency (MHz) or band name:");
-                    let edit = ui.add(egui::TextEdit::singleline(&mut self.freq_jump_input)
-                        .desired_width(340.0)
-                        .hint_text("e.g. '145.5', '88.0', 'aviation', 'weather', 'noaa'"));
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut self.freq_jump_input)
+                            .desired_width(340.0)
+                            .hint_text("e.g. '145.5', '88.0', 'aviation', 'weather', 'noaa'"),
+                    );
                     if edit.changed() {
                         self.freq_jump_matches.clear();
                         let q = self.freq_jump_input.trim().to_lowercase();
                         if !q.is_empty() {
                             // Try numeric parse first
                             if let Ok(mhz) = q.parse::<f64>() {
-                                self.freq_jump_matches.push((format!("{:.3} MHz", mhz), (mhz * 1e6) as u64));
+                                self.freq_jump_matches
+                                    .push((format!("{:.3} MHz", mhz), (mhz * 1e6) as u64));
                             } else {
                                 // Search known band allocations
                                 let bands: &[(&str, u64)] = &[
@@ -1421,10 +1646,16 @@ impl eframe::App for CentralApp {
                                 // Also search bookmarks
                                 if let Ok(state) = self.shared.try_lock() {
                                     for bm in &state.bookmarks.bookmarks {
-                                        if bm.name.to_lowercase().contains(&q) || bm.category.to_lowercase().contains(&q) {
+                                        if bm.name.to_lowercase().contains(&q)
+                                            || bm.category.to_lowercase().contains(&q)
+                                        {
                                             self.freq_jump_matches.push((
-                                                format!("⭐ {} ({:.3} MHz)", bm.name, bm.frequency_hz as f64 / 1e6),
-                                                bm.frequency_hz
+                                                format!(
+                                                    "⭐ {} ({:.3} MHz)",
+                                                    bm.name,
+                                                    bm.frequency_hz as f64 / 1e6
+                                                ),
+                                                bm.frequency_hz,
                                             ));
                                         }
                                     }
@@ -1443,48 +1674,63 @@ impl eframe::App for CentralApp {
 
                     if !self.freq_jump_matches.is_empty() || should_show_suggestions {
                         ui.separator();
-                        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                            // Show search matches if any
-                            for (label, freq) in self.freq_jump_matches.clone() {
-                                if ui.selectable_label(false, &label).clicked() {
-                                    tune_to = Some(freq);
-                                    close = true;
-                                }
-                            }
-
-                            // Show suggestions (recent freqs + bookmarks) when input is empty
-                            if should_show_suggestions {
-                                ui.label(egui::RichText::new("Recent:").italics().small());
-                                if let Ok(state) = self.shared.try_lock() {
-                                    let recent: Vec<u64> = state.freq_history.iter().cloned().rev().take(5).collect();
-                                    for freq in recent {
-                                        let label = format!("  {:.3} MHz", freq as f64 / 1e6);
-                                        if ui.selectable_label(false, &label).clicked() {
-                                            tune_to = Some(freq);
-                                            close = true;
-                                        }
+                        egui::ScrollArea::vertical()
+                            .max_height(180.0)
+                            .show(ui, |ui| {
+                                // Show search matches if any
+                                for (label, freq) in self.freq_jump_matches.clone() {
+                                    if ui.selectable_label(false, &label).clicked() {
+                                        tune_to = Some(freq);
+                                        close = true;
                                     }
                                 }
 
-                                ui.label(egui::RichText::new("Bookmarks:").italics().small());
-                                if let Ok(state) = self.shared.try_lock() {
-                                    let bookmarks_to_show = state.bookmarks.bookmarks.iter().take(5);
-                                    for bm in bookmarks_to_show {
-                                        let label = format!("  ⭐ {} ({:.3} MHz)", &bm.name, bm.frequency_hz as f64 / 1e6);
-                                        if ui.selectable_label(false, &label).clicked() {
-                                            tune_to = Some(bm.frequency_hz);
-                                            close = true;
+                                // Show suggestions (recent freqs + bookmarks) when input is empty
+                                if should_show_suggestions {
+                                    ui.label(egui::RichText::new("Recent:").italics().small());
+                                    if let Ok(state) = self.shared.try_lock() {
+                                        let recent: Vec<u64> = state
+                                            .freq_history
+                                            .iter()
+                                            .cloned()
+                                            .rev()
+                                            .take(5)
+                                            .collect();
+                                        for freq in recent {
+                                            let label = format!("  {:.3} MHz", freq as f64 / 1e6);
+                                            if ui.selectable_label(false, &label).clicked() {
+                                                tune_to = Some(freq);
+                                                close = true;
+                                            }
+                                        }
+                                    }
+
+                                    ui.label(egui::RichText::new("Bookmarks:").italics().small());
+                                    if let Ok(state) = self.shared.try_lock() {
+                                        let bookmarks_to_show =
+                                            state.bookmarks.bookmarks.iter().take(5);
+                                        for bm in bookmarks_to_show {
+                                            let label = format!(
+                                                "  ⭐ {} ({:.3} MHz)",
+                                                &bm.name,
+                                                bm.frequency_hz as f64 / 1e6
+                                            );
+                                            if ui.selectable_label(false, &label).clicked() {
+                                                tune_to = Some(bm.frequency_hz);
+                                                close = true;
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        });
+                            });
                     }
 
                     ui.separator();
                     ui.horizontal(|ui| {
                         // Enter key tunes to first match or numeric entry
-                        if ui.button("Tune").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if ui.button("Tune").clicked()
+                            || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        {
                             if let Some((_, freq)) = self.freq_jump_matches.first() {
                                 tune_to = Some(*freq);
                             } else if let Ok(mhz) = self.freq_jump_input.trim().parse::<f64>() {
@@ -1492,17 +1738,24 @@ impl eframe::App for CentralApp {
                             }
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        if ui.button("Cancel").clicked()
+                            || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                        {
                             close = true;
                         }
                     });
                 });
-            if close { self.show_freq_jump = false; }
+            if close {
+                self.show_freq_jump = false;
+            }
             if let Some(freq) = tune_to {
                 if let Ok(mut state) = self.shared.try_lock() {
                     state.source.frequency_hz = freq;
                     self.last_manual_tune_time = std::time::Instant::now();
-                    self.status_flash = Some((format!("⤵ {:.3} MHz", freq as f64 / 1e6), std::time::Instant::now()));
+                    self.status_flash = Some((
+                        format!("⤵ {:.3} MHz", freq as f64 / 1e6),
+                        std::time::Instant::now(),
+                    ));
                 }
             }
         }
@@ -1893,7 +2146,9 @@ impl eframe::App for CentralApp {
                         self.show_glossary = false;
                     }
                 });
-            if !open { self.show_glossary = false; }
+            if !open {
+                self.show_glossary = false;
+            }
         }
 
         // Passive ADS-B alert toasts — drawn over any tab.
@@ -1921,7 +2176,11 @@ impl eframe::App for CentralApp {
             cfg.freq_memory_labels = state.freq_memory.iter().map(|m| m.label.clone()).collect();
             // Save tutorial state for resume support
             if self.tutorial.active {
-                cfg.tutorial_step = if self.tutorial.level_chosen { self.tutorial.step } else { 0 };
+                cfg.tutorial_step = if self.tutorial.level_chosen {
+                    self.tutorial.step
+                } else {
+                    0
+                };
                 if self.tutorial.level_chosen {
                     cfg.user_level = self.tutorial.level.to_str().to_string();
                 }
@@ -1937,23 +2196,43 @@ struct SharedSnapshot {
     auto_tune_enabled: bool,
 }
 
-
 // ── New 3-tab render methods ──────────────────────────────────────────────────
 
 impl CentralApp {
     fn render_tab_bar(&mut self, ui: &mut egui::Ui) {
-        ui.painter().rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(13, 17, 23));
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(13, 17, 23));
         ui.horizontal_centered(|ui| {
             ui.add_space(8.0);
             for (tab, label, tip) in [
-                (AppTab::Sdr,       "📻 SDR",       "Spectrum, tuning, demodulation"),
-                (AppTab::AdsB,      "✈ ADS-B",      "Aircraft tracking — 1090 MHz decoder"),
-                (AppTab::Satellite, "🛰 Satellite",  "Pass predictions, Doppler correction"),
-                (AppTab::Ai,        "🤖 AI",         "AI assistant — ask questions, run tools"),
+                (AppTab::Sdr, "📻 SDR", "Spectrum, tuning, demodulation"),
+                (
+                    AppTab::AdsB,
+                    "✈ ADS-B",
+                    "Aircraft tracking — 1090 MHz decoder",
+                ),
+                (
+                    AppTab::Satellite,
+                    "🛰 Satellite",
+                    "Pass predictions, Doppler correction",
+                ),
+                (
+                    AppTab::Ai,
+                    "🤖 AI",
+                    "AI assistant — ask questions, run tools",
+                ),
             ] {
                 let is_active = self.current_tab == tab;
-                let fg = if is_active { egui::Color32::from_rgb(0, 168, 255) } else { egui::Color32::from_rgb(155, 165, 175) };
-                let bg = if is_active { egui::Color32::from_rgb(20, 26, 34) } else { egui::Color32::TRANSPARENT };
+                let fg = if is_active {
+                    egui::Color32::from_rgb(0, 168, 255)
+                } else {
+                    egui::Color32::from_rgb(155, 165, 175)
+                };
+                let bg = if is_active {
+                    egui::Color32::from_rgb(20, 26, 34)
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
                 let btn = egui::Button::new(egui::RichText::new(label).color(fg).size(13.5))
                     .fill(bg)
                     .min_size(egui::vec2(112.0, 36.0));
@@ -1961,19 +2240,28 @@ impl CentralApp {
                 if is_active {
                     let r = resp.rect;
                     ui.painter().line_segment(
-                        [egui::pos2(r.left() + 6.0, r.bottom()), egui::pos2(r.right() - 6.0, r.bottom())],
+                        [
+                            egui::pos2(r.left() + 6.0, r.bottom()),
+                            egui::pos2(r.right() - 6.0, r.bottom()),
+                        ],
                         egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 168, 255)),
                     );
                 }
-                if resp.clicked() { self.current_tab = tab; }
+                if resp.clicked() {
+                    self.current_tab = tab;
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(12.0);
                 if let Ok(state) = self.shared.try_lock() {
                     let (dot, dot_color) = match &state.source.status {
-                        crate::source_manager::SourceStatus::Running => ("●", egui::Color32::from_rgb(80, 220, 80)),
+                        crate::source_manager::SourceStatus::Running => {
+                            ("●", egui::Color32::from_rgb(80, 220, 80))
+                        }
                         crate::source_manager::SourceStatus::Error(_) => ("●", egui::Color32::RED),
-                        crate::source_manager::SourceStatus::Opening => ("●", egui::Color32::YELLOW),
+                        crate::source_manager::SourceStatus::Opening => {
+                            ("●", egui::Color32::YELLOW)
+                        }
                         _ => ("○", egui::Color32::DARK_GRAY),
                     };
                     ui.colored_label(dot_color, dot);
@@ -1984,8 +2272,11 @@ impl CentralApp {
                     if self.current_tab == AppTab::Sdr {
                         ui.separator();
                         let freq_mhz = state.source.frequency_hz as f64 / 1e6;
-                        ui.monospace(egui::RichText::new(format!("{:.4} MHz", freq_mhz))
-                            .size(15.0).color(egui::Color32::from_rgb(0, 168, 255)));
+                        ui.monospace(
+                            egui::RichText::new(format!("{:.4} MHz", freq_mhz))
+                                .size(15.0)
+                                .color(egui::Color32::from_rgb(0, 168, 255)),
+                        );
                     }
                 }
             });
@@ -1993,7 +2284,8 @@ impl CentralApp {
     }
 
     fn render_secondary_rail(&mut self, ui: &mut egui::Ui) {
-        ui.painter().rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(10, 13, 18));
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(10, 13, 18));
         ui.vertical_centered(|ui| {
             ui.add_space(6.0);
             for tool in [
@@ -2006,8 +2298,16 @@ impl CentralApp {
                 SecondaryTool::Settings,
             ] {
                 let is_active = self.active_secondary_tool == Some(tool);
-                let fg = if is_active { egui::Color32::from_rgb(0, 168, 255) } else { egui::Color32::from_rgb(140, 150, 160) };
-                let bg = if is_active { egui::Color32::from_rgb(20, 26, 34) } else { egui::Color32::TRANSPARENT };
+                let fg = if is_active {
+                    egui::Color32::from_rgb(0, 168, 255)
+                } else {
+                    egui::Color32::from_rgb(140, 150, 160)
+                };
+                let bg = if is_active {
+                    egui::Color32::from_rgb(20, 26, 34)
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
                 let btn = egui::Button::new(egui::RichText::new(tool.icon()).color(fg).size(17.0))
                     .fill(bg)
                     .min_size(egui::vec2(36.0, 36.0));
@@ -2019,9 +2319,18 @@ impl CentralApp {
         });
     }
 
-    fn render_secondary_panel(&mut self, ui: &mut egui::Ui, tool: SecondaryTool, snapshot: &Option<SharedSnapshot>) {
+    fn render_secondary_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        tool: SecondaryTool,
+        snapshot: &Option<SharedSnapshot>,
+    ) {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("{} {}", tool.icon(), tool.label())).strong().size(15.0));
+            ui.label(
+                egui::RichText::new(format!("{} {}", tool.icon(), tool.label()))
+                    .strong()
+                    .size(15.0),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("✕").on_hover_text("Close panel").clicked() {
                     self.active_secondary_tool = None;
@@ -2029,16 +2338,22 @@ impl CentralApp {
             });
         });
         ui.separator();
-        egui::ScrollArea::vertical().id_salt("secondary_panel_scroll").show(ui, |ui| {
-            match tool {
+        egui::ScrollArea::vertical()
+            .id_salt("secondary_panel_scroll")
+            .show(ui, |ui| match tool {
                 SecondaryTool::Bookmarks => self.render_bookmarks_full(ui),
                 SecondaryTool::Scheduler => self.render_scheduler_full(ui, snapshot),
                 SecondaryTool::Settings => {
-                    if let Ok(mut state) = self.shared.try_lock() { state.config.ui(ui); }
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.config.ui(ui);
+                    }
                 }
                 SecondaryTool::Scanner => {
                     if let Ok(state) = self.shared.try_lock() {
-                        self.scanner.spectrum_visible_range = Some((state.spectrum.visible_left_hz, state.spectrum.visible_right_hz));
+                        self.scanner.spectrum_visible_range = Some((
+                            state.spectrum.visible_left_hz,
+                            state.spectrum.visible_right_hz,
+                        ));
                     }
                     self.scanner.ui(ui);
                     if let Some(prompt) = self.scanner.pending_ai_prompt.take() {
@@ -2047,9 +2362,10 @@ impl CentralApp {
                 }
                 SecondaryTool::Recorder => self.recorder_panel.ui(ui),
                 SecondaryTool::HowTo => self.howto_panel.ui(ui),
-                SecondaryTool::Discord => self.discord_panel.ui(ui, &mut self.discord, &self.shared),
-            }
-        });
+                SecondaryTool::Discord => {
+                    self.discord_panel.ui(ui, &mut self.discord, &self.shared)
+                }
+            });
     }
 
     fn render_ai_tab(&mut self, ui: &mut egui::Ui) {
@@ -2065,36 +2381,79 @@ impl CentralApp {
                 ui.horizontal(|ui| {
                     if let Ok(state) = self.shared.try_lock() {
                         let sig = state.spectrum.signal_level();
-                        let sig_color = if sig > -60.0 { egui::Color32::GREEN } else if sig > -100.0 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                        let sig_color = if sig > -60.0 {
+                            egui::Color32::GREEN
+                        } else if sig > -100.0 {
+                            egui::Color32::YELLOW
+                        } else {
+                            egui::Color32::RED
+                        };
                         ui.colored_label(sig_color, format!("📶 {:.1} dB", sig));
                         ui.separator();
                         let status = match &state.source.status {
                             crate::source_manager::SourceStatus::Idle => "Idle".to_string(),
                             crate::source_manager::SourceStatus::Opening => "Opening…".to_string(),
-                            crate::source_manager::SourceStatus::Running => "🟢 Running".to_string(),
-                            crate::source_manager::SourceStatus::Error(e) => format!("⚠ {}", e.chars().take(28).collect::<String>()),
+                            crate::source_manager::SourceStatus::Running => {
+                                "🟢 Running".to_string()
+                            }
+                            crate::source_manager::SourceStatus::Error(e) => {
+                                format!("⚠ {}", e.chars().take(28).collect::<String>())
+                            }
                         };
                         ui.label(status);
 
                         // Satellite countdown
                         let now_unix = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
-                        if let Some(job) = state.scheduler.jobs.iter().find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt) {
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs_f64())
+                            .unwrap_or(0.0);
+                        if let Some(job) = state
+                            .scheduler
+                            .jobs
+                            .iter()
+                            .find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt)
+                        {
                             ui.separator();
                             let rem = (job.los_dt - now_unix).max(0.0) as u64;
-                            ui.colored_label(egui::Color32::from_rgb(50, 255, 100),
-                                format!("🛰 {} IN PASS {:02}:{:02}", job.satellite, rem / 60, rem % 60));
-                        } else if let Some(job) = state.scheduler.jobs.iter().filter(|j| j.aos_dt > now_unix)
-                            .min_by(|a, b| a.aos_dt.partial_cmp(&b.aos_dt).unwrap_or(std::cmp::Ordering::Equal))
+                            ui.colored_label(
+                                egui::Color32::from_rgb(50, 255, 100),
+                                format!(
+                                    "🛰 {} IN PASS {:02}:{:02}",
+                                    job.satellite,
+                                    rem / 60,
+                                    rem % 60
+                                ),
+                            );
+                        } else if let Some(job) = state
+                            .scheduler
+                            .jobs
+                            .iter()
+                            .filter(|j| j.aos_dt > now_unix)
+                            .min_by(|a, b| {
+                                a.aos_dt
+                                    .partial_cmp(&b.aos_dt)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
                         {
                             let secs = (job.aos_dt - now_unix) as u64;
                             ui.separator();
-                            ui.colored_label(egui::Color32::GRAY, format!("🛰 {} in {}m", job.satellite, secs / 60));
+                            ui.colored_label(
+                                egui::Color32::GRAY,
+                                format!("🛰 {} in {}m", job.satellite, secs / 60),
+                            );
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let ai_fg = if self.sdr_ai_panel_open { egui::Color32::from_rgb(0, 168, 255) } else { egui::Color32::GRAY };
-                        if ui.add(egui::Button::new(egui::RichText::new("🤖 AI").color(ai_fg))).on_hover_text("Toggle AI assistant panel").clicked() {
+                        let ai_fg = if self.sdr_ai_panel_open {
+                            egui::Color32::from_rgb(0, 168, 255)
+                        } else {
+                            egui::Color32::GRAY
+                        };
+                        if ui
+                            .add(egui::Button::new(egui::RichText::new("🤖 AI").color(ai_fg)))
+                            .on_hover_text("Toggle AI assistant panel")
+                            .clicked()
+                        {
                             self.sdr_ai_panel_open = !self.sdr_ai_panel_open;
                         }
                         ui.separator();
@@ -2107,7 +2466,9 @@ impl CentralApp {
                                     let freq = state.freq_history.get(target).copied();
                                     drop(state);
                                     self.freq_history_idx = next;
-                                    if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) { s.source.frequency_hz = f; }
+                                    if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) {
+                                        s.source.frequency_hz = f;
+                                    }
                                 }
                             }
                         }
@@ -2115,11 +2476,16 @@ impl CentralApp {
                             if let Ok(state) = self.shared.try_lock() {
                                 let len = state.freq_history.len();
                                 if len > 1 {
-                                    let new_idx = self.freq_history_idx.map(|i| i.saturating_sub(1)).unwrap_or(len.saturating_sub(2));
+                                    let new_idx = self
+                                        .freq_history_idx
+                                        .map(|i| i.saturating_sub(1))
+                                        .unwrap_or(len.saturating_sub(2));
                                     let freq = state.freq_history.get(new_idx).copied();
                                     drop(state);
                                     self.freq_history_idx = Some(new_idx);
-                                    if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) { s.source.frequency_hz = f; }
+                                    if let (Some(f), Ok(mut s)) = (freq, self.shared.try_lock()) {
+                                        s.source.frequency_hz = f;
+                                    }
                                 }
                             }
                         }
@@ -2137,7 +2503,9 @@ impl CentralApp {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("🤖 AI Assistant").strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("✕").clicked() { self.sdr_ai_panel_open = false; }
+                            if ui.small_button("✕").clicked() {
+                                self.sdr_ai_panel_open = false;
+                            }
                         });
                     });
                     ui.separator();
@@ -2231,7 +2599,8 @@ impl CentralApp {
         if let Some(freq) = self.sdr_panel.pending_ai_freq.take() {
             if let Ok(state) = self.shared.try_lock() {
                 let snr = state.spectrum.peak_level() - state.spectrum.noise_floor();
-                self.ai_panel.input = format!(
+                self.ai_panel.input =
+                    format!(
                     "Tuned to {:.4} MHz in {} mode (SNR: {:.1} dB). What signals? Best settings?",
                     freq as f64 / 1e6, state.demod_mode.label(), snr
                 );
@@ -2247,28 +2616,46 @@ impl CentralApp {
                 self.adsb_panel.ui_list(ui);
                 if let Some(prompt) = self.adsb_panel.pending_ai_prompt.take() {
                     self.ai_panel.input = prompt;
-                    self.status_flash = Some(("🤖 Aircraft details sent to AI".to_string(), std::time::Instant::now()));
+                    self.status_flash = Some((
+                        "🤖 Aircraft details sent to AI".to_string(),
+                        std::time::Instant::now(),
+                    ));
                 }
             });
         // Map dominates the tab; on-page receive instructions live in a collapsed
         // banner so the map stays the primary focus by default.
         egui::Panel::top("adsb_instructions")
             .resizable(false)
-            .exact_size(if self.adsb_instructions_open { 260.0 } else { 24.0 })
+            .exact_size(if self.adsb_instructions_open {
+                260.0
+            } else {
+                24.0
+            })
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let arrow = if self.adsb_instructions_open { "▼" } else { "▶" };
-                    if ui.small_button(format!("{arrow} 📡 How to receive ADS-B (antenna, 1090 MHz setup)"))
-                        .on_hover_text("Show/hide setup instructions for receiving live aircraft data")
+                    let arrow = if self.adsb_instructions_open {
+                        "▼"
+                    } else {
+                        "▶"
+                    };
+                    if ui
+                        .small_button(format!(
+                            "{arrow} 📡 How to receive ADS-B (antenna, 1090 MHz setup)"
+                        ))
+                        .on_hover_text(
+                            "Show/hide setup instructions for receiving live aircraft data",
+                        )
                         .clicked()
                     {
                         self.adsb_instructions_open = !self.adsb_instructions_open;
                     }
                 });
                 if self.adsb_instructions_open {
-                    egui::ScrollArea::vertical().id_salt("adsb_instructions_scroll").show(ui, |ui| {
-                        self.adsb_panel.ui_antenna_guide(ui);
-                    });
+                    egui::ScrollArea::vertical()
+                        .id_salt("adsb_instructions_scroll")
+                        .show(ui, |ui| {
+                            self.adsb_panel.ui_antenna_guide(ui);
+                        });
                 }
             });
         egui::CentralPanel::default().show(ui, |ui| {
@@ -2285,8 +2672,18 @@ impl CentralApp {
                     ui.add_space(4.0);
                     for (advanced, label) in [(false, "🛰 Track"), (true, "⚙ Advanced")] {
                         let is_active = self.satellite_advanced == advanced;
-                        let fg = if is_active { egui::Color32::from_rgb(0, 168, 255) } else { egui::Color32::GRAY };
-                        if ui.add(egui::Button::new(egui::RichText::new(label).color(fg)).fill(egui::Color32::TRANSPARENT)).clicked() {
+                        let fg = if is_active {
+                            egui::Color32::from_rgb(0, 168, 255)
+                        } else {
+                            egui::Color32::GRAY
+                        };
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(label).color(fg))
+                                    .fill(egui::Color32::TRANSPARENT),
+                            )
+                            .clicked()
+                        {
                             self.satellite_advanced = advanced;
                         }
                     }
@@ -2298,13 +2695,19 @@ impl CentralApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let doppler = self.satellite_panel.doppler_hz;
-                    let dop_color = if doppler.abs() > 5000.0 { egui::Color32::from_rgb(255, 120, 60) }
-                        else if doppler.abs() > 1000.0 { egui::Color32::YELLOW }
-                        else { egui::Color32::from_rgb(120, 220, 120) };
+                    let dop_color = if doppler.abs() > 5000.0 {
+                        egui::Color32::from_rgb(255, 120, 60)
+                    } else if doppler.abs() > 1000.0 {
+                        egui::Color32::YELLOW
+                    } else {
+                        egui::Color32::from_rgb(120, 220, 120)
+                    };
                     ui.colored_label(dop_color, format!("Doppler: {:+.2} kHz", doppler / 1000.0));
                     ui.separator();
-                    ui.label(format!("Observer: {:.4}°N  {:.4}°E",
-                        self.satellite_panel.observer_lat, self.satellite_panel.observer_lon));
+                    ui.label(format!(
+                        "Observer: {:.4}°N  {:.4}°E",
+                        self.satellite_panel.observer_lat, self.satellite_panel.observer_lon
+                    ));
                     if self.satellite_panel.auto_tune {
                         ui.separator();
                         ui.colored_label(egui::Color32::GREEN, "✓ Auto-tune");
@@ -2328,7 +2731,10 @@ impl CentralApp {
                     }
                     if let Some(prompt) = self.satellite_panel.pending_ai_prompt.take() {
                         self.ai_panel.input = prompt;
-                        self.status_flash = Some(("🤖 Satellite details sent to AI".to_string(), std::time::Instant::now()));
+                        self.status_flash = Some((
+                            "🤖 Satellite details sent to AI".to_string(),
+                            std::time::Instant::now(),
+                        ));
                     }
                 });
             });
@@ -2346,41 +2752,78 @@ impl CentralApp {
         for lat_step in 0..=6i32 {
             let lat = -90.0 + lat_step as f32 * 30.0;
             let y = rect.top() + ((90.0 - lat) / 180.0) * rect.height();
-            painter.line_segment([egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)));
+            painter.line_segment(
+                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)),
+            );
         }
         for lon_step in 0..=12i32 {
             let lon = -180.0 + lon_step as f32 * 30.0;
             let x = rect.left() + ((lon + 180.0) / 360.0) * rect.width();
-            painter.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)));
+            painter.line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)),
+            );
         }
         for lat in [-60i32, -30, 0, 30, 60] {
             let y = rect.top() + ((90.0 - lat as f32) / 180.0) * rect.height();
-            painter.text(egui::pos2(rect.left() + 5.0, y), egui::Align2::LEFT_CENTER,
-                format!("{}°", lat), egui::FontId::proportional(8.0), egui::Color32::from_gray(50));
+            painter.text(
+                egui::pos2(rect.left() + 5.0, y),
+                egui::Align2::LEFT_CENTER,
+                format!("{}°", lat),
+                egui::FontId::proportional(8.0),
+                egui::Color32::from_gray(50),
+            );
         }
 
-        let obs_x = rect.left() + ((self.satellite_panel.observer_lon as f32 + 180.0) / 360.0) * rect.width();
-        let obs_y = rect.top() + ((90.0 - self.satellite_panel.observer_lat as f32) / 180.0) * rect.height();
+        let obs_x = rect.left()
+            + ((self.satellite_panel.observer_lon as f32 + 180.0) / 360.0) * rect.width();
+        let obs_y = rect.top()
+            + ((90.0 - self.satellite_panel.observer_lat as f32) / 180.0) * rect.height();
         if rect.contains(egui::pos2(obs_x, obs_y)) {
-            painter.line_segment([egui::pos2(obs_x - 9.0, obs_y), egui::pos2(obs_x + 9.0, obs_y)],
-                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)));
-            painter.line_segment([egui::pos2(obs_x, obs_y - 9.0), egui::pos2(obs_x, obs_y + 9.0)],
-                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)));
-            painter.circle_stroke(egui::pos2(obs_x, obs_y), 5.0,
-                egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 240, 80)));
-            painter.text(egui::pos2(obs_x + 11.0, obs_y - 7.0), egui::Align2::LEFT_CENTER,
-                "Observer", egui::FontId::proportional(9.0), egui::Color32::from_rgb(210, 200, 70));
+            painter.line_segment(
+                [
+                    egui::pos2(obs_x - 9.0, obs_y),
+                    egui::pos2(obs_x + 9.0, obs_y),
+                ],
+                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)),
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(obs_x, obs_y - 9.0),
+                    egui::pos2(obs_x, obs_y + 9.0),
+                ],
+                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)),
+            );
+            painter.circle_stroke(
+                egui::pos2(obs_x, obs_y),
+                5.0,
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 240, 80)),
+            );
+            painter.text(
+                egui::pos2(obs_x + 11.0, obs_y - 7.0),
+                egui::Align2::LEFT_CENTER,
+                "Observer",
+                egui::FontId::proportional(9.0),
+                egui::Color32::from_rgb(210, 200, 70),
+            );
         }
 
-        painter.text(egui::pos2(rect.left() + 8.0, rect.bottom() - 8.0), egui::Align2::LEFT_BOTTOM,
+        painter.text(
+            egui::pos2(rect.left() + 8.0, rect.bottom() - 8.0),
+            egui::Align2::LEFT_BOTTOM,
             "Select a satellite in the panel to track its ground path",
-            egui::FontId::proportional(9.0), egui::Color32::from_gray(45));
+            egui::FontId::proportional(9.0),
+            egui::Color32::from_gray(45),
+        );
     }
 
     fn render_bookmarks_full(&mut self, ui: &mut egui::Ui) {
-        let bm_count = if let Ok(state) = self.shared.try_lock() { state.bookmarks.bookmarks.len() } else { 0 };
+        let bm_count = if let Ok(state) = self.shared.try_lock() {
+            state.bookmarks.bookmarks.len()
+        } else {
+            0
+        };
         ui.heading("Frequency Bookmarks");
         ui.horizontal_wrapped(|ui| {
             ui.label(format!("{} bookmarks", bm_count));
@@ -2455,30 +2898,48 @@ impl CentralApp {
         if self.show_add_bm {
             ui.group(|ui| {
                 ui.label(egui::RichText::new("New Bookmark").strong());
-                egui::Grid::new("add_bm_grid").num_columns(2).show(ui, |ui| {
-                    ui.label("Name:");
-                    ui.add(egui::TextEdit::singleline(&mut self.new_bm_name).desired_width(200.0).hint_text("e.g. Local Police"));
-                    ui.end_row();
-                    ui.label("Freq (MHz):");
-                    ui.add(egui::TextEdit::singleline(&mut self.new_bm_freq_mhz).desired_width(120.0).hint_text("145.5"));
-                    ui.end_row();
-                    ui.label("Mode:");
-                    egui::ComboBox::from_id_salt("bm_mode_combo")
-                        .selected_text(self.new_bm_mode.as_str())
-                        .width(ui.available_width().min(100.0))
-                        .show_ui(ui, |ui| {
-                            for m in ["NFM", "WFM", "AM", "USB", "LSB", "RAW"] {
-                                ui.selectable_value(&mut self.new_bm_mode, m.to_string(), m);
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("Category:");
-                    ui.add(egui::TextEdit::singleline(&mut self.new_bm_category).desired_width(150.0).hint_text("Custom"));
-                    ui.end_row();
-                    ui.label("Notes:");
-                    ui.add(egui::TextEdit::singleline(&mut self.new_bm_notes).desired_width(250.0).hint_text("Optional notes about this signal"));
-                    ui.end_row();
-                });
+                egui::Grid::new("add_bm_grid")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("Name:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.new_bm_name)
+                                .desired_width(200.0)
+                                .hint_text("e.g. Local Police"),
+                        );
+                        ui.end_row();
+                        ui.label("Freq (MHz):");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.new_bm_freq_mhz)
+                                .desired_width(120.0)
+                                .hint_text("145.5"),
+                        );
+                        ui.end_row();
+                        ui.label("Mode:");
+                        egui::ComboBox::from_id_salt("bm_mode_combo")
+                            .selected_text(self.new_bm_mode.as_str())
+                            .width(ui.available_width().min(100.0))
+                            .show_ui(ui, |ui| {
+                                for m in ["NFM", "WFM", "AM", "USB", "LSB", "RAW"] {
+                                    ui.selectable_value(&mut self.new_bm_mode, m.to_string(), m);
+                                }
+                            });
+                        ui.end_row();
+                        ui.label("Category:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.new_bm_category)
+                                .desired_width(150.0)
+                                .hint_text("Custom"),
+                        );
+                        ui.end_row();
+                        ui.label("Notes:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.new_bm_notes)
+                                .desired_width(250.0)
+                                .hint_text("Optional notes about this signal"),
+                        );
+                        ui.end_row();
+                    });
                 if !self.new_bm_error.is_empty() {
                     ui.colored_label(egui::Color32::RED, self.new_bm_error.as_str());
                 }
@@ -2492,7 +2953,11 @@ impl CentralApp {
                                 frequency_hz: (mhz * 1e6) as u64,
                                 mode: self.new_bm_mode.clone(),
                                 bandwidth_hz: 12_500,
-                                category: if self.new_bm_category.trim().is_empty() { "Custom".to_string() } else { self.new_bm_category.trim().to_string() },
+                                category: if self.new_bm_category.trim().is_empty() {
+                                    "Custom".to_string()
+                                } else {
+                                    self.new_bm_category.trim().to_string()
+                                },
                                 notes: self.new_bm_notes.trim().to_string(),
                                 starred: false,
                             };
@@ -2507,22 +2972,33 @@ impl CentralApp {
                             self.show_add_bm = false;
                         }
                         Ok(_) => self.new_bm_error = "Frequency must be > 0 MHz".to_string(),
-                        Err(_) if name.is_empty() => self.new_bm_error = "Name cannot be empty".to_string(),
-                        Err(_) => self.new_bm_error = "Invalid frequency — enter a number like 145.5".to_string(),
+                        Err(_) if name.is_empty() => {
+                            self.new_bm_error = "Name cannot be empty".to_string()
+                        }
+                        Err(_) => {
+                            self.new_bm_error =
+                                "Invalid frequency — enter a number like 145.5".to_string()
+                        }
                     }
                 }
             });
         }
 
         if !self.bm_import_msg.is_empty() {
-            ui.colored_label(egui::Color32::from_rgb(100, 220, 100), self.bm_import_msg.as_str());
+            ui.colored_label(
+                egui::Color32::from_rgb(100, 220, 100),
+                self.bm_import_msg.as_str(),
+            );
         }
 
         ui.separator();
 
         let filter_lower = self.bookmark_filter.to_lowercase();
         let (bookmarks_snapshot, total) = if let Ok(state) = self.shared.try_lock() {
-            (state.bookmarks.bookmarks.clone(), state.bookmarks.bookmarks.len())
+            (
+                state.bookmarks.bookmarks.clone(),
+                state.bookmarks.bookmarks.len(),
+            )
         } else {
             return;
         };
@@ -2530,7 +3006,10 @@ impl CentralApp {
 
         // Category quick-filter chips
         {
-            let mut all_cats: Vec<String> = bookmarks_snapshot.iter().map(|b| b.category.clone()).collect();
+            let mut all_cats: Vec<String> = bookmarks_snapshot
+                .iter()
+                .map(|b| b.category.clone())
+                .collect();
             all_cats.sort();
             all_cats.dedup();
             if all_cats.len() > 1 {
@@ -2538,12 +3017,26 @@ impl CentralApp {
                     ui.small("Filter by:");
                     for cat in &all_cats {
                         let is_active = filter_lower == cat.to_lowercase();
-                        let btn = ui.add(egui::Button::new(
-                            egui::RichText::new(cat.as_str()).small()
-                                .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 240) })
-                        ).fill(if is_active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(40, 60, 100, 80) })
-                        .small())
-                        .on_hover_text(format!("Click to filter by '{}' category. Click again to clear.", cat));
+                        let btn = ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(cat.as_str()).small().color(
+                                    if is_active {
+                                        egui::Color32::BLACK
+                                    } else {
+                                        egui::Color32::from_rgb(180, 200, 240)
+                                    },
+                                ))
+                                .fill(if is_active {
+                                    egui::Color32::from_rgb(80, 160, 255)
+                                } else {
+                                    egui::Color32::from_rgba_premultiplied(40, 60, 100, 80)
+                                })
+                                .small(),
+                            )
+                            .on_hover_text(format!(
+                                "Click to filter by '{}' category. Click again to clear.",
+                                cat
+                            ));
                         if btn.clicked() {
                             if is_active {
                                 self.bookmark_filter.clear();
@@ -2552,15 +3045,15 @@ impl CentralApp {
                             }
                         }
                     }
-                    if !filter_lower.is_empty()
-                        && ui.small_button("✕ Clear").clicked() {
-                            self.bookmark_filter.clear();
-                        }
+                    if !filter_lower.is_empty() && ui.small_button("✕ Clear").clicked() {
+                        self.bookmark_filter.clear();
+                    }
                 });
             }
         }
 
-        let filtered: Vec<(usize, &crate::bookmarks::Bookmark)> = bookmarks_snapshot.iter()
+        let filtered: Vec<(usize, &crate::bookmarks::Bookmark)> = bookmarks_snapshot
+            .iter()
             .enumerate()
             .filter(|(_, b)| {
                 let matches_starred = !self.show_starred_only || b.starred;
@@ -2573,7 +3066,8 @@ impl CentralApp {
             })
             .collect();
 
-        let mut categories: Vec<String> = filtered.iter().map(|(_, b)| b.category.clone()).collect();
+        let mut categories: Vec<String> =
+            filtered.iter().map(|(_, b)| b.category.clone()).collect();
         categories.sort();
         categories.dedup();
 
@@ -2748,22 +3242,40 @@ impl CentralApp {
             .map(|d| d.as_secs_f64())
             .unwrap_or(0.0);
         let next_pass = jobs.first();
-        let next_task = custom_tasks.iter().filter(|t| !t.fired && t.at_unix > now_unix)
-            .min_by(|a, b| a.at_unix.partial_cmp(&b.at_unix).unwrap_or(std::cmp::Ordering::Equal));
+        let next_task = custom_tasks
+            .iter()
+            .filter(|t| !t.fired && t.at_unix > now_unix)
+            .min_by(|a, b| {
+                a.at_unix
+                    .partial_cmp(&b.at_unix)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         if let Some(job) = next_pass {
             ui.colored_label(
                 egui::Color32::from_rgb(100, 180, 255),
                 format!("Next pass: {} at {} ({})", job.satellite, job.aos, job.los),
-            ).on_hover_text("Next satellite pass scheduled. Enable Auto-tune below to tune automatically.");
+            )
+            .on_hover_text(
+                "Next satellite pass scheduled. Enable Auto-tune below to tune automatically.",
+            );
         } else if next_task.is_none() {
             ui.colored_label(egui::Color32::GRAY, "No upcoming events. Add a custom task below or update TLE data in the Satellite tab.");
         }
         if let Some(task) = next_task {
             let secs = (task.at_unix - now_unix).max(0.0) as u64;
-            let countdown = if secs < 60 { format!("{}s", secs) } else { format!("{}m {}s", secs / 60, secs % 60) };
+            let countdown = if secs < 60 {
+                format!("{}s", secs)
+            } else {
+                format!("{}m {}s", secs / 60, secs % 60)
+            };
             ui.colored_label(
                 egui::Color32::from_rgb(241, 196, 15),
-                format!("Next task: '{}' at {:.3} MHz — fires in {}", task.label, task.frequency_hz as f64 / 1e6, countdown),
+                format!(
+                    "Next task: '{}' at {:.3} MHz — fires in {}",
+                    task.label,
+                    task.frequency_hz as f64 / 1e6,
+                    countdown
+                ),
             );
         }
         ui.add_space(4.0);
@@ -2785,10 +3297,8 @@ impl CentralApp {
         // Visual timeline: 24-hour bar with pass blocks
         {
             let tl_h = 28.0;
-            let (tl_rect, tl_resp) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), tl_h),
-                egui::Sense::hover(),
-            );
+            let (tl_rect, tl_resp) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), tl_h), egui::Sense::hover());
             let painter = ui.painter();
             painter.rect_filled(tl_rect, 2.0, egui::Color32::from_rgb(8, 8, 18));
 
@@ -2800,7 +3310,10 @@ impl CentralApp {
                 let frac = h as f32 / 24.0;
                 let x = tl_rect.left() + frac * tl_rect.width();
                 painter.line_segment(
-                    [egui::pos2(x, tl_rect.top()), egui::pos2(x, tl_rect.bottom())],
+                    [
+                        egui::pos2(x, tl_rect.top()),
+                        egui::pos2(x, tl_rect.bottom()),
+                    ],
                     egui::Stroke::new(0.4, egui::Color32::from_rgba_premultiplied(60, 60, 80, 100)),
                 );
                 if h % 4 == 0 {
@@ -2827,14 +3340,33 @@ impl CentralApp {
             for (i, job) in jobs.iter().enumerate() {
                 let aos_frac = ((job.aos_dt - today_start) / day_span).clamp(0.0, 1.0) as f32;
                 let los_frac = ((job.los_dt - today_start) / day_span).clamp(0.0, 1.0) as f32;
-                if los_frac <= aos_frac { continue; }
+                if los_frac <= aos_frac {
+                    continue;
+                }
                 let x1 = tl_rect.left() + aos_frac * tl_rect.width();
                 let x2 = tl_rect.left() + los_frac * tl_rect.width();
                 let col = pass_colors[i % pass_colors.len()];
-                let block = egui::Rect::from_x_y_ranges(x1..=x2, (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0));
+                let block = egui::Rect::from_x_y_ranges(
+                    x1..=x2,
+                    (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0),
+                );
                 painter.rect_filled(block, 1.0, col.linear_multiply(0.7));
-                painter.rect_filled(egui::Rect::from_x_y_ranges(x1..=(x1 + 1.0), (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0)), 0.0, col);
-                painter.rect_filled(egui::Rect::from_x_y_ranges((x2 - 1.0)..=x2, (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0)), 0.0, col);
+                painter.rect_filled(
+                    egui::Rect::from_x_y_ranges(
+                        x1..=(x1 + 1.0),
+                        (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0),
+                    ),
+                    0.0,
+                    col,
+                );
+                painter.rect_filled(
+                    egui::Rect::from_x_y_ranges(
+                        (x2 - 1.0)..=x2,
+                        (tl_rect.top() + 4.0)..=(tl_rect.bottom() - 4.0),
+                    ),
+                    0.0,
+                    col,
+                );
                 if x2 - x1 > 16.0 {
                     painter.text(
                         egui::pos2((x1 + x2) / 2.0, tl_rect.center().y),
@@ -2855,19 +3387,31 @@ impl CentralApp {
             let now_frac = ((now_unix - today_start) / day_span).clamp(0.0, 1.0) as f32;
             let now_x = tl_rect.left() + now_frac * tl_rect.width();
             painter.line_segment(
-                [egui::pos2(now_x, tl_rect.top()), egui::pos2(now_x, tl_rect.bottom())],
+                [
+                    egui::pos2(now_x, tl_rect.top()),
+                    egui::pos2(now_x, tl_rect.bottom()),
+                ],
                 egui::Stroke::new(1.2, egui::Color32::from_rgb(255, 80, 80)),
             );
 
             // Tooltip for hovered pass
             if let Some(job) = hovered_job {
-                let tip = format!("{}\nAOS: {}  LOS: {}\n{:.3} MHz", job.satellite, job.aos, job.los, job.frequency_hz as f64 / 1e6);
+                let tip = format!(
+                    "{}\nAOS: {}  LOS: {}\n{:.3} MHz",
+                    job.satellite,
+                    job.aos,
+                    job.los,
+                    job.frequency_hz as f64 / 1e6
+                );
                 tl_resp.on_hover_text(tip);
             }
         }
 
         if jobs.is_empty() {
-            ui.label(egui::RichText::new("No upcoming passes (update TLE data in Satellite tab).").color(egui::Color32::GRAY));
+            ui.label(
+                egui::RichText::new("No upcoming passes (update TLE data in Satellite tab).")
+                    .color(egui::Color32::GRAY),
+            );
         } else {
             egui::ScrollArea::vertical().max_height(180.0).id_salt("sched_sat_scroll").show(ui, |ui| {
                 egui::Grid::new("sched_grid").num_columns(5).striped(true).show(ui, |ui| {
@@ -2895,21 +3439,37 @@ impl CentralApp {
 
         ui.separator();
         ui.label(egui::RichText::new("Custom Timed Tasks").strong())
-            .on_hover_text("Schedule a one-shot frequency tune at a specific time (HH:MM:SS today).");
+            .on_hover_text(
+                "Schedule a one-shot frequency tune at a specific time (HH:MM:SS today).",
+            );
 
         // Add task form
         ui.group(|ui| {
-            egui::Grid::new("task_form_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Label:");
-                ui.add(egui::TextEdit::singleline(&mut self.new_task_label).desired_width(150.0).hint_text("e.g. NOAA pass"));
-                ui.end_row();
-                ui.label("Freq (MHz):");
-                ui.add(egui::TextEdit::singleline(&mut self.new_task_freq_mhz).desired_width(100.0).hint_text("137.620"));
-                ui.end_row();
-                ui.label("Time (HH:MM):");
-                ui.add(egui::TextEdit::singleline(&mut self.new_task_time).desired_width(80.0).hint_text("14:30"));
-                ui.end_row();
-            });
+            egui::Grid::new("task_form_grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label("Label:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.new_task_label)
+                            .desired_width(150.0)
+                            .hint_text("e.g. NOAA pass"),
+                    );
+                    ui.end_row();
+                    ui.label("Freq (MHz):");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.new_task_freq_mhz)
+                            .desired_width(100.0)
+                            .hint_text("137.620"),
+                    );
+                    ui.end_row();
+                    ui.label("Time (HH:MM):");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.new_task_time)
+                            .desired_width(80.0)
+                            .hint_text("14:30"),
+                    );
+                    ui.end_row();
+                });
             if !self.new_task_error.is_empty() {
                 ui.colored_label(egui::Color32::RED, self.new_task_error.as_str());
             }
@@ -2920,12 +3480,19 @@ impl CentralApp {
                 match (freq_res, time_res) {
                     (Ok(mhz), Some(at_unix)) if mhz > 0.0 => {
                         if let Ok(mut state) = self.shared.try_lock() {
-                            state.scheduler.custom_tasks.push(crate::scheduler::CustomTask {
-                                label: if label.is_empty() { format!("{:.3} MHz", mhz) } else { label },
-                                frequency_hz: (mhz * 1e6) as u64,
-                                at_unix,
-                                fired: false,
-                            });
+                            state
+                                .scheduler
+                                .custom_tasks
+                                .push(crate::scheduler::CustomTask {
+                                    label: if label.is_empty() {
+                                        format!("{:.3} MHz", mhz)
+                                    } else {
+                                        label
+                                    },
+                                    frequency_hz: (mhz * 1e6) as u64,
+                                    at_unix,
+                                    fired: false,
+                                });
                         }
                         self.new_task_label.clear();
                         self.new_task_freq_mhz.clear();
@@ -2933,7 +3500,9 @@ impl CentralApp {
                         self.new_task_error.clear();
                     }
                     (Err(_), _) => self.new_task_error = "Invalid frequency.".to_string(),
-                    (_, None) => self.new_task_error = "Invalid time — use HH:MM format.".to_string(),
+                    (_, None) => {
+                        self.new_task_error = "Invalid time — use HH:MM format.".to_string()
+                    }
                     _ => self.new_task_error = "Frequency must be > 0.".to_string(),
                 }
             }
@@ -2944,36 +3513,50 @@ impl CentralApp {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
-            egui::Grid::new("custom_tasks_grid").num_columns(4).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("Label").strong());
-                ui.label(egui::RichText::new("Freq").strong());
-                ui.label(egui::RichText::new("In").strong());
-                ui.label(egui::RichText::new("Del").strong());
-                ui.end_row();
-                let mut remove_idx = None;
-                for (i, task) in custom_tasks.iter().enumerate() {
-                    let remaining = task.at_unix - now_unix;
-                    let color = if task.fired { egui::Color32::GRAY }
-                        else if remaining < 0.0 { egui::Color32::RED }
-                        else { egui::Color32::WHITE };
-                    ui.colored_label(color, &task.label);
-                    ui.monospace(format!("{:.3} MHz", task.frequency_hz as f64 / 1e6));
-                    let in_str = if task.fired { "fired".to_string() }
-                        else if remaining < 0.0 { "overdue".to_string() }
-                        else if remaining < 60.0 { format!("{:.0}s", remaining) }
-                        else { format!("{:.0}m", remaining / 60.0) };
-                    ui.label(in_str);
-                    if ui.small_button("✕").clicked() { remove_idx = Some(i); }
+            egui::Grid::new("custom_tasks_grid")
+                .num_columns(4)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Label").strong());
+                    ui.label(egui::RichText::new("Freq").strong());
+                    ui.label(egui::RichText::new("In").strong());
+                    ui.label(egui::RichText::new("Del").strong());
                     ui.end_row();
-                }
-                if let Some(idx) = remove_idx {
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        if idx < state.scheduler.custom_tasks.len() {
-                            state.scheduler.custom_tasks.remove(idx);
+                    let mut remove_idx = None;
+                    for (i, task) in custom_tasks.iter().enumerate() {
+                        let remaining = task.at_unix - now_unix;
+                        let color = if task.fired {
+                            egui::Color32::GRAY
+                        } else if remaining < 0.0 {
+                            egui::Color32::RED
+                        } else {
+                            egui::Color32::WHITE
+                        };
+                        ui.colored_label(color, &task.label);
+                        ui.monospace(format!("{:.3} MHz", task.frequency_hz as f64 / 1e6));
+                        let in_str = if task.fired {
+                            "fired".to_string()
+                        } else if remaining < 0.0 {
+                            "overdue".to_string()
+                        } else if remaining < 60.0 {
+                            format!("{:.0}s", remaining)
+                        } else {
+                            format!("{:.0}m", remaining / 60.0)
+                        };
+                        ui.label(in_str);
+                        if ui.small_button("✕").clicked() {
+                            remove_idx = Some(i);
+                        }
+                        ui.end_row();
+                    }
+                    if let Some(idx) = remove_idx {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            if idx < state.scheduler.custom_tasks.len() {
+                                state.scheduler.custom_tasks.remove(idx);
+                            }
                         }
                     }
-                }
-            });
+                });
         }
 
         // Session notes — lightweight text scratchpad
@@ -3005,11 +3588,15 @@ impl CentralApp {
 /// Parse "HH:MM" or "HH:MM:SS" as a unix timestamp for today in local time.
 fn parse_hhmm_today(s: &str) -> Option<f64> {
     let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() < 2 { return None; }
+    if parts.len() < 2 {
+        return None;
+    }
     let h: u64 = parts[0].parse().ok()?;
     let m: u64 = parts[1].parse().ok()?;
     let sec: u64 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
-    if h > 23 || m > 59 || sec > 59 { return None; }
+    if h > 23 || m > 59 || sec > 59 {
+        return None;
+    }
     // Get start of today in UTC via SystemTime
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

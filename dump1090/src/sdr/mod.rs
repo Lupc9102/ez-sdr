@@ -1,12 +1,12 @@
 //! SDR abstraction - translated from sdr.c
 
-#[cfg(feature = "rtlsdr")]
-pub mod rtlsdr;
 #[cfg(feature = "hackrf")]
 pub mod hackrf;
+pub mod ifile;
+#[cfg(feature = "rtlsdr")]
+pub mod rtlsdr;
 #[cfg(feature = "soapy")]
 pub mod soapy;
-pub mod ifile;
 
 use anyhow::Result;
 

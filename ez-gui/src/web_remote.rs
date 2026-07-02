@@ -1,6 +1,6 @@
-use tokio::sync::broadcast;
 use std::sync::mpsc;
 use std::thread;
+use tokio::sync::broadcast;
 
 pub enum RemoteCommand {
     Tune { freq_hz: u64 },
@@ -57,7 +57,10 @@ impl WebRemote {
             thread::spawn(move || {
                 let rt = match tokio::runtime::Runtime::new() {
                     Ok(rt) => rt,
-                    Err(e) => { eprintln!("[web_remote] failed to create tokio runtime: {e}"); return; }
+                    Err(e) => {
+                        eprintln!("[web_remote] failed to create tokio runtime: {e}");
+                        return;
+                    }
                 };
                 rt.block_on(async move {
                     use axum::{routing::get, Router, extract::State, extract::ws::{WebSocket, WebSocketUpgrade, Message}, response::IntoResponse};
@@ -192,5 +195,63 @@ impl WebRemote {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         let _ = tx.send(state.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_disabled_instance() {
+        let wr = WebRemote::new();
+        assert!(!wr.enabled);
+        assert_eq!(wr.port, 5259);
+        assert!(wr.tx.is_none());
+        assert!(wr.cmd_rx.is_none());
+    }
+
+    #[test]
+    fn stop_clears_channels() {
+        let mut wr = WebRemote::new();
+        wr.tx = Some(broadcast::channel(8).0);
+        let (_tx, rx) = mpsc::channel();
+        wr.cmd_rx = Some(rx);
+        wr.stop();
+        assert!(wr.tx.is_none());
+        assert!(wr.cmd_rx.is_none());
+    }
+
+    #[test]
+    fn set_enabled_false_stops() {
+        let mut wr = WebRemote::new();
+        wr.set_enabled(false, 5259);
+        assert!(!wr.enabled);
+        assert_eq!(wr.port, 5259);
+        assert!(wr.tx.is_none());
+    }
+
+    #[test]
+    fn no_crash_poll_without_channel() {
+        let mut wr = WebRemote::new();
+        assert!(wr.poll_commands().is_empty());
+    }
+
+    #[test]
+    fn no_crash_broadcast_without_listeners() {
+        let mut wr = WebRemote::new();
+        wr.broadcast_state(
+            1090000000,
+            40.0,
+            "RAW",
+            5,
+            &[],
+            0.0,
+            0.8,
+            false,
+            false,
+            12.0,
+        );
+        // No listeners — should silently return without panicking.
     }
 }

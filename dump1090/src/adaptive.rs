@@ -208,18 +208,30 @@ impl AdaptiveGain {
 
     /// Set the duty cycle fraction (0.0..1.0].
     pub fn set_duty_cycle(&mut self, duty: f32) {
-        let n = (self.duty_d as f32 * duty.clamp(0.0001, 1.0)).round().max(1.0) as usize;
+        let n = (self.duty_d as f32 * duty.clamp(0.0001, 1.0))
+            .round()
+            .max(1.0) as usize;
         self.duty_n = n.min(self.duty_d);
     }
 
     /// Update internal thresholds to reflect a new current gain step.
     fn gain_changed(&mut self) {
-        let step = self.current_gain_step.clamp(0, self.gain_table.len().saturating_sub(1) as i32);
+        let step = self
+            .current_gain_step
+            .clamp(0, self.gain_table.len().saturating_sub(1) as i32);
         self.current_gain_step = step;
 
         let current_db = self.gain_table[step as usize];
-        let up_db = self.gain_table.get((step + 1) as usize).copied().unwrap_or(current_db);
-        let down_db = self.gain_table.get((step - 1) as usize).copied().unwrap_or(current_db);
+        let up_db = self
+            .gain_table
+            .get((step + 1) as usize)
+            .copied()
+            .unwrap_or(current_db);
+        let down_db = self
+            .gain_table
+            .get((step - 1) as usize)
+            .copied()
+            .unwrap_or(current_db);
         self.gain_up_db = up_db - current_db;
         self.gain_down_db = current_db - down_db;
 
@@ -455,7 +467,8 @@ impl AdaptiveGain {
             return;
         }
 
-        let count_n = (self.range_radix_counter as f64 * self.range_percentile as f64 / 100.0) as usize;
+        let count_n =
+            (self.range_radix_counter as f64 * self.range_percentile as f64 / 100.0) as usize;
         let mut n = 0usize;
         let mut i = 0usize;
         while i < 65536 && n <= count_n {
@@ -521,8 +534,10 @@ impl AdaptiveGain {
                 gain_down = true;
                 gain_not_up = true;
 
-                if matches!(self.range_state, RangeScanState::ScanDown | RangeScanState::RescanDown)
-                {
+                if matches!(
+                    self.range_state,
+                    RangeScanState::ScanDown | RangeScanState::RescanDown
+                ) {
                     self.range_state = RangeScanState::Idle;
                     self.range_rescan_timer = 0;
                 }
@@ -536,7 +551,8 @@ impl AdaptiveGain {
         // Range control
         if self.range_enabled && self.range_change_timer == 0 {
             let available_range = self.dynamic_range_db;
-            if available_range >= self.range_target_db as f64 && current_gain > self.range_gain_limit
+            if available_range >= self.range_target_db as f64
+                && current_gain > self.range_gain_limit
             {
                 self.range_gain_limit = current_gain;
             }
@@ -657,5 +673,88 @@ mod tests {
         let buf = [100, 46395, 50000, 65535];
         // 46395 is NOT loud (> threshold), 50000 and 65535 are
         assert_eq!(count_loud_samples(&buf), 2);
+    }
+
+    #[test]
+    fn adaptive_gain_new_defaults() {
+        let ag = AdaptiveGain::new(2_000_000);
+        assert_eq!(ag.sample_rate, 2_000_000);
+        assert!(!ag.burst_enabled);
+        assert!(!ag.range_enabled);
+        assert_eq!(ag.current_gain_step, 0);
+        assert!(ag.suggested_gain_step.is_none());
+        assert_eq!(ag.noise_floor_dbfs, 0.0);
+        assert_eq!(ag.gain_changes, 0);
+    }
+
+    #[test]
+    fn adaptive_gain_update_returns_none_when_disabled() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        let buf = [0u16; 100];
+        let result = ag.update(&buf, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn adaptive_gain_configure_gain_sets_limits() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.burst_enabled = true;
+        ag.set_duty_cycle(1.0);
+        let table = vec![0.0, 10.0, 20.0, 30.0, 40.0];
+        ag.configure_gain(table, 2);
+        assert_eq!(ag.current_gain_step, 2);
+        assert!(ag.gain_table.len() == 5);
+    }
+
+    #[test]
+    fn adaptive_gain_gain_changed_updates_threshold() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0, 30.0];
+        ag.current_gain_step = 1;
+        ag.gain_changed();
+        // loud threshold should be positive after gain_changed
+        assert!(ag.burst_loud_threshold > 0.0, "threshold should be set");
+    }
+
+    #[test]
+    fn adaptive_gain_set_gain_clamps() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0];
+        ag.gain_min = 0;
+        ag.gain_max = 2;
+        // set outside range should clamp
+        assert!(ag.set_gain(5));
+        assert_eq!(ag.current_gain_step, 2);
+        // no change if already at step
+        assert!(!ag.set_gain(2));
+    }
+
+    #[test]
+    fn adaptive_gain_set_duty_cycle_clamps() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.set_duty_cycle(1.0);
+        assert!(ag.duty_n <= ag.duty_d);
+        ag.set_duty_cycle(0.0);
+        assert!(ag.duty_n >= 1);
+    }
+
+    #[test]
+    fn adaptive_gain_update_with_burst_detection() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.burst_enabled = true;
+        ag.set_duty_cycle(1.0);
+        ag.gain_table = vec![0.0, 10.0, 20.0];
+        ag.gain_min = 0;
+        ag.gain_max = 2;
+        ag.configure_gain(vec![0.0, 10.0, 20.0], 1);
+
+        // Feed enough samples to trigger subblock processing
+        let buf = vec![50000u16; ag.samples_per_subblock * ag.subblocks_per_block];
+        let _result = ag.update(&buf, None);
+
+        // After a full block, a gain change may or may not be suggested
+        // depending on the state machine — but the call should not panic
+        // and should not spin.
+        assert!(ag.loud_undecoded >= 0);
     }
 }

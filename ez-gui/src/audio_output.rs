@@ -1,8 +1,8 @@
 #[cfg(feature = "audio")]
 mod audio_impl {
-    use std::sync::{Arc, Mutex};
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use crossbeam_channel::Receiver;
-    use cpal::traits::{HostTrait, DeviceTrait, StreamTrait};
+    use std::sync::{Arc, Mutex};
 
     pub struct AudioOutput {
         stream: Option<cpal::Stream>,
@@ -27,7 +27,9 @@ mod audio_impl {
             }
 
             let host = cpal::default_host();
-            let device = host.default_output_device().ok_or("No audio output device found")?;
+            let device = host
+                .default_output_device()
+                .ok_or("No audio output device found")?;
             let supported = device.default_output_config().map_err(|e| e.to_string())?;
             let sample_format = supported.sample_format();
             self.sample_rate = supported.sample_rate().0;
@@ -72,7 +74,8 @@ mod audio_impl {
                                 if let Ok(samples) = guard.try_recv() {
                                     let len = samples.len().min(data.len());
                                     for i in 0..len {
-                                        data[i] = (samples[i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                                        data[i] =
+                                            (samples[i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
                                     }
                                     for s in &mut data[len..] {
                                         *s = 0;
@@ -93,7 +96,8 @@ mod audio_impl {
                     )
                 }
                 _ => return Err(format!("Unsupported sample format: {:?}", sample_format)),
-            }.map_err(|e| e.to_string())?;
+            }
+            .map_err(|e| e.to_string())?;
 
             stream.play().map_err(|e| e.to_string())?;
             self.stream = Some(stream);
@@ -145,7 +149,10 @@ impl AudioOutput {
         }
     }
 
-    pub fn start(&mut self, _rx: std::sync::Arc<std::sync::Mutex<crossbeam_channel::Receiver<Vec<f32>>>>) -> Result<(), String> {
+    pub fn start(
+        &mut self,
+        _rx: std::sync::Arc<std::sync::Mutex<crossbeam_channel::Receiver<Vec<f32>>>>,
+    ) -> Result<(), String> {
         Err("Audio support not compiled in".to_string())
     }
 

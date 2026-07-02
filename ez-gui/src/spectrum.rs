@@ -1,38 +1,65 @@
+//! Real-time FFT spectrum analyser, waterfall display, and colour-map
+//! rendering for the EZ-SDR spectrum viewer.
+//!
+//! Provides [`SpectrumAnalyzer`] which manages FFT computation, zoom/pan
+//! controls, marker/bookmark overlays, waterfall texture management, and
+//! context-menu actions for spectrum interaction.
+
+use num_complex::Complex32;
+use rustfft::{Fft, FftPlanner};
 use std::collections::VecDeque;
 use std::f32::consts::PI;
-use num_complex::Complex32;
-use rustfft::{FftPlanner, Fft};
 use std::sync::Arc;
 
 fn category_color(category: &str) -> (egui::Color32, egui::Color32) {
     // Returns (line_color, label_color) based on category keyword
     let cat = category.to_lowercase();
     if cat.contains("aviation") || cat.contains("air") {
-        (egui::Color32::from_rgba_premultiplied(100, 180, 255, 140),
-         egui::Color32::from_rgba_premultiplied(100, 180, 255, 200))
+        (
+            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140),
+            egui::Color32::from_rgba_premultiplied(100, 180, 255, 200),
+        )
     } else if cat.contains("weather") || cat.contains("noaa") || cat.contains("wx") {
-        (egui::Color32::from_rgba_premultiplied(80, 220, 80, 140),
-         egui::Color32::from_rgba_premultiplied(80, 220, 80, 200))
+        (
+            egui::Color32::from_rgba_premultiplied(80, 220, 80, 140),
+            egui::Color32::from_rgba_premultiplied(80, 220, 80, 200),
+        )
     } else if cat.contains("marine") || cat.contains("sea") || cat.contains("coast") {
-        (egui::Color32::from_rgba_premultiplied(0, 200, 200, 140),
-         egui::Color32::from_rgba_premultiplied(0, 200, 200, 200))
+        (
+            egui::Color32::from_rgba_premultiplied(0, 200, 200, 140),
+            egui::Color32::from_rgba_premultiplied(0, 200, 200, 200),
+        )
     } else if cat.contains("amateur") || cat.contains("ham") {
-        (egui::Color32::from_rgba_premultiplied(200, 100, 255, 140),
-         egui::Color32::from_rgba_premultiplied(200, 100, 255, 200))
+        (
+            egui::Color32::from_rgba_premultiplied(200, 100, 255, 140),
+            egui::Color32::from_rgba_premultiplied(200, 100, 255, 200),
+        )
     } else if cat.contains("broadcast") || cat.contains("fm") || cat.contains("am") {
-        (egui::Color32::from_rgba_premultiplied(255, 140, 60, 140),
-         egui::Color32::from_rgba_premultiplied(255, 140, 60, 200))
+        (
+            egui::Color32::from_rgba_premultiplied(255, 140, 60, 140),
+            egui::Color32::from_rgba_premultiplied(255, 140, 60, 200),
+        )
     } else if cat.contains("scanner") || cat.contains("hit") {
-        (egui::Color32::from_rgba_premultiplied(255, 80, 80, 140),
-         egui::Color32::from_rgba_premultiplied(255, 80, 80, 200))
+        (
+            egui::Color32::from_rgba_premultiplied(255, 80, 80, 140),
+            egui::Color32::from_rgba_premultiplied(255, 80, 80, 200),
+        )
     } else {
         // Default gold
-        (egui::Color32::from_rgba_premultiplied(255, 215, 0, 120),
-         egui::Color32::from_rgba_premultiplied(255, 215, 0, 160))
+        (
+            egui::Color32::from_rgba_premultiplied(255, 215, 0, 120),
+            egui::Color32::from_rgba_premultiplied(255, 215, 0, 160),
+        )
     }
 }
 
+/// Real-time FFT spectrum analyser and waterfall display.
+///
+/// Manages FFT computation, spectrum averaging, waterfall history, zoom/pan,
+/// frequency markers, bookmark and band-plan overlays, colour maps, signal
+/// history logging, and mouse-driven interaction (click-to-tune, context menus).
 pub struct SpectrumAnalyzer {
+    /// When `true`, `push_iq_samples` skips processing (freeze the display).
     pub frozen: bool,
     fft_size: usize,
     waterfall_history: usize,
@@ -42,6 +69,7 @@ pub struct SpectrumAnalyzer {
     center_freq: u64,
     sample_rate: u32,
     window_type: WindowType,
+    /// Current colour map used for waterfall rendering.
     pub color_map: ColorMap,
     zoom_factor: f32,
     zoom_offset: f32,
@@ -53,7 +81,9 @@ pub struct SpectrumAnalyzer {
     show_peak_hold: bool,
     display_min_db: f32,
     display_max_db: f32,
+    /// Lower bound of the waterfall colour-mapping range (dBFS).
     pub wf_min_db: f32,
+    /// Upper bound of the waterfall colour-mapping range (dBFS).
     pub wf_max_db: f32,
     fft: Option<Arc<dyn Fft<f32>>>,
     fft_input_buf: Vec<Complex32>,
@@ -61,39 +91,63 @@ pub struct SpectrumAnalyzer {
     frame_counter: u32,
     hover_pos: Option<egui::Pos2>,
     waterfall_dirty: bool,
-    waterfall_every_n: u32,
+    /// Interval at which waterfall rows are added (every N frames).
+    pub waterfall_every_n: u32,
+    /// When `true`, waterfall scrolling is paused (spectrum still updates).
     pub waterfall_paused: bool,
+    /// Frequency (Hz) that was clicked on the spectrum for tuning.
     pub clicked_tune_freq: Option<u64>,
+    /// Frequency (Hz) pending bookmark creation.
     pub pending_bookmark_freq: Option<u64>,
+    /// Frequency (Hz) pending assignment to VFO B.
     pub pending_vfo_b_freq: Option<u64>,
     signal_history: std::collections::VecDeque<f32>,
     signal_history_max: usize,
     show_signal_history: bool,
+    /// Buffer of the last ~2048 demodulated audio samples for waveform display.
     pub audio_waveform: VecDeque<f32>,
     show_audio_waveform: bool,
+    /// List of (frequency_hz, name, category) for bookmark overlay lines.
     pub bookmark_freqs: Vec<(u64, String, String)>,
     show_bookmarks: bool,
     show_band_plan: bool,
+    /// VFO filter bandwidth in Hz (shown as shaded region on spectrum).
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
+    /// VFO B frequency in Hz (shown as a dashed marker).
     pub vfo_b_freq: u64,
     show_vfo_b: bool,
+    /// Current demodulation mode label (e.g. "NFM", "WFM", "AM").
     pub demod_mode: String,
+    /// Scanner sweep position marker frequency (None when not scanning).
     pub scan_marker: Option<u64>,
+    /// Squelch threshold in dBFS.
     pub squelch_db: f32,
+    /// Whether the SDR source is currently producing samples.
     pub source_running: bool,
+    /// Whether the squelch is open (signal above threshold).
     pub signal_active: bool,
+    /// Unix timestamp of the last time signal went above squelch.
     pub last_signal_unix: Option<f64>,
     noise_baseline: f32,
+    /// Squelch value pending from a right-click "set squelch here" action.
     pub pending_squelch_db: Option<f32>,
+    /// Scan range start (Hz) pending from context menu.
     pub pending_scan_start: Option<u64>,
+    /// Scan range stop (Hz) pending from context menu.
     pub pending_scan_stop: Option<u64>,
+    /// Demod mode string pending from context-menu "Apply" action.
     pub pending_demod_mode: Option<String>,
+    /// Left edge of the visible frequency range (Hz).
     pub visible_left_hz: u64,
+    /// Right edge of the visible frequency range (Hz).
     pub visible_right_hz: u64,
     ctx_menu_pos: Option<egui::Pos2>,
+    /// Frequency (Hz) pending AI agent query from context menu.
     pub pending_ai_freq: Option<u64>,
+    /// When `true`, the main panel should start the SDR source.
     pub pending_start_source: bool,
+    /// When `true`, the bookmark list has been modified and needs re-read.
     pub bookmark_freqs_dirty: bool,
 
     // Cached stats updated once per push_iq_samples to avoid redundant O(N) scans
@@ -102,26 +156,44 @@ pub struct SpectrumAnalyzer {
     cached_noise_floor: f32,
 }
 
+/// FFT window function type.
+///
+/// The window is applied to IQ samples before the FFT to reduce spectral
+/// leakage. Hann is the general-purpose default; Blackman offers stronger
+/// sidelobe suppression.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowType {
+    /// Hann (Hanning) window — good all-around choice.
     Hann,
+    /// Hamming window — similar to Hann with slightly different sidelobes.
     Hamming,
+    /// Blackman window — best sidelobe suppression, wider main lobe.
     Blackman,
 }
 
+/// Colour map used for waterfall and spectrum visualisation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ColorMap {
+    /// EZ-SDR's original blue-green-yellow-red colour scheme.
     Classic,
+    /// Matplotlib Viridis — perceptually uniform (purple → yellow).
     Viridis,
+    /// Matplotlib Plasma — purple → orange → yellow.
     Plasma,
+    /// Matplotlib Magma — black → purple → yellow → white.
     Magma,
+    /// Simple greyscale (black → white).
     Grayscale,
+    /// Hot colour map (black → red → yellow → white).
     Hot,
+    /// Matplotlib Inferno — similar to Magma with different hues.
     Inferno,
+    /// Google Turbo — rainbow-like with high contrast.
     Turbo,
 }
 
 impl ColorMap {
+    /// Return the human-readable name of this colour map.
     pub fn name(&self) -> &'static str {
         match self {
             ColorMap::Classic => "Classic",
@@ -137,6 +209,7 @@ impl ColorMap {
 }
 
 impl WindowType {
+    /// Return the display name of this window function.
     pub fn name(&self) -> &'static str {
         match self {
             WindowType::Hann => "Hann",
@@ -147,26 +220,34 @@ impl WindowType {
 
     fn generate(&self, len: usize) -> Vec<f32> {
         match self {
-            WindowType::Hann => (0..len).map(|i| {
-                let n = i as f32;
-                let size = len as f32;
-                0.5 * (1.0 - (2.0 * PI * n / size).cos())
-            }).collect(),
-            WindowType::Hamming => (0..len).map(|i| {
-                let n = i as f32;
-                let size = len as f32;
-                0.54 - 0.46 * (2.0 * PI * n / size).cos()
-            }).collect(),
-            WindowType::Blackman => (0..len).map(|i| {
-                let n = i as f32;
-                let size = len as f32;
-                0.42 - 0.5 * (2.0 * PI * n / size).cos() + 0.08 * (4.0 * PI * n / size).cos()
-            }).collect(),
+            WindowType::Hann => (0..len)
+                .map(|i| {
+                    let n = i as f32;
+                    let size = len as f32;
+                    0.5 * (1.0 - (2.0 * PI * n / size).cos())
+                })
+                .collect(),
+            WindowType::Hamming => (0..len)
+                .map(|i| {
+                    let n = i as f32;
+                    let size = len as f32;
+                    0.54 - 0.46 * (2.0 * PI * n / size).cos()
+                })
+                .collect(),
+            WindowType::Blackman => (0..len)
+                .map(|i| {
+                    let n = i as f32;
+                    let size = len as f32;
+                    0.42 - 0.5 * (2.0 * PI * n / size).cos() + 0.08 * (4.0 * PI * n / size).cos()
+                })
+                .collect(),
         }
     }
 }
 
 impl SpectrumAnalyzer {
+    /// Create a new `SpectrumAnalyzer` with default parameters (2048-point FFT,
+    /// Hann window, Classic colour map).
     pub fn new() -> Self {
         let fft_size = 2048;
         let waterfall_history = 256;
@@ -243,6 +324,7 @@ impl SpectrumAnalyzer {
         }
     }
 
+    /// Recreate the FFT with a new size, resetting all spectrum buffers.
     pub fn set_fft_size(&mut self, size: usize) {
         self.fft_size = size;
         self.spectrum_dbs = vec![-100.0; size];
@@ -255,55 +337,68 @@ impl SpectrumAnalyzer {
         self.waterfall_texture = None;
     }
 
+    /// Update the centre frequency and sample rate parameters.
     pub fn update_params(&mut self, center_freq: u64, sample_rate: u32) {
         self.center_freq = center_freq;
         self.sample_rate = sample_rate;
     }
 
+    /// Return the current (min, max) dB display range.
     pub fn display_range(&self) -> (f32, f32) {
         (self.display_min_db, self.display_max_db)
     }
 
+    /// Set the spectrum display dB range, and mark the waterfall as dirty.
     pub fn set_display_range(&mut self, min: f32, max: f32) {
         self.display_min_db = min;
         self.display_max_db = max.max(min + 10.0);
         self.waterfall_dirty = true;
     }
 
+    /// Return a snapshot of the peak signal-level history (for sparkline rendering).
     pub fn signal_history_snapshot(&self) -> Vec<f32> {
         self.signal_history.iter().cloned().collect()
     }
 
+    /// Return the maximum number of samples kept in the signal history.
     pub fn signal_history_max(&self) -> usize {
         self.signal_history_max
     }
 
+    /// Cycle to the next colour map variant and mark the waterfall dirty.
     pub fn cycle_colormap(&mut self) {
         self.color_map = match self.color_map {
-            ColorMap::Classic   => ColorMap::Viridis,
-            ColorMap::Viridis   => ColorMap::Plasma,
-            ColorMap::Plasma    => ColorMap::Magma,
-            ColorMap::Magma     => ColorMap::Inferno,
-            ColorMap::Inferno   => ColorMap::Hot,
-            ColorMap::Hot       => ColorMap::Turbo,
-            ColorMap::Turbo     => ColorMap::Grayscale,
+            ColorMap::Classic => ColorMap::Viridis,
+            ColorMap::Viridis => ColorMap::Plasma,
+            ColorMap::Plasma => ColorMap::Magma,
+            ColorMap::Magma => ColorMap::Inferno,
+            ColorMap::Inferno => ColorMap::Hot,
+            ColorMap::Hot => ColorMap::Turbo,
+            ColorMap::Turbo => ColorMap::Grayscale,
             ColorMap::Grayscale => ColorMap::Classic,
         };
         self.waterfall_dirty = true;
     }
 
+    /// Return the current average signal level across all FFT bins (dBFS).
     pub fn signal_level(&self) -> f32 {
         self.cached_signal_level
     }
 
+    /// Return the current peak (maximum) signal level across all FFT bins (dBFS).
     pub fn peak_level(&self) -> f32 {
         self.cached_peak_level
     }
 
+    /// Return the frequency (Hz) of the bin with the strongest signal.
     pub fn peak_freq_hz(&self) -> u64 {
-        if self.spectrum_dbs.is_empty() { return self.center_freq; }
+        if self.spectrum_dbs.is_empty() {
+            return self.center_freq;
+        }
         let n = self.spectrum_dbs.len();
-        let peak_bin = self.spectrum_dbs.iter()
+        let peak_bin = self
+            .spectrum_dbs
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, _)| i)
@@ -313,14 +408,17 @@ impl SpectrumAnalyzer {
         (self.center_freq as i64 + offset_hz).max(0) as u64
     }
 
+    /// Return the estimated noise floor (25th percentile of bin powers, dBFS).
     pub fn noise_floor(&self) -> f32 {
         self.cached_noise_floor
     }
 
+    /// Zoom in on the spectrum (1.5×), clamping to max 200×.
     pub fn zoom_in(&mut self) {
         self.zoom_factor = (self.zoom_factor * 1.5).clamp(1.0, 200.0);
     }
 
+    /// Zoom out of the spectrum (÷1.5), clamping to min 1×.
     pub fn zoom_out(&mut self) {
         self.zoom_factor = (self.zoom_factor / 1.5).max(1.0);
         if self.zoom_factor <= 1.05 {
@@ -329,11 +427,14 @@ impl SpectrumAnalyzer {
         }
     }
 
+    /// Reset zoom to 1× (full span) and centre the offset.
     pub fn zoom_reset(&mut self) {
         self.zoom_factor = 1.0;
         self.zoom_offset = 0.5;
     }
 
+    /// Toggle the peak-hold overlay on/off, returning the new state.
+    /// Clears the held peaks when disabling.
     pub fn toggle_peak_hold(&mut self) -> bool {
         self.show_peak_hold = !self.show_peak_hold;
         if !self.show_peak_hold {
@@ -342,14 +443,20 @@ impl SpectrumAnalyzer {
         self.show_peak_hold
     }
 
+    /// Open a file-save dialog and write the current waterfall as a PNG image,
+    /// along with a JSON sidecar containing capture metadata.
     pub fn save_waterfall_png(&self) {
-        if self.waterfall_pixels.is_empty() { return; }
+        if self.waterfall_pixels.is_empty() {
+            return;
+        }
         let path = rfd::FileDialog::new()
             .set_title("Save Waterfall Screenshot")
             .add_filter("PNG", &["png"])
             .set_file_name("waterfall_capture.png")
             .save_file();
-        let Some(path) = path else { return; };
+        let Some(path) = path else {
+            return;
+        };
         let w = self.fft_size as u32;
         let h = self.waterfall_history as u32;
         let mut rgba_flat: Vec<u8> = Vec::with_capacity((w * h * 4) as usize);
@@ -369,14 +476,20 @@ impl SpectrumAnalyzer {
         let _ = std::fs::write(&sidecar_path, json);
     }
 
+    /// Open a file-save dialog and write the current spectrum data as CSV
+    /// (frequency_hz, power_dbfs columns), along with a JSON sidecar.
     pub fn export_spectrum_csv(&self) {
-        if self.spectrum_dbs.is_empty() { return; }
+        if self.spectrum_dbs.is_empty() {
+            return;
+        }
         let path = rfd::FileDialog::new()
             .set_title("Export Spectrum to CSV")
             .add_filter("CSV", &["csv"])
             .set_file_name("spectrum_export.csv")
             .save_file();
-        let Some(path) = path else { return; };
+        let Some(path) = path else {
+            return;
+        };
         let n = self.spectrum_dbs.len();
         let hz_per_bin = self.sample_rate as f64 / n as f64;
         let mut lines = String::from("frequency_hz,power_dbfs\n");
@@ -399,8 +512,14 @@ impl SpectrumAnalyzer {
         let _ = std::fs::write(&sidecar_path, json);
     }
 
+    /// Process a chunk of raw IQ samples through the FFT and update the
+    /// spectrum bins, peak-hold values, noise floor estimate, and signal history.
+    ///
+    /// Skips processing when `self.frozen` is `true`.
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
-        if self.frozen || iq.len() < 2 { return; }
+        if self.frozen || iq.len() < 2 {
+            return;
+        }
         let fft = match &self.fft {
             Some(f) => f,
             None => return,
@@ -412,7 +531,11 @@ impl SpectrumAnalyzer {
         self.fft_input_buf.extend((0..fft_len).map(|i| {
             let i_val = iq[2 * i] as f32 - 127.4;
             let q_val = iq[2 * i + 1] as f32 - 127.4;
-            let w = if i < self.window_cache.len() { self.window_cache[i] } else { 1.0 };
+            let w = if i < self.window_cache.len() {
+                self.window_cache[i]
+            } else {
+                1.0
+            };
             Complex32::new(i_val * w, q_val * w)
         }));
 
@@ -424,11 +547,17 @@ impl SpectrumAnalyzer {
         let mut hist = [0u32; 120];
         for (i, c) in self.fft_input_buf.iter().enumerate() {
             let mag = c.norm() * scale;
-            let db = if mag > 1e-10 { 20.0 * mag.log10() } else { -120.0 };
+            let db = if mag > 1e-10 {
+                20.0 * mag.log10()
+            } else {
+                -120.0
+            };
             let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[i];
             self.spectrum_dbs[i] = smoothed;
             sum += smoothed;
-            if smoothed > peak { peak = smoothed; }
+            if smoothed > peak {
+                peak = smoothed;
+            }
             let bin = ((smoothed + 120.0).clamp(0.0, 119.9) as usize).min(119);
             hist[bin] += 1;
             if db > self.peak_hold[i] {
@@ -481,6 +610,8 @@ impl SpectrumAnalyzer {
         pixels
     }
 
+    /// Render the full spectrum analyser UI: controls bar, spectrum plot,
+    /// signal history chart, audio waveform, and waterfall display.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.frame_counter = self.frame_counter.wrapping_add(1);
 
@@ -666,7 +797,10 @@ impl SpectrumAnalyzer {
         // Signal history mini-chart
         if self.show_signal_history && !self.signal_history.is_empty() {
             let history_height = 70.0;
-            let (hist_rect, hist_resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), history_height), egui::Sense::hover());
+            let (hist_rect, hist_resp) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), history_height),
+                egui::Sense::hover(),
+            );
             let hist_resp = hist_resp.on_hover_text("Signal peak history chart. Shows the last 600 spectrum peaks. Hover for cursor value.");
             let painter = ui.painter();
             painter.rect_filled(hist_rect, 2.0, egui::Color32::from_rgb(8, 8, 18));
@@ -677,21 +811,35 @@ impl SpectrumAnalyzer {
             let max_v = self.display_max_db;
             let range = (max_v - min_v).max(1.0);
 
-            let db_to_y = |db: f32| hist_rect.bottom() - ((db - min_v) / range).clamp(0.0, 1.0) * hist_rect.height();
-            let i_to_x = |i: usize| hist_rect.left() + (i as f32 / (self.signal_history_max as f32 - 1.0).max(1.0)) * hist_rect.width();
+            let db_to_y = |db: f32| {
+                hist_rect.bottom() - ((db - min_v) / range).clamp(0.0, 1.0) * hist_rect.height()
+            };
+            let i_to_x = |i: usize| {
+                hist_rect.left()
+                    + (i as f32 / (self.signal_history_max as f32 - 1.0).max(1.0))
+                        * hist_rect.width()
+            };
 
             // Noise floor reference line
             let nf = self.noise_floor();
             let nf_y = db_to_y(nf);
             painter.line_segment(
-                [egui::pos2(hist_rect.left(), nf_y), egui::pos2(hist_rect.right(), nf_y)],
-                egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(100, 100, 200, 80)),
+                [
+                    egui::pos2(hist_rect.left(), nf_y),
+                    egui::pos2(hist_rect.right(), nf_y),
+                ],
+                egui::Stroke::new(
+                    0.5,
+                    egui::Color32::from_rgba_premultiplied(100, 100, 200, 80),
+                ),
             );
 
             // Filled area + line
-            let pts: Vec<egui::Pos2> = history_vec.iter().enumerate().map(|(i, &db)| {
-                egui::pos2(i_to_x(i), db_to_y(db))
-            }).collect();
+            let pts: Vec<egui::Pos2> = history_vec
+                .iter()
+                .enumerate()
+                .map(|(i, &db)| egui::pos2(i_to_x(i), db_to_y(db)))
+                .collect();
 
             if pts.len() > 1 {
                 // Filled polygon under the curve
@@ -709,22 +857,32 @@ impl SpectrumAnalyzer {
                 // Color-coded line segments
                 for i in 0..pts.len() - 1 {
                     let norm = ((history_vec[i] - min_v) / range).clamp(0.0, 1.0);
-                    let col = if norm > 0.7 { egui::Color32::from_rgb(46, 204, 113) }
-                        else if norm > 0.45 { egui::Color32::from_rgb(241, 196, 15) }
-                        else { egui::Color32::from_rgb(52, 152, 219) };
+                    let col = if norm > 0.7 {
+                        egui::Color32::from_rgb(46, 204, 113)
+                    } else if norm > 0.45 {
+                        egui::Color32::from_rgb(241, 196, 15)
+                    } else {
+                        egui::Color32::from_rgb(52, 152, 219)
+                    };
                     painter.line_segment([pts[i], pts[i + 1]], egui::Stroke::new(1.2, col));
                 }
 
                 // Peak dot
-                if let Some((pk_idx, &pk_db)) = history_vec.iter().enumerate()
+                if let Some((pk_idx, &pk_db)) = history_vec
+                    .iter()
+                    .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 {
                     let px = i_to_x(pk_idx);
                     let py = db_to_y(pk_db);
                     painter.circle_filled(egui::pos2(px, py), 3.0, egui::Color32::RED);
-                    painter.text(egui::pos2(px + 4.0, py), egui::Align2::LEFT_CENTER,
-                        format!("pk {:.0}", pk_db), egui::FontId::monospace(8.0),
-                        egui::Color32::from_rgb(255, 100, 100));
+                    painter.text(
+                        egui::pos2(px + 4.0, py),
+                        egui::Align2::LEFT_CENTER,
+                        format!("pk {:.0}", pk_db),
+                        egui::FontId::monospace(8.0),
+                        egui::Color32::from_rgb(255, 100, 100),
+                    );
                 }
 
                 // Cursor readout
@@ -736,31 +894,58 @@ impl SpectrumAnalyzer {
                         let cx = i_to_x(idx);
                         let cy = db_to_y(db);
                         painter.line_segment(
-                            [egui::pos2(cx, hist_rect.top()), egui::pos2(cx, hist_rect.bottom())],
+                            [
+                                egui::pos2(cx, hist_rect.top()),
+                                egui::pos2(cx, hist_rect.bottom()),
+                            ],
                             egui::Stroke::new(0.5, egui::Color32::from_gray(120)),
                         );
                         painter.circle_filled(egui::pos2(cx, cy), 3.0, egui::Color32::WHITE);
-                        painter.text(egui::pos2(cx + 5.0, cy - 8.0), egui::Align2::LEFT_BOTTOM,
-                            format!("{:.1} dB", db), egui::FontId::monospace(9.0), egui::Color32::WHITE);
+                        painter.text(
+                            egui::pos2(cx + 5.0, cy - 8.0),
+                            egui::Align2::LEFT_BOTTOM,
+                            format!("{:.1} dB", db),
+                            egui::FontId::monospace(9.0),
+                            egui::Color32::WHITE,
+                        );
                     }
                 }
             }
 
             // Labels
-            painter.text(egui::pos2(hist_rect.right() - 2.0, hist_rect.top() + 2.0), egui::Align2::RIGHT_TOP,
-                format!("{:.0}", max_v), egui::FontId::monospace(8.0), egui::Color32::DARK_GRAY);
-            painter.text(egui::pos2(hist_rect.right() - 2.0, hist_rect.bottom() - 2.0), egui::Align2::RIGHT_BOTTOM,
-                format!("{:.0} dB", min_v), egui::FontId::monospace(8.0), egui::Color32::DARK_GRAY);
-            painter.text(egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0), egui::Align2::LEFT_TOP,
+            painter.text(
+                egui::pos2(hist_rect.right() - 2.0, hist_rect.top() + 2.0),
+                egui::Align2::RIGHT_TOP,
+                format!("{:.0}", max_v),
+                egui::FontId::monospace(8.0),
+                egui::Color32::DARK_GRAY,
+            );
+            painter.text(
+                egui::pos2(hist_rect.right() - 2.0, hist_rect.bottom() - 2.0),
+                egui::Align2::RIGHT_BOTTOM,
+                format!("{:.0} dB", min_v),
+                egui::FontId::monospace(8.0),
+                egui::Color32::DARK_GRAY,
+            );
+            painter.text(
+                egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0),
+                egui::Align2::LEFT_TOP,
                 format!("Signal history  ({} pts, floor {:.0} dB)", n, nf),
-                egui::FontId::monospace(8.0), egui::Color32::DARK_GRAY);
+                egui::FontId::monospace(8.0),
+                egui::Color32::DARK_GRAY,
+            );
         }
 
         // Audio waveform display
         if self.show_audio_waveform && !self.audio_waveform.is_empty() {
             let wave_height = 50.0;
-            let (wave_rect, wave_resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), wave_height), egui::Sense::hover());
-            let _ = wave_resp.on_hover_text("Demodulated audio waveform. Shows the last ~42 ms of audio signal.");
+            let (wave_rect, wave_resp) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), wave_height),
+                egui::Sense::hover(),
+            );
+            let _ = wave_resp.on_hover_text(
+                "Demodulated audio waveform. Shows the last ~42 ms of audio signal.",
+            );
             let wf_painter = ui.painter();
             wf_painter.rect_filled(wave_rect, 2.0, egui::Color32::from_rgb(8, 8, 18));
             let wf_samples: Vec<f32> = self.audio_waveform.iter().cloned().collect();
@@ -770,7 +955,10 @@ impl SpectrumAnalyzer {
                 let amp = wave_rect.height() * 0.45;
                 // Center line
                 wf_painter.line_segment(
-                    [egui::pos2(wave_rect.left(), mid_y), egui::pos2(wave_rect.right(), mid_y)],
+                    [
+                        egui::pos2(wave_rect.left(), mid_y),
+                        egui::pos2(wave_rect.right(), mid_y),
+                    ],
                     egui::Stroke::new(0.3, egui::Color32::from_rgba_premultiplied(80, 80, 120, 80)),
                 );
                 // Waveform line
@@ -780,13 +968,14 @@ impl SpectrumAnalyzer {
                     let y = mid_y - s * amp;
                     if let Some(p) = prev {
                         let color = if s.abs() > 0.5 {
-                            egui::Color32::from_rgb(231, 76, 60)  // red on loud
+                            egui::Color32::from_rgb(231, 76, 60) // red on loud
                         } else if s.abs() > 0.25 {
                             egui::Color32::from_rgb(241, 196, 15) // yellow on moderate
                         } else {
                             egui::Color32::from_rgb(46, 204, 113) // green on quiet
                         };
-                        wf_painter.line_segment([p, egui::pos2(x, y)], egui::Stroke::new(1.0, color));
+                        wf_painter
+                            .line_segment([p, egui::pos2(x, y)], egui::Stroke::new(1.0, color));
                     }
                     prev = Some(egui::pos2(x, y));
                 }
@@ -870,15 +1059,24 @@ impl SpectrumAnalyzer {
                 .id(egui::Id::new("marker_label_popup"))
                 .fixed_size([260.0, 80.0])
                 .show(ui.ctx(), |ui| {
-                    ui.label(format!("Add label for {:.4} MHz (leave blank for frequency-only):", pending_freq as f64 / 1e6));
-                    let resp = ui.add(egui::TextEdit::singleline(&mut self.marker_label_input)
-                        .desired_width(200.0)
-                        .hint_text("e.g. DC offset, Interference, Local FM…"));
+                    ui.label(format!(
+                        "Add label for {:.4} MHz (leave blank for frequency-only):",
+                        pending_freq as f64 / 1e6
+                    ));
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.marker_label_input)
+                            .desired_width(200.0)
+                            .hint_text("e.g. DC offset, Interference, Local FM…"),
+                    );
                     ui.horizontal(|ui| {
-                        if ui.button("Add").clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                        if ui.button("Add").clicked()
+                            || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                        {
                             let label = self.marker_label_input.trim().to_string();
                             self.markers.push((pending_freq, label));
-                            if self.markers.len() > 20 { self.markers.remove(0); }
+                            if self.markers.len() > 20 {
+                                self.markers.remove(0);
+                            }
                             self.marker_pending_freq = None;
                             self.marker_label_input.clear();
                         }
@@ -895,7 +1093,8 @@ impl SpectrumAnalyzer {
         let waterfall_height = avail.y * 0.65;
 
         // Spectrum plot
-        let (spectrum_rect, response) = ui.allocate_exact_size(egui::vec2(avail.x, spectrum_height), egui::Sense::click());
+        let (spectrum_rect, response) =
+            ui.allocate_exact_size(egui::vec2(avail.x, spectrum_height), egui::Sense::click());
         let painter = ui.painter();
         painter.rect_filled(spectrum_rect, 0.0, egui::Color32::from_rgb(8, 8, 14));
 
@@ -906,20 +1105,39 @@ impl SpectrumAnalyzer {
 
         // Horizontal dB grid lines — adaptive step based on display range
         {
-            let db_step = if range > 80.0 { 20.0f32 } else if range > 40.0 { 10.0 } else { 5.0 };
+            let db_step = if range > 80.0 {
+                20.0f32
+            } else if range > 40.0 {
+                10.0
+            } else {
+                5.0
+            };
             let first = (min_db / db_step).ceil() as i32;
-            let last  = (max_db / db_step).floor() as i32;
+            let last = (max_db / db_step).floor() as i32;
             for i in first..=last {
                 let db = i as f32 * db_step;
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
-                if y < spectrum_rect.top() + 1.0 || y > spectrum_rect.bottom() - 1.0 { continue; }
+                if y < spectrum_rect.top() + 1.0 || y > spectrum_rect.bottom() - 1.0 {
+                    continue;
+                }
                 let is_zero = db.abs() < 0.01;
-                let line_alpha = if is_zero { 100u8 } else if (i % 2) == 0 { 60 } else { 35 };
+                let line_alpha = if is_zero {
+                    100u8
+                } else if (i % 2) == 0 {
+                    60
+                } else {
+                    35
+                };
                 painter.line_segment(
-                    [egui::pos2(spectrum_rect.left(), y), egui::pos2(spectrum_rect.right(), y)],
-                    egui::Stroke::new(if is_zero { 0.7 } else { 0.4 },
-                        egui::Color32::from_rgba_premultiplied(70, 80, 100, line_alpha)),
+                    [
+                        egui::pos2(spectrum_rect.left(), y),
+                        egui::pos2(spectrum_rect.right(), y),
+                    ],
+                    egui::Stroke::new(
+                        if is_zero { 0.7 } else { 0.4 },
+                        egui::Color32::from_rgba_premultiplied(70, 80, 100, line_alpha),
+                    ),
                 );
                 // dB label on the right side
                 let label_x = spectrum_rect.right() - 2.0;
@@ -934,7 +1152,8 @@ impl SpectrumAnalyzer {
         }
 
         // Zoom parameters
-        let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+        let zoom_span =
+            (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
         let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
         let left_hz = -zoom_span / 2.0 + zoom_center_offset;
         let right_hz = zoom_span / 2.0 + zoom_center_offset;
@@ -950,7 +1169,10 @@ impl SpectrumAnalyzer {
             let offset_hz = left_hz + frac as f64 * zoom_span;
             let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
             painter.line_segment(
-                [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
+                [
+                    egui::pos2(x, spectrum_rect.top()),
+                    egui::pos2(x, spectrum_rect.bottom()),
+                ],
                 egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(40, 40, 50, 128)),
             );
             painter.text(
@@ -964,65 +1186,265 @@ impl SpectrumAnalyzer {
 
         // Band plan overlay
         if self.show_band_plan {
-            struct Band { name: &'static str, low_mhz: f64, high_mhz: f64, color: egui::Color32 }
+            struct Band {
+                name: &'static str,
+                low_mhz: f64,
+                high_mhz: f64,
+                color: egui::Color32,
+            }
             // Colors: green=amateur, orange=broadcast, blue=aviation, teal=marine, lime=weather/utility, purple=satellite/space, red=ISM, gray=other
-            const HAM: egui::Color32  = egui::Color32::from_rgba_premultiplied(80, 200, 80, 28);
+            const HAM: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 200, 80, 28);
             const BCAST: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 140, 50, 28);
-            const AIR: egui::Color32  = egui::Color32::from_rgba_premultiplied(80, 160, 255, 28);
-            const MAR: egui::Color32  = egui::Color32::from_rgba_premultiplied(0, 200, 180, 28);
-            const WX: egui::Color32   = egui::Color32::from_rgba_premultiplied(100, 255, 120, 28);
-            const SAT: egui::Color32  = egui::Color32::from_rgba_premultiplied(180, 100, 255, 28);
-            const ISM: egui::Color32  = egui::Color32::from_rgba_premultiplied(255, 80, 80, 25);
-            const MOB: egui::Color32  = egui::Color32::from_rgba_premultiplied(200, 180, 60, 22);
+            const AIR: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 160, 255, 28);
+            const MAR: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 200, 180, 28);
+            const WX: egui::Color32 = egui::Color32::from_rgba_premultiplied(100, 255, 120, 28);
+            const SAT: egui::Color32 = egui::Color32::from_rgba_premultiplied(180, 100, 255, 28);
+            const ISM: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 80, 80, 25);
+            const MOB: egui::Color32 = egui::Color32::from_rgba_premultiplied(200, 180, 60, 22);
             const BANDS: &[Band] = &[
                 // HF amateur
-                Band { name: "160m", low_mhz: 1.8,   high_mhz: 2.0,   color: HAM },
-                Band { name: "80m",  low_mhz: 3.5,   high_mhz: 4.0,   color: HAM },
-                Band { name: "40m",  low_mhz: 7.0,   high_mhz: 7.3,   color: HAM },
-                Band { name: "20m",  low_mhz: 14.0,  high_mhz: 14.35, color: HAM },
-                Band { name: "17m",  low_mhz: 18.068,high_mhz: 18.168,color: HAM },
-                Band { name: "15m",  low_mhz: 21.0,  high_mhz: 21.45, color: HAM },
-                Band { name: "12m",  low_mhz: 24.89, high_mhz: 24.99, color: HAM },
-                Band { name: "10m",  low_mhz: 28.0,  high_mhz: 29.7,  color: HAM },
+                Band {
+                    name: "160m",
+                    low_mhz: 1.8,
+                    high_mhz: 2.0,
+                    color: HAM,
+                },
+                Band {
+                    name: "80m",
+                    low_mhz: 3.5,
+                    high_mhz: 4.0,
+                    color: HAM,
+                },
+                Band {
+                    name: "40m",
+                    low_mhz: 7.0,
+                    high_mhz: 7.3,
+                    color: HAM,
+                },
+                Band {
+                    name: "20m",
+                    low_mhz: 14.0,
+                    high_mhz: 14.35,
+                    color: HAM,
+                },
+                Band {
+                    name: "17m",
+                    low_mhz: 18.068,
+                    high_mhz: 18.168,
+                    color: HAM,
+                },
+                Band {
+                    name: "15m",
+                    low_mhz: 21.0,
+                    high_mhz: 21.45,
+                    color: HAM,
+                },
+                Band {
+                    name: "12m",
+                    low_mhz: 24.89,
+                    high_mhz: 24.99,
+                    color: HAM,
+                },
+                Band {
+                    name: "10m",
+                    low_mhz: 28.0,
+                    high_mhz: 29.7,
+                    color: HAM,
+                },
                 // VHF/UHF amateur
-                Band { name: "6m",   low_mhz: 50.0,  high_mhz: 54.0,  color: HAM },
-                Band { name: "2m",   low_mhz: 144.0, high_mhz: 148.0, color: HAM },
-                Band { name: "1.25m",low_mhz: 219.0, high_mhz: 225.0, color: HAM },
-                Band { name: "70cm", low_mhz: 420.0, high_mhz: 450.0, color: HAM },
-                Band { name: "33cm", low_mhz: 902.0, high_mhz: 928.0, color: HAM },
-                Band { name: "23cm", low_mhz:1240.0, high_mhz:1300.0, color: HAM },
+                Band {
+                    name: "6m",
+                    low_mhz: 50.0,
+                    high_mhz: 54.0,
+                    color: HAM,
+                },
+                Band {
+                    name: "2m",
+                    low_mhz: 144.0,
+                    high_mhz: 148.0,
+                    color: HAM,
+                },
+                Band {
+                    name: "1.25m",
+                    low_mhz: 219.0,
+                    high_mhz: 225.0,
+                    color: HAM,
+                },
+                Band {
+                    name: "70cm",
+                    low_mhz: 420.0,
+                    high_mhz: 450.0,
+                    color: HAM,
+                },
+                Band {
+                    name: "33cm",
+                    low_mhz: 902.0,
+                    high_mhz: 928.0,
+                    color: HAM,
+                },
+                Band {
+                    name: "23cm",
+                    low_mhz: 1240.0,
+                    high_mhz: 1300.0,
+                    color: HAM,
+                },
                 // Broadcast
-                Band { name: "AM",   low_mhz: 0.525, high_mhz: 1.705, color: BCAST },
-                Band { name: "FM",   low_mhz: 87.5,  high_mhz: 108.0, color: BCAST },
-                Band { name: "DAB",  low_mhz: 174.0, high_mhz: 230.0, color: BCAST },
+                Band {
+                    name: "AM",
+                    low_mhz: 0.525,
+                    high_mhz: 1.705,
+                    color: BCAST,
+                },
+                Band {
+                    name: "FM",
+                    low_mhz: 87.5,
+                    high_mhz: 108.0,
+                    color: BCAST,
+                },
+                Band {
+                    name: "DAB",
+                    low_mhz: 174.0,
+                    high_mhz: 230.0,
+                    color: BCAST,
+                },
                 // Aviation
-                Band { name: "NDB",  low_mhz: 0.19,  high_mhz: 0.525, color: AIR },
-                Band { name: "VOR/ILS",low_mhz:108.0,high_mhz: 118.0, color: AIR },
-                Band { name: "Airband",low_mhz:118.0,high_mhz: 137.0, color: AIR },
-                Band { name: "ADS-B",low_mhz:1090.0, high_mhz:1090.5, color: AIR },
-                Band { name: "ACARS",low_mhz: 129.0, high_mhz: 136.9, color: AIR },
+                Band {
+                    name: "NDB",
+                    low_mhz: 0.19,
+                    high_mhz: 0.525,
+                    color: AIR,
+                },
+                Band {
+                    name: "VOR/ILS",
+                    low_mhz: 108.0,
+                    high_mhz: 118.0,
+                    color: AIR,
+                },
+                Band {
+                    name: "Airband",
+                    low_mhz: 118.0,
+                    high_mhz: 137.0,
+                    color: AIR,
+                },
+                Band {
+                    name: "ADS-B",
+                    low_mhz: 1090.0,
+                    high_mhz: 1090.5,
+                    color: AIR,
+                },
+                Band {
+                    name: "ACARS",
+                    low_mhz: 129.0,
+                    high_mhz: 136.9,
+                    color: AIR,
+                },
                 // Marine / maritime
-                Band { name: "Marine",low_mhz:156.0, high_mhz: 174.0, color: MAR },
-                Band { name: "Marine MF",low_mhz:1.6,high_mhz: 4.0,   color: MAR },
+                Band {
+                    name: "Marine",
+                    low_mhz: 156.0,
+                    high_mhz: 174.0,
+                    color: MAR,
+                },
+                Band {
+                    name: "Marine MF",
+                    low_mhz: 1.6,
+                    high_mhz: 4.0,
+                    color: MAR,
+                },
                 // Weather / utility
-                Band { name: "NOAA WX",low_mhz:162.4,high_mhz:162.55, color: WX },
-                Band { name: "NOAA APT",low_mhz:137.0,high_mhz:138.0, color: WX },
-                Band { name: "GOES",  low_mhz:1686.0,high_mhz:1698.0, color: WX },
+                Band {
+                    name: "NOAA WX",
+                    low_mhz: 162.4,
+                    high_mhz: 162.55,
+                    color: WX,
+                },
+                Band {
+                    name: "NOAA APT",
+                    low_mhz: 137.0,
+                    high_mhz: 138.0,
+                    color: WX,
+                },
+                Band {
+                    name: "GOES",
+                    low_mhz: 1686.0,
+                    high_mhz: 1698.0,
+                    color: WX,
+                },
                 // Satellites
-                Band { name: "GPS L1",low_mhz:1575.2,high_mhz:1576.0, color: SAT },
-                Band { name: "GPS L2",low_mhz:1227.5,high_mhz:1228.0, color: SAT },
-                Band { name: "Iridium",low_mhz:1616.0,high_mhz:1626.5,color: SAT },
-                Band { name: "Meteor",low_mhz:137.0, high_mhz:138.0,  color: SAT },
+                Band {
+                    name: "GPS L1",
+                    low_mhz: 1575.2,
+                    high_mhz: 1576.0,
+                    color: SAT,
+                },
+                Band {
+                    name: "GPS L2",
+                    low_mhz: 1227.5,
+                    high_mhz: 1228.0,
+                    color: SAT,
+                },
+                Band {
+                    name: "Iridium",
+                    low_mhz: 1616.0,
+                    high_mhz: 1626.5,
+                    color: SAT,
+                },
+                Band {
+                    name: "Meteor",
+                    low_mhz: 137.0,
+                    high_mhz: 138.0,
+                    color: SAT,
+                },
                 // Land mobile / PMR
-                Band { name: "LMR VHF",low_mhz:138.0,high_mhz:174.0, color: MOB },
-                Band { name: "PMR446",low_mhz:446.0, high_mhz:446.2,  color: MOB },
-                Band { name: "LMR UHF",low_mhz:450.0,high_mhz:512.0, color: MOB },
+                Band {
+                    name: "LMR VHF",
+                    low_mhz: 138.0,
+                    high_mhz: 174.0,
+                    color: MOB,
+                },
+                Band {
+                    name: "PMR446",
+                    low_mhz: 446.0,
+                    high_mhz: 446.2,
+                    color: MOB,
+                },
+                Band {
+                    name: "LMR UHF",
+                    low_mhz: 450.0,
+                    high_mhz: 512.0,
+                    color: MOB,
+                },
                 // ISM / unlicensed
-                Band { name: "ISM 27",low_mhz: 26.96, high_mhz: 27.28,color: ISM },
-                Band { name: "ISM 433",low_mhz:433.05,high_mhz:434.79,color: ISM },
-                Band { name: "ISM 868",low_mhz:868.0, high_mhz: 868.6,color: ISM },
-                Band { name: "ISM 915",low_mhz:902.0, high_mhz: 928.0,color: ISM },
-                Band { name: "WiFi",  low_mhz:2400.0, high_mhz:2500.0,color: ISM },
+                Band {
+                    name: "ISM 27",
+                    low_mhz: 26.96,
+                    high_mhz: 27.28,
+                    color: ISM,
+                },
+                Band {
+                    name: "ISM 433",
+                    low_mhz: 433.05,
+                    high_mhz: 434.79,
+                    color: ISM,
+                },
+                Band {
+                    name: "ISM 868",
+                    low_mhz: 868.0,
+                    high_mhz: 868.6,
+                    color: ISM,
+                },
+                Band {
+                    name: "ISM 915",
+                    low_mhz: 902.0,
+                    high_mhz: 928.0,
+                    color: ISM,
+                },
+                Band {
+                    name: "WiFi",
+                    low_mhz: 2400.0,
+                    high_mhz: 2500.0,
+                    color: ISM,
+                },
             ];
             let center_mhz = self.center_freq as f64 / 1e6;
             let half_span_mhz = zoom_span / 2e6;
@@ -1032,9 +1454,16 @@ impl SpectrumAnalyzer {
                 let low = band.low_mhz.max(left_mhz);
                 let high = band.high_mhz.min(right_mhz);
                 if low < high {
-                    let x1 = spectrum_rect.left() + ((low - left_mhz) / (right_mhz - left_mhz)) as f32 * spectrum_rect.width();
-                    let x2 = spectrum_rect.left() + ((high - left_mhz) / (right_mhz - left_mhz)) as f32 * spectrum_rect.width();
-                    let rect = egui::Rect::from_x_y_ranges(x1..=x2, spectrum_rect.top()..=spectrum_rect.bottom());
+                    let x1 = spectrum_rect.left()
+                        + ((low - left_mhz) / (right_mhz - left_mhz)) as f32
+                            * spectrum_rect.width();
+                    let x2 = spectrum_rect.left()
+                        + ((high - left_mhz) / (right_mhz - left_mhz)) as f32
+                            * spectrum_rect.width();
+                    let rect = egui::Rect::from_x_y_ranges(
+                        x1..=x2,
+                        spectrum_rect.top()..=spectrum_rect.bottom(),
+                    );
                     painter.rect_filled(rect, 0.0, band.color);
                     let label_x = (x1 + x2) / 2.0;
                     painter.text(
@@ -1074,7 +1503,8 @@ impl SpectrumAnalyzer {
                     egui::Color32::from_rgba_premultiplied(52, 152, 219, 180),
                 ),
             };
-            let zoom_span_v = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_span_v = (self.sample_rate as f64 / self.zoom_factor as f64)
+                .max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset_v = (self.zoom_offset as f64 - 0.5) * zoom_span_v;
             let left_hz_v = -zoom_span_v / 2.0 + zoom_center_offset_v;
             let right_hz_v = zoom_span_v / 2.0 + zoom_center_offset_v;
@@ -1087,14 +1517,23 @@ impl SpectrumAnalyzer {
             if x1_frac < x2_frac {
                 let x1 = spectrum_rect.left() + x1_frac as f32 * spectrum_rect.width();
                 let x2 = spectrum_rect.left() + x2_frac as f32 * spectrum_rect.width();
-                let vfo_rect = egui::Rect::from_x_y_ranges(x1..=x2, spectrum_rect.top()..=spectrum_rect.bottom());
+                let vfo_rect = egui::Rect::from_x_y_ranges(
+                    x1..=x2,
+                    spectrum_rect.top()..=spectrum_rect.bottom(),
+                );
                 painter.rect_filled(vfo_rect, 0.0, fill_color);
                 painter.line_segment(
-                    [egui::pos2(x1, spectrum_rect.top()), egui::pos2(x1, spectrum_rect.bottom())],
+                    [
+                        egui::pos2(x1, spectrum_rect.top()),
+                        egui::pos2(x1, spectrum_rect.bottom()),
+                    ],
                     egui::Stroke::new(0.8, edge_color),
                 );
                 painter.line_segment(
-                    [egui::pos2(x2, spectrum_rect.top()), egui::pos2(x2, spectrum_rect.bottom())],
+                    [
+                        egui::pos2(x2, spectrum_rect.top()),
+                        egui::pos2(x2, spectrum_rect.bottom()),
+                    ],
                     egui::Stroke::new(0.8, edge_color),
                 );
                 let bw_khz = self.vfo_bw_hz as f32 / 1000.0;
@@ -1115,7 +1554,8 @@ impl SpectrumAnalyzer {
 
         // VFO B frequency marker
         if self.show_vfo_b && self.vfo_b_freq > 0 {
-            let vs = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let vs = (self.sample_rate as f64 / self.zoom_factor as f64)
+                .max(self.sample_rate as f64 * 0.01);
             let vo = (self.zoom_offset as f64 - 0.5) * vs;
             let left_hz_v = -vs / 2.0 + vo;
             let right_hz_v = vs / 2.0 + vo;
@@ -1132,7 +1572,10 @@ impl SpectrumAnalyzer {
                     let y1 = (y0 + dash_len).min(spectrum_rect.bottom());
                     painter.line_segment(
                         [egui::pos2(x, y0), egui::pos2(x, y1)],
-                        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(100, 180, 255, 160)),
+                        egui::Stroke::new(
+                            1.0,
+                            egui::Color32::from_rgba_premultiplied(100, 180, 255, 160),
+                        ),
                     );
                 }
                 // VFO B label
@@ -1149,7 +1592,8 @@ impl SpectrumAnalyzer {
 
         // Bookmark frequency overlays
         if self.show_bookmarks {
-            let zoom_span_bm = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_span_bm = (self.sample_rate as f64 / self.zoom_factor as f64)
+                .max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset_bm = (self.zoom_offset as f64 - 0.5) * zoom_span_bm;
             let left_hz_bm = -zoom_span_bm / 2.0 + zoom_center_offset_bm;
             let right_hz_bm = zoom_span_bm / 2.0 + zoom_center_offset_bm;
@@ -1160,7 +1604,10 @@ impl SpectrumAnalyzer {
                     let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
                     let (line_color, label_color) = category_color(bm_cat);
                     painter.line_segment(
-                        [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
+                        [
+                            egui::pos2(x, spectrum_rect.top()),
+                            egui::pos2(x, spectrum_rect.bottom()),
+                        ],
                         egui::Stroke::new(0.8, line_color),
                     );
                     painter.text(
@@ -1224,7 +1671,10 @@ impl SpectrumAnalyzer {
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
                 if let Some(prev) = prev_pos {
-                    painter.line_segment([prev, egui::pos2(x, y)], egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 80, 80)));
+                    painter.line_segment(
+                        [prev, egui::pos2(x, y)],
+                        egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 80, 80)),
+                    );
                 }
                 prev_pos = Some(egui::pos2(x, y));
             }
@@ -1258,7 +1708,9 @@ impl SpectrumAnalyzer {
             for (db, bin) in candidates.iter().take(8) {
                 let frac = (bin - first_bin) as f32 / visible_bins as f32;
                 let x = spectrum_rect.left() + frac * spectrum_rect.width();
-                if labeled_xs.iter().any(|&lx| (lx - x).abs() < 40.0) { continue; }
+                if labeled_xs.iter().any(|&lx| (lx - x).abs() < 40.0) {
+                    continue;
+                }
                 labeled_xs.push(x);
                 let norm = ((*db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
@@ -1267,7 +1719,10 @@ impl SpectrumAnalyzer {
                 // Stem line
                 painter.line_segment(
                     [egui::pos2(x, y), egui::pos2(x, y - 10.0)],
-                    egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(255, 100, 100, 180)),
+                    egui::Stroke::new(
+                        0.8,
+                        egui::Color32::from_rgba_premultiplied(255, 100, 100, 180),
+                    ),
                 );
                 // Label
                 painter.text(
@@ -1277,7 +1732,9 @@ impl SpectrumAnalyzer {
                     egui::FontId::proportional(7.5),
                     egui::Color32::from_rgb(255, 130, 130),
                 );
-                if labeled_xs.len() >= 5 { break; }
+                if labeled_xs.len() >= 5 {
+                    break;
+                }
             }
         }
 
@@ -1297,7 +1754,10 @@ impl SpectrumAnalyzer {
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
                 if let Some(prev) = prev_pos {
-                    painter.line_segment([prev, egui::pos2(x, y)], egui::Stroke::new(1.5, egui::Color32::from_rgb(46, 204, 113)));
+                    painter.line_segment(
+                        [prev, egui::pos2(x, y)],
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(46, 204, 113)),
+                    );
                 }
                 prev_pos = Some(egui::pos2(x, y));
             }
@@ -1311,8 +1771,14 @@ impl SpectrumAnalyzer {
             let t = (self.frame_counter as f32 * 0.04).sin() * 0.4 + 0.6;
             let alpha = (t * 90.0) as u8;
             painter.line_segment(
-                [egui::pos2(spectrum_rect.left(), nf_y), egui::pos2(spectrum_rect.right(), nf_y)],
-                egui::Stroke::new(0.7, egui::Color32::from_rgba_premultiplied(80, 80, 210, alpha)),
+                [
+                    egui::pos2(spectrum_rect.left(), nf_y),
+                    egui::pos2(spectrum_rect.right(), nf_y),
+                ],
+                egui::Stroke::new(
+                    0.7,
+                    egui::Color32::from_rgba_premultiplied(80, 80, 210, alpha),
+                ),
             );
             painter.text(
                 egui::pos2(spectrum_rect.left() + 4.0, nf_y - 2.0),
@@ -1336,7 +1802,10 @@ impl SpectrumAnalyzer {
                 let x1 = (x0 + dash_len).min(spectrum_rect.right());
                 painter.line_segment(
                     [egui::pos2(x0, sq_y), egui::pos2(x1, sq_y)],
-                    egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(220, 140, 40, 180)),
+                    egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_premultiplied(220, 140, 40, 180),
+                    ),
                 );
             }
             painter.text(
@@ -1355,23 +1824,40 @@ impl SpectrumAnalyzer {
             let bin = (frac * n as f32) as usize;
             if bin < n {
                 let db = self.spectrum_dbs[bin];
-                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64)
+                    .max(self.sample_rate as f64 * 0.01);
                 let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
                 let left_hz = -zoom_span / 2.0 + zoom_center_offset;
                 let offset_hz = left_hz + frac as f64 * zoom_span;
                 let freq = self.center_freq as f64 + offset_hz;
-                let freq_str = if freq >= 1e9 { format!("{:.3} GHz", freq / 1e9) }
-                    else if freq >= 1e6 { format!("{:.3} MHz", freq / 1e6) }
-                    else { format!("{:.1} kHz", freq / 1e3) };
+                let freq_str = if freq >= 1e9 {
+                    format!("{:.3} GHz", freq / 1e9)
+                } else if freq >= 1e6 {
+                    format!("{:.3} MHz", freq / 1e6)
+                } else {
+                    format!("{:.1} kHz", freq / 1e3)
+                };
 
                 // Crosshair
                 painter.line_segment(
-                    [egui::pos2(pointer.x, spectrum_rect.top()), egui::pos2(pointer.x, spectrum_rect.bottom())],
-                    egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(200, 200, 200, 128)),
+                    [
+                        egui::pos2(pointer.x, spectrum_rect.top()),
+                        egui::pos2(pointer.x, spectrum_rect.bottom()),
+                    ],
+                    egui::Stroke::new(
+                        0.5,
+                        egui::Color32::from_rgba_premultiplied(200, 200, 200, 128),
+                    ),
                 );
                 painter.line_segment(
-                    [egui::pos2(spectrum_rect.left(), pointer.y), egui::pos2(spectrum_rect.right(), pointer.y)],
-                    egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(200, 200, 200, 128)),
+                    [
+                        egui::pos2(spectrum_rect.left(), pointer.y),
+                        egui::pos2(spectrum_rect.right(), pointer.y),
+                    ],
+                    egui::Stroke::new(
+                        0.5,
+                        egui::Color32::from_rgba_premultiplied(200, 200, 200, 128),
+                    ),
                 );
 
                 // Cursor tooltip with frequency + delta from center + dB
@@ -1390,11 +1876,13 @@ impl SpectrumAnalyzer {
                     pointer.x + 12.0
                 };
                 let ty = (pointer.y - 22.0).max(spectrum_rect.top() + 2.0);
-                let text_rect = egui::Rect::from_min_size(
-                    egui::pos2(tx, ty),
-                    egui::vec2(tooltip_w, 16.0),
+                let text_rect =
+                    egui::Rect::from_min_size(egui::pos2(tx, ty), egui::vec2(tooltip_w, 16.0));
+                painter.rect_filled(
+                    text_rect,
+                    2.0,
+                    egui::Color32::from_rgba_unmultiplied(20, 20, 30, 220),
                 );
-                painter.rect_filled(text_rect, 2.0, egui::Color32::from_rgba_unmultiplied(20, 20, 30, 220));
                 painter.text(
                     egui::pos2(text_rect.left() + 4.0, text_rect.center().y),
                     egui::Align2::LEFT_CENTER,
@@ -1410,18 +1898,31 @@ impl SpectrumAnalyzer {
             let peak = self.peak_level();
             let noise = self.noise_floor();
             let snr = peak - noise;
-            let snr_color = if snr > 20.0 { egui::Color32::from_rgb(46, 204, 113) }
-                else if snr > 10.0 { egui::Color32::from_rgb(241, 196, 15) }
-                else { egui::Color32::from_rgb(231, 76, 60) };
+            let snr_color = if snr > 20.0 {
+                egui::Color32::from_rgb(46, 204, 113)
+            } else if snr > 10.0 {
+                egui::Color32::from_rgb(241, 196, 15)
+            } else {
+                egui::Color32::from_rgb(231, 76, 60)
+            };
             let badge_text = format!("SNR {:.1} dB", snr);
             let text_pos = egui::pos2(spectrum_rect.right() - 4.0, spectrum_rect.top() + 4.0);
             let bg_rect = egui::Rect::from_min_size(
                 egui::pos2(text_pos.x - 68.0, text_pos.y - 1.0),
                 egui::vec2(72.0, 14.0),
             );
-            painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160));
-            painter.text(text_pos, egui::Align2::RIGHT_TOP, &badge_text,
-                egui::FontId::monospace(10.0), snr_color);
+            painter.rect_filled(
+                bg_rect,
+                2.0,
+                egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+            );
+            painter.text(
+                text_pos,
+                egui::Align2::RIGHT_TOP,
+                &badge_text,
+                egui::FontId::monospace(10.0),
+                snr_color,
+            );
         }
 
         // Signal active / last-seen badge (top-right, below SNR badge)
@@ -1431,9 +1932,11 @@ impl SpectrumAnalyzer {
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
             let (badge_text, fg_color, bg_color) = if self.signal_active {
-                ("● ACTIVE".to_string(),
-                 egui::Color32::from_rgb(60, 220, 80),
-                 egui::Color32::from_rgba_premultiplied(0, 40, 0, 180))
+                (
+                    "● ACTIVE".to_string(),
+                    egui::Color32::from_rgb(60, 220, 80),
+                    egui::Color32::from_rgba_premultiplied(0, 40, 0, 180),
+                )
             } else if let Some(last) = self.last_signal_unix {
                 let elapsed = (now_unix - last).max(0.0);
                 let text = if elapsed < 60.0 {
@@ -1444,13 +1947,17 @@ impl SpectrumAnalyzer {
                     format!("Last: {:.1}h ago", elapsed / 3600.0)
                 };
                 let alpha = ((1.0 - (elapsed / 600.0).min(1.0)) * 200.0) as u8 + 55;
-                (text,
-                 egui::Color32::from_rgba_premultiplied(160, 200, 160, alpha),
-                 egui::Color32::from_rgba_premultiplied(0, 0, 0, 120))
+                (
+                    text,
+                    egui::Color32::from_rgba_premultiplied(160, 200, 160, alpha),
+                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+                )
             } else {
-                ("No activity".to_string(),
-                 egui::Color32::from_rgba_premultiplied(100, 100, 100, 140),
-                 egui::Color32::from_rgba_premultiplied(0, 0, 0, 80))
+                (
+                    "No activity".to_string(),
+                    egui::Color32::from_rgba_premultiplied(100, 100, 100, 140),
+                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 80),
+                )
             };
             let badge_w = (badge_text.len() as f32 * 5.5 + 10.0).max(66.0);
             let active_pos = egui::pos2(spectrum_rect.right() - 4.0, spectrum_rect.top() + 20.0);
@@ -1459,8 +1966,13 @@ impl SpectrumAnalyzer {
                 egui::vec2(badge_w + 4.0, 14.0),
             );
             painter.rect_filled(bg_rect, 2.0, bg_color);
-            painter.text(active_pos, egui::Align2::RIGHT_TOP, &badge_text,
-                egui::FontId::monospace(10.0), fg_color);
+            painter.text(
+                active_pos,
+                egui::Align2::RIGHT_TOP,
+                &badge_text,
+                egui::FontId::monospace(10.0),
+                fg_color,
+            );
         }
 
         // Band name overlay (top-left of spectrum)
@@ -1471,15 +1983,24 @@ impl SpectrumAnalyzer {
                 egui::pos2(band_pos.x - 2.0, band_pos.y - 1.0),
                 egui::vec2(band_w, 14.0),
             );
-            painter.rect_filled(bg_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160));
-            painter.text(band_pos, egui::Align2::LEFT_TOP, info.band,
+            painter.rect_filled(
+                bg_rect,
+                2.0,
+                egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+            );
+            painter.text(
+                band_pos,
+                egui::Align2::LEFT_TOP,
+                info.band,
                 egui::FontId::proportional(10.0),
-                egui::Color32::from_rgba_premultiplied(180, 220, 255, 220));
+                egui::Color32::from_rgba_premultiplied(180, 220, 255, 220),
+            );
         }
 
         // Center frequency indicator (dashed vertical line)
         {
-            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64)
+                .max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
             let left_hz = -zoom_span / 2.0 + zoom_center_offset;
             let right_hz = zoom_span / 2.0 + zoom_center_offset;
@@ -1495,7 +2016,10 @@ impl SpectrumAnalyzer {
                     let y_end = (y + dash_len).min(spectrum_rect.bottom());
                     painter.line_segment(
                         [egui::pos2(x, y), egui::pos2(x, y_end)],
-                        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(100, 160, 255, 100)),
+                        egui::Stroke::new(
+                            1.0,
+                            egui::Color32::from_rgba_premultiplied(100, 160, 255, 100),
+                        ),
                     );
                     y += dash_len + gap_len;
                 }
@@ -1512,7 +2036,8 @@ impl SpectrumAnalyzer {
         // Frequency markers
         for (marker_freq, marker_label) in &self.markers {
             let offset_hz = *marker_freq as f64 - self.center_freq as f64;
-            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64)
+                .max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
             let left_hz = -zoom_span / 2.0 + zoom_center_offset;
             let right_hz = zoom_span / 2.0 + zoom_center_offset;
@@ -1520,8 +2045,14 @@ impl SpectrumAnalyzer {
             if (0.0..=1.0).contains(&frac) {
                 let x = spectrum_rect.left() + frac as f32 * spectrum_rect.width();
                 painter.line_segment(
-                    [egui::pos2(x, spectrum_rect.top()), egui::pos2(x, spectrum_rect.bottom())],
-                    egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(255, 200, 50, 160)),
+                    [
+                        egui::pos2(x, spectrum_rect.top()),
+                        egui::pos2(x, spectrum_rect.bottom()),
+                    ],
+                    egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_premultiplied(255, 200, 50, 160),
+                    ),
                 );
                 let display_label = if marker_label.is_empty() {
                     format!("{:.3} MHz", *marker_freq as f64 / 1e6)
@@ -1540,22 +2071,33 @@ impl SpectrumAnalyzer {
 
         // Marker delta measurement — draw span arrow between first two visible markers
         if self.markers.len() >= 2 {
-            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64)
+                .max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
             let left_hz = -zoom_span / 2.0 + zoom_center_offset;
             let right_hz = zoom_span / 2.0 + zoom_center_offset;
             let freq_to_x = |freq: u64| -> Option<f32> {
                 let offset = freq as f64 - self.center_freq as f64;
                 let frac = (offset - left_hz) / (right_hz - left_hz);
-                if (0.0..=1.0).contains(&frac) { Some(spectrum_rect.left() + frac as f32 * spectrum_rect.width()) }
-                else { None }
+                if (0.0..=1.0).contains(&frac) {
+                    Some(spectrum_rect.left() + frac as f32 * spectrum_rect.width())
+                } else {
+                    None
+                }
             };
-            let visible: Vec<u64> = self.markers.iter()
+            let visible: Vec<u64> = self
+                .markers
+                .iter()
                 .filter_map(|(f, _)| freq_to_x(*f).map(|_| *f))
-                .take(2).collect();
+                .take(2)
+                .collect();
             if visible.len() == 2 {
                 if let (Some(x1), Some(x2)) = (freq_to_x(visible[0]), freq_to_x(visible[1])) {
-                    let (xl, xr, fl, fr) = if x1 < x2 { (x1, x2, visible[0], visible[1]) } else { (x2, x1, visible[1], visible[0]) };
+                    let (xl, xr, fl, fr) = if x1 < x2 {
+                        (x1, x2, visible[0], visible[1])
+                    } else {
+                        (x2, x1, visible[1], visible[0])
+                    };
                     let delta_hz = fr as f64 - fl as f64;
                     let delta_str = if delta_hz.abs() >= 1_000_000.0 {
                         format!("Δ {:.3} MHz", delta_hz / 1e6)
@@ -1566,16 +2108,34 @@ impl SpectrumAnalyzer {
                     };
                     let span_y = spectrum_rect.bottom() - 12.0;
                     let arrow_color = egui::Color32::from_rgba_premultiplied(200, 200, 80, 180);
-                    painter.line_segment([egui::pos2(xl, span_y), egui::pos2(xr, span_y)], egui::Stroke::new(1.0, arrow_color));
-                    painter.line_segment([egui::pos2(xl, span_y - 3.0), egui::pos2(xl, span_y + 3.0)], egui::Stroke::new(1.0, arrow_color));
-                    painter.line_segment([egui::pos2(xr, span_y - 3.0), egui::pos2(xr, span_y + 3.0)], egui::Stroke::new(1.0, arrow_color));
+                    painter.line_segment(
+                        [egui::pos2(xl, span_y), egui::pos2(xr, span_y)],
+                        egui::Stroke::new(1.0, arrow_color),
+                    );
+                    painter.line_segment(
+                        [egui::pos2(xl, span_y - 3.0), egui::pos2(xl, span_y + 3.0)],
+                        egui::Stroke::new(1.0, arrow_color),
+                    );
+                    painter.line_segment(
+                        [egui::pos2(xr, span_y - 3.0), egui::pos2(xr, span_y + 3.0)],
+                        egui::Stroke::new(1.0, arrow_color),
+                    );
                     let mid_x = (xl + xr) / 2.0;
                     painter.rect_filled(
-                        egui::Rect::from_min_size(egui::pos2(mid_x - 28.0, span_y - 10.0), egui::vec2(56.0, 11.0)),
-                        2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+                        egui::Rect::from_min_size(
+                            egui::pos2(mid_x - 28.0, span_y - 10.0),
+                            egui::vec2(56.0, 11.0),
+                        ),
+                        2.0,
+                        egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
                     );
-                    painter.text(egui::pos2(mid_x, span_y - 5.0), egui::Align2::CENTER_CENTER,
-                        delta_str, egui::FontId::monospace(8.0), arrow_color);
+                    painter.text(
+                        egui::pos2(mid_x, span_y - 5.0),
+                        egui::Align2::CENTER_CENTER,
+                        delta_str,
+                        egui::FontId::monospace(8.0),
+                        arrow_color,
+                    );
                 }
             }
         }
@@ -1583,7 +2143,8 @@ impl SpectrumAnalyzer {
         // Scanner sweep position marker
         if let Some(scan_freq) = self.scan_marker {
             let offset_hz = scan_freq as f64 - self.center_freq as f64;
-            let zoom_span_s = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+            let zoom_span_s = (self.sample_rate as f64 / self.zoom_factor as f64)
+                .max(self.sample_rate as f64 * 0.01);
             let zoom_center_offset_s = (self.zoom_offset as f64 - 0.5) * zoom_span_s;
             let left_hz_s = -zoom_span_s / 2.0 + zoom_center_offset_s;
             let right_hz_s = zoom_span_s / 2.0 + zoom_center_offset_s;
@@ -1597,7 +2158,10 @@ impl SpectrumAnalyzer {
                     let y_end = (y + dash).min(spectrum_rect.bottom());
                     painter.line_segment(
                         [egui::pos2(x, y), egui::pos2(x, y_end)],
-                        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 220, 220, 180)),
+                        egui::Stroke::new(
+                            1.0,
+                            egui::Color32::from_rgba_premultiplied(0, 220, 220, 180),
+                        ),
                     );
                     y += dash * 2.0;
                 }
@@ -1632,16 +2196,34 @@ impl SpectrumAnalyzer {
                 8.0,
                 egui::Color32::from_rgba_premultiplied(10, 10, 20, 210),
             );
-            painter.text(center - egui::vec2(0.0, 26.0), egui::Align2::CENTER_CENTER,
+            painter.text(
+                center - egui::vec2(0.0, 26.0),
+                egui::Align2::CENTER_CENTER,
                 "No SDR source running",
-                egui::FontId::proportional(15.0), egui::Color32::from_rgb(200, 200, 200));
-            let btn_rect = egui::Rect::from_center_size(center + egui::vec2(0.0, 8.0), egui::vec2(180.0, 32.0));
-            if ui.put(btn_rect, egui::Button::new(
-                egui::RichText::new("▶  Start SDR").size(14.0).strong()
-            ).fill(egui::Color32::from_rgb(30, 100, 50))).on_hover_text("Click to start the SDR source and begin receiving signals (or press Space).").clicked() {
+                egui::FontId::proportional(15.0),
+                egui::Color32::from_rgb(200, 200, 200),
+            );
+            let btn_rect = egui::Rect::from_center_size(
+                center + egui::vec2(0.0, 8.0),
+                egui::vec2(180.0, 32.0),
+            );
+            if ui
+                .put(
+                    btn_rect,
+                    egui::Button::new(egui::RichText::new("▶  Start SDR").size(14.0).strong())
+                        .fill(egui::Color32::from_rgb(30, 100, 50)),
+                )
+                .on_hover_text(
+                    "Click to start the SDR source and begin receiving signals (or press Space).",
+                )
+                .clicked()
+            {
                 self.pending_start_source = true;
             }
-        } else if self.source_running && !self.spectrum_dbs.is_empty() && self.spectrum_dbs.iter().all(|&db| db < -100.0) {
+        } else if self.source_running
+            && !self.spectrum_dbs.is_empty()
+            && self.spectrum_dbs.iter().all(|&db| db < -100.0)
+        {
             // Demo mode with no visible signal — help beginner get started
             let center = spectrum_rect.center();
             painter.rect_filled(
@@ -1649,15 +2231,27 @@ impl SpectrumAnalyzer {
                 8.0,
                 egui::Color32::from_rgba_premultiplied(10, 20, 40, 210),
             );
-            painter.text(center - egui::vec2(0.0, 30.0), egui::Align2::CENTER_CENTER,
+            painter.text(
+                center - egui::vec2(0.0, 30.0),
+                egui::Align2::CENTER_CENTER,
                 "Demo Mode — Try a quick preset to hear signals",
-                egui::FontId::proportional(14.0), egui::Color32::from_rgb(200, 200, 200));
-            painter.text(center + egui::vec2(0.0, -8.0), egui::Align2::CENTER_CENTER,
+                egui::FontId::proportional(14.0),
+                egui::Color32::from_rgb(200, 200, 200),
+            );
+            painter.text(
+                center + egui::vec2(0.0, -8.0),
+                egui::Align2::CENTER_CENTER,
                 "📻 FM  •  🛰️ ADS-B  •  ☁️ Weather  •  📡 ISS  •  🔬 2m Ham",
-                egui::FontId::monospace(12.0), egui::Color32::from_rgb(150, 220, 150));
-            painter.text(center + egui::vec2(0.0, 18.0), egui::Align2::CENTER_CENTER,
+                egui::FontId::monospace(12.0),
+                egui::Color32::from_rgb(150, 220, 150),
+            );
+            painter.text(
+                center + egui::vec2(0.0, 18.0),
+                egui::Align2::CENTER_CENTER,
                 "(Buttons in SDR Panel left side, or press Space to see more options)",
-                egui::FontId::monospace(10.0), egui::Color32::from_rgb(150, 150, 200));
+                egui::FontId::monospace(10.0),
+                egui::Color32::from_rgb(150, 150, 200),
+            );
         }
 
         // Capture right-click position for context menu squelch action
@@ -1669,8 +2263,10 @@ impl SpectrumAnalyzer {
         if response.double_clicked() {
             // Double-click: add frequency marker
             if let Some(pointer) = response.hover_pos() {
-                let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let frac =
+                    ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64)
+                    .max(self.sample_rate as f64 * 0.01);
                 let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
                 let left_hz = -zoom_span / 2.0 + zoom_center_offset;
                 let offset_hz = left_hz + frac as f64 * zoom_span;
@@ -1679,8 +2275,10 @@ impl SpectrumAnalyzer {
             }
         } else if response.clicked() {
             if let Some(pointer) = response.hover_pos() {
-                let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let frac =
+                    ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64)
+                    .max(self.sample_rate as f64 * 0.01);
                 let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
                 let left_hz = -zoom_span / 2.0 + zoom_center_offset;
                 let offset_hz = left_hz + frac as f64 * zoom_span;
@@ -1847,8 +2445,10 @@ impl SpectrumAnalyzer {
         // Middle-click to add frequency marker
         if response.clicked_by(egui::PointerButton::Middle) {
             if let Some(pointer) = response.hover_pos() {
-                let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64).max(self.sample_rate as f64 * 0.01);
+                let frac =
+                    ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
+                let zoom_span = (self.sample_rate as f64 / self.zoom_factor as f64)
+                    .max(self.sample_rate as f64 * 0.01);
                 let zoom_center_offset = (self.zoom_offset as f64 - 0.5) * zoom_span;
                 let left_hz = -zoom_span / 2.0 + zoom_center_offset;
                 let offset_hz = left_hz + frac as f64 * zoom_span;
@@ -1870,12 +2470,15 @@ impl SpectrumAnalyzer {
             if scroll_delta.y != 0.0 {
                 if ctrl {
                     let step = (self.vfo_bw_hz as f32 * 0.1).max(100.0);
-                    self.vfo_bw_hz = (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
+                    self.vfo_bw_hz =
+                        (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
                     self.show_vfo_bw = true;
                 } else if shift {
-                    self.zoom_offset = (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
+                    self.zoom_offset =
+                        (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
                 } else {
-                    self.zoom_factor = (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
+                    self.zoom_factor =
+                        (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
                 }
             }
         }
@@ -1888,7 +2491,10 @@ impl SpectrumAnalyzer {
             self.waterfall_dirty = true;
         }
 
-        let (wf_rect, wf_response) = ui.allocate_exact_size(egui::vec2(avail.x, waterfall_height), egui::Sense::click_and_drag());
+        let (wf_rect, wf_response) = ui.allocate_exact_size(
+            egui::vec2(avail.x, waterfall_height),
+            egui::Sense::click_and_drag(),
+        );
 
         if self.waterfall_dirty {
             let mut rgba_bytes = Vec::with_capacity(self.fft_size * self.waterfall_history * 4);
@@ -1941,7 +2547,8 @@ impl SpectrumAnalyzer {
 
         // Waterfall time axis labels (left edge)
         {
-            let secs_per_row = (self.fft_size as f64 / self.sample_rate as f64) * self.waterfall_every_n as f64;
+            let secs_per_row =
+                (self.fft_size as f64 / self.sample_rate as f64) * self.waterfall_every_n as f64;
             let interval_rows = (self.waterfall_history / 8).max(1);
             let n_labels = self.waterfall_history / interval_rows;
             for k in 1..=n_labels {
@@ -1976,11 +2583,22 @@ impl SpectrumAnalyzer {
                     let (mut line_color, mut label_color) = category_color(bm_cat);
                     // Slightly dimmer on waterfall for legibility
                     line_color = egui::Color32::from_rgba_premultiplied(
-                        line_color.r(), line_color.g(), line_color.b(), 90);
+                        line_color.r(),
+                        line_color.g(),
+                        line_color.b(),
+                        90,
+                    );
                     label_color = egui::Color32::from_rgba_premultiplied(
-                        label_color.r(), label_color.g(), label_color.b(), 130);
+                        label_color.r(),
+                        label_color.g(),
+                        label_color.b(),
+                        130,
+                    );
                     wf_painter.line_segment(
-                        [egui::pos2(x, wf_rect.top()), egui::pos2(x, wf_rect.bottom())],
+                        [
+                            egui::pos2(x, wf_rect.top()),
+                            egui::pos2(x, wf_rect.bottom()),
+                        ],
                         egui::Stroke::new(0.7, line_color),
                     );
                     wf_painter.text(
@@ -2008,7 +2626,10 @@ impl SpectrumAnalyzer {
                     let y1 = (y0 + dash_len).min(wf_rect.bottom());
                     wf_painter.line_segment(
                         [egui::pos2(x, y0), egui::pos2(x, y1)],
-                        egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(100, 180, 255, 90)),
+                        egui::Stroke::new(
+                            0.8,
+                            egui::Color32::from_rgba_premultiplied(100, 180, 255, 90),
+                        ),
                     );
                 }
                 wf_painter.text(
@@ -2034,12 +2655,15 @@ impl SpectrumAnalyzer {
             if scroll_delta.y != 0.0 {
                 if ctrl {
                     let step = (self.vfo_bw_hz as f32 * 0.1).max(100.0);
-                    self.vfo_bw_hz = (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
+                    self.vfo_bw_hz =
+                        (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
                     self.show_vfo_bw = true;
                 } else if shift {
-                    self.zoom_offset = (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
+                    self.zoom_offset =
+                        (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
                 } else {
-                    self.zoom_factor = (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
+                    self.zoom_factor =
+                        (self.zoom_factor * (1.0 + scroll_delta.y * -0.1)).clamp(1.0, 200.0);
                 }
             }
         }
@@ -2080,7 +2704,11 @@ impl SpectrumAnalyzer {
                         self.pending_bookmark_freq = Some(freq);
                         ui.close();
                     }
-                    if ui.button("🔷 Set as VFO B").on_hover_text("Save this frequency as VFO B for quick A/B comparison.").clicked() {
+                    if ui
+                        .button("🔷 Set as VFO B")
+                        .on_hover_text("Save this frequency as VFO B for quick A/B comparison.")
+                        .clicked()
+                    {
                         self.clicked_tune_freq = Some(freq);
                         self.pending_vfo_b_freq = Some(freq);
                         ui.close();
@@ -2089,7 +2717,8 @@ impl SpectrumAnalyzer {
                         ui.ctx().copy_text(format!("{:.4}", freq_mhz));
                         ui.close();
                     }
-                    if ui.button(format!("🤖 Ask AI about {:.3} MHz", freq_mhz))
+                    if ui
+                        .button(format!("🤖 Ask AI about {:.3} MHz", freq_mhz))
                         .on_hover_text("Pre-fill the AI Agent with a question about this frequency")
                         .clicked()
                     {
@@ -2099,7 +2728,13 @@ impl SpectrumAnalyzer {
                 }
             }
             ui.separator();
-            if ui.button("📸 Save waterfall screenshot").on_hover_text("Save the entire waterfall history as a PNG image with metadata sidecar.").clicked() {
+            if ui
+                .button("📸 Save waterfall screenshot")
+                .on_hover_text(
+                    "Save the entire waterfall history as a PNG image with metadata sidecar.",
+                )
+                .clicked()
+            {
                 self.save_waterfall_png();
                 ui.close();
             }
@@ -2114,18 +2749,32 @@ impl SpectrumAnalyzer {
             let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
             let offset_hz = left_hz + frac as f64 * zoom_span;
             let freq = self.center_freq as f64 + offset_hz;
-            let freq_str = if freq >= 1e9 { format!("{:.3} GHz", freq / 1e9) }
-                else if freq >= 1e6 { format!("{:.3} MHz", freq / 1e6) }
-                else { format!("{:.1} kHz", freq / 1e3) };
+            let freq_str = if freq >= 1e9 {
+                format!("{:.3} GHz", freq / 1e9)
+            } else if freq >= 1e6 {
+                format!("{:.3} MHz", freq / 1e6)
+            } else {
+                format!("{:.1} kHz", freq / 1e3)
+            };
             wf_painter.line_segment(
-                [egui::pos2(pointer.x, wf_rect.top()), egui::pos2(pointer.x, wf_rect.bottom())],
-                egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(255, 255, 255, 100)),
+                [
+                    egui::pos2(pointer.x, wf_rect.top()),
+                    egui::pos2(pointer.x, wf_rect.bottom()),
+                ],
+                egui::Stroke::new(
+                    0.5,
+                    egui::Color32::from_rgba_premultiplied(255, 255, 255, 100),
+                ),
             );
             let tip_rect = egui::Rect::from_min_size(
                 egui::pos2(pointer.x + 6.0, pointer.y - 12.0),
                 egui::vec2(100.0, 14.0),
             );
-            wf_painter.rect_filled(tip_rect, 2.0, egui::Color32::from_rgba_premultiplied(0, 0, 0, 180));
+            wf_painter.rect_filled(
+                tip_rect,
+                2.0,
+                egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
+            );
             wf_painter.text(
                 egui::pos2(tip_rect.left() + 3.0, tip_rect.center().y),
                 egui::Align2::LEFT_CENTER,
@@ -2137,7 +2786,7 @@ impl SpectrumAnalyzer {
     }
 }
 
-fn lerp_color(a: (u8,u8,u8), b: (u8,u8,u8), t: f32) -> (u8,u8,u8) {
+fn lerp_color(a: (u8, u8, u8), b: (u8, u8, u8), t: f32) -> (u8, u8, u8) {
     (
         (a.0 as f32 + (b.0 as f32 - a.0 as f32) * t) as u8,
         (a.1 as f32 + (b.1 as f32 - a.1 as f32) * t) as u8,
@@ -2145,9 +2794,11 @@ fn lerp_color(a: (u8,u8,u8), b: (u8,u8,u8), t: f32) -> (u8,u8,u8) {
     )
 }
 
-fn sample_palette(palette: &[(u8,u8,u8)], t: f32) -> (u8,u8,u8) {
+fn sample_palette(palette: &[(u8, u8, u8)], t: f32) -> (u8, u8, u8) {
     let n = palette.len();
-    if n == 0 { return (0,0,0); }
+    if n == 0 {
+        return (0, 0, 0);
+    }
     let scaled = t.clamp(0.0, 1.0) * (n - 1) as f32;
     let lo = scaled.floor() as usize;
     let hi = (lo + 1).min(n - 1);
@@ -2159,28 +2810,49 @@ fn color_map(cmap: ColorMap, t: f32) -> (u8, u8, u8) {
         ColorMap::Classic => waterfall_color_classic(t),
         ColorMap::Viridis => {
             // 8-stop piecewise approximation of matplotlib Viridis
-            const V: &[(u8,u8,u8)] = &[
-                (68, 1, 84), (72, 40, 120), (62, 74, 137), (49, 104, 142),
-                (38, 130, 142), (31, 158, 137), (53, 183, 121), (110, 206, 88),
-                (181, 222, 43), (253, 231, 37),
+            const V: &[(u8, u8, u8)] = &[
+                (68, 1, 84),
+                (72, 40, 120),
+                (62, 74, 137),
+                (49, 104, 142),
+                (38, 130, 142),
+                (31, 158, 137),
+                (53, 183, 121),
+                (110, 206, 88),
+                (181, 222, 43),
+                (253, 231, 37),
             ];
             sample_palette(V, t)
         }
         ColorMap::Plasma => {
             // 10-stop piecewise approximation of matplotlib Plasma
-            const P: &[(u8,u8,u8)] = &[
-                (13, 8, 135), (75, 3, 161), (125, 3, 168), (168, 34, 150),
-                (203, 70, 121), (229, 107, 93), (248, 148, 65), (253, 195, 40),
-                (240, 249, 33), (240, 249, 33),
+            const P: &[(u8, u8, u8)] = &[
+                (13, 8, 135),
+                (75, 3, 161),
+                (125, 3, 168),
+                (168, 34, 150),
+                (203, 70, 121),
+                (229, 107, 93),
+                (248, 148, 65),
+                (253, 195, 40),
+                (240, 249, 33),
+                (240, 249, 33),
             ];
             sample_palette(P, t)
         }
         ColorMap::Magma => {
             // 10-stop piecewise approximation of matplotlib Magma
-            const M: &[(u8,u8,u8)] = &[
-                (0, 0, 4), (28, 16, 68), (79, 18, 123), (129, 37, 129),
-                (181, 54, 122), (229, 80, 100), (251, 135, 97), (254, 194, 135),
-                (252, 253, 191), (252, 253, 191),
+            const M: &[(u8, u8, u8)] = &[
+                (0, 0, 4),
+                (28, 16, 68),
+                (79, 18, 123),
+                (129, 37, 129),
+                (181, 54, 122),
+                (229, 80, 100),
+                (251, 135, 97),
+                (254, 194, 135),
+                (252, 253, 191),
+                (252, 253, 191),
             ];
             sample_palette(M, t)
         }
@@ -2195,19 +2867,39 @@ fn color_map(cmap: ColorMap, t: f32) -> (u8, u8, u8) {
             (r, g, b)
         }
         ColorMap::Inferno => {
-            const I: &[(u8,u8,u8)] = &[
-                (0, 0, 4), (10, 7, 34), (43, 14, 76), (85, 17, 109),
-                (128, 24, 124), (171, 41, 113), (210, 71, 82), (240, 113, 39),
-                (246, 162, 16), (246, 214, 50), (252, 255, 164),
+            const I: &[(u8, u8, u8)] = &[
+                (0, 0, 4),
+                (10, 7, 34),
+                (43, 14, 76),
+                (85, 17, 109),
+                (128, 24, 124),
+                (171, 41, 113),
+                (210, 71, 82),
+                (240, 113, 39),
+                (246, 162, 16),
+                (246, 214, 50),
+                (252, 255, 164),
             ];
             sample_palette(I, t)
         }
         ColorMap::Turbo => {
-            const T: &[(u8,u8,u8)] = &[
-                (48, 18, 59), (62, 37, 137), (58, 72, 195), (39, 115, 215),
-                (24, 158, 196), (34, 196, 149), (76, 226, 94), (144, 242, 44),
-                (213, 239, 24), (255, 219, 28), (255, 198, 37), (255, 173, 46),
-                (255, 130, 57), (247, 79, 67), (222, 33, 69), (186, 9, 58),
+            const T: &[(u8, u8, u8)] = &[
+                (48, 18, 59),
+                (62, 37, 137),
+                (58, 72, 195),
+                (39, 115, 215),
+                (24, 158, 196),
+                (34, 196, 149),
+                (76, 226, 94),
+                (144, 242, 44),
+                (213, 239, 24),
+                (255, 219, 28),
+                (255, 198, 37),
+                (255, 173, 46),
+                (255, 130, 57),
+                (247, 79, 67),
+                (222, 33, 69),
+                (186, 9, 58),
             ];
             sample_palette(T, t)
         }

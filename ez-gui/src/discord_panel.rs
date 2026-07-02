@@ -208,6 +208,16 @@ impl DiscordPanel {
                                 }
                             }
 
+                            // Category color swatch
+                            let c = kind.color;
+                            let swatch = egui::Color32::from_rgb(
+                                ((c >> 16) & 0xFF) as u8,
+                                ((c >> 8) & 0xFF) as u8,
+                                (c & 0xFF) as u8,
+                            );
+                            let (rect, _) = ui.allocate_exact_size(egui::vec2(4.0, 18.0), egui::Sense::hover());
+                            ui.painter().rect_filled(rect, 0.0, swatch);
+
                             // Label + description
                             ui.vertical(|ui| {
                                 ui.label(format!("{} {}", kind.emoji, kind.label))
@@ -267,11 +277,13 @@ impl DiscordPanel {
                     },
                     image,
                 )
-            },
+            }
             "scanner_hit" => discord::embed_scanner_hit(145_550_000, -45.5),
             "sat_aos" => discord::embed_sat_aos("ISS", 145_800_000, 62.5),
             "sat_los" => discord::embed_sat_los("ISS"),
-            "sat_upcoming" => discord::embed_sat_upcoming("ISS", "13:45:00", "13:58:00", 62.5, 145_800_000),
+            "sat_upcoming" => {
+                discord::embed_sat_upcoming("ISS", "13:45:00", "13:58:00", 62.5, 145_800_000)
+            }
             "rec_started" => discord::embed_recording_started(137_620_000, "WFM", true, false),
             "rec_stopped" => discord::embed_recording_stopped(137_620_000, "WFM", 120, 50_000_000),
             "rec_error" => discord::embed_recording_error("Disk space low"),

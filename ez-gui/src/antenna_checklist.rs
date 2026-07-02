@@ -28,7 +28,14 @@ pub struct AntennaChecklist {
 
 impl AntennaChecklist {
     pub fn new(shared: Arc<Mutex<SharedState>>, title: &'static str, intro: &'static str) -> Self {
-        Self { shared, items: vec![], passed: false, title, intro, pending_status: None }
+        Self {
+            shared,
+            items: vec![],
+            passed: false,
+            title,
+            intro,
+            pending_status: None,
+        }
     }
 
     pub fn for_sdr(shared: Arc<Mutex<SharedState>>) -> Self {
@@ -101,14 +108,22 @@ impl AntennaChecklist {
     /// real content (either the user passed the gate, or skip is persisted).
     pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         // Persisted skip: auto-pass silently.
-        let skip_persisted = self.shared.try_lock().map(|s| s.config.skip_antenna_checklists).unwrap_or(false);
+        let skip_persisted = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.skip_antenna_checklists)
+            .unwrap_or(false);
         if skip_persisted || self.passed {
             return true;
         }
 
         let all_critical = self.items.iter().filter(|i| i.critical).all(|i| i.checked);
         let n_crit = self.items.iter().filter(|i| i.critical).count();
-        let n_crit_on = self.items.iter().filter(|i| i.critical && i.checked).count();
+        let n_crit_on = self
+            .items
+            .iter()
+            .filter(|i| i.critical && i.checked)
+            .count();
         let n_total = self.items.len();
 
         egui::Frame::group(ui.style())
@@ -181,8 +196,18 @@ impl AntennaChecklist {
 }
 
 fn crit(label: &'static str, detail: &'static str) -> ChecklistItem {
-    ChecklistItem { label, detail, critical: true, checked: false }
+    ChecklistItem {
+        label,
+        detail,
+        critical: true,
+        checked: false,
+    }
 }
 fn item(label: &'static str, detail: &'static str) -> ChecklistItem {
-    ChecklistItem { label, detail, critical: false, checked: false }
+    ChecklistItem {
+        label,
+        detail,
+        critical: false,
+        checked: false,
+    }
 }

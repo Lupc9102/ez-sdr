@@ -1,17 +1,17 @@
-pub mod mode_s;
-pub mod mode_ac;
-pub mod demod;
+pub mod adaptive;
+pub mod convert;
 pub mod cpr;
-pub mod track;
 pub mod crc;
+pub mod demod;
+pub mod fifo;
 pub mod icao_filter;
+pub mod mode_ac;
+pub mod mode_s;
 pub mod net_io;
 pub mod sdr;
-pub mod adaptive;
 pub mod stats;
-pub mod convert;
+pub mod track;
 pub mod util;
-pub mod fifo;
 
 use clap::Parser;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,7 +63,8 @@ impl NetOutput {
         let signal = (mm.signal_level * 255.0).min(255.0) as u8;
         let msg_len = mm.msgbits / 8;
         if msg_len > 0 {
-            self.inner.send_beast(mm.timestamp_msg, signal, &mm.msg[..msg_len]);
+            self.inner
+                .send_beast(mm.timestamp_msg, signal, &mm.msg[..msg_len]);
         }
     }
 }
@@ -147,7 +148,9 @@ fn main() -> anyhow::Result<()> {
         }
         #[cfg(not(feature = "rtlsdr"))]
         {
-            anyhow::bail!("no SDR backend compiled in; rebuild with --features rtlsdr (or pass --ifile)")
+            anyhow::bail!(
+                "no SDR backend compiled in; rebuild with --features rtlsdr (or pass --ifile)"
+            )
         }
     };
 
@@ -158,7 +161,9 @@ fn main() -> anyhow::Result<()> {
 
     // 4. Start source
     source.start().inspect_err(|_e| {
-        eprintln!("dump1090: failed to start source. If using RTL-SDR, ensure a device is connected.");
+        eprintln!(
+            "dump1090: failed to start source. If using RTL-SDR, ensure a device is connected."
+        );
     })?;
 
     // 5. If --net, start NetOutput

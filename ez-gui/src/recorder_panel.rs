@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use crate::app::SharedState;
+use std::sync::{Arc, Mutex};
 
 pub struct SignalEvent {
     pub timestamp: String,
@@ -83,7 +83,13 @@ impl RecorderPanel {
         }
     }
 
-    fn apply_filename_template(&self, template: &str, ts_str: &str, freq_mhz: f64, mode: &str) -> String {
+    fn apply_filename_template(
+        &self,
+        template: &str,
+        ts_str: &str,
+        freq_mhz: f64,
+        mode: &str,
+    ) -> String {
         template
             .replace("{date}", ts_str)
             .replace("{freq}", &format!("{:.3}", freq_mhz))
@@ -93,18 +99,29 @@ impl RecorderPanel {
             .replace(' ', "_")
     }
 
-    pub fn tick_squelch_record(&mut self, signal_db: f32, squelch_db: f32, freq_hz: u64, mode: &str) {
+    pub fn tick_squelch_record(
+        &mut self,
+        signal_db: f32,
+        squelch_db: f32,
+        freq_hz: u64,
+        mode: &str,
+    ) {
         let signal_active = signal_db > squelch_db && squelch_db > -90.0;
         let now = std::time::Instant::now();
 
         // Signal event log — throttle to one entry per 5s per activation
         if self.signal_monitor && signal_active {
             let log_gap = std::time::Duration::from_secs(5);
-            let should_log = self.signal_last_logged.map(|t| now.duration_since(t) >= log_gap).unwrap_or(true);
+            let should_log = self
+                .signal_last_logged
+                .map(|t| now.duration_since(t) >= log_gap)
+                .unwrap_or(true);
             if should_log {
                 self.signal_last_logged = Some(now);
                 let ts = chrono::Local::now().format("%H:%M:%S").to_string();
-                if self.signal_log.len() >= 200 { self.signal_log.pop_front(); }
+                if self.signal_log.len() >= 200 {
+                    self.signal_log.pop_front();
+                }
                 self.signal_log.push_back(SignalEvent {
                     timestamp: ts,
                     frequency_hz: freq_hz,
@@ -117,7 +134,9 @@ impl RecorderPanel {
             self.signal_last_logged = None;
         }
 
-        if !self.squelch_record { return; }
+        if !self.squelch_record {
+            return;
+        }
         if signal_active {
             self.squelch_record_last_active = Some(now);
             if !self.recording {
@@ -126,7 +145,10 @@ impl RecorderPanel {
             }
         } else if self.recording {
             let tail = std::time::Duration::from_millis(self.squelch_record_tail_ms);
-            let since = self.squelch_record_last_active.map(|t| now.duration_since(t)).unwrap_or(tail);
+            let since = self
+                .squelch_record_last_active
+                .map(|t| now.duration_since(t))
+                .unwrap_or(tail);
             if since >= tail {
                 self.stop_recording();
             }
@@ -134,10 +156,13 @@ impl RecorderPanel {
     }
 
     fn scan_recordings(&mut self) {
-        let should_scan = self.file_list_last_scan
+        let should_scan = self
+            .file_list_last_scan
             .map(|t| t.elapsed().as_secs() >= 5)
             .unwrap_or(true);
-        if !should_scan { return; }
+        if !should_scan {
+            return;
+        }
         self.file_list_last_scan = Some(std::time::Instant::now());
 
         let dir = std::path::Path::new(&self.output_dir);
@@ -146,18 +171,34 @@ impl RecorderPanel {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if ext != "iq" && ext != "wav" { continue; }
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                if ext != "iq" && ext != "wav" {
+                    continue;
+                }
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
                 let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                let modified = entry.metadata()
+                let modified = entry
+                    .metadata()
                     .and_then(|m| m.modified())
                     .map(|t| {
-                        let secs = t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-                        let ts = chrono::DateTime::<chrono::Local>::from(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs));
+                        let secs = t
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        let ts = chrono::DateTime::<chrono::Local>::from(
+                            std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
+                        );
                         ts.format("%Y-%m-%d %H:%M").to_string()
                     })
                     .unwrap_or_else(|_| "?".to_string());
-                files.push(RecordingFile { name, size_bytes, modified });
+                files.push(RecordingFile {
+                    name,
+                    size_bytes,
+                    modified,
+                });
             }
         }
         // Sort newest first by name (timestamps in filename)
@@ -166,7 +207,9 @@ impl RecorderPanel {
     }
 
     pub fn start_recording(&mut self) {
-        if self.recording { return; }
+        if self.recording {
+            return;
+        }
         let output_dir = self.output_dir.clone();
         self.last_error.clear();
         if let Err(e) = std::fs::create_dir_all(&output_dir) {
@@ -175,7 +218,11 @@ impl RecorderPanel {
         }
         // Pre-flight: disk space check (warn if < 500 MB free)
         let (free_gb, unit) = self.cached_free_disk_space();
-        let free_mb = if unit == "MB" { free_gb } else { free_gb * 1024.0 };
+        let free_mb = if unit == "MB" {
+            free_gb
+        } else {
+            free_gb * 1024.0
+        };
         if free_mb < 500.0 {
             self.last_error = format!(
                 "⚠ Low disk space: only {:.0} {} free on recording drive. Recording may fail or be cut short.",
@@ -235,7 +282,9 @@ impl RecorderPanel {
             match hound::WavWriter::create(&wav_path, spec) {
                 Ok(w) => {
                     self.wav_writer = Some(w);
-                    if self.last_filename.is_empty() { self.last_filename = wf.clone(); }
+                    if self.last_filename.is_empty() {
+                        self.last_filename = wf.clone();
+                    }
                     wav_filename = wf;
                 }
                 Err(e) => {
@@ -252,7 +301,9 @@ impl RecorderPanel {
             files_json.push_str(&format!("\"{}\"", iq_filename));
         }
         if !wav_filename.is_empty() {
-            if !iq_filename.is_empty() { files_json.push(','); }
+            if !iq_filename.is_empty() {
+                files_json.push(',');
+            }
             files_json.push_str(&format!("\"{}\"", wav_filename));
         }
         files_json.push(']');
@@ -330,7 +381,8 @@ impl RecorderPanel {
         ui.heading("Recorder");
 
         if let Ok(state) = self.shared.try_lock() {
-            ui.label(format!("Source: {:.3} MHz — {}",
+            ui.label(format!(
+                "Source: {:.3} MHz — {}",
                 state.source.frequency_hz as f64 / 1e6,
                 if self.recording { "RECORDING" } else { "idle" }
             ));
@@ -359,13 +411,28 @@ impl RecorderPanel {
             let preview_ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
             let freq_mhz_preview = if let Ok(state) = self.shared.try_lock() {
                 state.source.frequency_hz as f64 / 1e6
-            } else { 145.5 };
+            } else {
+                145.5
+            };
             let mode_preview = if let Ok(state) = self.shared.try_lock() {
                 state.demod_mode.label().to_string()
-            } else { "NFM".to_string() };
-            let preview = self.apply_filename_template(&self.filename_template.clone(), &preview_ts, freq_mhz_preview, &mode_preview);
-            ui.label(egui::RichText::new(format!("→ {}.iq / .wav", preview)).small().color(egui::Color32::from_gray(150)))
-                .on_hover_text("Preview of the next recording filename with current frequency and time.");
+            } else {
+                "NFM".to_string()
+            };
+            let preview = self.apply_filename_template(
+                &self.filename_template.clone(),
+                &preview_ts,
+                freq_mhz_preview,
+                &mode_preview,
+            );
+            ui.label(
+                egui::RichText::new(format!("→ {}.iq / .wav", preview))
+                    .small()
+                    .color(egui::Color32::from_gray(150)),
+            )
+            .on_hover_text(
+                "Preview of the next recording filename with current frequency and time.",
+            );
         }
 
         if !self.last_filename.is_empty() {
@@ -514,7 +581,12 @@ impl RecorderPanel {
                         // Estimate time until disk full
                         let (free_gb, unit) = self.cached_free_disk_space();
                         if rate_mbps > 0.0 {
-                            let free_bytes = free_gb * if unit == "GB" { 1_073_741_824.0 } else { 1_099_511_627_776.0 };
+                            let free_bytes = free_gb
+                                * if unit == "GB" {
+                                    1_073_741_824.0
+                                } else {
+                                    1_099_511_627_776.0
+                                };
                             let seconds_until_full = (free_bytes / 1_048_576.0) / rate_mbps;
                             let time_str = if seconds_until_full > 3600.0 {
                                 format!("~{:.1}h until full", seconds_until_full / 3600.0)
@@ -524,22 +596,43 @@ impl RecorderPanel {
                                 format!("~{:.0}s until full", seconds_until_full)
                             };
                             ui.colored_label(
-                                if seconds_until_full < 3600.0 { egui::Color32::YELLOW } else { egui::Color32::GRAY },
-                                time_str
-                            ).on_hover_text("Estimated time before disk is full at current data rate");
+                                if seconds_until_full < 3600.0 {
+                                    egui::Color32::YELLOW
+                                } else {
+                                    egui::Color32::GRAY
+                                },
+                                time_str,
+                            )
+                            .on_hover_text(
+                                "Estimated time before disk is full at current data rate",
+                            );
                         }
                     }
                     // Peak audio level indicator (only if recording audio)
                     if self.record_audio {
                         ui.horizontal(|ui| {
                             ui.label("Peak:");
-                            let peak_norm = ((self.peak_level_dbfs + 120.0) / 120.0).clamp(0.0, 1.0);
+                            let peak_norm =
+                                ((self.peak_level_dbfs + 120.0) / 120.0).clamp(0.0, 1.0);
                             let clipping = self.peak_level_dbfs > -3.0;
-                            let bar_color = if clipping { egui::Color32::RED } else if peak_norm > 0.7 { egui::Color32::YELLOW } else { egui::Color32::GREEN };
-                            ui.add(egui::ProgressBar::new(peak_norm).text(format!("{:.1} dBFS", self.peak_level_dbfs))
-                                .fill(bar_color)
-                                .desired_width(150.0))
-                                .on_hover_text(if clipping { "⚠ Clipping detected! Peak exceeds -3 dBFS" } else { "Audio level in decibels relative to full scale" });
+                            let bar_color = if clipping {
+                                egui::Color32::RED
+                            } else if peak_norm > 0.7 {
+                                egui::Color32::YELLOW
+                            } else {
+                                egui::Color32::GREEN
+                            };
+                            ui.add(
+                                egui::ProgressBar::new(peak_norm)
+                                    .text(format!("{:.1} dBFS", self.peak_level_dbfs))
+                                    .fill(bar_color)
+                                    .desired_width(150.0),
+                            )
+                            .on_hover_text(if clipping {
+                                "⚠ Clipping detected! Peak exceeds -3 dBFS"
+                            } else {
+                                "Audio level in decibels relative to full scale"
+                            });
                         });
                         // Decay peak hold after 3 seconds of not seeing a new peak
                         if let Some(hold_time) = self.peak_hold_time {
@@ -562,11 +655,24 @@ impl RecorderPanel {
                 if ui.button("● Start Recording").clicked() {
                     self.start_recording();
                 }
-                ui.label("Stop after:").on_hover_text("Auto-stop recording after this duration. 0 = record until manually stopped.");
+                ui.label("Stop after:").on_hover_text(
+                    "Auto-stop recording after this duration. 0 = record until manually stopped.",
+                );
                 egui::ComboBox::from_id_salt("rec_dur")
-                    .selected_text(if self.max_duration_mins == 0 { "∞ unlimited".to_string() } else { format!("{} min", self.max_duration_mins) })
+                    .selected_text(if self.max_duration_mins == 0 {
+                        "∞ unlimited".to_string()
+                    } else {
+                        format!("{} min", self.max_duration_mins)
+                    })
                     .show_ui(ui, |ui| {
-                        for (label, val) in [("∞ unlimited", 0u32), ("5 min", 5), ("15 min", 15), ("30 min", 30), ("60 min", 60), ("120 min", 120)] {
+                        for (label, val) in [
+                            ("∞ unlimited", 0u32),
+                            ("5 min", 5),
+                            ("15 min", 15),
+                            ("30 min", 30),
+                            ("60 min", 60),
+                            ("120 min", 120),
+                        ] {
                             ui.selectable_value(&mut self.max_duration_mins, val, label);
                         }
                     });
@@ -646,10 +752,8 @@ impl RecorderPanel {
                                     to_delete = Some(f.name.clone());
                                     self.delete_confirm = None;
                                 }
-                            } else {
-                                if ui.small_button("🗑").on_hover_text("Delete this recording file.").clicked() {
-                                    self.delete_confirm = Some(f.name.clone());
-                                }
+                            } else if ui.small_button("🗑").on_hover_text("Delete this recording file.").clicked() {
+                                self.delete_confirm = Some(f.name.clone());
                             }
                             ui.end_row();
                         }
@@ -667,7 +771,11 @@ impl RecorderPanel {
         ui.separator();
         // ── Recording Guide ───────────────────────────────────────────────
         ui.add_space(4.0);
-        ui.label(egui::RichText::new("📡 Recording Guide").size(16.0).strong());
+        ui.label(
+            egui::RichText::new("📡 Recording Guide")
+                .size(16.0)
+                .strong(),
+        );
         ui.add_space(4.0);
 
         ui.collapsing("IQ vs Audio recording — what's the difference?", |ui| {
@@ -802,4 +910,23 @@ fn free_disk_space_with_timeout(path: &str) -> (f64, String) {
         }
     }
     (99.9, "GB".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn free_disk_space_returns_reasonable_value() {
+        let (amount, unit) = free_disk_space_with_timeout("/");
+        assert!(amount > 0.0, "disk space should be positive, got {amount}");
+        assert_eq!(unit, "GB", "unit should be GB");
+    }
+
+    #[test]
+    fn free_disk_space_nonexistent_path_returns_fallback() {
+        let (amount, unit) = free_disk_space_with_timeout("/nonexistent_path_xyz123");
+        assert_eq!(amount, 99.9);
+        assert_eq!(unit, "GB");
+    }
 }

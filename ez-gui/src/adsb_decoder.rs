@@ -1,13 +1,11 @@
-use dump1090::demod::{Demod2400, DemodStats, InputFormat, MagBuf, compute_magnitude};
 use crate::adsb_panel::AircraftEntry;
+use dump1090::demod::{compute_magnitude, Demod2400, DemodStats, InputFormat, MagBuf};
 use std::collections::HashMap;
 
 pub struct AdsBDecoder {
     demod: Demod2400,
     stats: DemodStats,
     mag_buf: Vec<u16>,
-    #[allow(dead_code)]
-    overlap_buf: Vec<u16>,
     aircraft: HashMap<u32, AircraftState>,
     pub total_messages: u64,
     pub frame_count: u64,
@@ -30,8 +28,6 @@ struct CprFrame {
     pub raw_lat: u32,
     pub raw_lon: u32,
     pub timestamp: f64,
-    #[allow(dead_code)]
-    pub is_even: bool,
 }
 
 impl AdsBDecoder {
@@ -45,7 +41,6 @@ impl AdsBDecoder {
             demod,
             stats: DemodStats::default(),
             mag_buf: vec![0u16; 131072 * 2],
-            overlap_buf: Vec::new(),
             aircraft: HashMap::new(),
             total_messages: 0,
             frame_count: 0,
@@ -58,7 +53,8 @@ impl AdsBDecoder {
 
         self.mag_buf.resize(nsamples.max(131072), 0);
 
-        let (mean_level, mean_power) = compute_magnitude(iq, &mut self.mag_buf[..nsamples], InputFormat::Uc8);
+        let (mean_level, mean_power) =
+            compute_magnitude(iq, &mut self.mag_buf[..nsamples], InputFormat::Uc8);
 
         let mag = MagBuf {
             data: self.mag_buf[..nsamples].to_vec(),
@@ -142,10 +138,18 @@ impl AdsBDecoder {
                         let callsign: String = chars
                             .iter()
                             .map(|&c| {
-                                if c == 0 { return ' '; }
-                                if c < 27 { return (b'A' + c - 1) as char; }
-                                if c == 32 { return ' '; }
-                                if (48..=57).contains(&c) { return (b'0' + c - 48) as char; }
+                                if c == 0 {
+                                    return ' ';
+                                }
+                                if c < 27 {
+                                    return (b'A' + c - 1) as char;
+                                }
+                                if c == 32 {
+                                    return ' ';
+                                }
+                                if (48..=57).contains(&c) {
+                                    return (b'0' + c - 48) as char;
+                                }
                                 ' '
                             })
                             .collect();
@@ -173,7 +177,6 @@ impl AdsBDecoder {
                             raw_lat,
                             raw_lon,
                             timestamp: 0.0,
-                            is_even,
                         };
 
                         if is_even {
@@ -204,7 +207,7 @@ impl AdsBDecoder {
 
                             let speed_kt = ((ew_vel as f64 * ew_dir as f64).powi(2)
                                 + (ns_vel as f64 * ns_dir as f64).powi(2))
-                                .sqrt() as u32;
+                            .sqrt() as u32;
                             entry.speed = Some(speed_kt);
                             entry.entry.speed = speed_kt;
 
@@ -212,7 +215,7 @@ impl AdsBDecoder {
                                 - (ns_vel as f64 * ns_dir as f64)
                                     .atan2(ew_vel as f64 * ew_dir as f64)
                                     .to_degrees())
-                                .rem_euclid(360.0) as u32;
+                            .rem_euclid(360.0) as u32;
                             entry.heading = Some(heading);
                             entry.entry.heading = heading;
                         }
@@ -231,7 +234,6 @@ impl AdsBDecoder {
                             raw_lat,
                             raw_lon,
                             timestamp: 0.0,
-                            is_even,
                         };
 
                         if is_even {
@@ -265,7 +267,6 @@ impl AdsBDecoder {
             .collect()
     }
 
-    #[allow(dead_code)]
     pub fn stats(&self) -> (u64, u64, u64) {
         let preambles = self.stats.demod_preambles;
         let accepted: u64 = self.stats.demod_accepted.iter().sum();
@@ -295,10 +296,7 @@ fn decode_altitude(msg: &[u8]) -> u32 {
     }
 }
 
-fn try_cpr_decode(
-    even: &Option<CprFrame>,
-    odd: &Option<CprFrame>,
-) -> Option<(f64, f64)> {
+fn try_cpr_decode(even: &Option<CprFrame>, odd: &Option<CprFrame>) -> Option<(f64, f64)> {
     let even = even.as_ref()?;
     let odd = odd.as_ref()?;
 
@@ -306,8 +304,7 @@ fn try_cpr_decode(
     let dlat_odd = 360.0 / 59.0;
 
     let j = ((even.raw_lat as f64 / 131072.0 / dlat_even).floor()
-        + (odd.raw_lat as f64 / 131072.0 / dlat_odd).floor())
-        as i32;
+        + (odd.raw_lat as f64 / 131072.0 / dlat_odd).floor()) as i32;
 
     let r_even = even.raw_lat as f64 / 131072.0;
     let r_odd = odd.raw_lat as f64 / 131072.0;
@@ -315,13 +312,32 @@ fn try_cpr_decode(
     let dlat_odd_val = dlat_odd;
 
     let mut lat_even = dlat_even * (r_even - j as f64);
-    let mut lat_odd = dlat_odd * (r_odd - j as f64 + if even.raw_lat < odd.raw_lat { 1.0 } else { 0.0 });
+    let mut lat_odd =
+        dlat_odd * (r_odd - j as f64 + if even.raw_lat < odd.raw_lat { 1.0 } else { 0.0 });
 
-    if lat_even >= 270.0 { lat_even -= 360.0; }
-    if lat_odd >= 270.0 { lat_odd -= 360.0; }
+    if lat_even >= 270.0 {
+        lat_even -= 360.0;
+    }
+    if lat_odd >= 270.0 {
+        lat_odd -= 360.0;
+    }
 
-    let ni_even = if lat_even.abs() >= 87.0 { 1 } else { std::cmp::max(1, (60.0 - even.raw_lat as f64 / 131072.0 / dlat_even_val) as i32) };
-    let ni_odd = if lat_odd.abs() >= 87.0 { 1 } else { std::cmp::max(1, (59.0 - odd.raw_lat as f64 / 131072.0 / dlat_odd_val) as i32) };
+    let ni_even = if lat_even.abs() >= 87.0 {
+        1
+    } else {
+        std::cmp::max(
+            1,
+            (60.0 - even.raw_lat as f64 / 131072.0 / dlat_even_val) as i32,
+        )
+    };
+    let ni_odd = if lat_odd.abs() >= 87.0 {
+        1
+    } else {
+        std::cmp::max(
+            1,
+            (59.0 - odd.raw_lat as f64 / 131072.0 / dlat_odd_val) as i32,
+        )
+    };
 
     let dlon_even = 360.0 / ni_even as f64;
     let dlon_odd = 360.0 / ni_odd as f64;
@@ -330,10 +346,16 @@ fn try_cpr_decode(
         + (odd.raw_lon as f64 / 131072.0 / dlon_odd).floor()) as i32;
 
     let mut lon_even = dlon_even * (even.raw_lon as f64 / 131072.0 - m as f64);
-    let mut lon_odd = dlon_odd * (odd.raw_lon as f64 / 131072.0 - m as f64 + if even.raw_lon < odd.raw_lon { 1.0 } else { 0.0 });
+    let mut lon_odd = dlon_odd
+        * (odd.raw_lon as f64 / 131072.0 - m as f64
+            + if even.raw_lon < odd.raw_lon { 1.0 } else { 0.0 });
 
-    if lon_even >= 180.0 { lon_even -= 360.0; }
-    if lon_odd >= 180.0 { lon_odd -= 360.0; }
+    if lon_even >= 180.0 {
+        lon_even -= 360.0;
+    }
+    if lon_odd >= 180.0 {
+        lon_odd -= 360.0;
+    }
 
     let age = (even.timestamp - odd.timestamp).abs();
     if age < 10000.0 {
@@ -390,7 +412,11 @@ mod tests {
     #[test]
     fn try_cpr_decode_none_without_both_frames() {
         assert!(try_cpr_decode(&None, &None).is_none());
-        let frame = Some(CprFrame { raw_lat: 0, raw_lon: 0, timestamp: 0.0, is_even: true });
+        let frame = Some(CprFrame {
+            raw_lat: 0,
+            raw_lon: 0,
+            timestamp: 0.0,
+        });
         assert!(try_cpr_decode(&frame, &None).is_none());
         assert!(try_cpr_decode(&None, &frame).is_none());
     }
@@ -398,8 +424,16 @@ mod tests {
     #[test]
     fn try_cpr_decode_rejects_stale_frames() {
         // Timestamps far apart (> 10000) → None
-        let even = Some(CprFrame { raw_lat: 50000, raw_lon: 60000, timestamp: 0.0, is_even: true });
-        let odd  = Some(CprFrame { raw_lat: 50001, raw_lon: 60001, timestamp: 99999.0, is_even: false });
+        let even = Some(CprFrame {
+            raw_lat: 50000,
+            raw_lon: 60000,
+            timestamp: 0.0,
+        });
+        let odd = Some(CprFrame {
+            raw_lat: 50001,
+            raw_lon: 60001,
+            timestamp: 99999.0,
+        });
         assert!(try_cpr_decode(&even, &odd).is_none());
     }
 }

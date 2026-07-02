@@ -108,7 +108,12 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
     for i in 0..count {
         let mut serial = [0u8; 256];
         let ret = unsafe {
-            ffi::rtlsdr_get_device_usb_strings(i, ptr::null_mut(), ptr::null_mut(), serial.as_mut_ptr().cast())
+            ffi::rtlsdr_get_device_usb_strings(
+                i,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                serial.as_mut_ptr().cast(),
+            )
         };
         if ret == 0 {
             let s = unsafe { CStr::from_ptr(serial.as_ptr().cast()) }.to_string_lossy();
@@ -120,7 +125,12 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
     for i in 0..count {
         let mut serial = [0u8; 256];
         let ret = unsafe {
-            ffi::rtlsdr_get_device_usb_strings(i, ptr::null_mut(), ptr::null_mut(), serial.as_mut_ptr().cast())
+            ffi::rtlsdr_get_device_usb_strings(
+                i,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                serial.as_mut_ptr().cast(),
+            )
         };
         if ret == 0 {
             let s = unsafe { CStr::from_ptr(serial.as_ptr().cast()) }.to_string_lossy();
@@ -132,7 +142,12 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
     for i in 0..count {
         let mut serial = [0u8; 256];
         let ret = unsafe {
-            ffi::rtlsdr_get_device_usb_strings(i, ptr::null_mut(), ptr::null_mut(), serial.as_mut_ptr().cast())
+            ffi::rtlsdr_get_device_usb_strings(
+                i,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                serial.as_mut_ptr().cast(),
+            )
         };
         if ret == 0 {
             let s = unsafe { CStr::from_ptr(serial.as_ptr().cast()) }.to_string_lossy();
@@ -212,12 +227,18 @@ impl SdrSource for RtlSdr {
             return Err(RtlSdrError::OpenFailed(format!(
                 "error opening the RTLSDR device: {}",
                 std::io::Error::last_os_error()
-            )).into());
+            ))
+            .into());
         }
 
         if self.direct_sampling != 0 {
-            eprintln!("rtlsdr: direct sampling from input {}", self.direct_sampling);
-            unsafe { ffi::rtlsdr_set_direct_sampling(dev, self.direct_sampling); }
+            eprintln!(
+                "rtlsdr: direct sampling from input {}",
+                self.direct_sampling
+            );
+            unsafe {
+                ffi::rtlsdr_set_direct_sampling(dev, self.direct_sampling);
+            }
         } else {
             let numgains = unsafe { ffi::rtlsdr_get_tuner_gains(dev, ptr::null_mut()) };
             if numgains > 0 {
@@ -249,11 +270,17 @@ impl SdrSource for RtlSdr {
                 };
 
                 if selected as usize >= self.gains.len() - 1 {
-                    unsafe { ffi::rtlsdr_set_tuner_gain_mode(dev, 0); }
+                    unsafe {
+                        ffi::rtlsdr_set_tuner_gain_mode(dev, 0);
+                    }
                     eprintln!("rtlsdr: tuner AGC enabled");
                 } else {
-                    unsafe { ffi::rtlsdr_set_tuner_gain_mode(dev, 1); }
-                    unsafe { ffi::rtlsdr_set_tuner_gain(dev, self.gains[selected as usize]); }
+                    unsafe {
+                        ffi::rtlsdr_set_tuner_gain_mode(dev, 1);
+                    }
+                    unsafe {
+                        ffi::rtlsdr_set_tuner_gain(dev, self.gains[selected as usize]);
+                    }
                     eprintln!(
                         "rtlsdr: tuner gain set to {:.1} dB",
                         self.gains[selected as usize] as f64 / 10.0
@@ -264,7 +291,9 @@ impl SdrSource for RtlSdr {
 
         if self.digital_agc {
             eprintln!("rtlsdr: enabling digital AGC");
-            unsafe { ffi::rtlsdr_set_agc_mode(dev, 1); }
+            unsafe {
+                ffi::rtlsdr_set_agc_mode(dev, 1);
+            }
         }
 
         if unsafe { ffi::rtlsdr_set_freq_correction(dev, self.ppm) } < 0 {
@@ -272,12 +301,16 @@ impl SdrSource for RtlSdr {
         }
 
         if unsafe { ffi::rtlsdr_set_center_freq(dev, self.freq as u32) } < 0 {
-            unsafe { ffi::rtlsdr_close(dev); }
+            unsafe {
+                ffi::rtlsdr_close(dev);
+            }
             return Err(RtlSdrError::OpenFailed("failed to set center frequency".into()).into());
         }
 
         if unsafe { ffi::rtlsdr_set_sample_rate(dev, self.sample_rate) } < 0 {
-            unsafe { ffi::rtlsdr_close(dev); }
+            unsafe {
+                ffi::rtlsdr_close(dev);
+            }
             return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
         }
 
@@ -291,15 +324,16 @@ impl SdrSource for RtlSdr {
 
     fn stop(&mut self) {
         if !self.dev.is_null() {
-            unsafe { ffi::rtlsdr_close(self.dev); }
+            unsafe {
+                ffi::rtlsdr_close(self.dev);
+            }
             self.dev = ptr::null_mut();
         }
     }
 
     fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
         self.freq = freq;
-        if !self.dev.is_null()
-            && unsafe { ffi::rtlsdr_set_center_freq(self.dev, freq as u32) } < 0
+        if !self.dev.is_null() && unsafe { ffi::rtlsdr_set_center_freq(self.dev, freq as u32) } < 0
         {
             return Err(RtlSdrError::OpenFailed("failed to set center frequency".into()).into());
         }
@@ -308,9 +342,7 @@ impl SdrSource for RtlSdr {
 
     fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
         self.sample_rate = rate;
-        if !self.dev.is_null()
-            && unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) } < 0
-        {
+        if !self.dev.is_null() && unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) } < 0 {
             return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
         }
         Ok(())
@@ -335,10 +367,16 @@ impl SdrSource for RtlSdr {
                 best_step
             };
             if selected as usize >= self.gains.len() - 1 {
-                unsafe { ffi::rtlsdr_set_tuner_gain_mode(self.dev, 0); }
+                unsafe {
+                    ffi::rtlsdr_set_tuner_gain_mode(self.dev, 0);
+                }
             } else {
-                unsafe { ffi::rtlsdr_set_tuner_gain_mode(self.dev, 1); }
-                unsafe { ffi::rtlsdr_set_tuner_gain(self.dev, self.gains[selected as usize]); }
+                unsafe {
+                    ffi::rtlsdr_set_tuner_gain_mode(self.dev, 1);
+                }
+                unsafe {
+                    ffi::rtlsdr_set_tuner_gain(self.dev, self.gains[selected as usize]);
+                }
             }
         }
         Ok(())

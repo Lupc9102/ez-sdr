@@ -163,12 +163,40 @@ impl SdrSource for HackRf {
         }
 
         let dev = self.device;
-        let res = Self::check(unsafe { hackrf_set_freq(dev, freq as u64) }, "hackrf_set_freq")
-            .and_then(|_| Self::check(unsafe { hackrf_set_sample_rate(dev, rate) }, "hackrf_set_sample_rate"))
-            .and_then(|_| Self::check(unsafe { hackrf_set_amp_enable(dev, self.config.enable_amp as u8) }, "hackrf_set_amp_enable"))
-            .and_then(|_| Self::check(unsafe { hackrf_set_lna_gain(dev, self.config.lna_gain) }, "hackrf_set_lna_gain"))
-            .and_then(|_| Self::check(unsafe { hackrf_set_vga_gain(dev, self.config.vga_gain) }, "hackrf_set_vga_gain"))
-            .and_then(|_| Self::check(unsafe { hackrf_set_antenna_enable(dev, self.config.enable_ant_pwr as u8) }, "hackrf_set_antenna_enable"));
+        let res = Self::check(
+            unsafe { hackrf_set_freq(dev, freq as u64) },
+            "hackrf_set_freq",
+        )
+        .and_then(|_| {
+            Self::check(
+                unsafe { hackrf_set_sample_rate(dev, rate) },
+                "hackrf_set_sample_rate",
+            )
+        })
+        .and_then(|_| {
+            Self::check(
+                unsafe { hackrf_set_amp_enable(dev, self.config.enable_amp as u8) },
+                "hackrf_set_amp_enable",
+            )
+        })
+        .and_then(|_| {
+            Self::check(
+                unsafe { hackrf_set_lna_gain(dev, self.config.lna_gain) },
+                "hackrf_set_lna_gain",
+            )
+        })
+        .and_then(|_| {
+            Self::check(
+                unsafe { hackrf_set_vga_gain(dev, self.config.vga_gain) },
+                "hackrf_set_vga_gain",
+            )
+        })
+        .and_then(|_| {
+            Self::check(
+                unsafe { hackrf_set_antenna_enable(dev, self.config.enable_ant_pwr as u8) },
+                "hackrf_set_antenna_enable",
+            )
+        });
 
         if let Err(e) = res {
             unsafe { hackrf_close(dev) };
@@ -201,7 +229,10 @@ impl SdrSource for HackRf {
     fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
         self.freq = freq;
         if !self.device.is_null() {
-            Self::check(unsafe { hackrf_set_freq(self.device, freq) }, "hackrf_set_freq")?;
+            Self::check(
+                unsafe { hackrf_set_freq(self.device, freq) },
+                "hackrf_set_freq",
+            )?;
         }
         Ok(())
     }
@@ -209,7 +240,10 @@ impl SdrSource for HackRf {
     fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
         self.sample_rate = rate;
         if !self.device.is_null() {
-            Self::check(unsafe { hackrf_set_sample_rate(self.device, rate as f64) }, "hackrf_set_sample_rate")?;
+            Self::check(
+                unsafe { hackrf_set_sample_rate(self.device, rate as f64) },
+                "hackrf_set_sample_rate",
+            )?;
         }
         Ok(())
     }

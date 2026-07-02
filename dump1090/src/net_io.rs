@@ -1,15 +1,13 @@
 //! Network I/O (Beast/SBS/raw) - translated from net_io.c
 
 use std::io::{ErrorKind, Write};
-use std::net::{TcpListener, TcpStream, SocketAddr};
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 /// A connected client.
 struct Client {
     stream: TcpStream,
-    #[allow(dead_code)]
-    addr: SocketAddr,
 }
 
 /// Network output server supporting Beast, SBS, and raw AVR formats.
@@ -35,12 +33,7 @@ impl NetIo {
     }
 
     /// Start listening on the given ports.
-    pub fn start(
-        &self,
-        beast_port: u16,
-        sbs_port: u16,
-        raw_port: u16,
-    ) -> anyhow::Result<()> {
+    pub fn start(&self, beast_port: u16, sbs_port: u16, raw_port: u16) -> anyhow::Result<()> {
         Self::spawn_listener(beast_port, self.beast_clients.clone(), "Beast");
         Self::spawn_listener(sbs_port, self.sbs_clients.clone(), "SBS");
         Self::spawn_listener(raw_port, self.raw_clients.clone(), "raw AVR");
@@ -67,7 +60,7 @@ impl NetIo {
                         if let Ok(addr) = stream.peer_addr() {
                             eprintln!("net_io: {} client connected from {}", name, addr);
                             if let Ok(mut vec) = clients.lock() {
-                                vec.push(Client { stream, addr });
+                                vec.push(Client { stream });
                             }
                         }
                     }
@@ -190,7 +183,7 @@ mod tests {
         let frame = encode_beast_frame(0, 0, &msg);
         assert_eq!(frame[0], 0x1a);
         assert_ne!(frame[1], 0x1a); // indicator byte, not part of the escape run
-        // Count total 0x1a occurrences: 1 marker + 2 (escaped payload byte) = 3.
+                                    // Count total 0x1a occurrences: 1 marker + 2 (escaped payload byte) = 3.
         let count = frame.iter().filter(|&&b| b == 0x1a).count();
         assert_eq!(count, 3);
     }

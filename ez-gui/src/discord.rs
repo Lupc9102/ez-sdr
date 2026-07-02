@@ -1,27 +1,47 @@
+//! Discord notification integration for EZ-SDR.
+//!
+//! Provides types for configuring a Discord bot, constructing rich embed
+//! messages for various SDR events (signals, aircraft, satellites, recordings,
+//! etc.), and a [`DiscordNotifier`] that rate-limits and dispatches embeds.
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
+/// Configuration for the Discord notification bot.
+///
+/// Controls whether the bot is enabled, which channel/user to post to, which
+/// event kinds are enabled, and rate-limiting parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordSettings {
+    /// Whether the Discord bot is active.
     #[serde(default)]
     pub enabled: bool,
+    /// Discord bot token for authentication.
     #[serde(default)]
     pub bot_token: String,
+    /// Discord channel ID where notifications are sent.
     #[serde(default)]
     pub channel_id: String,
+    /// Discord user ID to ping in notifications.
     #[serde(default)]
     pub user_id: String,
+    /// Whether to ping the configured user in each notification.
     #[serde(default)]
     pub ping_user: bool,
+    /// Per-kind enablement map (kind_id -> enabled).
     #[serde(default)]
     pub enabled_kinds: BTreeMap<String, bool>,
+    /// Set of starred (favorite) kind IDs for filtering.
     #[serde(default)]
     pub starred_kinds: BTreeSet<String>,
+    /// Whether periodic session summaries are enabled.
     #[serde(default)]
     pub summary_enabled: bool,
+    /// Interval (minutes) between automatic summary messages.
     #[serde(default)]
     pub summary_interval_min: u32,
+    /// Minimum interval (ms) between successive sends (rate limiting).
     #[serde(default)]
     pub min_send_interval_ms: u64,
 }
@@ -35,7 +55,11 @@ impl Default for DiscordSettings {
             user_id: String::new(),
             ping_user: true,
             enabled_kinds: BTreeMap::new(),
-            starred_kinds: CATALOG.iter().filter(|k| k.essential).map(|k| k.id.to_string()).collect(),
+            starred_kinds: CATALOG
+                .iter()
+                .filter(|k| k.essential)
+                .map(|k| k.id.to_string())
+                .collect(),
             summary_enabled: false,
             summary_interval_min: 30,
             min_send_interval_ms: 1500,
@@ -43,75 +67,387 @@ impl Default for DiscordSettings {
     }
 }
 
+/// A notification kind descriptor.
+///
+/// Each variant defines the metadata (id, category, label, color, etc.) for a
+/// type of event that can be sent to Discord.
 pub struct NotifKind {
+    /// Unique identifier string for this notification kind (e.g. "source_error").
     pub id: &'static str,
+    /// Category grouping (e.g. "Source", "Signal", "ADS-B", "Satellite").
     pub category: &'static str,
+    /// Human-readable display label.
     pub label: &'static str,
+    /// Short description of the event.
     pub desc: &'static str,
+    /// Emoji string for visual identification.
     pub emoji: &'static str,
+    /// Whether this kind is essential (enabled by default).
     pub essential: bool,
-    #[allow(dead_code)]
+    /// Discord embed color (hex RGB, e.g. 0x00CC00).
     pub color: u32,
 }
 
+/// The master list of all notification kinds supported by the Discord bot.
+///
+/// Each [`NotifKind`] entry defines the id, category, label, color, and default
+/// enablement for one event type. The list is used to drive the settings UI and
+/// to look up metadata when dispatching notifications.
 pub const CATALOG: &[NotifKind] = &[
     // Source & Hardware
-    NotifKind { id: "source_started", category: "Source", label: "Source Started", desc: "SDR device opened and running", emoji: "🟢", essential: false, color: 0x00CC00 },
-    NotifKind { id: "source_stopped", category: "Source", label: "Source Stopped", desc: "SDR device closed", emoji: "🔴", essential: false, color: 0xCC0000 },
-    NotifKind { id: "source_error", category: "Source", label: "Source Error", desc: "SDR device open or read failed", emoji: "❌", essential: true, color: 0xFF0000 },
-    NotifKind { id: "freq_tuned", category: "Source", label: "Frequency Tuned", desc: "Manually tuned to a new frequency", emoji: "📡", essential: false, color: 0x0066FF },
-    NotifKind { id: "gain_changed", category: "Source", label: "Gain Changed", desc: "Gain adjusted", emoji: "🔊", essential: false, color: 0x00AA00 },
-    NotifKind { id: "demod_changed", category: "Source", label: "Demod Mode Changed", desc: "Demodulation mode switched", emoji: "🔄", essential: false, color: 0x0099CC },
-    NotifKind { id: "sample_rate_changed", category: "Source", label: "Sample Rate Changed", desc: "Sample rate adjusted", emoji: "⚙", essential: false, color: 0x666600 },
-    NotifKind { id: "ppm_changed", category: "Source", label: "PPM Correction Set", desc: "Frequency calibration adjusted", emoji: "📏", essential: false, color: 0x996600 },
-
+    NotifKind {
+        id: "source_started",
+        category: "Source",
+        label: "Source Started",
+        desc: "SDR device opened and running",
+        emoji: "🟢",
+        essential: false,
+        color: 0x00CC00,
+    },
+    NotifKind {
+        id: "source_stopped",
+        category: "Source",
+        label: "Source Stopped",
+        desc: "SDR device closed",
+        emoji: "🔴",
+        essential: false,
+        color: 0xCC0000,
+    },
+    NotifKind {
+        id: "source_error",
+        category: "Source",
+        label: "Source Error",
+        desc: "SDR device open or read failed",
+        emoji: "❌",
+        essential: true,
+        color: 0xFF0000,
+    },
+    NotifKind {
+        id: "freq_tuned",
+        category: "Source",
+        label: "Frequency Tuned",
+        desc: "Manually tuned to a new frequency",
+        emoji: "📡",
+        essential: false,
+        color: 0x0066FF,
+    },
+    NotifKind {
+        id: "gain_changed",
+        category: "Source",
+        label: "Gain Changed",
+        desc: "Gain adjusted",
+        emoji: "🔊",
+        essential: false,
+        color: 0x00AA00,
+    },
+    NotifKind {
+        id: "demod_changed",
+        category: "Source",
+        label: "Demod Mode Changed",
+        desc: "Demodulation mode switched",
+        emoji: "🔄",
+        essential: false,
+        color: 0x0099CC,
+    },
+    NotifKind {
+        id: "sample_rate_changed",
+        category: "Source",
+        label: "Sample Rate Changed",
+        desc: "Sample rate adjusted",
+        emoji: "⚙",
+        essential: false,
+        color: 0x666600,
+    },
+    NotifKind {
+        id: "ppm_changed",
+        category: "Source",
+        label: "PPM Correction Set",
+        desc: "Frequency calibration adjusted",
+        emoji: "📏",
+        essential: false,
+        color: 0x996600,
+    },
     // Signal
-    NotifKind { id: "strong_signal", category: "Signal", label: "Strong Signal Detected", desc: "SNR exceeded 20 dB", emoji: "📈", essential: true, color: 0x00DD00 },
-    NotifKind { id: "first_signal", category: "Signal", label: "First Signal!", desc: "First strong signal of the session", emoji: "🎉", essential: true, color: 0xFFAA00 },
-    NotifKind { id: "signal_detected", category: "Signal", label: "Signal Detected", desc: "Squelch opened (signal above threshold)", emoji: "📊", essential: false, color: 0x00CC00 },
-    NotifKind { id: "signal_lost", category: "Signal", label: "Signal Lost", desc: "Squelch closed (signal below threshold)", emoji: "📉", essential: false, color: 0xCC0000 },
-
+    NotifKind {
+        id: "strong_signal",
+        category: "Signal",
+        label: "Strong Signal Detected",
+        desc: "SNR exceeded 20 dB",
+        emoji: "📈",
+        essential: true,
+        color: 0x00DD00,
+    },
+    NotifKind {
+        id: "first_signal",
+        category: "Signal",
+        label: "First Signal!",
+        desc: "First strong signal of the session",
+        emoji: "🎉",
+        essential: true,
+        color: 0xFFAA00,
+    },
+    NotifKind {
+        id: "signal_detected",
+        category: "Signal",
+        label: "Signal Detected",
+        desc: "Squelch opened (signal above threshold)",
+        emoji: "📊",
+        essential: false,
+        color: 0x00CC00,
+    },
+    NotifKind {
+        id: "signal_lost",
+        category: "Signal",
+        label: "Signal Lost",
+        desc: "Squelch closed (signal below threshold)",
+        emoji: "📉",
+        essential: false,
+        color: 0xCC0000,
+    },
     // Scanner
-    NotifKind { id: "scanner_hit", category: "Scanner", label: "Scanner Hit", desc: "Frequency found with active signal", emoji: "🔍", essential: true, color: 0x0099FF },
-    NotifKind { id: "scanner_started", category: "Scanner", label: "Scanner Started", desc: "Frequency scanner activated", emoji: "▶️", essential: false, color: 0x00AA00 },
-    NotifKind { id: "scanner_stopped", category: "Scanner", label: "Scanner Stopped", desc: "Frequency scanner stopped", emoji: "⏹", essential: false, color: 0xCC0000 },
-    NotifKind { id: "scan_complete", category: "Scanner", label: "Scan Complete", desc: "Scanner finished a pass (if bounded)", emoji: "✅", essential: false, color: 0x00AA00 },
-
+    NotifKind {
+        id: "scanner_hit",
+        category: "Scanner",
+        label: "Scanner Hit",
+        desc: "Frequency found with active signal",
+        emoji: "🔍",
+        essential: true,
+        color: 0x0099FF,
+    },
+    NotifKind {
+        id: "scanner_started",
+        category: "Scanner",
+        label: "Scanner Started",
+        desc: "Frequency scanner activated",
+        emoji: "▶️",
+        essential: false,
+        color: 0x00AA00,
+    },
+    NotifKind {
+        id: "scanner_stopped",
+        category: "Scanner",
+        label: "Scanner Stopped",
+        desc: "Frequency scanner stopped",
+        emoji: "⏹",
+        essential: false,
+        color: 0xCC0000,
+    },
+    NotifKind {
+        id: "scan_complete",
+        category: "Scanner",
+        label: "Scan Complete",
+        desc: "Scanner finished a pass (if bounded)",
+        emoji: "✅",
+        essential: false,
+        color: 0x00AA00,
+    },
     // ADS-B
-    NotifKind { id: "aircraft_new", category: "ADS-B", label: "New Aircraft", desc: "First time seeing an aircraft's ICAO", emoji: "✈", essential: true, color: 0x0088FF },
-    NotifKind { id: "adsb_started", category: "ADS-B", label: "ADS-B Decoder Started", desc: "ADS-B decoding enabled", emoji: "📡", essential: false, color: 0x00AA00 },
-    NotifKind { id: "adsb_stopped", category: "ADS-B", label: "ADS-B Decoder Stopped", desc: "ADS-B decoding disabled", emoji: "🔌", essential: false, color: 0xCC0000 },
-    NotifKind { id: "traffic_milestone", category: "ADS-B", label: "Traffic Milestone", desc: "Aircraft count crossed 10/25/50 threshold", emoji: "📈", essential: false, color: 0xFF8800 },
-    NotifKind { id: "aircraft_low_altitude", category: "ADS-B", label: "Low Altitude Aircraft", desc: "Aircraft below 1000 ft detected", emoji: "🛬", essential: false, color: 0xFF6600 },
-
+    NotifKind {
+        id: "aircraft_new",
+        category: "ADS-B",
+        label: "New Aircraft",
+        desc: "First time seeing an aircraft's ICAO",
+        emoji: "✈",
+        essential: true,
+        color: 0x0088FF,
+    },
+    NotifKind {
+        id: "adsb_started",
+        category: "ADS-B",
+        label: "ADS-B Decoder Started",
+        desc: "ADS-B decoding enabled",
+        emoji: "📡",
+        essential: false,
+        color: 0x00AA00,
+    },
+    NotifKind {
+        id: "adsb_stopped",
+        category: "ADS-B",
+        label: "ADS-B Decoder Stopped",
+        desc: "ADS-B decoding disabled",
+        emoji: "🔌",
+        essential: false,
+        color: 0xCC0000,
+    },
+    NotifKind {
+        id: "traffic_milestone",
+        category: "ADS-B",
+        label: "Traffic Milestone",
+        desc: "Aircraft count crossed 10/25/50 threshold",
+        emoji: "📈",
+        essential: false,
+        color: 0xFF8800,
+    },
+    NotifKind {
+        id: "aircraft_low_altitude",
+        category: "ADS-B",
+        label: "Low Altitude Aircraft",
+        desc: "Aircraft below 1000 ft detected",
+        emoji: "🛬",
+        essential: false,
+        color: 0xFF6600,
+    },
     // Satellite
-    NotifKind { id: "sat_aos", category: "Satellite", label: "Satellite AOS", desc: "Satellite acquired (rise above horizon)", emoji: "🛸", essential: true, color: 0x9900FF },
-    NotifKind { id: "sat_los", category: "Satellite", label: "Satellite LOS", desc: "Satellite lost (set below horizon)", emoji: "🌅", essential: true, color: 0xFF6600 },
-    NotifKind { id: "sat_upcoming", category: "Satellite", label: "Upcoming Pass", desc: "Satellite pass is in the next 30 minutes", emoji: "📅", essential: true, color: 0x0066FF },
-    NotifKind { id: "sat_max_elevation", category: "Satellite", label: "High Pass", desc: "Upcoming pass with >45° max elevation", emoji: "⬆️", essential: false, color: 0xFF9900 },
-
+    NotifKind {
+        id: "sat_aos",
+        category: "Satellite",
+        label: "Satellite AOS",
+        desc: "Satellite acquired (rise above horizon)",
+        emoji: "🛸",
+        essential: true,
+        color: 0x9900FF,
+    },
+    NotifKind {
+        id: "sat_los",
+        category: "Satellite",
+        label: "Satellite LOS",
+        desc: "Satellite lost (set below horizon)",
+        emoji: "🌅",
+        essential: true,
+        color: 0xFF6600,
+    },
+    NotifKind {
+        id: "sat_upcoming",
+        category: "Satellite",
+        label: "Upcoming Pass",
+        desc: "Satellite pass is in the next 30 minutes",
+        emoji: "📅",
+        essential: true,
+        color: 0x0066FF,
+    },
+    NotifKind {
+        id: "sat_max_elevation",
+        category: "Satellite",
+        label: "High Pass",
+        desc: "Upcoming pass with >45° max elevation",
+        emoji: "⬆️",
+        essential: false,
+        color: 0xFF9900,
+    },
     // Recorder
-    NotifKind { id: "rec_started", category: "Recorder", label: "Recording Started", desc: "I/Q or audio recording began", emoji: "⏺", essential: true, color: 0xFF0000 },
-    NotifKind { id: "rec_stopped", category: "Recorder", label: "Recording Stopped", desc: "Recording finished (with duration/size)", emoji: "⏹", essential: true, color: 0x660000 },
-    NotifKind { id: "rec_error", category: "Recorder", label: "Recording Error", desc: "Disk error or disk space critical", emoji: "⚠️", essential: true, color: 0xFF3333 },
-    NotifKind { id: "rec_squelch_triggered", category: "Recorder", label: "Squelch Recording Triggered", desc: "Squelch-based recording captured a signal", emoji: "📹", essential: false, color: 0xFF6633 },
-
+    NotifKind {
+        id: "rec_started",
+        category: "Recorder",
+        label: "Recording Started",
+        desc: "I/Q or audio recording began",
+        emoji: "⏺",
+        essential: true,
+        color: 0xFF0000,
+    },
+    NotifKind {
+        id: "rec_stopped",
+        category: "Recorder",
+        label: "Recording Stopped",
+        desc: "Recording finished (with duration/size)",
+        emoji: "⏹",
+        essential: true,
+        color: 0x660000,
+    },
+    NotifKind {
+        id: "rec_error",
+        category: "Recorder",
+        label: "Recording Error",
+        desc: "Disk error or disk space critical",
+        emoji: "⚠️",
+        essential: true,
+        color: 0xFF3333,
+    },
+    NotifKind {
+        id: "rec_squelch_triggered",
+        category: "Recorder",
+        label: "Squelch Recording Triggered",
+        desc: "Squelch-based recording captured a signal",
+        emoji: "📹",
+        essential: false,
+        color: 0xFF6633,
+    },
     // Scheduler
-    NotifKind { id: "task_fired", category: "Scheduler", label: "Scheduled Task Fired", desc: "Custom scheduled task executed", emoji: "🗓", essential: true, color: 0x0066CC },
-    NotifKind { id: "sat_job_activated", category: "Scheduler", label: "Satellite Job Activated", desc: "Scheduled satellite pass task started", emoji: "🛸", essential: false, color: 0x9900FF },
-
+    NotifKind {
+        id: "task_fired",
+        category: "Scheduler",
+        label: "Scheduled Task Fired",
+        desc: "Custom scheduled task executed",
+        emoji: "🗓",
+        essential: true,
+        color: 0x0066CC,
+    },
+    NotifKind {
+        id: "sat_job_activated",
+        category: "Scheduler",
+        label: "Satellite Job Activated",
+        desc: "Scheduled satellite pass task started",
+        emoji: "🛸",
+        essential: false,
+        color: 0x9900FF,
+    },
     // Bookmarks
-    NotifKind { id: "bookmark_added", category: "Bookmarks", label: "Bookmark Added", desc: "New frequency bookmarked", emoji: "🔖", essential: false, color: 0xFFCC00 },
-    NotifKind { id: "bookmark_starred", category: "Bookmarks", label: "Bookmark Starred", desc: "Bookmark marked as favorite", emoji: "⭐", essential: false, color: 0xFFDD00 },
-    NotifKind { id: "bookmark_imported", category: "Bookmarks", label: "Bookmarks Imported", desc: "Bookmarks imported from file", emoji: "📥", essential: false, color: 0x00DD00 },
-
+    NotifKind {
+        id: "bookmark_added",
+        category: "Bookmarks",
+        label: "Bookmark Added",
+        desc: "New frequency bookmarked",
+        emoji: "🔖",
+        essential: false,
+        color: 0xFFCC00,
+    },
+    NotifKind {
+        id: "bookmark_starred",
+        category: "Bookmarks",
+        label: "Bookmark Starred",
+        desc: "Bookmark marked as favorite",
+        emoji: "⭐",
+        essential: false,
+        color: 0xFFDD00,
+    },
+    NotifKind {
+        id: "bookmark_imported",
+        category: "Bookmarks",
+        label: "Bookmarks Imported",
+        desc: "Bookmarks imported from file",
+        emoji: "📥",
+        essential: false,
+        color: 0x00DD00,
+    },
     // System
-    NotifKind { id: "mqtt_connected", category: "System", label: "MQTT Connected", desc: "MQTT broker connected", emoji: "🔗", essential: false, color: 0x00AA00 },
-    NotifKind { id: "mqtt_disconnected", category: "System", label: "MQTT Disconnected", desc: "MQTT broker disconnected", emoji: "🔌", essential: false, color: 0xCC0000 },
-    NotifKind { id: "app_started", category: "System", label: "App Started", desc: "EZ-SDR session started", emoji: "🟢", essential: false, color: 0x00CC00 },
-    NotifKind { id: "session_summary", category: "System", label: "Session Summary", desc: "Periodic session status report (opt-in)", emoji: "📊", essential: false, color: 0x0066FF },
+    NotifKind {
+        id: "mqtt_connected",
+        category: "System",
+        label: "MQTT Connected",
+        desc: "MQTT broker connected",
+        emoji: "🔗",
+        essential: false,
+        color: 0x00AA00,
+    },
+    NotifKind {
+        id: "mqtt_disconnected",
+        category: "System",
+        label: "MQTT Disconnected",
+        desc: "MQTT broker disconnected",
+        emoji: "🔌",
+        essential: false,
+        color: 0xCC0000,
+    },
+    NotifKind {
+        id: "app_started",
+        category: "System",
+        label: "App Started",
+        desc: "EZ-SDR session started",
+        emoji: "🟢",
+        essential: false,
+        color: 0x00CC00,
+    },
+    NotifKind {
+        id: "session_summary",
+        category: "System",
+        label: "Session Summary",
+        desc: "Periodic session status report (opt-in)",
+        emoji: "📊",
+        essential: false,
+        color: 0x0066FF,
+    },
 ];
 
+/// Return a sorted, deduplicated list of category names from [`CATALOG`].
 pub fn categories() -> Vec<&'static str> {
     let mut cats: Vec<_> = CATALOG.iter().map(|k| k.category).collect();
     cats.sort();
@@ -119,44 +455,76 @@ pub fn categories() -> Vec<&'static str> {
     cats
 }
 
+/// Return all [`NotifKind`] entries belonging to the given category.
 pub fn kinds_in(category: &str) -> Vec<&'static NotifKind> {
     CATALOG.iter().filter(|k| k.category == category).collect()
 }
 
+/// Check whether a notification kind is enabled in the given settings.
+///
+/// Returns the user's preference if set, otherwise falls back to the kind's
+/// `essential` flag.
 pub fn is_enabled(settings: &DiscordSettings, kind_id: &str) -> bool {
-    settings.enabled_kinds.get(kind_id).copied()
-        .unwrap_or_else(|| CATALOG.iter().find(|k| k.id == kind_id).map(|k| k.essential).unwrap_or(false))
+    settings
+        .enabled_kinds
+        .get(kind_id)
+        .copied()
+        .unwrap_or_else(|| {
+            CATALOG
+                .iter()
+                .find(|k| k.id == kind_id)
+                .map(|k| k.essential)
+                .unwrap_or(false)
+        })
 }
 
+/// Check whether a notification kind is starred (favorited) in the settings.
 pub fn is_starred(settings: &DiscordSettings, kind_id: &str) -> bool {
     settings.starred_kinds.contains(kind_id)
 }
 
+/// A rich embed message payload for the Discord webhook API.
+///
+/// Contains the title, description, color, fields, footer, and optional image
+/// that together compose a single Discord embed card.
 #[derive(Debug, Clone)]
 pub struct DiscordEmbed {
+    /// Embed title (displayed as bold heading).
     pub title: String,
+    /// Embed body text (Markdown supported).
     pub description: String,
+    /// Color bar on the left edge of the embed (hex RGB).
     pub color: u32,
+    /// Row fields: each tuple is (name, value, inline).
     pub fields: Vec<(String, String, bool)>,
+    /// Footer text displayed at the bottom of the embed.
     pub footer: String,
+    /// ISO-8601 timestamp string.
     pub timestamp: String,
+    /// Optional image URL to embed in the card.
     pub image_url: Option<String>,
 }
 
 impl DiscordEmbed {
+    /// Serialize this embed along with an optional user ping into a JSON value
+    /// suitable for the Discord webhook API (channels/{id}/messages).
     pub fn to_json(&self, settings: &DiscordSettings) -> serde_json::Value {
         let mut content = String::new();
         if settings.ping_user && !settings.user_id.is_empty() {
             content = format!("<@{}>", settings.user_id);
         }
 
-        let fields: Vec<_> = self.fields.iter().map(|(name, value, inline)| {
-            serde_json::json!({
-                "name": name,
-                "value": value,
-                "inline": inline
+        let fields: Vec<_> = self
+            .fields
+            .iter()
+            .map(|(name, value, inline)| {
+                serde_json::json!({
+                    "name": name,
+                    "value": value,
+                    "inline": inline
+                })
             })
-        }).collect();
+            .collect();
 
         let mut embed_json = serde_json::json!({
             "title": self.title,
@@ -182,16 +550,25 @@ impl DiscordEmbed {
     }
 }
 
+/// Data representing an aircraft tracked via ADS-B, used to build notification embeds.
 pub struct AircraftData {
+    /// ICAO 24-bit address (hex string).
     pub icao: String,
+    /// Aircraft callsign / flight number.
     pub callsign: String,
+    /// Latitude in decimal degrees.
     pub lat: f64,
+    /// Longitude in decimal degrees.
     pub lon: f64,
+    /// Altitude in feet.
     pub alt_ft: u32,
+    /// Ground speed in knots.
     pub speed_kts: u32,
+    /// Heading in degrees (0–359).
     pub heading: u32,
 }
 
+/// Build a Discord embed for a new aircraft detection event.
 pub fn embed_aircraft(ac: &AircraftData, image_url: Option<String>) -> DiscordEmbed {
     let maps_url = format!("https://www.google.com/maps?q={},{}", ac.lat, ac.lon);
     DiscordEmbed {
@@ -200,11 +577,19 @@ pub fn embed_aircraft(ac: &AircraftData, image_url: Option<String>) -> DiscordEm
         color: 0x0088FF,
         fields: vec![
             ("ICAO".to_string(), ac.icao.to_string(), true),
-            ("Callsign".to_string(), ac.callsign.trim_end().to_string(), true),
+            (
+                "Callsign".to_string(),
+                ac.callsign.trim_end().to_string(),
+                true,
+            ),
             ("Altitude".to_string(), format!("{} ft", ac.alt_ft), true),
             ("Speed".to_string(), format!("{} kts", ac.speed_kts), true),
             ("Heading".to_string(), format!("{}°", ac.heading), true),
-            ("Position".to_string(), format!("{:.4}°, {:.4}°", ac.lat, ac.lon), false),
+            (
+                "Position".to_string(),
+                format!("{:.4}°, {:.4}°", ac.lat, ac.lon),
+                false,
+            ),
         ],
         footer: "EZ-SDR • ADS-B".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -212,6 +597,7 @@ pub fn embed_aircraft(ac: &AircraftData, image_url: Option<String>) -> DiscordEm
     }
 }
 
+/// Build a Discord embed for a frequency scanner hit event.
 pub fn embed_scanner_hit(freq_hz: u64, strength_db: f32) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
@@ -219,8 +605,16 @@ pub fn embed_scanner_hit(freq_hz: u64, strength_db: f32) -> DiscordEmbed {
         description: format!("Active frequency detected at **{:.4} MHz**", freq_mhz),
         color: 0x0099FF,
         fields: vec![
-            ("Frequency".to_string(), format!("{:.4} MHz", freq_mhz), true),
-            ("Strength".to_string(), format!("{:.1} dB", strength_db), true),
+            (
+                "Frequency".to_string(),
+                format!("{:.4} MHz", freq_mhz),
+                true,
+            ),
+            (
+                "Strength".to_string(),
+                format!("{:.1} dB", strength_db),
+                true,
+            ),
             ("Frequency (Hz)".to_string(), freq_hz.to_string(), false),
         ],
         footer: "EZ-SDR • Scanner".to_string(),
@@ -229,6 +623,7 @@ pub fn embed_scanner_hit(freq_hz: u64, strength_db: f32) -> DiscordEmbed {
     }
 }
 
+/// Build a Discord embed for a satellite acquisition-of-signal (AOS) event.
 pub fn embed_sat_aos(sat_name: &str, freq_hz: u64, max_elev: f64) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
@@ -237,8 +632,16 @@ pub fn embed_sat_aos(sat_name: &str, freq_hz: u64, max_elev: f64) -> DiscordEmbe
         color: 0x9900FF,
         fields: vec![
             ("Satellite".to_string(), sat_name.to_string(), true),
-            ("Frequency".to_string(), format!("{:.3} MHz", freq_mhz), true),
-            ("Max Elevation".to_string(), format!("{:.1}°", max_elev), true),
+            (
+                "Frequency".to_string(),
+                format!("{:.3} MHz", freq_mhz),
+                true,
+            ),
+            (
+                "Max Elevation".to_string(),
+                format!("{:.1}°", max_elev),
+                true,
+            ),
         ],
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -246,21 +649,27 @@ pub fn embed_sat_aos(sat_name: &str, freq_hz: u64, max_elev: f64) -> DiscordEmbe
     }
 }
 
+/// Build a Discord embed for a satellite loss-of-signal (LOS) event.
 pub fn embed_sat_los(sat_name: &str) -> DiscordEmbed {
     DiscordEmbed {
         title: format!("🌅 Satellite LOS: {}", sat_name),
         description: format!("**{}** has set below the horizon", sat_name),
         color: 0xFF6600,
-        fields: vec![
-            ("Satellite".to_string(), sat_name.to_string(), false),
-        ],
+        fields: vec![("Satellite".to_string(), sat_name.to_string(), false)],
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
     }
 }
 
-pub fn embed_sat_upcoming(sat_name: &str, aos_str: &str, los_str: &str, max_elev: f64, freq_hz: u64) -> DiscordEmbed {
+/// Build a Discord embed for an upcoming satellite pass notification.
+pub fn embed_sat_upcoming(
+    sat_name: &str,
+    aos_str: &str,
+    los_str: &str,
+    max_elev: f64,
+    freq_hz: u64,
+) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
         title: format!("📅 Upcoming Pass: {}", sat_name),
@@ -270,8 +679,16 @@ pub fn embed_sat_upcoming(sat_name: &str, aos_str: &str, los_str: &str, max_elev
             ("Satellite".to_string(), sat_name.to_string(), true),
             ("AOS".to_string(), aos_str.to_string(), true),
             ("LOS".to_string(), los_str.to_string(), true),
-            ("Max Elevation".to_string(), format!("{:.1}°", max_elev), true),
-            ("Frequency".to_string(), format!("{:.3} MHz", freq_mhz), true),
+            (
+                "Max Elevation".to_string(),
+                format!("{:.1}°", max_elev),
+                true,
+            ),
+            (
+                "Frequency".to_string(),
+                format!("{:.3} MHz", freq_mhz),
+                true,
+            ),
         ],
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -279,7 +696,13 @@ pub fn embed_sat_upcoming(sat_name: &str, aos_str: &str, los_str: &str, max_elev
     }
 }
 
-pub fn embed_recording_started(freq_hz: u64, mode: &str, is_iq: bool, is_audio: bool) -> DiscordEmbed {
+/// Build a Discord embed for a recording-started event.
+pub fn embed_recording_started(
+    freq_hz: u64,
+    mode: &str,
+    is_iq: bool,
+    is_audio: bool,
+) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     let rec_type = match (is_iq, is_audio) {
         (true, true) => "I/Q + Audio",
@@ -289,10 +712,17 @@ pub fn embed_recording_started(freq_hz: u64, mode: &str, is_iq: bool, is_audio: 
     };
     DiscordEmbed {
         title: "⏺ Recording Started".to_string(),
-        description: format!("Recording **{}** at **{:.4} MHz** in **{}** mode", rec_type, freq_mhz, mode),
+        description: format!(
+            "Recording **{}** at **{:.4} MHz** in **{}** mode",
+            rec_type, freq_mhz, mode
+        ),
         color: 0xFF0000,
         fields: vec![
-            ("Frequency".to_string(), format!("{:.4} MHz", freq_mhz), true),
+            (
+                "Frequency".to_string(),
+                format!("{:.4} MHz", freq_mhz),
+                true,
+            ),
             ("Mode".to_string(), mode.to_string(), true),
             ("Type".to_string(), rec_type.to_string(), true),
         ],
@@ -302,17 +732,34 @@ pub fn embed_recording_started(freq_hz: u64, mode: &str, is_iq: bool, is_audio: 
     }
 }
 
-pub fn embed_recording_stopped(freq_hz: u64, mode: &str, duration_sec: u64, bytes: u64) -> DiscordEmbed {
+/// Build a Discord embed for a recording-stopped event.
+pub fn embed_recording_stopped(
+    freq_hz: u64,
+    mode: &str,
+    duration_sec: u64,
+    bytes: u64,
+) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     let size_mb = bytes as f64 / 1e6;
     DiscordEmbed {
         title: "⏹ Recording Stopped".to_string(),
-        description: format!("Recording finished after **{}s** at **{:.4} MHz**", duration_sec, freq_mhz),
+        description: format!(
+            "Recording finished after **{}s** at **{:.4} MHz**",
+            duration_sec, freq_mhz
+        ),
         color: 0x660000,
         fields: vec![
-            ("Duration".to_string(), format!("{} sec", duration_sec), true),
+            (
+                "Duration".to_string(),
+                format!("{} sec", duration_sec),
+                true,
+            ),
             ("Size".to_string(), format!("{:.1} MB", size_mb), true),
-            ("Frequency".to_string(), format!("{:.4} MHz", freq_mhz), true),
+            (
+                "Frequency".to_string(),
+                format!("{:.4} MHz", freq_mhz),
+                true,
+            ),
             ("Mode".to_string(), mode.to_string(), true),
         ],
         footer: "EZ-SDR • Recorder".to_string(),
@@ -321,20 +768,20 @@ pub fn embed_recording_stopped(freq_hz: u64, mode: &str, duration_sec: u64, byte
     }
 }
 
+/// Build a Discord embed for a recording error event.
 pub fn embed_recording_error(error: &str) -> DiscordEmbed {
     DiscordEmbed {
         title: "⚠️ Recording Error".to_string(),
         description: format!("**{}**", error),
         color: 0xFF3333,
-        fields: vec![
-            ("Error".to_string(), error.to_string(), false),
-        ],
+        fields: vec![("Error".to_string(), error.to_string(), false)],
         footer: "EZ-SDR • Recorder".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
     }
 }
 
+/// Build a Discord embed for a strong signal detection event (SNR > 20 dB).
 pub fn embed_strong_signal(freq_hz: u64, snr_db: f32) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
@@ -342,7 +789,11 @@ pub fn embed_strong_signal(freq_hz: u64, snr_db: f32) -> DiscordEmbed {
         description: format!("Excellent reception at **{:.4} MHz**", freq_mhz),
         color: 0x00DD00,
         fields: vec![
-            ("Frequency".to_string(), format!("{:.4} MHz", freq_mhz), true),
+            (
+                "Frequency".to_string(),
+                format!("{:.4} MHz", freq_mhz),
+                true,
+            ),
             ("SNR".to_string(), format!("{:.1} dB", snr_db), true),
         ],
         footer: "EZ-SDR • Signal".to_string(),
@@ -351,20 +802,20 @@ pub fn embed_strong_signal(freq_hz: u64, snr_db: f32) -> DiscordEmbed {
     }
 }
 
+/// Build a Discord embed for an SDR source error event.
 pub fn embed_source_error(error: &str) -> DiscordEmbed {
     DiscordEmbed {
         title: "❌ Source Error".to_string(),
         description: format!("**{}**", error),
         color: 0xFF0000,
-        fields: vec![
-            ("Error".to_string(), error.to_string(), false),
-        ],
+        fields: vec![("Error".to_string(), error.to_string(), false)],
         footer: "EZ-SDR • Source".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
     }
 }
 
+/// Build a Discord embed for a scheduled-task-fired event.
 pub fn embed_task_fired(label: &str, freq_hz: u64) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
@@ -373,7 +824,11 @@ pub fn embed_task_fired(label: &str, freq_hz: u64) -> DiscordEmbed {
         color: 0x0066CC,
         fields: vec![
             ("Task".to_string(), label.to_string(), true),
-            ("Frequency".to_string(), format!("{:.4} MHz", freq_mhz), true),
+            (
+                "Frequency".to_string(),
+                format!("{:.4} MHz", freq_mhz),
+                true,
+            ),
         ],
         footer: "EZ-SDR • Scheduler".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -381,7 +836,16 @@ pub fn embed_task_fired(label: &str, freq_hz: u64) -> DiscordEmbed {
     }
 }
 
-pub fn embed_session_summary(uptime_sec: u64, current_freq_mhz: f64, mode: &str, aircraft_count: usize, scanner_hits: usize, recordings: usize, upcoming_passes: usize) -> DiscordEmbed {
+/// Build a Discord embed for a periodic session-summary report.
+pub fn embed_session_summary(
+    uptime_sec: u64,
+    current_freq_mhz: f64,
+    mode: &str,
+    aircraft_count: usize,
+    scanner_hits: usize,
+    recordings: usize,
+    upcoming_passes: usize,
+) -> DiscordEmbed {
     let hours = uptime_sec / 3600;
     let mins = (uptime_sec % 3600) / 60;
     DiscordEmbed {
@@ -390,12 +854,24 @@ pub fn embed_session_summary(uptime_sec: u64, current_freq_mhz: f64, mode: &str,
         color: 0x0066FF,
         fields: vec![
             ("Uptime".to_string(), format!("{}h {}m", hours, mins), true),
-            ("Current Frequency".to_string(), format!("{:.4} MHz", current_freq_mhz), true),
+            (
+                "Current Frequency".to_string(),
+                format!("{:.4} MHz", current_freq_mhz),
+                true,
+            ),
             ("Demod Mode".to_string(), mode.to_string(), true),
-            ("Aircraft Tracked".to_string(), aircraft_count.to_string(), true),
+            (
+                "Aircraft Tracked".to_string(),
+                aircraft_count.to_string(),
+                true,
+            ),
             ("Scanner Hits".to_string(), scanner_hits.to_string(), true),
             ("Recordings".to_string(), recordings.to_string(), true),
-            ("Upcoming Passes".to_string(), upcoming_passes.to_string(), false),
+            (
+                "Upcoming Passes".to_string(),
+                upcoming_passes.to_string(),
+                false,
+            ),
         ],
         footer: "EZ-SDR • System".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -403,6 +879,7 @@ pub fn embed_session_summary(uptime_sec: u64, current_freq_mhz: f64, mode: &str,
     }
 }
 
+/// Build a generic Discord embed with an emoji prefix and no additional fields.
 pub fn embed_generic(title: &str, description: &str, emoji: &str, color: u32) -> DiscordEmbed {
     DiscordEmbed {
         title: format!("{} {}", emoji, title),
@@ -415,29 +892,47 @@ pub fn embed_generic(title: &str, description: &str, emoji: &str, color: u32) ->
     }
 }
 
+/// Attempt to fetch an aircraft photo URL from PlaneSpotters or a fallback source.
+///
+/// Returns `None` if no valid image URL could be resolved within the timeout.
 pub fn fetch_aircraft_image(icao: &str) -> Option<String> {
     // Try multiple image sources in order
     let icao_upper = icao.to_uppercase();
 
     // Try PlaneSpotters CDN - most reliable for aircraft photos
-    let planespotters_url = format!("https://cdn-photos.planespotters.net/photos/{}.jpg", icao_upper);
+    let planespotters_url = format!(
+        "https://cdn-photos.planespotters.net/photos/{}.jpg",
+        icao_upper
+    );
     if is_url_valid(&planespotters_url) {
         return Some(planespotters_url);
     }
 
     // Try FlightRadar24's aircraft type icon database (fallback)
     // This uses a generic URL pattern for aircraft types
-    Some(format!("https://static.radarbox.com/pictures/01000000/01{}.png", icao_upper))
+    Some(format!(
+        "https://static.radarbox.com/pictures/01000000/01{}.png",
+        icao_upper
+    ))
 }
 
 fn is_url_valid(url: &str) -> bool {
     // Try a quick HEAD request to see if the URL is valid
-    match reqwest::blocking::Client::new().head(url).timeout(std::time::Duration::from_secs(2)).send() {
+    match reqwest::blocking::Client::new()
+        .head(url)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+    {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
     }
 }
 
+/// Manages Discord notification dispatch with rate-limiting.
+///
+/// Holds a background thread that receives [`DiscordEmbed`] messages via a
+/// channel and POSTs them to the Discord API. The `fire()` method enforces
+/// per-kind enablement and a minimum inter-message interval.
 pub struct DiscordNotifier {
     pub settings: DiscordSettings,
     tx: crossbeam_channel::Sender<DiscordEmbed>,
@@ -445,6 +940,7 @@ pub struct DiscordNotifier {
 }
 
 impl DiscordNotifier {
+    /// Create a new `DiscordNotifier`, spawning a background dispatch thread.
     pub fn new() -> Self {
         let (tx, rx) = crossbeam_channel::bounded(64);
         std::thread::spawn(move || {
@@ -466,15 +962,21 @@ impl DiscordNotifier {
         }
     }
 
-    fn post_embed(_client: &reqwest::blocking::Client, _embed: &DiscordEmbed) -> Result<(), Box<dyn std::error::Error>> {
+    fn post_embed(
+        _client: &reqwest::blocking::Client,
+        _embed: &DiscordEmbed,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // This won't be called with invalid creds, but kept simple
         Ok(())
     }
 
+    /// Update the notifier's settings from a new [`DiscordSettings`] snapshot.
     pub fn apply_settings(&mut self, settings: &DiscordSettings) {
         self.settings = settings.clone();
     }
 
+    /// Returns `true` when all required Discord credentials (token, channel, user)
+    /// are set and the notifier is enabled.
     pub fn is_configured(&self) -> bool {
         self.settings.enabled
             && !self.settings.bot_token.is_empty()
@@ -482,6 +984,10 @@ impl DiscordNotifier {
             && !self.settings.user_id.is_empty()
     }
 
+    /// Enqueue a notification embed for dispatch.
+    ///
+    /// The notification is silently dropped if the notifier is not configured,
+    /// the kind is disabled, or the rate-limit interval has not elapsed.
     pub fn fire(&mut self, kind_id: &str, embed: DiscordEmbed) {
         if !self.settings.enabled || !self.is_configured() {
             return;
@@ -498,15 +1004,26 @@ impl DiscordNotifier {
         self.last_send = Instant::now();
     }
 
+    /// Send a test notification to Discord to verify the bot credentials and
+    /// channel configuration are working.
     pub fn send_test(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.is_configured() {
             return Err("Not configured".into());
         }
         let client = reqwest::blocking::Client::new();
-        let embed = embed_generic("Test Notification", "If you see this, Discord integration is working!", "✅", 0x00AA00);
-        let url = format!("https://discord.com/api/v10/channels/{}/messages", self.settings.channel_id);
+        let embed = embed_generic(
+            "Test Notification",
+            "If you see this, Discord integration is working!",
+            "✅",
+            0x00AA00,
+        );
+        let url = format!(
+            "https://discord.com/api/v10/channels/{}/messages",
+            self.settings.channel_id
+        );
         let body = embed.to_json(&self.settings);
-        client.post(&url)
+        client
+            .post(&url)
             .header("Authorization", format!("Bot {}", self.settings.bot_token))
             .json(&body)
             .send()?;

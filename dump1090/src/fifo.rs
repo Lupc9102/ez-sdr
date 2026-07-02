@@ -47,7 +47,10 @@ impl Fifo {
                     if dur.is_zero() {
                         return Some(item);
                     }
-                    let (guard, timed_out) = self.not_full.wait_timeout(inner, dur).expect("fifo mutex poisoned");
+                    let (guard, timed_out) = self
+                        .not_full
+                        .wait_timeout(inner, dur)
+                        .expect("fifo mutex poisoned");
                     inner = guard;
                     if timed_out.timed_out() {
                         return Some(item);
@@ -87,7 +90,10 @@ impl Fifo {
                     if dur.is_zero() {
                         return None;
                     }
-                    let (guard, timed_out) = self.not_empty.wait_timeout(inner, dur).expect("fifo mutex poisoned");
+                    let (guard, timed_out) = self
+                        .not_empty
+                        .wait_timeout(inner, dur)
+                        .expect("fifo mutex poisoned");
                     inner = guard;
                     if timed_out.timed_out() {
                         return None;

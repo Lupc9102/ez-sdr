@@ -59,7 +59,12 @@ impl UserLevel {
     }
 
     pub fn levels() -> &'static [UserLevel; 4] {
-        &[Self::Beginner, Self::Intermediate, Self::Advanced, Self::ClerkMaxwell]
+        &[
+            Self::Beginner,
+            Self::Intermediate,
+            Self::Advanced,
+            Self::ClerkMaxwell,
+        ]
     }
 }
 
@@ -107,7 +112,10 @@ mod tests {
         assert_eq!(UserLevel::from_str("beginner"), UserLevel::Beginner);
         assert_eq!(UserLevel::from_str("intermediate"), UserLevel::Intermediate);
         assert_eq!(UserLevel::from_str("advanced"), UserLevel::Advanced);
-        assert_eq!(UserLevel::from_str("clerk_maxwell"), UserLevel::ClerkMaxwell);
+        assert_eq!(
+            UserLevel::from_str("clerk_maxwell"),
+            UserLevel::ClerkMaxwell
+        );
     }
 
     #[test]
@@ -118,7 +126,12 @@ mod tests {
 
     #[test]
     fn user_level_to_str_roundtrip() {
-        for level in &[UserLevel::Beginner, UserLevel::Intermediate, UserLevel::Advanced, UserLevel::ClerkMaxwell] {
+        for level in &[
+            UserLevel::Beginner,
+            UserLevel::Intermediate,
+            UserLevel::Advanced,
+            UserLevel::ClerkMaxwell,
+        ] {
             assert_eq!(UserLevel::from_str(level.to_str()), *level);
         }
     }

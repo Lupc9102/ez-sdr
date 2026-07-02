@@ -1,31 +1,31 @@
 use eframe::NativeOptions;
 
-mod app;
-mod source_manager;
-mod spectrum;
-mod sdr_panel;
-mod satellite_panel;
-mod adsb_panel;
 mod adsb_decoder;
-mod recorder_panel;
+mod adsb_panel;
 mod ai_panel;
-mod scheduler;
-mod config;
+mod airport_db;
+mod antenna_checklist;
+mod app;
+mod audio_output;
 mod bookmarks;
-mod web_remote;
-mod mqtt;
+mod config;
+mod demod;
 mod discord;
 mod discord_panel;
-mod tle_engine;
-mod demod;
-mod audio_output;
-mod scanner;
 mod howto_panel;
+mod mqtt;
+mod recorder_panel;
+mod satellite_panel;
+mod scanner;
+mod scheduler;
+mod sdr_panel;
+mod source_manager;
+mod spectrum;
 mod theme;
-mod antenna_checklist;
-mod airport_db;
-mod user_level;
+mod tle_engine;
 mod tutorial;
+mod user_level;
+mod web_remote;
 
 fn main() -> eframe::Result {
     // Force X11 on Linux — winit's Wayland backend has broken mouse input
@@ -37,8 +37,7 @@ fn main() -> eframe::Result {
     }
 
     let options = NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1400.0, 900.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1400.0, 900.0]),
         ..Default::default()
     };
     eframe::run_native(
