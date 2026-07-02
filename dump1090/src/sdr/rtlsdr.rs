@@ -298,20 +298,20 @@ impl SdrSource for RtlSdr {
 
     fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
         self.freq = freq;
-        if !self.dev.is_null() {
-            if unsafe { ffi::rtlsdr_set_center_freq(self.dev, freq as u32) } < 0 {
-                return Err(RtlSdrError::OpenFailed("failed to set center frequency".into()).into());
-            }
+        if !self.dev.is_null()
+            && unsafe { ffi::rtlsdr_set_center_freq(self.dev, freq as u32) } < 0
+        {
+            return Err(RtlSdrError::OpenFailed("failed to set center frequency".into()).into());
         }
         Ok(())
     }
 
     fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
         self.sample_rate = rate;
-        if !self.dev.is_null() {
-            if unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) } < 0 {
-                return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
-            }
+        if !self.dev.is_null()
+            && unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) } < 0
+        {
+            return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
         }
         Ok(())
     }
