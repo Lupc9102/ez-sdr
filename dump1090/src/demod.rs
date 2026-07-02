@@ -812,7 +812,8 @@ impl Demod2400 {
                 let mut phase = try_phase % 5;
                 let mut byte_len: usize = 1;
 
-                for i in 0..byte_len {
+                let mut i = 0;
+                while i < byte_len {
                     let the_byte = match phase {
                         0 => {
                             let b = ((slice_phase0(p_ptr) > 0) as u8) << 7
@@ -892,6 +893,7 @@ impl Demod2400 {
                             byte_len = MODES_SHORT_MSG_BYTES;
                         }
                     }
+                    i += 1;
                 }
 
                 if byte_len == 1 {
