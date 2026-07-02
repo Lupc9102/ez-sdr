@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/bookmarks.rs": {
-    "mtime": 1783010162.458854,
-    "ast_hash": "3ecad9b619bfc33bcb85417877e41e41",
+    "mtime": 1783011615.2254646,
+    "ast_hash": "9ff8c56cde973c96ea040eb56aedb415",
     "semantic_hash": ""
   },
   "ez-gui/src/config.rs": {
@@ -135,8 +135,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/demod.rs": {
-    "mtime": 1783003639.970997,
-    "ast_hash": "8faaec0969858350f2e0f6e4bf03afc6",
+    "mtime": 1783012327.8258772,
+    "ast_hash": "a975429ce9671bc876415167bb7ddeab",
     "semantic_hash": ""
   },
   "ez-gui/src/howto_panel.rs": {
@@ -220,8 +220,8 @@
     "semantic_hash": "23396ed6d8151fad9363638e6529bff8"
   },
   "README.md": {
-    "mtime": 1782896464.105364,
-    "ast_hash": "042076c9df714fae73a187a697d2ab58",
+    "mtime": 1783012253.557977,
+    "ast_hash": "ec21c6635cbe6e7e37dc9b0187da93de",
     "semantic_hash": ""
   },
   "ez-gui/src/web_remote.html": {
@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   ".claude/settings.local.json": {
-    "mtime": 1783011016.8608892,
-    "ast_hash": "5522d84431d7e45e6596e5fbb2c4ef2d",
+    "mtime": 1783011345.0134466,
+    "ast_hash": "7e3bb9758dca4ed1cdc4770af6ed05ff",
     "semantic_hash": ""
   },
   "ez-gui/ez_sdr_bookmarks.json": {

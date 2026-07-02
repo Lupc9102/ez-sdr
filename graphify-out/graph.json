@@ -1006,7 +1006,7 @@
       "source_location": "L548",
       "_origin": "ast",
       "id": "dump1090_src_demod_valid_df_short",
-      "community": 16,
+      "community": 27,
       "norm_label": "valid_df_short()"
     },
     {
@@ -1016,7 +1016,7 @@
       "source_location": "L558",
       "_origin": "ast",
       "id": "dump1090_src_demod_valid_df_long",
-      "community": 16,
+      "community": 27,
       "norm_label": "valid_df_long()"
     },
     {
@@ -1026,7 +1026,7 @@
       "source_location": "L580",
       "_origin": "ast",
       "id": "dump1090_src_demod_generate_damage_set",
-      "community": 16,
+      "community": 27,
       "norm_label": "generate_damage_set()"
     },
     {
@@ -1036,7 +1036,7 @@
       "source_location": "L593",
       "_origin": "ast",
       "id": "dump1090_src_demod_demod2400",
-      "community": 31,
+      "community": 27,
       "norm_label": "demod2400"
     },
     {
@@ -1046,7 +1046,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_demod_rs_default",
-      "community": 31,
+      "community": 27,
       "norm_label": "default"
     },
     {
@@ -1056,7 +1056,7 @@
       "source_location": "L606",
       "_origin": "ast",
       "id": "dump1090_src_demod_demod2400_default",
-      "community": 31,
+      "community": 27,
       "norm_label": ".default()"
     },
     {
@@ -1066,7 +1066,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_demod_rs_self",
-      "community": 31,
+      "community": 27,
       "norm_label": "self"
     },
     {
@@ -1076,7 +1076,7 @@
       "source_location": "L612",
       "_origin": "ast",
       "id": "dump1090_src_demod_demod2400_new",
-      "community": 31,
+      "community": 27,
       "norm_label": ".new()"
     },
     {
@@ -1086,7 +1086,7 @@
       "source_location": "L630",
       "_origin": "ast",
       "id": "dump1090_src_demod_demod2400_reconfigure",
-      "community": 16,
+      "community": 27,
       "norm_label": ".reconfigure()"
     },
     {
@@ -1186,7 +1186,7 @@
       "source_location": "L1250",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_generate_damage_set",
-      "community": 16,
+      "community": 27,
       "norm_label": "test_generate_damage_set()"
     },
     {
@@ -5753,7 +5753,7 @@
       "label": "BookmarkDb",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L3",
+      "source_location": "L5",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmarkdb",
       "community": 24,
@@ -5773,7 +5773,7 @@
       "label": "Bookmark",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L8",
+      "source_location": "L11",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmark",
       "community": 24,
@@ -5803,7 +5803,7 @@
       "label": ".default()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L20",
+      "source_location": "L30",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmarkdb_default",
       "community": 24,
@@ -5823,7 +5823,7 @@
       "label": ".save()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L56",
+      "source_location": "L67",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmarkdb_save",
       "community": 24,
@@ -5833,7 +5833,7 @@
       "label": ".load_saved()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L62",
+      "source_location": "L75",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmarkdb_load_saved",
       "community": 24,
@@ -5853,7 +5853,7 @@
       "label": ".load_or_default()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L67",
+      "source_location": "L82",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmarkdb_load_or_default",
       "community": 24,
@@ -5863,7 +5863,7 @@
       "label": ".import_csv()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L77",
+      "source_location": "L92",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmarkdb_import_csv",
       "community": 24,
@@ -5873,7 +5873,7 @@
       "label": ".export_csv()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L142",
+      "source_location": "L157",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmarkdb_export_csv",
       "community": 24,
@@ -5883,7 +5883,7 @@
       "label": ".freq_display()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L175",
+      "source_location": "L191",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_bookmark_freq_display",
       "community": 24,
@@ -5893,7 +5893,7 @@
       "label": "default_has_all_bookmarks()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L191",
+      "source_location": "L207",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_default_has_all_bookmarks",
       "community": 24,
@@ -5903,7 +5903,7 @@
       "label": "default_bookmarks_have_categories()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L197",
+      "source_location": "L213",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_default_bookmarks_have_categories",
       "community": 24,
@@ -5913,7 +5913,7 @@
       "label": "freq_display_ghz()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L208",
+      "source_location": "L224",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_freq_display_ghz",
       "community": 24,
@@ -5923,7 +5923,7 @@
       "label": "freq_display_mhz()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L222",
+      "source_location": "L238",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_freq_display_mhz",
       "community": 24,
@@ -5933,7 +5933,7 @@
       "label": "freq_display_khz()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L236",
+      "source_location": "L252",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_freq_display_khz",
       "community": 24,
@@ -5943,7 +5943,7 @@
       "label": "default_is_stable_without_file()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L250",
+      "source_location": "L266",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_default_is_stable_without_file",
       "community": 24,
@@ -5953,7 +5953,7 @@
       "label": "import_csv_adds_bookmarks()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L257",
+      "source_location": "L273",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
       "community": 24,
@@ -5963,7 +5963,7 @@
       "label": "import_csv_dedup_by_frequency()",
       "file_type": "code",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L274",
+      "source_location": "L290",
       "_origin": "ast",
       "id": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
       "community": 24,
@@ -6388,6 +6388,26 @@
       "id": "ez_gui_src_demod_demod_wfm_produces_output",
       "community": 49,
       "norm_label": "demod_wfm_produces_output()"
+    },
+    {
+      "label": "demod_lsb_produces_finite_output()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L339",
+      "_origin": "ast",
+      "id": "ez_gui_src_demod_demod_lsb_produces_finite_output",
+      "community": 49,
+      "norm_label": "demod_lsb_produces_finite_output()"
+    },
+    {
+      "label": "demod_usb_produces_finite_output()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L352",
+      "_origin": "ast",
+      "id": "ez_gui_src_demod_demod_usb_produces_finite_output",
+      "community": 49,
+      "norm_label": "demod_usb_produces_finite_output()"
     },
     {
       "label": "discord.rs",
@@ -7376,7 +7396,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt.rs"
     },
     {
@@ -7386,7 +7406,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqttpublisher"
     },
     {
@@ -7396,7 +7416,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_string",
-      "community": 76,
+      "community": 10,
       "norm_label": "string"
     },
     {
@@ -7406,7 +7426,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_option",
-      "community": 76,
+      "community": 10,
       "norm_label": "option"
     },
     {
@@ -7416,7 +7436,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_arc",
-      "community": 76,
+      "community": 10,
       "norm_label": "arc"
     },
     {
@@ -7426,7 +7446,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_atomicbool",
-      "community": 76,
+      "community": 10,
       "norm_label": "atomicbool"
     },
     {
@@ -7436,7 +7456,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_instant",
-      "community": 76,
+      "community": 10,
       "norm_label": "instant"
     },
     {
@@ -7446,7 +7466,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_new",
-      "community": 76,
+      "community": 10,
       "norm_label": ".new()"
     },
     {
@@ -7456,7 +7476,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_self",
-      "community": 76,
+      "community": 10,
       "norm_label": "self"
     },
     {
@@ -7466,7 +7486,7 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_set_enabled",
-      "community": 76,
+      "community": 10,
       "norm_label": ".set_enabled()"
     },
     {
@@ -7476,7 +7496,7 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_connect",
-      "community": 76,
+      "community": 10,
       "norm_label": ".connect()"
     },
     {
@@ -7486,7 +7506,7 @@
       "source_location": "L63",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_disconnect",
-      "community": 76,
+      "community": 10,
       "norm_label": ".disconnect()"
     },
     {
@@ -7496,7 +7516,7 @@
       "source_location": "L69",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_is_connected",
-      "community": 76,
+      "community": 10,
       "norm_label": ".is_connected()"
     },
     {
@@ -7506,7 +7526,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_reconnect_in_secs",
-      "community": 76,
+      "community": 10,
       "norm_label": ".reconnect_in_secs()"
     },
     {
@@ -7516,7 +7536,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick_reconnect",
-      "community": 76,
+      "community": 10,
       "norm_label": ".tick_reconnect()"
     },
     {
@@ -7526,7 +7546,7 @@
       "source_location": "L93",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish()"
     },
     {
@@ -7536,7 +7556,7 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick",
-      "community": 76,
+      "community": 10,
       "norm_label": ".tick()"
     },
     {
@@ -7546,7 +7566,7 @@
       "source_location": "L111",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_signal",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish_signal()"
     },
     {
@@ -7556,7 +7576,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_scanner_hit",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish_scanner_hit()"
     },
     {
@@ -7586,7 +7606,7 @@
       "source_location": "L171",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_new_defaults_disabled",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_new_defaults_disabled()"
     },
     {
@@ -7596,7 +7616,7 @@
       "source_location": "L180",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_new_not_connected",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_new_not_connected()"
     },
     {
@@ -7606,7 +7626,7 @@
       "source_location": "L186",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_new_no_reconnect",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_new_no_reconnect()"
     },
     {
@@ -7616,7 +7636,7 @@
       "source_location": "L192",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_set_enabled_disabled_noop",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_set_enabled_disabled_noop()"
     },
     {
@@ -7626,7 +7646,7 @@
       "source_location": "L201",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_publish_without_client_no_crash()"
     },
     {
@@ -7636,7 +7656,7 @@
       "source_location": "L210",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_is_connected_requires_enabled_and_client",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_is_connected_requires_enabled_and_client()"
     },
     {
@@ -7646,7 +7666,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel",
-      "community": 47,
+      "community": 5,
       "norm_label": "recorder_panel.rs"
     },
     {
@@ -7656,7 +7676,7 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_signalevent",
-      "community": 47,
+      "community": 5,
       "norm_label": "signalevent"
     },
     {
@@ -7666,7 +7686,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_string",
-      "community": 47,
+      "community": 5,
       "norm_label": "string"
     },
     {
@@ -7676,7 +7696,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel",
-      "community": 47,
+      "community": 5,
       "norm_label": "recorderpanel"
     },
     {
@@ -7686,7 +7706,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_arc",
-      "community": 47,
+      "community": 5,
       "norm_label": "arc"
     },
     {
@@ -7696,7 +7716,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_mutex",
-      "community": 47,
+      "community": 5,
       "norm_label": "mutex"
     },
     {
@@ -7706,7 +7726,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_option",
-      "community": 47,
+      "community": 5,
       "norm_label": "option"
     },
     {
@@ -7716,7 +7736,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_instant",
-      "community": 47,
+      "community": 5,
       "norm_label": "instant"
     },
     {
@@ -7726,7 +7746,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "bufwriter",
-      "community": 47,
+      "community": 5,
       "norm_label": "bufwriter"
     },
     {
@@ -7746,7 +7766,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "wavwriter",
-      "community": 47,
+      "community": 5,
       "norm_label": "wavwriter"
     },
     {
@@ -7756,7 +7776,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_vec",
-      "community": 47,
+      "community": 5,
       "norm_label": "vec"
     },
     {
@@ -7766,7 +7786,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_vecdeque",
-      "community": 47,
+      "community": 5,
       "norm_label": "vecdeque"
     },
     {
@@ -7776,7 +7796,7 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recordingfile",
-      "community": 47,
+      "community": 5,
       "norm_label": "recordingfile"
     },
     {
@@ -7786,7 +7806,7 @@
       "source_location": "L54",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_new",
-      "community": 47,
+      "community": 5,
       "norm_label": ".new()"
     },
     {
@@ -7796,7 +7816,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_self",
-      "community": 47,
+      "community": 5,
       "norm_label": "self"
     },
     {
@@ -7806,7 +7826,7 @@
       "source_location": "L86",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_apply_filename_template",
-      "community": 47,
+      "community": 5,
       "norm_label": ".apply_filename_template()"
     },
     {
@@ -7816,7 +7836,7 @@
       "source_location": "L96",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_tick_squelch_record",
-      "community": 47,
+      "community": 5,
       "norm_label": ".tick_squelch_record()"
     },
     {
@@ -7826,7 +7846,7 @@
       "source_location": "L136",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_scan_recordings",
-      "community": 47,
+      "community": 5,
       "norm_label": ".scan_recordings()"
     },
     {
@@ -7836,7 +7856,7 @@
       "source_location": "L168",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_start_recording",
-      "community": 47,
+      "community": 5,
       "norm_label": ".start_recording()"
     },
     {
@@ -7846,7 +7866,7 @@
       "source_location": "L273",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_stop_recording",
-      "community": 47,
+      "community": 5,
       "norm_label": ".stop_recording()"
     },
     {
@@ -7856,7 +7876,7 @@
       "source_location": "L286",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_write_samples",
-      "community": 47,
+      "community": 5,
       "norm_label": ".write_samples()"
     },
     {
@@ -7866,7 +7886,7 @@
       "source_location": "L300",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_write_audio_samples",
-      "community": 47,
+      "community": 5,
       "norm_label": ".write_audio_samples()"
     },
     {
@@ -7876,7 +7896,7 @@
       "source_location": "L328",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_ui",
-      "community": 47,
+      "community": 5,
       "norm_label": ".ui()"
     },
     {
@@ -7886,7 +7906,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_rs_ui",
-      "community": 47,
+      "community": 5,
       "norm_label": "ui"
     },
     {
@@ -7896,7 +7916,7 @@
       "source_location": "L748",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_recorderpanel_cached_free_disk_space",
-      "community": 47,
+      "community": 5,
       "norm_label": ".cached_free_disk_space()"
     },
     {
@@ -7906,7 +7926,7 @@
       "source_location": "L759",
       "_origin": "ast",
       "id": "ez_gui_src_recorder_panel_free_disk_space_with_timeout",
-      "community": 47,
+      "community": 5,
       "norm_label": "free_disk_space_with_timeout()"
     },
     {
@@ -8356,7 +8376,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler",
-      "community": 10,
+      "community": 76,
       "norm_label": "scheduler.rs"
     },
     {
@@ -8366,7 +8386,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler",
-      "community": 10,
+      "community": 76,
       "norm_label": "scheduler"
     },
     {
@@ -8376,7 +8396,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_vec",
-      "community": 10,
+      "community": 76,
       "norm_label": "vec"
     },
     {
@@ -8386,7 +8406,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduledjob",
-      "community": 10,
+      "community": 76,
       "norm_label": "scheduledjob"
     },
     {
@@ -8396,7 +8416,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_string",
-      "community": 10,
+      "community": 76,
       "norm_label": "string"
     },
     {
@@ -8406,7 +8426,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_customtask",
-      "community": 10,
+      "community": 76,
       "norm_label": "customtask"
     },
     {
@@ -8416,7 +8436,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_new",
-      "community": 10,
+      "community": 76,
       "norm_label": ".new()"
     },
     {
@@ -8426,7 +8446,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_self",
-      "community": 10,
+      "community": 76,
       "norm_label": "self"
     },
     {
@@ -8436,7 +8456,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_update_from_passes",
-      "community": 10,
+      "community": 76,
       "norm_label": ".update_from_passes()"
     },
     {
@@ -8446,7 +8466,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_active_job",
-      "community": 10,
+      "community": 76,
       "norm_label": ".active_job()"
     },
     {
@@ -8456,7 +8476,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_option",
-      "community": 10,
+      "community": 76,
       "norm_label": "option"
     },
     {
@@ -8466,7 +8486,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_poll_custom_tasks",
-      "community": 10,
+      "community": 76,
       "norm_label": ".poll_custom_tasks()"
     },
     {
@@ -8476,7 +8496,7 @@
       "source_location": "L71",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_new_scheduler_starts_empty",
-      "community": 10,
+      "community": 76,
       "norm_label": "new_scheduler_starts_empty()"
     },
     {
@@ -8486,7 +8506,7 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_returns_none_when_disabled",
-      "community": 10,
+      "community": 76,
       "norm_label": "active_job_returns_none_when_disabled()"
     },
     {
@@ -8496,7 +8516,7 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_make_scheduler",
-      "community": 10,
+      "community": 76,
       "norm_label": "make_scheduler()"
     },
     {
@@ -8506,7 +8526,7 @@
       "source_location": "L108",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_finds_job_in_window",
-      "community": 10,
+      "community": 76,
       "norm_label": "active_job_finds_job_in_window()"
     },
     {
@@ -8516,7 +8536,7 @@
       "source_location": "L116",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_returns_none_outside_window",
-      "community": 10,
+      "community": 76,
       "norm_label": "active_job_returns_none_outside_window()"
     },
     {
@@ -8526,7 +8546,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_prefers_first_match",
-      "community": 10,
+      "community": 76,
       "norm_label": "active_job_prefers_first_match()"
     },
     {
@@ -8536,7 +8556,7 @@
       "source_location": "L143",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_returns_pending",
-      "community": 10,
+      "community": 76,
       "norm_label": "poll_custom_tasks_returns_pending()"
     },
     {
@@ -8546,7 +8566,7 @@
       "source_location": "L156",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_skips_fired",
-      "community": 10,
+      "community": 76,
       "norm_label": "poll_custom_tasks_skips_fired()"
     },
     {
@@ -8556,7 +8576,7 @@
       "source_location": "L168",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_not_yet_due",
-      "community": 10,
+      "community": 76,
       "norm_label": "poll_custom_tasks_not_yet_due()"
     },
     {
@@ -8566,7 +8586,7 @@
       "source_location": "L180",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_marks_as_fired",
-      "community": 10,
+      "community": 76,
       "norm_label": "poll_custom_tasks_marks_as_fired()"
     },
     {
@@ -8576,7 +8596,7 @@
       "source_location": "L194",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_update_from_passes_populates_jobs",
-      "community": 10,
+      "community": 76,
       "norm_label": "update_from_passes_populates_jobs()"
     },
     {
@@ -8586,7 +8606,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel",
-      "community": 5,
+      "community": 47,
       "norm_label": "sdr_panel.rs"
     },
     {
@@ -8596,7 +8616,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_format_hz",
-      "community": 5,
+      "community": 47,
       "norm_label": "format_hz()"
     },
     {
@@ -8606,7 +8626,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_string",
-      "community": 5,
+      "community": 47,
       "norm_label": "string"
     },
     {
@@ -8616,7 +8636,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_demodmode",
-      "community": 5,
+      "community": 47,
       "norm_label": "demodmode"
     },
     {
@@ -8626,7 +8646,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_demodmode_from_label",
-      "community": 5,
+      "community": 47,
       "norm_label": ".from_label()"
     },
     {
@@ -8636,7 +8656,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_option",
-      "community": 5,
+      "community": 47,
       "norm_label": "option"
     },
     {
@@ -8646,7 +8666,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_self",
-      "community": 5,
+      "community": 47,
       "norm_label": "self"
     },
     {
@@ -8656,7 +8676,7 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_demodmode_label",
-      "community": 5,
+      "community": 47,
       "norm_label": ".label()"
     },
     {
@@ -8666,7 +8686,7 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_sdrpanel",
-      "community": 5,
+      "community": 47,
       "norm_label": "sdrpanel"
     },
     {
@@ -8676,7 +8696,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_arc",
-      "community": 5,
+      "community": 47,
       "norm_label": "arc"
     },
     {
@@ -8686,7 +8706,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_mutex",
-      "community": 5,
+      "community": 47,
       "norm_label": "mutex"
     },
     {
@@ -8696,7 +8716,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_instant",
-      "community": 5,
+      "community": 47,
       "norm_label": "instant"
     },
     {
@@ -8706,7 +8726,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_vec",
-      "community": 5,
+      "community": 47,
       "norm_label": "vec"
     },
     {
@@ -8716,7 +8736,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "systemtime",
-      "community": 5,
+      "community": 47,
       "norm_label": "systemtime"
     },
     {
@@ -8726,7 +8746,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_hashset",
-      "community": 5,
+      "community": 47,
       "norm_label": "hashset"
     },
     {
@@ -8736,7 +8756,7 @@
       "source_location": "L98",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_sdrpanel_new",
-      "community": 5,
+      "community": 47,
       "norm_label": ".new()"
     },
     {
@@ -8746,7 +8766,7 @@
       "source_location": "L141",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_sdrpanel_ui_source",
-      "community": 5,
+      "community": 47,
       "norm_label": ".ui_source()"
     },
     {
@@ -8756,7 +8776,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_rs_ui",
-      "community": 5,
+      "community": 47,
       "norm_label": "ui"
     },
     {
@@ -8766,7 +8786,7 @@
       "source_location": "L1050",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_sdrpanel_ui_demod",
-      "community": 5,
+      "community": 47,
       "norm_label": ".ui_demod()"
     },
     {
@@ -8776,7 +8796,7 @@
       "source_location": "L2004",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_render_antenna_card",
-      "community": 5,
+      "community": 47,
       "norm_label": "render_antenna_card()"
     },
     {
@@ -8786,7 +8806,7 @@
       "source_location": "L2019",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_freqidinfo",
-      "community": 5,
+      "community": 47,
       "norm_label": "freqidinfo"
     },
     {
@@ -8796,7 +8816,7 @@
       "source_location": "L2027",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_identify_frequency",
-      "community": 5,
+      "community": 47,
       "norm_label": "identify_frequency()"
     },
     {
@@ -8806,7 +8826,7 @@
       "source_location": "L2129",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_what_to_hear_for_band",
-      "community": 5,
+      "community": 47,
       "norm_label": "what_to_hear_for_band()"
     },
     {
@@ -8816,7 +8836,7 @@
       "source_location": "L2149",
       "_origin": "ast",
       "id": "ez_gui_src_sdr_panel_suggest_demod_for_freq",
-      "community": 5,
+      "community": 47,
       "norm_label": "suggest_demod_for_freq()"
     },
     {
@@ -14069,28 +14089,6 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "dump1090/src/main.rs",
-      "source_location": "L22",
-      "weight": 1.0,
-      "context": "import",
-      "source": "dump1090_src_main",
-      "target": "dump1090_src_demod",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/adsb_decoder.rs",
-      "source_location": "L1",
-      "weight": 1.0,
-      "context": "import",
-      "source": "ez_gui_src_adsb_decoder",
-      "target": "dump1090_src_demod",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
@@ -15433,6 +15431,17 @@
       "weight": 1.0,
       "source": "dump1090_src_icao_filter_clear_removes_all",
       "target": "dump1090_src_icao_filter_icaofilter_clear",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/main.rs",
+      "source_location": "L22",
+      "weight": 1.0,
+      "context": "import",
+      "source": "dump1090_src_main",
+      "target": "ez_gui_src_demod",
       "confidence_score": 1.0
     },
     {
@@ -18681,6 +18690,17 @@
       "weight": 1.0,
       "source": "dump1090_src_util",
       "target": "dump1090_src_util_mstime",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/adsb_decoder.rs",
+      "source_location": "L1",
+      "weight": 1.0,
+      "context": "import",
+      "source": "ez_gui_src_adsb_decoder",
+      "target": "ez_gui_src_demod",
       "confidence_score": 1.0
     },
     {
@@ -24713,7 +24733,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L8",
+      "source_location": "L11",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_bookmark",
@@ -24723,7 +24743,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L3",
+      "source_location": "L5",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_bookmarkdb",
@@ -24733,7 +24753,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L197",
+      "source_location": "L213",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_default_bookmarks_have_categories",
@@ -24743,7 +24763,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L191",
+      "source_location": "L207",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_default_has_all_bookmarks",
@@ -24753,7 +24773,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L250",
+      "source_location": "L266",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_default_is_stable_without_file",
@@ -24763,7 +24783,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L208",
+      "source_location": "L224",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_freq_display_ghz",
@@ -24773,7 +24793,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L236",
+      "source_location": "L252",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_freq_display_khz",
@@ -24783,7 +24803,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L222",
+      "source_location": "L238",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_freq_display_mhz",
@@ -24793,7 +24813,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L257",
+      "source_location": "L273",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
@@ -24803,7 +24823,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L274",
+      "source_location": "L290",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks",
       "target": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
@@ -24813,7 +24833,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L4",
+      "source_location": "L6",
       "weight": 1.0,
       "context": "generic_arg",
       "source": "ez_gui_src_bookmarks_bookmarkdb",
@@ -24824,7 +24844,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L20",
+      "source_location": "L30",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb",
       "target": "ez_gui_src_bookmarks_bookmarkdb_default",
@@ -24834,7 +24854,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L142",
+      "source_location": "L157",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb",
       "target": "ez_gui_src_bookmarks_bookmarkdb_export_csv",
@@ -24844,7 +24864,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L77",
+      "source_location": "L92",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb",
       "target": "ez_gui_src_bookmarks_bookmarkdb_import_csv",
@@ -24854,7 +24874,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L67",
+      "source_location": "L82",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb",
       "target": "ez_gui_src_bookmarks_bookmarkdb_load_or_default",
@@ -24864,7 +24884,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L62",
+      "source_location": "L75",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb",
       "target": "ez_gui_src_bookmarks_bookmarkdb_load_saved",
@@ -24874,7 +24894,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L56",
+      "source_location": "L67",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb",
       "target": "ez_gui_src_bookmarks_bookmarkdb_save",
@@ -24884,7 +24904,7 @@
       "relation": "implements",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L19",
+      "source_location": "L29",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb",
       "target": "ez_gui_src_bookmarks_rs_default",
@@ -24894,7 +24914,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L4",
+      "source_location": "L6",
       "weight": 1.0,
       "context": "field",
       "source": "ez_gui_src_bookmarks_bookmarkdb",
@@ -24905,7 +24925,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L62",
+      "source_location": "L75",
       "weight": 1.0,
       "context": "generic_arg",
       "source": "ez_gui_src_bookmarks_bookmarkdb_load_saved",
@@ -24916,7 +24936,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L175",
+      "source_location": "L191",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmark",
       "target": "ez_gui_src_bookmarks_bookmark_freq_display",
@@ -24926,7 +24946,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L14",
+      "source_location": "L23",
       "weight": 1.0,
       "context": "field",
       "source": "ez_gui_src_bookmarks_bookmark",
@@ -24937,7 +24957,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L62",
+      "source_location": "L75",
       "weight": 1.0,
       "context": "generic_arg",
       "source": "ez_gui_src_bookmarks_bookmarkdb_load_saved",
@@ -24948,7 +24968,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L175",
+      "source_location": "L191",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_bookmarks_bookmark_freq_display",
@@ -24959,7 +24979,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L142",
+      "source_location": "L157",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_bookmarks_bookmarkdb_export_csv",
@@ -24970,7 +24990,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L77",
+      "source_location": "L92",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_bookmarks_bookmarkdb_import_csv",
@@ -24981,7 +25001,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L20",
+      "source_location": "L30",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_bookmarks_bookmarkdb_default",
@@ -24993,7 +25013,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L68",
+      "source_location": "L83",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb_load_or_default",
       "target": "ez_gui_src_bookmarks_bookmarkdb_default",
@@ -25004,7 +25024,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L198",
+      "source_location": "L214",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_default_bookmarks_have_categories",
       "target": "ez_gui_src_bookmarks_bookmarkdb_default",
@@ -25015,7 +25035,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L192",
+      "source_location": "L208",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_default_has_all_bookmarks",
       "target": "ez_gui_src_bookmarks_bookmarkdb_default",
@@ -25026,7 +25046,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L258",
+      "source_location": "L274",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
       "target": "ez_gui_src_bookmarks_bookmarkdb_default",
@@ -25037,7 +25057,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L275",
+      "source_location": "L291",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
       "target": "ez_gui_src_bookmarks_bookmarkdb_default",
@@ -25047,7 +25067,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L67",
+      "source_location": "L82",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_bookmarks_bookmarkdb_load_or_default",
@@ -25059,7 +25079,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L68",
+      "source_location": "L83",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_bookmarkdb_load_or_default",
       "target": "ez_gui_src_bookmarks_bookmarkdb_load_saved",
@@ -25069,7 +25089,7 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L62",
+      "source_location": "L75",
       "weight": 1.0,
       "context": "return_type",
       "source": "ez_gui_src_bookmarks_bookmarkdb_load_saved",
@@ -25081,7 +25101,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L252",
+      "source_location": "L268",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_default_is_stable_without_file",
       "target": "ez_gui_src_bookmarks_bookmarkdb_load_or_default",
@@ -25092,7 +25112,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L264",
+      "source_location": "L280",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_import_csv_adds_bookmarks",
       "target": "ez_gui_src_bookmarks_bookmarkdb_import_csv",
@@ -25103,7 +25123,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/bookmarks.rs",
-      "source_location": "L279",
+      "source_location": "L295",
       "weight": 1.0,
       "source": "ez_gui_src_bookmarks_import_csv_dedup_by_frequency",
       "target": "ez_gui_src_bookmarks_bookmarkdb_import_csv",
@@ -25460,10 +25480,30 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L339",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod",
+      "target": "ez_gui_src_demod_demod_lsb_produces_finite_output",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
       "source_location": "L264",
       "weight": 1.0,
       "source": "ez_gui_src_demod",
       "target": "ez_gui_src_demod_demod_raw_output_length",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L352",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod",
+      "target": "ez_gui_src_demod_demod_usb_produces_finite_output",
       "confidence_score": 1.0
     },
     {
@@ -25674,9 +25714,31 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L340",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod_demod_lsb_produces_finite_output",
+      "target": "ez_gui_src_demod_demodulator_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
       "source_location": "L265",
       "weight": 1.0,
       "source": "ez_gui_src_demod_demod_raw_output_length",
+      "target": "ez_gui_src_demod_demodulator_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L353",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod_demod_usb_produces_finite_output",
       "target": "ez_gui_src_demod_demodulator_new",
       "confidence_score": 1.0
     },
@@ -25773,9 +25835,31 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L344",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod_demod_lsb_produces_finite_output",
+      "target": "ez_gui_src_demod_demodulator_demodulate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
       "source_location": "L268",
       "weight": 1.0,
       "source": "ez_gui_src_demod_demod_raw_output_length",
+      "target": "ez_gui_src_demod_demodulator_demodulate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L357",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod_demod_usb_produces_finite_output",
       "target": "ez_gui_src_demod_demodulator_demodulate",
       "confidence_score": 1.0
     },
@@ -26004,9 +26088,31 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L343",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod_demod_lsb_produces_finite_output",
+      "target": "ez_gui_src_demod_make_iq_dc",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
       "source_location": "L267",
       "weight": 1.0,
       "source": "ez_gui_src_demod_demod_raw_output_length",
+      "target": "ez_gui_src_demod_make_iq_dc",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/demod.rs",
+      "source_location": "L356",
+      "weight": 1.0,
+      "source": "ez_gui_src_demod_demod_usb_produces_finite_output",
       "target": "ez_gui_src_demod_make_iq_dc",
       "confidence_score": 1.0
     },
@@ -36782,5 +36888,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "6e30f933eeb6a8f21aedb5f16e68d4a6f57660c2"
+  "built_at_commit": "016af2105b574c5338d8fa9fcda6ca00b2fbd032"
 }
