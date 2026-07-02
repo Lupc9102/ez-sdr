@@ -182,3 +182,103 @@ impl Bookmark {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_has_all_bookmarks() {
+        let db = BookmarkDb::default();
+        assert_eq!(db.bookmarks.len(), 25);
+    }
+
+    #[test]
+    fn default_bookmarks_have_categories() {
+        let db = BookmarkDb::default();
+        let categories: std::collections::BTreeSet<&str> = db.bookmarks.iter().map(|b| b.category.as_str()).collect();
+        assert!(categories.contains("Weather"));
+        assert!(categories.contains("Aviation"));
+        assert!(categories.contains("Space"));
+        assert!(categories.contains("Ham"));
+        assert!(categories.contains("Broadcast"));
+    }
+
+    #[test]
+    fn freq_display_ghz() {
+        let bm = Bookmark {
+            frequency_hz: 1_575_420_000,
+            mode: String::new(),
+            name: String::new(),
+            bandwidth_hz: 0,
+            category: String::new(),
+            notes: String::new(),
+            starred: false,
+        };
+        assert_eq!(bm.freq_display(), "1.575 GHz");
+    }
+
+    #[test]
+    fn freq_display_mhz() {
+        let bm = Bookmark {
+            frequency_hz: 137_620_000,
+            mode: String::new(),
+            name: String::new(),
+            bandwidth_hz: 0,
+            category: String::new(),
+            notes: String::new(),
+            starred: false,
+        };
+        assert_eq!(bm.freq_display(), "137.620 MHz");
+    }
+
+    #[test]
+    fn freq_display_khz() {
+        let bm = Bookmark {
+            frequency_hz: 50_000,
+            mode: String::new(),
+            name: String::new(),
+            bandwidth_hz: 0,
+            category: String::new(),
+            notes: String::new(),
+            starred: false,
+        };
+        assert_eq!(bm.freq_display(), "50.0 kHz");
+    }
+
+    #[test]
+    fn default_is_stable_without_file() {
+        // load_or_default should not panic when no saved file exists
+        let db = BookmarkDb::load_or_default();
+        assert!(!db.bookmarks.is_empty());
+    }
+
+    #[test]
+    fn import_csv_adds_bookmarks() {
+        let mut db = BookmarkDb::default();
+        let initial = db.bookmarks.len();
+
+        // Write a temp CSV then import it
+        let csv_path = "/tmp/test_import_bookmarks.csv";
+        std::fs::write(csv_path, "name,frequency_hz,mode,category,notes\nTestFM,98500000,WFM,Broadcast,test\n").unwrap();
+        let (count, err) = db.import_csv(csv_path);
+        let _ = std::fs::remove_file(csv_path);
+
+        assert!(err.is_empty());
+        assert_eq!(count, 1);
+        assert_eq!(db.bookmarks.len(), initial + 1);
+        assert!(db.bookmarks.iter().any(|b| b.name == "TestFM"));
+    }
+
+    #[test]
+    fn import_csv_dedup_by_frequency() {
+        let mut db = BookmarkDb::default();
+        // Import a frequency that already exists in defaults
+        let csv_path = "/tmp/test_dedup_bookmarks.csv";
+        std::fs::write(csv_path, "name,frequency_hz,mode,category,notes\nDupNOAA,137620000,WFM,Weather,dup\n").unwrap();
+        let (count, _err) = db.import_csv(csv_path);
+        let _ = std::fs::remove_file(csv_path);
+
+        assert_eq!(count, 0, "should not import duplicate frequency");
+    }
+}
