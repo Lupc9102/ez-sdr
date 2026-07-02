@@ -334,4 +334,30 @@ mod tests {
             assert!(s.abs() <= 1.5, "WFM output unexpectedly large: {s}");
         }
     }
+
+    #[test]
+    fn demod_lsb_produces_finite_output() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        d.decimation = 1;
+        let iq = make_iq_dc(180, 100, 256);
+        let out = d.demodulate(&iq, DemodMode::Lsb);
+        assert!(!out.is_empty());
+        for &s in &out {
+            assert!(s.is_finite());
+        }
+    }
+
+    #[test]
+    fn demod_usb_produces_finite_output() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        d.decimation = 1;
+        let iq = make_iq_dc(180, 100, 256);
+        let out = d.demodulate(&iq, DemodMode::Usb);
+        assert!(!out.is_empty());
+        for &s in &out {
+            assert!(s.is_finite());
+        }
+    }
 }
