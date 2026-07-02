@@ -92,10 +92,10 @@ impl RecorderPanel {
     ) -> String {
         template
             .replace("{date}", ts_str)
-            .replace("{freq}", &format!("{:.3}", freq_mhz))
+            .replace("{freq}", &format!("{freq_mhz:.3}"))
             .replace("{mode}", mode)
-            .replace("{freq1}", &format!("{:.1}", freq_mhz))
-            .replace("{freq0}", &format!("{:.0}", freq_mhz))
+            .replace("{freq1}", &format!("{freq_mhz:.1}"))
+            .replace("{freq0}", &format!("{freq_mhz:.0}"))
             .replace(' ', "_")
     }
 
@@ -114,8 +114,7 @@ impl RecorderPanel {
             let log_gap = std::time::Duration::from_secs(5);
             let should_log = self
                 .signal_last_logged
-                .map(|t| now.duration_since(t) >= log_gap)
-                .unwrap_or(true);
+                .is_none_or(|t| now.duration_since(t) >= log_gap);
             if should_log {
                 self.signal_last_logged = Some(now);
                 let ts = chrono::Local::now().format("%H:%M:%S").to_string();
@@ -147,8 +146,7 @@ impl RecorderPanel {
             let tail = std::time::Duration::from_millis(self.squelch_record_tail_ms);
             let since = self
                 .squelch_record_last_active
-                .map(|t| now.duration_since(t))
-                .unwrap_or(tail);
+                .map_or(tail, |t| now.duration_since(t));
             if since >= tail {
                 self.stop_recording();
             }
@@ -158,8 +156,7 @@ impl RecorderPanel {
     fn scan_recordings(&mut self) {
         let should_scan = self
             .file_list_last_scan
-            .map(|t| t.elapsed().as_secs() >= 5)
-            .unwrap_or(true);
+            .is_none_or(|t| t.elapsed().as_secs() >= 5);
         if !should_scan {
             return;
         }
@@ -213,7 +210,7 @@ impl RecorderPanel {
         let output_dir = self.output_dir.clone();
         self.last_error.clear();
         if let Err(e) = std::fs::create_dir_all(&output_dir) {
-            self.last_error = format!("Failed to create directory: {}", e);
+            self.last_error = format!("Failed to create directory: {e}");
             return;
         }
         // Pre-flight: disk space check (warn if < 500 MB free)
@@ -225,8 +222,7 @@ impl RecorderPanel {
         };
         if free_mb < 500.0 {
             self.last_error = format!(
-                "⚠ Low disk space: only {:.0} {} free on recording drive. Recording may fail or be cut short.",
-                free_gb, unit
+                "⚠ Low disk space: only {free_gb:.0} {unit} free on recording drive. Recording may fail or be cut short."
             );
             // Don't block — just warn. User can still record.
         }
@@ -256,7 +252,7 @@ impl RecorderPanel {
         let base_name = self.apply_filename_template(&template, &ts_str, freq_mhz, &demod_label);
 
         if self.record_iq {
-            let filename = format!("{}.iq", base_name);
+            let filename = format!("{base_name}.iq");
             let path = dir.join(&filename);
             match std::fs::File::create(&path) {
                 Ok(file) => {
@@ -265,13 +261,13 @@ impl RecorderPanel {
                     iq_filename = filename;
                 }
                 Err(e) => {
-                    self.last_error = format!("Failed to create IQ file: {}", e);
+                    self.last_error = format!("Failed to create IQ file: {e}");
                     return;
                 }
             }
         }
         if self.record_audio {
-            let wf = format!("{}_audio.wav", base_name);
+            let wf = format!("{base_name}_audio.wav");
             let wav_path = dir.join(&wf);
             let spec = hound::WavSpec {
                 channels: 1,
@@ -288,28 +284,27 @@ impl RecorderPanel {
                     wav_filename = wf;
                 }
                 Err(e) => {
-                    self.last_error = format!("Failed to create WAV file: {}", e);
+                    self.last_error = format!("Failed to create WAV file: {e}");
                 }
             }
         }
 
         // Write sidecar JSON with recording metadata
-        let sidecar_name = format!("{}.json", base_name);
+        let sidecar_name = format!("{base_name}.json");
         let sidecar_path = dir.join(&sidecar_name);
         let mut files_json = String::from("[");
         if !iq_filename.is_empty() {
-            files_json.push_str(&format!("\"{}\"", iq_filename));
+            files_json.push_str(&format!("\"{iq_filename}\""));
         }
         if !wav_filename.is_empty() {
             if !iq_filename.is_empty() {
                 files_json.push(',');
             }
-            files_json.push_str(&format!("\"{}\"", wav_filename));
+            files_json.push_str(&format!("\"{wav_filename}\""));
         }
         files_json.push(']');
         let json = format!(
-            "{{\n  \"frequency_hz\": {},\n  \"frequency_mhz\": {:.6},\n  \"sample_rate_hz\": {},\n  \"demod_mode\": \"{}\",\n  \"gain_db\": {:.1},\n  \"ppm_correction\": {},\n  \"timestamp_utc\": \"{}\",\n  \"files\": {}\n}}\n",
-            freq_hz, freq_mhz, sample_rate_hz, demod_label, gain_db, ppm_correction, timestamp_utc, files_json
+            "{{\n  \"frequency_hz\": {freq_hz},\n  \"frequency_mhz\": {freq_mhz:.6},\n  \"sample_rate_hz\": {sample_rate_hz},\n  \"demod_mode\": \"{demod_label}\",\n  \"gain_db\": {gain_db:.1},\n  \"ppm_correction\": {ppm_correction},\n  \"timestamp_utc\": \"{timestamp_utc}\",\n  \"files\": {files_json}\n}}\n"
         );
         let _ = std::fs::write(&sidecar_path, json);
 
@@ -339,7 +334,7 @@ impl RecorderPanel {
             if let Some(writer) = &mut self.iq_writer {
                 use std::io::Write;
                 if let Err(e) = writer.write_all(samples) {
-                    self.last_error = format!("Write error: {}", e);
+                    self.last_error = format!("Write error: {e}");
                     self.stop_recording();
                 } else {
                     self.bytes_written += samples.len() as u64;
@@ -365,9 +360,9 @@ impl RecorderPanel {
             }
             if let Some(writer) = &mut self.wav_writer {
                 for &s in audio {
-                    let sample = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                    let sample = (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
                     if let Err(e) = writer.write_sample(sample) {
-                        self.last_error = format!("WAV write error: {}", e);
+                        self.last_error = format!("WAV write error: {e}");
                         break;
                     }
                 }
@@ -426,7 +421,7 @@ impl RecorderPanel {
                 &mode_preview,
             );
             ui.label(
-                egui::RichText::new(format!("→ {}.iq / .wav", preview))
+                egui::RichText::new(format!("→ {preview}.iq / .wav"))
                     .small()
                     .color(egui::Color32::from_gray(150)),
             )
@@ -463,7 +458,7 @@ impl RecorderPanel {
                     .step_by(200.0)
                     .text("Tail (ms)")
                     .custom_formatter(|v, _| {
-                        if v < 1000.0 { format!("{:.0} ms", v) } else { format!("{:.1} s", v / 1000.0) }
+                        if v < 1000.0 { format!("{v:.0} ms") } else { format!("{:.1} s", v / 1000.0) }
                     }))
                     .on_hover_text("How long to continue recording after signal drops. Prevents chopping multi-part transmissions.");
             });
@@ -550,7 +545,7 @@ impl RecorderPanel {
                 let limit_secs = if self.quick_duration_secs > 0 {
                     self.quick_duration_secs
                 } else if self.max_duration_mins > 0 {
-                    self.max_duration_mins as u64 * 60
+                    u64::from(self.max_duration_mins) * 60
                 } else {
                     0
                 };
@@ -563,21 +558,21 @@ impl RecorderPanel {
                         ui.colored_label(egui::Color32::RED, "● REC");
                         let mins = elapsed / 60;
                         let secs = elapsed % 60;
-                        ui.monospace(format!("{:02}:{:02}", mins, secs));
+                        ui.monospace(format!("{mins:02}:{secs:02}"));
                         if limit_secs > 0 {
                             let rem = limit_secs.saturating_sub(elapsed);
                             ui.label(format!("→ {}:{:02} left", rem / 60, rem % 60));
                         }
                         ui.separator();
-                        ui.label(format!("{:.1} MB", size_mb));
+                        ui.label(format!("{size_mb:.1} MB"));
                         ui.separator();
-                        ui.label(format!("{:.1} {} free", free_gb, unit));
+                        ui.label(format!("{free_gb:.1} {unit} free"));
                     });
 
                     // Data rate
                     if elapsed > 0 {
                         let rate_mbps = self.bytes_written as f64 / elapsed as f64 / 1_048_576.0;
-                        ui.label(format!("Rate: {:.2} MB/s", rate_mbps));
+                        ui.label(format!("Rate: {rate_mbps:.2} MB/s"));
                         // Estimate time until disk full
                         let (free_gb, unit) = self.cached_free_disk_space();
                         if rate_mbps > 0.0 {
@@ -593,7 +588,7 @@ impl RecorderPanel {
                             } else if seconds_until_full > 60.0 {
                                 format!("~{:.0}m until full", seconds_until_full / 60.0)
                             } else {
-                                format!("~{:.0}s until full", seconds_until_full)
+                                format!("~{seconds_until_full:.0}s until full")
                             };
                             ui.colored_label(
                                 if seconds_until_full < 3600.0 {
@@ -682,7 +677,7 @@ impl RecorderPanel {
                 ui.horizontal(|ui| {
                     ui.label("Quick:").on_hover_text("Start recording immediately with a preset duration — no need to press Start separately.");
                     for (label, mins, secs) in [("30s", 0u32, 30u64), ("1m", 1, 60), ("5m", 5, 300), ("10m", 10, 600)] {
-                        if ui.small_button(label).on_hover_text(format!("Record for {} then auto-stop.", label)).clicked() {
+                        if ui.small_button(label).on_hover_text(format!("Record for {label} then auto-stop.")).clicked() {
                             self.max_duration_mins = mins;
                             // For sub-minute durations, store as a fractional minute via a special field
                             // Use 0 mins with the auto_stop hack: set duration_secs override

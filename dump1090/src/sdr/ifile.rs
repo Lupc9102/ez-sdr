@@ -1,4 +1,4 @@
-//! File input source - translated from sdr_ifile.c
+//! File input source - translated from `sdr_ifile.c`
 
 use crate::convert::{self, IqFormat};
 use crate::sdr::SdrSource;
@@ -106,7 +106,7 @@ impl IFileSdr {
             IqFormat::Uc8 => convert::convert_uc8_to_mag(&self.read_buf, &mut out[..samples]),
             IqFormat::Sc16 => convert::convert_sc16_to_mag(&self.read_buf, &mut out[..samples]),
             IqFormat::Sc16Q11 => {
-                convert::convert_sc16q11_to_mag(&self.read_buf, &mut out[..samples])
+                convert::convert_sc16q11_to_mag(&self.read_buf, &mut out[..samples]);
             }
         }
     }

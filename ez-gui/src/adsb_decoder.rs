@@ -165,12 +165,12 @@ impl AdsBDecoder {
                         entry.altitude = Some(alt);
                         entry.entry.altitude = alt;
 
-                        let raw_lat = ((msg[5] as u32) << 15)
-                            | ((msg[6] as u32) << 7)
-                            | ((msg[7] as u32) >> 1);
-                        let raw_lon = (((msg[7] & 1) as u32) << 16)
-                            | ((msg[8] as u32) << 8)
-                            | (msg[9] as u32);
+                        let raw_lat = (u32::from(msg[5]) << 15)
+                            | (u32::from(msg[6]) << 7)
+                            | (u32::from(msg[7]) >> 1);
+                        let raw_lon = (u32::from(msg[7] & 1) << 16)
+                            | (u32::from(msg[8]) << 8)
+                            | u32::from(msg[9]);
                         let is_even = (msg[6] & 1) == 0;
 
                         let frame = CprFrame {
@@ -197,23 +197,23 @@ impl AdsBDecoder {
                         // Airborne velocity
                         let st = msg[5] & 0x07;
                         if st == 1 || st == 2 {
-                            let raw_ew = ((msg[5] as u32) << 6) | ((msg[6] as u32) >> 2);
+                            let raw_ew = (u32::from(msg[5]) << 6) | (u32::from(msg[6]) >> 2);
                             let ew_dir = if (raw_ew & 1) == 0 { 1 } else { -1 };
                             let ew_vel = (raw_ew >> 1) - 1;
 
-                            let raw_ns = (((msg[6] & 3) as u32) << 8) | (msg[7] as u32);
+                            let raw_ns = (u32::from(msg[6] & 3) << 8) | u32::from(msg[7]);
                             let ns_dir = if (raw_ns & 1) == 0 { 1 } else { -1 };
                             let ns_vel = (raw_ns >> 1) - 1;
 
-                            let speed_kt = ((ew_vel as f64 * ew_dir as f64).powi(2)
-                                + (ns_vel as f64 * ns_dir as f64).powi(2))
+                            let speed_kt = ((f64::from(ew_vel) * f64::from(ew_dir)).powi(2)
+                                + (f64::from(ns_vel) * f64::from(ns_dir)).powi(2))
                             .sqrt() as u32;
                             entry.speed = Some(speed_kt);
                             entry.entry.speed = speed_kt;
 
                             let heading = (90.0
-                                - (ns_vel as f64 * ns_dir as f64)
-                                    .atan2(ew_vel as f64 * ew_dir as f64)
+                                - (f64::from(ns_vel) * f64::from(ns_dir))
+                                    .atan2(f64::from(ew_vel) * f64::from(ew_dir))
                                     .to_degrees())
                             .rem_euclid(360.0) as u32;
                             entry.heading = Some(heading);
@@ -222,12 +222,12 @@ impl AdsBDecoder {
                     }
                     20..=22 => {
                         // Surface position
-                        let raw_lat = ((msg[5] as u32) << 15)
-                            | ((msg[6] as u32) << 7)
-                            | ((msg[7] as u32) >> 1);
-                        let raw_lon = (((msg[7] & 1) as u32) << 16)
-                            | ((msg[8] as u32) << 8)
-                            | (msg[9] as u32);
+                        let raw_lat = (u32::from(msg[5]) << 15)
+                            | (u32::from(msg[6]) << 7)
+                            | (u32::from(msg[7]) >> 1);
+                        let raw_lon = (u32::from(msg[7] & 1) << 16)
+                            | (u32::from(msg[8]) << 8)
+                            | u32::from(msg[9]);
                         let is_even = (msg[6] & 1) == 0;
 
                         let frame = CprFrame {
@@ -278,16 +278,16 @@ impl AdsBDecoder {
 fn decode_altitude(msg: &[u8]) -> u32 {
     let q = (msg[5] & 0x10) != 0;
     if q {
-        let alt16 = ((msg[5] as u32) << 1) | ((msg[6] as u32) >> 7);
+        let alt16 = (u32::from(msg[5]) << 1) | (u32::from(msg[6]) >> 7);
         ((alt16 & 0x1FF) * 25 + 1000) / 4
     } else {
         let m_bit = (msg[5] & 0x20) != 0;
         let n_bit = (msg[5] & 0x10) != 0;
-        let d12 = (msg[5] & 0x0F) as u32;
-        let d10 = ((msg[6] >> 5) & 0x07) as u32;
-        let d8 = ((msg[6] >> 2) & 0x07) as u32;
-        let d6 = (((msg[6] & 0x03) << 1) | ((msg[7] >> 6) & 0x01)) as u32;
-        let d4 = ((msg[7] >> 2) & 0x0F) as u32;
+        let d12 = u32::from(msg[5] & 0x0F);
+        let d10 = u32::from((msg[6] >> 5) & 0x07);
+        let d8 = u32::from((msg[6] >> 2) & 0x07);
+        let d6 = u32::from(((msg[6] & 0x03) << 1) | ((msg[7] >> 6) & 0x01));
+        let d4 = u32::from((msg[7] >> 2) & 0x0F);
 
         let m: u32 = if m_bit { 1600 } else { 0 };
         let n: u32 = if n_bit { 40 } else { 0 };
@@ -303,17 +303,17 @@ fn try_cpr_decode(even: &Option<CprFrame>, odd: &Option<CprFrame>) -> Option<(f6
     let dlat_even = 360.0 / 60.0;
     let dlat_odd = 360.0 / 59.0;
 
-    let j = ((even.raw_lat as f64 / 131072.0 / dlat_even).floor()
-        + (odd.raw_lat as f64 / 131072.0 / dlat_odd).floor()) as i32;
+    let j = ((f64::from(even.raw_lat) / 131072.0 / dlat_even).floor()
+        + (f64::from(odd.raw_lat) / 131072.0 / dlat_odd).floor()) as i32;
 
-    let r_even = even.raw_lat as f64 / 131072.0;
-    let r_odd = odd.raw_lat as f64 / 131072.0;
+    let r_even = f64::from(even.raw_lat) / 131072.0;
+    let r_odd = f64::from(odd.raw_lat) / 131072.0;
     let dlat_even_val = dlat_even;
     let dlat_odd_val = dlat_odd;
 
-    let mut lat_even = dlat_even * (r_even - j as f64);
+    let mut lat_even = dlat_even * (r_even - f64::from(j));
     let mut lat_odd =
-        dlat_odd * (r_odd - j as f64 + if even.raw_lat < odd.raw_lat { 1.0 } else { 0.0 });
+        dlat_odd * (r_odd - f64::from(j) + if even.raw_lat < odd.raw_lat { 1.0 } else { 0.0 });
 
     if lat_even >= 270.0 {
         lat_even -= 360.0;
@@ -327,7 +327,7 @@ fn try_cpr_decode(even: &Option<CprFrame>, odd: &Option<CprFrame>) -> Option<(f6
     } else {
         std::cmp::max(
             1,
-            (60.0 - even.raw_lat as f64 / 131072.0 / dlat_even_val) as i32,
+            (60.0 - f64::from(even.raw_lat) / 131072.0 / dlat_even_val) as i32,
         )
     };
     let ni_odd = if lat_odd.abs() >= 87.0 {
@@ -335,19 +335,19 @@ fn try_cpr_decode(even: &Option<CprFrame>, odd: &Option<CprFrame>) -> Option<(f6
     } else {
         std::cmp::max(
             1,
-            (59.0 - odd.raw_lat as f64 / 131072.0 / dlat_odd_val) as i32,
+            (59.0 - f64::from(odd.raw_lat) / 131072.0 / dlat_odd_val) as i32,
         )
     };
 
-    let dlon_even = 360.0 / ni_even as f64;
-    let dlon_odd = 360.0 / ni_odd as f64;
+    let dlon_even = 360.0 / f64::from(ni_even);
+    let dlon_odd = 360.0 / f64::from(ni_odd);
 
-    let m = ((even.raw_lon as f64 / 131072.0 / dlon_even).floor()
-        + (odd.raw_lon as f64 / 131072.0 / dlon_odd).floor()) as i32;
+    let m = ((f64::from(even.raw_lon) / 131072.0 / dlon_even).floor()
+        + (f64::from(odd.raw_lon) / 131072.0 / dlon_odd).floor()) as i32;
 
-    let mut lon_even = dlon_even * (even.raw_lon as f64 / 131072.0 - m as f64);
+    let mut lon_even = dlon_even * (f64::from(even.raw_lon) / 131072.0 - f64::from(m));
     let mut lon_odd = dlon_odd
-        * (odd.raw_lon as f64 / 131072.0 - m as f64
+        * (f64::from(odd.raw_lon) / 131072.0 - f64::from(m)
             + if even.raw_lon < odd.raw_lon { 1.0 } else { 0.0 });
 
     if lon_even >= 180.0 {
@@ -359,8 +359,8 @@ fn try_cpr_decode(even: &Option<CprFrame>, odd: &Option<CprFrame>) -> Option<(f6
 
     let age = (even.timestamp - odd.timestamp).abs();
     if age < 10000.0 {
-        let lat = (lat_even + lat_odd) / 2.0;
-        let lon = (lon_even + lon_odd) / 2.0;
+        let lat = f64::midpoint(lat_even, lat_odd);
+        let lon = f64::midpoint(lon_even, lon_odd);
         Some((lat, lon))
     } else {
         None

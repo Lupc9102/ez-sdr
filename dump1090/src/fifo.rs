@@ -17,6 +17,7 @@ pub struct Fifo {
 }
 
 impl Fifo {
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         Fifo {
             inner: Mutex::new(Inner {
@@ -35,7 +36,7 @@ impl Fifo {
     pub fn push(&self, item: Vec<u8>, timeout_ms: u32) -> Option<Vec<u8>> {
         let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         let deadline = if timeout_ms > 0 {
-            Some(Instant::now() + Duration::from_millis(timeout_ms as u64))
+            Some(Instant::now() + Duration::from_millis(u64::from(timeout_ms)))
         } else {
             None
         };
@@ -78,7 +79,7 @@ impl Fifo {
     pub fn pop(&self, timeout_ms: u32) -> Option<Vec<u8>> {
         let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         let deadline = if timeout_ms > 0 {
-            Some(Instant::now() + Duration::from_millis(timeout_ms as u64))
+            Some(Instant::now() + Duration::from_millis(u64::from(timeout_ms)))
         } else {
             None
         };

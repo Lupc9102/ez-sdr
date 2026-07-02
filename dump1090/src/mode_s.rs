@@ -1,5 +1,5 @@
 //! Mode S / ADS-B message decoder
-//! Translated from mode_s.c
+//! Translated from `mode_s.c`
 
 use crate::crc::{check_crc, crc24_parity};
 use crate::demod::ModesMessage;
@@ -10,6 +10,7 @@ use crate::demod::ModesMessage;
 /// requires an even/odd frame pair (and, for surface, a reference position),
 /// which a single stateless message cannot supply. Callers that need position
 /// should pair frames themselves via [`crate::cpr::CprDecoder`].
+#[must_use]
 pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
     if msg.len() < 7 {
         return None;
@@ -26,7 +27,7 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
     // downlink formats overlay the address on the parity field, so the
     // recovered CRC remainder *is* the address.
     let icao = match df {
-        11 | 17 | 18 => ((msg[1] as u32) << 16) | ((msg[2] as u32) << 8) | msg[3] as u32,
+        11 | 17 | 18 => (u32::from(msg[1]) << 16) | (u32::from(msg[2]) << 8) | u32::from(msg[3]),
         _ => crc24_parity(msg),
     };
     if matches!(df, 11 | 17 | 18) && !check_crc(msg) {
@@ -99,16 +100,16 @@ fn decode_callsign(msg: &[u8]) -> String {
 fn decode_altitude(msg: &[u8]) -> u32 {
     let q = (msg[5] & 0x10) != 0;
     if q {
-        let alt16 = ((msg[5] as u32) << 1) | ((msg[6] as u32) >> 7);
+        let alt16 = (u32::from(msg[5]) << 1) | (u32::from(msg[6]) >> 7);
         ((alt16 & 0x1FF) * 25 + 1000) / 4
     } else {
         let m_bit = (msg[5] & 0x20) != 0;
         let n_bit = (msg[5] & 0x10) != 0;
-        let d12 = (msg[5] & 0x0F) as u32;
-        let d10 = ((msg[6] >> 5) & 0x07) as u32;
-        let d8 = ((msg[6] >> 2) & 0x07) as u32;
-        let d6 = (((msg[6] & 0x03) << 1) | ((msg[7] >> 6) & 0x01)) as u32;
-        let d4 = ((msg[7] >> 2) & 0x0F) as u32;
+        let d12 = u32::from(msg[5] & 0x0F);
+        let d10 = u32::from((msg[6] >> 5) & 0x07);
+        let d8 = u32::from((msg[6] >> 2) & 0x07);
+        let d6 = u32::from(((msg[6] & 0x03) << 1) | ((msg[7] >> 6) & 0x01));
+        let d4 = u32::from((msg[7] >> 2) & 0x0F);
 
         let m: u32 = if m_bit { 1600 } else { 0 };
         let n: u32 = if n_bit { 40 } else { 0 };
@@ -125,13 +126,13 @@ fn decode_velocity(msg: &[u8]) -> Option<(f64, f64)> {
         return None;
     }
 
-    let raw_ew = ((msg[5] as u32) << 6) | ((msg[6] as u32) >> 2);
+    let raw_ew = (u32::from(msg[5]) << 6) | (u32::from(msg[6]) >> 2);
     let ew_dir = if (raw_ew & 1) == 0 { 1.0 } else { -1.0 };
-    let ew_vel = (raw_ew >> 1) as f64 - 1.0;
+    let ew_vel = f64::from(raw_ew >> 1) - 1.0;
 
-    let raw_ns = (((msg[6] & 3) as u32) << 8) | (msg[7] as u32);
+    let raw_ns = (u32::from(msg[6] & 3) << 8) | u32::from(msg[7]);
     let ns_dir = if (raw_ns & 1) == 0 { 1.0 } else { -1.0 };
-    let ns_vel = (raw_ns >> 1) as f64 - 1.0;
+    let ns_vel = f64::from(raw_ns >> 1) - 1.0;
 
     let vx = ew_vel * ew_dir;
     let vy = ns_vel * ns_dir;
@@ -143,6 +144,7 @@ fn decode_velocity(msg: &[u8]) -> Option<(f64, f64)> {
 }
 
 /// Decode a `ModesMessage` produced by the demodulator into an aircraft message.
+#[must_use]
 pub fn decode_mode_s(mm: &ModesMessage) -> Option<AircraftMessage> {
     if mm.msgbits == 0 {
         return None;
@@ -156,6 +158,7 @@ pub fn decode_mode_s(mm: &ModesMessage) -> Option<AircraftMessage> {
 }
 
 /// Downlink format (DF) extraction
+#[must_use]
 pub fn extract_df(msg: &[u8]) -> u8 {
     msg[0] >> 3
 }

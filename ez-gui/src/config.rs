@@ -8,7 +8,7 @@ use crate::discord::DiscordSettings;
 use crate::theme::ThemeConfig;
 use serde::{Deserialize, Serialize};
 
-/// Default AI provider API endpoint (OpenRouter).
+/// Default AI provider API endpoint (`OpenRouter`).
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 /// Default AI model identifier.
 pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-3-haiku";
@@ -349,7 +349,7 @@ impl AppConfig {
                 ui.add(egui::Slider::new(&mut self.default_gain, 0.0..=49.6)
                     .step_by(0.1)
                     .text("Gain (dB)")
-                    .custom_formatter(|v, _| format!("{:.1} dB", v)))
+                    .custom_formatter(|v, _| format!("{v:.1} dB")))
                     .on_hover_text("RF amplification. Higher is not always better — too much gain causes overload and phantom signals. Typical sweet spot: 30–45 dB.");
             });
 
@@ -359,12 +359,12 @@ impl AppConfig {
                 ui.horizontal(|ui| {
                     ui.add(egui::Slider::new(&mut self.ppm_correction, -100..=100)
                         .text("PPM")
-                        .custom_formatter(|v, _| format!("{:+.0} ppm", v)));
+                        .custom_formatter(|v, _| format!("{v:+.0} ppm")));
                 });
                 ui.label("Quick adjust:").on_hover_text("Click to adjust PPM by preset amounts.");
                 ui.horizontal_wrapped(|ui| {
                     for offset in &[-50, -20, -10, -5, 0, 5, 10, 20, 50] {
-                        let label = if *offset == 0 { "Reset".to_string() } else { format!("{:+}", offset) };
+                        let label = if *offset == 0 { "Reset".to_string() } else { format!("{offset:+}") };
                         if ui.small_button(label).clicked() {
                             self.ppm_correction = *offset;
                         }
@@ -535,7 +535,7 @@ impl AppConfig {
                 let resp = ui.add(egui::Slider::new(&mut self.font_scale, 0.6..=2.0)
                     .step_by(0.05)
                     .text("")
-                    .custom_formatter(|v, _| format!("{:.2}x", v)));
+                    .custom_formatter(|v, _| format!("{v:.2}x")));
                 if resp.changed() {
                     self.needs_apply = true;
                 }

@@ -275,6 +275,7 @@ fn correct_message(
 
 /// Score how plausible a raw Mode S message looks.
 /// Higher scores are more reliable.
+#[must_use]
 pub fn score_mode_s_message(
     uncorrected: &[u8; MODES_LONG_MSG_BYTES],
     icao_filter: &IcaoFilter,
@@ -289,7 +290,8 @@ pub fn score_mode_s_message(
     let (corrections, corrected) = correct_message(uncorrected, max_errors);
     let df = corrected[0] >> 3;
 
-    let addr = ((corrected[1] as u32) << 16) | ((corrected[2] as u32) << 8) | (corrected[3] as u32);
+    let addr =
+        (u32::from(corrected[1]) << 16) | (u32::from(corrected[2]) << 8) | u32::from(corrected[3]);
 
     match df {
         0 | 4 | 5 => {
@@ -431,6 +433,7 @@ pub fn score_mode_s_message(
 }
 
 /// Return the message length in bits for a given downlink format.
+#[must_use]
 pub fn mode_s_message_len_by_type(df: u8) -> usize {
     if df & 0x10 != 0 {
         MODES_LONG_MSG_BITS
@@ -474,12 +477,14 @@ pub fn decode_mode_s_message(
     match df {
         11 => {
             // All-call reply.
-            mm.addr = ((mm.msg[1] as u32) << 16) | ((mm.msg[2] as u32) << 8) | (mm.msg[3] as u32);
+            mm.addr =
+                (u32::from(mm.msg[1]) << 16) | (u32::from(mm.msg[2]) << 8) | u32::from(mm.msg[3]);
             mm.crc = crc24_parity(&mm.msg[..MODES_SHORT_MSG_BYTES]);
             icao_filter.add(mm.addr);
         }
         17 | 18 => {
-            mm.addr = ((mm.msg[1] as u32) << 16) | ((mm.msg[2] as u32) << 8) | (mm.msg[3] as u32);
+            mm.addr =
+                (u32::from(mm.msg[1]) << 16) | (u32::from(mm.msg[2]) << 8) | u32::from(mm.msg[3]);
             mm.crc = crc24_parity(&mm.msg);
             icao_filter.add(mm.addr);
         }
@@ -512,27 +517,27 @@ fn receiveclock_ms_elapsed(t1: u64, t2: u64) -> u64 {
 /// The coefficients sum to zero so the result is DC-insensitive.
 #[inline]
 fn slice_phase0(m: &[u16]) -> i32 {
-    5 * m[0] as i32 - 3 * m[1] as i32 - 2 * m[2] as i32
+    5 * i32::from(m[0]) - 3 * i32::from(m[1]) - 2 * i32::from(m[2])
 }
 
 #[inline]
 fn slice_phase1(m: &[u16]) -> i32 {
-    4 * m[0] as i32 - m[1] as i32 - 3 * m[2] as i32
+    4 * i32::from(m[0]) - i32::from(m[1]) - 3 * i32::from(m[2])
 }
 
 #[inline]
 fn slice_phase2(m: &[u16]) -> i32 {
-    3 * m[0] as i32 + m[1] as i32 - 4 * m[2] as i32
+    3 * i32::from(m[0]) + i32::from(m[1]) - 4 * i32::from(m[2])
 }
 
 #[inline]
 fn slice_phase3(m: &[u16]) -> i32 {
-    2 * m[0] as i32 + 3 * m[1] as i32 - 5 * m[2] as i32
+    2 * i32::from(m[0]) + 3 * i32::from(m[1]) - 5 * i32::from(m[2])
 }
 
 #[inline]
 fn slice_phase4(m: &[u16]) -> i32 {
-    m[0] as i32 + 5 * m[1] as i32 - 5 * m[2] as i32 - m[3] as i32
+    i32::from(m[0]) + 5 * i32::from(m[1]) - 5 * i32::from(m[2]) - i32::from(m[3])
 }
 
 // ========================================================================
@@ -603,6 +608,7 @@ impl Default for Demod2400 {
 }
 
 impl Demod2400 {
+    #[must_use]
     pub fn new() -> Self {
         let enable_df24 = false;
         let fix_df = false;
@@ -678,14 +684,16 @@ impl Demod2400 {
                 && preamble[10] < preamble[11]
             {
                 // Phase 3: peaks at 1,3,9,11-12
-                high = (preamble[1] as u32
-                    + preamble[3] as u32
-                    + preamble[9] as u32
-                    + preamble[11] as u32
-                    + preamble[12] as u32)
+                high = (u32::from(preamble[1])
+                    + u32::from(preamble[3])
+                    + u32::from(preamble[9])
+                    + u32::from(preamble[11])
+                    + u32::from(preamble[12]))
                     / 4;
-                base_signal = preamble[1] as u32 + preamble[3] as u32 + preamble[9] as u32;
-                base_noise = preamble[5] as u32 + preamble[6] as u32 + preamble[7] as u32;
+                base_signal =
+                    u32::from(preamble[1]) + u32::from(preamble[3]) + u32::from(preamble[9]);
+                base_noise =
+                    u32::from(preamble[5]) + u32::from(preamble[6]) + u32::from(preamble[7]);
             } else if preamble[1] > preamble[2]
                 && preamble[2] < preamble[3]
                 && preamble[3] > preamble[4]
@@ -694,19 +702,19 @@ impl Demod2400 {
                 && preamble[11] < preamble[12]
             {
                 // Phase 4: peaks at 1,3,9,12
-                high = (preamble[1] as u32
-                    + preamble[3] as u32
-                    + preamble[9] as u32
-                    + preamble[12] as u32)
+                high = (u32::from(preamble[1])
+                    + u32::from(preamble[3])
+                    + u32::from(preamble[9])
+                    + u32::from(preamble[12]))
                     / 4;
-                base_signal = preamble[1] as u32
-                    + preamble[3] as u32
-                    + preamble[9] as u32
-                    + preamble[12] as u32;
-                base_noise = preamble[5] as u32
-                    + preamble[6] as u32
-                    + preamble[7] as u32
-                    + preamble[8] as u32;
+                base_signal = u32::from(preamble[1])
+                    + u32::from(preamble[3])
+                    + u32::from(preamble[9])
+                    + u32::from(preamble[12]);
+                base_noise = u32::from(preamble[5])
+                    + u32::from(preamble[6])
+                    + u32::from(preamble[7])
+                    + u32::from(preamble[8]);
             } else if preamble[1] > preamble[2]
                 && preamble[2] < preamble[3]
                 && preamble[4] > preamble[5]
@@ -715,15 +723,15 @@ impl Demod2400 {
                 && preamble[11] < preamble[12]
             {
                 // Phase 5: peaks at 1,3-4,9-10,12
-                high = (preamble[1] as u32
-                    + preamble[3] as u32
-                    + preamble[4] as u32
-                    + preamble[9] as u32
-                    + preamble[10] as u32
-                    + preamble[12] as u32)
+                high = (u32::from(preamble[1])
+                    + u32::from(preamble[3])
+                    + u32::from(preamble[4])
+                    + u32::from(preamble[9])
+                    + u32::from(preamble[10])
+                    + u32::from(preamble[12]))
                     / 4;
-                base_signal = preamble[1] as u32 + preamble[12] as u32;
-                base_noise = preamble[6] as u32 + preamble[7] as u32;
+                base_signal = u32::from(preamble[1]) + u32::from(preamble[12]);
+                base_noise = u32::from(preamble[6]) + u32::from(preamble[7]);
             } else if preamble[1] > preamble[2]
                 && preamble[3] < preamble[4]
                 && preamble[4] > preamble[5]
@@ -732,19 +740,19 @@ impl Demod2400 {
                 && preamble[11] < preamble[12]
             {
                 // Phase 6: peaks at 1,4,10,12
-                high = (preamble[1] as u32
-                    + preamble[4] as u32
-                    + preamble[10] as u32
-                    + preamble[12] as u32)
+                high = (u32::from(preamble[1])
+                    + u32::from(preamble[4])
+                    + u32::from(preamble[10])
+                    + u32::from(preamble[12]))
                     / 4;
-                base_signal = preamble[1] as u32
-                    + preamble[4] as u32
-                    + preamble[10] as u32
-                    + preamble[12] as u32;
-                base_noise = preamble[5] as u32
-                    + preamble[6] as u32
-                    + preamble[7] as u32
-                    + preamble[8] as u32;
+                base_signal = u32::from(preamble[1])
+                    + u32::from(preamble[4])
+                    + u32::from(preamble[10])
+                    + u32::from(preamble[12]);
+                base_noise = u32::from(preamble[5])
+                    + u32::from(preamble[6])
+                    + u32::from(preamble[7])
+                    + u32::from(preamble[8]);
             } else if preamble[2] > preamble[3]
                 && preamble[3] < preamble[4]
                 && preamble[4] > preamble[5]
@@ -753,14 +761,16 @@ impl Demod2400 {
                 && preamble[11] < preamble[12]
             {
                 // Phase 7: peaks at 1-2,4,10,12
-                high = (preamble[1] as u32
-                    + preamble[2] as u32
-                    + preamble[4] as u32
-                    + preamble[10] as u32
-                    + preamble[12] as u32)
+                high = (u32::from(preamble[1])
+                    + u32::from(preamble[2])
+                    + u32::from(preamble[4])
+                    + u32::from(preamble[10])
+                    + u32::from(preamble[12]))
                     / 4;
-                base_signal = preamble[4] as u32 + preamble[10] as u32 + preamble[12] as u32;
-                base_noise = preamble[6] as u32 + preamble[7] as u32 + preamble[8] as u32;
+                base_signal =
+                    u32::from(preamble[4]) + u32::from(preamble[10]) + u32::from(preamble[12]);
+                base_noise =
+                    u32::from(preamble[6]) + u32::from(preamble[7]) + u32::from(preamble[8]);
             } else {
                 j += 1;
                 continue;
@@ -801,66 +811,66 @@ impl Demod2400 {
                 while i < byte_len {
                     let the_byte = match phase {
                         0 => {
-                            let b = ((slice_phase0(p_ptr) > 0) as u8) << 7
-                                | ((slice_phase2(&p_ptr[2..]) > 0) as u8) << 6
-                                | ((slice_phase4(&p_ptr[4..]) > 0) as u8) << 5
-                                | ((slice_phase1(&p_ptr[7..]) > 0) as u8) << 4
-                                | ((slice_phase3(&p_ptr[9..]) > 0) as u8) << 3
-                                | ((slice_phase0(&p_ptr[12..]) > 0) as u8) << 2
-                                | ((slice_phase2(&p_ptr[14..]) > 0) as u8) << 1
-                                | ((slice_phase4(&p_ptr[16..]) > 0) as u8);
+                            let b = u8::from(slice_phase0(p_ptr) > 0) << 7
+                                | u8::from(slice_phase2(&p_ptr[2..]) > 0) << 6
+                                | u8::from(slice_phase4(&p_ptr[4..]) > 0) << 5
+                                | u8::from(slice_phase1(&p_ptr[7..]) > 0) << 4
+                                | u8::from(slice_phase3(&p_ptr[9..]) > 0) << 3
+                                | u8::from(slice_phase0(&p_ptr[12..]) > 0) << 2
+                                | u8::from(slice_phase2(&p_ptr[14..]) > 0) << 1
+                                | u8::from(slice_phase4(&p_ptr[16..]) > 0);
                             phase = 1;
                             p_ptr = &p_ptr[19..];
                             b
                         }
                         1 => {
-                            let b = ((slice_phase1(p_ptr) > 0) as u8) << 7
-                                | ((slice_phase3(&p_ptr[2..]) > 0) as u8) << 6
-                                | ((slice_phase0(&p_ptr[5..]) > 0) as u8) << 5
-                                | ((slice_phase2(&p_ptr[7..]) > 0) as u8) << 4
-                                | ((slice_phase4(&p_ptr[9..]) > 0) as u8) << 3
-                                | ((slice_phase1(&p_ptr[12..]) > 0) as u8) << 2
-                                | ((slice_phase3(&p_ptr[14..]) > 0) as u8) << 1
-                                | ((slice_phase0(&p_ptr[17..]) > 0) as u8);
+                            let b = u8::from(slice_phase1(p_ptr) > 0) << 7
+                                | u8::from(slice_phase3(&p_ptr[2..]) > 0) << 6
+                                | u8::from(slice_phase0(&p_ptr[5..]) > 0) << 5
+                                | u8::from(slice_phase2(&p_ptr[7..]) > 0) << 4
+                                | u8::from(slice_phase4(&p_ptr[9..]) > 0) << 3
+                                | u8::from(slice_phase1(&p_ptr[12..]) > 0) << 2
+                                | u8::from(slice_phase3(&p_ptr[14..]) > 0) << 1
+                                | u8::from(slice_phase0(&p_ptr[17..]) > 0);
                             phase = 2;
                             p_ptr = &p_ptr[19..];
                             b
                         }
                         2 => {
-                            let b = ((slice_phase2(p_ptr) > 0) as u8) << 7
-                                | ((slice_phase4(&p_ptr[2..]) > 0) as u8) << 6
-                                | ((slice_phase1(&p_ptr[5..]) > 0) as u8) << 5
-                                | ((slice_phase3(&p_ptr[7..]) > 0) as u8) << 4
-                                | ((slice_phase0(&p_ptr[10..]) > 0) as u8) << 3
-                                | ((slice_phase2(&p_ptr[12..]) > 0) as u8) << 2
-                                | ((slice_phase4(&p_ptr[14..]) > 0) as u8) << 1
-                                | ((slice_phase1(&p_ptr[17..]) > 0) as u8);
+                            let b = u8::from(slice_phase2(p_ptr) > 0) << 7
+                                | u8::from(slice_phase4(&p_ptr[2..]) > 0) << 6
+                                | u8::from(slice_phase1(&p_ptr[5..]) > 0) << 5
+                                | u8::from(slice_phase3(&p_ptr[7..]) > 0) << 4
+                                | u8::from(slice_phase0(&p_ptr[10..]) > 0) << 3
+                                | u8::from(slice_phase2(&p_ptr[12..]) > 0) << 2
+                                | u8::from(slice_phase4(&p_ptr[14..]) > 0) << 1
+                                | u8::from(slice_phase1(&p_ptr[17..]) > 0);
                             phase = 3;
                             p_ptr = &p_ptr[19..];
                             b
                         }
                         3 => {
-                            let b = ((slice_phase3(p_ptr) > 0) as u8) << 7
-                                | ((slice_phase0(&p_ptr[3..]) > 0) as u8) << 6
-                                | ((slice_phase2(&p_ptr[5..]) > 0) as u8) << 5
-                                | ((slice_phase4(&p_ptr[7..]) > 0) as u8) << 4
-                                | ((slice_phase1(&p_ptr[10..]) > 0) as u8) << 3
-                                | ((slice_phase3(&p_ptr[12..]) > 0) as u8) << 2
-                                | ((slice_phase0(&p_ptr[15..]) > 0) as u8) << 1
-                                | ((slice_phase2(&p_ptr[17..]) > 0) as u8);
+                            let b = u8::from(slice_phase3(p_ptr) > 0) << 7
+                                | u8::from(slice_phase0(&p_ptr[3..]) > 0) << 6
+                                | u8::from(slice_phase2(&p_ptr[5..]) > 0) << 5
+                                | u8::from(slice_phase4(&p_ptr[7..]) > 0) << 4
+                                | u8::from(slice_phase1(&p_ptr[10..]) > 0) << 3
+                                | u8::from(slice_phase3(&p_ptr[12..]) > 0) << 2
+                                | u8::from(slice_phase0(&p_ptr[15..]) > 0) << 1
+                                | u8::from(slice_phase2(&p_ptr[17..]) > 0);
                             phase = 4;
                             p_ptr = &p_ptr[19..];
                             b
                         }
                         4 => {
-                            let b = ((slice_phase4(p_ptr) > 0) as u8) << 7
-                                | ((slice_phase1(&p_ptr[3..]) > 0) as u8) << 6
-                                | ((slice_phase3(&p_ptr[5..]) > 0) as u8) << 5
-                                | ((slice_phase0(&p_ptr[8..]) > 0) as u8) << 4
-                                | ((slice_phase2(&p_ptr[10..]) > 0) as u8) << 3
-                                | ((slice_phase4(&p_ptr[12..]) > 0) as u8) << 2
-                                | ((slice_phase1(&p_ptr[15..]) > 0) as u8) << 1
-                                | ((slice_phase3(&p_ptr[17..]) > 0) as u8);
+                            let b = u8::from(slice_phase4(p_ptr) > 0) << 7
+                                | u8::from(slice_phase1(&p_ptr[3..]) > 0) << 6
+                                | u8::from(slice_phase3(&p_ptr[5..]) > 0) << 5
+                                | u8::from(slice_phase0(&p_ptr[8..]) > 0) << 4
+                                | u8::from(slice_phase2(&p_ptr[10..]) > 0) << 3
+                                | u8::from(slice_phase4(&p_ptr[12..]) > 0) << 2
+                                | u8::from(slice_phase1(&p_ptr[15..]) > 0) << 1
+                                | u8::from(slice_phase3(&p_ptr[17..]) > 0);
                             phase = 0;
                             p_ptr = &p_ptr[20..];
                             b
@@ -936,7 +946,7 @@ impl Demod2400 {
                 let signal_len = msglen * 12 / 5;
                 let mut scaled_signal_power: u64 = 0;
                 for k in 0..signal_len {
-                    let magv = m[j + 19 + k] as u64;
+                    let magv = u64::from(m[j + 19 + k]);
                     scaled_signal_power += magv * magv;
                 }
                 let signal_power = scaled_signal_power as f64 / 65535.0 / 65535.0;
@@ -1005,14 +1015,14 @@ impl Demod2400 {
                 continue;
             }
 
-            let f1_level = (m[f1_sample] as u32 + m[f1_sample + 1] as u32) / 2;
+            let f1_level = u32::midpoint(u32::from(m[f1_sample]), u32::from(m[f1_sample + 1]));
             if noise_level * 2 > f1_level {
                 f1_sample += 1;
                 continue;
             }
 
-            let f1a_power = m[f1_sample] as f64 * m[f1_sample] as f64;
-            let f1b_power = m[f1_sample + 1] as f64 * m[f1_sample + 1] as f64;
+            let f1a_power = f64::from(m[f1_sample]) * f64::from(m[f1_sample]);
+            let f1b_power = f64::from(m[f1_sample + 1]) * f64::from(m[f1_sample + 1]);
             let fraction = f1b_power / (f1a_power + f1b_power);
             let f1_clock = (25.0 * (f1_sample as f64 + fraction * fraction) + 0.5) as u32;
 
@@ -1032,14 +1042,14 @@ impl Demod2400 {
                 continue;
             }
 
-            let f2_level = (m[f2_sample] as u32 + m[f2_sample + 1] as u32) / 2;
+            let f2_level = u32::midpoint(u32::from(m[f2_sample]), u32::from(m[f2_sample + 1]));
             if noise_level * 2 > f2_level {
                 f1_sample += 1;
                 continue;
             }
 
             let f1f2_level = f1_level.max(f2_level);
-            let midpoint = ((noise_level * f1f2_level) as f64).sqrt();
+            let midpoint = f64::from(noise_level * f1f2_level).sqrt();
             let signal_threshold = (midpoint * std::f64::consts::SQRT_2 + 0.5) as u32;
             let noise_threshold = (midpoint / std::f64::consts::SQRT_2 + 0.5) as u32;
 
@@ -1097,7 +1107,7 @@ impl Demod2400 {
                 | ((bits & 0x00004) << 5); // SPI -> 0x0080
 
             let mut mm = ModesMessage::default();
-            mm.timestamp_msg = mag.sample_timestamp + (f2_clock / 5) as u64;
+            mm.timestamp_msg = mag.sample_timestamp + u64::from(f2_clock / 5);
             mm.sys_timestamp_msg =
                 mag.sys_timestamp + receiveclock_ms_elapsed(mag.sample_timestamp, mm.timestamp_msg);
             // For Mode A/C the "address" is the decoded identity code.
@@ -1150,9 +1160,9 @@ fn compute_magnitude_uc8(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
     for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(2)) {
-        let i_val = sample[0] as i32 - 127;
-        let q_val = sample[1] as i32 - 127;
-        let m = ((i_val * i_val + q_val * q_val) as f64).sqrt();
+        let i_val = i32::from(sample[0]) - 127;
+        let q_val = i32::from(sample[1]) - 127;
+        let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
         let norm = m / 128.0;
         *out = (norm * 65535.0).min(65535.0) as u16;
         sum_level += norm;
@@ -1167,9 +1177,9 @@ fn compute_magnitude_sc16(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
     for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(4)) {
-        let i_val = i16::from_le_bytes([sample[0], sample[1]]) as i32;
-        let q_val = i16::from_le_bytes([sample[2], sample[3]]) as i32;
-        let m = ((i_val * i_val + q_val * q_val) as f64).sqrt();
+        let i_val = i32::from(i16::from_le_bytes([sample[0], sample[1]]));
+        let q_val = i32::from(i16::from_le_bytes([sample[2], sample[3]]));
+        let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
         // Normalise to 0..1 assuming full-scale 32767.
         let norm = m / 32767.0;
         *out = (norm * 65535.0).min(65535.0) as u16;
@@ -1188,9 +1198,9 @@ fn compute_magnitude_sc16q11(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
     for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(4)) {
-        let i_val = (i16::from_le_bytes([sample[0], sample[1]]) as i32) >> 5;
-        let q_val = (i16::from_le_bytes([sample[2], sample[3]]) as i32) >> 5;
-        let m = ((i_val * i_val + q_val * q_val) as f64).sqrt();
+        let i_val = i32::from(i16::from_le_bytes([sample[0], sample[1]])) >> 5;
+        let q_val = i32::from(i16::from_le_bytes([sample[2], sample[3]])) >> 5;
+        let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
         let norm = m / 1023.0;
         *out = (norm * 65535.0).min(65535.0) as u16;
         sum_level += norm;

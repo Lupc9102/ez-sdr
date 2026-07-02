@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// A serializable RGBA color (0–255). Convertible to/from egui::Color32.
+/// A serializable RGBA color (0–255). Convertible to/from `egui::Color32`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rgba(pub u8, pub u8, pub u8, pub u8);
 
@@ -383,15 +383,15 @@ fn color_row(ui: &mut egui::Ui, label: &str, color: &mut Rgba) {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 fn bg_luminance(c: &Rgba) -> f32 {
-    0.299 * c.0 as f32 / 255.0 + 0.587 * c.1 as f32 / 255.0 + 0.114 * c.2 as f32 / 255.0
+    0.299 * f32::from(c.0) / 255.0 + 0.587 * f32::from(c.1) / 255.0 + 0.114 * f32::from(c.2) / 255.0
 }
 
 fn mix_color(a: &Rgba, b: &Rgba, t: f32) -> Rgba {
     let t = t.clamp(0.0, 1.0);
     Rgba(
-        (a.0 as f32 + (b.0 as f32 - a.0 as f32) * t) as u8,
-        (a.1 as f32 + (b.1 as f32 - a.1 as f32) * t) as u8,
-        (a.2 as f32 + (b.2 as f32 - a.2 as f32) * t) as u8,
-        (a.3 as f32 + (b.3 as f32 - a.3 as f32) * t) as u8,
+        (f32::from(a.0) + (f32::from(b.0) - f32::from(a.0)) * t) as u8,
+        (f32::from(a.1) + (f32::from(b.1) - f32::from(a.1)) * t) as u8,
+        (f32::from(a.2) + (f32::from(b.2) - f32::from(a.2)) * t) as u8,
+        (f32::from(a.3) + (f32::from(b.3) - f32::from(a.3)) * t) as u8,
     )
 }

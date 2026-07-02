@@ -16,6 +16,7 @@ pub struct IcaoFilter {
 
 impl IcaoFilter {
     /// Create a new, empty filter.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             bits: [0; U64_COUNT],
@@ -56,6 +57,7 @@ impl IcaoFilter {
     ///
     /// Because this is a bitset representation, collisions between different
     /// addresses can produce false positives.
+    #[must_use]
     pub fn contains(&self, addr: u32) -> bool {
         let h = Self::icao_hash(addr);
         (self.bits[h >> 6] >> (h & 63)) & 1 != 0

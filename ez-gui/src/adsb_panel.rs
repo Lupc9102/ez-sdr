@@ -424,10 +424,10 @@ impl AdsBPanel {
             // Short status-bar flash (picked up by the main loop).
             let msg = match (dist, ac.altitude) {
                 (Some(d), alt) if alt > 0 => {
-                    format!("✈ {} spotted — {:.1} km, {} ft", callsign, d, alt)
+                    format!("✈ {callsign} spotted — {d:.1} km, {alt} ft")
                 }
-                (Some(d), _) => format!("✈ {} spotted — {:.1} km", callsign, d),
-                _ => format!("✈ {} in range", callsign),
+                (Some(d), _) => format!("✈ {callsign} spotted — {d:.1} km"),
+                _ => format!("✈ {callsign} in range"),
             };
             self.pending_status_flash = Some(msg.clone());
 
@@ -435,8 +435,8 @@ impl AdsBPanel {
             if self.desktop_notifications {
                 let cs = callsign.clone();
                 let body = match (dist, ac.altitude) {
-                    (Some(d), alt) if alt > 0 => format!("{:.1} km away, {} ft", d, alt),
-                    (Some(d), _) => format!("{:.1} km away", d),
+                    (Some(d), alt) if alt > 0 => format!("{d:.1} km away, {alt} ft"),
+                    (Some(d), _) => format!("{d:.1} km away"),
                     _ => "Signal detected".to_string(),
                 };
                 std::thread::spawn(move || {
@@ -445,7 +445,7 @@ impl AdsBPanel {
                         .arg("airplane")
                         .arg("--expire-time")
                         .arg("8000")
-                        .arg(format!("Aircraft in range: {}", cs))
+                        .arg(format!("Aircraft in range: {cs}"))
                         .arg(body)
                         .status();
                 });
@@ -464,7 +464,7 @@ impl AdsBPanel {
         if self.notifications.is_empty() {
             return;
         }
-        let screen = ctx.input(|i| i.viewport_rect());
+        let screen = ctx.input(egui::InputState::viewport_rect);
         let toast_w = 300.0;
         let toast_h = 84.0;
         let gap = 8.0;
@@ -534,9 +534,9 @@ impl AdsBPanel {
                             .on_hover_text(hover);
                             let mut detail = String::new();
                             if let Some(d) = n.distance_km {
-                                detail.push_str(&format!("{:.1} km", d));
+                                detail.push_str(&format!("{d:.1} km"));
                                 if let Some(b) = n.bearing_deg {
-                                    detail.push_str(&format!(" · {:.0}°", b));
+                                    detail.push_str(&format!(" · {b:.0}°"));
                                 }
                                 if n.altitude > 0 {
                                     detail.push_str(&format!(" · {} ft", n.altitude));
@@ -588,11 +588,11 @@ impl AdsBPanel {
             },
         );
 
-        let icao_hex = format!("{:06X}", icao);
+        let icao_hex = format!("{icao:06X}");
         let tx = self.info_tx.clone();
 
         std::thread::spawn(move || {
-            let url = format!("https://api.planespotters.net/pub/photos/hex/{}", icao_hex);
+            let url = format!("https://api.planespotters.net/pub/photos/hex/{icao_hex}");
             if let Ok(resp) = ureq::get(&url).call() {
                 if let Ok(json) = resp.into_json::<serde_json::Value>() {
                     let model = json["aircraft"]["model"]
@@ -662,7 +662,7 @@ impl AdsBPanel {
         self.tile_pending.insert((z, x, y));
         let tx = self.tile_download_tx.clone();
         std::thread::spawn(move || {
-            let url = format!("https://tile.openstreetmap.org/{}/{}/{}.png", z, x, y);
+            let url = format!("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
             if let Ok(resp) = ureq::get(&url).set("User-Agent", "ez-sdr/0.1").call() {
                 let mut bytes = Vec::new();
                 if resp.into_reader().read_to_end(&mut bytes).is_ok() {
@@ -679,7 +679,7 @@ impl AdsBPanel {
                 let rgba = img.to_rgba8();
                 let pixels = rgba.into_raw();
                 let color_image = egui::ColorImage::from_rgba_unmultiplied([256, 256], &pixels);
-                let name = format!("tile_{}_{}_{}", z, x, y);
+                let name = format!("tile_{z}_{x}_{y}");
                 let handle = ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR);
                 self.tile_cache.insert((z, x, y), handle);
             }
@@ -864,8 +864,8 @@ impl AdsBPanel {
                 if new_zoom != self.tile_zoom {
                     let factor = 2.0_f64.powi(if dz > 0 { 1 } else { -1 });
                     if let Some(mouse) = response.hover_pos() {
-                        let mx = mouse.x as f64 - rect.center().x as f64;
-                        let my = mouse.y as f64 - rect.center().y as f64;
+                        let mx = f64::from(mouse.x) - f64::from(rect.center().x);
+                        let my = f64::from(mouse.y) - f64::from(rect.center().y);
                         let tile_mx = mx / 256.0 + self.tile_cx;
                         let tile_my = my / 256.0 + self.tile_cy;
                         self.tile_cx = tile_mx * factor - mx / 256.0;
@@ -879,19 +879,19 @@ impl AdsBPanel {
         // Drag-to-pan
         if response.dragged() {
             let delta = response.drag_delta();
-            self.tile_cx -= delta.x as f64 / 256.0;
-            self.tile_cy -= delta.y as f64 / 256.0;
+            self.tile_cx -= f64::from(delta.x) / 256.0;
+            self.tile_cy -= f64::from(delta.y) / 256.0;
         }
 
         // Render OSM tiles
         let cx = self.tile_cx;
         let cy = self.tile_cy;
         let tile_px = 256.0_f64;
-        let half_w = (rect.width() / 2.0) as f64;
-        let half_h = (rect.height() / 2.0) as f64;
+        let half_w = f64::from(rect.width() / 2.0);
+        let half_h = f64::from(rect.height() / 2.0);
         let n = (1u64 << self.tile_zoom) as i64;
-        let center_x = rect.center().x as f64;
-        let center_y = rect.center().y as f64;
+        let center_x = f64::from(rect.center().x);
+        let center_y = f64::from(rect.center().y);
         let zoom = self.tile_zoom;
 
         let tx_s = (cx - half_w / tile_px).floor() as i64;
@@ -958,8 +958,8 @@ impl AdsBPanel {
         // Observer + range rings (projected via tile coords)
         let obs_tx = Self::lon_to_tile_x(self.observer_lon, self.tile_zoom);
         let obs_ty = Self::lat_to_tile_y(self.observer_lat, self.tile_zoom);
-        let obs_x = (rect.center().x as f64 + (obs_tx - self.tile_cx) * 256.0) as f32;
-        let obs_y = (rect.center().y as f64 + (obs_ty - self.tile_cy) * 256.0) as f32;
+        let obs_x = (f64::from(rect.center().x) + (obs_tx - self.tile_cx) * 256.0) as f32;
+        let obs_y = (f64::from(rect.center().y) + (obs_ty - self.tile_cy) * 256.0) as f32;
         if rect.contains(egui::pos2(obs_x, obs_y)) {
             for (dist_km, alpha) in [
                 (50.0_f64, 40u8),
@@ -970,7 +970,7 @@ impl AdsBPanel {
                 let ang_dist = dist_km / 6371.0;
                 let mut ring_points: Vec<egui::Pos2> = Vec::with_capacity(72);
                 for deg in (0..360).step_by(5) {
-                    let brng = (deg as f64).to_radians();
+                    let brng = f64::from(deg).to_radians();
                     let lat2 = (self.observer_lat.to_radians().sin() * ang_dist.cos()
                         + self.observer_lat.to_radians().cos() * ang_dist.sin() * brng.cos())
                     .asin();
@@ -981,8 +981,8 @@ impl AdsBPanel {
                             );
                     let t2x = Self::lon_to_tile_x(lon2.to_degrees(), self.tile_zoom);
                     let t2y = Self::lat_to_tile_y(lat2.to_degrees(), self.tile_zoom);
-                    let rx = (rect.center().x as f64 + (t2x - self.tile_cx) * 256.0) as f32;
-                    let ry = (rect.center().y as f64 + (t2y - self.tile_cy) * 256.0) as f32;
+                    let rx = (f64::from(rect.center().x) + (t2x - self.tile_cx) * 256.0) as f32;
+                    let ry = (f64::from(rect.center().y) + (t2y - self.tile_cy) * 256.0) as f32;
                     ring_points.push(egui::pos2(rx, ry));
                 }
                 for w in ring_points.windows(2) {
@@ -1033,8 +1033,8 @@ impl AdsBPanel {
                         let tix = Self::lon_to_tile_x(lon, self.tile_zoom);
                         let tiy = Self::lat_to_tile_y(lat, self.tile_zoom);
                         egui::pos2(
-                            (rect.center().x as f64 + (tix - self.tile_cx) * 256.0) as f32,
-                            (rect.center().y as f64 + (tiy - self.tile_cy) * 256.0) as f32,
+                            (f64::from(rect.center().x) + (tix - self.tile_cx) * 256.0) as f32,
+                            (f64::from(rect.center().y) + (tiy - self.tile_cy) * 256.0) as f32,
                         )
                     })
                     .collect();
@@ -1061,8 +1061,8 @@ impl AdsBPanel {
             }
             let tix = Self::lon_to_tile_x(ac.lon, self.tile_zoom);
             let tiy = Self::lat_to_tile_y(ac.lat, self.tile_zoom);
-            let x = (rect.center().x as f64 + (tix - self.tile_cx) * 256.0) as f32;
-            let y = (rect.center().y as f64 + (tiy - self.tile_cy) * 256.0) as f32;
+            let x = (f64::from(rect.center().x) + (tix - self.tile_cx) * 256.0) as f32;
+            let y = (f64::from(rect.center().y) + (tiy - self.tile_cy) * 256.0) as f32;
             let color = if self.selected_icao == Some(ac.icao) {
                 egui::Color32::from_rgb(0, 255, 255)
             } else {
@@ -1087,8 +1087,7 @@ impl AdsBPanel {
             let model_str = self
                 .aircraft_info
                 .get(&ac.icao)
-                .map(|i| i.model.as_str())
-                .unwrap_or("");
+                .map_or("", |i| i.model.as_str());
             let category = classify_aircraft(model_str);
             draw_plane_model(
                 painter,
@@ -1194,8 +1193,7 @@ impl AdsBPanel {
             0.0
         };
         ui.label(format!(
-            "✈ {} aircraft  ({} w/pos)  {:.0} msg/s",
-            active_count, with_pos, msg_rate
+            "✈ {active_count} aircraft  ({with_pos} w/pos)  {msg_rate:.0} msg/s"
         ));
 
         ui.horizontal(|ui| {
@@ -1235,11 +1233,9 @@ impl AdsBPanel {
                 continue;
             }
             let trail = self.aircraft_trails.entry(ac.icao).or_default();
-            if trail
-                .back()
-                .map(|&(lat, lon)| (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001)
-                .unwrap_or(true)
-            {
+            if trail.back().is_none_or(|&(lat, lon)| {
+                (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001
+            }) {
                 trail.push_back((ac.lat, ac.lon));
                 if trail.len() > 30 {
                     trail.pop_front();
@@ -1296,7 +1292,7 @@ impl AdsBPanel {
                     .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
                         ui.label(
-                            egui::RichText::new(format!("{:06X}", icao))
+                            egui::RichText::new(format!("{icao:06X}"))
                                 .strong()
                                 .color(egui::Color32::from_rgb(0, 220, 255)),
                         );
@@ -1352,9 +1348,9 @@ impl AdsBPanel {
                     ui.label(egui::RichText::new(format!("{}ft", ac.altitude)).color(row_col).small());
                     ui.label(egui::RichText::new(format!("{}kt", ac.speed)).color(row_col).small());
                     let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
-                    ui.label(egui::RichText::new(format!("{:.0}km", dist)).color(row_col).small());
+                    ui.label(egui::RichText::new(format!("{dist:.0}km")).color(row_col).small());
                     let age_color = if age < 10 { egui::Color32::GREEN } else if age < 30 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
-                    ui.label(egui::RichText::new(format!("{}s", age)).color(age_color).small());
+                    ui.label(egui::RichText::new(format!("{age}s")).color(age_color).small());
                     if ui.small_button("🤖").clicked() {
                         let bearing = self.bearing(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
                         self.pending_ai_prompt = Some(format!(

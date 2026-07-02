@@ -94,7 +94,7 @@ impl SatellitePanel {
                     .min_size(egui::vec2(ui.available_width(), 40.0));
                     if ui
                         .add(btn)
-                        .on_hover_text(format!("Track {} and tune to its downlink frequency", name))
+                        .on_hover_text(format!("Track {name} and tune to its downlink frequency"))
                         .clicked()
                     {
                         self.selected_sat = Some(name.to_string());
@@ -367,7 +367,7 @@ impl SatellitePanel {
                         let remaining = secs_until_los.max(0.0) as u64;
                         let m = remaining / 60;
                         let s = remaining % 60;
-                        countdown_text = format!("▶ {:02}:{:02}", m, s);
+                        countdown_text = format!("▶ {m:02}:{s:02}");
                         countdown_color = egui::Color32::from_rgb(50, 255, 100);
                     } else if secs_until_aos < 0.0 {
                         countdown_text = "past".to_string();
@@ -375,12 +375,12 @@ impl SatellitePanel {
                     } else if secs_until_aos < 600.0 {
                         let m = secs_until_aos as u64 / 60;
                         let s = secs_until_aos as u64 % 60;
-                        countdown_text = format!("{:02}:{:02}", m, s);
+                        countdown_text = format!("{m:02}:{s:02}");
                         countdown_color = egui::Color32::YELLOW;
                     } else {
                         let h = secs_until_aos as u64 / 3600;
                         let m = (secs_until_aos as u64 % 3600) / 60;
-                        countdown_text = format!("{}h {:02}m", h, m);
+                        countdown_text = format!("{h}h {m:02}m");
                         countdown_color = egui::Color32::GRAY;
                     }
                     ui.colored_label(countdown_color, countdown_text)

@@ -120,6 +120,7 @@ impl AdaptiveGain {
     /// Create a new controller with the given sample rate.
     ///
     /// Default configuration matches typical dump1090 defaults.
+    #[must_use]
     pub fn new(sample_rate: u32) -> Self {
         let samples_per_window = (sample_rate / 25_000).max(1) as usize;
         let samples_per_subblock = samples_per_window * 1250;
@@ -236,7 +237,7 @@ impl AdaptiveGain {
         self.gain_down_db = current_db - down_db;
 
         let loud_threshold_dbfs = 0.0 - self.gain_up_db - 3.0;
-        self.burst_loud_threshold = 10f64.powf(loud_threshold_dbfs as f64 / 10.0);
+        self.burst_loud_threshold = 10f64.powf(f64::from(loud_threshold_dbfs) / 10.0);
 
         self.range_change_timer = self.range_change_delay;
         self.burst_change_timer = self.burst_change_delay;
@@ -437,14 +438,14 @@ impl AdaptiveGain {
         let scale = self.duty_d as f64 / self.duty_n as f64;
 
         self.loud_undecoded += self.burst_block_loud_undecoded;
-        let a = self.burst_alpha as f64;
+        let a = f64::from(self.burst_alpha);
         self.burst_loud_undecoded_smoothed = self.burst_loud_undecoded_smoothed * (1.0 - a)
-            + scale * self.burst_block_loud_undecoded as f64 * a;
+            + scale * f64::from(self.burst_block_loud_undecoded) * a;
         self.burst_block_loud_undecoded = 0;
 
         self.loud_decoded += self.burst_block_loud_decoded;
         self.burst_loud_decoded_smoothed = self.burst_loud_decoded_smoothed * (1.0 - a)
-            + scale * self.burst_block_loud_decoded as f64 * a;
+            + scale * f64::from(self.burst_block_loud_decoded) * a;
         self.burst_block_loud_decoded = 0;
     }
 
@@ -468,7 +469,7 @@ impl AdaptiveGain {
         }
 
         let count_n =
-            (self.range_radix_counter as f64 * self.range_percentile as f64 / 100.0) as usize;
+            (self.range_radix_counter as f64 * f64::from(self.range_percentile) / 100.0) as usize;
         let mut n = 0usize;
         let mut i = 0usize;
         while i < 65536 && n <= count_n {
@@ -477,7 +478,7 @@ impl AdaptiveGain {
         }
         let percentile_n = i.saturating_sub(1) as f64;
 
-        let alpha = self.range_alpha as f64;
+        let alpha = f64::from(self.range_alpha);
         self.range_smoothed = self.range_smoothed * (1.0 - alpha) + percentile_n * alpha;
 
         self.noise_floor_dbfs = if self.range_smoothed > 0.0 {
@@ -519,10 +520,10 @@ impl AdaptiveGain {
 
         // Burst control
         if self.burst_enabled && self.burst_change_timer == 0 {
-            if self.burst_loud_undecoded_smoothed > self.burst_loud_rate as f64 {
+            if self.burst_loud_undecoded_smoothed > f64::from(self.burst_loud_rate) {
                 self.burst_quiet_blocks = 0;
                 self.burst_loud_blocks += 1;
-            } else if self.burst_loud_decoded_smoothed < self.burst_quiet_rate as f64 {
+            } else if self.burst_loud_decoded_smoothed < f64::from(self.burst_quiet_rate) {
                 self.burst_loud_blocks = 0;
                 self.burst_quiet_blocks += 1;
             } else {
@@ -551,7 +552,7 @@ impl AdaptiveGain {
         // Range control
         if self.range_enabled && self.range_change_timer == 0 {
             let available_range = self.dynamic_range_db;
-            if available_range >= self.range_target_db as f64
+            if available_range >= f64::from(self.range_target_db)
                 && current_gain > self.range_gain_limit
             {
                 self.range_gain_limit = current_gain;
@@ -559,7 +560,7 @@ impl AdaptiveGain {
 
             match self.range_state {
                 RangeScanState::ScanUp | RangeScanState::RescanUp => {
-                    if available_range < self.range_target_db as f64 {
+                    if available_range < f64::from(self.range_target_db) {
                         gain_down = true;
                         gain_not_up = true;
                         self.range_state = if self.range_state == RangeScanState::RescanUp {
@@ -579,7 +580,7 @@ impl AdaptiveGain {
                 }
 
                 RangeScanState::ScanDown | RangeScanState::RescanDown => {
-                    if available_range >= self.range_target_db as f64 {
+                    if available_range >= f64::from(self.range_target_db) {
                         // C original reads state after setting it to IDLE,
                         // causing the ternary to always select rescan_delay.
                         // We replicate that behaviour.
@@ -600,8 +601,8 @@ impl AdaptiveGain {
                 }
 
                 RangeScanState::Idle => {
-                    if available_range + (self.gain_down_db as f64) / 2.0
-                        < self.range_target_db as f64
+                    if available_range + f64::from(self.gain_down_db) / 2.0
+                        < f64::from(self.range_target_db)
                         && current_gain > self.gain_min
                     {
                         if self.range_gain_limit >= current_gain {
@@ -611,7 +612,7 @@ impl AdaptiveGain {
                         gain_down = true;
                         gain_not_up = true;
                     } else if self.range_rescan_timer == 0 && !gain_not_up {
-                        if available_range >= self.range_target_db as f64
+                        if available_range >= f64::from(self.range_target_db)
                             && current_gain < self.gain_max
                         {
                             gain_up = true;

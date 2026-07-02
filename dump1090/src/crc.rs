@@ -30,7 +30,7 @@ pub const CRC24_TABLE: [u32; 256] = {
 /// The returned 24-bit value is the parity field that would be appended to the
 /// payload to form a valid Mode S message.
 ///
-/// For a 56-bit message: `data` is the first 4 bytes.  
+/// For a 56-bit message: `data` is the first 4 bytes.\
 /// For a 112-bit message: `data` is the first 11 bytes.
 #[must_use]
 pub fn crc24(data: &[u8]) -> u32 {
@@ -47,7 +47,7 @@ pub fn crc24(data: &[u8]) -> u32 {
 ///
 /// A valid message yields a syndrome of `0`.
 ///
-/// For a 56-bit message, `msg` must be exactly 7 bytes.  
+/// For a 56-bit message, `msg` must be exactly 7 bytes.\
 /// For a 112-bit message, `msg` must be exactly 14 bytes.
 #[must_use]
 pub fn crc24_parity(msg: &[u8]) -> u32 {
@@ -58,9 +58,9 @@ pub fn crc24_parity(msg: &[u8]) -> u32 {
     );
 
     let mut rem = crc24(&msg[..n - 3]);
-    rem ^= (msg[n - 3] as u32) << 16;
-    rem ^= (msg[n - 2] as u32) << 8;
-    rem ^= msg[n - 1] as u32;
+    rem ^= u32::from(msg[n - 3]) << 16;
+    rem ^= u32::from(msg[n - 2]) << 8;
+    rem ^= u32::from(msg[n - 1]);
     rem & 0x00FFFFFF
 }
 

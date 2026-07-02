@@ -111,8 +111,8 @@ impl Demodulator {
             if chunk.len() < 2 {
                 break;
             }
-            let i = (chunk[0] as f32 - 127.4) / 128.0;
-            let q = (chunk[1] as f32 - 127.4) / 128.0;
+            let i = (f32::from(chunk[0]) - 127.4) / 128.0;
+            let q = (f32::from(chunk[1]) - 127.4) / 128.0;
             out.push(i * 0.3);
             out.push(q * 0.3);
         }
@@ -125,8 +125,8 @@ impl Demodulator {
             if chunk.len() < 2 {
                 break;
             }
-            let i = (chunk[0] as f32 - 127.4) / 128.0;
-            let q = (chunk[1] as f32 - 127.4) / 128.0;
+            let i = (f32::from(chunk[0]) - 127.4) / 128.0;
+            let q = (f32::from(chunk[1]) - 127.4) / 128.0;
             let env = (i * i + q * q).sqrt();
             self.decim_counter += 1;
             if self.decim_counter >= self.decimation {
@@ -145,8 +145,8 @@ impl Demodulator {
             if chunk.len() < 2 {
                 break;
             }
-            let i = (chunk[0] as f32 - 127.4) / 128.0;
-            let q = (chunk[1] as f32 - 127.4) / 128.0;
+            let i = (f32::from(chunk[0]) - 127.4) / 128.0;
+            let q = (f32::from(chunk[1]) - 127.4) / 128.0;
 
             let phase = q.atan2(i);
             let mut diff = phase - self.prev_phase;
@@ -203,8 +203,8 @@ impl Demodulator {
             if chunk.len() < 2 {
                 break;
             }
-            let i = (chunk[0] as f32 - 127.4) / 128.0;
-            let q = (chunk[1] as f32 - 127.4) / 128.0;
+            let i = (f32::from(chunk[0]) - 127.4) / 128.0;
+            let q = (f32::from(chunk[1]) - 127.4) / 128.0;
 
             let phase = q.atan2(i);
             let mut diff = phase - self.prev_phase;
@@ -240,8 +240,8 @@ impl Demodulator {
             if chunk.len() < 2 {
                 break;
             }
-            let i = (chunk[0] as f32 - 127.4) / 128.0;
-            let q = (chunk[1] as f32 - 127.4) / 128.0;
+            let i = (f32::from(chunk[0]) - 127.4) / 128.0;
+            let q = (f32::from(chunk[1]) - 127.4) / 128.0;
 
             let angle = sign * shift_rad * n as f32;
             let i_shift = i * angle.cos() - q * angle.sin();

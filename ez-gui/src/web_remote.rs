@@ -88,12 +88,12 @@ impl WebRemote {
                                             let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
                                             match action {
                                                 "tune" => {
-                                                    if let Some(hz) = cmd.get("hz").and_then(|v| v.as_u64()) {
+                                                    if let Some(hz) = cmd.get("hz").and_then(serde_json::Value::as_u64) {
                                                         let _ = cmd_tx.send(RemoteCommand::Tune { freq_hz: hz });
                                                     }
                                                 }
                                                 "set_gain" => {
-                                                    if let Some(db) = cmd.get("db").and_then(|v| v.as_f64()) {
+                                                    if let Some(db) = cmd.get("db").and_then(serde_json::Value::as_f64) {
                                                         let _ = cmd_tx.send(RemoteCommand::SetGain { gain_db: db });
                                                     }
                                                 }
@@ -103,12 +103,12 @@ impl WebRemote {
                                                     }
                                                 }
                                                 "set_squelch" => {
-                                                    if let Some(db) = cmd.get("db").and_then(|v| v.as_f64()) {
+                                                    if let Some(db) = cmd.get("db").and_then(serde_json::Value::as_f64) {
                                                         let _ = cmd_tx.send(RemoteCommand::SetSquelch { db: db as f32 });
                                                     }
                                                 }
                                                 "set_volume" => {
-                                                    if let Some(level) = cmd.get("level").and_then(|v| v.as_f64()) {
+                                                    if let Some(level) = cmd.get("level").and_then(serde_json::Value::as_f64) {
                                                         let _ = cmd_tx.send(RemoteCommand::SetVolume { level: level as f32 });
                                                     }
                                                 }
@@ -134,8 +134,8 @@ impl WebRemote {
                         .route("/", get(index_handler))
                         .with_state((tx, cmd_tx));
 
-                    let addr = format!("0.0.0.0:{}", port);
-                    println!("[web_remote] listening on http://{}", addr);
+                    let addr = format!("0.0.0.0:{port}");
+                    println!("[web_remote] listening on http://{addr}");
                     let listener = match tokio::net::TcpListener::bind(&addr).await {
                         Ok(l) => l,
                         Err(e) => { eprintln!("[web_remote] bind failed on {addr}: {e}"); return; }

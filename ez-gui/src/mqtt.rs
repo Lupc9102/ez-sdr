@@ -92,12 +92,7 @@ impl MqttPublisher {
             self.reconnect_after = Some(Instant::now() + Duration::from_secs(10));
         }
         // Reconnect when timer expires
-        if self.client.is_none()
-            && self
-                .reconnect_after
-                .map(|t| Instant::now() >= t)
-                .unwrap_or(false)
-        {
+        if self.client.is_none() && self.reconnect_after.is_some_and(|t| Instant::now() >= t) {
             self.reconnect_after = None;
             self.connect();
         }

@@ -29,7 +29,7 @@ pub struct DiscordSettings {
     /// Whether to ping the configured user in each notification.
     #[serde(default)]
     pub ping_user: bool,
-    /// Per-kind enablement map (kind_id -> enabled).
+    /// Per-kind enablement map (`kind_id` -> enabled).
     #[serde(default)]
     pub enabled_kinds: BTreeMap<String, bool>,
     /// Set of starred (favorite) kind IDs for filtering.
@@ -72,7 +72,7 @@ impl Default for DiscordSettings {
 /// Each variant defines the metadata (id, category, label, color, etc.) for a
 /// type of event that can be sent to Discord.
 pub struct NotifKind {
-    /// Unique identifier string for this notification kind (e.g. "source_error").
+    /// Unique identifier string for this notification kind (e.g. "`source_error`").
     pub id: &'static str,
     /// Category grouping (e.g. "Source", "Signal", "ADS-B", "Satellite").
     pub category: &'static str,
@@ -450,7 +450,7 @@ pub const CATALOG: &[NotifKind] = &[
 /// Return a sorted, deduplicated list of category names from [`CATALOG`].
 pub fn categories() -> Vec<&'static str> {
     let mut cats: Vec<_> = CATALOG.iter().map(|k| k.category).collect();
-    cats.sort();
+    cats.sort_unstable();
     cats.dedup();
     cats
 }
@@ -473,8 +473,7 @@ pub fn is_enabled(settings: &DiscordSettings, kind_id: &str) -> bool {
             CATALOG
                 .iter()
                 .find(|k| k.id == kind_id)
-                .map(|k| k.essential)
-                .unwrap_or(false)
+                .is_some_and(|k| k.essential)
         })
 }
 
@@ -573,10 +572,10 @@ pub fn embed_aircraft(ac: &AircraftData, image_url: Option<String>) -> DiscordEm
     let maps_url = format!("https://www.google.com/maps?q={},{}", ac.lat, ac.lon);
     DiscordEmbed {
         title: format!("✈ New Aircraft: {}", ac.callsign.trim_end()),
-        description: format!("[View on map]({})", maps_url),
+        description: format!("[View on map]({maps_url})"),
         color: 0x0088FF,
         fields: vec![
-            ("ICAO".to_string(), ac.icao.to_string(), true),
+            ("ICAO".to_string(), ac.icao.clone(), true),
             (
                 "Callsign".to_string(),
                 ac.callsign.trim_end().to_string(),
@@ -602,19 +601,11 @@ pub fn embed_scanner_hit(freq_hz: u64, strength_db: f32) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
         title: "🔍 Scanner Hit".to_string(),
-        description: format!("Active frequency detected at **{:.4} MHz**", freq_mhz),
+        description: format!("Active frequency detected at **{freq_mhz:.4} MHz**"),
         color: 0x0099FF,
         fields: vec![
-            (
-                "Frequency".to_string(),
-                format!("{:.4} MHz", freq_mhz),
-                true,
-            ),
-            (
-                "Strength".to_string(),
-                format!("{:.1} dB", strength_db),
-                true,
-            ),
+            ("Frequency".to_string(), format!("{freq_mhz:.4} MHz"), true),
+            ("Strength".to_string(), format!("{strength_db:.1} dB"), true),
             ("Frequency (Hz)".to_string(), freq_hz.to_string(), false),
         ],
         footer: "EZ-SDR • Scanner".to_string(),
@@ -627,21 +618,13 @@ pub fn embed_scanner_hit(freq_hz: u64, strength_db: f32) -> DiscordEmbed {
 pub fn embed_sat_aos(sat_name: &str, freq_hz: u64, max_elev: f64) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
-        title: format!("🛸 Satellite AOS: {}", sat_name),
-        description: format!("**{}** is now above the horizon!", sat_name),
+        title: format!("🛸 Satellite AOS: {sat_name}"),
+        description: format!("**{sat_name}** is now above the horizon!"),
         color: 0x9900FF,
         fields: vec![
             ("Satellite".to_string(), sat_name.to_string(), true),
-            (
-                "Frequency".to_string(),
-                format!("{:.3} MHz", freq_mhz),
-                true,
-            ),
-            (
-                "Max Elevation".to_string(),
-                format!("{:.1}°", max_elev),
-                true,
-            ),
+            ("Frequency".to_string(), format!("{freq_mhz:.3} MHz"), true),
+            ("Max Elevation".to_string(), format!("{max_elev:.1}°"), true),
         ],
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -652,8 +635,8 @@ pub fn embed_sat_aos(sat_name: &str, freq_hz: u64, max_elev: f64) -> DiscordEmbe
 /// Build a Discord embed for a satellite loss-of-signal (LOS) event.
 pub fn embed_sat_los(sat_name: &str) -> DiscordEmbed {
     DiscordEmbed {
-        title: format!("🌅 Satellite LOS: {}", sat_name),
-        description: format!("**{}** has set below the horizon", sat_name),
+        title: format!("🌅 Satellite LOS: {sat_name}"),
+        description: format!("**{sat_name}** has set below the horizon"),
         color: 0xFF6600,
         fields: vec![("Satellite".to_string(), sat_name.to_string(), false)],
         footer: "EZ-SDR • Satellite".to_string(),
@@ -672,23 +655,15 @@ pub fn embed_sat_upcoming(
 ) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
-        title: format!("📅 Upcoming Pass: {}", sat_name),
-        description: format!("**{}** pass coming up soon", sat_name),
+        title: format!("📅 Upcoming Pass: {sat_name}"),
+        description: format!("**{sat_name}** pass coming up soon"),
         color: 0x0066FF,
         fields: vec![
             ("Satellite".to_string(), sat_name.to_string(), true),
             ("AOS".to_string(), aos_str.to_string(), true),
             ("LOS".to_string(), los_str.to_string(), true),
-            (
-                "Max Elevation".to_string(),
-                format!("{:.1}°", max_elev),
-                true,
-            ),
-            (
-                "Frequency".to_string(),
-                format!("{:.3} MHz", freq_mhz),
-                true,
-            ),
+            ("Max Elevation".to_string(), format!("{max_elev:.1}°"), true),
+            ("Frequency".to_string(), format!("{freq_mhz:.3} MHz"), true),
         ],
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -713,16 +688,11 @@ pub fn embed_recording_started(
     DiscordEmbed {
         title: "⏺ Recording Started".to_string(),
         description: format!(
-            "Recording **{}** at **{:.4} MHz** in **{}** mode",
-            rec_type, freq_mhz, mode
+            "Recording **{rec_type}** at **{freq_mhz:.4} MHz** in **{mode}** mode"
         ),
         color: 0xFF0000,
         fields: vec![
-            (
-                "Frequency".to_string(),
-                format!("{:.4} MHz", freq_mhz),
-                true,
-            ),
+            ("Frequency".to_string(), format!("{freq_mhz:.4} MHz"), true),
             ("Mode".to_string(), mode.to_string(), true),
             ("Type".to_string(), rec_type.to_string(), true),
         ],
@@ -744,22 +714,13 @@ pub fn embed_recording_stopped(
     DiscordEmbed {
         title: "⏹ Recording Stopped".to_string(),
         description: format!(
-            "Recording finished after **{}s** at **{:.4} MHz**",
-            duration_sec, freq_mhz
+            "Recording finished after **{duration_sec}s** at **{freq_mhz:.4} MHz**"
         ),
         color: 0x660000,
         fields: vec![
-            (
-                "Duration".to_string(),
-                format!("{} sec", duration_sec),
-                true,
-            ),
-            ("Size".to_string(), format!("{:.1} MB", size_mb), true),
-            (
-                "Frequency".to_string(),
-                format!("{:.4} MHz", freq_mhz),
-                true,
-            ),
+            ("Duration".to_string(), format!("{duration_sec} sec"), true),
+            ("Size".to_string(), format!("{size_mb:.1} MB"), true),
+            ("Frequency".to_string(), format!("{freq_mhz:.4} MHz"), true),
             ("Mode".to_string(), mode.to_string(), true),
         ],
         footer: "EZ-SDR • Recorder".to_string(),
@@ -772,7 +733,7 @@ pub fn embed_recording_stopped(
 pub fn embed_recording_error(error: &str) -> DiscordEmbed {
     DiscordEmbed {
         title: "⚠️ Recording Error".to_string(),
-        description: format!("**{}**", error),
+        description: format!("**{error}**"),
         color: 0xFF3333,
         fields: vec![("Error".to_string(), error.to_string(), false)],
         footer: "EZ-SDR • Recorder".to_string(),
@@ -786,15 +747,11 @@ pub fn embed_strong_signal(freq_hz: u64, snr_db: f32) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
         title: "📈 Strong Signal!".to_string(),
-        description: format!("Excellent reception at **{:.4} MHz**", freq_mhz),
+        description: format!("Excellent reception at **{freq_mhz:.4} MHz**"),
         color: 0x00DD00,
         fields: vec![
-            (
-                "Frequency".to_string(),
-                format!("{:.4} MHz", freq_mhz),
-                true,
-            ),
-            ("SNR".to_string(), format!("{:.1} dB", snr_db), true),
+            ("Frequency".to_string(), format!("{freq_mhz:.4} MHz"), true),
+            ("SNR".to_string(), format!("{snr_db:.1} dB"), true),
         ],
         footer: "EZ-SDR • Signal".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -806,7 +763,7 @@ pub fn embed_strong_signal(freq_hz: u64, snr_db: f32) -> DiscordEmbed {
 pub fn embed_source_error(error: &str) -> DiscordEmbed {
     DiscordEmbed {
         title: "❌ Source Error".to_string(),
-        description: format!("**{}**", error),
+        description: format!("**{error}**"),
         color: 0xFF0000,
         fields: vec![("Error".to_string(), error.to_string(), false)],
         footer: "EZ-SDR • Source".to_string(),
@@ -820,15 +777,11 @@ pub fn embed_task_fired(label: &str, freq_hz: u64) -> DiscordEmbed {
     let freq_mhz = freq_hz as f64 / 1e6;
     DiscordEmbed {
         title: "🗓 Scheduled Task Fired".to_string(),
-        description: format!("**{}** executed", label),
+        description: format!("**{label}** executed"),
         color: 0x0066CC,
         fields: vec![
             ("Task".to_string(), label.to_string(), true),
-            (
-                "Frequency".to_string(),
-                format!("{:.4} MHz", freq_mhz),
-                true,
-            ),
+            ("Frequency".to_string(), format!("{freq_mhz:.4} MHz"), true),
         ],
         footer: "EZ-SDR • Scheduler".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -853,10 +806,10 @@ pub fn embed_session_summary(
         description: "Current EZ-SDR session status".to_string(),
         color: 0x0066FF,
         fields: vec![
-            ("Uptime".to_string(), format!("{}h {}m", hours, mins), true),
+            ("Uptime".to_string(), format!("{hours}h {mins}m"), true),
             (
                 "Current Frequency".to_string(),
-                format!("{:.4} MHz", current_freq_mhz),
+                format!("{current_freq_mhz:.4} MHz"),
                 true,
             ),
             ("Demod Mode".to_string(), mode.to_string(), true),
@@ -882,7 +835,7 @@ pub fn embed_session_summary(
 /// Build a generic Discord embed with an emoji prefix and no additional fields.
 pub fn embed_generic(title: &str, description: &str, emoji: &str, color: u32) -> DiscordEmbed {
     DiscordEmbed {
-        title: format!("{} {}", emoji, title),
+        title: format!("{emoji} {title}"),
         description: description.to_string(),
         color,
         fields: vec![],
@@ -892,7 +845,7 @@ pub fn embed_generic(title: &str, description: &str, emoji: &str, color: u32) ->
     }
 }
 
-/// Attempt to fetch an aircraft photo URL from PlaneSpotters or a fallback source.
+/// Attempt to fetch an aircraft photo URL from `PlaneSpotters` or a fallback source.
 ///
 /// Returns `None` if no valid image URL could be resolved within the timeout.
 pub fn fetch_aircraft_image(icao: &str) -> Option<String> {
@@ -900,10 +853,7 @@ pub fn fetch_aircraft_image(icao: &str) -> Option<String> {
     let icao_upper = icao.to_uppercase();
 
     // Try PlaneSpotters CDN - most reliable for aircraft photos
-    let planespotters_url = format!(
-        "https://cdn-photos.planespotters.net/photos/{}.jpg",
-        icao_upper
-    );
+    let planespotters_url = format!("https://cdn-photos.planespotters.net/photos/{icao_upper}.jpg");
     if is_url_valid(&planespotters_url) {
         return Some(planespotters_url);
     }
@@ -911,8 +861,7 @@ pub fn fetch_aircraft_image(icao: &str) -> Option<String> {
     // Try FlightRadar24's aircraft type icon database (fallback)
     // This uses a generic URL pattern for aircraft types
     Some(format!(
-        "https://static.radarbox.com/pictures/01000000/01{}.png",
-        icao_upper
+        "https://static.radarbox.com/pictures/01000000/01{icao_upper}.png"
     ))
 }
 
@@ -949,7 +898,7 @@ impl DiscordNotifier {
                 if let Ok(embed) = rx.recv() {
                     // Receive a batch to send (the main thread will rate-limit via Instant)
                     if let Err(e) = Self::post_embed(&client, &embed) {
-                        eprintln!("[discord] POST failed: {}", e);
+                        eprintln!("[discord] POST failed: {e}");
                     }
                 }
             }

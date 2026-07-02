@@ -148,12 +148,11 @@ impl FrequencyScanner {
             .set_file_name(&default_name)
             .add_filter("CSV", &["csv"])
             .save_file();
-        let path = match path {
-            Some(p) => p,
-            None => {
-                self.last_export_msg = "Export cancelled.".to_string();
-                return;
-            }
+        let path = if let Some(p) = path {
+            p
+        } else {
+            self.last_export_msg = "Export cancelled.".to_string();
+            return;
         };
 
         // Group hits by frequency: collect max strength and hit count
@@ -180,15 +179,15 @@ impl FrequencyScanner {
             ));
         }
         match std::fs::write(&path, &csv) {
-            Ok(_) => {
+            Ok(()) => {
                 self.last_export_msg = format!(
                     "Exported {} frequencies ({} hits) to {}",
                     grouped.len(),
                     self.hits.len(),
                     path.display()
-                )
+                );
             }
-            Err(e) => self.last_export_msg = format!("Export failed: {}", e),
+            Err(e) => self.last_export_msg = format!("Export failed: {e}"),
         }
     }
 
@@ -205,12 +204,11 @@ impl FrequencyScanner {
             .set_file_name(&default_name)
             .add_filter("JSON", &["json"])
             .save_file();
-        let path = match path {
-            Some(p) => p,
-            None => {
-                self.last_export_msg = "Save cancelled.".to_string();
-                return;
-            }
+        let path = if let Some(p) = path {
+            p
+        } else {
+            self.last_export_msg = "Save cancelled.".to_string();
+            return;
         };
 
         // Build JSON array manually (no serde dependency beyond what already exists)
@@ -229,11 +227,11 @@ impl FrequencyScanner {
         json.push(']');
 
         match std::fs::write(&path, &json) {
-            Ok(_) => {
+            Ok(()) => {
                 self.last_export_msg =
-                    format!("Saved {} hits to {}", self.hits.len(), path.display())
+                    format!("Saved {} hits to {}", self.hits.len(), path.display());
             }
-            Err(e) => self.last_export_msg = format!("Save failed: {}", e),
+            Err(e) => self.last_export_msg = format!("Save failed: {e}"),
         }
     }
 
@@ -241,18 +239,17 @@ impl FrequencyScanner {
         let path = rfd::FileDialog::new()
             .add_filter("JSON", &["json"])
             .pick_file();
-        let path = match path {
-            Some(p) => p,
-            None => {
-                self.last_export_msg = "Load cancelled.".to_string();
-                return;
-            }
+        let path = if let Some(p) = path {
+            p
+        } else {
+            self.last_export_msg = "Load cancelled.".to_string();
+            return;
         };
 
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                self.last_export_msg = format!("Read failed: {}", e);
+                self.last_export_msg = format!("Read failed: {e}");
                 return;
             }
         };
@@ -286,7 +283,7 @@ impl FrequencyScanner {
     }
 
     fn parse_json_u64(line: &str, key: &str) -> Option<u64> {
-        let needle = format!("\"{}\":", key);
+        let needle = format!("\"{key}\":");
         let pos = line.find(&needle)?;
         let rest = &line[pos + needle.len()..].trim_start_matches(' ');
         let end = rest
@@ -296,7 +293,7 @@ impl FrequencyScanner {
     }
 
     fn parse_json_f32(line: &str, key: &str) -> Option<f32> {
-        let needle = format!("\"{}\":", key);
+        let needle = format!("\"{key}\":");
         let pos = line.find(&needle)?;
         let rest = &line[pos + needle.len()..].trim_start_matches(' ');
         let end = rest
@@ -306,7 +303,7 @@ impl FrequencyScanner {
     }
 
     fn parse_json_u32(line: &str, key: &str) -> Option<u32> {
-        let needle = format!("\"{}\":", key);
+        let needle = format!("\"{key}\":");
         let pos = line.find(&needle)?;
         let rest = &line[pos + needle.len()..].trim_start_matches(' ');
         let end = rest
@@ -373,10 +370,7 @@ impl FrequencyScanner {
         }
         let now = Instant::now();
         let dwell = Duration::from_millis(self.dwell_ms);
-        let elapsed = self
-            .last_step_time
-            .map(|t| now.duration_since(t))
-            .unwrap_or(dwell);
+        let elapsed = self.last_step_time.map_or(dwell, |t| now.duration_since(t));
         if elapsed < dwell {
             return;
         }
@@ -418,8 +412,9 @@ impl FrequencyScanner {
         if self.holding {
             let since = self
                 .hold_last_active
-                .map(|t| now.duration_since(t))
-                .unwrap_or(Duration::from_millis(self.hold_resume_delay_ms));
+                .map_or(Duration::from_millis(self.hold_resume_delay_ms), |t| {
+                    now.duration_since(t)
+                });
             if since < Duration::from_millis(self.hold_resume_delay_ms) {
                 self.last_step_time = Some(now);
                 return;
@@ -449,10 +444,7 @@ impl FrequencyScanner {
         }
         let now = Instant::now();
         let dwell = Duration::from_millis(self.dwell_ms);
-        let elapsed = self
-            .last_step_time
-            .map(|t| now.duration_since(t))
-            .unwrap_or(dwell);
+        let elapsed = self.last_step_time.map_or(dwell, |t| now.duration_since(t));
         if elapsed < dwell {
             return;
         }
@@ -529,8 +521,7 @@ impl FrequencyScanner {
             let resume_delay = Duration::from_millis(self.hold_resume_delay_ms);
             let since_signal = self
                 .hold_last_active
-                .map(|t| now.duration_since(t))
-                .unwrap_or(resume_delay);
+                .map_or(resume_delay, |t| now.duration_since(t));
             if since_signal < resume_delay {
                 self.last_step_time = Some(now);
                 return;
@@ -696,7 +687,7 @@ impl FrequencyScanner {
                         added += 1;
                         }
                     }
-                    self.last_export_msg = format!("Added {} to Bookmarks/Scanner.", added);
+                    self.last_export_msg = format!("Added {added} to Bookmarks/Scanner.");
                 }
             }
         });
@@ -710,7 +701,7 @@ impl FrequencyScanner {
                 ui.add(egui::Slider::new(&mut self.hold_resume_delay_ms, 200u64..=5000u64)
                     .step_by(100.0)
                     .text("Resume delay (ms)")
-                    .custom_formatter(|v, _| format!("{:.0} ms", v)))
+                    .custom_formatter(|v, _| format!("{v:.0} ms")))
                     .on_hover_text("How long to wait after signal drops before resuming the sweep. Longer values prevent premature resume on intermittent signals.");
             }
             let color = if self.enabled { egui::Color32::GREEN } else { egui::Color32::GRAY };
@@ -935,10 +926,10 @@ impl FrequencyScanner {
             ui.label("Cycle time:").on_hover_text("Estimated time for one complete sweep (start → stop → back to start). = number of steps × dwell time.");
             {
                 let span = self.stop_hz.saturating_sub(self.start_hz);
-                let steps = span.checked_div(self.step_hz).map(|s| s + 1).unwrap_or(1);
+                let steps = span.checked_div(self.step_hz).map_or(1, |s| s + 1);
                 let total_ms = steps * self.dwell_ms;
                 let cycle_str = if total_ms < 1000 {
-                    format!("{} ms", total_ms)
+                    format!("{total_ms} ms")
                 } else if total_ms < 60_000 {
                     format!("{:.1} s ({} steps)", total_ms as f64 / 1000.0, steps)
                 } else {
@@ -977,7 +968,7 @@ impl FrequencyScanner {
                 let elapsed_secs = start.elapsed().as_secs_f64().max(1.0);
                 let rate = self.total_hits_logged as f64 / (elapsed_secs / 60.0);
                 ui.separator();
-                ui.label(format!("Rate: {:.1}/min", rate))
+                ui.label(format!("Rate: {rate:.1}/min"))
                     .on_hover_text("Number of new signal hits detected per minute since the scan started. High rate = active or noisy band; low rate = quiet band.");
             }
             ui.separator();
@@ -1213,7 +1204,7 @@ impl FrequencyScanner {
                         ui.colored_label(count_color, format!("×{}", hit.hit_count))
                             .on_hover_text(format!("Detected {} time(s) this session", hit.hit_count));
                         let ago = hit.timestamp.elapsed().as_secs();
-                        ui.label(if ago < 60 { format!("{}s", ago) } else { format!("{}m", ago / 60) });
+                        ui.label(if ago < 60 { format!("{ago}s") } else { format!("{}m", ago / 60) });
                         if ui.small_button("📡").on_hover_text("Tune SDR to this frequency.").clicked() {
                             self.tune_request_hz = Some(hit.freq_hz);
                         }

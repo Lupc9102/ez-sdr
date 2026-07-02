@@ -35,7 +35,7 @@ mod audio_impl {
             self.sample_rate = supported.sample_rate().0;
             let config: cpal::StreamConfig = supported.into();
 
-            let err_fn = |err| eprintln!("Audio error: {}", err);
+            let err_fn = |err| eprintln!("Audio error: {err}");
 
             let stream = match sample_format {
                 cpal::SampleFormat::F32 => {
@@ -95,7 +95,7 @@ mod audio_impl {
                         None,
                     )
                 }
-                _ => return Err(format!("Unsupported sample format: {:?}", sample_format)),
+                _ => return Err(format!("Unsupported sample format: {sample_format:?}")),
             }
             .map_err(|e| e.to_string())?;
 

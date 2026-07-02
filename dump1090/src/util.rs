@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub static EXIT: AtomicBool = AtomicBool::new(false);
 
 /// Return current wall-clock time in milliseconds.
+#[must_use]
 pub fn mstime() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -238,12 +238,12 @@ impl AiPanel {
                 String::new()
             };
             let lo_info = if lo_offset_hz != 0 {
-                format!("\n - LO offset: {:+} Hz", lo_offset_hz)
+                format!("\n - LO offset: {lo_offset_hz:+} Hz")
             } else {
                 String::new()
             };
             let ppm_info = if ppm != 0 {
-                format!("\n - PPM correction: {:+} ppm", ppm)
+                format!("\n - PPM correction: {ppm:+} ppm")
             } else {
                 String::new()
             };
@@ -267,7 +267,7 @@ impl AiPanel {
                  \n - Recent frequency history: {}",
                 DEFAULT_SYSTEM,
                 freq as f64 / 1e6,
-                rate as f64 / 1e6,
+                f64::from(rate) / 1e6,
                 gain,
                 mode,
                 noise_floor,
@@ -371,15 +371,13 @@ impl AiPanel {
         let needs_key = PROVIDER_PRESETS
             .iter()
             .find(|p| p.name == provider)
-            .map(|p| p.needs_key)
-            .unwrap_or(true);
+            .is_none_or(|p| p.needs_key);
 
         if needs_key && api_key.is_empty() {
             if let Some(last) = self.messages.last_mut() {
                 last.streaming = false;
                 last.content = format!(
-                    "⚠ No API key set for {}. Go to Settings → AI Agent to add one.",
-                    provider
+                    "⚠ No API key set for {provider}. Go to Settings → AI Agent to add one."
                 );
             }
             self.thinking = false;
@@ -400,7 +398,7 @@ impl AiPanel {
             {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = evt_tx.send(StreamEvent::Error(format!("Client error: {}", e)));
+                    let _ = evt_tx.send(StreamEvent::Error(format!("Client error: {e}")));
                     return;
                 }
             };
@@ -464,13 +462,13 @@ impl AiPanel {
             .header("Content-Type", "application/json")
             .json(&body);
         if !api_key.is_empty() {
-            req = req.header("Authorization", format!("Bearer {}", api_key));
+            req = req.header("Authorization", format!("Bearer {api_key}"));
         }
 
         let resp = match req.send() {
             Ok(r) => r,
             Err(e) => {
-                let _ = evt_tx.send(StreamEvent::Error(format!("HTTP error: {}", e)));
+                let _ = evt_tx.send(StreamEvent::Error(format!("HTTP error: {e}")));
                 return;
             }
         };
@@ -478,7 +476,7 @@ impl AiPanel {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().unwrap_or_default();
-            let _ = evt_tx.send(StreamEvent::Error(format!("HTTP {}: {}", status, text)));
+            let _ = evt_tx.send(StreamEvent::Error(format!("HTTP {status}: {text}")));
             return;
         }
 
@@ -570,7 +568,7 @@ impl AiPanel {
         {
             Ok(r) => r,
             Err(e) => {
-                let _ = evt_tx.send(StreamEvent::Error(format!("HTTP error: {}", e)));
+                let _ = evt_tx.send(StreamEvent::Error(format!("HTTP error: {e}")));
                 return;
             }
         };
@@ -579,8 +577,7 @@ impl AiPanel {
             let status = resp.status();
             let text = resp.text().unwrap_or_default();
             let _ = evt_tx.send(StreamEvent::Error(format!(
-                "Anthropic HTTP {}: {}",
-                status, text
+                "Anthropic HTTP {status}: {text}"
             )));
             return;
         }
@@ -619,7 +616,7 @@ impl AiPanel {
         let _ = evt_tx.send(StreamEvent::Done(()));
     }
 
-    /// Find all {"tool": ..., "args": ...} JSON objects in text and emit a ToolCallDetected for each.
+    /// Find all {"tool": ..., "args": ...} JSON objects in text and emit a `ToolCallDetected` for each.
     fn dispatch_tool_calls(evt_tx: &crossbeam_channel::Sender<StreamEvent>, text: &str) {
         for (tool, args) in Self::extract_tool_calls(text) {
             let _ = evt_tx.send(StreamEvent::ToolCallDetected { tool, args });
@@ -699,10 +696,10 @@ impl AiPanel {
                         calls.push(tc);
                         last.tool_calls = Some(calls);
                         last.content
-                            .push_str(&format!("\n\u{25b6} {} \u{2192} {}", tool, result));
+                            .push_str(&format!("\n\u{25b6} {tool} \u{2192} {result}"));
                     }
                 }
-                Ok(StreamEvent::Done(_)) => {
+                Ok(StreamEvent::Done(())) => {
                     if let Some(last) = self.messages.last_mut() {
                         last.streaming = false;
                     }
@@ -714,7 +711,7 @@ impl AiPanel {
                     // Replace the placeholder with the error message
                     if let Some(last) = self.messages.last_mut() {
                         last.streaming = false;
-                        last.content = format!("⚠ {}", err);
+                        last.content = format!("⚠ {err}");
                     }
                     self.stream_start = None;
                     keep = false;
@@ -751,7 +748,7 @@ impl AiPanel {
                 "set_gain" => {
                     if let Some(db) = args["db"].as_f64() {
                         state.source.gain_db = db;
-                        return format!("Gain set to {:.1} dB", db);
+                        return format!("Gain set to {db:.1} dB");
                     }
                     return "Error: missing db argument".to_string();
                 }
@@ -796,7 +793,7 @@ impl AiPanel {
                 "select_satellite" => {
                     if let Some(sat) = args["name"].as_str() {
                         state.selected_satellite = Some(sat.to_string());
-                        return format!("Satellite '{}' selected", sat);
+                        return format!("Satellite '{sat}' selected");
                     }
                     return "Error: missing name argument".to_string();
                 }
@@ -811,7 +808,7 @@ impl AiPanel {
                 "set_squelch" => {
                     if let Some(db) = args["db"].as_f64() {
                         state.squelch = db as f32;
-                        return format!("Squelch set to {:.1} dB", db);
+                        return format!("Squelch set to {db:.1} dB");
                     }
                     return "Error: missing db argument".to_string();
                 }
@@ -827,7 +824,7 @@ impl AiPanel {
                         "frequency_mhz": state.source.frequency_hz as f64 / 1e6,
                         "gain_db": state.source.gain_db,
                         "demod": state.demod_mode.label(),
-                        "sample_rate_msps": state.source.sample_rate_hz as f64 / 1e6,
+                        "sample_rate_msps": f64::from(state.source.sample_rate_hz) / 1e6,
                         "squelch_db": state.squelch,
                         "volume": state.volume,
                         "lpf_cutoff_hz": state.lpf_cutoff,
@@ -873,19 +870,19 @@ impl AiPanel {
                     });
                     state.bookmarks_modified = true;
                     state.spectrum.bookmark_freqs_dirty = true;
-                    return format!("Bookmark '{}' saved at {:.4} MHz", name, freq_mhz);
+                    return format!("Bookmark '{name}' saved at {freq_mhz:.4} MHz");
                 }
                 "set_lpf_cutoff" => {
                     if let Some(hz) = args["hz"].as_f64() {
                         state.lpf_cutoff = hz as f32;
-                        return format!("Audio LPF cutoff set to {:.0} Hz", hz);
+                        return format!("Audio LPF cutoff set to {hz:.0} Hz");
                     }
                     return "Error: missing hz argument".to_string();
                 }
                 "set_ppm" => {
                     if let Some(ppm) = args["ppm"].as_i64() {
                         state.source.ppm_correction = ppm as i32;
-                        return format!("PPM correction set to {} ppm", ppm);
+                        return format!("PPM correction set to {ppm} ppm");
                     }
                     return "Error: missing ppm argument".to_string();
                 }
@@ -896,13 +893,13 @@ impl AiPanel {
                     }
                     return "Error: missing query argument".to_string();
                 }
-                _ => return format!("Unknown tool: {}", name),
+                _ => return format!("Unknown tool: {name}"),
             }
         }
         "Error: could not access SDR state".to_string()
     }
 
-    /// Search the web using DuckDuckGo Lite. Returns formatted results.
+    /// Search the web using `DuckDuckGo` Lite. Returns formatted results.
     fn web_search(query: &str) -> String {
         let client = match reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
@@ -910,7 +907,7 @@ impl AiPanel {
             .build()
         {
             Ok(c) => c,
-            Err(e) => return format!("Search client error: {}", e),
+            Err(e) => return format!("Search client error: {e}"),
         };
 
         let url = format!(
@@ -919,12 +916,12 @@ impl AiPanel {
         );
         let resp = match client.get(&url).send() {
             Ok(r) => r,
-            Err(e) => return format!("Search request failed: {}", e),
+            Err(e) => return format!("Search request failed: {e}"),
         };
 
         let html = match resp.text() {
             Ok(t) => t,
-            Err(e) => return format!("Failed to read search response: {}", e),
+            Err(e) => return format!("Failed to read search response: {e}"),
         };
 
         // Parse DuckDuckGo Lite HTML for result snippets
@@ -984,7 +981,7 @@ impl AiPanel {
                     }
                 }
             }
-            return format!("No results found for '{}'", query);
+            return format!("No results found for '{query}'");
         }
 
         let mut output = format!(
@@ -999,7 +996,7 @@ impl AiPanel {
     }
 
     /// Scan `text` for the first frequency mention (e.g. "137.1 MHz", "1090 MHz", "433 kHz").
-    /// Returns (start_byte, end_byte, hz) or None.
+    /// Returns (`start_byte`, `end_byte`, hz) or None.
     fn find_next_freq(text: &str) -> Option<(usize, usize, u64)> {
         let bytes = text.as_bytes();
         let mut i = 0;
@@ -1050,7 +1047,7 @@ impl AiPanel {
         None
     }
 
-    /// Tokenize a line into (text, bold, italic, code, freq_hz) spans for inline rendering.
+    /// Tokenize a line into (text, bold, italic, code, `freq_hz`) spans for inline rendering.
     fn tokenize_inline(text: &str) -> Vec<(String, bool, bool, bool, Option<u64>)> {
         enum Span {
             Plain(String),
@@ -1076,7 +1073,7 @@ impl AiPanel {
             if rest.starts_with('*') {
                 if let Some(close) = rest[1..].find('*') {
                     if close > 0 {
-                        spans.push(Span::Italic(rest[1..1 + close].to_string()));
+                        spans.push(Span::Italic(rest[1..=close].to_string()));
                         rest = &rest[1 + close + 1..];
                         continue;
                     }
@@ -1087,7 +1084,7 @@ impl AiPanel {
             }
             if rest.starts_with('`') {
                 if let Some(close) = rest[1..].find('`') {
-                    spans.push(Span::Code(rest[1..1 + close].to_string()));
+                    spans.push(Span::Code(rest[1..=close].to_string()));
                     rest = &rest[1 + close + 1..];
                     continue;
                 }
@@ -1115,30 +1112,21 @@ impl AiPanel {
                 Span::Plain(s) => {
                     let mut sub = s.as_str();
                     while !sub.is_empty() {
-                        match Self::find_next_freq(sub) {
-                            Some((start, end, hz)) => {
-                                if start > 0 {
-                                    result.push((
-                                        sub[..start].to_string(),
-                                        false,
-                                        false,
-                                        false,
-                                        None,
-                                    ));
-                                }
-                                result.push((
-                                    sub[start..end].to_string(),
-                                    false,
-                                    false,
-                                    false,
-                                    Some(hz),
-                                ));
-                                sub = &sub[end..];
+                        if let Some((start, end, hz)) = Self::find_next_freq(sub) {
+                            if start > 0 {
+                                result.push((sub[..start].to_string(), false, false, false, None));
                             }
-                            None => {
-                                result.push((sub.to_string(), false, false, false, None));
-                                break;
-                            }
+                            result.push((
+                                sub[start..end].to_string(),
+                                false,
+                                false,
+                                false,
+                                Some(hz),
+                            ));
+                            sub = &sub[end..];
+                        } else {
+                            result.push((sub.to_string(), false, false, false, None));
+                            break;
                         }
                     }
                 }
@@ -1245,13 +1233,7 @@ impl AiPanel {
                     }
                 });
             // Numbered list: "1. text", "2. text", etc.
-            } else if line.len() > 2
-                && line
-                    .chars()
-                    .next()
-                    .map(|c| c.is_ascii_digit())
-                    .unwrap_or(false)
-            {
+            } else if line.len() > 2 && line.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                 let dot_pos = line.find(". ");
                 if let Some(dot) = dot_pos {
                     let num = &line[..dot];
@@ -1259,7 +1241,7 @@ impl AiPanel {
                     if num.chars().all(|c| c.is_ascii_digit()) {
                         ui.horizontal_wrapped(|ui| {
                             ui.add_space(8.0);
-                            ui.label(egui::RichText::new(format!("{}.", num)).color(text_color));
+                            ui.label(egui::RichText::new(format!("{num}.")).color(text_color));
                             if let Some(hz) = Self::render_line_with_freqs(ui, body, text_color) {
                                 clicked = Some(hz);
                             }
@@ -1356,8 +1338,7 @@ impl AiPanel {
                 let needs_key = PROVIDER_PRESETS
                     .iter()
                     .find(|p| p.name == state.config.ai_provider)
-                    .map(|p| p.needs_key)
-                    .unwrap_or(true);
+                    .is_none_or(|p| p.needs_key);
                 (
                     state.config.ai_model.clone(),
                     state.config.ai_provider.clone(),
@@ -1426,7 +1407,7 @@ impl AiPanel {
                 }
 
                 ui.separator();
-                ui.monospace(format!("{} · {}", provider, model));
+                ui.monospace(format!("{provider} · {model}"));
                 if !has_key {
                     ui.colored_label(egui::Color32::YELLOW, "⚠ no key")
                         .on_hover_text("Go to Settings → AI Agent to add an API key.");
@@ -1533,10 +1514,10 @@ impl AiPanel {
                     let content_to_copy = msg.content.clone();
                     let time_str = msg.format_time();
                     ui.horizontal(|ui| {
-                        ui.colored_label(role_color, format!("{}:", label));
+                        ui.colored_label(role_color, format!("{label}:"));
                         ui.weak(&time_str);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button(format!("📋##{}", idx))
+                            if ui.small_button(format!("📋##{idx}"))
                                 .on_hover_text("Copy message to clipboard")
                                 .clicked()
                             {
@@ -1557,7 +1538,7 @@ impl AiPanel {
                             ui.spinner();
                             if let Some(start) = self.stream_start {
                                 let elapsed = start.elapsed().as_secs_f32();
-                                ui.weak(format!("thinking… {:.1}s", elapsed));
+                                ui.weak(format!("thinking… {elapsed:.1}s"));
                             } else {
                                 ui.weak("streaming…");
                             }
@@ -1585,8 +1566,7 @@ impl AiPanel {
             if self
                 .messages
                 .last()
-                .map(|m| m.content.starts_with('⚠'))
-                .unwrap_or(false)
+                .is_some_and(|m| m.content.starts_with('⚠'))
             {
                 self.messages.pop();
             }

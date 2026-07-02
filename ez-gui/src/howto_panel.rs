@@ -127,7 +127,7 @@ impl HowToPanel {
             }
         }
         let mut v: Vec<usize> = matched.into_iter().collect();
-        v.sort();
+        v.sort_unstable();
         v
     }
 
@@ -391,14 +391,14 @@ impl HowToPanel {
             egui::Color32::from_rgb(255, 80, 80),
         );
         p.text(
-            egui::pos2(px + 5.0, (c.y + py) / 2.0),
+            egui::pos2(px + 5.0, f32::midpoint(c.y, py)),
             egui::Align2::LEFT_CENTER,
             "Q val",
             egui::FontId::proportional(9.0),
             egui::Color32::from_rgb(100, 130, 230),
         );
         p.text(
-            egui::pos2((c.x + px) / 2.0, c.y + 5.0),
+            egui::pos2(f32::midpoint(c.x, px), c.y + 5.0),
             egui::Align2::CENTER_TOP,
             "I val",
             egui::FontId::proportional(9.0),

@@ -798,7 +798,7 @@ pub fn render_tutorial(
     if let Some(tab) = &step.tab {
         state.tab_to_open = Some(tab.clone());
     }
-    state.highlight_target = step.highlight.map(|s| s.to_string());
+    state.highlight_target = step.highlight.map(std::string::ToString::to_string);
 
     egui::Window::new(format!(
         "🎓 Tutorial — Step {}/{}",

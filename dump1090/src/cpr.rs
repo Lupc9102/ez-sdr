@@ -219,7 +219,7 @@ fn cpr_nl_function(lat: f64) -> i32 {
 }
 
 fn cpr_n_function(lat: f64, fflag: bool) -> i32 {
-    let mut nl = cpr_nl_function(lat) - if fflag { 1 } else { 0 };
+    let mut nl = cpr_nl_function(lat) - i32::from(fflag);
     if nl < 1 {
         nl = 1;
     }
@@ -227,13 +227,14 @@ fn cpr_n_function(lat: f64, fflag: bool) -> i32 {
 }
 
 fn cpr_dlon_function(lat: f64, fflag: bool, surface: bool) -> f64 {
-    (if surface { 90.0 } else { 360.0 }) / cpr_n_function(lat, fflag) as f64
+    (if surface { 90.0 } else { 360.0 }) / f64::from(cpr_n_function(lat, fflag))
 }
 
 /// Decode a pair of airborne CPR frames.
 ///
 /// `fflag` is `false` for even, `true` for odd — it selects which frame to
 /// use as the authoritative latitude.
+#[must_use]
 pub fn decode_cpr_airborne(
     even_lat: u32,
     even_lon: u32,
@@ -244,14 +245,14 @@ pub fn decode_cpr_airborne(
     let air_dlat0 = 360.0 / 60.0;
     let air_dlat1 = 360.0 / 59.0;
 
-    let lat0 = even_lat as f64;
-    let lat1 = odd_lat as f64;
-    let lon0 = even_lon as f64;
-    let lon1 = odd_lon as f64;
+    let lat0 = f64::from(even_lat);
+    let lat1 = f64::from(odd_lat);
+    let lon0 = f64::from(even_lon);
+    let lon1 = f64::from(odd_lon);
 
     let j = ((59.0 * lat0 - 60.0 * lat1) / 131072.0 + 0.5).floor() as i32;
-    let mut rlat0 = air_dlat0 * (cpr_mod(j, 60) as f64 + lat0 / 131072.0);
-    let mut rlat1 = air_dlat1 * (cpr_mod(j, 59) as f64 + lat1 / 131072.0);
+    let mut rlat0 = air_dlat0 * (f64::from(cpr_mod(j, 60)) + lat0 / 131072.0);
+    let mut rlat1 = air_dlat1 * (f64::from(cpr_mod(j, 59)) + lat1 / 131072.0);
 
     if rlat0 >= 270.0 {
         rlat0 -= 360.0;
@@ -271,16 +272,18 @@ pub fn decode_cpr_airborne(
     let (rlat, rlon) = if fflag {
         let ni = cpr_n_function(rlat1, true);
         let nl = cpr_nl_function(rlat1);
-        let m = (((lon0 * (nl - 1) as f64) - (lon1 * nl as f64)) / 131072.0 + 0.5).floor() as i32;
+        let m =
+            (((lon0 * f64::from(nl - 1)) - (lon1 * f64::from(nl))) / 131072.0 + 0.5).floor() as i32;
         let rlon =
-            cpr_dlon_function(rlat1, true, false) * (cpr_mod(m, ni) as f64 + lon1 / 131072.0);
+            cpr_dlon_function(rlat1, true, false) * (f64::from(cpr_mod(m, ni)) + lon1 / 131072.0);
         (rlat1, rlon)
     } else {
         let ni = cpr_n_function(rlat0, false);
         let nl = cpr_nl_function(rlat0);
-        let m = (((lon0 * (nl - 1) as f64) - (lon1 * nl as f64)) / 131072.0 + 0.5).floor() as i32;
+        let m =
+            (((lon0 * f64::from(nl - 1)) - (lon1 * f64::from(nl))) / 131072.0 + 0.5).floor() as i32;
         let rlon =
-            cpr_dlon_function(rlat0, false, false) * (cpr_mod(m, ni) as f64 + lon0 / 131072.0);
+            cpr_dlon_function(rlat0, false, false) * (f64::from(cpr_mod(m, ni)) + lon0 / 131072.0);
         (rlat0, rlon)
     };
 
@@ -289,6 +292,7 @@ pub fn decode_cpr_airborne(
 }
 
 /// Decode a pair of surface CPR frames given a reference position.
+#[must_use]
 pub fn decode_cpr_surface(
     reflat: f64,
     reflon: f64,
@@ -301,14 +305,14 @@ pub fn decode_cpr_surface(
     let air_dlat0 = 90.0 / 60.0;
     let air_dlat1 = 90.0 / 59.0;
 
-    let lat0 = even_lat as f64;
-    let lat1 = odd_lat as f64;
-    let lon0 = even_lon as f64;
-    let lon1 = odd_lon as f64;
+    let lat0 = f64::from(even_lat);
+    let lat1 = f64::from(odd_lat);
+    let lon0 = f64::from(even_lon);
+    let lon1 = f64::from(odd_lon);
 
     let j = ((59.0 * lat0 - 60.0 * lat1) / 131072.0 + 0.5).floor() as i32;
-    let mut rlat0 = air_dlat0 * (cpr_mod(j, 60) as f64 + lat0 / 131072.0);
-    let mut rlat1 = air_dlat1 * (cpr_mod(j, 59) as f64 + lat1 / 131072.0);
+    let mut rlat0 = air_dlat0 * (f64::from(cpr_mod(j, 60)) + lat0 / 131072.0);
+    let mut rlat1 = air_dlat1 * (f64::from(cpr_mod(j, 59)) + lat1 / 131072.0);
 
     if rlat0 == 0.0 {
         if reflat < -45.0 {
@@ -341,15 +345,18 @@ pub fn decode_cpr_surface(
     let (rlat, rlon) = if fflag {
         let ni = cpr_n_function(rlat1, true);
         let nl = cpr_nl_function(rlat1);
-        let m = (((lon0 * (nl - 1) as f64) - (lon1 * nl as f64)) / 131072.0 + 0.5).floor() as i32;
-        let rlon = cpr_dlon_function(rlat1, true, true) * (cpr_mod(m, ni) as f64 + lon1 / 131072.0);
+        let m =
+            (((lon0 * f64::from(nl - 1)) - (lon1 * f64::from(nl))) / 131072.0 + 0.5).floor() as i32;
+        let rlon =
+            cpr_dlon_function(rlat1, true, true) * (f64::from(cpr_mod(m, ni)) + lon1 / 131072.0);
         (rlat1, rlon)
     } else {
         let ni = cpr_n_function(rlat0, false);
         let nl = cpr_nl_function(rlat0);
-        let m = (((lon0 * (nl - 1) as f64) - (lon1 * nl as f64)) / 131072.0 + 0.5).floor() as i32;
+        let m =
+            (((lon0 * f64::from(nl - 1)) - (lon1 * f64::from(nl))) / 131072.0 + 0.5).floor() as i32;
         let rlon =
-            cpr_dlon_function(rlat0, false, true) * (cpr_mod(m, ni) as f64 + lon0 / 131072.0);
+            cpr_dlon_function(rlat0, false, true) * (f64::from(cpr_mod(m, ni)) + lon0 / 131072.0);
         (rlat0, rlon)
     };
 
@@ -359,6 +366,7 @@ pub fn decode_cpr_surface(
 }
 
 /// Decode a single CPR frame given a nearby reference position.
+#[must_use]
 pub fn decode_cpr_relative(
     reflat: f64,
     reflon: f64,
@@ -367,8 +375,8 @@ pub fn decode_cpr_relative(
     fflag: bool,
     surface: bool,
 ) -> Option<(f64, f64)> {
-    let fractional_lat = cprlat as f64 / 131072.0;
-    let fractional_lon = cprlon as f64 / 131072.0;
+    let fractional_lat = f64::from(cprlat) / 131072.0;
+    let fractional_lon = f64::from(cprlon) / 131072.0;
 
     let air_dlat = (if surface { 90.0 } else { 360.0 }) / (if fflag { 59.0 } else { 60.0 });
 
@@ -415,6 +423,7 @@ pub struct CprDecoder {
 }
 
 impl CprDecoder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             cache: HashMap::new(),

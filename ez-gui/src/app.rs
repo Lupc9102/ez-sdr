@@ -390,7 +390,9 @@ impl CentralApp {
             tutorial: {
                 let state = shared.lock().expect("shared state mutex poisoned");
                 let mut t = TutorialState::new();
-                if !state.config.tutorial_seen {
+                if state.config.tutorial_seen {
+                    t.active = false;
+                } else {
                     // First boot — show level selector
                     t.active = true;
                     t.level = UserLevel::from_str(&state.config.user_level);
@@ -400,8 +402,6 @@ impl CentralApp {
                         t.step = state.config.tutorial_step;
                         t.asked_resume = true;
                     }
-                } else {
-                    t.active = false;
                 }
                 t
             },
@@ -609,8 +609,8 @@ impl eframe::App for CentralApp {
         if current_bucket > self.last_traffic_bucket && current_bucket > 0 {
             let milestone = current_bucket * 10;
             let embed = crate::discord::embed_generic(
-                &format!("Traffic Milestone: {} Aircraft", milestone),
-                &format!("You're now tracking **{}** aircraft!", milestone),
+                &format!("Traffic Milestone: {milestone} Aircraft"),
+                &format!("You're now tracking **{milestone}** aircraft!"),
                 "📈",
                 0xFF8800,
             );
@@ -664,7 +664,7 @@ impl eframe::App for CentralApp {
                 }
                 // Alt+Left/Right: frequency history back/forward
                 if i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft) {
-                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    let hist: Vec<u64> = state.freq_history.iter().copied().collect();
                     if !hist.is_empty() {
                         let cur_idx = self
                             .freq_history_idx
@@ -679,7 +679,7 @@ impl eframe::App for CentralApp {
                     }
                 }
                 if i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight) {
-                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    let hist: Vec<u64> = state.freq_history.iter().copied().collect();
                     if !hist.is_empty() {
                         let cur_idx = self
                             .freq_history_idx
@@ -747,7 +747,7 @@ impl eframe::App for CentralApp {
                 }
                 // Ctrl+S: save config (also persists recent frequencies + spectrum range + PPM + session state)
                 if i.modifiers.ctrl && i.key_pressed(egui::Key::S) {
-                    let recent: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    let recent: Vec<u64> = state.freq_history.iter().copied().collect();
                     state.config.recent_frequencies = recent;
                     let (min_db, max_db) = state.spectrum.display_range();
                     state.config.spectrum_min_db = min_db;
@@ -895,13 +895,12 @@ impl eframe::App for CentralApp {
                     if let Some((freq, name)) = nearest {
                         state.source.frequency_hz = freq;
                         freq_changed = true;
-                        self.status_flash =
-                            Some((format!("⭐ {}", name), std::time::Instant::now()));
+                        self.status_flash = Some((format!("⭐ {name}"), std::time::Instant::now()));
                     }
                 }
                 // [ / ] : frequency history back/forward
                 if i.key_pressed(egui::Key::OpenBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
-                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    let hist: Vec<u64> = state.freq_history.iter().copied().collect();
                     if !hist.is_empty() {
                         let cur_idx = self
                             .freq_history_idx
@@ -916,7 +915,7 @@ impl eframe::App for CentralApp {
                     }
                 }
                 if i.key_pressed(egui::Key::CloseBracket) && !i.modifiers.ctrl && !i.modifiers.alt {
-                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    let hist: Vec<u64> = state.freq_history.iter().copied().collect();
                     if !hist.is_empty() {
                         let cur_idx = self
                             .freq_history_idx
@@ -972,7 +971,12 @@ impl eframe::App for CentralApp {
                         .bookmarks
                         .iter()
                         .any(|b| b.frequency_hz == freq);
-                    if !already {
+                    if already {
+                        self.status_flash = Some((
+                            "⭐ Already bookmarked".to_string(),
+                            std::time::Instant::now(),
+                        ));
+                    } else {
                         state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
                             name: "Quick".to_string(),
                             frequency_hz: freq,
@@ -985,12 +989,7 @@ impl eframe::App for CentralApp {
                         state.bookmarks_modified = true;
                         state.spectrum.bookmark_freqs_dirty = true;
                         self.status_flash =
-                            Some((format!("🔖 Bookmarked {}", name), std::time::Instant::now()));
-                    } else {
-                        self.status_flash = Some((
-                            "⭐ Already bookmarked".to_string(),
-                            std::time::Instant::now(),
-                        ));
+                            Some((format!("🔖 Bookmarked {name}"), std::time::Instant::now()));
                     }
                 }
                 // T: tune to spectrum peak frequency
@@ -1067,9 +1066,9 @@ impl eframe::App for CentralApp {
                 let mode = state.demod_mode.label();
                 let running = state.source.status == crate::source_manager::SourceStatus::Running;
                 let title = if running {
-                    format!("EZ-SDR — {:.3} MHz {} ▶", freq_mhz, mode)
+                    format!("EZ-SDR — {freq_mhz:.3} MHz {mode} ▶")
                 } else {
-                    format!("EZ-SDR — {:.3} MHz {} ■", freq_mhz, mode)
+                    format!("EZ-SDR — {freq_mhz:.3} MHz {mode} ■")
                 };
                 ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
             }
@@ -1257,7 +1256,7 @@ impl eframe::App for CentralApp {
         if let Some((freq, mode)) = self.sdr_panel.bookmark_request.take() {
             if let Ok(mut state) = self.shared.try_lock() {
                 let freq_mhz = freq as f64 / 1e6;
-                let name = format!("{:.3} MHz {}", freq_mhz, mode);
+                let name = format!("{freq_mhz:.3} MHz {mode}");
                 state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
                     name,
                     frequency_hz: freq,
@@ -1282,15 +1281,11 @@ impl eframe::App for CentralApp {
                 (0.0, "unknown".to_string())
             };
             self.ai_panel.input = format!(
-                "I'm currently tuned to {:.4} MHz in {} mode (SNR: {:.1} dB). \
-                 What signals should I expect here? What demod mode and settings would you recommend?",
-                freq_mhz, mode, snr
+                "I'm currently tuned to {freq_mhz:.4} MHz in {mode} mode (SNR: {snr:.1} dB). \
+                 What signals should I expect here? What demod mode and settings would you recommend?"
             );
             self.status_flash = Some((
-                format!(
-                    "🤖 AI prompt ready for {:.3} MHz — switch to AI Agent tab",
-                    freq_mhz
-                ),
+                format!("🤖 AI prompt ready for {freq_mhz:.3} MHz — switch to AI Agent tab"),
                 std::time::Instant::now(),
             ));
         }
@@ -1357,10 +1352,7 @@ impl eframe::App for CentralApp {
                 );
                 self.discord.fire("rec_started", embed);
             } else if !recording && self.last_recording {
-                let duration = self
-                    .recording_start
-                    .map(|t| t.elapsed().as_secs())
-                    .unwrap_or(0);
+                let duration = self.recording_start.map_or(0, |t| t.elapsed().as_secs());
                 let embed = crate::discord::embed_recording_stopped(
                     freq,
                     mode,
@@ -1469,13 +1461,12 @@ impl eframe::App for CentralApp {
             // Periodic session summary report
             if self.discord.settings.summary_enabled
                 && self.discord_summary_last.elapsed().as_secs()
-                    >= (self.discord.settings.summary_interval_min as u64 * 60)
+                    >= (u64::from(self.discord.settings.summary_interval_min) * 60)
             {
                 let uptime = self
                     .recording_start
                     .as_ref()
-                    .map(|t| t.elapsed().as_secs())
-                    .unwrap_or(0);
+                    .map_or(0, |t| t.elapsed().as_secs());
                 let embed = crate::discord::embed_session_summary(
                     uptime,
                     freq as f64 / 1e6,
@@ -1615,7 +1606,7 @@ impl eframe::App for CentralApp {
                             // Try numeric parse first
                             if let Ok(mhz) = q.parse::<f64>() {
                                 self.freq_jump_matches
-                                    .push((format!("{:.3} MHz", mhz), (mhz * 1e6) as u64));
+                                    .push((format!("{mhz:.3} MHz"), (mhz * 1e6) as u64));
                             } else {
                                 // Search known band allocations
                                 let bands: &[(&str, u64)] = &[
@@ -1692,7 +1683,7 @@ impl eframe::App for CentralApp {
                                         let recent: Vec<u64> = state
                                             .freq_history
                                             .iter()
-                                            .cloned()
+                                            .copied()
                                             .rev()
                                             .take(5)
                                             .collect();
@@ -1771,7 +1762,7 @@ impl eframe::App for CentralApp {
             let can_fwd = self.freq_history_idx.is_some() && hist_idx + 1 < hist_len;
             if ui.add_enabled(can_back, egui::Button::new("◀")).on_hover_text("Go back to previous frequency (Alt+←)").clicked() {
                 if let Ok(mut state) = self.shared.try_lock() {
-                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    let hist: Vec<u64> = state.freq_history.iter().copied().collect();
                     if hist_idx > 0 {
                         let new_idx = hist_idx - 1;
                         self.freq_history_idx = Some(new_idx);
@@ -1783,7 +1774,7 @@ impl eframe::App for CentralApp {
             }
             if ui.add_enabled(can_fwd, egui::Button::new("▶")).on_hover_text("Go forward in frequency history (Alt+→)").clicked() {
                 if let Ok(mut state) = self.shared.try_lock() {
-                    let hist: Vec<u64> = state.freq_history.iter().cloned().collect();
+                    let hist: Vec<u64> = state.freq_history.iter().copied().collect();
                     if hist_idx + 1 < hist_len {
                         let new_idx = hist_idx + 1;
                         self.freq_history_idx = Some(new_idx);
@@ -1825,7 +1816,7 @@ impl eframe::App for CentralApp {
                     ui.ctx().copy_text(format!("{:.6}", true_hz as f64 / 1e6));
                 }
                 ui.separator();
-                let sps_mhz = state.source.sample_rate_hz as f64 / 1e6;
+                let sps_mhz = f64::from(state.source.sample_rate_hz) / 1e6;
                 ui.small(format!("{} · {:.1} MSps", state.demod_mode.label(), sps_mhz))
                     .on_hover_text(format!("Demod mode: {}. Sample rate: {:.1} MSps (spectrum width: ±{:.1} MHz). Higher rates = wider view, more CPU.",
                         state.demod_mode.label(), sps_mhz, sps_mhz / 2.0));
@@ -1836,15 +1827,15 @@ impl eframe::App for CentralApp {
                     if self.recording_start.is_none() {
                         self.recording_start = Some(std::time::Instant::now());
                     }
-                    let elapsed = self.recording_start.map(|s| s.elapsed().as_secs()).unwrap_or(0);
+                    let elapsed = self.recording_start.map_or(0, |s| s.elapsed().as_secs());
                     let rec_label = if elapsed < 60 {
-                        format!("● REC {:02}s", elapsed)
+                        format!("● REC {elapsed:02}s")
                     } else {
                         format!("● REC {:02}:{:02}", elapsed / 60, elapsed % 60)
                     };
                     let rec_type = if self.recorder_panel.record_iq { "IQ" } else { "WAV" };
-                    ui.colored_label(egui::Color32::RED, format!("{} [{}]", rec_label, rec_type))
-                        .on_hover_text(format!("Recording {} format in progress. Go to the Recorder tab to stop.", rec_type));
+                    ui.colored_label(egui::Color32::RED, format!("{rec_label} [{rec_type}]"))
+                        .on_hover_text(format!("Recording {rec_type} format in progress. Go to the Recorder tab to stop."));
                 } else {
                     self.recording_start = None;
                 }
@@ -1880,7 +1871,7 @@ impl eframe::App for CentralApp {
                     let squelch = state.squelch;
                     if signal < squelch && squelch > -90.0 {
                         ui.colored_label(egui::Color32::from_rgb(160, 130, 60), "🔒 SQ")
-                            .on_hover_text(format!("Squelch is blocking audio — signal ({:.0} dB) is below squelch threshold ({:.0} dB). Reduce squelch or wait for a stronger signal.", signal, squelch));
+                            .on_hover_text(format!("Squelch is blocking audio — signal ({signal:.0} dB) is below squelch threshold ({squelch:.0} dB). Reduce squelch or wait for a stronger signal."));
                     }
                 }
                 // S-meter bargraph (signal strength)
@@ -1912,7 +1903,7 @@ impl eframe::App for CentralApp {
                     // S-unit label overlay
                     let s_unit = ((signal_db + 127.0) / 6.0).clamp(0.0, 9.0) as u8;
                     let label = if signal_db > -73.0 { format!("S9+{:.0}", signal_db + 73.0) }
-                        else { format!("S{}", s_unit) };
+                        else { format!("S{s_unit}") };
                     painter.text(
                         bar_rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -1921,8 +1912,7 @@ impl eframe::App for CentralApp {
                         egui::Color32::from_rgba_premultiplied(255, 255, 255, 200),
                     );
                     bar_resp.on_hover_text(format!(
-                        "Signal strength: {:.1} dBFS ({}). S-units follow the IARU standard: S1 = -121 dBm, each S-unit is 6 dB.",
-                        signal_db, label
+                        "Signal strength: {signal_db:.1} dBFS ({label}). S-units follow the IARU standard: S1 = -121 dBm, each S-unit is 6 dB."
                     ));
                 }
                 // RF clipping detection (spectrum saturation warning)
@@ -1931,7 +1921,7 @@ impl eframe::App for CentralApp {
                     if peak > -5.0 {
                         ui.separator();
                         ui.colored_label(egui::Color32::from_rgb(220, 100, 80), "⚠️ RF CLIP")
-                            .on_hover_text(format!("RF signal saturating! Peak at {:.1} dB — reduce gain or antenna signal level to prevent distortion.", peak));
+                            .on_hover_text(format!("RF signal saturating! Peak at {peak:.1} dB — reduce gain or antenna signal level to prevent distortion."));
                     }
                 }
                 // Source mode badge
@@ -1968,7 +1958,7 @@ impl eframe::App for CentralApp {
                         let secs = self.mqtt.reconnect_in_secs().unwrap_or(0);
                         ui.colored_label(egui::Color32::from_rgb(231, 76, 60), "●")
                             .on_hover_text("Disconnected from MQTT broker");
-                        ui.colored_label(egui::Color32::from_rgb(200, 150, 50), format!("MQTT ⏳{}s", secs))
+                        ui.colored_label(egui::Color32::from_rgb(200, 150, 50), format!("MQTT ⏳{secs}s"))
                             .on_hover_text(format!("Connection to {}:{} lost. Auto-reconnect in {}s.", self.mqtt.broker, self.mqtt.port, secs));
                     }
                 }
@@ -1982,7 +1972,7 @@ impl eframe::App for CentralApp {
                 let doppler_str = if doppler_hz.abs() >= 1000.0 {
                     format!("🛰 {:+.1}kHz", doppler_hz / 1000.0)
                 } else {
-                    format!("🛰 {:+.0}Hz", doppler_hz)
+                    format!("🛰 {doppler_hz:+.0}Hz")
                 };
                 let dop_color = if auto_tune {
                     egui::Color32::from_rgb(80, 230, 130)
@@ -1991,9 +1981,9 @@ impl eframe::App for CentralApp {
                 };
                 ui.colored_label(dop_color, &doppler_str)
                     .on_hover_text(if auto_tune {
-                        format!("Doppler correction ACTIVE: {:+.1} Hz applied to compensate for satellite motion. Frequency is continuously adjusted. Disable 'Auto-tune' in Satellite panel to stop.", doppler_hz)
+                        format!("Doppler correction ACTIVE: {doppler_hz:+.1} Hz applied to compensate for satellite motion. Frequency is continuously adjusted. Disable 'Auto-tune' in Satellite panel to stop.")
                     } else {
-                        format!("Doppler shift: {:+.1} Hz — not correcting (auto-tune off). Enable 'Auto-tune to downlink + Doppler' in Satellite panel.", doppler_hz)
+                        format!("Doppler shift: {doppler_hz:+.1} Hz — not correcting (auto-tune off). Enable 'Auto-tune to downlink + Doppler' in Satellite panel.")
                     });
             }
             // Volume slider
@@ -2019,7 +2009,7 @@ impl eframe::App for CentralApp {
                     ("⚫ Quiet",  egui::Color32::DARK_GRAY, "No signal (SNR < 8 dB). Try a different frequency or increase gain.")
                 };
                 ui.colored_label(badge_color, badge)
-                    .on_hover_text(format!("{} Peak: {:.0} dBFS · Floor: {:.0} dBFS · SNR: {:.0} dB", badge_tip, peak, noise_floor, snr));
+                    .on_hover_text(format!("{badge_tip} Peak: {peak:.0} dBFS · Floor: {noise_floor:.0} dBFS · SNR: {snr:.0} dB"));
             }
             // Status flash (short-lived messages, e.g. "⭐ Bookmark name")
             if let Some((msg, since)) = &self.status_flash {
@@ -2162,7 +2152,7 @@ impl eframe::App for CentralApp {
             cfg.last_session_freq_hz = state.source.frequency_hz;
             cfg.last_session_gain_db = state.source.gain_db;
             cfg.last_session_demod = state.demod_mode.label().to_string();
-            cfg.recent_frequencies = state.freq_history.iter().cloned().collect();
+            cfg.recent_frequencies = state.freq_history.iter().copied().collect();
             let (min_db, max_db) = state.spectrum.display_range();
             cfg.spectrum_min_db = min_db;
             cfg.spectrum_max_db = max_db;
@@ -2273,7 +2263,7 @@ impl CentralApp {
                         ui.separator();
                         let freq_mhz = state.source.frequency_hz as f64 / 1e6;
                         ui.monospace(
-                            egui::RichText::new(format!("{:.4} MHz", freq_mhz))
+                            egui::RichText::new(format!("{freq_mhz:.4} MHz"))
                                 .size(15.0)
                                 .color(egui::Color32::from_rgb(0, 168, 255)),
                         );
@@ -2363,7 +2353,7 @@ impl CentralApp {
                 SecondaryTool::Recorder => self.recorder_panel.ui(ui),
                 SecondaryTool::HowTo => self.howto_panel.ui(ui),
                 SecondaryTool::Discord => {
-                    self.discord_panel.ui(ui, &mut self.discord, &self.shared)
+                    self.discord_panel.ui(ui, &mut self.discord, &self.shared);
                 }
             });
     }
@@ -2388,7 +2378,7 @@ impl CentralApp {
                         } else {
                             egui::Color32::RED
                         };
-                        ui.colored_label(sig_color, format!("📶 {:.1} dB", sig));
+                        ui.colored_label(sig_color, format!("📶 {sig:.1} dB"));
                         ui.separator();
                         let status = match &state.source.status {
                             crate::source_manager::SourceStatus::Idle => "Idle".to_string(),
@@ -2478,8 +2468,7 @@ impl CentralApp {
                                 if len > 1 {
                                     let new_idx = self
                                         .freq_history_idx
-                                        .map(|i| i.saturating_sub(1))
-                                        .unwrap_or(len.saturating_sub(2));
+                                        .map_or(len.saturating_sub(2), |i| i.saturating_sub(1));
                                     let freq = state.freq_history.get(new_idx).copied();
                                     drop(state);
                                     self.freq_history_idx = Some(new_idx);
@@ -2590,8 +2579,8 @@ impl CentralApp {
                 if state.spectrum.pending_start_source { state.spectrum.pending_start_source = false; state.source.start(); }
                 if let Some(freq) = state.spectrum.pending_ai_freq.take() {
                     let freq_mhz = freq as f64 / 1e6;
-                    self.ai_panel.input = format!("I'm looking at {:.4} MHz on the spectrum. What signals might be here? What demod mode?", freq_mhz);
-                    self.status_flash = Some((format!("🤖 AI prompt for {:.3} MHz", freq_mhz), std::time::Instant::now()));
+                    self.ai_panel.input = format!("I'm looking at {freq_mhz:.4} MHz on the spectrum. What signals might be here? What demod mode?");
+                    self.status_flash = Some((format!("🤖 AI prompt for {freq_mhz:.3} MHz"), std::time::Instant::now()));
                 }
             }
         });
@@ -2770,7 +2759,7 @@ impl CentralApp {
             painter.text(
                 egui::pos2(rect.left() + 5.0, y),
                 egui::Align2::LEFT_CENTER,
-                format!("{}°", lat),
+                format!("{lat}°"),
                 egui::FontId::proportional(8.0),
                 egui::Color32::from_gray(50),
             );
@@ -2826,7 +2815,7 @@ impl CentralApp {
         };
         ui.heading("Frequency Bookmarks");
         ui.horizontal_wrapped(|ui| {
-            ui.label(format!("{} bookmarks", bm_count));
+            ui.label(format!("{bm_count} bookmarks"));
             ui.add(egui::TextEdit::singleline(&mut self.bookmark_filter).hint_text("Filter...").desired_width(150.0));
             ui.toggle_value(&mut self.show_starred_only, "⭐ Starred").on_hover_text("Show only starred (favorite) bookmarks");
             if ui.button("💾 Save").on_hover_text("Save all bookmarks to ez_sdr_bookmarks.json in the current directory.").clicked() {
@@ -2847,7 +2836,7 @@ impl CentralApp {
                         if let Ok(mut state) = self.shared.try_lock() {
                             let (count, err) = state.bookmarks.import_csv(path_str);
                             if err.is_empty() {
-                                self.bm_import_msg = format!("Imported {} bookmarks.", count);
+                                self.bm_import_msg = format!("Imported {count} bookmarks.");
                             } else {
                                 self.bm_import_msg = err;
                             }
@@ -2859,7 +2848,7 @@ impl CentralApp {
                 if let Ok(state) = self.shared.try_lock() {
                     let (path, err) = state.bookmarks.export_csv();
                     if err.is_empty() {
-                        self.bm_import_msg = format!("Exported to {}", path);
+                        self.bm_import_msg = format!("Exported to {path}");
                     } else {
                         self.bm_import_msg = err;
                     }
@@ -2973,11 +2962,11 @@ impl CentralApp {
                         }
                         Ok(_) => self.new_bm_error = "Frequency must be > 0 MHz".to_string(),
                         Err(_) if name.is_empty() => {
-                            self.new_bm_error = "Name cannot be empty".to_string()
+                            self.new_bm_error = "Name cannot be empty".to_string();
                         }
                         Err(_) => {
                             self.new_bm_error =
-                                "Invalid frequency — enter a number like 145.5".to_string()
+                                "Invalid frequency — enter a number like 145.5".to_string();
                         }
                     }
                 }
@@ -3034,8 +3023,7 @@ impl CentralApp {
                                 .small(),
                             )
                             .on_hover_text(format!(
-                                "Click to filter by '{}' category. Click again to clear.",
-                                cat
+                                "Click to filter by '{cat}' category. Click again to clear."
                             ));
                         if btn.clicked() {
                             if is_active {
@@ -3076,7 +3064,7 @@ impl CentralApp {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for cat in &categories {
                 let cat_count = filtered.iter().filter(|(_, b)| &b.category == cat).count();
-                let cat_header = format!("{} ({})", cat, cat_count);
+                let cat_header = format!("{cat} ({cat_count})");
                 ui.collapsing(cat_header, |ui| {
                     for (orig_idx, bm) in filtered.iter().filter(|(_, b)| &b.category == cat) {
                         let is_editing = self.edit_bm_idx == Some(*orig_idx);
@@ -3085,7 +3073,7 @@ impl CentralApp {
                                 // Inline edit row
                                 ui.add(egui::TextEdit::singleline(&mut self.edit_bm_name).desired_width(120.0).hint_text("Name"));
                                 ui.add(egui::TextEdit::singleline(&mut self.edit_bm_freq_mhz).desired_width(70.0).hint_text("MHz"));
-                                egui::ComboBox::from_id_salt(format!("edit_mode_{}", orig_idx))
+                                egui::ComboBox::from_id_salt(format!("edit_mode_{orig_idx}"))
                                     .selected_text(self.edit_bm_mode.as_str())
                                     .width(ui.available_width().min(80.0))
                                     .show_ui(ui, |ui| {
@@ -3264,7 +3252,7 @@ impl CentralApp {
         if let Some(task) = next_task {
             let secs = (task.at_unix - now_unix).max(0.0) as u64;
             let countdown = if secs < 60 {
-                format!("{}s", secs)
+                format!("{secs}s")
             } else {
                 format!("{}m {}s", secs / 60, secs % 60)
             };
@@ -3320,7 +3308,7 @@ impl CentralApp {
                     painter.text(
                         egui::pos2(x + 2.0, tl_rect.top() + 1.0),
                         egui::Align2::LEFT_TOP,
-                        format!("{:02}", h),
+                        format!("{h:02}"),
                         egui::FontId::proportional(7.0),
                         egui::Color32::from_gray(90),
                     );
@@ -3369,7 +3357,7 @@ impl CentralApp {
                 );
                 if x2 - x1 > 16.0 {
                     painter.text(
-                        egui::pos2((x1 + x2) / 2.0, tl_rect.center().y),
+                        egui::pos2(f32::midpoint(x1, x2), tl_rect.center().y),
                         egui::Align2::CENTER_CENTER,
                         &job.satellite,
                         egui::FontId::proportional(7.0),
@@ -3485,7 +3473,7 @@ impl CentralApp {
                                 .custom_tasks
                                 .push(crate::scheduler::CustomTask {
                                     label: if label.is_empty() {
-                                        format!("{:.3} MHz", mhz)
+                                        format!("{mhz:.3} MHz")
                                     } else {
                                         label
                                     },
@@ -3501,7 +3489,7 @@ impl CentralApp {
                     }
                     (Err(_), _) => self.new_task_error = "Invalid frequency.".to_string(),
                     (_, None) => {
-                        self.new_task_error = "Invalid time — use HH:MM format.".to_string()
+                        self.new_task_error = "Invalid time — use HH:MM format.".to_string();
                     }
                     _ => self.new_task_error = "Frequency must be > 0.".to_string(),
                 }
@@ -3539,7 +3527,7 @@ impl CentralApp {
                         } else if remaining < 0.0 {
                             "overdue".to_string()
                         } else if remaining < 60.0 {
-                            format!("{:.0}s", remaining)
+                            format!("{remaining:.0}s")
                         } else {
                             format!("{:.0}m", remaining / 60.0)
                         };

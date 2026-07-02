@@ -1,4 +1,4 @@
-//! Network I/O (Beast/SBS/raw) - translated from net_io.c
+//! Network I/O (Beast/SBS/raw) - translated from `net_io.c`
 
 use std::io::{ErrorKind, Write};
 use std::net::{TcpListener, TcpStream};
@@ -24,6 +24,7 @@ impl Default for NetIo {
 }
 
 impl NetIo {
+    #[must_use]
     pub fn new() -> Self {
         NetIo {
             beast_clients: Arc::new(Mutex::new(Vec::new())),
@@ -45,27 +46,27 @@ impl NetIo {
             let listener = match TcpListener::bind(("0.0.0.0", port)) {
                 Ok(l) => l,
                 Err(e) => {
-                    eprintln!("net_io: failed to bind {} port {}: {}", name, port, e);
+                    eprintln!("net_io: failed to bind {name} port {port}: {e}");
                     return;
                 }
             };
-            eprintln!("net_io: {} output on port {}", name, port);
+            eprintln!("net_io: {name} output on port {port}");
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
                         if let Err(e) = stream.set_nonblocking(true) {
-                            eprintln!("net_io: failed to set non-blocking: {}", e);
+                            eprintln!("net_io: failed to set non-blocking: {e}");
                             continue;
                         }
                         if let Ok(addr) = stream.peer_addr() {
-                            eprintln!("net_io: {} client connected from {}", name, addr);
+                            eprintln!("net_io: {name} client connected from {addr}");
                             if let Ok(mut vec) = clients.lock() {
                                 vec.push(Client { stream });
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("net_io: {} accept error: {}", name, e);
+                        eprintln!("net_io: {name} accept error: {e}");
                     }
                 }
             }
@@ -95,7 +96,7 @@ impl NetIo {
         Self::prune_and_send(&self.beast_clients, &escaped);
     }
 
-    /// Send a line in SBS (BaseStation) format.
+    /// Send a line in SBS (`BaseStation`) format.
     pub fn send_sbs(&self, line: &str) {
         let mut out = line.as_bytes().to_vec();
         out.push(b'\r');

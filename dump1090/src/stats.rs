@@ -261,13 +261,14 @@ impl Stats {
     }
 
     /// Average messages per second over the non-zero recorded history.
+    #[must_use]
     pub fn message_rate(&self) -> f64 {
         let sum: u32 = self.rate_history.iter().sum();
         if sum == 0 {
             0.0
         } else {
             let non_zero = self.rate_history.iter().filter(|&&x| x > 0).count().max(1);
-            sum as f64 / non_zero as f64
+            f64::from(sum) / non_zero as f64
         }
     }
 
@@ -467,21 +468,21 @@ impl fmt::Display for Stats {
 
         if self.noise_power_count > 0 {
             let dbfs = 10.0 * (self.noise_power_sum / self.noise_power_count as f64).log10();
-            writeln!(f, "  {:>5.1} dBFS noise power", dbfs)?;
+            writeln!(f, "  {dbfs:>5.1} dBFS noise power")?;
         } else {
             writeln!(f, "  ----- dBFS noise power")?;
         }
 
         if self.signal_power_count > 0 {
             let dbfs = 10.0 * (self.signal_power_sum / self.signal_power_count as f64).log10();
-            writeln!(f, "  {:>5.1} dBFS mean signal power", dbfs)?;
+            writeln!(f, "  {dbfs:>5.1} dBFS mean signal power")?;
         } else {
             writeln!(f, "  ----- dBFS mean signal power")?;
         }
 
         if self.peak_signal_power > 0.0 {
             let dbfs = 10.0 * self.peak_signal_power.log10();
-            writeln!(f, "  {:>5.1} dBFS peak signal power", dbfs)?;
+            writeln!(f, "  {dbfs:>5.1} dBFS peak signal power")?;
         } else {
             writeln!(f, "  ----- dBFS peak signal power")?;
         }
@@ -546,7 +547,7 @@ impl fmt::Display for Stats {
                             "    {:>5.1} dB: {:>5} seconds ({:>5.1}%)",
                             i as f32,
                             sec,
-                            100.0 * sec as f64 / total_seconds as f64
+                            100.0 * f64::from(sec) / f64::from(total_seconds)
                         )?;
                     }
                 }
@@ -688,14 +689,10 @@ impl fmt::Display for Stats {
         let bg_ms = self.background_cpu.as_millis() as u64;
         let elapsed = self.end_ms.saturating_sub(self.start_ms).max(1);
         let cpu_pct = 100.0 * (demod_ms + reader_ms + bg_ms) as f64 / elapsed as f64;
-        writeln!(f, "CPU load: {:>5.1}%", cpu_pct)?;
-        writeln!(f, "  {:>5} ms for demodulation", demod_ms)?;
-        writeln!(f, "  {:>5} ms for reading from USB", reader_ms)?;
-        writeln!(
-            f,
-            "  {:>5} ms for network input and background tasks",
-            bg_ms
-        )?;
+        writeln!(f, "CPU load: {cpu_pct:>5.1}%")?;
+        writeln!(f, "  {demod_ms:>5} ms for demodulation")?;
+        writeln!(f, "  {reader_ms:>5} ms for reading from USB")?;
+        writeln!(f, "  {bg_ms:>5} ms for network input and background tasks")?;
 
         writeln!(f, "Signal histogram (3 dB bins, -96..0 dBFS):")?;
         for (i, &count) in self.signal_histogram.iter().enumerate() {

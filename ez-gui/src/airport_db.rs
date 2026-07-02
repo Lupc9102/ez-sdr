@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
-/// Normalized frequency type (OurAirports `type` column is NOT a controlled vocabulary).
+/// Normalized frequency type (`OurAirports` `type` column is NOT a controlled vocabulary).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FreqType {
     Emergency,
@@ -248,7 +248,7 @@ pub struct AirportDb {
 }
 
 impl AirportDb {
-    /// Load from the SQLite cache if present; otherwise hydrate from the
+    /// Load from the `SQLite` cache if present; otherwise hydrate from the
     /// hardcoded fallback list (always works offline).
     pub fn load() -> Self {
         if let Ok(conn) = Connection::open("ez_sdr.db") {
@@ -281,7 +281,7 @@ impl AirportDb {
                     lon: r.get(5)?,
                     country: r.get::<_, Option<String>>(6)?.unwrap_or_default(),
                     atype: r.get::<_, Option<String>>(7)?.unwrap_or_default(),
-                    scheduled: r.get::<_, Option<i64>>(8)?.map(|v| v != 0).unwrap_or(false),
+                    scheduled: r.get::<_, Option<i64>>(8)?.is_some_and(|v| v != 0),
                 })
             });
             if let Ok(rows) = rows {
@@ -341,7 +341,7 @@ impl AirportDb {
                     freq_type: FreqType::from_raw(t),
                 })
                 .collect();
-            db.airports.insert(a.ident.to_string(), a);
+            db.airports.insert(a.ident.clone(), a);
             db.freqs.insert(ident.to_string(), fv);
         }
         db
@@ -380,14 +380,14 @@ impl AirportDb {
     }
 
     pub fn frequencies_for(&self, ident: &str) -> &[AirportFreq] {
-        self.freqs.get(ident).map(|v| v.as_slice()).unwrap_or(&[])
+        self.freqs.get(ident).map_or(&[], std::vec::Vec::as_slice)
     }
 
     pub fn airport(&self, ident: &str) -> Option<&Airport> {
         self.airports.get(ident)
     }
 
-    /// Fetch both OurAirports CSVs and cache them in SQLite. Returns the number
+    /// Fetch both `OurAirports` CSVs and cache them in `SQLite`. Returns the number
     /// of airports loaded. `progress(current, total)` reports download bytes.
     pub fn download_full_blocking(mut progress: impl FnMut(usize, usize)) -> Result<usize, String> {
         let airports_csv = Self::fetch_csv(
@@ -421,7 +421,7 @@ impl AirportDb {
                 lon: cols.get(5).and_then(|s| s.parse().ok()).unwrap_or(0.0),
                 country: cols.get(8).cloned().unwrap_or_default(),
                 atype,
-                scheduled: cols.get(11).map(|s| s == "yes").unwrap_or(false),
+                scheduled: cols.get(11).is_some_and(|s| s == "yes"),
             });
         }
 
@@ -456,15 +456,15 @@ impl AirportDb {
         url: &str,
         progress: &mut impl FnMut(usize, usize),
     ) -> Result<Vec<String>, String> {
-        let resp = reqwest::blocking::get(url).map_err(|e| format!("{}: {}", url, e))?;
+        let resp = reqwest::blocking::get(url).map_err(|e| format!("{url}: {e}"))?;
         if !resp.status().is_success() {
             return Err(format!("{}: HTTP {}", url, resp.status()));
         }
         let total = resp.content_length().unwrap_or(0) as usize;
-        let bytes = resp.bytes().map_err(|e| format!("{}: {}", url, e))?;
+        let bytes = resp.bytes().map_err(|e| format!("{url}: {e}"))?;
         progress(bytes.len(), total);
         let text = String::from_utf8_lossy(&bytes);
-        Ok(text.lines().map(|l| l.to_string()).collect())
+        Ok(text.lines().map(std::string::ToString::to_string).collect())
     }
 
     fn store_sqlite(airports: &[Airport], freqs: &[AirportFreq]) -> Result<(), String> {
@@ -487,7 +487,7 @@ impl AirportDb {
                     a.lon,
                     a.country,
                     a.atype,
-                    a.scheduled as i32
+                    i32::from(a.scheduled)
                 ])
                 .ok();
             }
@@ -542,7 +542,7 @@ fn csv_split(row: &str) -> Vec<String> {
 }
 
 /// A hardcoded fallback airport entry: (ident, icao, iata, name, lat, lon,
-/// country, type, &[(freq_type, desc, mhz)]).
+/// country, type, &[(`freq_type`, desc, mhz)]).
 struct AirportEntry(
     &'static str,
     &'static str,
@@ -1074,10 +1074,10 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
 impl Airport {
     /// Format code badge: prefer ICAO, fall back to ident.
     pub fn code(&self) -> &str {
-        if !self.icao.is_empty() {
-            &self.icao
-        } else {
+        if self.icao.is_empty() {
             &self.ident
+        } else {
+            &self.icao
         }
     }
 }

@@ -36,7 +36,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 34_000,
                     category: "Weather".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -45,7 +45,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 34_000,
                     category: "Weather".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -54,7 +54,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 34_000,
                     category: "Weather".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -63,7 +63,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 140_000,
                     category: "Weather".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -72,7 +72,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 140_000,
                     category: "Weather".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -81,7 +81,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 600_000,
                     category: "Weather".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -90,7 +90,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 600_000,
                     category: "Weather".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -99,7 +99,7 @@ impl Default for BookmarkDb {
                     mode: "RAW".into(),
                     bandwidth_hz: 2_000_000,
                     category: "Aviation".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -117,7 +117,7 @@ impl Default for BookmarkDb {
                     mode: "NFM".into(),
                     bandwidth_hz: 12_500,
                     category: "Marine".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -126,7 +126,7 @@ impl Default for BookmarkDb {
                     mode: "RAW".into(),
                     bandwidth_hz: 25_000,
                     category: "Pager".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -144,7 +144,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 1_500_000,
                     category: "Broadcast".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -171,7 +171,7 @@ impl Default for BookmarkDb {
                     mode: "NFM".into(),
                     bandwidth_hz: 12_500,
                     category: "Space".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -180,7 +180,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 34_000,
                     category: "Space".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -189,7 +189,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 600_000,
                     category: "Satellite".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -198,7 +198,7 @@ impl Default for BookmarkDb {
                     mode: "WFM".into(),
                     bandwidth_hz: 41_000,
                     category: "Satellite".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -207,7 +207,7 @@ impl Default for BookmarkDb {
                     mode: "RAW".into(),
                     bandwidth_hz: 2_000_000,
                     category: "Navigation".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -216,7 +216,7 @@ impl Default for BookmarkDb {
                     mode: "RAW".into(),
                     bandwidth_hz: 2_000_000,
                     category: "Navigation".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
                 Bookmark {
@@ -252,7 +252,7 @@ impl Default for BookmarkDb {
                     mode: "RAW".into(),
                     bandwidth_hz: 300_000,
                     category: "IoT".into(),
-                    notes: "".into(),
+                    notes: String::new(),
                     starred: false,
                 },
             ],
@@ -286,13 +286,13 @@ impl BookmarkDb {
 }
 
 impl BookmarkDb {
-    /// Import bookmarks from a CSV file (columns: name,frequency_hz,mode,category,notes or bandwidth_hz).
+    /// Import bookmarks from a CSV file (columns: `name,frequency_hz,mode,category,notes` or `bandwidth_hz`).
     /// Skips rows with frequency already in the list. Header row auto-detected.
     /// Returns (imported count, error message)
     pub fn import_csv(&mut self, path: &str) -> (usize, String) {
         let content = match std::fs::read_to_string(path) {
             Ok(s) => s,
-            Err(e) => return (0, format!("Read error: {}", e)),
+            Err(e) => return (0, format!("Read error: {e}")),
         };
         let existing_freqs: std::collections::HashSet<u64> =
             self.bookmarks.iter().map(|b| b.frequency_hz).collect();
@@ -335,7 +335,7 @@ impl BookmarkDb {
                     .iter()
                     .position(|h| h == name)
                     .and_then(|i| parts.get(i))
-                    .map(|s| s.as_str())
+                    .map(std::string::String::as_str)
                     .filter(|s| !s.is_empty())
             };
 
@@ -409,8 +409,8 @@ impl BookmarkDb {
         }
         let path_str = path.to_string_lossy().to_string();
         match std::fs::write(&path, &csv) {
-            Ok(_) => (path_str, String::new()),
-            Err(e) => (String::new(), format!("Export failed: {}", e)),
+            Ok(()) => (path_str, String::new()),
+            Err(e) => (String::new(), format!("Export failed: {e}")),
         }
     }
 }

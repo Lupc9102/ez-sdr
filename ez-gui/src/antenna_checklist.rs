@@ -157,7 +157,7 @@ impl AntennaChecklist {
 
                 ui.add_space(4.0);
                 let frac = if n_crit > 0 { n_crit_on as f32 / n_crit as f32 } else { 1.0 };
-                ui.add(egui::ProgressBar::new(frac).text(format!("{} / {} critical checks", n_crit_on, n_crit)));
+                ui.add(egui::ProgressBar::new(frac).text(format!("{n_crit_on} / {n_crit} critical checks")));
                 ui.add_space(2.0);
                 ui.label(egui::RichText::new(format!("{} of {} total items", self.items.iter().filter(|i| i.checked).count(), n_total)).small().color(egui::Color32::GRAY));
 

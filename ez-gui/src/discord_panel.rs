@@ -90,8 +90,8 @@ impl DiscordPanel {
                 ui.horizontal(|ui| {
                     if ui.button("📨 Send Test").on_hover_text("Post a test message to Discord to verify setup").clicked() {
                         match notifier.send_test() {
-                            Ok(_) => self.test_status = "✅ Test sent! Check Discord.".to_string(),
-                            Err(e) => self.test_status = format!("❌ Error: {}", e),
+                            Ok(()) => self.test_status = "✅ Test sent! Check Discord.".to_string(),
+                            Err(e) => self.test_status = format!("❌ Error: {e}"),
                         }
                     }
                     if !self.test_status.is_empty() {
@@ -292,13 +292,13 @@ impl DiscordPanel {
             "task_fired" => discord::embed_task_fired("Test Task", 145_550_000),
             _ => discord::embed_generic(
                 "Test Notification",
-                &format!("This is a test for: {}", kind_id),
+                &format!("This is a test for: {kind_id}"),
                 "✅",
                 0x0099FF,
             ),
         };
         if let Err(e) = notifier.send_test() {
-            self.test_status = format!("❌ Error: {}", e);
+            self.test_status = format!("❌ Error: {e}");
         }
     }
 }

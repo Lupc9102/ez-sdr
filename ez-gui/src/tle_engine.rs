@@ -31,7 +31,9 @@ impl TleEngine {
             observer_lat: 51.5,
             observer_lon: -0.1,
             cached_passes: vec![],
-            cached_at: std::time::Instant::now() - std::time::Duration::from_secs(999),
+            cached_at: std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(999))
+                .unwrap(),
         };
         engine.load_builtin();
         engine

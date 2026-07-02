@@ -1,7 +1,7 @@
 //! SDR source configuration and management.
 //!
 //! Provides [`SourceManager`] for enumerating, selecting, and connecting to
-//! SoapySDR-compatible devices (RTL-SDR, HackRF, Airspy, LimeSDR, etc.)
+//! SoapySDR-compatible devices (RTL-SDR, `HackRF`, Airspy, `LimeSDR`, etc.)
 //! as well as file and network IQ sources.
 
 use std::sync::{
@@ -113,13 +113,12 @@ impl SourceManager {
         let running = self.running.clone();
 
         // Recreate channel if needed (after a previous stop)
-        let tx = match self.tx.take() {
-            Some(tx) => tx,
-            None => {
-                let (new_tx, new_rx) = bounded(32);
-                self.rx = Some(new_rx);
-                new_tx
-            }
+        let tx = if let Some(tx) = self.tx.take() {
+            tx
+        } else {
+            let (new_tx, new_rx) = bounded(32);
+            self.rx = Some(new_rx);
+            new_tx
         };
 
         let freq = self.frequency_hz;
@@ -135,19 +134,17 @@ impl SourceManager {
         let handle = std::thread::spawn(move || {
             match source_mode {
                 SourceMode::Replay => {
-                    let path = match replay_file {
-                        Some(p) => p,
-                        None => {
-                            let _ = tx.send(b"ERROR".to_vec());
-                            return;
-                        }
+                    let path = if let Some(p) = replay_file {
+                        p
+                    } else {
+                        let _ = tx.send(b"ERROR".to_vec());
+                        return;
                     };
-                    let file = match std::fs::File::open(&path) {
-                        Ok(f) => std::io::BufReader::new(f),
-                        Err(_) => {
-                            let _ = tx.send(b"ERROR".to_vec());
-                            return;
-                        }
+                    let file = if let Ok(f) = std::fs::File::open(&path) {
+                        std::io::BufReader::new(f)
+                    } else {
+                        let _ = tx.send(b"ERROR".to_vec());
+                        return;
                     };
                     use std::io::Read;
                     let mut reader = file;
@@ -171,8 +168,8 @@ impl SourceManager {
                                 if tx.try_send(chunk).is_err() {
                                     break;
                                 }
-                                let sleep_ms = (n as f64 / (rate as f64 * 2.0) * 1000.0
-                                    / replay_speed as f64)
+                                let sleep_ms = (n as f64 / (f64::from(rate) * 2.0) * 1000.0
+                                    / f64::from(replay_speed))
                                     as u64;
                                 std::thread::sleep(std::time::Duration::from_millis(
                                     sleep_ms.max(1),
@@ -211,7 +208,7 @@ impl SourceManager {
                         let mut burst_phase: f64 = 0.0;
                         let buf_size = 16384;
                         let mut buf = vec![0u8; buf_size];
-                        let sample_rate_f = rate as f64;
+                        let sample_rate_f = f64::from(rate);
                         let center_freq_f = freq as f64;
 
                         while running.load(Ordering::SeqCst) {
@@ -267,8 +264,8 @@ impl SourceManager {
                                 let total_i = noise_i + fm_i + nbfm_i + am_i + pulse_i as i16;
                                 let total_q = noise_q + fm_q + nbfm_q + am_q + pulse_q as i16;
 
-                                buf[i] = (total_i as i32 + 127).clamp(0, 255) as u8;
-                                buf[i + 1] = (total_q as i32 + 127).clamp(0, 255) as u8;
+                                buf[i] = (i32::from(total_i) + 127).clamp(0, 255) as u8;
+                                buf[i + 1] = (i32::from(total_q) + 127).clamp(0, 255) as u8;
 
                                 phase += 1.0;
                                 burst_phase += 1.0;
@@ -354,10 +351,10 @@ impl SourceManager {
                     )
                     .changed()
                 {
-                    if !path.is_empty() {
-                        self.replay_file = Some(path);
-                    } else {
+                    if path.is_empty() {
                         self.replay_file = None;
+                    } else {
+                        self.replay_file = Some(path);
                     }
                 }
                 if ui
@@ -370,7 +367,7 @@ impl SourceManager {
                         .add_filter("All files", &["*"])
                         .pick_file()
                     {
-                        self.replay_file = picked.to_str().map(|s| s.to_string());
+                        self.replay_file = picked.to_str().map(std::string::ToString::to_string);
                     }
                 }
                 ui.separator();
@@ -383,10 +380,10 @@ impl SourceManager {
                 );
             });
             if let Some(path) = &self.replay_file {
-                ui.label(format!("File: {}", path));
+                ui.label(format!("File: {path}"));
                 if self.replay_size > 0 {
                     let mb = self.replay_size as f64 / 1_048_576.0;
-                    ui.label(format!("Size: {:.1} MB", mb));
+                    ui.label(format!("Size: {mb:.1} MB"));
                 }
             }
         }
@@ -399,11 +396,11 @@ impl SourceManager {
                 SourceStatus::Opening => (egui::Color32::YELLOW, "Opening..."),
                 SourceStatus::Error(e) => (egui::Color32::RED, e.as_str()),
             };
-            ui.colored_label(color, format!("● {}", label));
+            ui.colored_label(color, format!("● {label}"));
             if self.replay_position > 0 && self.replay_size > 0 {
                 let pct = self.replay_position as f64 / self.replay_size as f64 * 100.0;
                 ui.separator();
-                ui.label(format!("Pos: {:.1}%", pct));
+                ui.label(format!("Pos: {pct:.1}%"));
             }
         });
         ui.add(
@@ -454,7 +451,7 @@ impl SourceManager {
         if self.source_mode != SourceMode::Replay {
             ui.horizontal(|ui| {
                 ui.label("Gain:");
-                ui.add(egui::Slider::new(&mut self.gain_db, 0.0..=49.6).step_by(0.1).text("dB").custom_formatter(|v, _| format!("{:.1} dB", v)))
+                ui.add(egui::Slider::new(&mut self.gain_db, 0.0..=49.6).step_by(0.1).text("dB").custom_formatter(|v, _| format!("{v:.1} dB")))
                     .on_hover_text("RF gain in dB. RTL-SDR range: 0–49.6 dB in 0.9 dB steps.");
                 ui.horizontal(|ui| {
                     for (label, val, tip) in [
@@ -493,7 +490,7 @@ impl SourceManager {
     }
 }
 
-/// Simple deterministic pseudo-random (LCG, no sin() — which gets slow for large values)
+/// Simple deterministic pseudo-random (LCG, no `sin()` — which gets slow for large values)
 #[cfg(not(feature = "rtlsdr"))]
 fn rand_f64(seed: f64) -> f64 {
     let x = seed * 1664525.0 + 1013904223.0;

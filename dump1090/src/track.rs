@@ -21,6 +21,7 @@ impl Default for Tracker {
 }
 
 impl Tracker {
+    #[must_use]
     pub fn new() -> Self {
         Tracker {
             aircraft: HashMap::new(),
@@ -40,10 +41,12 @@ impl Tracker {
         entry.last_seen_ms = msg.sys_timestamp_msg;
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.aircraft.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.aircraft.is_empty()
     }
