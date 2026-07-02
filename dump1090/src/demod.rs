@@ -1177,12 +1177,12 @@ fn compute_magnitude_uc8(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let nsamples = mag.len().min(iq.len() / 2);
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
-    for i in 0..nsamples {
-        let i_val = iq[2 * i] as i32 - 127;
-        let q_val = iq[2 * i + 1] as i32 - 127;
+    for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(2)) {
+        let i_val = sample[0] as i32 - 127;
+        let q_val = sample[1] as i32 - 127;
         let m = ((i_val * i_val + q_val * q_val) as f64).sqrt();
         let norm = m / 128.0;
-        mag[i] = (norm * 65535.0).min(65535.0) as u16;
+        *out = (norm * 65535.0).min(65535.0) as u16;
         sum_level += norm;
         sum_power += norm * norm;
     }
@@ -1194,14 +1194,13 @@ fn compute_magnitude_sc16(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let nsamples = mag.len().min(iq.len() / 4);
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
-    for i in 0..nsamples {
-        let i_off = i * 4;
-        let i_val = i16::from_le_bytes([iq[i_off], iq[i_off + 1]]) as i32;
-        let q_val = i16::from_le_bytes([iq[i_off + 2], iq[i_off + 3]]) as i32;
+    for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(4)) {
+        let i_val = i16::from_le_bytes([sample[0], sample[1]]) as i32;
+        let q_val = i16::from_le_bytes([sample[2], sample[3]]) as i32;
         let m = ((i_val * i_val + q_val * q_val) as f64).sqrt();
         // Normalise to 0..1 assuming full-scale 32767.
         let norm = m / 32767.0;
-        mag[i] = (norm * 65535.0).min(65535.0) as u16;
+        *out = (norm * 65535.0).min(65535.0) as u16;
         sum_level += norm;
         sum_power += norm * norm;
     }
@@ -1216,13 +1215,12 @@ fn compute_magnitude_sc16q11(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let nsamples = mag.len().min(iq.len() / 4);
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
-    for i in 0..nsamples {
-        let i_off = i * 4;
-        let i_val = (i16::from_le_bytes([iq[i_off], iq[i_off + 1]]) as i32) >> 5;
-        let q_val = (i16::from_le_bytes([iq[i_off + 2], iq[i_off + 3]]) as i32) >> 5;
+    for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(4)) {
+        let i_val = (i16::from_le_bytes([sample[0], sample[1]]) as i32) >> 5;
+        let q_val = (i16::from_le_bytes([sample[2], sample[3]]) as i32) >> 5;
         let m = ((i_val * i_val + q_val * q_val) as f64).sqrt();
         let norm = m / 1023.0;
-        mag[i] = (norm * 65535.0).min(65535.0) as u16;
+        *out = (norm * 65535.0).min(65535.0) as u16;
         sum_level += norm;
         sum_power += norm * norm;
     }
