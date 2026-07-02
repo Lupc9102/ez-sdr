@@ -143,7 +143,7 @@ impl SourceManager {
                 SourceMode::Simulated => {
                     #[cfg(feature = "rtlsdr")]
                     {
-                        let mut dev = unsafe { rtl_sdr_open(freq, rate, _ppm, _bias, _gain) };
+                        let dev = unsafe { rtl_sdr_open(freq, rate, _ppm, _bias, _gain) };
                         if dev.is_null() {
                             let _ = tx.send(b"ERROR".to_vec());
                             return;
@@ -384,6 +384,7 @@ impl SourceManager {
 }
 
 /// Simple deterministic pseudo-random (LCG, no sin() — which gets slow for large values)
+#[cfg(not(feature = "rtlsdr"))]
 fn rand_f64(seed: f64) -> f64 {
     let x = seed * 1664525.0 + 1013904223.0;
     let frac = x - (x * (1.0 / 4294967296.0)).floor() * 4294967296.0;
