@@ -11,8 +11,6 @@ pub struct TutorialStep {
 
 pub enum TutorialAction {
     TuneFreq(u64),
-    SetDemod(&'static str),
-    StartAudio,
     OpenSettings,
 }
 
@@ -815,12 +813,6 @@ pub fn render_tutorial(
                                 s.audio_running = true;
                                 s.lpf_cutoff = 15000.0;
                                 s.spectrum.zoom_reset();
-                            }
-                        }
-                        TutorialAction::SetDemod(_mode) => {}
-                        TutorialAction::StartAudio => {
-                            if let Ok(mut s) = shared.try_lock() {
-                                s.audio_running = true;
                             }
                         }
                         TutorialAction::OpenSettings => {

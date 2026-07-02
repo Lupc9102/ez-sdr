@@ -50,19 +50,6 @@ impl UserLevel {
         matches!(self, Self::Advanced | Self::ClerkMaxwell)
     }
 
-    pub fn show_experimental_features(self) -> bool {
-        matches!(self, Self::ClerkMaxwell)
-    }
-
-    pub fn hint_verbosity(self) -> HintLevel {
-        match self {
-            Self::Beginner => HintLevel::Verbose,
-            Self::Intermediate => HintLevel::Normal,
-            Self::Advanced => HintLevel::Minimal,
-            Self::ClerkMaxwell => HintLevel::Off,
-        }
-    }
-
     pub fn simplify_layout(self) -> bool {
         matches!(self, Self::Beginner)
     }
@@ -73,23 +60,6 @@ impl UserLevel {
 
     pub fn levels() -> &'static [UserLevel; 4] {
         &[Self::Beginner, Self::Intermediate, Self::Advanced, Self::ClerkMaxwell]
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HintLevel {
-    Verbose,
-    Normal,
-    Minimal,
-    Off,
-}
-
-pub fn user_level_hint(level: UserLevel, verbose: &'static str, normal: &'static str, minimal: &'static str) -> &'static str {
-    match level.hint_verbosity() {
-        HintLevel::Verbose => verbose,
-        HintLevel::Normal => normal,
-        HintLevel::Minimal => minimal,
-        HintLevel::Off => "",
     }
 }
 
@@ -118,10 +88,6 @@ impl TutorialState {
             asked_resume: false,
             resume_response: None,
         }
-    }
-
-    pub fn is_in_tutorial(&self) -> bool {
-        self.active && !self.asked_resume
     }
 
     pub fn dismiss(&mut self) {

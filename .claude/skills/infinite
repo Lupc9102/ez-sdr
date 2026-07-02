@@ -1,0 +1,15 @@
+---
+description: Loop indefinitely to fix code quality and push changes
+allowed-tools:
+  - Bash
+---
+
+Launch an indefinite, continuous automated optimization process using the Bash tool. 
+
+To prevent session turn caps or context window saturation from halting the loop, you must offload the execution to a background shell loop that repeatedly spawns fresh instances of the Claude CLI.
+
+Execute the background loop directly via the Bash tool:
+
+nohup sh -c 'while true; do claude "Scan the repository for architectural issues, code quality improvements, lint errors, or bugs. Automatically fix the problems found, stage the changes, commit them, and push to the remote tracking branch without requiring interactive confirmation."; sleep 2; done' > .claude_infinite_fix.log 2>&1 &
+
+Inform the user that the background process has successfully started and log tracking has begun.

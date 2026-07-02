@@ -128,7 +128,7 @@ impl NetIo {
 
 /// Build a framed, escaped Beast-format message: 0x1a marker (never escaped)
 /// + type indicator + 6-byte big-endian timestamp + signal + message bytes,
-/// with any 0x1a byte in that payload doubled per the Beast escaping rule.
+///   with any 0x1a byte in that payload doubled per the Beast escaping rule.
 fn encode_beast_frame(timestamp: u64, signal: u8, msg: &[u8]) -> Vec<u8> {
     // Beast type indicator: '1' (Mode-AC, 2 bytes), '2' (Mode S short, 7 bytes),
     // '3' (Mode S long, 14 bytes).

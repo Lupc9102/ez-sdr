@@ -6,6 +6,7 @@ pub struct AdsBPanel {
     shared: Arc<Mutex<SharedState>>,
     pub aircraft: Vec<AircraftEntry>,
     pub selected_icao: Option<u32>,
+    #[allow(dead_code)]
     pub show_map: bool,
     pub total_messages: u64,
     pub start_time: Option<std::time::Instant>,
@@ -525,17 +526,6 @@ impl AdsBPanel {
         (1.0 - (lat_rad.tan().asinh() / std::f64::consts::PI)) / 2.0 * n
     }
 
-    fn tile_to_lon(x: f64, zoom: u32) -> f64 {
-        let n = (1u64 << zoom) as f64;
-        x / n * 360.0 - 180.0
-    }
-
-    fn tile_to_lat(y: f64, zoom: u32) -> f64 {
-        let n = (1u64 << zoom) as f64;
-        let lat_rad = (std::f64::consts::PI * (1.0 - 2.0 * y / n)).sinh().atan();
-        lat_rad.to_degrees()
-    }
-
     fn request_tile(&mut self, z: u32, x: u32, y: u32) {
         if self.tile_pending.contains(&(z, x, y)) {
             return;
@@ -587,6 +577,7 @@ impl AdsBPanel {
         });
     }
 
+    #[allow(dead_code)]
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // Antenna setup checklist gate
         if !self.checklist.ui(ui) {

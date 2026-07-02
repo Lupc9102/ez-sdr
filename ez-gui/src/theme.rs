@@ -7,7 +7,7 @@ pub struct Rgba(pub u8, pub u8, pub u8, pub u8);
 impl Rgba {
     pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self { Self(r, g, b, 255) }
     pub const fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self { Self(r, g, b, a) }
-    pub fn to_egui(&self) -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(self.0, self.1, self.2, self.3) }
+    pub fn to_egui(self) -> egui::Color32 { egui::Color32::from_rgba_unmultiplied(self.0, self.1, self.2, self.3) }
     pub fn with_alpha(&self, a: u8) -> Self { Self(self.0, self.1, self.2, a) }
 
     fn from_gray(v: u8) -> Self { Self(v, v, v, 255) }
@@ -258,6 +258,7 @@ impl ThemeConfig {
     pub fn ui_editor(&mut self, ui: &mut egui::Ui, config_theme: &mut String) {
         ui.horizontal(|ui| {
             ui.label("Preset:");
+            #[allow(clippy::type_complexity)]
             let presets: &[(&str, fn() -> ThemeConfig)] = &[
                 ("dark", ThemeConfig::dark as fn() -> ThemeConfig),
                 ("light", ThemeConfig::light),

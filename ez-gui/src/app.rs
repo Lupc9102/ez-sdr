@@ -34,6 +34,7 @@ use crate::user_level::{TutorialState, UserLevel};
 use crate::web_remote::{RemoteCommand, WebRemote};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub enum Tab {
     Sdr,
     Spectrum,
@@ -548,13 +549,15 @@ impl eframe::App for CentralApp {
                 // Try to fetch aircraft image (non-blocking, returns None if not found)
                 let image_url = crate::discord::fetch_aircraft_image(&icao_str);
                 let embed = crate::discord::embed_aircraft(
-                    &icao_str,
-                    &ac.callsign,
-                    ac.lat,
-                    ac.lon,
-                    ac.altitude,
-                    ac.speed,
-                    ac.heading,
+                    &crate::discord::AircraftData {
+                        icao: icao_str,
+                        callsign: ac.callsign.clone(),
+                        lat: ac.lat,
+                        lon: ac.lon,
+                        alt_ft: ac.altitude,
+                        speed_kts: ac.speed,
+                        heading: ac.heading,
+                    },
                     image_url,
                 );
                 self.discord.fire("aircraft_new", embed);

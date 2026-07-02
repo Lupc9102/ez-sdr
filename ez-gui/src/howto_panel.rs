@@ -208,12 +208,6 @@ impl HowToPanel {
         ui.add_space(4.0);
     }
 
-    fn h3(ui: &mut egui::Ui, text: &str) {
-        ui.add_space(8.0);
-        ui.label(egui::RichText::new(text).size(13.0).strong());
-        ui.add_space(2.0);
-    }
-
     fn tip(ui: &mut egui::Ui, text: &str) {
         ui.add_space(4.0);
         egui::Frame::new()
@@ -255,19 +249,6 @@ impl HowToPanel {
                 ui.label(egui::RichText::new("⛔ Avoid").strong().color(egui::Color32::from_rgb(255, 90, 80)));
                 ui.add_space(2.0);
                 ui.label(text);
-            });
-        ui.add_space(4.0);
-    }
-
-    fn code_block(ui: &mut egui::Ui, text: &str) {
-        ui.add_space(4.0);
-        egui::Frame::new()
-            .fill(egui::Color32::from_rgb(22, 27, 34))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(55)))
-            .inner_margin(egui::Margin::same(10))
-            .corner_radius(egui::CornerRadius::same(5))
-            .show(ui, |ui| {
-                ui.label(egui::RichText::new(text).monospace().color(egui::Color32::from_rgb(225, 225, 225)));
             });
         ui.add_space(4.0);
     }

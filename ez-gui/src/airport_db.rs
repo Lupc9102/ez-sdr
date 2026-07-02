@@ -135,6 +135,7 @@ pub struct AirportFreq {
 /// Antenna dimensions for a given frequency (pure math).
 #[derive(Debug, Clone)]
 pub struct AntennaDims {
+    #[allow(dead_code)]
     pub freq_mhz: f64,
     pub quarter_wave_cm: f64,
     pub half_wave_dipole_cm: f64,
@@ -464,6 +465,7 @@ fn csv_split(row: &str) -> Vec<String> {
 
 /// ~30 major world hubs with verified frequencies. Always available offline.
 /// Tuple: (ident, icao, iata, name, lat, lon, country, type, &[(freq_type, desc, mhz)])
+#[allow(clippy::type_complexity)]
 static FALLBACK_AIRPORTS: &[(&str, &str, &str, &str, f64, f64, &str, &str, &[(&str, &str, f64)])] = &[
     ("KLAX", "KLAX", "LAX", "Los Angeles Intl", 33.9425, -118.408, "US", "large_airport",
      &[("ATIS", "LAX ATIS", 134.45), ("CLD", "Clearance", 127.65), ("GND", "Ground", 121.65), ("TWR", "Tower", 120.95), ("APP", "SoCal Approach", 124.5), ("DEP", "Departure", 124.3)]),

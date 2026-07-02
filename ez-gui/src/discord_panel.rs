@@ -255,7 +255,18 @@ impl DiscordPanel {
         let _embed = match kind_id {
             "aircraft_new" => {
                 let image = discord::fetch_aircraft_image("ABCDEF");
-                discord::embed_aircraft("ABCDEF", "TEST123 ", 51.5, -0.1, 35000, 450, 180, image)
+                discord::embed_aircraft(
+                    &discord::AircraftData {
+                        icao: "ABCDEF".into(),
+                        callsign: "TEST123 ".into(),
+                        lat: 51.5,
+                        lon: -0.1,
+                        alt_ft: 35000,
+                        speed_kts: 450,
+                        heading: 180,
+                    },
+                    image,
+                )
             },
             "scanner_hit" => discord::embed_scanner_hit(145_550_000, -45.5),
             "sat_aos" => discord::embed_sat_aos("ISS", 145_800_000, 62.5),

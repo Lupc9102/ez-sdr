@@ -92,10 +92,6 @@ pub struct SdrPanel {
     expand_ppm: bool,
     expand_lo_offset: bool,
     expand_vfo_b: bool,
-    expand_memory: bool,
-    expand_airport: bool,
-    expand_bias_tee: bool,
-    expand_step: bool,
 }
 
 impl SdrPanel {
@@ -139,10 +135,6 @@ impl SdrPanel {
             expand_ppm: false,
             expand_lo_offset: false,
             expand_vfo_b: false,
-            expand_memory: false,
-            expand_airport: false,
-            expand_bias_tee: false,
-            expand_step: false,
         }
     }
 
@@ -2006,11 +1998,6 @@ impl SdrPanel {
                 }
             }
         });
-    }
-
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        self.ui_source(ui);
-        self.ui_demod(ui);
     }
 }
 

@@ -317,10 +317,6 @@ impl SpectrumAnalyzer {
         self.cached_noise_floor
     }
 
-    pub fn noise_baseline(&self) -> f32 {
-        self.noise_baseline
-    }
-
     pub fn zoom_in(&mut self) {
         self.zoom_factor = (self.zoom_factor * 1.5).clamp(1.0, 200.0);
     }

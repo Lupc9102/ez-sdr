@@ -50,6 +50,7 @@ pub struct NotifKind {
     pub desc: &'static str,
     pub emoji: &'static str,
     pub essential: bool,
+    #[allow(dead_code)]
     pub color: u32,
 }
 
@@ -181,19 +182,29 @@ impl DiscordEmbed {
     }
 }
 
-pub fn embed_aircraft(icao: &str, callsign: &str, lat: f64, lon: f64, alt_ft: u32, speed_kts: u32, heading: u32, image_url: Option<String>) -> DiscordEmbed {
-    let maps_url = format!("https://www.google.com/maps?q={},{}", lat, lon);
+pub struct AircraftData {
+    pub icao: String,
+    pub callsign: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub alt_ft: u32,
+    pub speed_kts: u32,
+    pub heading: u32,
+}
+
+pub fn embed_aircraft(ac: &AircraftData, image_url: Option<String>) -> DiscordEmbed {
+    let maps_url = format!("https://www.google.com/maps?q={},{}", ac.lat, ac.lon);
     DiscordEmbed {
-        title: format!("✈ New Aircraft: {}", callsign.trim_end()),
+        title: format!("✈ New Aircraft: {}", ac.callsign.trim_end()),
         description: format!("[View on map]({})", maps_url),
         color: 0x0088FF,
         fields: vec![
-            ("ICAO".to_string(), icao.to_string(), true),
-            ("Callsign".to_string(), callsign.trim_end().to_string(), true),
-            ("Altitude".to_string(), format!("{} ft", alt_ft), true),
-            ("Speed".to_string(), format!("{} kts", speed_kts), true),
-            ("Heading".to_string(), format!("{}°", heading), true),
-            ("Position".to_string(), format!("{:.4}°, {:.4}°", lat, lon), false),
+            ("ICAO".to_string(), ac.icao.to_string(), true),
+            ("Callsign".to_string(), ac.callsign.trim_end().to_string(), true),
+            ("Altitude".to_string(), format!("{} ft", ac.alt_ft), true),
+            ("Speed".to_string(), format!("{} kts", ac.speed_kts), true),
+            ("Heading".to_string(), format!("{}°", ac.heading), true),
+            ("Position".to_string(), format!("{:.4}°, {:.4}°", ac.lat, ac.lon), false),
         ],
         footer: "EZ-SDR • ADS-B".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
