@@ -4,3 +4,6 @@ target/
 *.db-wal
 *.iq
 recordings/
+graphify-out/cache/
+graphify-out/*.html
+graphify-out/2026-*/
