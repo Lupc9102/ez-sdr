@@ -93,8 +93,10 @@ impl Default for AircraftEntry {
 
 /// Aircraft category used to select the 3D icon shape.
 #[derive(PartialEq)]
+#[allow(dead_code)]
 enum AcCategory { WideBody, NarrowBody, Regional, BizJet, Helicopter, Generic }
 
+#[allow(dead_code)]
 fn classify_aircraft(model: &str) -> AcCategory {
     let m = model.to_ascii_lowercase();
     if m.contains("helicopter") || m.contains("s-76") || m.contains("s-92")
@@ -126,6 +128,7 @@ fn classify_aircraft(model: &str) -> AcCategory {
 ///
 /// `heading_deg` is a compass bearing: 0 = North (nose points up on screen),
 /// 90 = East, etc. `scale` is pixels per normalized unit (7–12 works well).
+#[allow(dead_code)]
 fn draw_plane_model(
     painter: &egui::Painter,
     pos: egui::Pos2,
