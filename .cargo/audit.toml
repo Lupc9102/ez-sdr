@@ -1,0 +1,11 @@
+[advisories]
+ignore = [
+    # Transitive quick-xml via wayland-scanner/zbus_xml - no upgrade available
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # Transitive rustls-webpki via rumqttc - no upgrade available
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+]

@@ -130,7 +130,7 @@ fn main() -> anyhow::Result<()> {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     ctrlc::set_handler(move || {
-        r.store(false, Ordering::SeqCst);
+        r.store(false, Ordering::Relaxed);
     })?;
 
     // 2. Initialize SdrSource
@@ -221,7 +221,7 @@ fn main() -> anyhow::Result<()> {
 
         let now = SystemTime::now()
             .duration_since(start_time)
-            .unwrap_or_default();
+            .expect("start_time must be <= now");
         let now_ms = now.as_millis() as u64;
 
         let (mean_level, mean_power) = compute_magbuf_stats(magnitudes);

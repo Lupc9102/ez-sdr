@@ -1,5 +1,19 @@
 [advisories]
 version = 2
+ignore = [
+    # Transitive quick-xml via wayland-scanner/zbus_xml - no upgrade available
+    { id = "RUSTSEC-2026-0194", reason = "wayland-scanner and zbus_xml locked to quick-xml 0.39.4; no newer version available" },
+    { id = "RUSTSEC-2026-0195", reason = "wayland-scanner and zbus_xml locked to quick-xml 0.39.4; no newer version available" },
+    # Transitive rustls-webpki via rumqttc - no upgrade available
+    { id = "RUSTSEC-2026-0099", reason = "rumqttc 0.25.1 locked to rustls-webpki 0.102.8; no newer version available" },
+    { id = "RUSTSEC-2026-0104", reason = "rumqttc 0.25.1 locked to rustls-webpki 0.102.8; no newer version available" },
+    { id = "RUSTSEC-2026-0049", reason = "rumqttc 0.25.1 locked to rustls-webpki 0.102.8; no newer version available" },
+    { id = "RUSTSEC-2026-0098", reason = "rumqttc 0.25.1 locked to rustls-webpki 0.102.8; no newer version available" },
+    # Unmaintained transitive deps - no replacement available
+    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained; no replacement available yet" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is unmaintained; no replacement available yet" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; no replacement available yet" },
+]
 
 [licenses]
 version = 2

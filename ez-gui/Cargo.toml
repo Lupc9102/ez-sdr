@@ -50,8 +50,8 @@ image = "0.25"
 rumqttc = "0.25"
 
 # Patch transitive deps with vulnerabilities
-quick-xml = ">=0.41.0"
-rustls-webpki = ">=0.103.13"
+# quick-xml = ">=0.41.0"
+# rustls-webpki = ">=0.103.13"
 
 # File picker
 rfd = "0.17"

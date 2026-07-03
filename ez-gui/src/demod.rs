@@ -126,7 +126,7 @@ impl Demodulator {
 
     fn demod_am(&mut self, iq: &[u8]) -> Vec<f32> {
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
-        for (idx, chunk) in iq.chunks(2).enumerate() {
+        for chunk in iq.chunks(2) {
             if chunk.len() < 2 {
                 break;
             }
@@ -138,7 +138,6 @@ impl Demodulator {
                 self.decim_counter = 0;
                 out.push(env);
             }
-            let _ = idx;
         }
         out
     }
