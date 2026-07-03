@@ -1009,4 +1009,75 @@ mod tests {
         let result = panel.apply_filename_template("", "ts", 100.0, "FM");
         assert_eq!(result, "");
     }
+
+    #[test]
+    fn free_disk_space_special_chars_path() {
+        let result = free_disk_space_with_timeout("/tmp/test path with spaces");
+        assert_eq!(result, (99.9, "GB".to_string()));
+    }
+
+    #[test]
+    fn free_disk_space_very_long_path() {
+        let long_path = "a".repeat(4096);
+        let result = free_disk_space_with_timeout(&long_path);
+        assert_eq!(result, (99.9, "GB".to_string()));
+    }
+
+    #[test]
+    fn apply_filename_template_only_date() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{date}", "20240101_120000", 145.5, "NFM");
+        assert_eq!(result, "20240101_120000");
+    }
+
+    #[test]
+    fn apply_filename_template_only_freq() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{freq}", "ignored", 145.5, "NFM");
+        assert_eq!(result, "145.500");
+    }
+
+    #[test]
+    fn apply_filename_template_only_mode() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{mode}", "ignored", 100.0, "WFM");
+        assert_eq!(result, "WFM");
+    }
+
+    #[test]
+    fn apply_filename_template_adjacent_tokens() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{date}{freq}{mode}", "20240101", 145.5, "NFM");
+        assert_eq!(result, "20240101145.500NFM");
+    }
+
+    #[test]
+    fn apply_filename_template_strange_chars_in_template() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("!@#$%^&*()", "ts", 100.0, "FM");
+        assert_eq!(result, "!@#$%^&*()");
+    }
+
+    #[test]
+    fn apply_filename_template_very_long_template() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let long_template = "a".repeat(500) + "{date}" + &"b".repeat(500);
+        let result = panel.apply_filename_template(&long_template, "ts", 100.0, "FM");
+        assert_eq!(result.len(), 1002); // 500 + 2 + 500
+        assert!(result.contains("ts"));
+    }
+
+    #[test]
+    fn apply_filename_template_repeated_token() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{freq}_{freq}", "ignored", 100.5, "FM");
+        assert_eq!(result, "100.500_100.500");
+    }
+
+    #[test]
+    fn apply_filename_template_case_sensitive_no_match() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{Date}_{Freq}", "ts", 100.0, "FM");
+        assert_eq!(result, "{Date}_{Freq}");
+    }
 }

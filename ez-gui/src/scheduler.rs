@@ -220,4 +220,108 @@ mod tests {
         assert_eq!(s.jobs.len(), 1);
         assert_eq!(s.jobs[0].satellite, "Sat1");
     }
+
+    #[test]
+    fn update_from_passes_empty_list_clears_jobs() {
+        let mut s = make_scheduler();
+        assert_eq!(s.jobs.len(), 1);
+        s.update_from_passes(&[]);
+        assert!(s.jobs.is_empty());
+    }
+
+    #[test]
+    fn poll_custom_tasks_multiple_due_at_same_time() {
+        let mut s = Scheduler::new();
+        s.custom_tasks.push(CustomTask {
+            label: "First".into(),
+            frequency_hz: 100_000,
+            at_unix: 1000.0,
+            fired: false,
+        });
+        s.custom_tasks.push(CustomTask {
+            label: "Second".into(),
+            frequency_hz: 200_000,
+            at_unix: 1000.0,
+            fired: false,
+        });
+        let r1 = s.poll_custom_tasks(1500.0);
+        assert_eq!(r1, Some(("First".into(), 100_000)));
+        let r2 = s.poll_custom_tasks(1500.0);
+        assert_eq!(r2, Some(("Second".into(), 200_000)));
+        assert!(s.poll_custom_tasks(1500.0).is_none());
+    }
+
+    #[test]
+    fn poll_custom_tasks_zero_delay() {
+        let mut s = Scheduler::new();
+        s.custom_tasks.push(CustomTask {
+            label: "Immediate".into(),
+            frequency_hz: 433_000_000,
+            at_unix: 0.0,
+            fired: false,
+        });
+        let result = s.poll_custom_tasks(1.0);
+        assert_eq!(result, Some(("Immediate".into(), 433_000_000)));
+    }
+
+    #[test]
+    fn poll_custom_tasks_very_large_delay() {
+        let mut s = Scheduler::new();
+        s.custom_tasks.push(CustomTask {
+            label: "FarFuture".into(),
+            frequency_hz: 433_000_000,
+            at_unix: f64::MAX,
+            fired: false,
+        });
+        assert!(s.poll_custom_tasks(1_000_000_000.0).is_none());
+    }
+
+    #[test]
+    fn scheduled_job_edge_times_midnight() {
+        let mut s = Scheduler::new();
+        s.jobs.push(ScheduledJob {
+            satellite: "MidnightSat".into(),
+            aos: String::new(),
+            los: String::new(),
+            frequency_hz: 100,
+            aos_dt: 0.0,
+            los_dt: 0.0,
+        });
+        assert!(s.active_job(0.0).is_some());
+        assert!(s.active_job(-0.001).is_none());
+    }
+
+    #[test]
+    fn scheduled_job_edge_times_noon() {
+        let mut s = Scheduler::new();
+        s.jobs.push(ScheduledJob {
+            satellite: "NoonSat".into(),
+            aos: String::new(),
+            los: String::new(),
+            frequency_hz: 200,
+            aos_dt: 43200.0,
+            los_dt: 44400.0,
+        });
+        assert!(s.active_job(43200.0).is_some());
+        assert!(s.active_job(43800.0).is_some());
+        assert!(s.active_job(44400.0).is_some());
+        assert!(s.active_job(43199.0).is_none());
+        assert!(s.active_job(44401.0).is_none());
+    }
+
+    #[test]
+    fn scheduled_job_edge_times_2359() {
+        let mut s = Scheduler::new();
+        s.jobs.push(ScheduledJob {
+            satellite: "LateSat".into(),
+            aos: String::new(),
+            los: String::new(),
+            frequency_hz: 300,
+            aos_dt: 86340.0,
+            los_dt: 86400.0,
+        });
+        assert!(s.active_job(86340.0).is_some());
+        assert!(s.active_job(86400.0).is_some());
+        assert!(s.active_job(86339.0).is_none());
+    }
 }

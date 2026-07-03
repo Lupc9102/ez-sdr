@@ -86,30 +86,43 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Schema version string.
+    #[serde(default)]
     pub version: String,
     /// Default centre frequency (Hz) on startup.
+    #[serde(default)]
     pub default_freq_hz: u64,
     /// Default sample rate (samples/second).
+    #[serde(default)]
     pub default_sample_rate: u32,
     /// Default RF gain (dB).
+    #[serde(default)]
     pub default_gain: f64,
     /// Directory for saving recorded I/Q and audio files.
+    #[serde(default)]
     pub output_directory: String,
     /// UI theme name ("dark" / "light").
+    #[serde(default)]
     pub theme: String,
     /// AI provider API key.
+    #[serde(default)]
     pub ai_api_key: String,
     /// AI provider API endpoint URL.
+    #[serde(default)]
     pub ai_endpoint: String,
     /// AI model identifier.
+    #[serde(default)]
     pub ai_model: String,
     /// Maximum tokens per AI response.
+    #[serde(default)]
     pub ai_max_tokens: u32,
     /// AI temperature (0.0 – 2.0).
+    #[serde(default)]
     pub ai_temperature: f64,
     /// Custom system prompt for the AI agent.
+    #[serde(default)]
     pub ai_system_prompt: String,
     /// AI provider name (matches a [`ProviderPreset`] entry).
+    #[serde(default)]
     pub ai_provider: String,
     /// Reasoning effort level ("off", "low", "medium", "high").
     #[serde(default)]
@@ -118,20 +131,28 @@ pub struct AppConfig {
     #[serde(default)]
     pub ai_web_search: bool,
     /// MQTT broker address (host:port).
+    #[serde(default)]
     pub mqtt_broker: String,
     /// MQTT topic prefix for all published messages.
+    #[serde(default)]
     pub mqtt_topic_prefix: String,
     /// Whether the web remote control server is enabled.
+    #[serde(default)]
     pub web_remote_enabled: bool,
     /// TCP port for the web remote server.
+    #[serde(default)]
     pub web_remote_port: u16,
     /// Observer latitude (decimal degrees, north positive).
+    #[serde(default)]
     pub observer_lat: f64,
     /// Observer longitude (decimal degrees, east positive).
+    #[serde(default)]
     pub observer_lon: f64,
     /// UI font scale multiplier.
+    #[serde(default)]
     pub font_scale: f64,
     /// Flag indicating settings have changed and need to be applied.
+    #[serde(default)]
     pub needs_apply: bool,
     /// Recently tuned frequencies (for quick-access menu).
     #[serde(default)]
@@ -631,5 +652,83 @@ mod tests {
             assert!(!p.name.is_empty());
         }
         assert!(PROVIDER_PRESETS.iter().any(|p| p.name == "Custom"));
+    }
+
+    #[test]
+    fn config_load_or_default_nonexistent_returns_default() {
+        let cfg = AppConfig::load_or_default();
+        assert_eq!(cfg.default_freq_hz, 100_000_000);
+        assert_eq!(cfg.theme, "dark");
+    }
+
+    #[test]
+    fn config_save_and_load_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("ez_sdr_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let mut cfg = AppConfig::default();
+        cfg.default_freq_hz = 433_000_000;
+        cfg.theme = "light".to_string();
+        cfg.ai_model = "custom-model".to_string();
+        cfg.output_directory = "/tmp/recordings".to_string();
+        cfg.observer_lat = 40.7128;
+        cfg.observer_lon = -74.0060;
+        cfg.save();
+
+        let loaded = AppConfig::load_or_default();
+        assert_eq!(loaded.default_freq_hz, 433_000_000);
+        assert_eq!(loaded.theme, "light");
+        assert_eq!(loaded.ai_model, "custom-model");
+        assert_eq!(loaded.output_directory, "/tmp/recordings");
+        assert!((loaded.observer_lat - 40.7128).abs() < f64::EPSILON);
+        assert!((loaded.observer_lon - (-74.0060)).abs() < f64::EPSILON);
+
+        std::env::set_current_dir(original_dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_partial_json_missing_fields_get_defaults() {
+        let json = r#"{"default_freq_hz": 144000000}"#;
+        let cfg: AppConfig = serde_json::from_str(json).expect("partial deserialize");
+        assert_eq!(cfg.default_freq_hz, 144_000_000);
+        // Fields not in JSON get Default::default() for their type
+        assert_eq!(cfg.theme, "");
+        assert_eq!(cfg.default_sample_rate, 0u32);
+        assert!(!cfg.discord.enabled);
+    }
+
+    #[test]
+    fn config_partial_json_theme_and_discord() {
+        let json = r#"{"theme": "light", "discord": {"enabled": true}}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.theme, "light");
+        assert!(cfg.discord.enabled);
+        assert_eq!(cfg.default_freq_hz, 0);
+    }
+
+    #[test]
+    fn config_edge_values_zero_freq() {
+        let json = r#"{"version": "0.1.0", "default_freq_hz": 0}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.default_freq_hz, 0);
+    }
+
+    #[test]
+    fn config_edge_values_max_freq() {
+        let json = format!(r#"{{"version": "0.1.0", "default_freq_hz": {}}}"#, u64::MAX);
+        let cfg: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg.default_freq_hz, u64::MAX);
+    }
+
+    #[test]
+    fn config_edge_values_empty_strings() {
+        let json = r#"{"version": "0.1.0", "theme": "", "output_directory": "", "ai_model": ""}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.theme, "");
+        assert_eq!(cfg.output_directory, "");
+        assert_eq!(cfg.ai_model, "");
     }
 }
