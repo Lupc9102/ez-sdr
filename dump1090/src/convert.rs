@@ -37,8 +37,12 @@ pub fn convert_sc16_to_mag(src: &[u8], dst: &mut [u16]) {
     for i in 0..samples {
         let i_bytes = [src[i * 4], src[i * 4 + 1]];
         let q_bytes = [src[i * 4 + 2], src[i * 4 + 3]];
-        let i_val = f32::from(i16::from_le_bytes(i_bytes).abs());
-        let q_val = f32::from(i16::from_le_bytes(q_bytes).abs());
+        // unsigned_abs() avoids the i16::MIN.abs() panic in debug builds
+        // (real SC16 input can legitimately contain -32768 samples; squaring
+        // erases the sign either way, so abs() was only defensive for the
+        // f32 cast and not even required).
+        let i_val = f32::from(i16::from_le_bytes(i_bytes).unsigned_abs());
+        let q_val = f32::from(i16::from_le_bytes(q_bytes).unsigned_abs());
         let mag = ((i_val * i_val + q_val * q_val).sqrt() * 2.0).min(65535.0);
         dst[i] = mag as u16;
     }
@@ -50,8 +54,8 @@ pub fn convert_sc16q11_to_mag(src: &[u8], dst: &mut [u16]) {
     for i in 0..samples {
         let i_bytes = [src[i * 4], src[i * 4 + 1]];
         let q_bytes = [src[i * 4 + 2], src[i * 4 + 3]];
-        let i_val = f32::from(i16::from_le_bytes(i_bytes).abs());
-        let q_val = f32::from(i16::from_le_bytes(q_bytes).abs());
+        let i_val = f32::from(i16::from_le_bytes(i_bytes).unsigned_abs());
+        let q_val = f32::from(i16::from_le_bytes(q_bytes).unsigned_abs());
         let mag = ((i_val * i_val + q_val * q_val).sqrt() * 32.0).min(65535.0);
         dst[i] = mag as u16;
     }
@@ -267,5 +271,28 @@ mod tests {
         let mut dst = [0u16; 1];
         convert_sc16q11_to_mag(&src, &mut dst);
         assert_eq!(dst[0], 46340);
+    }
+
+    /// Regression: `i16::MIN.abs()` panics in debug (and silently wraps in
+    /// release). Real SC16 input can contain -32768 samples, so the converters
+    /// must handle them. Under the prior `.abs()` code this test panicked in
+    /// `cargo test` (debug).
+    #[test]
+    fn convert_sc16_to_mag_i16_min() {
+        // i = q = i16::MIN (-32768) little-endian = 0x00 0x80
+        let src = [0x00u8, 0x80, 0x00, 0x80];
+        let mut dst = [0u16; 1];
+        convert_sc16_to_mag(&src, &mut dst);
+        // sqrt(32768^2 + 32768^2) * 2 ≈ 92682, clamped to 65535
+        assert_eq!(dst[0], 65535);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_i16_min() {
+        let src = [0x00u8, 0x80, 0x00, 0x80];
+        let mut dst = [0u16; 1];
+        convert_sc16q11_to_mag(&src, &mut dst);
+        // sqrt(32768^2 + 32768^2) * 32 ≈ 1_482_958_576 → clamped to 65535
+        assert_eq!(dst[0], 65535);
     }
 }
