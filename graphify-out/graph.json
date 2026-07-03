@@ -1356,7 +1356,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "dump1090_src_demod_magbufflags",
-      "community": 27,
+      "community": 16,
       "norm_label": "magbufflags"
     },
     {
@@ -1366,7 +1366,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "dump1090_src_demod_magbuf",
-      "community": 27,
+      "community": 16,
       "norm_label": "magbuf"
     },
     {
@@ -1376,7 +1376,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_demod_rs_vec",
-      "community": 27,
+      "community": 16,
       "norm_label": "vec"
     },
     {
@@ -1486,7 +1486,7 @@
       "source_location": "L506",
       "_origin": "ast",
       "id": "dump1090_src_demod_receiveclock_ms_elapsed",
-      "community": 31,
+      "community": 16,
       "norm_label": "receiveclock_ms_elapsed()"
     },
     {
@@ -1556,7 +1556,7 @@
       "source_location": "L558",
       "_origin": "ast",
       "id": "dump1090_src_demod_valid_df_long",
-      "community": 76,
+      "community": 31,
       "norm_label": "valid_df_long()"
     },
     {
@@ -1646,7 +1646,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_demod_rs_fnmut",
-      "community": 31,
+      "community": 16,
       "norm_label": "fnmut"
     },
     {
@@ -1656,7 +1656,7 @@
       "source_location": "L995",
       "_origin": "ast",
       "id": "dump1090_src_demod_demod2400_demodulate_ac",
-      "community": 31,
+      "community": 16,
       "norm_label": ".demodulate_ac()"
     },
     {
@@ -2106,7 +2106,7 @@
       "source_location": "L1627",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_valid_df_long_no_fix",
-      "community": 76,
+      "community": 31,
       "norm_label": "test_valid_df_long_no_fix()"
     },
     {
@@ -2116,7 +2116,7 @@
       "source_location": "L1638",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_valid_df_long_with_df24",
-      "community": 76,
+      "community": 31,
       "norm_label": "test_valid_df_long_with_df24()"
     },
     {
@@ -2126,7 +2126,7 @@
       "source_location": "L1646",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_valid_df_long_with_fix",
-      "community": 76,
+      "community": 31,
       "norm_label": "test_valid_df_long_with_fix()"
     },
     {
@@ -15120,10 +15120,20 @@
       "norm_label": "testing"
     },
     {
-      "label": "Controls",
+      "label": "Development",
       "file_type": "document",
       "source_file": "README.md",
       "source_location": "L78",
+      "_origin": "ast",
+      "id": "readme_development",
+      "community": 43,
+      "norm_label": "development"
+    },
+    {
+      "label": "Controls",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L92",
       "_origin": "ast",
       "id": "readme_controls",
       "community": 43,
@@ -15133,7 +15143,7 @@
       "label": "Project Structure",
       "file_type": "document",
       "source_file": "README.md",
-      "source_location": "L93",
+      "source_location": "L107",
       "_origin": "ast",
       "id": "readme_project_structure",
       "community": 43,
@@ -15143,7 +15153,7 @@
       "label": "Licence",
       "file_type": "document",
       "source_file": "README.md",
-      "source_location": "L130",
+      "source_location": "L144",
       "_origin": "ast",
       "id": "readme_licence",
       "community": 43,
@@ -47697,10 +47707,20 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "README.md",
-      "source_location": "L78",
+      "source_location": "L92",
       "weight": 1.0,
       "source": "readme_ez_sdr_unified",
       "target": "readme_controls",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "README.md",
+      "source_location": "L78",
+      "weight": 1.0,
+      "source": "readme_ez_sdr_unified",
+      "target": "readme_development",
       "confidence_score": 1.0
     },
     {
@@ -47717,7 +47737,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "README.md",
-      "source_location": "L130",
+      "source_location": "L144",
       "weight": 1.0,
       "source": "readme_ez_sdr_unified",
       "target": "readme_licence",
@@ -47727,7 +47747,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "README.md",
-      "source_location": "L93",
+      "source_location": "L107",
       "weight": 1.0,
       "source": "readme_ez_sdr_unified",
       "target": "readme_project_structure",
@@ -48119,5 +48139,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "758ae061ab4d4418c5a71c159f866d1b5e74c06e"
+  "built_at_commit": "3a6002e69e61b3f24a23cb4eb012cac43eb75926"
 }
