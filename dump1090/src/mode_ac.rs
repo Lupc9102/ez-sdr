@@ -39,7 +39,7 @@ pub fn altitude_100ft_to_squawk(mode_c: i32) -> Option<u32> {
         3 => 0b010,
         4 => 0b011,
         5 => 0b001,
-        _ => unreachable!(),
+        _ => return None,
     };
 
     // ── Encode FiveHundreds into D / A / B bits (bijection via Gray code) ──
