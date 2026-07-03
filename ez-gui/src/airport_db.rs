@@ -388,6 +388,7 @@ impl AirportDb {
 
     /// Fetch both `OurAirports` CSVs and cache them in `SQLite`. Returns the number
     /// of airports loaded. `progress(current, total)` reports download bytes.
+    #[must_use = "check if airport database download succeeded"]
     pub fn download_full_blocking(mut progress: impl FnMut(usize, usize)) -> Result<usize, String> {
         let airports_csv = Self::fetch_csv(
             "https://davidmegginson.github.io/ourairports-data/airports.csv",

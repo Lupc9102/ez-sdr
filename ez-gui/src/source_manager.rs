@@ -305,6 +305,7 @@ impl SourceManager {
     /// Try to receive a pending chunk of IQ samples from the source thread.
     ///
     /// Returns `None` if no samples are available (non-blocking).
+    #[must_use]
     pub fn recv_samples(&self) -> Option<Vec<u8>> {
         if let Some(rx) = &self.rx {
             rx.try_recv().ok()

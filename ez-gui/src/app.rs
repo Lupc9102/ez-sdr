@@ -1436,18 +1436,19 @@ impl eframe::App for CentralApp {
                 let embed = crate::discord::embed_strong_signal(freq, snr);
                 self.discord.fire("strong_signal", embed);
             }
-            self.web_remote.broadcast_state(&crate::web_remote::StreamState {
-                freq_hz: freq,
-                gain_db: gain,
-                demod_mode: mode,
-                aircraft_count: ac_count,
-                passes: &passes,
-                squelch,
-                volume,
-                recording,
-                scanner_active,
-                snr_db: snr,
-            });
+            self.web_remote
+                .broadcast_state(&crate::web_remote::StreamState {
+                    freq_hz: freq,
+                    gain_db: gain,
+                    demod_mode: mode,
+                    aircraft_count: ac_count,
+                    passes: &passes,
+                    squelch,
+                    volume,
+                    recording,
+                    scanner_active,
+                    snr_db: snr,
+                });
             self.mqtt.tick_reconnect();
             if self.last_scheduler_update.elapsed().as_secs() < 1 {
                 self.mqtt.tick(freq, gain);

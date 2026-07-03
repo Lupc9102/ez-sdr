@@ -272,6 +272,7 @@ impl BookmarkDb {
 
     /// Load bookmarks from `ez_sdr_bookmarks.json`. Returns `None` if the file
     /// doesn't exist or is malformed.
+    #[must_use]
     pub fn load_saved() -> Option<Vec<Bookmark>> {
         let s = std::fs::read_to_string(BOOKMARKS_FILE).ok()?;
         serde_json::from_str(&s).ok()

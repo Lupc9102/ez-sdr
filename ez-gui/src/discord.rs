@@ -955,6 +955,7 @@ impl DiscordNotifier {
 
     /// Send a test notification to Discord to verify the bot credentials and
     /// channel configuration are working.
+    #[must_use = "send a test Discord notification and check if it succeeded"]
     pub fn send_test(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.is_configured() {
             return Err("Not configured".into());

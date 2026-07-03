@@ -433,6 +433,7 @@ impl CprDecoder {
     /// Submit a new CPR frame for an aircraft.
     ///
     /// Returns a decoded `(lat, lon)` if a matching even/odd pair is available.
+    #[must_use]
     pub fn submit(&mut self, icao: u32, frame: CprFrame) -> Option<(f64, f64)> {
         let entry = self.cache.entry(icao).or_default();
 

@@ -49,6 +49,7 @@ impl Scheduler {
     }
 
     /// Returns the first job whose AOS-LOS window contains `now_unix`, if any.
+    #[must_use]
     pub fn active_job(&self, now_unix: f64) -> Option<&ScheduledJob> {
         if !self.auto_tune_enabled {
             return None;
@@ -59,6 +60,7 @@ impl Scheduler {
     }
 
     /// Check if any custom task should fire now. Returns frequency if fired.
+    #[must_use]
     pub fn poll_custom_tasks(&mut self, now_unix: f64) -> Option<(String, u64)> {
         for task in &mut self.custom_tasks {
             if !task.fired && now_unix >= task.at_unix {
@@ -197,7 +199,7 @@ mod tests {
             at_unix: 1_000.0,
             fired: false,
         });
-        s.poll_custom_tasks(1_500.0);
+        let _ = s.poll_custom_tasks(1_500.0);
         // Should not fire again
         assert!(s.poll_custom_tasks(2_000.0).is_none());
     }

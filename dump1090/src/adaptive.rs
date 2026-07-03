@@ -280,6 +280,7 @@ impl AdaptiveGain {
     /// burst detection.
     ///
     /// Returns `Some(gain_step)` if a gain change is suggested this block.
+    #[must_use]
     pub fn update(&mut self, buf: &[u16], decoded: Option<&DecodedMessage>) -> Option<i32> {
         if !self.burst_enabled && !self.range_enabled {
             return None;

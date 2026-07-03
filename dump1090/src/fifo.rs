@@ -33,6 +33,7 @@ impl Fifo {
     /// Push an item. If the queue is full, blocks up to `timeout_ms`.
     /// `timeout_ms=0` is non-blocking: returns `Some(item)` immediately if full.
     /// Returns `Some(item)` if it could not be pushed (timeout or halted).
+    #[must_use]
     pub fn push(&self, item: Vec<u8>, timeout_ms: u32) -> Option<Vec<u8>> {
         let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         let deadline = if timeout_ms > 0 {

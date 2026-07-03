@@ -21,6 +21,7 @@ mod audio_impl {
             }
         }
 
+        #[must_use = "check if audio output started successfully"]
         pub fn start(&mut self, rx: Arc<Mutex<Receiver<Vec<f32>>>>) -> Result<(), String> {
             if self.running {
                 return Ok(());
