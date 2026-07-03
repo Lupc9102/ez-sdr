@@ -507,6 +507,112 @@ fn rand_f64(seed: f64) -> f64 {
     frac / 4294967296.0
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_manager_default_new() {
+        let sm = SourceManager::new();
+        assert_eq!(sm.status, SourceStatus::Idle);
+        assert_eq!(sm.frequency_hz, 109_000_000);
+        assert_eq!(sm.sample_rate_hz, 2_048_000);
+        assert_eq!(sm.gain_db, 40.0);
+        assert!(!sm.bias_tee);
+        assert_eq!(sm.ppm_correction, 0);
+        assert!(!sm.direct_sampling);
+        assert_eq!(sm.temperature, 0.0);
+        assert_eq!(sm.source_mode, SourceMode::Simulated);
+        assert!(sm.replay_file.is_none());
+        assert!(!sm.replay_loop);
+        assert!((sm.replay_speed - 1.0).abs() < f32::EPSILON);
+        assert_eq!(sm.replay_position, 0);
+        assert_eq!(sm.replay_size, 0);
+        assert!(sm.tx.is_some());
+        assert!(sm.rx.is_some());
+        assert!(!sm.running.load(Ordering::SeqCst));
+        assert!(sm.worker_handle.is_none());
+    }
+
+    #[test]
+    fn source_mode_default_is_simulated() {
+        assert_eq!(SourceMode::default(), SourceMode::Simulated);
+    }
+
+    #[test]
+    fn source_mode_debug_clone_partial_eq() {
+        let a = SourceMode::Simulated;
+        let b = SourceMode::Replay;
+        assert_eq!(a, a);
+        assert_ne!(a, b);
+        assert_eq!(format!("{a:?}"), "Simulated");
+        assert_eq!(a.clone(), a);
+    }
+
+    #[test]
+    fn source_status_debug_clone_partial_eq() {
+        let idle = SourceStatus::Idle;
+        let running = SourceStatus::Running;
+        let err1 = SourceStatus::Error("oops".into());
+        let err2 = SourceStatus::Error("oops".into());
+        assert_eq!(idle, idle);
+        assert_ne!(idle, running);
+        assert_eq!(err1, err2);
+        assert_ne!(err1, idle);
+        assert_eq!(idle.clone(), idle);
+        assert_eq!(format!("{running:?}"), "Running");
+        assert_eq!(format!("{err1:?}"), r#"Error("oops")"#);
+    }
+
+    #[test]
+    fn stop_on_idle_does_not_panic() {
+        let mut sm = SourceManager::new();
+        sm.stop();
+        assert_eq!(sm.status, SourceStatus::Idle);
+    }
+
+    #[test]
+    fn recv_samples_returns_none_when_idle() {
+        let sm = SourceManager::new();
+        assert!(sm.recv_samples().is_none());
+    }
+
+    #[test]
+    fn start_stop_lifecycle() {
+        let mut sm = SourceManager::new();
+        sm.start();
+        assert_eq!(sm.status, SourceStatus::Running);
+        assert!(sm.worker_handle.is_some());
+        sm.stop();
+        assert_eq!(sm.status, SourceStatus::Idle);
+    }
+
+    #[test]
+    fn start_idempotent() {
+        let mut sm = SourceManager::new();
+        sm.start();
+        sm.start(); // second start should be a no-op
+        assert_eq!(sm.status, SourceStatus::Running);
+        sm.stop();
+    }
+
+    #[cfg(not(feature = "rtlsdr"))]
+    #[test]
+    fn rand_f64_deterministic() {
+        let a = rand_f64(0.0);
+        let b = rand_f64(0.0);
+        assert!((a - b).abs() < f64::EPSILON);
+        // Range check
+        assert!((0.0..1.0).contains(&a));
+        // Different seeds yield different values
+        let c = rand_f64(1.0);
+        assert!((c - a).abs() > 1e-10, "expected different seeds to diverge");
+        // Known value from LCG formula
+        let known = 1013904223.0 / 4294967296.0;
+        assert!((a - known).abs() < 1e-10);
+    }
+}
+
 // SAFETY: This function calls raw FFI (`rtlsdr_open`, etc.) and must only be
 // called when `feature = "rtlsdr"` is active and a real RTL-SDR device is
 // available. The caller must ensure the returned pointer is eventually closed

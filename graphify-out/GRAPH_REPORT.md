@@ -1,16 +1,16 @@
 # Graph Report - ez-sdr  (2026-07-03)
 
 ## Corpus Check
-- 58 files · ~132,626 words
+- 58 files · ~132,923 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1572 nodes · 3040 edges · 85 communities (56 shown, 29 thin omitted)
+- 1581 nodes · 3060 edges · 85 communities (56 shown, 29 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 12 edges (avg confidence: 0.84)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a84559d4`
+- Built from commit: `f93466e8`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -39,6 +39,7 @@
 - [[_COMMUNITY_Community 21|Community 21]]
 - [[_COMMUNITY_Community 22|Community 22]]
 - [[_COMMUNITY_Community 23|Community 23]]
+- [[_COMMUNITY_Community 24|Community 24]]
 - [[_COMMUNITY_Community 25|Community 25]]
 - [[_COMMUNITY_Web Remote|Web Remote]]
 - [[_COMMUNITY_Community 27|Community 27]]
@@ -97,7 +98,6 @@
 - [[_COMMUNITY_Community 82|Community 82]]
 - [[_COMMUNITY_Community 83|Community 83]]
 - [[_COMMUNITY_Community 84|Community 84]]
-- [[_COMMUNITY_Community 85|Community 85]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `CentralApp` - 46 edges
@@ -125,16 +125,16 @@
 
 ## Import Cycles
 - 1-file cycle: `ez-gui/src/audio_output.rs -> ez-gui/src/audio_output.rs`
+- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs`
+- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/recorder_panel.rs -> ez-gui/src/app.rs`
+- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/satellite_panel.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/ai_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/ai_panel.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/app.rs`
-- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_panel.rs`
-- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/recorder_panel.rs -> ez-gui/src/app.rs`
-- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs`
-- 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
-- 3-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
 - 3-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/mqtt.rs -> ez-gui/src/adsb_panel.rs`
+- 3-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
+- 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 
 ## Hyperedges (group relationships)
 - **Spectrum Visualization Ecosystem** — readme_spectrum_analyser, readme_waterfall, readme_band_plan_overlay, anchored_summary_vfo_b_marker, anchored_summary_waterfall_colormap [EXTRACTED 0.95]
@@ -181,19 +181,19 @@ Nodes (21): broadcast_state_with_listener_no_crash(), new_creates_disabled_insta
 
 ### Community 9 - "Frequency Scanner"
 Cohesion: 0.12
-Nodes (25): embed_recording_stopped(), embed_recording_stopped_builds_correctly(), embed_sat_aos(), embed_sat_aos_builds_correctly(), embed_sat_upcoming(), embed_sat_upcoming_builds_correctly(), embed_scanner_hit(), embed_scanner_hit_builds_correctly() (+17 more)
+Nodes (25): embed_recording_error(), embed_recording_error_builds_correctly(), embed_sat_aos(), embed_sat_aos_builds_correctly(), embed_sat_los(), embed_sat_los_builds_correctly(), embed_scanner_hit(), embed_scanner_hit_builds_correctly() (+17 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.08
-Nodes (35): active_job_finds_job_in_window(), active_job_prefers_first_match(), active_job_returns_none_outside_window(), active_job_returns_none_when_disabled(), CustomTask, make_scheduler(), new_scheduler_starts_empty(), poll_custom_tasks_marks_as_fired() (+27 more)
+Cohesion: 0.07
+Nodes (30): mqtt_is_connected_requires_enabled_and_client(), mqtt_new_defaults_disabled(), mqtt_new_no_reconnect(), mqtt_new_not_connected(), mqtt_publish_without_client_no_crash(), mqtt_set_enabled_disabled_noop(), MqttPublisher, Arc (+22 more)
 
 ### Community 11 - "AI Integration"
 Cohesion: 0.06
 Nodes (36): HackRf, HackRfConfig, HackRfCtx, HackrfDevice, HackrfTransfer, c_int, c_void, Default (+28 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.13
-Nodes (18): rand_f64(), Arc, AtomicBool, c_void, Option, Receiver, Self, Sender (+10 more)
+Cohesion: 0.11
+Nodes (24): rand_f64(), rand_f64_deterministic(), recv_samples_returns_none_when_idle(), Arc, AtomicBool, c_void, Option, Receiver (+16 more)
 
 ### Community 13 - "Configuration"
 Cohesion: 0.09
@@ -238,6 +238,10 @@ Nodes (12): Bookmark, BookmarkDb, default_bookmarks_have_categories(), default_h
 ### Community 23 - "Community 23"
 Cohesion: 0.22
 Nodes (12): add_duplicate(), capacity_many_addresses(), clear_removes_all(), contains_after_add(), contains_multiple_addresses(), edge_case_max_icao(), hash_is_deterministic(), IcaoFilter (+4 more)
+
+### Community 24 - "Community 24"
+Cohesion: 0.18
+Nodes (18): active_job_finds_job_in_window(), active_job_prefers_first_match(), active_job_returns_none_outside_window(), active_job_returns_none_when_disabled(), CustomTask, make_scheduler(), new_scheduler_starts_empty(), poll_custom_tasks_marks_as_fired() (+10 more)
 
 ### Community 26 - "Web Remote"
 Cohesion: 0.12
@@ -333,7 +337,7 @@ Nodes (26): convert_sc16_to_mag(), convert_sc16_to_mag_all_zero(), convert_sc16_
 
 ### Community 79 - "Community 79"
 Cohesion: 0.21
-Nodes (13): AircraftData, DiscordEmbed, embed_aircraft(), embed_aircraft_fields_and_image(), embed_recording_error(), embed_recording_error_builds_correctly(), embed_recording_started(), embed_recording_started_all_combos() (+5 more)
+Nodes (13): AircraftData, DiscordEmbed, embed_aircraft(), embed_aircraft_fields_and_image(), embed_recording_started(), embed_recording_started_all_combos(), embed_recording_stopped(), embed_recording_stopped_builds_correctly() (+5 more)
 
 ### Community 80 - "Community 80"
 Cohesion: 0.23
@@ -355,10 +359,6 @@ Nodes (6): DiscordPanel, Arc, Mutex, Self, String, Ui
 Cohesion: 0.22
 Nodes (8): color_map(), color_map_all_variants_return_valid_rgb(), color_map_classic_boundaries(), ColorMap, lerp_color(), lerp_color_at_half_returns_midpoint(), sample_palette(), sample_palette_at_half()
 
-### Community 85 - "Community 85"
-Cohesion: 0.15
-Nodes (13): mqtt_is_connected_requires_enabled_and_client(), mqtt_new_defaults_disabled(), mqtt_new_no_reconnect(), mqtt_new_not_connected(), mqtt_publish_without_client_no_crash(), mqtt_set_enabled_disabled_noop(), MqttPublisher, Arc (+5 more)
-
 ## Knowledge Gaps
 - **115 isolated node(s):** `SoapySDRRange`, `ProviderPreset`, `Goal`, `Constraints & Preferences`, `Done` (+110 more)
   These have ≤1 connection - possible missing edges or undocumented components.
@@ -367,12 +367,12 @@ Nodes (13): mqtt_is_connected_requires_enabled_and_client(), mqtt_new_defaults_d
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `CentralApp` connect `UI Application Core` to `ADS-B Decoder`, `Tutorial & Help`, `Demodulation`, `AI & Chat`, `SDR Hardware Interface`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 47`, `Community 48`, `Community 83`, `AI & Tools`, `Community 85`?**
-  _High betweenness centrality (0.126) - this node is a cross-community bridge._
+- **Why does `CentralApp` connect `UI Application Core` to `ADS-B Decoder`, `Tutorial & Help`, `Demodulation`, `AI & Chat`, `SDR Hardware Interface`, `Community 10`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 47`, `Community 48`, `Community 83`, `AI & Tools`?**
+  _High betweenness centrality (0.139) - this node is a cross-community bridge._
 - **Why does `AdsBDecoder` connect `ADS-B Decoder` to `UI Application Core`, `Community 27`, `Community 31`?**
   _High betweenness centrality (0.126) - this node is a cross-community bridge._
-- **Why does `SharedState` connect `UI Application Core` to `Spectrum Visualization`, `ADS-B Decoder`, `Configuration & UI`, `Demodulation`, `AI & Chat`, `Community 10`, `Community 12`, `Community 45`, `Community 47`, `Community 48`, `Community 83`, `Community 22`?**
-  _High betweenness centrality (0.115) - this node is a cross-community bridge._
+- **Why does `SharedState` connect `UI Application Core` to `Spectrum Visualization`, `ADS-B Decoder`, `Configuration & UI`, `Demodulation`, `AI & Chat`, `Community 10`, `Community 12`, `Community 45`, `Community 47`, `Community 48`, `Community 83`, `Community 22`, `Community 24`?**
+  _High betweenness centrality (0.116) - this node is a cross-community bridge._
 - **What connects `SoapySDRRange`, `ProviderPreset`, `Goal` to the rest of the system?**
   _125 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `UI Application Core` be split into smaller, more focused modules?**

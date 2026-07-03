@@ -180,8 +180,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/source_manager.rs": {
-    "mtime": 1783094836.0205657,
-    "ast_hash": "7e0f7ab702eb31b00c0099554f54688a",
+    "mtime": 1783094990.5137084,
+    "ast_hash": "1c94f2a9199c59c7be0b92fe48b1c409",
     "semantic_hash": ""
   },
   "ez-gui/src/spectrum.rs": {
@@ -315,8 +315,8 @@
     "semantic_hash": ""
   },
   "as.md": {
-    "mtime": 1783093957.1789362,
-    "ast_hash": "a3eac2ffda47ca58960408590456ff61",
+    "mtime": 1783094994.089803,
+    "ast_hash": "3e513d765b267030f55d9c12f173e6df",
     "semantic_hash": ""
   },
   ".github/dependabot.yml": {
