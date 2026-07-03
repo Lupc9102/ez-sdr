@@ -3,6 +3,11 @@ name = "dump1090"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.92"
+description = "Software-defined radio ADS-B and general SDR receiver with egui GUI"
+license = "MIT OR Apache-2.0"
+authors = ["Lupc9102"]
+repository = "https://github.com/Lupc9102/ez-sdr"
+readme = "README.md"
 
 [lib]
 name = "dump1090"
