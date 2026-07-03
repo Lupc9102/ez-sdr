@@ -638,23 +638,31 @@ unsafe fn rtl_sdr_open(
     if unsafe { rtlsdr_open(&mut dev, 0) } != 0 {
         return std::ptr::null_mut();
     }
-    unsafe {
-        rtlsdr_set_center_freq(dev, freq as u32);
+    let cleanup_and_fail = |dev: *mut std::ffi::c_void, what: &str| -> *mut std::ffi::c_void {
+        eprintln!("rtlsdr: warning: failed to set {what}; closing device");
+        unsafe {
+            rtlsdr_close(dev);
+        }
+        std::ptr::null_mut()
+    };
+    if unsafe { rtlsdr_set_center_freq(dev, freq as u32) } < 0 {
+        return cleanup_and_fail(dev, "center frequency");
     }
-    unsafe {
-        rtlsdr_set_sample_rate(dev, rate);
+    if unsafe { rtlsdr_set_sample_rate(dev, rate) } < 0 {
+        return cleanup_and_fail(dev, "sample rate");
     }
-    unsafe {
-        rtlsdr_set_tuner_gain_mode(dev, 1);
+    if unsafe { rtlsdr_set_tuner_gain_mode(dev, 1) } < 0 {
+        return cleanup_and_fail(dev, "tuner gain mode");
     }
-    unsafe {
-        rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32);
+    if unsafe { rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32) } < 0 {
+        return cleanup_and_fail(dev, "tuner gain");
     }
-    unsafe {
-        rtlsdr_set_freq_correction(dev, ppm);
+    if unsafe { rtlsdr_set_freq_correction(dev, ppm) } < 0 {
+        eprintln!("rtlsdr: warning: failed to set frequency correction");
     }
-    unsafe {
-        rtlsdr_set_bias_tee(dev, if bias { 1 } else { 0 });
+    let bias_on = if bias { 1 } else { 0 };
+    if unsafe { rtlsdr_set_bias_tee(dev, bias_on) } < 0 {
+        eprintln!("rtlsdr: warning: failed to set bias tee");
     }
     dev
 }
