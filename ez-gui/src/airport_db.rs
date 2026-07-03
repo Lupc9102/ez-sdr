@@ -572,12 +572,36 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "US",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "LAX ATIS", frequency_mhz: 134.45 },
-            FallbackFreq { freq_type: "CLD", description: "Clearance", frequency_mhz: 127.65 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.65 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 120.95 },
-            FallbackFreq { freq_type: "APP", description: "SoCal Approach", frequency_mhz: 124.5 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 124.3 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "LAX ATIS",
+                frequency_mhz: 134.45,
+            },
+            FallbackFreq {
+                freq_type: "CLD",
+                description: "Clearance",
+                frequency_mhz: 127.65,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.65,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 120.95,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "SoCal Approach",
+                frequency_mhz: 124.5,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 124.3,
+            },
         ],
     },
     AirportEntry {
@@ -590,12 +614,36 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "US",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "JFK ATIS", frequency_mhz: 135.9 },
-            FallbackFreq { freq_type: "CLD", description: "Clearance", frequency_mhz: 127.4 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 127.4 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 125.7 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.85 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "JFK ATIS",
+                frequency_mhz: 135.9,
+            },
+            FallbackFreq {
+                freq_type: "CLD",
+                description: "Clearance",
+                frequency_mhz: 127.4,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 127.4,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 125.7,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.85,
+            },
         ],
     },
     AirportEntry {
@@ -608,11 +656,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "GB",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "Heathrow ATIS", frequency_mhz: 113.75 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.5 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.72 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 135.8 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "Heathrow ATIS",
+                frequency_mhz: 113.75,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.5,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.72,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 135.8,
+            },
         ],
     },
     AirportEntry {
@@ -625,11 +693,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "FR",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "CDG ATIS", frequency_mhz: 127.22 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 120.4 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.65 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "CDG ATIS",
+                frequency_mhz: 127.22,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 120.4,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.65,
+            },
         ],
     },
     AirportEntry {
@@ -642,11 +730,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "DE",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "FRA ATIS", frequency_mhz: 136.25 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.65 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.2 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 120.75 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "FRA ATIS",
+                frequency_mhz: 136.25,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.65,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.2,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 120.75,
+            },
         ],
     },
     AirportEntry {
@@ -659,11 +767,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "NL",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "Schiphol ATIS", frequency_mhz: 136.55 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.4 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.05 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.55 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "Schiphol ATIS",
+                frequency_mhz: 136.55,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.4,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.05,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.55,
+            },
         ],
     },
     AirportEntry {
@@ -676,11 +804,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "ES",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.45 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.65 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.3 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.4 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.65 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.45,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.65,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.3,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.4,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.65,
+            },
         ],
     },
     AirportEntry {
@@ -693,11 +841,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "IT",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.7 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.7 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 120.9 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.7,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.7,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 120.9,
+            },
         ],
     },
     AirportEntry {
@@ -710,11 +878,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "CH",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 128.025 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.05 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.0 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 128.05 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 128.025,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.05,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.0,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 128.05,
+            },
         ],
     },
     AirportEntry {
@@ -727,11 +915,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "DE",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 136.45 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.8 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.6 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.2 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 120.75 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 136.45,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.8,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.6,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.2,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 120.75,
+            },
         ],
     },
     AirportEntry {
@@ -744,11 +952,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "DK",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 126.3 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.3 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.6 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 120.45 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 126.3,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.3,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.6,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 120.45,
+            },
         ],
     },
     AirportEntry {
@@ -761,11 +989,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "SE",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.025 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.3 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.1 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 120.15 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.025,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.3,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.1,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 120.15,
+            },
         ],
     },
     AirportEntry {
@@ -778,11 +1026,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "NO",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.075 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.7 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.4 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 120.2 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.075,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.7,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.4,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 120.2,
+            },
         ],
     },
     AirportEntry {
@@ -795,11 +1063,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "FI",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 128.65 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.7 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.55 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 120.6 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 128.65,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.7,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.55,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 120.6,
+            },
         ],
     },
     AirportEntry {
@@ -812,11 +1100,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "AT",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 136.975 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.2 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.05 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 136.975,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.2,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.05,
+            },
         ],
     },
     AirportEntry {
@@ -829,11 +1137,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "BE",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 126.825 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.7 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.2 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.6 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 126.825,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.7,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.2,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.6,
+            },
         ],
     },
     AirportEntry {
@@ -846,11 +1174,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "JP",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 126.65 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 120.8 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 126.0 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 126.65,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 120.8,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 126.0,
+            },
         ],
     },
     AirportEntry {
@@ -863,11 +1211,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "KR",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 128.65 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.25 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.55 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 128.65,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.25,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.55,
+            },
         ],
     },
     AirportEntry {
@@ -880,11 +1248,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "CN",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.6 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.85 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.0 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.85 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.6,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.85,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.0,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.85,
+            },
         ],
     },
     AirportEntry {
@@ -897,11 +1285,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "HK",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 128.2 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.6 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.4 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.1 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 123.9 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 128.2,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.6,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.4,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.1,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 123.9,
+            },
         ],
     },
     AirportEntry {
@@ -914,11 +1322,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "SG",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 128.6 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.6 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 126.55 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 123.6 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 128.6,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.6,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 126.55,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 123.6,
+            },
         ],
     },
     AirportEntry {
@@ -931,11 +1359,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "AE",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.4 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.4 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.4 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.55 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.4,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.4,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.4,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.55,
+            },
         ],
     },
     AirportEntry {
@@ -948,11 +1396,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "TR",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.5 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.6 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.3 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.7 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.5,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.6,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.3,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.7,
+            },
         ],
     },
     AirportEntry {
@@ -965,11 +1433,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "AU",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.0 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.7 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 120.5 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 124.7 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 123.0 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.0,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.7,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 120.5,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 124.7,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 123.0,
+            },
         ],
     },
     AirportEntry {
@@ -982,11 +1470,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "BR",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.65 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.0 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.2 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.3 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.65,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.0,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.2,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.3,
+            },
         ],
     },
     AirportEntry {
@@ -999,11 +1507,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "AR",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.0 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.1 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.5 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.0,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.1,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.5,
+            },
         ],
     },
     AirportEntry {
@@ -1016,11 +1544,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "ZA",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.0 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.1 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.2 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.6 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.0,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.1,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.2,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.6,
+            },
         ],
     },
     AirportEntry {
@@ -1033,11 +1581,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "IN",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 126.6 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.5 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.1 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.55 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 126.6,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.5,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.1,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.55,
+            },
         ],
     },
     AirportEntry {
@@ -1050,11 +1618,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "IN",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 126.6 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.5 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.1 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.55 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 126.6,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.5,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.1,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.55,
+            },
         ],
     },
     AirportEntry {
@@ -1067,11 +1655,31 @@ static FALLBACK_AIRPORTS: &[AirportEntry] = &[
         country: "MX",
         atype: "large_airport",
         freqs: &[
-            FallbackFreq { freq_type: "ATIS", description: "ATIS", frequency_mhz: 127.2 },
-            FallbackFreq { freq_type: "GND", description: "Ground", frequency_mhz: 121.9 },
-            FallbackFreq { freq_type: "TWR", description: "Tower", frequency_mhz: 118.9 },
-            FallbackFreq { freq_type: "APP", description: "Approach", frequency_mhz: 119.2 },
-            FallbackFreq { freq_type: "DEP", description: "Departure", frequency_mhz: 125.5 },
+            FallbackFreq {
+                freq_type: "ATIS",
+                description: "ATIS",
+                frequency_mhz: 127.2,
+            },
+            FallbackFreq {
+                freq_type: "GND",
+                description: "Ground",
+                frequency_mhz: 121.9,
+            },
+            FallbackFreq {
+                freq_type: "TWR",
+                description: "Tower",
+                frequency_mhz: 118.9,
+            },
+            FallbackFreq {
+                freq_type: "APP",
+                description: "Approach",
+                frequency_mhz: 119.2,
+            },
+            FallbackFreq {
+                freq_type: "DEP",
+                description: "Departure",
+                frequency_mhz: 125.5,
+            },
         ],
     },
 ];

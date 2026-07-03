@@ -972,14 +972,20 @@ mod tests {
     #[test]
     fn apply_filename_template_basic() {
         let panel = RecorderPanel::new(make_shared_state());
-        let result = panel.apply_filename_template("{date}_{freq}MHz", "20240101_120000", 145.5, "NFM");
+        let result =
+            panel.apply_filename_template("{date}_{freq}MHz", "20240101_120000", 145.5, "NFM");
         assert_eq!(result, "20240101_120000_145.500MHz");
     }
 
     #[test]
     fn apply_filename_template_all_tokens() {
         let panel = RecorderPanel::new(make_shared_state());
-        let result = panel.apply_filename_template("{date}_{freq}_{freq1}_{freq0}_{mode}", "20240101", 145.525, "NFM");
+        let result = panel.apply_filename_template(
+            "{date}_{freq}_{freq1}_{freq0}_{mode}",
+            "20240101",
+            145.525,
+            "NFM",
+        );
         assert_eq!(result, "20240101_145.525_145.5_146_NFM");
     }
 

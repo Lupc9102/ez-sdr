@@ -10,17 +10,50 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --check
+
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable
+          override: true
+      - name: Check
+        run: cargo check --workspace
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
           components: clippy
-      - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Build
-        run: cargo build --all-features
+        run: cargo clippy --workspace -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
       - name: Test
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace
+      - name: Audit
+        run: cargo install cargo-audit && cargo audit

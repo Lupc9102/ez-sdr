@@ -279,7 +279,9 @@ mod tests {
 
     #[test]
     fn remote_command_tune_variant() {
-        match (RemoteCommand::Tune { freq_hz: 1090000000 }) {
+        match (RemoteCommand::Tune {
+            freq_hz: 1090000000,
+        }) {
             RemoteCommand::Tune { freq_hz } => assert_eq!(freq_hz, 1090000000),
             _ => panic!("expected Tune variant"),
         }
@@ -319,8 +321,14 @@ mod tests {
 
     #[test]
     fn remote_command_unit_variants() {
-        assert!(matches!(RemoteCommand::StartRecord, RemoteCommand::StartRecord));
-        assert!(matches!(RemoteCommand::StopRecord, RemoteCommand::StopRecord));
+        assert!(matches!(
+            RemoteCommand::StartRecord,
+            RemoteCommand::StartRecord
+        ));
+        assert!(matches!(
+            RemoteCommand::StopRecord,
+            RemoteCommand::StopRecord
+        ));
         assert!(matches!(RemoteCommand::StartScan, RemoteCommand::StartScan));
         assert!(matches!(RemoteCommand::StopScan, RemoteCommand::StopScan));
     }
@@ -331,7 +339,18 @@ mod tests {
         let (tx, rx) = broadcast::channel(128);
         let _rx = rx; // keep rx alive so sender has receivers
         wr.tx = Some(tx);
-        wr.broadcast_state(1090000000, 40.0, "RAW", 5, &[], 0.0, 0.8, false, false, 12.0);
+        wr.broadcast_state(
+            1090000000,
+            40.0,
+            "RAW",
+            5,
+            &[],
+            0.0,
+            0.8,
+            false,
+            false,
+            12.0,
+        );
         drop(_rx);
     }
 

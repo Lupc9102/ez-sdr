@@ -22,10 +22,10 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 
 - [x] `dump1090/src/sdr/soapy.rs` — SoapySDR device interface. Added constructor/factory tests (`SoapyConfig::default()`, `SoapySdr::new()`, Drop with null pointers, Send impl). Feature-gated behind `#[cfg(feature = "soapy")]`.
 - [x] `dump1090/src/sdr/rtlsdr.rs` — RTL-SDR device interface. Added constructor/factory tests (`RtlSdr::new()` with/without device name, Drop with null device, Send impl, gains is empty). Feature-gated behind `#[cfg(feature = "rtlsdr")]`.
-- [ ] `ez-gui/src/adaptive.rs` — Only `count_loud_samples` is tested (5 tests). The main `AdaptiveThreshold` struct with its gain adjustment logic (300+ lines) is untested.
-- [ ] `ez-gui/src/recorder_panel.rs` — `free_disk_space_with_timeout()` (line 759) is untested.
-- [ ] `ez-gui/src/web_remote.rs` — `RemoteCommand` enum and `WebRemote` struct untested. Network-heavy but constructor/serialization could be tested.
-- [ ] `ez-gui/src/sdr_panel.rs` — Large UI module. `DemodMode` enum (from_label, etc.) could be tested in isolation.
+- [x] `ez-gui/src/adaptive.rs` — 17 new tests for AdaptiveThreshold (commit b0d3189).
+- [x] `ez-gui/src/recorder_panel.rs` — 7 new tests including free_disk_space (commit b0d3189).
+- [x] `ez-gui/src/web_remote.rs` — 8 new tests for RemoteCommand, set_enabled, etc. (commit b0d3189).
+- [x] `ez-gui/src/sdr_panel.rs` — 12 new tests for DemodMode, identify_frequency, etc. (commit b0d3189).
 - [ ] Large UI modules without unit tests: `app.rs` (3020), `ai_panel.rs` (1412), `adsb_panel.rs` (1640), `satellite_panel.rs`, `discord_panel.rs`, `howto_panel.rs` — these are egui-heavy, hard to unit-test without integration framework.
 
 ## Technical Debt / Cleanup
@@ -39,10 +39,10 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 ## Documentation
 
 - [x] Public API docs — all public items in `discord.rs`, `source_manager.rs`, `spectrum.rs`, `sdr_panel.rs` already have complete `///` doc comments. Verified no missing public item docs in these files.
-- [ ] README.md — build instructions are good. Could add test commands and CI badge once CI runs.
+- [x] README.md — build instructions are good. Test commands and CI badge added.
 
 ## CI / Infrastructure
 
-- [ ] GitHub Actions badge — add `[![CI](https://github.com/…)](…)` to README.md once CI is running on a public repo.
-- [ ] `cargo audit` — security vulnerability scanning. Add as a CI job or document as a manual step.
-- [ ] Release profile — add LTO/strip to `Cargo.toml` for smaller release binaries.
+- [x] GitHub Actions badge — `[![CI](https://github.com/Lupc9102/ez-sdr/actions/workflows/ci.yml/badge.svg)](…)` added to README.md.
+- [x] `cargo audit` — security vulnerability scanning. Added as a CI job.
+- [x] Release profile — LTO/strip already configured in workspace `Cargo.toml`.

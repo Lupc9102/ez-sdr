@@ -2853,8 +2853,10 @@ mod tests {
         // 162.55 MHz lands in the Marine VHF range (156–174) in the lookup order;
         // accept either Marine or NOAA WX.
         let band = info.unwrap().band;
-        assert!(band == "NOAA WX Radio" || band == "Marine VHF",
-            "expected NOAA WX Radio or Marine VHF, got {band}");
+        assert!(
+            band == "NOAA WX Radio" || band == "Marine VHF",
+            "expected NOAA WX Radio or Marine VHF, got {band}"
+        );
     }
 
     #[test]
@@ -2866,7 +2868,10 @@ mod tests {
     #[test]
     fn identify_frequency_aviation_info() {
         let info = identify_frequency(120000000).unwrap();
-        assert_eq!(info.what_to_hear, "air traffic control voice (pilots + towers)");
+        assert_eq!(
+            info.what_to_hear,
+            "air traffic control voice (pilots + towers)"
+        );
     }
 
     #[test]

@@ -71,8 +71,7 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-targets
 ```
 
-<!-- CI badge: uncomment once CI is running on a public repo -->
-<!-- [![CI](https://github.com/USER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/USER/REPO/actions/workflows/ci.yml) -->
+[![CI](https://github.com/Lupc9102/ez-sdr/actions/workflows/ci.yml/badge.svg)](https://github.com/Lupc9102/ez-sdr/actions/workflows/ci.yml)
 
 > **Security auditing:** Run `cargo audit` periodically to check for vulnerable dependencies (`cargo install cargo-audit` first).
 

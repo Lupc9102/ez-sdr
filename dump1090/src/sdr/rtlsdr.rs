@@ -428,15 +428,7 @@ mod tests {
 
     #[test]
     fn rtlsdr_new_creates_with_null_device() {
-        let sdr = RtlSdr::new(
-            Some("0".into()),
-            109_000_000,
-            2_048_000,
-            40.0,
-            0,
-            0,
-            false,
-        );
+        let sdr = RtlSdr::new(Some("0".into()), 109_000_000, 2_048_000, 40.0, 0, 0, false);
         assert!(sdr.dev.is_null());
         assert_eq!(sdr.freq, 109_000_000);
         assert_eq!(sdr.sample_rate, 2_048_000);
