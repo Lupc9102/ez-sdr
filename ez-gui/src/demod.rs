@@ -16,6 +16,9 @@ pub struct Demodulator {
     // AGC state
     agc_gain: f32,
     pub agc_enabled: bool,
+    // Persistent DSP state across demod chunks (avoids per-call transients).
+    wfm_deemph_state: f32,
+    ssb_osc_phase: f32,
 }
 
 impl Demodulator {
@@ -35,6 +38,8 @@ impl Demodulator {
             input_rate: 2_048_000,
             agc_gain: 1.0,
             agc_enabled: true,
+            wfm_deemph_state: 0.0,
+            ssb_osc_phase: 0.0,
         }
     }
 
@@ -197,7 +202,6 @@ impl Demodulator {
         let dt = 1.0 / self.audio_sample_rate as f32;
         let alpha = dt / (tau + dt); // ≈ 0.294 at 48 kHz
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
-        let mut deemph_state = 0.0f32;
 
         for chunk in iq.chunks(2) {
             if chunk.len() < 2 {
@@ -217,13 +221,15 @@ impl Demodulator {
 
             self.prev_phase = phase;
 
-            // 1st-order IIR low-pass de-emphasis: y[n] = y[n-1] + α*(x[n] - y[n-1])
-            deemph_state += alpha * (diff - deemph_state);
+            // 1st-order IIR low-pass de-emphasis: y[n] = y[n-1] + α*(x[n] - y[n-1]).
+            // State persists across chunks (field) to avoid a settling transient
+            // at every source-buffer boundary.
+            self.wfm_deemph_state += alpha * (diff - self.wfm_deemph_state);
 
             self.decim_counter += 1;
             if self.decim_counter >= self.decimation {
                 self.decim_counter = 0;
-                out.push(deemph_state * 0.8);
+                out.push(self.wfm_deemph_state * 0.8);
             }
         }
         out
@@ -236,14 +242,21 @@ impl Demodulator {
         let shift_rad = 2.0 * std::f32::consts::PI * shift_hz / self.audio_sample_rate as f32;
         let sign = if usb { 1.0 } else { -1.0 };
 
-        for (n, chunk) in iq.chunks(2).enumerate() {
+        for chunk in iq.chunks(2) {
             if chunk.len() < 2 {
                 break;
             }
             let i = (f32::from(chunk[0]) - 127.4) / 128.0;
             let q = (f32::from(chunk[1]) - 127.4) / 128.0;
 
-            let angle = sign * shift_rad * n as f32;
+            // Weaver oscillator phase persists across chunks; advancing it per
+            // sample (modulo 2π) avoids a phase reset at every source-buffer
+            // boundary which would inject a click into LSB/USB audio.
+            let angle = sign * self.ssb_osc_phase;
+            self.ssb_osc_phase += shift_rad;
+            if self.ssb_osc_phase >= 2.0 * std::f32::consts::PI {
+                self.ssb_osc_phase -= 2.0 * std::f32::consts::PI;
+            }
             let i_shift = i * angle.cos() - q * angle.sin();
             let q_shift = i * angle.sin() + q * angle.cos();
 
@@ -267,6 +280,9 @@ impl Demodulator {
         self.prev_q = 0.0;
         self.prev_phase = 0.0;
         self.decim_counter = 0;
+        self.lpf_state_l = 0.0;
+        self.wfm_deemph_state = 0.0;
+        self.ssb_osc_phase = 0.0;
     }
 }
 
