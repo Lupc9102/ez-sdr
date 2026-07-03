@@ -57,6 +57,18 @@ impl Tracker {
     pub fn is_empty(&self) -> bool {
         self.aircraft.is_empty()
     }
+
+    /// Remove aircraft whose `last_seen_ms` is older than `cutoff_ms`.
+    ///
+    /// Without this the `aircraft` HashMap grows unbounded over multi-hour
+    /// ADS-B sessions as aircraft leave range and are never seen again (the
+    /// original `track.c` pruned at a 60 s idle threshold via `expireAircraft`).
+    /// Returns the number of entries removed.
+    pub fn prune_older_than(&mut self, cutoff_ms: u64) -> usize {
+        let before = self.aircraft.len();
+        self.aircraft.retain(|_, a| a.last_seen_ms >= cutoff_ms);
+        before - self.aircraft.len()
+    }
 }
 
 #[cfg(test)]
@@ -123,5 +135,24 @@ mod tests {
     #[test]
     fn default_equals_new() {
         assert_eq!(Tracker::default().len(), Tracker::new().len());
+    }
+
+    #[test]
+    fn prune_older_than_removes_idle_entries() {
+        let mut t = Tracker::new();
+        // Three aircraft, last seen at varying times.
+        t.update_from_message(&make_msg(0xAAAAAA, 10_000));
+        t.update_from_message(&make_msg(0xBBBBBB, 50_000));
+        t.update_from_message(&make_msg(0xCCCCCC, 90_000));
+        // Cutoff at 40s: only the 50s and 90s entries survive.
+        let pruned = t.prune_older_than(40_000);
+        assert_eq!(pruned, 1);
+        assert!(!t.aircraft.contains_key(&0xAAAAAA));
+        assert!(t.aircraft.contains_key(&0xBBBBBB));
+        assert!(t.aircraft.contains_key(&0xCCCCCC));
+        // Cutoff above the newest removes everything.
+        let pruned = t.prune_older_than(100_000);
+        assert_eq!(pruned, 2);
+        assert!(t.is_empty());
     }
 }

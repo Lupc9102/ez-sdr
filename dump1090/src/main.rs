@@ -288,6 +288,12 @@ fn main() -> anyhow::Result<()> {
             interval_stats.signal_power_count = demod_stats.signal_power_count;
             interval_stats.peak_signal_power = demod_stats.peak_signal_power;
             interval_stats.strong_signal_count = demod_stats.strong_signal_count as u32;
+            // Prune aircraft that haven't been seen in the last 60 s. Without
+            // this the tracker HashMap grew unbounded over multi-hour sessions
+            // (the original track.c pruned at the same 60 s idle threshold via
+            // expireAircraft). Done once per stats interval (1 s) so the cost
+            // is amortised.
+            tracker.prune_older_than(now_ms.saturating_sub(60_000));
             interval_stats.unique_aircraft = tracker.len() as u32;
             interval_stats.reader_cpu = interval_reader_cpu;
             interval_stats.demod_cpu = interval_demod_cpu;
