@@ -2,14 +2,16 @@
 
 ## Dead Code / Lint Suppressions to Clean Up
 
-- [ ] `ez-gui/src/adsb_panel.rs` — `#[allow(dead_code)]` on `show_map` field (line 65) and `ui()` method (line 97/100). Either wire them in or remove.
-- [ ] `ez-gui/src/app.rs` — `#[allow(dead_code)]` on Tab enum variants (Recorder, Bookmarks, Scheduler, HowTo, Discord). These are matched in `focus_tab()` but never constructed — add tab UI or drop the variants.
-- [ ] `ez-gui/src/discord.rs` — `#[allow(dead_code)]` on `NotifKind::color` field (line 53). The color is populated in CATALOG but never read — use it in the UI or drop the field.
-- [ ] `ez-gui/src/airport_db.rs` — `#[allow(dead_code)]` on `AntennaDims::freq_mhz` field (line 138). Stores the input frequency but caller uses its own param.
-- [ ] `ez-gui/src/tle_engine.rs` — `#[allow(dead_code)]` on `TleEntry::line1`, `line2`, `eccentricity`; `PassInfo::los_dt`; `TleEngine::observer_alt`; and `doppler_shift()` method. Some may be needed for TLE reload or doppler calc.
-- [ ] `ez-gui/src/adsb_decoder.rs` — `#[allow(dead_code)]` on enum and struct fields (lines 9, 33, 268). Review if needed.
-- [ ] `ez-gui/src/demod.rs` — `#[allow(dead_code)]` on line 242. Review.
-- [ ] `ez-gui/src/theme.rs` — `#[allow(dead_code)]` (line 375). What's this suppressing?
+_All items below resolved — no `#[allow(dead_code)]` annotations remain in the listed files, and `RUSTFLAGS="-W dead_code" cargo check` produces zero warnings._
+
+- [x] `ez-gui/src/adsb_panel.rs` — `#[allow(dead_code)]` removed; `show_map` field and `ui()` method no longer exist.
+- [x] `ez-gui/src/app.rs` — `#[allow(dead_code)]` removed; Tab enum simplified, Recorder/Bookmarks/etc. moved to `SecondaryTool` and actively used.
+- [x] `ez-gui/src/discord.rs` — `#[allow(dead_code)]` removed; `NotifKind::color` is now read in `discord_panel.rs`.
+- [x] `ez-gui/src/airport_db.rs` — `#[allow(dead_code)]` removed; `AntennaDims` struct no longer has `freq_mhz` field.
+- [x] `ez-gui/src/tle_engine.rs` — `#[allow(dead_code)]` removed; `los_dt` and `doppler_shift()` are used by scheduler/app/satellite modules.
+- [x] `ez-gui/src/adsb_decoder.rs` — `#[allow(dead_code)]` removed; no dead fields remain.
+- [x] `ez-gui/src/demod.rs` — `#[allow(dead_code)]` removed.
+- [x] `ez-gui/src/theme.rs` — `#[allow(dead_code)]` removed; only `clippy::type_complexity` suppression remains (addressed under Technical Debt).
 
 ## Stub / TODO Implementations
 
