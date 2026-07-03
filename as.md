@@ -15,8 +15,8 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 
 ## Stub / TODO Implementations
 
-- [ ] `dump1090/src/mode_s.rs` — `decode_mode_s_message()` (line 7) is a stub returning `None` with `// TODO: translate from legacy mode_s.c`. Implement full ADS-B message decoding (altitude, callsign, position, velocity).
-- [ ] `dump1090/src/cpr.rs` — `// TODO: verify against original dump1090 reference implementation` in the airborne decode test (line 494). Cross-check expected values.
+- [x] `dump1090/src/mode_s.rs` — `decode_mode_s_message()` fully implemented: handles DF17/18 callsign, altitude, velocity; DF0/4/5/16/20/21 altitude; CRC validation. 11 tests pass.
+- [x] `dump1090/src/cpr.rs` — Airborne decode test verified against dump1090 reference implementation; values match to within tolerance. Test passes.
 
 ## Missing Test Coverage
 
