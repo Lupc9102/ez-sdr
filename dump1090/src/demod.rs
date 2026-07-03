@@ -1210,6 +1210,37 @@ fn compute_magnitude_sc16q11(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     (sum_level / n, sum_power / n)
 }
 
+// ------------------------------------------------------------------------
+// Single-sample magnitude helpers (useful for isolated testing)
+// ------------------------------------------------------------------------
+
+#[cfg(test)]
+fn magnitude_uc8_sample(i: u8, q: u8) -> u16 {
+    let i_val = i32::from(i) - 127;
+    let q_val = i32::from(q) - 127;
+    let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
+    let norm = m / 128.0;
+    (norm * 65535.0).min(65535.0) as u16
+}
+
+#[cfg(test)]
+fn magnitude_sc16_sample(i: i16, q: i16) -> u16 {
+    let i_val = i32::from(i);
+    let q_val = i32::from(q);
+    let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
+    let norm = m / 32767.0;
+    (norm * 65535.0).min(65535.0) as u16
+}
+
+#[cfg(test)]
+fn magnitude_sc16q11_sample(i: i16, q: i16) -> u16 {
+    let i_val = i32::from(i) >> 5;
+    let q_val = i32::from(q) >> 5;
+    let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
+    let norm = m / 1023.0;
+    (norm * 65535.0).min(65535.0) as u16
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1280,5 +1311,374 @@ mod tests {
         assert!(mag[1] > mag[0]);
         assert!(level > 0.0);
         assert!(power > 0.0);
+    }
+
+    // ====================================================================
+    // Single-sample magnitude helper tests
+    // ====================================================================
+
+    #[test]
+    fn test_magnitude_uc8_sample_zero() {
+        assert_eq!(magnitude_uc8_sample(127, 127), 0);
+    }
+
+    #[test]
+    fn test_magnitude_uc8_sample_max() {
+        assert_eq!(magnitude_uc8_sample(255, 127), 65535);
+    }
+
+    #[test]
+    fn test_magnitude_uc8_sample_clamped() {
+        assert_eq!(magnitude_uc8_sample(255, 255), 65535);
+    }
+
+    #[test]
+    fn test_magnitude_uc8_sample_known() {
+        assert_eq!(magnitude_uc8_sample(191, 127), 32767);
+    }
+
+    #[test]
+    fn test_magnitude_sc16_sample_zero() {
+        assert_eq!(magnitude_sc16_sample(0, 0), 0);
+    }
+
+    #[test]
+    fn test_magnitude_sc16_sample_max() {
+        assert_eq!(magnitude_sc16_sample(32767, 0), 65535);
+    }
+
+    #[test]
+    fn test_magnitude_sc16_sample_known() {
+        let mag = magnitude_sc16_sample(16384, 0);
+        assert_eq!(mag, 32768);
+    }
+
+    #[test]
+    fn test_magnitude_sc16q11_sample_zero() {
+        assert_eq!(magnitude_sc16q11_sample(0, 0), 0);
+    }
+
+    #[test]
+    fn test_magnitude_sc16q11_sample_max() {
+        assert_eq!(magnitude_sc16q11_sample(32736, 0), 65535);
+    }
+
+    #[test]
+    fn test_magnitude_sc16q11_sample_known() {
+        let mag = magnitude_sc16q11_sample(512 << 5, 0);
+        assert_eq!(mag, 32799);
+    }
+
+    // ====================================================================
+    // Buffer (slice) magnitude tests — match against single-sample helpers
+    // ====================================================================
+
+    #[test]
+    fn test_magnitude_slice_uc8_sample_count() {
+        let iq: Vec<u8> = vec![127, 127, 200, 200, 210, 210];
+        let mut mag = vec![0u16; 10];
+        compute_magnitude_uc8(&iq, &mut mag);
+        assert_eq!(mag[0], 0);
+        assert!(mag[1] > 0);
+        assert!(mag[2] > 0);
+        for i in 3..10 {
+            assert_eq!(mag[i], 0, "mag[{}] should be untouched", i);
+        }
+    }
+
+    #[test]
+    fn test_magnitude_slice_uc8_matches_sample() {
+        let samples = [(127u8, 127u8), (255, 127), (0, 127), (191, 127)];
+        let mut iq = Vec::with_capacity(samples.len() * 2);
+        for &(i, q) in &samples {
+            iq.push(i);
+            iq.push(q);
+        }
+        let mut mag = vec![0u16; samples.len()];
+        compute_magnitude_uc8(&iq, &mut mag);
+        for (idx, &(i, q)) in samples.iter().enumerate() {
+            assert_eq!(
+                mag[idx],
+                magnitude_uc8_sample(i, q),
+                "mismatch at idx={}",
+                idx
+            );
+        }
+    }
+
+    #[test]
+    fn test_magnitude_slice_sc16_matches_sample() {
+        let samples = [(0i16, 0i16), (32767, 0), (0, 32767), (16384, 16384)];
+        let mut iq = Vec::with_capacity(samples.len() * 4);
+        for &(i, q) in &samples {
+            iq.extend_from_slice(&i.to_le_bytes());
+            iq.extend_from_slice(&q.to_le_bytes());
+        }
+        let mut mag = vec![0u16; samples.len()];
+        compute_magnitude_sc16(&iq, &mut mag);
+        for (idx, &(i, q)) in samples.iter().enumerate() {
+            assert_eq!(
+                mag[idx],
+                magnitude_sc16_sample(i, q),
+                "mismatch at idx={}",
+                idx
+            );
+        }
+    }
+
+    #[test]
+    fn test_magnitude_slice_sc16q11_matches_sample() {
+        let samples = [
+            (0i16, 0i16),
+            (32736, 0),
+            (0, 32736),
+            (1023i16 << 5, 1023i16 << 5),
+        ];
+        let mut iq = Vec::with_capacity(samples.len() * 4);
+        for &(i, q) in &samples {
+            iq.extend_from_slice(&i.to_le_bytes());
+            iq.extend_from_slice(&q.to_le_bytes());
+        }
+        let mut mag = vec![0u16; samples.len()];
+        compute_magnitude_sc16q11(&iq, &mut mag);
+        for (idx, &(i, q)) in samples.iter().enumerate() {
+            assert_eq!(
+                mag[idx],
+                magnitude_sc16q11_sample(i, q),
+                "mismatch at idx={}",
+                idx
+            );
+        }
+    }
+
+    // ====================================================================
+    // generate_damage_set  (extended)
+    // ====================================================================
+
+    #[test]
+    fn test_generate_damage_set_zero_damage() {
+        let set = generate_damage_set(11, 0);
+        assert_eq!(set, 1 << 11);
+        assert_eq!(set.count_ones(), 1);
+    }
+
+    #[test]
+    fn test_generate_damage_set_includes_original() {
+        for df in 0..=31u8 {
+            for dmg in 0..=3 {
+                let set = generate_damage_set(df, dmg);
+                assert!(
+                    set & (1u32 << df) != 0,
+                    "DF {} with damage {} must include original",
+                    df,
+                    dmg
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_generate_damage_set_zero_df() {
+        let set = generate_damage_set(0, 2);
+        assert!(set & (1 << 0) != 0);
+        assert!(set & (1 << 1) != 0);
+        assert!(set & (1 << 2) != 0);
+        assert!(set & (1 << 4) != 0);
+        assert!(set & (1 << 8) != 0);
+        assert!(set & (1 << 16) != 0);
+    }
+
+    #[test]
+    fn test_generate_damage_set_all_ones() {
+        let set = generate_damage_set(31, 1);
+        assert!(set & (1 << 31) != 0);
+        assert!(set & (1 << 30) != 0);
+        assert!(set & (1 << 29) != 0);
+        assert!(set & (1 << 27) != 0);
+        assert!(set & (1 << 23) != 0);
+        assert!(set & (1 << 15) != 0);
+        assert_eq!(set.count_ones(), 6);
+    }
+
+    #[test]
+    fn test_generate_damage_set_expected_positions() {
+        let set = generate_damage_set(11, 1);
+        let expected = (1 << 11) | (1 << 10) | (1 << 15) | (1 << 3) | (1 << 9) | (1 << 27);
+        assert_eq!(set, expected);
+    }
+
+    // ====================================================================
+    // slice_phase  (extended)
+    // ====================================================================
+
+    #[test]
+    fn test_slice_phase_phase0_result() {
+        let m = [100u16, 200, 300, 400];
+        assert_eq!(slice_phase0(&m), 5 * 100 - 3 * 200 - 2 * 300);
+    }
+
+    #[test]
+    fn test_slice_phase_phase1_result() {
+        let m = [100u16, 200, 300, 400];
+        assert_eq!(slice_phase1(&m), 4 * 100 - 200 - 3 * 300);
+    }
+
+    #[test]
+    fn test_slice_phase_phase2_result() {
+        let m = [100u16, 200, 300, 400];
+        assert_eq!(slice_phase2(&m), 3 * 100 + 200 - 4 * 300);
+    }
+
+    #[test]
+    fn test_slice_phase_phase3_result() {
+        let m = [100u16, 200, 300, 400];
+        assert_eq!(slice_phase3(&m), 2 * 100 + 3 * 200 - 5 * 300);
+    }
+
+    #[test]
+    fn test_slice_phase_phase4_result() {
+        let m = [100u16, 200, 300, 400];
+        assert_eq!(slice_phase4(&m), 100 + 5 * 200 - 5 * 300 - 400);
+    }
+
+    #[test]
+    fn test_slice_phase_constant_input_zero() {
+        let m = [1000u16; 4];
+        assert_eq!(slice_phase0(&m), 0);
+        assert_eq!(slice_phase1(&m), 0);
+        assert_eq!(slice_phase2(&m), 0);
+        assert_eq!(slice_phase3(&m), 0);
+        assert_eq!(slice_phase4(&m), 0);
+    }
+
+    // ====================================================================
+    // Other pure helper functions
+    // ====================================================================
+
+    #[test]
+    fn test_mode_s_message_len_short() {
+        for df in [0, 1, 4, 5, 11] {
+            assert_eq!(
+                mode_s_message_len_by_type(df),
+                MODES_SHORT_MSG_BITS,
+                "wrong length for DF {}",
+                df
+            );
+        }
+    }
+
+    #[test]
+    fn test_mode_s_message_len_long() {
+        for df in [16, 17, 18, 20, 21, 24, 31] {
+            assert_eq!(
+                mode_s_message_len_by_type(df),
+                MODES_LONG_MSG_BITS,
+                "wrong length for DF {}",
+                df
+            );
+        }
+    }
+
+    #[test]
+    fn test_apply_bit_errors() {
+        let mut msg = [0u8; MODES_LONG_MSG_BYTES];
+        // Flip bit 0 (MSB of byte 0)
+        apply_bit_errors(&mut msg, 0);
+        assert_eq!(msg[0], 0x80);
+        // Flip it back
+        apply_bit_errors(&mut msg, 0);
+        assert_eq!(msg[0], 0x00);
+        // Flip bit 7 (LSB of byte 0)
+        apply_bit_errors(&mut msg, 7);
+        assert_eq!(msg[0], 0x01);
+        // Flip bit 8 (MSB of byte 1)
+        apply_bit_errors(&mut msg, 8);
+        assert_eq!(msg[1], 0x80);
+    }
+
+    #[test]
+    fn test_receiveclock_ms_elapsed_simple() {
+        assert_eq!(receiveclock_ms_elapsed(0, 12000), 1);
+        assert_eq!(receiveclock_ms_elapsed(0, 0), 0);
+        assert_eq!(receiveclock_ms_elapsed(12000, 24000), 1);
+        assert_eq!(receiveclock_ms_elapsed(0, 60000), 5);
+    }
+
+    #[test]
+    fn test_valid_df_short_no_fix() {
+        let bitset = valid_df_short(false, 0);
+        assert!(bitset & (1 << 0) != 0);
+        assert!(bitset & (1 << 4) != 0);
+        assert!(bitset & (1 << 5) != 0);
+        assert!(bitset & (1 << 11) != 0);
+        assert_eq!(bitset.count_ones(), 4);
+    }
+
+    #[test]
+    fn test_valid_df_short_with_fix() {
+        let bitset = valid_df_short(true, 1);
+        assert!(bitset & (1 << 0) != 0);
+        assert!(bitset & (1 << 11) != 0);
+        assert!(bitset & (1 << 10) != 0);
+        assert!(bitset.count_ones() > 4);
+    }
+
+    #[test]
+    fn test_valid_df_long_no_fix() {
+        let bitset = valid_df_long(false, false, 0);
+        assert!(bitset & (1 << 16) != 0);
+        assert!(bitset & (1 << 17) != 0);
+        assert!(bitset & (1 << 18) != 0);
+        assert!(bitset & (1 << 20) != 0);
+        assert!(bitset & (1 << 21) != 0);
+        assert_eq!(bitset.count_ones(), 5);
+    }
+
+    #[test]
+    fn test_valid_df_long_with_df24() {
+        let bitset = valid_df_long(true, false, 0);
+        assert!(bitset & (1 << 24) != 0);
+        assert!(bitset & (1 << 31) != 0);
+        assert_eq!(bitset.count_ones(), 13);
+    }
+
+    #[test]
+    fn test_valid_df_long_with_fix() {
+        let bitset = valid_df_long(false, true, 1);
+        assert!(bitset & (1 << 17) != 0);
+        assert!(bitset.count_ones() > 5);
+    }
+
+    #[test]
+    fn test_single_bit_syndrome_known_properties() {
+        let s0 = single_bit_syndrome(0);
+        let s1 = single_bit_syndrome(1);
+        assert_ne!(s0, 0);
+        assert_ne!(s1, 0);
+        assert_ne!(s0, s1);
+        // Syndrome for bit i should equal CRC of a message with only bit i set.
+        let mut msg = [0u8; MODES_LONG_MSG_BYTES];
+        msg[0] = 0x80;
+        assert_eq!(s0, crc24_parity(&msg));
+        msg[0] = 0x40;
+        assert_eq!(s1, crc24_parity(&msg));
+    }
+
+    #[test]
+    fn test_correct_message_already_valid_short() {
+        let short = [0u8; MODES_SHORT_MSG_BYTES];
+        let mut padded = [0u8; MODES_LONG_MSG_BYTES];
+        padded[..MODES_SHORT_MSG_BYTES].copy_from_slice(&short);
+        let (corrections, _corrected) = correct_message(&padded, 2);
+        assert_eq!(corrections, 0);
+    }
+
+    #[test]
+    fn test_correct_message_all_zeros_short() {
+        let padded = [0u8; MODES_LONG_MSG_BYTES];
+        let (corrections, corrected) = correct_message(&padded, 2);
+        assert!(corrections >= 0);
+        assert!(corrections <= 2);
+        assert_eq!(corrected[0] >> 3, 0);
     }
 }
