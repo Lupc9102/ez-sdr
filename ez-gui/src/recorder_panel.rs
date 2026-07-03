@@ -285,6 +285,14 @@ impl RecorderPanel {
                 }
                 Err(e) => {
                     self.last_error = format!("Failed to create WAV file: {e}");
+                    // Match the IQ-file failure path: abort the session instead
+                    // of falling through with wav_writer = None. Without this,
+                    // `recording` is set to true below and the UI shows a REC
+                    // counter ticking while every audio sample is silently
+                    // dropped. Also drop any IQ writer already opened above so
+                    // we don't leave a half-created orphan file on disk.
+                    self.iq_writer.take();
+                    return;
                 }
             }
         }
