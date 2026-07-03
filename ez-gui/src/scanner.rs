@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -282,17 +283,7 @@ impl FrequencyScanner {
         );
     }
 
-    fn parse_json_u64(line: &str, key: &str) -> Option<u64> {
-        let needle = format!("\"{key}\":");
-        let pos = line.find(&needle)?;
-        let rest = &line[pos + needle.len()..].trim_start_matches(' ');
-        let end = rest
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(rest.len());
-        rest[..end].parse().ok()
-    }
-
-    fn parse_json_f32(line: &str, key: &str) -> Option<f32> {
+    fn parse_json_value<T: FromStr>(line: &str, key: &str) -> Option<T> {
         let needle = format!("\"{key}\":");
         let pos = line.find(&needle)?;
         let rest = &line[pos + needle.len()..].trim_start_matches(' ');
@@ -302,14 +293,16 @@ impl FrequencyScanner {
         rest[..end].parse().ok()
     }
 
+    fn parse_json_u64(line: &str, key: &str) -> Option<u64> {
+        Self::parse_json_value(line, key)
+    }
+
+    fn parse_json_f32(line: &str, key: &str) -> Option<f32> {
+        Self::parse_json_value(line, key)
+    }
+
     fn parse_json_u32(line: &str, key: &str) -> Option<u32> {
-        let needle = format!("\"{key}\":");
-        let pos = line.find(&needle)?;
-        let rest = &line[pos + needle.len()..].trim_start_matches(' ');
-        let end = rest
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(rest.len());
-        rest[..end].parse().ok()
+        Self::parse_json_value(line, key)
     }
 
     pub fn start(&mut self) {
@@ -1359,5 +1352,130 @@ impl FrequencyScanner {
             ui.add_space(2.0);
             ui.label("The 🚫 (exclude) button lets you skip known-noise frequencies during subsequent scans.");
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_json_value_valid_u64() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(
+                r#"  {"freq_hz":12345,"strength":-60.5}"#,
+                "freq_hz"
+            ),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_value_valid_i32() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<i32>(r#"  {"val":-42}"#, "val"),
+            Some(-42)
+        );
+    }
+
+    #[test]
+    fn parse_json_value_valid_f32() {
+        let result =
+            FrequencyScanner::parse_json_value::<f32>(r#"  {"strength_db":-60.5}"#, "strength_db");
+        assert!(result.is_some());
+        assert!((result.unwrap() - (-60.5)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_json_value_missing_key() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(r#"  {"freq_hz":12345}"#, "missing"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_value_malformed() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(r#"  {"freq_hz":abc}"#, "freq_hz"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_value_empty_line() {
+        assert_eq!(FrequencyScanner::parse_json_value::<u64>("", "key"), None);
+    }
+
+    #[test]
+    fn parse_json_value_key_at_end() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(r#"  {"freq_hz":12345}"#, "freq_hz"),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_value_key_in_middle() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(
+                r#"  {"freq_hz":12345,"other":99}"#,
+                "freq_hz"
+            ),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_u64_valid() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u64(
+                r#"  {"freq_hz":12345,"strength_db":-60.5}"#,
+                "freq_hz"
+            ),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_u64_missing() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u64(r#"  {"strength_db":-60.5}"#, "freq_hz"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_f32_valid() {
+        let result = FrequencyScanner::parse_json_f32(
+            r#"  {"strength_db":-60.5,"freq_hz":12345}"#,
+            "strength_db",
+        );
+        assert!(result.is_some());
+        assert!((result.unwrap() - (-60.5)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_json_f32_missing() {
+        assert_eq!(
+            FrequencyScanner::parse_json_f32(r#"  {"freq_hz":12345}"#, "strength_db"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_u32_valid() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u32(r#"  {"hit_count":42}"#, "hit_count"),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn parse_json_u32_missing() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u32(r#"  {"freq_hz":12345}"#, "hit_count"),
+            None
+        );
     }
 }

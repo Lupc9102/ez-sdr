@@ -980,3 +980,109 @@ impl DiscordNotifier {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn categories_not_empty() {
+        let cats = categories();
+        assert!(!cats.is_empty());
+    }
+
+    #[test]
+    fn categories_contains_expected() {
+        let cats = categories();
+        assert!(cats.contains(&"ADS-B"));
+        assert!(cats.contains(&"Source"));
+        assert!(cats.contains(&"Signal"));
+        assert!(cats.contains(&"System"));
+    }
+
+    #[test]
+    fn categories_sorted() {
+        let cats = categories();
+        let mut sorted = cats.clone();
+        sorted.sort_unstable();
+        assert_eq!(cats, sorted);
+    }
+
+    #[test]
+    fn categories_no_duplicates() {
+        let cats = categories();
+        let mut deduped = cats.clone();
+        deduped.sort_unstable();
+        deduped.dedup();
+        assert_eq!(cats, deduped);
+    }
+
+    #[test]
+    fn kinds_in_known_category() {
+        let kinds = kinds_in("Source");
+        assert!(!kinds.is_empty());
+        assert!(kinds.iter().all(|k| k.category == "Source"));
+    }
+
+    #[test]
+    fn kinds_in_unknown_returns_empty() {
+        let kinds = kinds_in("NonExistentCategory");
+        assert!(kinds.is_empty());
+    }
+
+    #[test]
+    fn is_enabled_explicit_true() {
+        let mut settings = DiscordSettings::default();
+        settings.enabled_kinds.insert("source_error".into(), true);
+        assert!(is_enabled(&settings, "source_error"));
+    }
+
+    #[test]
+    fn is_enabled_explicit_false() {
+        let mut settings = DiscordSettings::default();
+        settings.enabled_kinds.insert("source_error".into(), false);
+        assert!(!is_enabled(&settings, "source_error"));
+    }
+
+    #[test]
+    fn is_enabled_unset_essential() {
+        let settings = DiscordSettings::default();
+        assert!(is_enabled(&settings, "source_error"));
+    }
+
+    #[test]
+    fn is_enabled_unset_non_essential() {
+        let settings = DiscordSettings::default();
+        assert!(!is_enabled(&settings, "source_started"));
+    }
+
+    #[test]
+    fn is_enabled_missing_kind_id() {
+        let settings = DiscordSettings::default();
+        assert!(!is_enabled(&settings, "nonexistent_kind"));
+    }
+
+    #[test]
+    fn is_enabled_empty_kind_id() {
+        let settings = DiscordSettings::default();
+        assert!(!is_enabled(&settings, ""));
+    }
+
+    #[test]
+    fn is_starred_starred() {
+        let settings = DiscordSettings::default();
+        assert!(is_starred(&settings, "source_error"));
+    }
+
+    #[test]
+    fn is_starred_unstarred() {
+        let settings = DiscordSettings::default();
+        assert!(!is_starred(&settings, "source_started"));
+    }
+
+    #[test]
+    fn is_starred_missing_kind_id() {
+        let settings = DiscordSettings::default();
+        assert!(!is_starred(&settings, "nonexistent"));
+    }
+}
