@@ -512,3 +512,48 @@ impl SdrSource for SoapySdr {
         Ok(n)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn soapy_config_default_values() {
+        let config = SoapyConfig::default();
+        assert_eq!(config.channel, 0);
+        assert_eq!(config.bandwidth, 0.0);
+        assert!(!config.enable_agc);
+        assert_eq!(config.gain, 999_999.0);
+        assert!(config.gain_elements.is_empty());
+        assert!(config.settings.is_empty());
+    }
+
+    #[test]
+    fn soapy_sdr_new_creates_with_null_pointers() {
+        let config = SoapyConfig {
+            dev_name: Some("mock".into()),
+            channel: 1,
+            antenna: Some("TX/RX".into()),
+            ..Default::default()
+        };
+        let sdr = SoapySdr::new(config, 2_400_000.0, 100_000_000.0);
+        assert!(sdr.dev.is_null());
+        assert!(sdr.stream.is_null());
+        assert_eq!(sdr.freq, 100_000_000.0);
+        assert_eq!(sdr.sample_rate, 2_400_000.0);
+        assert_eq!(sdr.gain, 999_999.0);
+    }
+
+    #[test]
+    fn soapy_sdr_drop_null_does_not_panic() {
+        let config = SoapyConfig::default();
+        let sdr = SoapySdr::new(config, 2_048_000.0, 109_000_000.0);
+        drop(sdr);
+    }
+
+    #[test]
+    fn soapy_sdr_default_send_sync() {
+        fn assert_send<T: Send>() {}
+        assert_send::<SoapySdr>();
+    }
+}

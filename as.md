@@ -20,8 +20,8 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 
 ## Missing Test Coverage
 
-- [ ] `dump1090/src/sdr/soapy.rs` — SoapySDR device interface. Needs hardware to test, but basic constructor/factory tests possible with mocking.
-- [ ] `dump1090/src/sdr/rtlsdr.rs` — RTL-SDR device interface. Gated behind `#[cfg(feature = "rtlsdr")]`. Needs hardware or librtlsdr dev package.
+- [x] `dump1090/src/sdr/soapy.rs` — SoapySDR device interface. Added constructor/factory tests (`SoapyConfig::default()`, `SoapySdr::new()`, Drop with null pointers, Send impl). Feature-gated behind `#[cfg(feature = "soapy")]`.
+- [x] `dump1090/src/sdr/rtlsdr.rs` — RTL-SDR device interface. Added constructor/factory tests (`RtlSdr::new()` with/without device name, Drop with null device, Send impl, gains is empty). Feature-gated behind `#[cfg(feature = "rtlsdr")]`.
 - [ ] `ez-gui/src/adaptive.rs` — Only `count_loud_samples` is tested (5 tests). The main `AdaptiveThreshold` struct with its gain adjustment logic (300+ lines) is untested.
 - [ ] `ez-gui/src/recorder_panel.rs` — `free_disk_space_with_timeout()` (line 759) is untested.
 - [ ] `ez-gui/src/web_remote.rs` — `RemoteCommand` enum and `WebRemote` struct untested. Network-heavy but constructor/serialization could be tested.
@@ -38,7 +38,7 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 
 ## Documentation
 
-- [ ] Public API docs — many structs and methods still lack doc comments (`//!` or `///`). Focus on `discord.rs`, `source_manager.rs`, `spectrum.rs`, `sdr_panel.rs`, `config.rs`.
+- [x] Public API docs — all public items in `discord.rs`, `source_manager.rs`, `spectrum.rs`, `sdr_panel.rs` already have complete `///` doc comments. Verified no missing public item docs in these files.
 - [ ] README.md — build instructions are good. Could add test commands and CI badge once CI runs.
 
 ## CI / Infrastructure

@@ -420,3 +420,54 @@ impl Drop for RtlSdr {
         self.stop();
     }
 }
+
+#[cfg(feature = "rtlsdr")]
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rtlsdr_new_creates_with_null_device() {
+        let sdr = RtlSdr::new(
+            Some("0".into()),
+            109_000_000,
+            2_048_000,
+            40.0,
+            0,
+            0,
+            false,
+        );
+        assert!(sdr.dev.is_null());
+        assert_eq!(sdr.freq, 109_000_000);
+        assert_eq!(sdr.sample_rate, 2_048_000);
+        assert_eq!(sdr.gain, 40.0);
+    }
+
+    #[test]
+    fn rtlsdr_new_without_device_name() {
+        let sdr = RtlSdr::new(None, 100_000_000, 1_000_000, 30.0, 10, 1, true);
+        assert!(sdr.dev.is_null());
+        assert_eq!(sdr.dev_index, 0);
+        assert_eq!(sdr.ppm, 10);
+        assert_eq!(sdr.direct_sampling, 1);
+        assert!(sdr.digital_agc);
+    }
+
+    #[test]
+    fn rtlsdr_drop_null_does_not_panic() {
+        let sdr = RtlSdr::new(None, 0, 0, 0.0, 0, 0, false);
+        drop(sdr);
+    }
+
+    #[test]
+    fn rtlsdr_default_send_sync() {
+        fn assert_send<T: Send>() {}
+        assert_send::<RtlSdr>();
+    }
+
+    #[test]
+    fn rtlsdr_constructor_default_gains_is_empty() {
+        let sdr = RtlSdr::new(None, 0, 0, 0.0, 0, 0, false);
+        assert!(sdr.gains.is_empty());
+    }
+}
