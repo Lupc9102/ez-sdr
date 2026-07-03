@@ -30,11 +30,11 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 
 ## Technical Debt / Cleanup
 
-- [ ] `ez_sdr_config.json` — tracked in git with `web_remote_enabled: true` (non-default). Add to `.gitignore` or reset to defaults.
-- [ ] `ez-gui/src/airport_db.rs` — `#[allow(clippy::type_complexity)]` on `FALLBACK_AIRPORTS` (line 467). Define a struct instead of the 9-element tuple.
-- [ ] `graphify-out/2026-*/` dirs — session-specific graph backups. Add to `.gitignore` if not already covered.
-- [ ] `Cargo.lock` — check for outdated dependencies with `cargo outdated` (needs `cargo-install outdated`).
-- [ ] `rust-toolchain.toml` — channel `1.83` may be too low if any features need newer Rust. Verify against MSRV.
+- [x] `ez_sdr_config.json` — tracked in git with `web_remote_enabled: true` (non-default). Already in `.gitignore`; removed from git tracking via `git rm --cached`.
+- [x] `ez-gui/src/airport_db.rs` — 9-element `AirportEntry` tuple struct replaced with named struct; inner frequency tuples replaced with `FallbackFreq` named struct.
+- [x] `graphify-out/2026-*/` dirs — already in `.gitignore` (line 11).
+- [ ] `Cargo.lock` — `cargo outdated` not installed; skipped (install with `cargo install cargo-outdated`).
+- [x] `rust-toolchain.toml` — already on channel `1.92` (not `1.83` as previously noted). Verified: `cargo check`, `cargo clippy`, `cargo test` all pass cleanly.
 
 ## Documentation
 
