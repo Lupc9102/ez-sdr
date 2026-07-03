@@ -185,6 +185,9 @@ impl SourceManager {
                 SourceMode::Simulated => {
                     #[cfg(feature = "rtlsdr")]
                     {
+                        // SAFETY: `rtl_sdr_open` is an `unsafe` FFI wrapper but
+                        // passes valid arguments to the wrapped C functions and
+                        // initialises the device handle on success.
                         let dev = unsafe { rtl_sdr_open(freq, rate, _ppm, _bias, _gain) };
                         if dev.is_null() {
                             let _ = tx.send(b"ERROR".to_vec());
@@ -192,11 +195,14 @@ impl SourceManager {
                         }
                         let mut buf = vec![0u8; 16384 * 2];
                         while running.load(Ordering::SeqCst) {
+                            // SAFETY: `dev` is checked non-null; `buf` is a
+                            // mutable Vec with a valid pointer and length.
                             let n = unsafe { rtl_sdr_read_sync(dev, &mut buf) };
                             if n > 0 {
                                 let _ = tx.try_send(buf[..n].to_vec());
                             }
                         }
+                        // SAFETY: `dev` is non-null and was opened above.
                         unsafe {
                             rtl_sdr_close(dev);
                         }
@@ -499,6 +505,10 @@ fn rand_f64(seed: f64) -> f64 {
     frac / 4294967296.0
 }
 
+// SAFETY: This function calls raw FFI (`rtlsdr_open`, etc.) and must only be
+// called when `feature = "rtlsdr"` is active and a real RTL-SDR device is
+// available. The caller must ensure the returned pointer is eventually closed
+// with `rtl_sdr_close`.
 #[cfg(feature = "rtlsdr")]
 unsafe fn rtl_sdr_open(
     freq: u64,
@@ -529,6 +539,8 @@ unsafe fn rtl_sdr_open(
     dev
 }
 
+// SAFETY: `dev` must be a valid device handle from `rtl_sdr_open`. `buf` must
+// be a valid mutable slice. The FFI writes `n_read` bytes into the buffer.
 #[cfg(feature = "rtlsdr")]
 unsafe fn rtl_sdr_read_sync(dev: *mut std::ffi::c_void, buf: &mut [u8]) -> usize {
     extern "C" {
@@ -544,6 +556,8 @@ unsafe fn rtl_sdr_read_sync(dev: *mut std::ffi::c_void, buf: &mut [u8]) -> usize
     n_read as usize
 }
 
+// SAFETY: `dev` must be a non-null handle from `rtl_sdr_open` that has not
+// been closed yet. After this call the handle is invalid.
 #[cfg(feature = "rtlsdr")]
 unsafe fn rtl_sdr_close(dev: *mut std::ffi::c_void) {
     extern "C" {

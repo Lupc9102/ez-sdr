@@ -1046,7 +1046,7 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "dump1090_src_crc_crc24_parity",
-      "community": 33,
+      "community": 17,
       "norm_label": "crc24_parity()"
     },
     {
@@ -1166,7 +1166,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_demod",
-      "community": 16,
+      "community": 76,
       "norm_label": "demod.rs"
     },
     {
@@ -1206,7 +1206,7 @@
       "source_location": "L70",
       "_origin": "ast",
       "id": "dump1090_src_demod_modesmessage",
-      "community": 32,
+      "community": 27,
       "norm_label": "modesmessage"
     },
     {
@@ -1226,7 +1226,7 @@
       "source_location": "L120",
       "_origin": "ast",
       "id": "dump1090_src_demod_scorerank",
-      "community": 32,
+      "community": 33,
       "norm_label": "scorerank"
     },
     {
@@ -1276,7 +1276,7 @@
       "source_location": "L437",
       "_origin": "ast",
       "id": "dump1090_src_demod_mode_s_message_len_by_type",
-      "community": 16,
+      "community": 33,
       "norm_label": "mode_s_message_len_by_type()"
     },
     {
@@ -1386,7 +1386,7 @@
       "source_location": "L579",
       "_origin": "ast",
       "id": "dump1090_src_demod_generate_damage_set",
-      "community": 31,
+      "community": 76,
       "norm_label": "generate_damage_set()"
     },
     {
@@ -1466,7 +1466,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_demod_rs_fnmut",
-      "community": 31,
+      "community": 16,
       "norm_label": "fnmut"
     },
     {
@@ -1476,7 +1476,7 @@
       "source_location": "L995",
       "_origin": "ast",
       "id": "dump1090_src_demod_demod2400_demodulate_ac",
-      "community": 31,
+      "community": 16,
       "norm_label": ".demodulate_ac()"
     },
     {
@@ -1486,7 +1486,7 @@
       "source_location": "L1134",
       "_origin": "ast",
       "id": "dump1090_src_demod_inputformat",
-      "community": 16,
+      "community": 76,
       "norm_label": "inputformat"
     },
     {
@@ -1496,7 +1496,7 @@
       "source_location": "L1150",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude",
-      "community": 16,
+      "community": 76,
       "norm_label": "compute_magnitude()"
     },
     {
@@ -1506,7 +1506,7 @@
       "source_location": "L1158",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude_uc8",
-      "community": 16,
+      "community": 76,
       "norm_label": "compute_magnitude_uc8()"
     },
     {
@@ -1516,7 +1516,7 @@
       "source_location": "L1175",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude_sc16",
-      "community": 16,
+      "community": 76,
       "norm_label": "compute_magnitude_sc16()"
     },
     {
@@ -1526,58 +1526,458 @@
       "source_location": "L1193",
       "_origin": "ast",
       "id": "dump1090_src_demod_compute_magnitude_sc16q11",
-      "community": 16,
+      "community": 76,
       "norm_label": "compute_magnitude_sc16q11()"
+    },
+    {
+      "label": "magnitude_uc8_sample()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1218",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_magnitude_uc8_sample",
+      "community": 76,
+      "norm_label": "magnitude_uc8_sample()"
+    },
+    {
+      "label": "magnitude_sc16_sample()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1227",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_magnitude_sc16_sample",
+      "community": 76,
+      "norm_label": "magnitude_sc16_sample()"
+    },
+    {
+      "label": "magnitude_sc16q11_sample()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1236",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_magnitude_sc16q11_sample",
+      "community": 76,
+      "norm_label": "magnitude_sc16q11_sample()"
     },
     {
       "label": "test_slice_phase_dc_invariant()",
       "file_type": "code",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1218",
+      "source_location": "L1249",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_slice_phase_dc_invariant",
-      "community": 16,
+      "community": 76,
       "norm_label": "test_slice_phase_dc_invariant()"
     },
     {
       "label": "test_generate_damage_set()",
       "file_type": "code",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1232",
+      "source_location": "L1263",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_generate_damage_set",
-      "community": 31,
+      "community": 76,
       "norm_label": "test_generate_damage_set()"
     },
     {
       "label": "test_uc8_magnitude()",
       "file_type": "code",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1244",
+      "source_location": "L1275",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_uc8_magnitude",
-      "community": 16,
+      "community": 76,
       "norm_label": "test_uc8_magnitude()"
     },
     {
       "label": "test_sc16_magnitude()",
       "file_type": "code",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1255",
+      "source_location": "L1286",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_sc16_magnitude",
-      "community": 16,
+      "community": 76,
       "norm_label": "test_sc16_magnitude()"
     },
     {
       "label": "test_sc16q11_magnitude()",
       "file_type": "code",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1270",
+      "source_location": "L1301",
       "_origin": "ast",
       "id": "dump1090_src_demod_test_sc16q11_magnitude",
-      "community": 16,
+      "community": 76,
       "norm_label": "test_sc16q11_magnitude()"
+    },
+    {
+      "label": "test_magnitude_uc8_sample_zero()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1321",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_uc8_sample_zero",
+      "community": 76,
+      "norm_label": "test_magnitude_uc8_sample_zero()"
+    },
+    {
+      "label": "test_magnitude_uc8_sample_max()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1326",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_uc8_sample_max",
+      "community": 76,
+      "norm_label": "test_magnitude_uc8_sample_max()"
+    },
+    {
+      "label": "test_magnitude_uc8_sample_clamped()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1331",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_uc8_sample_clamped",
+      "community": 76,
+      "norm_label": "test_magnitude_uc8_sample_clamped()"
+    },
+    {
+      "label": "test_magnitude_uc8_sample_known()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1336",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_uc8_sample_known",
+      "community": 76,
+      "norm_label": "test_magnitude_uc8_sample_known()"
+    },
+    {
+      "label": "test_magnitude_sc16_sample_zero()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1341",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_sc16_sample_zero",
+      "community": 76,
+      "norm_label": "test_magnitude_sc16_sample_zero()"
+    },
+    {
+      "label": "test_magnitude_sc16_sample_max()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1346",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_sc16_sample_max",
+      "community": 76,
+      "norm_label": "test_magnitude_sc16_sample_max()"
+    },
+    {
+      "label": "test_magnitude_sc16_sample_known()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1351",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_sc16_sample_known",
+      "community": 76,
+      "norm_label": "test_magnitude_sc16_sample_known()"
+    },
+    {
+      "label": "test_magnitude_sc16q11_sample_zero()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1357",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_sc16q11_sample_zero",
+      "community": 76,
+      "norm_label": "test_magnitude_sc16q11_sample_zero()"
+    },
+    {
+      "label": "test_magnitude_sc16q11_sample_max()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1362",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_sc16q11_sample_max",
+      "community": 76,
+      "norm_label": "test_magnitude_sc16q11_sample_max()"
+    },
+    {
+      "label": "test_magnitude_sc16q11_sample_known()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1367",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_sc16q11_sample_known",
+      "community": 76,
+      "norm_label": "test_magnitude_sc16q11_sample_known()"
+    },
+    {
+      "label": "test_magnitude_slice_uc8_sample_count()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1377",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_slice_uc8_sample_count",
+      "community": 76,
+      "norm_label": "test_magnitude_slice_uc8_sample_count()"
+    },
+    {
+      "label": "test_magnitude_slice_uc8_matches_sample()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1390",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_slice_uc8_matches_sample",
+      "community": 76,
+      "norm_label": "test_magnitude_slice_uc8_matches_sample()"
+    },
+    {
+      "label": "test_magnitude_slice_sc16_matches_sample()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1410",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_slice_sc16_matches_sample",
+      "community": 76,
+      "norm_label": "test_magnitude_slice_sc16_matches_sample()"
+    },
+    {
+      "label": "test_magnitude_slice_sc16q11_matches_sample()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1430",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_magnitude_slice_sc16q11_matches_sample",
+      "community": 76,
+      "norm_label": "test_magnitude_slice_sc16q11_matches_sample()"
+    },
+    {
+      "label": "test_generate_damage_set_zero_damage()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1459",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_generate_damage_set_zero_damage",
+      "community": 76,
+      "norm_label": "test_generate_damage_set_zero_damage()"
+    },
+    {
+      "label": "test_generate_damage_set_includes_original()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1466",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_generate_damage_set_includes_original",
+      "community": 76,
+      "norm_label": "test_generate_damage_set_includes_original()"
+    },
+    {
+      "label": "test_generate_damage_set_zero_df()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1481",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_generate_damage_set_zero_df",
+      "community": 76,
+      "norm_label": "test_generate_damage_set_zero_df()"
+    },
+    {
+      "label": "test_generate_damage_set_all_ones()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1492",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_generate_damage_set_all_ones",
+      "community": 76,
+      "norm_label": "test_generate_damage_set_all_ones()"
+    },
+    {
+      "label": "test_generate_damage_set_expected_positions()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1504",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_generate_damage_set_expected_positions",
+      "community": 76,
+      "norm_label": "test_generate_damage_set_expected_positions()"
+    },
+    {
+      "label": "test_slice_phase_phase0_result()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1515",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_slice_phase_phase0_result",
+      "community": 76,
+      "norm_label": "test_slice_phase_phase0_result()"
+    },
+    {
+      "label": "test_slice_phase_phase1_result()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1521",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_slice_phase_phase1_result",
+      "community": 76,
+      "norm_label": "test_slice_phase_phase1_result()"
+    },
+    {
+      "label": "test_slice_phase_phase2_result()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1527",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_slice_phase_phase2_result",
+      "community": 76,
+      "norm_label": "test_slice_phase_phase2_result()"
+    },
+    {
+      "label": "test_slice_phase_phase3_result()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1533",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_slice_phase_phase3_result",
+      "community": 76,
+      "norm_label": "test_slice_phase_phase3_result()"
+    },
+    {
+      "label": "test_slice_phase_phase4_result()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1539",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_slice_phase_phase4_result",
+      "community": 76,
+      "norm_label": "test_slice_phase_phase4_result()"
+    },
+    {
+      "label": "test_slice_phase_constant_input_zero()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1545",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_slice_phase_constant_input_zero",
+      "community": 76,
+      "norm_label": "test_slice_phase_constant_input_zero()"
+    },
+    {
+      "label": "test_mode_s_message_len_short()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1559",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_mode_s_message_len_short",
+      "community": 76,
+      "norm_label": "test_mode_s_message_len_short()"
+    },
+    {
+      "label": "test_mode_s_message_len_long()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1571",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_mode_s_message_len_long",
+      "community": 76,
+      "norm_label": "test_mode_s_message_len_long()"
+    },
+    {
+      "label": "test_apply_bit_errors()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1583",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_apply_bit_errors",
+      "community": 33,
+      "norm_label": "test_apply_bit_errors()"
+    },
+    {
+      "label": "test_receiveclock_ms_elapsed_simple()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1600",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_receiveclock_ms_elapsed_simple",
+      "community": 76,
+      "norm_label": "test_receiveclock_ms_elapsed_simple()"
+    },
+    {
+      "label": "test_valid_df_short_no_fix()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1608",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_valid_df_short_no_fix",
+      "community": 31,
+      "norm_label": "test_valid_df_short_no_fix()"
+    },
+    {
+      "label": "test_valid_df_short_with_fix()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1618",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_valid_df_short_with_fix",
+      "community": 31,
+      "norm_label": "test_valid_df_short_with_fix()"
+    },
+    {
+      "label": "test_valid_df_long_no_fix()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1627",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_valid_df_long_no_fix",
+      "community": 31,
+      "norm_label": "test_valid_df_long_no_fix()"
+    },
+    {
+      "label": "test_valid_df_long_with_df24()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1638",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_valid_df_long_with_df24",
+      "community": 31,
+      "norm_label": "test_valid_df_long_with_df24()"
+    },
+    {
+      "label": "test_valid_df_long_with_fix()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1646",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_valid_df_long_with_fix",
+      "community": 31,
+      "norm_label": "test_valid_df_long_with_fix()"
+    },
+    {
+      "label": "test_single_bit_syndrome_known_properties()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1653",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_single_bit_syndrome_known_properties",
+      "community": 33,
+      "norm_label": "test_single_bit_syndrome_known_properties()"
+    },
+    {
+      "label": "test_correct_message_already_valid_short()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1668",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_correct_message_already_valid_short",
+      "community": 33,
+      "norm_label": "test_correct_message_already_valid_short()"
+    },
+    {
+      "label": "test_correct_message_all_zeros_short()",
+      "file_type": "code",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1677",
+      "_origin": "ast",
+      "id": "dump1090_src_demod_test_correct_message_all_zeros_short",
+      "community": 33,
+      "norm_label": "test_correct_message_all_zeros_short()"
     },
     {
       "label": "fifo.rs",
@@ -1738,6 +2138,86 @@
       "id": "dump1090_src_fifo_fifo_is_halted",
       "community": 21,
       "norm_label": ".is_halted()"
+    },
+    {
+      "label": "new_creates_empty_fifo()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L149",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_new_creates_empty_fifo",
+      "community": 21,
+      "norm_label": "new_creates_empty_fifo()"
+    },
+    {
+      "label": "push_then_pop_returns_item()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L157",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_push_then_pop_returns_item",
+      "community": 21,
+      "norm_label": "push_then_pop_returns_item()"
+    },
+    {
+      "label": "pop_blocks_until_item_available()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L165",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_pop_blocks_until_item_available",
+      "community": 21,
+      "norm_label": "pop_blocks_until_item_available()"
+    },
+    {
+      "label": "multiple_items_in_sequence()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L177",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_multiple_items_in_sequence",
+      "community": 21,
+      "norm_label": "multiple_items_in_sequence()"
+    },
+    {
+      "label": "fifo_ordering()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L189",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_fifo_ordering",
+      "community": 21,
+      "norm_label": "fifo_ordering()"
+    },
+    {
+      "label": "capacity_exceeded_returns_item()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L201",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_capacity_exceeded_returns_item",
+      "community": 21,
+      "norm_label": "capacity_exceeded_returns_item()"
+    },
+    {
+      "label": "pop_empty_nonblocking_returns_none()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L210",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_pop_empty_nonblocking_returns_none",
+      "community": 21,
+      "norm_label": "pop_empty_nonblocking_returns_none()"
+    },
+    {
+      "label": "halt_wakes_waiters_and_clears_queue()",
+      "file_type": "code",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L216",
+      "_origin": "ast",
+      "id": "dump1090_src_fifo_halt_wakes_waiters_and_clears_queue",
+      "community": 21,
+      "norm_label": "halt_wakes_waiters_and_clears_queue()"
     },
     {
       "label": "icao_filter.rs",
@@ -2056,7 +2536,7 @@
       "source_location": "L91",
       "_origin": "ast",
       "id": "dump1090_src_main_demodulator_process",
-      "community": 27,
+      "community": 16,
       "norm_label": ".process()"
     },
     {
@@ -2066,7 +2546,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_main_rs_fnmut",
-      "community": 27,
+      "community": 16,
       "norm_label": "fnmut"
     },
     {
@@ -2103,7 +2583,7 @@
       "label": "mode_c_to_mode_a()",
       "file_type": "code",
       "source_file": "dump1090/src/mode_ac.rs",
-      "source_location": "L6",
+      "source_location": "L9",
       "_origin": "ast",
       "id": "dump1090_src_mode_ac_mode_c_to_mode_a",
       "community": 35,
@@ -2118,6 +2598,66 @@
       "id": "dump1090_src_mode_ac_rs_option",
       "community": 35,
       "norm_label": "option"
+    },
+    {
+      "label": "mode_a_to_mode_c()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L76",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_ac_mode_a_to_mode_c",
+      "community": 35,
+      "norm_label": "mode_a_to_mode_c()"
+    },
+    {
+      "label": "mode_c_round_trip()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L129",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_ac_mode_c_round_trip",
+      "community": 35,
+      "norm_label": "mode_c_round_trip()"
+    },
+    {
+      "label": "mode_c_altitude_ground_level()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L138",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_ac_mode_c_altitude_ground_level",
+      "community": 35,
+      "norm_label": "mode_c_altitude_ground_level()"
+    },
+    {
+      "label": "mode_c_altitude_lower_bound()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L145",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_ac_mode_c_altitude_lower_bound",
+      "community": 35,
+      "norm_label": "mode_c_altitude_lower_bound()"
+    },
+    {
+      "label": "mode_c_returns_none_for_out_of_range()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L152",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_ac_mode_c_returns_none_for_out_of_range",
+      "community": 35,
+      "norm_label": "mode_c_returns_none_for_out_of_range()"
+    },
+    {
+      "label": "mode_c_known_good_example()",
+      "file_type": "code",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L158",
+      "_origin": "ast",
+      "id": "dump1090_src_mode_ac_mode_c_known_good_example",
+      "community": 35,
+      "norm_label": "mode_c_known_good_example()"
     },
     {
       "label": "mode_s.rs",
@@ -2976,7 +3516,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "read",
-      "community": 2,
+      "community": 30,
       "norm_label": "read"
     },
     {
@@ -3206,7 +3746,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod",
-      "community": 11,
+      "community": 18,
       "norm_label": "mod.rs"
     },
     {
@@ -3216,7 +3756,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_sdrsource",
-      "community": 11,
+      "community": 18,
       "norm_label": "sdrsource"
     },
     {
@@ -3226,7 +3766,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_mod_rs_send",
-      "community": 11,
+      "community": 18,
       "norm_label": "send"
     },
     {
@@ -3236,7 +3776,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr.rs"
     },
     {
@@ -3246,7 +3786,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdrerror",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdrerror"
     },
     {
@@ -3256,7 +3796,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_dev",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr_dev"
     },
     {
@@ -3266,7 +3806,7 @@
       "source_location": "L67",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_show_devices",
-      "community": 7,
+      "community": 18,
       "norm_label": "show_devices()"
     },
     {
@@ -3276,7 +3816,7 @@
       "source_location": "L93",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_find_device_index",
-      "community": 7,
+      "community": 18,
       "norm_label": "find_device_index()"
     },
     {
@@ -3286,7 +3826,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_result",
-      "community": 7,
+      "community": 18,
       "norm_label": "result"
     },
     {
@@ -3296,7 +3836,7 @@
       "source_location": "L162",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr"
     },
     {
@@ -3306,7 +3846,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_option",
-      "community": 7,
+      "community": 18,
       "norm_label": "option"
     },
     {
@@ -3316,7 +3856,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_string",
-      "community": 7,
+      "community": 18,
       "norm_label": "string"
     },
     {
@@ -3326,7 +3866,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_vec",
-      "community": 7,
+      "community": 18,
       "norm_label": "vec"
     },
     {
@@ -3336,7 +3876,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_send",
-      "community": 7,
+      "community": 18,
       "norm_label": "send"
     },
     {
@@ -3346,7 +3886,7 @@
       "source_location": "L178",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_new",
-      "community": 7,
+      "community": 18,
       "norm_label": ".new()"
     },
     {
@@ -3356,7 +3896,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_self",
-      "community": 7,
+      "community": 18,
       "norm_label": "self"
     },
     {
@@ -3366,7 +3906,7 @@
       "source_location": "L201",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_list_devices",
-      "community": 7,
+      "community": 18,
       "norm_label": ".list_devices()"
     },
     {
@@ -3376,7 +3916,7 @@
       "source_location": "L207",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_start",
-      "community": 7,
+      "community": 18,
       "norm_label": ".start()"
     },
     {
@@ -3386,7 +3926,7 @@
       "source_location": "L325",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_stop",
-      "community": 7,
+      "community": 18,
       "norm_label": ".stop()"
     },
     {
@@ -3396,7 +3936,7 @@
       "source_location": "L334",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_set_frequency",
-      "community": 7,
+      "community": 18,
       "norm_label": ".set_frequency()"
     },
     {
@@ -3406,7 +3946,7 @@
       "source_location": "L343",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_set_sample_rate",
-      "community": 7,
+      "community": 18,
       "norm_label": ".set_sample_rate()"
     },
     {
@@ -3416,7 +3956,7 @@
       "source_location": "L351",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_set_gain",
-      "community": 7,
+      "community": 18,
       "norm_label": ".set_gain()"
     },
     {
@@ -3426,7 +3966,7 @@
       "source_location": "L385",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_read_samples",
-      "community": 7,
+      "community": 18,
       "norm_label": ".read_samples()"
     },
     {
@@ -3436,7 +3976,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rs_drop",
-      "community": 7,
+      "community": 18,
       "norm_label": "drop"
     },
     {
@@ -3446,7 +3986,7 @@
       "source_location": "L419",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_drop",
-      "community": 7,
+      "community": 18,
       "norm_label": ".drop()"
     },
     {
@@ -3456,7 +3996,7 @@
       "source_location": "L430",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_new_creates_with_null_device",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr_new_creates_with_null_device()"
     },
     {
@@ -3466,7 +4006,7 @@
       "source_location": "L439",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_new_without_device_name",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr_new_without_device_name()"
     },
     {
@@ -3476,7 +4016,7 @@
       "source_location": "L449",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_drop_null_does_not_panic",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr_drop_null_does_not_panic()"
     },
     {
@@ -3486,7 +4026,7 @@
       "source_location": "L455",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_default_send_sync",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr_default_send_sync()"
     },
     {
@@ -3496,7 +4036,7 @@
       "source_location": "L461",
       "_origin": "ast",
       "id": "dump1090_src_sdr_rtlsdr_rtlsdr_constructor_default_gains_is_empty",
-      "community": 7,
+      "community": 18,
       "norm_label": "rtlsdr_constructor_default_gains_is_empty()"
     },
     {
@@ -3826,7 +4366,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "dump1090_src_stats",
-      "community": 11,
+      "community": 7,
       "norm_label": "stats.rs"
     },
     {
@@ -3836,7 +4376,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats",
-      "community": 11,
+      "community": 7,
       "norm_label": "stats"
     },
     {
@@ -3856,7 +4396,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_stats_rs_default",
-      "community": 11,
+      "community": 7,
       "norm_label": "default"
     },
     {
@@ -3866,7 +4406,7 @@
       "source_location": "L119",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_default",
-      "community": 11,
+      "community": 7,
       "norm_label": ".default()"
     },
     {
@@ -3876,7 +4416,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_stats_rs_self",
-      "community": 11,
+      "community": 7,
       "norm_label": "self"
     },
     {
@@ -3886,7 +4426,7 @@
       "source_location": "L184",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_reset",
-      "community": 11,
+      "community": 7,
       "norm_label": ".reset()"
     },
     {
@@ -3896,7 +4436,7 @@
       "source_location": "L189",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_demod_accepted",
-      "community": 11,
+      "community": 7,
       "norm_label": ".record_demod_accepted()"
     },
     {
@@ -3906,7 +4446,7 @@
       "source_location": "L195",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_remote_accepted",
-      "community": 11,
+      "community": 7,
       "norm_label": ".record_remote_accepted()"
     },
     {
@@ -3916,7 +4456,7 @@
       "source_location": "L201",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_message",
-      "community": 11,
+      "community": 7,
       "norm_label": ".record_message()"
     },
     {
@@ -3926,7 +4466,7 @@
       "source_location": "L210",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_signal_power",
-      "community": 11,
+      "community": 7,
       "norm_label": ".record_signal_power()"
     },
     {
@@ -3936,7 +4476,7 @@
       "source_location": "L229",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_noise_power",
-      "community": 11,
+      "community": 7,
       "norm_label": ".record_noise_power()"
     },
     {
@@ -3946,7 +4486,7 @@
       "source_location": "L235",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_record_range",
-      "community": 11,
+      "community": 7,
       "norm_label": ".record_range()"
     },
     {
@@ -3956,7 +4496,7 @@
       "source_location": "L245",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_tick_second",
-      "community": 11,
+      "community": 7,
       "norm_label": ".tick_second()"
     },
     {
@@ -3966,7 +4506,7 @@
       "source_location": "L265",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_message_rate",
-      "community": 11,
+      "community": 7,
       "norm_label": ".message_rate()"
     },
     {
@@ -3976,7 +4516,7 @@
       "source_location": "L276",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_add",
-      "community": 11,
+      "community": 7,
       "norm_label": ".add()"
     },
     {
@@ -3986,7 +4526,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "display",
-      "community": 11,
+      "community": 7,
       "norm_label": "display"
     },
     {
@@ -3996,7 +4536,7 @@
       "source_location": "L434",
       "_origin": "ast",
       "id": "dump1090_src_stats_stats_fmt",
-      "community": 11,
+      "community": 7,
       "norm_label": ".fmt()"
     },
     {
@@ -4006,7 +4546,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "formatter",
-      "community": 11,
+      "community": 7,
       "norm_label": "formatter"
     },
     {
@@ -4016,8 +4556,268 @@
       "source_location": "",
       "_origin": "ast",
       "id": "dump1090_src_stats_rs_result",
-      "community": 11,
+      "community": 7,
       "norm_label": "result"
+    },
+    {
+      "label": "new_stats_are_zeroed()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L727",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_new_stats_are_zeroed",
+      "community": 7,
+      "norm_label": "new_stats_are_zeroed()"
+    },
+    {
+      "label": "add_accumulates_demod_preambles()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L744",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_accumulates_demod_preambles",
+      "community": 7,
+      "norm_label": "add_accumulates_demod_preambles()"
+    },
+    {
+      "label": "add_accumulates_demod_accepted()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L755",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_accumulates_demod_accepted",
+      "community": 7,
+      "norm_label": "add_accumulates_demod_accepted()"
+    },
+    {
+      "label": "add_accumulates_samples()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L769",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_accumulates_samples",
+      "community": 7,
+      "norm_label": "add_accumulates_samples()"
+    },
+    {
+      "label": "add_accumulates_cpr_counters()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L783",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_accumulates_cpr_counters",
+      "community": 7,
+      "norm_label": "add_accumulates_cpr_counters()"
+    },
+    {
+      "label": "add_accumulates_messages_total_and_by_df()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L800",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_accumulates_messages_total_and_by_df",
+      "community": 7,
+      "norm_label": "add_accumulates_messages_total_and_by_df()"
+    },
+    {
+      "label": "add_accumulates_adaptive_gain_seconds()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L817",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_accumulates_adaptive_gain_seconds",
+      "community": 7,
+      "norm_label": "add_accumulates_adaptive_gain_seconds()"
+    },
+    {
+      "label": "add_merges_start_ms()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L831",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_merges_start_ms",
+      "community": 7,
+      "norm_label": "add_merges_start_ms()"
+    },
+    {
+      "label": "add_takes_newer_rate_state()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L844",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_takes_newer_rate_state",
+      "community": 7,
+      "norm_label": "add_takes_newer_rate_state()"
+    },
+    {
+      "label": "add_peak_signal_power_takes_max()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L857",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_add_peak_signal_power_takes_max",
+      "community": 7,
+      "norm_label": "add_peak_signal_power_takes_max()"
+    },
+    {
+      "label": "record_demod_accepted_clamps_bit_errors()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L867",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_record_demod_accepted_clamps_bit_errors",
+      "community": 7,
+      "norm_label": "record_demod_accepted_clamps_bit_errors()"
+    },
+    {
+      "label": "record_message_increments_total_and_df()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L879",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_record_message_increments_total_and_df",
+      "community": 7,
+      "norm_label": "record_message_increments_total_and_df()"
+    },
+    {
+      "label": "record_message_out_of_range_df_ignored()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L890",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_record_message_out_of_range_df_ignored",
+      "community": 7,
+      "norm_label": "record_message_out_of_range_df_ignored()"
+    },
+    {
+      "label": "record_signal_power_increments_count()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L898",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_record_signal_power_increments_count",
+      "community": 7,
+      "norm_label": "record_signal_power_increments_count()"
+    },
+    {
+      "label": "record_signal_power_strong_signal()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L907",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_record_signal_power_strong_signal",
+      "community": 7,
+      "norm_label": "record_signal_power_strong_signal()"
+    },
+    {
+      "label": "record_noise_power_accumulates()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L916",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_record_noise_power_accumulates",
+      "community": 7,
+      "norm_label": "record_noise_power_accumulates()"
+    },
+    {
+      "label": "record_range_clamps_and_increments()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L925",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_record_range_clamps_and_increments",
+      "community": 7,
+      "norm_label": "record_range_clamps_and_increments()"
+    },
+    {
+      "label": "tick_second_advances_history()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L934",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_tick_second_advances_history",
+      "community": 7,
+      "norm_label": "tick_second_advances_history()"
+    },
+    {
+      "label": "message_rate_non_zero()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L946",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_message_rate_non_zero",
+      "community": 7,
+      "norm_label": "message_rate_non_zero()"
+    },
+    {
+      "label": "message_rate_zero_when_no_history()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L954",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_message_rate_zero_when_no_history",
+      "community": 7,
+      "norm_label": "message_rate_zero_when_no_history()"
+    },
+    {
+      "label": "display_contains_expected_fields()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L960",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_display_contains_expected_fields",
+      "community": 7,
+      "norm_label": "display_contains_expected_fields()"
+    },
+    {
+      "label": "display_shows_counters_when_set()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L972",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_display_shows_counters_when_set",
+      "community": 7,
+      "norm_label": "display_shows_counters_when_set()"
+    },
+    {
+      "label": "display_noise_power_dash_when_zero()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L992",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_display_noise_power_dash_when_zero",
+      "community": 7,
+      "norm_label": "display_noise_power_dash_when_zero()"
+    },
+    {
+      "label": "display_shows_noise_power_when_set()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1001",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_display_shows_noise_power_when_set",
+      "community": 7,
+      "norm_label": "display_shows_noise_power_when_set()"
+    },
+    {
+      "label": "reset_returns_to_default()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1013",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_reset_returns_to_default",
+      "community": 7,
+      "norm_label": "reset_returns_to_default()"
+    },
+    {
+      "label": "large_values_accumulate()",
+      "file_type": "code",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1025",
+      "_origin": "ast",
+      "id": "dump1090_src_stats_large_values_accumulate",
+      "community": 7,
+      "norm_label": "large_values_accumulate()"
     },
     {
       "label": "track.rs",
@@ -4128,6 +4928,76 @@
       "id": "dump1090_src_track_tracker_is_empty",
       "community": 32,
       "norm_label": ".is_empty()"
+    },
+    {
+      "label": "make_msg()",
+      "file_type": "code",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L60",
+      "_origin": "ast",
+      "id": "dump1090_src_track_make_msg",
+      "community": 32,
+      "norm_label": "make_msg()"
+    },
+    {
+      "label": "new_creates_empty_tracker()",
+      "file_type": "code",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L69",
+      "_origin": "ast",
+      "id": "dump1090_src_track_new_creates_empty_tracker",
+      "community": 32,
+      "norm_label": "new_creates_empty_tracker()"
+    },
+    {
+      "label": "update_from_message_creates_entry()",
+      "file_type": "code",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L76",
+      "_origin": "ast",
+      "id": "dump1090_src_track_update_from_message_creates_entry",
+      "community": 32,
+      "norm_label": "update_from_message_creates_entry()"
+    },
+    {
+      "label": "update_from_message_increments_msg_count()",
+      "file_type": "code",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L87",
+      "_origin": "ast",
+      "id": "dump1090_src_track_update_from_message_increments_msg_count",
+      "community": 32,
+      "norm_label": "update_from_message_increments_msg_count()"
+    },
+    {
+      "label": "update_from_message_updates_last_seen()",
+      "file_type": "code",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L98",
+      "_origin": "ast",
+      "id": "dump1090_src_track_update_from_message_updates_last_seen",
+      "community": 32,
+      "norm_label": "update_from_message_updates_last_seen()"
+    },
+    {
+      "label": "multiple_aircraft_tracked_separately()",
+      "file_type": "code",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L106",
+      "_origin": "ast",
+      "id": "dump1090_src_track_multiple_aircraft_tracked_separately",
+      "community": 32,
+      "norm_label": "multiple_aircraft_tracked_separately()"
+    },
+    {
+      "label": "default_equals_new()",
+      "file_type": "code",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L117",
+      "_origin": "ast",
+      "id": "dump1090_src_track_default_equals_new",
+      "community": 32,
+      "norm_label": "default_equals_new()"
     },
     {
       "label": "util.rs",
@@ -7396,7 +8266,7 @@
       "source_location": "L636",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_sat_los",
-      "community": 79,
+      "community": 9,
       "norm_label": "embed_sat_los()"
     },
     {
@@ -7406,7 +8276,7 @@
       "source_location": "L649",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_sat_upcoming",
-      "community": 9,
+      "community": 79,
       "norm_label": "embed_sat_upcoming()"
     },
     {
@@ -7426,7 +8296,7 @@
       "source_location": "L706",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_recording_stopped",
-      "community": 9,
+      "community": 79,
       "norm_label": "embed_recording_stopped()"
     },
     {
@@ -7436,7 +8306,7 @@
       "source_location": "L733",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_recording_error",
-      "community": 79,
+      "community": 9,
       "norm_label": "embed_recording_error()"
     },
     {
@@ -7826,7 +8696,7 @@
       "source_location": "L1168",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_recording_stopped_builds_correctly",
-      "community": 9,
+      "community": 79,
       "norm_label": "embed_recording_stopped_builds_correctly()"
     },
     {
@@ -7836,7 +8706,7 @@
       "source_location": "L1186",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_recording_error_builds_correctly",
-      "community": 79,
+      "community": 9,
       "norm_label": "embed_recording_error_builds_correctly()"
     },
     {
@@ -7886,7 +8756,7 @@
       "source_location": "L1237",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_sat_los_builds_correctly",
-      "community": 79,
+      "community": 9,
       "norm_label": "embed_sat_los_builds_correctly()"
     },
     {
@@ -7896,7 +8766,7 @@
       "source_location": "L1244",
       "_origin": "ast",
       "id": "ez_gui_src_discord_embed_sat_upcoming_builds_correctly",
-      "community": 9,
+      "community": 79,
       "norm_label": "embed_sat_upcoming_builds_correctly()"
     },
     {
@@ -8400,6 +9270,126 @@
       "norm_label": ".section_troubleshooting()"
     },
     {
+      "label": "empty_query_returns_empty()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2775",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_empty_query_returns_empty",
+      "community": 4,
+      "norm_label": "empty_query_returns_empty()"
+    },
+    {
+      "label": "matches_section_title()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2780",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_matches_section_title",
+      "community": 4,
+      "norm_label": "matches_section_title()"
+    },
+    {
+      "label": "matches_section_title_partial()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2786",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_matches_section_title_partial",
+      "community": 4,
+      "norm_label": "matches_section_title_partial()"
+    },
+    {
+      "label": "matches_keyword()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2792",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_matches_keyword",
+      "community": 4,
+      "norm_label": "matches_keyword()"
+    },
+    {
+      "label": "matches_keyword_partial()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2798",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_matches_keyword_partial",
+      "community": 4,
+      "norm_label": "matches_keyword_partial()"
+    },
+    {
+      "label": "case_insensitive_section_title()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2804",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_case_insensitive_section_title",
+      "community": 4,
+      "norm_label": "case_insensitive_section_title()"
+    },
+    {
+      "label": "case_insensitive_keyword()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2814",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_case_insensitive_keyword",
+      "community": 4,
+      "norm_label": "case_insensitive_keyword()"
+    },
+    {
+      "label": "no_match_returns_empty()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2824",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_no_match_returns_empty",
+      "community": 4,
+      "norm_label": "no_match_returns_empty()"
+    },
+    {
+      "label": "keyword_with_multiple_sections()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2830",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_keyword_with_multiple_sections",
+      "community": 4,
+      "norm_label": "keyword_with_multiple_sections()"
+    },
+    {
+      "label": "query_matches_multiple_sections_via_title()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2836",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_query_matches_multiple_sections_via_title",
+      "community": 4,
+      "norm_label": "query_matches_multiple_sections_via_title()"
+    },
+    {
+      "label": "keyword_contains_query()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2845",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_keyword_contains_query",
+      "community": 4,
+      "norm_label": "keyword_contains_query()"
+    },
+    {
+      "label": "query_contains_keyword()",
+      "file_type": "code",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2851",
+      "_origin": "ast",
+      "id": "ez_gui_src_howto_panel_query_contains_keyword",
+      "community": 4,
+      "norm_label": "query_contains_keyword()"
+    },
+    {
       "label": "main.rs",
       "file_type": "code",
       "source_file": "ez-gui/src/main.rs",
@@ -8436,7 +9426,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt.rs"
     },
     {
@@ -8446,7 +9436,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqttpublisher"
     },
     {
@@ -8456,7 +9446,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_string",
-      "community": 76,
+      "community": 10,
       "norm_label": "string"
     },
     {
@@ -8466,7 +9456,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_option",
-      "community": 76,
+      "community": 10,
       "norm_label": "option"
     },
     {
@@ -8476,7 +9466,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_arc",
-      "community": 76,
+      "community": 10,
       "norm_label": "arc"
     },
     {
@@ -8486,7 +9476,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_atomicbool",
-      "community": 76,
+      "community": 10,
       "norm_label": "atomicbool"
     },
     {
@@ -8496,7 +9486,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_instant",
-      "community": 76,
+      "community": 10,
       "norm_label": "instant"
     },
     {
@@ -8506,7 +9496,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_new",
-      "community": 76,
+      "community": 10,
       "norm_label": ".new()"
     },
     {
@@ -8516,7 +9506,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_rs_self",
-      "community": 76,
+      "community": 10,
       "norm_label": "self"
     },
     {
@@ -8526,7 +9516,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_set_enabled",
-      "community": 76,
+      "community": 10,
       "norm_label": ".set_enabled()"
     },
     {
@@ -8536,7 +9526,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_connect",
-      "community": 76,
+      "community": 10,
       "norm_label": ".connect()"
     },
     {
@@ -8546,7 +9536,7 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_disconnect",
-      "community": 76,
+      "community": 10,
       "norm_label": ".disconnect()"
     },
     {
@@ -8556,7 +9546,7 @@
       "source_location": "L74",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_is_connected",
-      "community": 76,
+      "community": 10,
       "norm_label": ".is_connected()"
     },
     {
@@ -8566,7 +9556,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_reconnect_in_secs",
-      "community": 76,
+      "community": 10,
       "norm_label": ".reconnect_in_secs()"
     },
     {
@@ -8576,7 +9566,7 @@
       "source_location": "L84",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick_reconnect",
-      "community": 76,
+      "community": 10,
       "norm_label": ".tick_reconnect()"
     },
     {
@@ -8586,7 +9576,7 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish()"
     },
     {
@@ -8596,7 +9586,7 @@
       "source_location": "L111",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_tick",
-      "community": 76,
+      "community": 10,
       "norm_label": ".tick()"
     },
     {
@@ -8606,7 +9596,7 @@
       "source_location": "L121",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_signal",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish_signal()"
     },
     {
@@ -8616,7 +9606,7 @@
       "source_location": "L142",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_scanner_hit",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish_scanner_hit()"
     },
     {
@@ -8626,7 +9616,7 @@
       "source_location": "L152",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_aircraft",
-      "community": 76,
+      "community": 2,
       "norm_label": ".publish_aircraft()"
     },
     {
@@ -8636,7 +9626,7 @@
       "source_location": "L168",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqttpublisher_publish_passes",
-      "community": 76,
+      "community": 10,
       "norm_label": ".publish_passes()"
     },
     {
@@ -8646,7 +9636,7 @@
       "source_location": "L188",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_new_defaults_disabled",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_new_defaults_disabled()"
     },
     {
@@ -8656,7 +9646,7 @@
       "source_location": "L197",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_new_not_connected",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_new_not_connected()"
     },
     {
@@ -8666,7 +9656,7 @@
       "source_location": "L203",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_new_no_reconnect",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_new_no_reconnect()"
     },
     {
@@ -8676,7 +9666,7 @@
       "source_location": "L209",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_set_enabled_disabled_noop",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_set_enabled_disabled_noop()"
     },
     {
@@ -8686,7 +9676,7 @@
       "source_location": "L218",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_publish_without_client_no_crash",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_publish_without_client_no_crash()"
     },
     {
@@ -8696,7 +9686,7 @@
       "source_location": "L227",
       "_origin": "ast",
       "id": "ez_gui_src_mqtt_mqtt_is_connected_requires_enabled_and_client",
-      "community": 76,
+      "community": 10,
       "norm_label": "mqtt_is_connected_requires_enabled_and_client()"
     },
     {
@@ -9676,7 +10666,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler",
-      "community": 10,
+      "community": 0,
       "norm_label": "scheduler.rs"
     },
     {
@@ -9686,7 +10676,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler",
-      "community": 10,
+      "community": 0,
       "norm_label": "scheduler"
     },
     {
@@ -9696,7 +10686,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_vec",
-      "community": 10,
+      "community": 0,
       "norm_label": "vec"
     },
     {
@@ -9706,7 +10696,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduledjob",
-      "community": 10,
+      "community": 0,
       "norm_label": "scheduledjob"
     },
     {
@@ -9716,7 +10706,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_string",
-      "community": 10,
+      "community": 0,
       "norm_label": "string"
     },
     {
@@ -9726,7 +10716,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_customtask",
-      "community": 10,
+      "community": 0,
       "norm_label": "customtask"
     },
     {
@@ -9736,7 +10726,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_new",
-      "community": 10,
+      "community": 0,
       "norm_label": ".new()"
     },
     {
@@ -9746,7 +10736,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_self",
-      "community": 10,
+      "community": 0,
       "norm_label": "self"
     },
     {
@@ -9766,7 +10756,7 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_active_job",
-      "community": 10,
+      "community": 0,
       "norm_label": ".active_job()"
     },
     {
@@ -9776,7 +10766,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_rs_option",
-      "community": 10,
+      "community": 0,
       "norm_label": "option"
     },
     {
@@ -9786,7 +10776,7 @@
       "source_location": "L64",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_scheduler_poll_custom_tasks",
-      "community": 10,
+      "community": 0,
       "norm_label": ".poll_custom_tasks()"
     },
     {
@@ -9796,7 +10786,7 @@
       "source_location": "L80",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_new_scheduler_starts_empty",
-      "community": 10,
+      "community": 0,
       "norm_label": "new_scheduler_starts_empty()"
     },
     {
@@ -9806,7 +10796,7 @@
       "source_location": "L88",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_returns_none_when_disabled",
-      "community": 10,
+      "community": 0,
       "norm_label": "active_job_returns_none_when_disabled()"
     },
     {
@@ -9816,7 +10806,7 @@
       "source_location": "L102",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_make_scheduler",
-      "community": 10,
+      "community": 0,
       "norm_label": "make_scheduler()"
     },
     {
@@ -9826,7 +10816,7 @@
       "source_location": "L116",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_finds_job_in_window",
-      "community": 10,
+      "community": 0,
       "norm_label": "active_job_finds_job_in_window()"
     },
     {
@@ -9836,7 +10826,7 @@
       "source_location": "L124",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_returns_none_outside_window",
-      "community": 10,
+      "community": 0,
       "norm_label": "active_job_returns_none_outside_window()"
     },
     {
@@ -9846,7 +10836,7 @@
       "source_location": "L133",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_active_job_prefers_first_match",
-      "community": 10,
+      "community": 0,
       "norm_label": "active_job_prefers_first_match()"
     },
     {
@@ -9856,7 +10846,7 @@
       "source_location": "L157",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_returns_pending",
-      "community": 10,
+      "community": 0,
       "norm_label": "poll_custom_tasks_returns_pending()"
     },
     {
@@ -9866,7 +10856,7 @@
       "source_location": "L170",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_skips_fired",
-      "community": 10,
+      "community": 0,
       "norm_label": "poll_custom_tasks_skips_fired()"
     },
     {
@@ -9876,7 +10866,7 @@
       "source_location": "L182",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_not_yet_due",
-      "community": 10,
+      "community": 0,
       "norm_label": "poll_custom_tasks_not_yet_due()"
     },
     {
@@ -9886,7 +10876,7 @@
       "source_location": "L194",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_poll_custom_tasks_marks_as_fired",
-      "community": 10,
+      "community": 0,
       "norm_label": "poll_custom_tasks_marks_as_fired()"
     },
     {
@@ -9896,7 +10886,7 @@
       "source_location": "L208",
       "_origin": "ast",
       "id": "ez_gui_src_scheduler_update_from_passes_populates_jobs",
-      "community": 10,
+      "community": 0,
       "norm_label": "update_from_passes_populates_jobs()"
     },
     {
@@ -13733,7 +14723,7 @@
       "label": "Technical Debt / Cleanup",
       "file_type": "document",
       "source_file": "as.md",
-      "source_location": "L31",
+      "source_location": "L35",
       "_origin": "ast",
       "id": "as_technical_debt_cleanup",
       "community": 29,
@@ -13743,7 +14733,7 @@
       "label": "Documentation",
       "file_type": "document",
       "source_file": "as.md",
-      "source_location": "L39",
+      "source_location": "L43",
       "_origin": "ast",
       "id": "as_documentation",
       "community": 29,
@@ -13753,7 +14743,7 @@
       "label": "CI / Infrastructure",
       "file_type": "document",
       "source_file": "as.md",
-      "source_location": "L44",
+      "source_location": "L48",
       "_origin": "ast",
       "id": "as_ci_infrastructure",
       "community": 29,
@@ -16931,6 +17921,36 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1227",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_magnitude_sc16_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1236",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_magnitude_sc16q11_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1218",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_magnitude_uc8_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
       "source_location": "L437",
       "weight": 1.0,
       "source": "dump1090_src_demod",
@@ -17041,7 +18061,37 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1232",
+      "source_location": "L1583",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_apply_bit_errors",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1677",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_correct_message_all_zeros_short",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1668",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_correct_message_already_valid_short",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1263",
       "weight": 1.0,
       "source": "dump1090_src_demod",
       "target": "dump1090_src_demod_test_generate_damage_set",
@@ -17051,7 +18101,227 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1255",
+      "source_location": "L1492",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_generate_damage_set_all_ones",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1504",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_generate_damage_set_expected_positions",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1466",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_generate_damage_set_includes_original",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1459",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_generate_damage_set_zero_damage",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1481",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_generate_damage_set_zero_df",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1351",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_sc16_sample_known",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1346",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_sc16_sample_max",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1341",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_sc16_sample_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1367",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_sc16q11_sample_known",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1362",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_sc16q11_sample_max",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1357",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_sc16q11_sample_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1410",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_slice_sc16_matches_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1430",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_slice_sc16q11_matches_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1390",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_slice_uc8_matches_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1377",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_slice_uc8_sample_count",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1331",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_uc8_sample_clamped",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1336",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_uc8_sample_known",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1326",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_uc8_sample_max",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1321",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_magnitude_uc8_sample_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1571",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_mode_s_message_len_long",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1559",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_mode_s_message_len_short",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1600",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_receiveclock_ms_elapsed_simple",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1286",
       "weight": 1.0,
       "source": "dump1090_src_demod",
       "target": "dump1090_src_demod_test_sc16_magnitude",
@@ -17061,7 +18331,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1270",
+      "source_location": "L1301",
       "weight": 1.0,
       "source": "dump1090_src_demod",
       "target": "dump1090_src_demod_test_sc16q11_magnitude",
@@ -17071,7 +18341,27 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1218",
+      "source_location": "L1653",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_single_bit_syndrome_known_properties",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1545",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_slice_phase_constant_input_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1249",
       "weight": 1.0,
       "source": "dump1090_src_demod",
       "target": "dump1090_src_demod_test_slice_phase_dc_invariant",
@@ -17081,10 +18371,110 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1244",
+      "source_location": "L1515",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_slice_phase_phase0_result",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1521",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_slice_phase_phase1_result",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1527",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_slice_phase_phase2_result",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1533",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_slice_phase_phase3_result",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1539",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_slice_phase_phase4_result",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1275",
       "weight": 1.0,
       "source": "dump1090_src_demod",
       "target": "dump1090_src_demod_test_uc8_magnitude",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1627",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_valid_df_long_no_fix",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1638",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_valid_df_long_with_df24",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1646",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_valid_df_long_with_fix",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1608",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_valid_df_short_no_fix",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1618",
+      "weight": 1.0,
+      "source": "dump1090_src_demod",
+      "target": "dump1090_src_demod_test_valid_df_short_with_fix",
       "confidence_score": 1.0
     },
     {
@@ -17116,6 +18506,28 @@
       "context": "import",
       "source": "dump1090_src_demod",
       "target": "dump1090_src_icao_filter_icaofilter",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/main.rs",
+      "source_location": "L22",
+      "weight": 1.0,
+      "context": "import",
+      "source": "dump1090_src_main",
+      "target": "dump1090_src_demod",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/adsb_decoder.rs",
+      "source_location": "L2",
+      "weight": 1.0,
+      "context": "import",
+      "source": "ez_gui_src_adsb_decoder",
+      "target": "dump1090_src_demod",
       "confidence_score": 1.0
     },
     {
@@ -17276,10 +18688,21 @@
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/track.rs",
-      "source_location": "L3",
+      "source_location": "L58",
       "weight": 1.0,
       "context": "import",
       "source": "dump1090_src_track",
+      "target": "dump1090_src_demod_modesmessage",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L60",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "dump1090_src_track_make_msg",
       "target": "dump1090_src_demod_modesmessage",
       "confidence_score": 1.0
     },
@@ -17376,9 +18799,31 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1654",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_single_bit_syndrome_known_properties",
+      "target": "dump1090_src_demod_single_bit_syndrome",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
       "source_location": "L226",
       "weight": 1.0,
       "source": "dump1090_src_demod_correct_message",
+      "target": "dump1090_src_demod_apply_bit_errors",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1586",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_apply_bit_errors",
       "target": "dump1090_src_demod_apply_bit_errors",
       "confidence_score": 1.0
     },
@@ -17401,6 +18846,28 @@
       "source_location": "L290",
       "weight": 1.0,
       "source": "dump1090_src_demod_score_mode_s_message",
+      "target": "dump1090_src_demod_correct_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1679",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_correct_message_all_zeros_short",
+      "target": "dump1090_src_demod_correct_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1672",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_correct_message_already_valid_short",
       "target": "dump1090_src_demod_correct_message",
       "confidence_score": 1.0
     },
@@ -17596,6 +19063,28 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1609",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_valid_df_short_no_fix",
+      "target": "dump1090_src_demod_valid_df_short",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1619",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_valid_df_short_with_fix",
+      "target": "dump1090_src_demod_valid_df_short",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
       "source_location": "L552",
       "weight": 1.0,
       "source": "dump1090_src_demod_valid_df_short",
@@ -17629,6 +19118,39 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1628",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_valid_df_long_no_fix",
+      "target": "dump1090_src_demod_valid_df_long",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1639",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_valid_df_long_with_df24",
+      "target": "dump1090_src_demod_valid_df_long",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1647",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_valid_df_long_with_fix",
+      "target": "dump1090_src_demod_valid_df_long",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
       "source_location": "L571",
       "weight": 1.0,
       "source": "dump1090_src_demod_valid_df_long",
@@ -17640,9 +19162,64 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1234",
+      "source_location": "L1265",
       "weight": 1.0,
       "source": "dump1090_src_demod_test_generate_damage_set",
+      "target": "dump1090_src_demod_generate_damage_set",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1493",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_generate_damage_set_all_ones",
+      "target": "dump1090_src_demod_generate_damage_set",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1505",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_generate_damage_set_expected_positions",
+      "target": "dump1090_src_demod_generate_damage_set",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1469",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_generate_damage_set_includes_original",
+      "target": "dump1090_src_demod_generate_damage_set",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1460",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_generate_damage_set_zero_damage",
+      "target": "dump1090_src_demod_generate_damage_set",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1482",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_generate_damage_set_zero_df",
       "target": "dump1090_src_demod_generate_damage_set",
       "confidence_score": 1.0
     },
@@ -17876,7 +19453,29 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1247",
+      "source_location": "L1398",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_magnitude_slice_uc8_matches_sample",
+      "target": "dump1090_src_demod_compute_magnitude_uc8",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1380",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_magnitude_slice_uc8_sample_count",
+      "target": "dump1090_src_demod_compute_magnitude_uc8",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1278",
       "weight": 1.0,
       "source": "dump1090_src_demod_test_uc8_magnitude",
       "target": "dump1090_src_demod_compute_magnitude_uc8",
@@ -17887,7 +19486,18 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1262",
+      "source_location": "L1418",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_magnitude_slice_sc16_matches_sample",
+      "target": "dump1090_src_demod_compute_magnitude_sc16",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1293",
       "weight": 1.0,
       "source": "dump1090_src_demod_test_sc16_magnitude",
       "target": "dump1090_src_demod_compute_magnitude_sc16",
@@ -17898,10 +19508,53 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/demod.rs",
-      "source_location": "L1278",
+      "source_location": "L1443",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_magnitude_slice_sc16q11_matches_sample",
+      "target": "dump1090_src_demod_compute_magnitude_sc16q11",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1309",
       "weight": 1.0,
       "source": "dump1090_src_demod_test_sc16q11_magnitude",
       "target": "dump1090_src_demod_compute_magnitude_sc16q11",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1352",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_magnitude_sc16_sample_known",
+      "target": "dump1090_src_demod_magnitude_sc16_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/demod.rs",
+      "source_location": "L1368",
+      "weight": 1.0,
+      "source": "dump1090_src_demod_test_magnitude_sc16q11_sample_known",
+      "target": "dump1090_src_demod_magnitude_sc16q11_sample",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L201",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_capacity_exceeded_returns_item",
       "confidence_score": 1.0
     },
     {
@@ -17918,10 +19571,80 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L189",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_fifo_ordering",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L216",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_halt_wakes_waiters_and_clears_queue",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
       "source_location": "L7",
       "weight": 1.0,
       "source": "dump1090_src_fifo",
       "target": "dump1090_src_fifo_inner",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L177",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_multiple_items_in_sequence",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L149",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_new_creates_empty_fifo",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L165",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_pop_blocks_until_item_available",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L210",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_pop_empty_nonblocking_returns_none",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L157",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo",
+      "target": "dump1090_src_fifo_push_then_pop_returns_item",
       "confidence_score": 1.0
     },
     {
@@ -17933,6 +19656,17 @@
       "context": "import",
       "source": "dump1090_src_fifo",
       "target": "dump1090_src_fifo_rs_vecdeque",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L146",
+      "weight": 1.0,
+      "context": "import",
+      "source": "dump1090_src_fifo",
+      "target": "duration",
       "confidence_score": 1.0
     },
     {
@@ -18083,6 +19817,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L202",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_capacity_exceeded_returns_item",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/fifo.rs",
@@ -18094,6 +19839,94 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L190",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_fifo_ordering",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L217",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_halt_wakes_waiters_and_clears_queue",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L178",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_multiple_items_in_sequence",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L150",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_new_creates_empty_fifo",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L166",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_pop_blocks_until_item_available",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L211",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_pop_empty_nonblocking_returns_none",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L158",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_push_then_pop_returns_item",
+      "target": "dump1090_src_fifo_fifo_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L205",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_capacity_exceeded_returns_item",
+      "target": "dump1090_src_fifo_fifo_push",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/fifo.rs",
@@ -18102,6 +19935,17 @@
       "context": "return_type",
       "source": "dump1090_src_fifo_fifo_push",
       "target": "dump1090_src_fifo_rs_option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L170",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_pop_blocks_until_item_available",
+      "target": "dump1090_src_fifo_fifo_push",
       "confidence_score": 1.0
     },
     {
@@ -18124,6 +19968,28 @@
       "weight": 1.0,
       "source": "dump1090_src_fifo_fifo_pop",
       "target": "dump1090_src_fifo_fifo_is_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L172",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_pop_blocks_until_item_available",
+      "target": "dump1090_src_fifo_fifo_pop",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/fifo.rs",
+      "source_location": "L220",
+      "weight": 1.0,
+      "source": "dump1090_src_fifo_halt_wakes_waiters_and_clears_queue",
+      "target": "dump1090_src_fifo_fifo_halt",
       "confidence_score": 1.0
     },
     {
@@ -18464,17 +20330,6 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "dump1090/src/main.rs",
-      "source_location": "L22",
-      "weight": 1.0,
-      "context": "import",
-      "source": "dump1090_src_main",
-      "target": "ez_gui_src_demod",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/main.rs",
@@ -18786,9 +20641,113 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/mode_ac.rs",
-      "source_location": "L6",
+      "source_location": "L76",
       "weight": 1.0,
       "source": "dump1090_src_mode_ac",
+      "target": "dump1090_src_mode_ac_mode_a_to_mode_c",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L138",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac",
+      "target": "dump1090_src_mode_ac_mode_c_altitude_ground_level",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L145",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac",
+      "target": "dump1090_src_mode_ac_mode_c_altitude_lower_bound",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L158",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac",
+      "target": "dump1090_src_mode_ac_mode_c_known_good_example",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L152",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac",
+      "target": "dump1090_src_mode_ac_mode_c_returns_none_for_out_of_range",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L129",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac",
+      "target": "dump1090_src_mode_ac_mode_c_round_trip",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L9",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac",
+      "target": "dump1090_src_mode_ac_mode_c_to_mode_a",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L139",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac_mode_c_altitude_ground_level",
+      "target": "dump1090_src_mode_ac_mode_c_to_mode_a",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L147",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac_mode_c_altitude_lower_bound",
+      "target": "dump1090_src_mode_ac_mode_c_to_mode_a",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L160",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac_mode_c_known_good_example",
+      "target": "dump1090_src_mode_ac_mode_c_to_mode_a",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L131",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac_mode_c_round_trip",
       "target": "dump1090_src_mode_ac_mode_c_to_mode_a",
       "confidence_score": 1.0
     },
@@ -18796,11 +20755,44 @@
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/mode_ac.rs",
-      "source_location": "L6",
+      "source_location": "L9",
       "weight": 1.0,
       "context": "return_type",
       "source": "dump1090_src_mode_ac_mode_c_to_mode_a",
       "target": "dump1090_src_mode_ac_rs_option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L76",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "dump1090_src_mode_ac_mode_a_to_mode_c",
+      "target": "dump1090_src_mode_ac_rs_option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L140",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac_mode_c_altitude_ground_level",
+      "target": "dump1090_src_mode_ac_mode_a_to_mode_c",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/mode_ac.rs",
+      "source_location": "L132",
+      "weight": 1.0,
+      "source": "dump1090_src_mode_ac_mode_c_round_trip",
+      "target": "dump1090_src_mode_ac_mode_a_to_mode_c",
       "confidence_score": 1.0
     },
     {
@@ -21887,10 +23879,270 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/stats.rs",
+      "source_location": "L817",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_accumulates_adaptive_gain_seconds",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L783",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_accumulates_cpr_counters",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L755",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_accumulates_demod_accepted",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L744",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_accumulates_demod_preambles",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L800",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_accumulates_messages_total_and_by_df",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L769",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_accumulates_samples",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L831",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_merges_start_ms",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L857",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_peak_signal_power_takes_max",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L844",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_add_takes_newer_rate_state",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L960",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_display_contains_expected_fields",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L992",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_display_noise_power_dash_when_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L972",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_display_shows_counters_when_set",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1001",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_display_shows_noise_power_when_set",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1025",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_large_values_accumulate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L946",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_message_rate_non_zero",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L954",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_message_rate_zero_when_no_history",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L727",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_new_stats_are_zeroed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L867",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_record_demod_accepted_clamps_bit_errors",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L879",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_record_message_increments_total_and_df",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L890",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_record_message_out_of_range_df_ignored",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L916",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_record_noise_power_accumulates",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L925",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_record_range_clamps_and_increments",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L898",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_record_signal_power_increments_count",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L907",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_record_signal_power_strong_signal",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1013",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_reset_returns_to_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
       "source_location": "L33",
       "weight": 1.0,
       "source": "dump1090_src_stats",
       "target": "dump1090_src_stats_stats",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L934",
+      "weight": 1.0,
+      "source": "dump1090_src_stats",
+      "target": "dump1090_src_stats_tick_second_advances_history",
       "confidence_score": 1.0
     },
     {
@@ -22067,6 +24319,281 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L818",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_adaptive_gain_seconds",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L784",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_cpr_counters",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L756",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_demod_accepted",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L745",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_demod_preambles",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L801",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_messages_total_and_by_df",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L770",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_samples",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L832",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_merges_start_ms",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L858",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_peak_signal_power_takes_max",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L845",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_takes_newer_rate_state",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L961",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_display_contains_expected_fields",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L993",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_display_noise_power_dash_when_zero",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L973",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_display_shows_counters_when_set",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1002",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_display_shows_noise_power_when_set",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1026",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_large_values_accumulate",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L947",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_message_rate_non_zero",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L955",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_message_rate_zero_when_no_history",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L728",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_new_stats_are_zeroed",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L868",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_demod_accepted_clamps_bit_errors",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L880",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_message_increments_total_and_df",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L891",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_message_out_of_range_df_ignored",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L917",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_noise_power_accumulates",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L926",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_range_clamps_and_increments",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L899",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_signal_power_increments_count",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L908",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_signal_power_strong_signal",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1014",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_reset_returns_to_default",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/stats.rs",
@@ -22089,6 +24616,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L935",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_tick_second_advances_history",
+      "target": "dump1090_src_stats_stats_default",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/stats.rs",
@@ -22097,6 +24635,226 @@
       "context": "parameter_type",
       "source": "dump1090_src_stats_stats_add",
       "target": "dump1090_src_stats_rs_self",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1018",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_reset_returns_to_default",
+      "target": "dump1090_src_stats_stats_reset",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L869",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_demod_accepted_clamps_bit_errors",
+      "target": "dump1090_src_stats_stats_record_demod_accepted",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L881",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_message_increments_total_and_df",
+      "target": "dump1090_src_stats_stats_record_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L892",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_message_out_of_range_df_ignored",
+      "target": "dump1090_src_stats_stats_record_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L936",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_tick_second_advances_history",
+      "target": "dump1090_src_stats_stats_record_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L900",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_signal_power_increments_count",
+      "target": "dump1090_src_stats_stats_record_signal_power",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L909",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_signal_power_strong_signal",
+      "target": "dump1090_src_stats_stats_record_signal_power",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L918",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_noise_power_accumulates",
+      "target": "dump1090_src_stats_stats_record_noise_power",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L927",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_record_range_clamps_and_increments",
+      "target": "dump1090_src_stats_stats_record_range",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L938",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_tick_second_advances_history",
+      "target": "dump1090_src_stats_stats_tick_second",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L822",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_adaptive_gain_seconds",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L791",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_cpr_counters",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L760",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_demod_accepted",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L748",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_demod_preambles",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L806",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_messages_total_and_by_df",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L774",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_accumulates_samples",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L838",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_merges_start_ms",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L862",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_peak_signal_power_takes_max",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L851",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_add_takes_newer_rate_state",
+      "target": "dump1090_src_stats_stats_add",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/stats.rs",
+      "source_location": "L1032",
+      "weight": 1.0,
+      "source": "dump1090_src_stats_large_values_accumulate",
+      "target": "dump1090_src_stats_stats_add",
       "confidence_score": 1.0
     },
     {
@@ -22132,6 +24890,46 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L117",
+      "weight": 1.0,
+      "source": "dump1090_src_track",
+      "target": "dump1090_src_track_default_equals_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L60",
+      "weight": 1.0,
+      "source": "dump1090_src_track",
+      "target": "dump1090_src_track_make_msg",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L106",
+      "weight": 1.0,
+      "source": "dump1090_src_track",
+      "target": "dump1090_src_track_multiple_aircraft_tracked_separately",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L69",
+      "weight": 1.0,
+      "source": "dump1090_src_track",
+      "target": "dump1090_src_track_new_creates_empty_tracker",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/track.rs",
@@ -22150,6 +24948,36 @@
       "weight": 1.0,
       "source": "dump1090_src_track",
       "target": "dump1090_src_track_tracker",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L76",
+      "weight": 1.0,
+      "source": "dump1090_src_track",
+      "target": "dump1090_src_track_update_from_message_creates_entry",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L87",
+      "weight": 1.0,
+      "source": "dump1090_src_track",
+      "target": "dump1090_src_track_update_from_message_increments_msg_count",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L98",
+      "weight": 1.0,
+      "source": "dump1090_src_track",
+      "target": "dump1090_src_track_update_from_message_updates_last_seen",
       "confidence_score": 1.0
     },
     {
@@ -22235,6 +25063,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L64",
+      "weight": 1.0,
+      "source": "dump1090_src_track_make_msg",
+      "target": "dump1090_src_track_tracker_default",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/track.rs",
@@ -22268,6 +25107,149 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L107",
+      "weight": 1.0,
+      "source": "dump1090_src_track_multiple_aircraft_tracked_separately",
+      "target": "dump1090_src_track_tracker_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L70",
+      "weight": 1.0,
+      "source": "dump1090_src_track_new_creates_empty_tracker",
+      "target": "dump1090_src_track_tracker_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L77",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_creates_entry",
+      "target": "dump1090_src_track_tracker_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L88",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_increments_msg_count",
+      "target": "dump1090_src_track_tracker_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L99",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_updates_last_seen",
+      "target": "dump1090_src_track_tracker_new",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L108",
+      "weight": 1.0,
+      "source": "dump1090_src_track_multiple_aircraft_tracked_separately",
+      "target": "dump1090_src_track_tracker_update_from_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L78",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_creates_entry",
+      "target": "dump1090_src_track_tracker_update_from_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L90",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_increments_msg_count",
+      "target": "dump1090_src_track_tracker_update_from_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L100",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_updates_last_seen",
+      "target": "dump1090_src_track_tracker_update_from_message",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L108",
+      "weight": 1.0,
+      "source": "dump1090_src_track_multiple_aircraft_tracked_separately",
+      "target": "dump1090_src_track_make_msg",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L78",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_creates_entry",
+      "target": "dump1090_src_track_make_msg",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L89",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_increments_msg_count",
+      "target": "dump1090_src_track_make_msg",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "dump1090/src/track.rs",
+      "source_location": "L100",
+      "weight": 1.0,
+      "source": "dump1090_src_track_update_from_message_updates_last_seen",
+      "target": "dump1090_src_track_make_msg",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "dump1090/src/util.rs",
@@ -22275,17 +25257,6 @@
       "weight": 1.0,
       "source": "dump1090_src_util",
       "target": "dump1090_src_util_mstime",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "ez-gui/src/adsb_decoder.rs",
-      "source_location": "L2",
-      "weight": 1.0,
-      "context": "import",
-      "source": "ez_gui_src_adsb_decoder",
-      "target": "ez_gui_src_demod",
       "confidence_score": 1.0
     },
     {
@@ -31574,10 +34545,130 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2814",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_case_insensitive_keyword",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2804",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_case_insensitive_section_title",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2775",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_empty_query_returns_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
       "source_location": "L1",
       "weight": 1.0,
       "source": "ez_gui_src_howto_panel",
       "target": "ez_gui_src_howto_panel_howtopanel",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2845",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_keyword_contains_query",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2830",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_keyword_with_multiple_sections",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2792",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_matches_keyword",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2798",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_matches_keyword_partial",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2780",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_matches_section_title",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2786",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_matches_section_title_partial",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2824",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_no_match_returns_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2851",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_query_contains_keyword",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2836",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel",
+      "target": "ez_gui_src_howto_panel_query_matches_multiple_sections_via_title",
       "confidence_score": 1.0
     },
     {
@@ -32285,6 +35376,28 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2815",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_case_insensitive_keyword",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2805",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_case_insensitive_section_title",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "ez-gui/src/howto_panel.rs",
@@ -32303,6 +35416,105 @@
       "source_location": "L154",
       "weight": 1.0,
       "source": "ez_gui_src_howto_panel_howtopanel_ui",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2846",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_keyword_contains_query",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2831",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_keyword_with_multiple_sections",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2793",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_matches_keyword",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2799",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_matches_keyword_partial",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2781",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_matches_section_title",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2787",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_matches_section_title_partial",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2825",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_no_match_returns_empty",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2852",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_query_contains_keyword",
+      "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ez-gui/src/howto_panel.rs",
+      "source_location": "L2837",
+      "weight": 1.0,
+      "source": "ez_gui_src_howto_panel_query_matches_multiple_sections_via_title",
       "target": "ez_gui_src_howto_panel_howtopanel_search_matches",
       "confidence_score": 1.0
     },
@@ -42833,7 +46045,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "as.md",
-      "source_location": "L44",
+      "source_location": "L48",
       "weight": 1.0,
       "source": "as_infinity_loop_remaining_work",
       "target": "as_ci_infrastructure",
@@ -42853,7 +46065,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "as.md",
-      "source_location": "L39",
+      "source_location": "L43",
       "weight": 1.0,
       "source": "as_infinity_loop_remaining_work",
       "target": "as_documentation",
@@ -42883,7 +46095,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "as.md",
-      "source_location": "L31",
+      "source_location": "L35",
       "weight": 1.0,
       "source": "as_infinity_loop_remaining_work",
       "target": "as_technical_debt_cleanup",
@@ -43175,5 +46387,5 @@
       "source_file": "ez-gui/src/web_remote.html"
     }
   ],
-  "built_at_commit": "52fd9d1f8fb5694cfe331b6ca8d9f41c44d2c91f"
+  "built_at_commit": "9d64bce521421fd0d59208ce2ef0f686e639d9bd"
 }

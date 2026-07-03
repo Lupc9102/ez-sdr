@@ -65,12 +65,18 @@ mod ffi {
 }
 
 fn show_devices() {
+    // SAFETY: `rtlsdr_get_device_count` takes no arguments and has no safety
+    // preconditions beyond being called after librtlsdr is initialized (which
+    // happens implicitly on first call per the librtlsdr API).
     let count = unsafe { ffi::rtlsdr_get_device_count() };
     eprintln!("rtlsdr: found {count} device(s):");
     for i in 0..count {
         let mut mfg = [0u8; 256];
         let mut prod = [0u8; 256];
         let mut serial = [0u8; 256];
+        // SAFETY: `mfg`, `prod`, `serial` are 256-byte zero-initialised stack
+        // arrays; `rtlsdr_get_device_usb_strings` promises to write at most
+        // 256 bytes including the null terminator into each.
         let ret = unsafe {
             ffi::rtlsdr_get_device_usb_strings(
                 i,
@@ -82,8 +88,12 @@ fn show_devices() {
         if ret != 0 {
             eprintln!("  {i}:  unable to read device details");
         } else {
+            // SAFETY: `ret == 0` means the FFI wrote valid null-terminated
+            // strings into `mfg`, `prod`, `serial`.
             let mfg_s = unsafe { CStr::from_ptr(mfg.as_ptr().cast()) }.to_string_lossy();
+            // SAFETY: same as above for `prod`.
             let prod_s = unsafe { CStr::from_ptr(prod.as_ptr().cast()) }.to_string_lossy();
+            // SAFETY: same as above for `serial`.
             let serial_s = unsafe { CStr::from_ptr(serial.as_ptr().cast()) }.to_string_lossy();
             eprintln!("  {i}:  {mfg_s}, {prod_s}, SN: {serial_s}");
         }
@@ -91,6 +101,8 @@ fn show_devices() {
 }
 
 fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
+    // SAFETY: `rtlsdr_get_device_count` is safe to call without
+    // preconditions per the librtlsdr API.
     let count = unsafe { ffi::rtlsdr_get_device_count() };
     if count == 0 {
         return Err(RtlSdrError::NoDevices);
@@ -107,6 +119,9 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
     }
     for i in 0..count {
         let mut serial = [0u8; 256];
+        // SAFETY: `serial` is a 256-byte buffer; passing `null_mut()` for
+        // manufacturer/product is explicitly allowed by the API. The FFI
+        // writes at most 256 bytes including the null terminator.
         let ret = unsafe {
             ffi::rtlsdr_get_device_usb_strings(
                 i,
@@ -116,6 +131,7 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
             )
         };
         if ret == 0 {
+            // SAFETY: `ret == 0` confirms the API wrote a valid C string.
             let s = unsafe { CStr::from_ptr(serial.as_ptr().cast()) }.to_string_lossy();
             if s == name {
                 return Ok(i);
@@ -124,6 +140,8 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
     }
     for i in 0..count {
         let mut serial = [0u8; 256];
+        // SAFETY: same as the first loop above — `serial` is a properly sized
+        // buffer and the null-manufacturer/product arguments are supported.
         let ret = unsafe {
             ffi::rtlsdr_get_device_usb_strings(
                 i,
@@ -133,6 +151,7 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
             )
         };
         if ret == 0 {
+            // SAFETY: `ret == 0` guarantees a valid null-terminated string.
             let s = unsafe { CStr::from_ptr(serial.as_ptr().cast()) }.to_string_lossy();
             if s.starts_with(name) {
                 return Ok(i);
@@ -141,6 +160,7 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
     }
     for i in 0..count {
         let mut serial = [0u8; 256];
+        // SAFETY: same pattern — valid buffer and supported `null_mut()` args.
         let ret = unsafe {
             ffi::rtlsdr_get_device_usb_strings(
                 i,
@@ -150,6 +170,7 @@ fn find_device_index(name: &str) -> Result<u32, RtlSdrError> {
             )
         };
         if ret == 0 {
+            // SAFETY: `ret == 0` confirms the string is valid.
             let s = unsafe { CStr::from_ptr(serial.as_ptr().cast()) }.to_string_lossy();
             if s.ends_with(name) && name.len() < s.len() {
                 return Ok(i);
@@ -172,6 +193,10 @@ pub struct RtlSdr {
     gains: Vec<i32>,
 }
 
+// SAFETY: `RtlSdr` only contains a raw device pointer accessed through FFI
+// calls that are externally synchronised — no concurrent access occurs because
+// the `SdrSource` trait takes `&mut self` for every operation, ensuring unique
+// ownership at the Rust level.
 unsafe impl Send for RtlSdr {}
 
 impl RtlSdr {
@@ -205,6 +230,7 @@ impl RtlSdr {
 
 impl SdrSource for RtlSdr {
     fn start(&mut self) -> anyhow::Result<()> {
+        // SAFETY: `rtlsdr_get_device_count` is safe with no preconditions.
         if unsafe { ffi::rtlsdr_get_device_count() } == 0 {
             return Err(RtlSdrError::NoDevices.into());
         }
@@ -223,6 +249,9 @@ impl SdrSource for RtlSdr {
         self.dev_index = dev_index;
 
         let mut dev = ptr::null_mut();
+        // SAFETY: `&mut dev` is a valid out-parameter for the FFI to write
+        // a device handle into. The pointer is a stack-local that lives for
+        // the duration of the call.
         if unsafe { ffi::rtlsdr_open(&mut dev, dev_index) } < 0 {
             return Err(RtlSdrError::OpenFailed(format!(
                 "error opening the RTLSDR device: {}",
@@ -236,13 +265,20 @@ impl SdrSource for RtlSdr {
                 "rtlsdr: direct sampling from input {}",
                 self.direct_sampling
             );
+            // SAFETY: `dev` was just successfully opened and is non-null;
+            // `rtlsdr_set_direct_sampling` requires a valid device handle.
             unsafe {
                 ffi::rtlsdr_set_direct_sampling(dev, self.direct_sampling);
             }
         } else {
+            // SAFETY: `dev` is a valid, open device handle.
+            // Passing `null_mut()` queries the number of gains without writing.
             let numgains = unsafe { ffi::rtlsdr_get_tuner_gains(dev, ptr::null_mut()) };
             if numgains > 0 {
                 self.gains.resize((numgains + 1) as usize, 0);
+                // SAFETY: `self.gains.as_mut_ptr()` points to a `Vec` with at
+                // least `numgains` elements; the FFI writes exactly that many
+                // `c_int` values.
                 let ret = unsafe { ffi::rtlsdr_get_tuner_gains(dev, self.gains.as_mut_ptr()) };
                 if ret == numgains {
                     self.gains.truncate(numgains as usize);
@@ -270,14 +306,18 @@ impl SdrSource for RtlSdr {
                 };
 
                 if selected as usize >= self.gains.len() - 1 {
+                    // SAFETY: `dev` is a valid open device handle.
                     unsafe {
                         ffi::rtlsdr_set_tuner_gain_mode(dev, 0);
                     }
                     eprintln!("rtlsdr: tuner AGC enabled");
                 } else {
+                    // SAFETY: `dev` is a valid open device handle.
                     unsafe {
                         ffi::rtlsdr_set_tuner_gain_mode(dev, 1);
                     }
+                    // SAFETY: `dev` is valid and `self.gains[selected as usize]`
+                    // is a valid gain value returned by the same device.
                     unsafe {
                         ffi::rtlsdr_set_tuner_gain(dev, self.gains[selected as usize]);
                     }
@@ -291,29 +331,36 @@ impl SdrSource for RtlSdr {
 
         if self.digital_agc {
             eprintln!("rtlsdr: enabling digital AGC");
+            // SAFETY: `dev` is a valid open device handle.
             unsafe {
                 ffi::rtlsdr_set_agc_mode(dev, 1);
             }
         }
 
+        // SAFETY: `dev` is a valid open device handle.
         if unsafe { ffi::rtlsdr_set_freq_correction(dev, self.ppm) } < 0 {
             eprintln!("rtlsdr: warning: failed to set frequency correction");
         }
 
+        // SAFETY: `dev` is a valid open device handle.
         if unsafe { ffi::rtlsdr_set_center_freq(dev, self.freq as u32) } < 0 {
+            // SAFETY: `dev` is still valid — closing to clean up on error.
             unsafe {
                 ffi::rtlsdr_close(dev);
             }
             return Err(RtlSdrError::OpenFailed("failed to set center frequency".into()).into());
         }
 
+        // SAFETY: `dev` is a valid open device handle.
         if unsafe { ffi::rtlsdr_set_sample_rate(dev, self.sample_rate) } < 0 {
+            // SAFETY: `dev` is still valid — closing to clean up on error.
             unsafe {
                 ffi::rtlsdr_close(dev);
             }
             return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
         }
 
+        // SAFETY: `dev` is a valid open device handle.
         if unsafe { ffi::rtlsdr_reset_buffer(dev) } < 0 {
             eprintln!("rtlsdr: warning: failed to reset buffer");
         }
@@ -324,6 +371,9 @@ impl SdrSource for RtlSdr {
 
     fn stop(&mut self) {
         if !self.dev.is_null() {
+            // SAFETY: `self.dev` is checked non-null and was returned by a
+            // successful `rtlsdr_open` call; `rtlsdr_close` is the matching
+            // destructor for the handle.
             unsafe {
                 ffi::rtlsdr_close(self.dev);
             }
@@ -333,6 +383,8 @@ impl SdrSource for RtlSdr {
 
     fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
         self.freq = freq;
+        // SAFETY: `self.dev` is checked non-null above, confirming the device
+        // was successfully opened earlier.
         if !self.dev.is_null() && unsafe { ffi::rtlsdr_set_center_freq(self.dev, freq as u32) } < 0
         {
             return Err(RtlSdrError::OpenFailed("failed to set center frequency".into()).into());
@@ -342,6 +394,7 @@ impl SdrSource for RtlSdr {
 
     fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
         self.sample_rate = rate;
+        // SAFETY: `self.dev` is checked non-null above.
         if !self.dev.is_null() && unsafe { ffi::rtlsdr_set_sample_rate(self.dev, rate) } < 0 {
             return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
         }
@@ -367,13 +420,16 @@ impl SdrSource for RtlSdr {
                 best_step
             };
             if selected as usize >= self.gains.len() - 1 {
+                // SAFETY: `self.dev` is checked non-null above.
                 unsafe {
                     ffi::rtlsdr_set_tuner_gain_mode(self.dev, 0);
                 }
             } else {
+                // SAFETY: `self.dev` is checked non-null and gains are valid.
                 unsafe {
                     ffi::rtlsdr_set_tuner_gain_mode(self.dev, 1);
                 }
+                // SAFETY: same device, gain index is bounds-checked.
                 unsafe {
                     ffi::rtlsdr_set_tuner_gain(self.dev, self.gains[selected as usize]);
                 }
@@ -391,6 +447,9 @@ impl SdrSource for RtlSdr {
         let mut read_buf = vec![0u8; want_bytes];
         let mut n_read: c_int = 0;
 
+        // SAFETY: `self.dev` is checked non-null above. `read_buf` is a
+        // freshly allocated `Vec` of `want_bytes` — the pointer is valid and
+        // aligned. `n_read` is a stack-local `c_int` that lives for the call.
         let ret = unsafe {
             ffi::rtlsdr_read_sync(
                 self.dev,

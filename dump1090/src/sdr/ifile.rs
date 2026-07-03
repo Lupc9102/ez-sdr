@@ -112,6 +112,173 @@ impl IFileSdr {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::atomic::AtomicU32;
+
+    static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    fn create_temp_file(data: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir();
+        let n = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = dir.join(format!("ifile_test_{}_{}", std::process::id(), n));
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(data).unwrap();
+        path
+    }
+
+    fn cleanup(path: &std::path::Path) {
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ifile_new_with_path() {
+        let path = create_temp_file(b"test");
+        let sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        assert_eq!(sdr.path, path.to_str().unwrap());
+        assert_eq!(sdr.format, IqFormat::Uc8);
+        assert_eq!(sdr.bytes_per_sample, 2);
+        assert!(!sdr.loop_file);
+        assert!(sdr.source.is_none());
+        assert_eq!(sdr.frequency, 1_090_000_000);
+        assert_eq!(sdr.sample_rate, 2_000_000);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn ifile_new_with_stdin() {
+        let sdr = IFileSdr::new("-", IqFormat::Sc16, true);
+        assert_eq!(sdr.path, "-");
+        assert_eq!(sdr.format, IqFormat::Sc16);
+        assert_eq!(sdr.bytes_per_sample, 4);
+        assert!(sdr.loop_file);
+        assert!(sdr.source.is_none());
+    }
+
+    #[test]
+    fn ifile_new_sc16q11_bytes_per_sample() {
+        let sdr = IFileSdr::new("dummy", IqFormat::Sc16Q11, false);
+        assert_eq!(sdr.bytes_per_sample, 4);
+    }
+
+    #[test]
+    fn ifile_read_uc8_samples() {
+        let data: Vec<u8> = vec![
+            127, 127, // sample 0: both near center -> small magnitude
+            200, 150, // sample 1
+            255, 128, // sample 2
+        ];
+        let path = create_temp_file(&data);
+        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        let mut buf = [0u16; 4];
+        let n = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n, 3);
+
+        // Compute expected: fi=(127-127.4)=-0.4, fq=(127-127.4)=-0.4, mag~sqrt(0.32)*512~289
+        let fi0 = f32::from(127u8) - 127.4f32;
+        let fq0 = f32::from(127u8) - 127.4f32;
+        let expected0 = ((fi0 * fi0 + fq0 * fq0).sqrt() * 512.0).min(65535.0) as u16;
+        assert!(
+            (buf[0] as f64 - expected0 as f64).abs() <= 1.0,
+            "expected {expected0}, got {}",
+            buf[0]
+        );
+
+        // Read another attempt at EOF -> 0 samples
+        let n2 = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n2, 0);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn ifile_read_sc16_samples() {
+        // SC16: I=100 (0x0064), Q=0 => little endian [100, 0, 0, 0]
+        // magnitude = sqrt(100^2 + 0^2) * 2 = 200
+        let data: Vec<u8> = vec![100, 0, 0, 0, 0, 0, 0, 0];
+        let path = create_temp_file(&data);
+        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Sc16, false);
+        let mut buf = [0u16; 4];
+        let n = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(buf[0], 200);
+        assert_eq!(buf[1], 0);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn ifile_read_sc16q11_samples() {
+        // SC16Q11: I=100, Q=0 => magnitude = sqrt(100^2 + 0^2) * 32 = 3200
+        let data: Vec<u8> = vec![100, 0, 0, 0];
+        let path = create_temp_file(&data);
+        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Sc16Q11, false);
+        let mut buf = [0u16; 4];
+        let n = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(buf[0], 3200);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn ifile_eof_returns_zero() {
+        let data = [200u8, 200];
+        let path = create_temp_file(&data);
+        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        let mut buf = [0u16; 10];
+        let n = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n, 1);
+        let n2 = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n2, 0);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn ifile_loop_rewinds() {
+        let data = [200u8, 200, 210, 210];
+        let path = create_temp_file(&data);
+        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        sdr.set_loop(true);
+        // Read exactly the file size (2 samples) into a small buffer
+        let mut buf = [0u16; 2];
+        let n1 = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n1, 2);
+        let first_pass = buf.to_vec();
+        // Read again — loop should rewind and yield the same 2 samples
+        let n2 = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n2, 2);
+        assert_eq!(buf.to_vec(), first_pass);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn ifile_set_loop_toggle() {
+        let mut sdr = IFileSdr::new("dummy", IqFormat::Uc8, false);
+        assert!(!sdr.loop_file);
+        sdr.set_loop(true);
+        assert!(sdr.loop_file);
+        sdr.set_loop(false);
+        assert!(!sdr.loop_file);
+    }
+
+    #[test]
+    fn ifile_read_multiple_chunks() {
+        // 4 samples of UC8
+        let data: Vec<u8> = (0u8..8).collect();
+        let path = create_temp_file(&data);
+        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        let mut buf = [0u16; 2];
+        let n1 = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n1, 2);
+        let n2 = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n2, 2);
+        let n3 = sdr.read_samples(&mut buf).unwrap();
+        assert_eq!(n3, 0);
+        cleanup(&path);
+    }
+}
+
 impl SdrSource for IFileSdr {
     fn start(&mut self) -> anyhow::Result<()> {
         self.open()

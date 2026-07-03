@@ -75,11 +75,19 @@ struct HackRfCtx {
     tx: std::sync::mpsc::SyncSender<Vec<u8>>,
 }
 
+// SAFETY: This is a `extern "C"` callback registered with `hackrf_start_rx`.
+// The `HackrfTransfer` pointer and its fields (`buffer`, `valid_length`, `ctx`)
+// are provided by the HackRF library and are valid for the duration of the
+// callback invocation per the libhackrf API contract.
 unsafe extern "C" fn rx_callback(transfer: *mut HackrfTransfer) -> c_int {
     if EXIT.load(Ordering::Relaxed) || (*transfer).valid_length <= 0 {
         return -1;
     }
+    // SAFETY: `ctx` was allocated as `Box::into_raw(Box::new(HackRfCtx))` and
+    // is still alive because RX has not been stopped yet.
     let ctx = &*((*transfer).ctx as *mut HackRfCtx);
+    // SAFETY: `buffer` and `valid_length` are valid for the callback duration
+    // per the libhackrf API; we read-only slice of `valid_length` bytes.
     let slice = std::slice::from_raw_parts((*transfer).buffer, (*transfer).valid_length as usize);
     let mut data = slice.to_vec();
     for b in data.iter_mut() {
@@ -99,6 +107,9 @@ pub struct HackRf {
     gain: f64,
 }
 
+// SAFETY: `HackRf` contains raw device/ctx pointers that are accessed only
+// through FFI calls under `&mut self` (via `SdrSource`), so no concurrent
+// mutable access occurs. The HackRF library handles its own synchronisation.
 unsafe impl Send for HackRf {}
 
 impl HackRf {
@@ -128,13 +139,18 @@ impl HackRf {
 impl Drop for HackRf {
     fn drop(&mut self) {
         if !self.device.is_null() {
-            // Stop RX before close so the callback cannot fire into freed memory.
+            // SAFETY: `self.device` is checked non-null and was returned by
+            // `hackrf_open`. The stop/close/exit sequence is the standard
+            // shutdown sequence per the libhackrf API docs. Stop is called
+            // first to prevent the RX callback from firing after close.
             unsafe { hackrf_stop_rx(self.device) };
             unsafe { hackrf_close(self.device) };
             unsafe { hackrf_exit() };
             self.device = ptr::null_mut();
         }
         if !self.ctx.is_null() {
+            // SAFETY: `self.ctx` was allocated with `Box::into_raw` and is
+            // checked non-null; `from_raw` reclaims the heap allocation.
             unsafe {
                 let _ = Box::from_raw(self.ctx);
             }
@@ -156,13 +172,19 @@ impl SdrSource for HackRf {
             freq = freq * (1_000_000.0 - self.config.ppm as f64) / 1_000_000.0;
         }
 
+        // SAFETY: `hackrf_init` has no preconditions per the libhackrf API.
         Self::check(unsafe { hackrf_init() }, "hackrf_init")?;
+        // SAFETY: `&mut self.device` is a valid out-parameter for the device
+        // handle; the pointer is a field on `self` that lives for the duration.
         if let Err(e) = Self::check(unsafe { hackrf_open(&mut self.device) }, "hackrf_open") {
+            // SAFETY: `hackrf_exit` cleans up after a failed init/open.
             unsafe { hackrf_exit() };
             return Err(e);
         }
 
         let dev = self.device;
+        // SAFETY: `dev` is the handle returned by `hackrf_open` above. Each
+        // FFI call requires a valid open device handle per the libhackrf API.
         let res = Self::check(
             unsafe { hackrf_set_freq(dev, freq as u64) },
             "hackrf_set_freq",
@@ -199,6 +221,7 @@ impl SdrSource for HackRf {
         });
 
         if let Err(e) = res {
+            // SAFETY: `dev` is still valid; closing and exiting to clean up.
             unsafe { hackrf_close(dev) };
             unsafe { hackrf_exit() };
             self.device = ptr::null_mut();
@@ -212,12 +235,16 @@ impl SdrSource for HackRf {
 
     fn stop(&mut self) {
         if !self.device.is_null() {
+            // SAFETY: `self.device` is checked non-null and was returned by
+            // `hackrf_open`. Standard shutdown sequence per libhackrf API.
             unsafe { hackrf_stop_rx(self.device) };
             unsafe { hackrf_close(self.device) };
             unsafe { hackrf_exit() };
             self.device = ptr::null_mut();
         }
         if !self.ctx.is_null() {
+            // SAFETY: `self.ctx` was allocated with `Box::into_raw`; `from_raw`
+            // is the matching deallocator. Checked non-null above.
             unsafe {
                 let _ = Box::from_raw(self.ctx);
             }
@@ -229,6 +256,7 @@ impl SdrSource for HackRf {
     fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
         self.freq = freq;
         if !self.device.is_null() {
+            // SAFETY: `self.device` is checked non-null above.
             Self::check(
                 unsafe { hackrf_set_freq(self.device, freq) },
                 "hackrf_set_freq",
@@ -240,6 +268,7 @@ impl SdrSource for HackRf {
     fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
         self.sample_rate = rate;
         if !self.device.is_null() {
+            // SAFETY: `self.device` is checked non-null above.
             Self::check(
                 unsafe { hackrf_set_sample_rate(self.device, rate as f64) },
                 "hackrf_set_sample_rate",
@@ -263,6 +292,10 @@ impl SdrSource for HackRf {
             self.rx = Some(rx);
             let ctx = Box::into_raw(Box::new(HackRfCtx { tx }));
             self.ctx = ctx;
+            // SAFETY: `self.device` is non-null (valid open handle).
+            // `rx_callback` is a valid `extern "C"` function pointer.
+            // `ctx` is a `Box::into_raw` allocation that stays alive while
+            // the stream is active.
             Self::check(
                 unsafe { hackrf_start_rx(self.device, Some(rx_callback), ctx as *mut c_void) },
                 "hackrf_start_rx",
@@ -280,6 +313,7 @@ impl SdrSource for HackRf {
             match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(chunk) => raw.extend_from_slice(&chunk),
                 Err(RecvTimeoutError::Timeout) => {
+                    // SAFETY: `self.device` is non-null (checked earlier).
                     if unsafe { hackrf_is_streaming(self.device) } != HACKRF_TRUE {
                         break;
                     }

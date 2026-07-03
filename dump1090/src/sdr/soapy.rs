@@ -206,11 +206,16 @@ extern "C" {
 }
 
 fn last_err() -> String {
+    // SAFETY: `SoapySDRDevice_lastError` returns either a null pointer (no
+    // error) or a pointer to a static C string owned by the SoapySDR runtime;
+    // we never free or modify the string.
     unsafe {
         let ptr = SoapySDRDevice_lastError();
         if ptr.is_null() {
             "soapy: unknown error".to_string()
         } else {
+            // SAFETY: `ptr` is non-null so it points to a valid null-terminated
+            // C string owned by the SoapySDR library.
             CStr::from_ptr(ptr).to_string_lossy().into_owned()
         }
     }
@@ -260,6 +265,10 @@ pub struct SoapySdr {
     gain: f64,
 }
 
+// SAFETY: `SoapySdr` wraps raw device/stream pointers that are only accessed
+// through FFI calls under `&mut self` (the `SdrSource` trait), ensuring no
+// concurrent access. SoapySDR API calls are externally synchronised by the
+// library.
 unsafe impl Send for SoapySdr {}
 
 impl SoapySdr {
@@ -278,10 +287,15 @@ impl SoapySdr {
 impl Drop for SoapySdr {
     fn drop(&mut self) {
         if !self.stream.is_null() {
+            // SAFETY: `self.stream` is checked non-null and was returned by a
+            // successful `SoapySDRDevice_setupStream` call; `self.dev` is the
+            // matching device handle.
             unsafe { SoapySDRDevice_closeStream(self.dev, self.stream) };
             self.stream = ptr::null_mut();
         }
         if !self.dev.is_null() {
+            // SAFETY: `self.dev` is checked non-null and was created by a
+            // successful `SoapySDRDevice_makeStrArgs` call.
             unsafe { SoapySDRDevice_unmake(self.dev) };
             self.dev = ptr::null_mut();
         }
@@ -294,22 +308,30 @@ impl SdrSource for SoapySdr {
         let dev_name_ptr = CString::new(dev_name_c)?;
         let mut length: usize = 0;
 
+        // SAFETY: `dev_name_ptr` is a valid NUL-terminated CString;
+        // `length` is a stack-local `usize` that lives for the call.
         let results =
             unsafe { SoapySDRDevice_enumerateStrArgs(dev_name_ptr.as_ptr(), &mut length) };
 
         if length == 0 {
+            // SAFETY: `results` and `length` come directly from `enumerateStrArgs`.
             unsafe { SoapySDRKwargsList_clear(results, length) };
             return Err(anyhow::anyhow!("soapy: no device found"));
         }
         if length > 1 {
+            // SAFETY: same — cleanup of results from the enumerate call.
             unsafe { SoapySDRKwargsList_clear(results, length) };
             return Err(anyhow::anyhow!(
                 "soapy: please select a single device with --device"
             ));
         }
 
+        // SAFETY: cleanup of the enumerate result list.
         unsafe { SoapySDRKwargsList_clear(results, length) };
 
+        // SAFETY: `dev_name_ptr` is a valid NUL-terminated CString.
+        // `SoapySDRDevice_makeStrArgs` returns a handle that we later destroy
+        // with `SoapySDRDevice_unmake`.
         self.dev = unsafe { SoapySDRDevice_makeStrArgs(dev_name_ptr.as_ptr()) };
         if self.dev.is_null() {
             return Err(anyhow::anyhow!(
@@ -322,6 +344,8 @@ impl SdrSource for SoapySdr {
         let ch = self.config.channel;
 
         if ch > 0 {
+            // SAFETY: `dev` was just created by `makeStrArgs` and is non-null
+            // (checked above).
             let supported = unsafe { SoapySDRDevice_getNumChannels(dev, SOAPY_SDR_RX) };
             if ch >= supported {
                 return Err(anyhow::anyhow!(
@@ -332,6 +356,8 @@ impl SdrSource for SoapySdr {
             }
         }
 
+        // SAFETY: `dev` is a valid device handle; `SOAPY_SDR_RX` and `ch` are
+        // valid direction/channel constants per the SoapySDR API.
         soapy_check(
             unsafe { SoapySDRDevice_setSampleRate(dev, SOAPY_SDR_RX, ch, self.sample_rate) },
             "setSampleRate",
@@ -339,19 +365,24 @@ impl SdrSource for SoapySdr {
 
         if let Some(ref ant) = self.config.antenna {
             let ant_c = CString::new(ant.as_str())?;
+            // SAFETY: `dev` is valid; `ant_c` is a valid CString; direction
+            // and channel are valid.
             soapy_check(
                 unsafe { SoapySDRDevice_setAntenna(dev, SOAPY_SDR_RX, ch, ant_c.as_ptr()) },
                 "setAntenna",
             )?;
         }
 
+        // SAFETY: `dev` is valid; `ptr::null()` for args is allowed by API.
         soapy_check(
             unsafe { SoapySDRDevice_setFrequency(dev, SOAPY_SDR_RX, ch, self.freq, ptr::null()) },
             "setFrequency",
         )?;
 
         if self.config.enable_agc {
+            // SAFETY: `dev` is valid; direction/channel are valid.
             if unsafe { SoapySDRDevice_hasGainMode(dev, SOAPY_SDR_RX, ch) } {
+                // SAFETY: `dev` is valid.
                 soapy_check(
                     unsafe { SoapySDRDevice_setGainMode(dev, SOAPY_SDR_RX, ch, true) },
                     "setGainMode",
@@ -360,18 +391,23 @@ impl SdrSource for SoapySdr {
                 return Err(anyhow::anyhow!("soapy: device does not support AGC"));
             }
         } else {
+            // SAFETY: `dev` is valid.
             if unsafe { SoapySDRDevice_hasGainMode(dev, SOAPY_SDR_RX, ch) } {
+                // SAFETY: `dev` is valid.
                 soapy_check(
                     unsafe { SoapySDRDevice_setGainMode(dev, SOAPY_SDR_RX, ch, false) },
                     "setGainMode",
                 )?;
             }
             let gain = if self.config.gain >= 999_000.0 {
+                // SAFETY: `dev` is valid; the function returns a range struct
+                // (not a pointer), so no aliasing concerns.
                 let range = unsafe { SoapySDRDevice_getGainRange(dev, SOAPY_SDR_RX, ch) };
                 range.maximum
             } else {
                 self.config.gain
             };
+            // SAFETY: `dev` is valid.
             soapy_check(
                 unsafe { SoapySDRDevice_setGain(dev, SOAPY_SDR_RX, ch, gain) },
                 "setGain",
@@ -384,6 +420,7 @@ impl SdrSource for SoapySdr {
         } else {
             3.0e6
         };
+        // SAFETY: `dev` is valid.
         soapy_check(
             unsafe { SoapySDRDevice_setBandwidth(dev, SOAPY_SDR_RX, ch, bw) },
             "setBandwidth",
@@ -396,6 +433,9 @@ impl SdrSource for SoapySdr {
             vals: ptr::null_mut(),
         };
 
+        // SAFETY: `dev` is valid; `SOAPY_SDR_CS16` is a well-known format
+        // string; `channels` is a local array; `stream_args` is a properly
+        // initialised kwargs struct with size 0 (no args).
         self.stream = unsafe {
             SoapySDRDevice_setupStream(
                 dev,
@@ -411,6 +451,8 @@ impl SdrSource for SoapySdr {
             return Err(anyhow::anyhow!("soapy: setupStream failed: {}", last_err()));
         }
 
+        // SAFETY: `dev` is valid and `self.stream` was just returned by
+        // `setupStream` (checked non-null below).
         soapy_check(
             unsafe { SoapySDRDevice_activateStream(dev, self.stream, 0, 0, 0) },
             "activateStream",
@@ -421,10 +463,13 @@ impl SdrSource for SoapySdr {
 
     fn stop(&mut self) {
         if !self.stream.is_null() {
+            // SAFETY: `self.dev` and `self.stream` are checked non-null and
+            // were created by successful API calls earlier.
             unsafe { SoapySDRDevice_closeStream(self.dev, self.stream) };
             self.stream = ptr::null_mut();
         }
         if !self.dev.is_null() {
+            // SAFETY: `self.dev` is checked non-null.
             unsafe { SoapySDRDevice_unmake(self.dev) };
             self.dev = ptr::null_mut();
         }
@@ -433,6 +478,7 @@ impl SdrSource for SoapySdr {
     fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
         self.freq = freq as f64;
         if !self.dev.is_null() {
+            // SAFETY: `self.dev` is checked non-null; args are valid.
             soapy_check(
                 unsafe {
                     SoapySDRDevice_setFrequency(
@@ -452,6 +498,7 @@ impl SdrSource for SoapySdr {
     fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
         self.sample_rate = rate as f64;
         if !self.dev.is_null() {
+            // SAFETY: `self.dev` is checked non-null.
             soapy_check(
                 unsafe {
                     SoapySDRDevice_setSampleRate(
@@ -470,6 +517,7 @@ impl SdrSource for SoapySdr {
     fn set_gain(&mut self, gain: f64) -> anyhow::Result<()> {
         self.gain = gain;
         if !self.dev.is_null() {
+            // SAFETY: `self.dev` is checked non-null.
             soapy_check(
                 unsafe {
                     SoapySDRDevice_setGain(self.dev, SOAPY_SDR_RX, self.config.channel, gain)
@@ -491,6 +539,10 @@ impl SdrSource for SoapySdr {
         let mut flags: c_int = 0;
         let mut time_ns: i64 = 0;
 
+        // SAFETY: `self.dev` and `self.stream` are checked non-null above.
+        // `buf_ptr` points to `read_buf` which is `want_samples * 4` bytes;
+        // `flags` and `time_ns` are stack locals. `SoapySDRDevice_readStream`
+        // promises to write at most `want_samples` elements.
         let samples_read = unsafe {
             SoapySDRDevice_readStream(
                 self.dev,
