@@ -21,7 +21,7 @@ pub struct TleEngine {
     pub observer_lat: f64,
     pub observer_lon: f64,
     cached_passes: Vec<PassInfo>,
-    cached_at: std::time::Instant,
+    cached_at: Option<std::time::Instant>,
 }
 
 impl TleEngine {
@@ -31,9 +31,11 @@ impl TleEngine {
             observer_lat: 51.5,
             observer_lon: -0.1,
             cached_passes: vec![],
-            cached_at: std::time::Instant::now()
-                .checked_sub(std::time::Duration::from_secs(999))
-                .unwrap(),
+            // `None` means "never computed" — forces an immediate refresh on
+            // the first upcoming_passes() call. Previously done via
+            // `Instant::now().checked_sub(999s).unwrap()` which panics on
+            // hosts whose uptime is under 999 s.
+            cached_at: None,
         };
         engine.load_builtin();
         engine
@@ -78,9 +80,13 @@ impl TleEngine {
     }
 
     pub fn upcoming_passes(&mut self) -> &[PassInfo] {
-        if self.cached_at.elapsed() > std::time::Duration::from_secs(60) {
+        let stale = match self.cached_at {
+            Some(t) => t.elapsed() > std::time::Duration::from_secs(60),
+            None => true,
+        };
+        if stale {
             self.cached_passes = self.compute_passes(self.observer_lat, self.observer_lon, 72.0);
-            self.cached_at = std::time::Instant::now();
+            self.cached_at = Some(std::time::Instant::now());
         }
         &self.cached_passes
     }
