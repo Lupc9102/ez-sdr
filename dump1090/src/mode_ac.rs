@@ -1,12 +1,12 @@
 //! Mode A/C decoding — translation of `mode_ac.c`
 
-/// Convert a Mode C altitude (in 100-ft units) to a Mode A squawk code.
+/// Convert altitude in 100-ft units to a Mode A squawk code.
 ///
 /// This is the inverse of the original C function `ModeAToModeC`.
 /// Valid altitudes range from -12 (−1200 ft) to 1267 (126 700 ft).
 /// Returns `None` for out-of-range or mathematically invalid inputs.
 #[must_use]
-pub fn mode_c_to_mode_a(mode_c: i32) -> Option<u32> {
+pub fn altitude_100ft_to_squawk(mode_c: i32) -> Option<u32> {
     // From ModeAToModeC: altitude = FiveHundreds × 5 + OneHundreds − 13
     // where OneHundreds ∈ {1,2,3,4,5} and FiveHundreds ∈ [0, 255].
     let x = mode_c.checked_add(13)?;
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn mode_c_round_trip() {
         for alt in -12..=200 {
-            let ma = mode_c_to_mode_a(alt).expect("encoding should succeed");
+            let ma = altitude_100ft_to_squawk(alt).expect("encoding should succeed");
             let back = mode_a_to_mode_c(ma).expect("decoding should succeed");
             assert_eq!(alt, back, "round-trip failed for altitude {alt}");
         }
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn mode_c_altitude_ground_level() {
-        let ma = mode_c_to_mode_a(0).unwrap();
+        let ma = altitude_100ft_to_squawk(0).unwrap();
         let alt = mode_a_to_mode_c(ma).unwrap();
         assert_eq!(alt, 0);
     }
@@ -144,20 +144,20 @@ mod tests {
     #[test]
     fn mode_c_altitude_lower_bound() {
         // −1200 ft → −12 (100-ft units)
-        let ma = mode_c_to_mode_a(-12).unwrap();
+        let ma = altitude_100ft_to_squawk(-12).unwrap();
         assert_ne!(ma & 0x000000F0, 0);
     }
 
     #[test]
     fn mode_c_returns_none_for_out_of_range() {
-        assert!(mode_c_to_mode_a(-13).is_none());
-        assert!(mode_c_to_mode_a(1268).is_none());
+        assert!(altitude_100ft_to_squawk(-13).is_none());
+        assert!(altitude_100ft_to_squawk(1268).is_none());
     }
 
     #[test]
     fn mode_c_known_good_example() {
         // 3500 ft → 35 (100-ft units)
-        let ma = mode_c_to_mode_a(35).unwrap();
+        let ma = altitude_100ft_to_squawk(35).unwrap();
         // C bits should be non-zero (C2 set for OH=3)
         assert_ne!(ma & 0x000000F0, 0);
         // D1 must stay clear

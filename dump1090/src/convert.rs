@@ -124,4 +124,148 @@ mod tests {
         convert_sc16q11_to_mag(&src, &mut dst);
         assert_eq!(dst[0], 65535);
     }
+
+    // ── Additional edge-case tests ──
+
+    #[test]
+    fn to_magnitude_empty() {
+        let data: &[u16] = &[];
+        assert!(to_magnitude(data).is_empty());
+    }
+
+    #[test]
+    fn iq_format_debug_and_eq() {
+        assert_eq!(format!("{:?}", IqFormat::Uc8), "Uc8");
+        assert_eq!(format!("{:?}", IqFormat::Sc16), "Sc16");
+        assert_eq!(format!("{:?}", IqFormat::Sc16Q11), "Sc16Q11");
+        assert_eq!(IqFormat::Uc8, IqFormat::Uc8);
+        assert_ne!(IqFormat::Uc8, IqFormat::Sc16);
+    }
+
+    #[test]
+    fn convert_uc8_to_mag_empty_src() {
+        let mut dst = [0u16; 4];
+        convert_uc8_to_mag(&[], &mut dst);
+        assert_eq!(dst, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn convert_uc8_to_mag_empty_dst() {
+        let src = [128u8, 128, 128, 128];
+        convert_uc8_to_mag(&src, &mut []);
+    }
+
+    #[test]
+    fn convert_uc8_to_mag_asymmetric_iq() {
+        let src = [200u8, 100];
+        let mut dst = [0u16; 1];
+        convert_uc8_to_mag(&src, &mut dst);
+        assert!(dst[0] > 0);
+    }
+
+    #[test]
+    fn convert_uc8_to_mag_shorter_src() {
+        let src = [255u8, 0];
+        let mut dst = [0u16; 10];
+        convert_uc8_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 65535);
+        assert_eq!(dst[1], 0);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_empty_src() {
+        let mut dst = [0u16; 4];
+        convert_sc16_to_mag(&[], &mut dst);
+        assert_eq!(dst, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_empty_dst() {
+        let src = [100u8, 0, 0, 0, 200, 0, 0, 0];
+        convert_sc16_to_mag(&src, &mut []);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_all_zero() {
+        let src = [0u8; 8];
+        let mut dst = [0u16; 2];
+        convert_sc16_to_mag(&src, &mut dst);
+        assert_eq!(dst, [0, 0]);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_shorter_dst() {
+        let src = [100u8, 0, 0, 0, 200, 0, 0, 0];
+        let mut dst = [0u16; 1];
+        convert_sc16_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 200);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_max_iq() {
+        // i16::MAX = 32767
+        let src = [0xFFu8, 0x7F, 0xFF, 0x7F];
+        let mut dst = [0u16; 1];
+        convert_sc16_to_mag(&src, &mut dst);
+        // sqrt(32767^2 + 32767^2) * 2 ≈ 92681, clamped to 65535
+        assert_eq!(dst[0], 65535);
+    }
+
+    #[test]
+    fn convert_sc16_to_mag_both_negative() {
+        // i = -200, q = -200 → abs both 200
+        let src = [0x38u8, 0xFF, 0x38, 0xFF]; // -200 in LE
+        let mut dst = [0u16; 1];
+        convert_sc16_to_mag(&src, &mut dst);
+        // sqrt(200^2 + 200^2) * 2 ≈ 565
+        assert_eq!(dst[0], 565);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_empty_src() {
+        let mut dst = [0u16; 4];
+        convert_sc16q11_to_mag(&[], &mut dst);
+        assert_eq!(dst, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_empty_dst() {
+        let src = [100u8, 0, 0, 0, 200, 0, 0, 0];
+        convert_sc16q11_to_mag(&src, &mut []);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_all_zero() {
+        let src = [0u8; 8];
+        let mut dst = [0u16; 2];
+        convert_sc16q11_to_mag(&src, &mut dst);
+        assert_eq!(dst, [0, 0]);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_negative_iq() {
+        // i = -1, q = -1
+        let src = [0xFFu8, 0xFF, 0xFF, 0xFF];
+        let mut dst = [0u16; 1];
+        convert_sc16q11_to_mag(&src, &mut dst);
+        // sqrt(1^2 + 1^2) * 32 ≈ 45
+        assert_eq!(dst[0], 45);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_shorter_dst() {
+        let src = [100u8, 0, 0, 0, 200, 0, 0, 0];
+        let mut dst = [0u16; 1];
+        convert_sc16q11_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 3200);
+    }
+
+    #[test]
+    fn convert_sc16q11_to_mag_no_clamp_required() {
+        // i=1024, q=1024 → sqrt(1024^2 + 1024^2) * 32 ≈ 46340
+        let src = [0x00u8, 0x04, 0x00, 0x04];
+        let mut dst = [0u16; 1];
+        convert_sc16q11_to_mag(&src, &mut dst);
+        assert_eq!(dst[0], 46340);
+    }
 }
