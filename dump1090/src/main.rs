@@ -16,7 +16,7 @@ pub mod util;
 use clap::Parser;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use crate::convert::IqFormat;
 use crate::demod::{DemodStats, MagBuf, MagBufFlags, ModesMessage};
@@ -189,7 +189,7 @@ fn main() -> anyhow::Result<()> {
     // 7. Run loop
     let buf_size: usize = 128 * 1024; // 131072 samples
     let mut buf = vec![0u16; buf_size];
-    let start_time = SystemTime::now();
+    let start_time = Instant::now();
     let mut sample_timestamp: u64 = 0;
     let ticks_per_sample: u64 = TICKS_PER_SECOND / args.sample_rate as u64;
 
@@ -219,10 +219,7 @@ fn main() -> anyhow::Result<()> {
 
         let magnitudes = convert::to_magnitude(&buf[..n]);
 
-        let now = SystemTime::now()
-            .duration_since(start_time)
-            .expect("start_time must be <= now");
-        let now_ms = now.as_millis() as u64;
+        let now_ms = start_time.elapsed().as_millis() as u64;
 
         let (mean_level, mean_power) = compute_magbuf_stats(magnitudes);
 

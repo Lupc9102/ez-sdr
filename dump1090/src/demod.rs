@@ -808,7 +808,7 @@ impl Demod2400 {
                 let mut byte_len: usize = 1;
 
                 let mut i = 0;
-                while i < byte_len {
+                'byte_loop: while i < byte_len {
                     let the_byte = match phase {
                         0 => {
                             let b = u8::from(slice_phase0(p_ptr) > 0) << 7
@@ -875,7 +875,7 @@ impl Demod2400 {
                             p_ptr = &p_ptr[20..];
                             b
                         }
-                        _ => unreachable!(),
+                        _ => break 'byte_loop,
                     };
 
                     msg[i] = the_byte;
