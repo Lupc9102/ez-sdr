@@ -319,7 +319,9 @@ impl RecorderPanel {
     pub fn stop_recording(&mut self) {
         self.iq_writer.take();
         if let Some(w) = self.wav_writer.take() {
-            let _ = w.finalize();
+            if let Err(e) = w.finalize() {
+                self.last_error = format!("Failed to finalize WAV: {e}");
+            }
         }
         self.recording = false;
         self.peak_level_dbfs = -120.0;
