@@ -21,6 +21,19 @@ pub struct WebRemote {
     pub cmd_rx: Option<mpsc::Receiver<RemoteCommand>>,
 }
 
+pub struct StreamState<'a> {
+    pub freq_hz: u64,
+    pub gain_db: f64,
+    pub demod_mode: &'a str,
+    pub aircraft_count: usize,
+    pub passes: &'a [crate::tle_engine::PassInfo],
+    pub squelch: f32,
+    pub volume: f32,
+    pub recording: bool,
+    pub scanner_active: bool,
+    pub snr_db: f32,
+}
+
 impl WebRemote {
     pub fn new() -> Self {
         Self {
@@ -158,35 +171,22 @@ impl WebRemote {
         cmds
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn broadcast_state(
-        &mut self,
-        freq_hz: u64,
-        gain_db: f64,
-        demod_mode: &str,
-        aircraft_count: usize,
-        passes: &[crate::tle_engine::PassInfo],
-        squelch: f32,
-        volume: f32,
-        recording: bool,
-        scanner_active: bool,
-        snr_db: f32,
-    ) {
+    pub fn broadcast_state(&mut self, state: &StreamState<'_>) {
         let tx = match &self.tx {
             Some(t) if t.receiver_count() > 0 => t,
             _ => return,
         };
-        let state = serde_json::json!({
-            "frequency_hz": freq_hz,
-            "gain_db": gain_db,
-            "demod_mode": demod_mode,
-            "aircraft_count": aircraft_count,
-            "squelch_db": squelch,
-            "volume": volume,
-            "recording": recording,
-            "scanner_active": scanner_active,
-            "snr_db": snr_db,
-            "upcoming_passes": passes.iter().map(|p| serde_json::json!({
+        let json = serde_json::json!({
+            "frequency_hz": state.freq_hz,
+            "gain_db": state.gain_db,
+            "demod_mode": state.demod_mode,
+            "aircraft_count": state.aircraft_count,
+            "squelch_db": state.squelch,
+            "volume": state.volume,
+            "recording": state.recording,
+            "scanner_active": state.scanner_active,
+            "snr_db": state.snr_db,
+            "upcoming_passes": state.passes.iter().map(|p| serde_json::json!({
                 "satellite": p.satellite,
                 "aos": p.aos,
                 "los": p.los,
@@ -194,7 +194,7 @@ impl WebRemote {
             })).collect::<Vec<_>>(),
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
-        let _ = tx.send(state.to_string());
+        let _ = tx.send(json.to_string());
     }
 }
 
@@ -240,18 +240,19 @@ mod tests {
     #[test]
     fn no_crash_broadcast_without_listeners() {
         let mut wr = WebRemote::new();
-        wr.broadcast_state(
-            1090000000,
-            40.0,
-            "RAW",
-            5,
-            &[],
-            0.0,
-            0.8,
-            false,
-            false,
-            12.0,
-        );
+        let s = StreamState {
+            freq_hz: 1090000000,
+            gain_db: 40.0,
+            demod_mode: "RAW",
+            aircraft_count: 5,
+            passes: &[],
+            squelch: 0.0,
+            volume: 0.8,
+            recording: false,
+            scanner_active: false,
+            snr_db: 12.0,
+        };
+        wr.broadcast_state(&s);
         // No listeners — should silently return without panicking.
     }
 
@@ -339,18 +340,19 @@ mod tests {
         let (tx, rx) = broadcast::channel(128);
         let _rx = rx; // keep rx alive so sender has receivers
         wr.tx = Some(tx);
-        wr.broadcast_state(
-            1090000000,
-            40.0,
-            "RAW",
-            5,
-            &[],
-            0.0,
-            0.8,
-            false,
-            false,
-            12.0,
-        );
+        let s = StreamState {
+            freq_hz: 1090000000,
+            gain_db: 40.0,
+            demod_mode: "RAW",
+            aircraft_count: 5,
+            passes: &[],
+            squelch: 0.0,
+            volume: 0.8,
+            recording: false,
+            scanner_active: false,
+            snr_db: 12.0,
+        };
+        wr.broadcast_state(&s);
         drop(_rx);
     }
 
