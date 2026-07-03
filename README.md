@@ -75,6 +75,20 @@ cargo clippy --workspace --all-targets
 
 > **Security auditing:** Run `cargo audit` periodically to check for vulnerable dependencies (`cargo install cargo-audit` first).
 
+## Development
+
+Common commands are available via the `Makefile`:
+
+| Command         | Action                        |
+|-----------------|-------------------------------|
+| `make check`    | `cargo check --workspace`     |
+| `make test`     | `cargo test --workspace`      |
+| `make clippy`   | `cargo clippy --workspace -- -D warnings` |
+| `make fmt`      | `cargo fmt --check`           |
+| `make fix`      | `cargo fmt`                   |
+| `make clean`    | `cargo clean`                 |
+| `make audit`    | `cargo audit`                 |
+
 ## Controls
 
 | Control | Action |
