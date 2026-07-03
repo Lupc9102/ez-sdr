@@ -472,6 +472,7 @@ impl CprDecoder {
     }
 
     /// Attempt relative decoding for a surface frame when a reference position is known.
+    #[must_use]
     pub fn decode_surface_relative(
         &mut self,
         icao: u32,

@@ -848,6 +848,7 @@ pub fn embed_generic(title: &str, description: &str, emoji: &str, color: u32) ->
 /// Attempt to fetch an aircraft photo URL from `PlaneSpotters` or a fallback source.
 ///
 /// Returns `None` if no valid image URL could be resolved within the timeout.
+#[must_use]
 pub fn fetch_aircraft_image(icao: &str) -> Option<String> {
     // Try multiple image sources in order
     let icao_upper = icao.to_uppercase();

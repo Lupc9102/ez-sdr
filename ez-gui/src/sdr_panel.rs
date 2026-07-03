@@ -2425,6 +2425,7 @@ pub struct FreqIdInfo {
 
 /// Look up a frequency in the built-in band database and return its
 /// identification info, or `None` if the frequency is not recognised.
+#[must_use]
 pub fn identify_frequency(freq_hz: u64) -> Option<FreqIdInfo> {
     let entries: &[(u64, u64, &str, &str, &str, &str)] = &[
         (150_000,   500_000,   "LF/MF",         "Long & medium wave",
