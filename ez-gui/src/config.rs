@@ -273,64 +273,6 @@ impl AppConfig {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn config_default_has_reasonable_freq() {
-        let cfg = AppConfig::default();
-        assert_eq!(cfg.default_freq_hz, 100_000_000);
-    }
-
-    #[test]
-    fn config_default_sample_rate() {
-        let cfg = AppConfig::default();
-        assert_eq!(cfg.default_sample_rate, 2_048_000);
-    }
-
-    #[test]
-    fn config_default_theme_is_dark() {
-        let cfg = AppConfig::default();
-        assert_eq!(cfg.theme, "dark");
-    }
-
-    #[test]
-    fn config_default_observer_at_london() {
-        let cfg = AppConfig::default();
-        assert!((cfg.observer_lat - 51.5).abs() < f64::EPSILON);
-        assert!((cfg.observer_lon - (-0.1)).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn config_default_has_theme_and_discord() {
-        let cfg = AppConfig::default();
-        // theme_config should have the default preset
-        assert_eq!(cfg.theme_config.preset, "dark");
-        // discord should default to disabled
-        assert!(!cfg.discord.enabled);
-    }
-
-    #[test]
-    fn config_serde_roundtrip_preserves_fields() {
-        let cfg = AppConfig::default();
-        let json = serde_json::to_string(&cfg).expect("serialize");
-        let deserialized: AppConfig = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(deserialized.default_freq_hz, cfg.default_freq_hz);
-        assert_eq!(deserialized.theme, cfg.theme);
-        assert_eq!(deserialized.ai_model, cfg.ai_model);
-    }
-
-    #[test]
-    fn provider_presets_have_names() {
-        for p in PROVIDER_PRESETS {
-            assert!(!p.name.is_empty());
-        }
-        assert!(PROVIDER_PRESETS.iter().any(|p| p.name == "Custom"));
-    }
-}
-
 impl AppConfig {
     /// Render the egui-based settings panel UI.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
@@ -632,5 +574,62 @@ impl AppConfig {
                 "Settings are saved to ez_sdr_config.json in the current directory. Spectrum dB range is saved with Ctrl+S.",
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_default_has_reasonable_freq() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.default_freq_hz, 100_000_000);
+    }
+
+    #[test]
+    fn config_default_sample_rate() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.default_sample_rate, 2_048_000);
+    }
+
+    #[test]
+    fn config_default_theme_is_dark() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.theme, "dark");
+    }
+
+    #[test]
+    fn config_default_observer_at_london() {
+        let cfg = AppConfig::default();
+        assert!((cfg.observer_lat - 51.5).abs() < f64::EPSILON);
+        assert!((cfg.observer_lon - (-0.1)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn config_default_has_theme_and_discord() {
+        let cfg = AppConfig::default();
+        // theme_config should have the default preset
+        assert_eq!(cfg.theme_config.preset, "dark");
+        // discord should default to disabled
+        assert!(!cfg.discord.enabled);
+    }
+
+    #[test]
+    fn config_serde_roundtrip_preserves_fields() {
+        let cfg = AppConfig::default();
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        let deserialized: AppConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(deserialized.default_freq_hz, cfg.default_freq_hz);
+        assert_eq!(deserialized.theme, cfg.theme);
+        assert_eq!(deserialized.ai_model, cfg.ai_model);
+    }
+
+    #[test]
+    fn provider_presets_have_names() {
+        for p in PROVIDER_PRESETS {
+            assert!(!p.name.is_empty());
+        }
+        assert!(PROVIDER_PRESETS.iter().any(|p| p.name == "Custom"));
     }
 }

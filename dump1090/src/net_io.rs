@@ -248,4 +248,99 @@ mod tests {
         assert_eq!(hex_digit(16), b'?');
         assert_eq!(hex_digit(255), b'?');
     }
+
+    #[test]
+    fn hex_digit_all_valid_values() {
+        let expected = *b"0123456789ABCDEF";
+        for i in 0..=15u8 {
+            assert_eq!(hex_digit(i), expected[i as usize], "hex_digit({i})");
+        }
+    }
+
+    #[test]
+    fn beast_frame_empty_message() {
+        let frame = encode_beast_frame(0, 0, &[]);
+        assert_eq!(frame[0], 0x1a);
+        assert_eq!(frame[1], 0x33);
+        assert_eq!(frame.len(), 1 + 1 + 6 + 1 + 0);
+    }
+
+    #[test]
+    fn beast_frame_all_0x1a_payload() {
+        let msg = [0x1au8; 7];
+        let frame = encode_beast_frame(0, 0, &msg);
+        // marker, indicator(0x32 for 7-byte), 6 timestamp, 1 signal, 7*2 escaped
+        assert_eq!(frame.len(), 23);
+        assert_eq!(frame[0], 0x1a);
+        // Every msg byte (0x1a) should appear doubled in payload
+        let expected_escaping = [
+            0x32, 0, 0, 0, 0, 0, 0, 0, 0x1a, 0x1a, 0x1a, 0x1a, 0x1a, 0x1a, 0x1a, 0x1a, 0x1a, 0x1a,
+            0x1a, 0x1a, 0x1a, 0x1a,
+        ];
+        assert_eq!(&frame[1..], &expected_escaping[..]);
+    }
+
+    #[test]
+    fn beast_frame_all_0x1a_payload_long() {
+        let msg = [0x1au8; 14];
+        let frame = encode_beast_frame(0, 0, &msg);
+        // 1 marker + 1 indicator + 6 ts + 1 sig + 14*2 escaped = 37
+        assert_eq!(frame.len(), 37);
+        // Count 0x1a bytes: 1 marker + (14 * 2) escaped = 29
+        let count = frame.iter().filter(|&&b| b == 0x1a).count();
+        assert_eq!(count, 29);
+    }
+
+    #[test]
+    fn beast_frame_zero_timestamp() {
+        let frame = encode_beast_frame(0, 0, &[0u8; 7]);
+        assert_eq!(frame[2], 0);
+        assert_eq!(frame[3], 0);
+        assert_eq!(frame[4], 0);
+        assert_eq!(frame[5], 0);
+        assert_eq!(frame[6], 0);
+        assert_eq!(frame[7], 0);
+    }
+
+    #[test]
+    fn beast_frame_max_timestamp() {
+        // Max 48-bit value
+        let frame = encode_beast_frame(0xFFFF_FFFF_FFFF, 0, &[0u8; 7]);
+        assert_eq!(frame[2], 0xFF);
+        assert_eq!(frame[3], 0xFF);
+        assert_eq!(frame[4], 0xFF);
+        assert_eq!(frame[5], 0xFF);
+        assert_eq!(frame[6], 0xFF);
+        assert_eq!(frame[7], 0xFF);
+    }
+
+    #[test]
+    fn beast_frame_signal_byte_zero() {
+        let frame = encode_beast_frame(0, 0, &[0u8; 7]);
+        assert_eq!(frame[8], 0);
+    }
+
+    #[test]
+    fn beast_frame_signal_byte_max() {
+        let frame = encode_beast_frame(0, 255, &[0u8; 7]);
+        assert_eq!(frame[8], 255);
+    }
+
+    #[test]
+    fn beast_frame_frame_length_matches_input() {
+        for len in [0, 1, 2, 7, 8, 14, 20, 100] {
+            let msg = vec![0x42u8; len];
+            let frame = encode_beast_frame(0, 0, &msg);
+            // base = 1 marker + 1 indicator + 6 ts + 1 signal = 9, no escaping
+            assert_eq!(frame.len(), 9 + len, "length mismatch for len={len}");
+        }
+    }
+
+    #[test]
+    fn beast_frame_no_escaping_without_0x1a() {
+        let msg = [0x42u8; 7];
+        let frame = encode_beast_frame(0, 0, &msg);
+        assert_eq!(frame.len(), 16); // 9 + 7
+        assert_eq!(&frame[9..], &msg[..]);
+    }
 }
