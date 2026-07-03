@@ -2766,3 +2766,91 @@ impl HowToPanel {
         Self::warn(ui, "If you're on Linux and the SDR keeps disconnecting, power management may be suspending the USB port. Disable it: echo -1 | sudo tee /sys/module/usbcore/parameters/autosuspend");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_query_returns_empty() {
+        assert!(HowToPanel::search_matches("").is_empty());
+    }
+
+    #[test]
+    fn matches_section_title() {
+        let result = HowToPanel::search_matches("Getting Started");
+        assert_eq!(result, vec![0]);
+    }
+
+    #[test]
+    fn matches_section_title_partial() {
+        let result = HowToPanel::search_matches("Trouble");
+        assert_eq!(result, vec![17]);
+    }
+
+    #[test]
+    fn matches_keyword() {
+        let result = HowToPanel::search_matches("adsb");
+        assert_eq!(result, vec![8]);
+    }
+
+    #[test]
+    fn matches_keyword_partial() {
+        let result = HowToPanel::search_matches("book");
+        assert_eq!(result, vec![12]);
+    }
+
+    #[test]
+    fn case_insensitive_section_title() {
+        let lower = HowToPanel::search_matches("getting started");
+        let upper = HowToPanel::search_matches("GETTING STARTED");
+        let mixed = HowToPanel::search_matches("GeTtInG StArTeD");
+        assert_eq!(lower, vec![0]);
+        assert_eq!(upper, vec![0]);
+        assert_eq!(mixed, vec![0]);
+    }
+
+    #[test]
+    fn case_insensitive_keyword() {
+        let lower = HowToPanel::search_matches("noaa");
+        let upper = HowToPanel::search_matches("NOAA");
+        let mixed = HowToPanel::search_matches("NoAa");
+        assert_eq!(lower, vec![9, 14]);
+        assert_eq!(upper, vec![9, 14]);
+        assert_eq!(mixed, vec![9, 14]);
+    }
+
+    #[test]
+    fn no_match_returns_empty() {
+        let result = HowToPanel::search_matches("xyznonexistent");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn keyword_with_multiple_sections() {
+        let result = HowToPanel::search_matches("noise");
+        assert_eq!(result, vec![5, 13, 17]);
+    }
+
+    #[test]
+    fn query_matches_multiple_sections_via_title() {
+        let result = HowToPanel::search_matches("SDR");
+        // "What is SDR" (2), "RTL-SDR Hardware" (3), "SDR Panel Controls" (5)
+        assert!(result.contains(&2));
+        assert!(result.contains(&3));
+        assert!(result.contains(&5));
+    }
+
+    #[test]
+    fn keyword_contains_query() {
+        let result = HowToPanel::search_matches("start");
+        assert_eq!(result, vec![0, 1]);
+    }
+
+    #[test]
+    fn query_contains_keyword() {
+        let result = HowToPanel::search_matches("rtlsdr dongle");
+        let expected = HowToPanel::search_matches("rtlsdr");
+        assert_eq!(result, expected);
+    }
+}
