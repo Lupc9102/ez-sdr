@@ -15,7 +15,6 @@ rtlsdr_sys = { version = "1.1", optional = true }
 # DSP / math
 num-complex = "0.4"
 rustfft = "6"
-realfft = "3"
 
 # Networking
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
@@ -33,7 +32,6 @@ serde_json = "1"
 
 # Async runtime / channels
 crossbeam-channel = "0.5"
-tokio-util = "0.7"
 
 # WAV/audio recording
 hound = "3.5"
@@ -49,8 +47,6 @@ rumqttc = "0.24"
 rfd = "0.15"
 
 # Misc
-fs2 = "0.4"
-native-tls = { version = "0.2", features = ["vendored"] }
 anyhow = "1"
 thiserror = "1"
 chrono = "0.4"

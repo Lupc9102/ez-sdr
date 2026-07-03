@@ -23,8 +23,6 @@ pub struct DecodedMessage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RangeScanState {
     Idle,
-    #[allow(dead_code)]
-    ScanUp,
     ScanDown,
     RescanUp,
     RescanDown,
@@ -559,7 +557,7 @@ impl AdaptiveGain {
             }
 
             match self.range_state {
-                RangeScanState::ScanUp | RangeScanState::RescanUp => {
+                RangeScanState::RescanUp => {
                     if available_range < f64::from(self.range_target_db) {
                         gain_down = true;
                         gain_not_up = true;

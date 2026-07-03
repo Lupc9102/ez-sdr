@@ -258,17 +258,17 @@ mod tests {
     #[test]
     fn set_enabled_true_sets_fields() {
         let mut wr = WebRemote::new();
-        wr.set_enabled(true, 8080);
+        wr.set_enabled(true, 0);
         assert!(wr.enabled);
-        assert_eq!(wr.port, 8080);
+        assert_eq!(wr.port, 0);
         // tx and cmd_rx may or may not be set depending on thread success
     }
 
     #[test]
     fn set_enabled_toggle_re_enables() {
         let mut wr = WebRemote::new();
-        wr.set_enabled(true, 8080);
-        wr.set_enabled(false, 8080);
+        wr.set_enabled(true, 0);
+        wr.set_enabled(false, 0);
         assert!(!wr.enabled);
         assert!(wr.tx.is_none());
         assert!(wr.cmd_rx.is_none());
