@@ -489,7 +489,7 @@ impl AirportDb {
                     a.atype,
                     i32::from(a.scheduled)
                 ])
-                .ok();
+                .map_err(|e| e.to_string())?;
             }
         }
         {
@@ -503,7 +503,7 @@ impl AirportDb {
                     f.description,
                     f.frequency_mhz
                 ])
-                .ok();
+                .map_err(|e| e.to_string())?;
             }
         }
         tx.commit().map_err(|e| e.to_string())?;

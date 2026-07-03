@@ -160,11 +160,7 @@ impl TleEngine {
     pub fn doppler_shift(&self, sat: &TleEntry, freq_hz: f64, t: f64) -> f64 {
         let period_s = 1440.0 / sat.mean_motion * 60.0;
         let orbit_phase = (t % period_s) / period_s;
-        let vel_lat = sat.inclination
-            * 2.0
-            * std::f64::consts::PI
-            / period_s
-            * orbit_phase.cos();
+        let vel_lat = sat.inclination * 2.0 * std::f64::consts::PI / period_s * orbit_phase.cos();
         let vel_lon = 2.0 * std::f64::consts::PI * 7000.0 / period_s;
         let range_rate = (vel_lat * vel_lat + vel_lon * vel_lon).sqrt() * 0.5;
         let c = 299_792_458.0;
