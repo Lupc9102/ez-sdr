@@ -43,7 +43,7 @@ crossbeam-channel = { workspace = true }
 
 # WAV/audio recording
 hound = "3.5"
-cpal = { version = "0.15", optional = true }
+cpal = { version = "0.18", optional = true }
 
 # Image handling for maps and decoded images
 image = "0.25"
