@@ -190,7 +190,7 @@ impl SourceManager {
                     }
                 }
                 SourceMode::Simulated => {
-                    #[cfg(feature = "rtlsdr")]
+                    #[cfg(all(feature = "rtlsdr", not(test)))]
                     {
                         // SAFETY: `rtl_sdr_open` is an `unsafe` FFI wrapper but
                         // passes valid arguments to the wrapped C functions and
@@ -214,7 +214,7 @@ impl SourceManager {
                             rtl_sdr_close(dev);
                         }
                     }
-                    #[cfg(not(feature = "rtlsdr"))]
+                    #[cfg(not(all(feature = "rtlsdr", not(test))))]
                     {
                         // Demo mode: generate realistic multi-signal IQ data
                         let mut phase: f64 = 0.0;
@@ -528,6 +528,90 @@ fn rand_f64(seed: f64) -> f64 {
     frac / 4294967296.0
 }
 
+// SAFETY: This function calls raw FFI (`rtlsdr_open`, etc.) and must only be
+// called when `feature = "rtlsdr"` is active and a real RTL-SDR device is
+// available. The caller must ensure the returned pointer is eventually closed
+// with `rtl_sdr_close`.
+#[cfg(all(feature = "rtlsdr", not(test)))]
+unsafe fn rtl_sdr_open(
+    freq: u64,
+    rate: u32,
+    ppm: i32,
+    bias: bool,
+    gain_db: f64,
+) -> *mut std::ffi::c_void {
+    extern "C" {
+        fn rtlsdr_open(dev: *mut *mut std::ffi::c_void, index: u32) -> i32;
+        fn rtlsdr_set_center_freq(dev: *mut std::ffi::c_void, freq: u32) -> i32;
+        fn rtlsdr_set_sample_rate(dev: *mut std::ffi::c_void, rate: u32) -> i32;
+        fn rtlsdr_set_tuner_gain_mode(dev: *mut std::ffi::c_void, manual: i32) -> i32;
+        fn rtlsdr_set_tuner_gain(dev: *mut std::ffi::c_void, gain: i32) -> i32;
+        fn rtlsdr_set_freq_correction(dev: *mut std::ffi::c_void, ppm: i32) -> i32;
+        fn rtlsdr_set_bias_tee(dev: *mut std::ffi::c_void, on: i32) -> i32;
+    }
+    let mut dev: *mut std::ffi::c_void = std::ptr::null_mut();
+    if unsafe { rtlsdr_open(&mut dev, 0) } != 0 {
+        return std::ptr::null_mut();
+    }
+    let cleanup_and_fail = |dev: *mut std::ffi::c_void, what: &str| -> *mut std::ffi::c_void {
+        eprintln!("rtlsdr: warning: failed to set {what}; closing device");
+        unsafe {
+            rtl_sdr_close(dev);
+        }
+        std::ptr::null_mut()
+    };
+    if unsafe { rtlsdr_set_center_freq(dev, freq as u32) } < 0 {
+        return cleanup_and_fail(dev, "center frequency");
+    }
+    if unsafe { rtlsdr_set_sample_rate(dev, rate) } < 0 {
+        return cleanup_and_fail(dev, "sample rate");
+    }
+    if unsafe { rtlsdr_set_tuner_gain_mode(dev, 1) } < 0 {
+        return cleanup_and_fail(dev, "tuner gain mode");
+    }
+    if unsafe { rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32) } < 0 {
+        return cleanup_and_fail(dev, "tuner gain");
+    }
+    if unsafe { rtlsdr_set_freq_correction(dev, ppm) } < 0 {
+        eprintln!("rtlsdr: warning: failed to set frequency correction");
+    }
+    let bias_on = if bias { 1 } else { 0 };
+    if unsafe { rtlsdr_set_bias_tee(dev, bias_on) } < 0 {
+        eprintln!("rtlsdr: warning: failed to set bias tee");
+    }
+    dev
+}
+
+// SAFETY: `dev` must be a valid device handle from `rtl_sdr_open`. `buf` must
+// be a valid mutable slice. The FFI writes `n_read` bytes into the buffer.
+#[cfg(all(feature = "rtlsdr", not(test)))]
+unsafe fn rtl_sdr_read_sync(dev: *mut std::ffi::c_void, buf: &mut [u8]) -> usize {
+    extern "C" {
+        fn rtlsdr_read_sync(
+            dev: *mut std::ffi::c_void,
+            buf: *mut u8,
+            len: u32,
+            n_read: *mut u32,
+        ) -> i32;
+    }
+    let mut n_read = 0u32;
+    unsafe {
+        rtlsdr_read_sync(dev, buf.as_mut_ptr(), buf.len() as u32, &mut n_read);
+    }
+    n_read as usize
+}
+
+// SAFETY: `dev` must be a non-null handle from `rtl_sdr_open` that has not
+// been closed yet. After this call the handle is invalid.
+#[cfg(all(feature = "rtlsdr", not(test)))]
+unsafe fn rtl_sdr_close(dev: *mut std::ffi::c_void) {
+    extern "C" {
+        fn rtlsdr_close(dev: *mut std::ffi::c_void) -> i32;
+    }
+    unsafe {
+        rtlsdr_close(dev);
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,90 +715,5 @@ mod tests {
         // Known value from LCG formula
         let known = 1013904223.0 / 4294967296.0;
         assert!((a - known).abs() < 1e-10);
-    }
-}
-
-// SAFETY: This function calls raw FFI (`rtlsdr_open`, etc.) and must only be
-// called when `feature = "rtlsdr"` is active and a real RTL-SDR device is
-// available. The caller must ensure the returned pointer is eventually closed
-// with `rtl_sdr_close`.
-#[cfg(feature = "rtlsdr")]
-unsafe fn rtl_sdr_open(
-    freq: u64,
-    rate: u32,
-    ppm: i32,
-    bias: bool,
-    gain_db: f64,
-) -> *mut std::ffi::c_void {
-    extern "C" {
-        fn rtlsdr_open(dev: *mut *mut std::ffi::c_void, index: u32) -> i32;
-        fn rtlsdr_set_center_freq(dev: *mut std::ffi::c_void, freq: u32) -> i32;
-        fn rtlsdr_set_sample_rate(dev: *mut std::ffi::c_void, rate: u32) -> i32;
-        fn rtlsdr_set_tuner_gain_mode(dev: *mut std::ffi::c_void, manual: i32) -> i32;
-        fn rtlsdr_set_tuner_gain(dev: *mut std::ffi::c_void, gain: i32) -> i32;
-        fn rtlsdr_set_freq_correction(dev: *mut std::ffi::c_void, ppm: i32) -> i32;
-        fn rtlsdr_set_bias_tee(dev: *mut std::ffi::c_void, on: i32) -> i32;
-    }
-    let mut dev: *mut std::ffi::c_void = std::ptr::null_mut();
-    if unsafe { rtlsdr_open(&mut dev, 0) } != 0 {
-        return std::ptr::null_mut();
-    }
-    let cleanup_and_fail = |dev: *mut std::ffi::c_void, what: &str| -> *mut std::ffi::c_void {
-        eprintln!("rtlsdr: warning: failed to set {what}; closing device");
-        unsafe {
-            rtlsdr_close(dev);
-        }
-        std::ptr::null_mut()
-    };
-    if unsafe { rtlsdr_set_center_freq(dev, freq as u32) } < 0 {
-        return cleanup_and_fail(dev, "center frequency");
-    }
-    if unsafe { rtlsdr_set_sample_rate(dev, rate) } < 0 {
-        return cleanup_and_fail(dev, "sample rate");
-    }
-    if unsafe { rtlsdr_set_tuner_gain_mode(dev, 1) } < 0 {
-        return cleanup_and_fail(dev, "tuner gain mode");
-    }
-    if unsafe { rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32) } < 0 {
-        return cleanup_and_fail(dev, "tuner gain");
-    }
-    if unsafe { rtlsdr_set_freq_correction(dev, ppm) } < 0 {
-        eprintln!("rtlsdr: warning: failed to set frequency correction");
-    }
-    let bias_on = if bias { 1 } else { 0 };
-    if unsafe { rtlsdr_set_bias_tee(dev, bias_on) } < 0 {
-        eprintln!("rtlsdr: warning: failed to set bias tee");
-    }
-    dev
-}
-
-// SAFETY: `dev` must be a valid device handle from `rtl_sdr_open`. `buf` must
-// be a valid mutable slice. The FFI writes `n_read` bytes into the buffer.
-#[cfg(feature = "rtlsdr")]
-unsafe fn rtl_sdr_read_sync(dev: *mut std::ffi::c_void, buf: &mut [u8]) -> usize {
-    extern "C" {
-        fn rtlsdr_read_sync(
-            dev: *mut std::ffi::c_void,
-            buf: *mut u8,
-            len: u32,
-            n_read: *mut u32,
-        ) -> i32;
-    }
-    let mut n_read = 0u32;
-    unsafe {
-        rtlsdr_read_sync(dev, buf.as_mut_ptr(), buf.len() as u32, &mut n_read);
-    }
-    n_read as usize
-}
-
-// SAFETY: `dev` must be a non-null handle from `rtl_sdr_open` that has not
-// been closed yet. After this call the handle is invalid.
-#[cfg(feature = "rtlsdr")]
-unsafe fn rtl_sdr_close(dev: *mut std::ffi::c_void) {
-    extern "C" {
-        fn rtlsdr_close(dev: *mut std::ffi::c_void) -> i32;
-    }
-    unsafe {
-        rtlsdr_close(dev);
     }
 }
