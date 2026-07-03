@@ -2,6 +2,7 @@
 name = "dump1090"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.92"
 
 [lib]
 name = "dump1090"
@@ -19,6 +20,9 @@ ctrlc = "3"
 
 [features]
 default = []
+# RTL-SDR backend (requires librtlsdr)
 rtlsdr = []
+# HackRF backend (requires libhackrf)
 hackrf = []
+# SoapySDR backend (requires SoapySDR)
 soapy = []

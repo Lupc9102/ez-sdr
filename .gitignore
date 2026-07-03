@@ -1,4 +1,14 @@
 target/
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/
+.idea/
+*.iml
+*.pdb
+*.idb
+*.ilk
 *.db
 *.db-shm
 *.db-wal

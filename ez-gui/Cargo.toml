@@ -2,6 +2,7 @@
 name = "ez-gui"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.92"
 
 [dependencies]
 dump1090 = { path = "../dump1090" }
@@ -54,5 +55,7 @@ urlencoding = "2"
 
 [features]
 default = ["audio"]
+# Audio output support (WAV playback)
 audio = ["dep:cpal"]
+# RTL-SDR device support
 rtlsdr = ["dep:rtlsdr_sys"]

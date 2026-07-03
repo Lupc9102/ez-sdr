@@ -27,8 +27,11 @@ use crate::sdr::SdrSource;
 use crate::stats::{Stats, MAX_BITERRORS};
 use crate::track::Tracker;
 
+/// 12 MHz clock ticks used for timestamp interpolation.
+const TICKS_PER_SECOND: u64 = 12_000_000;
+
 #[derive(Parser, Debug)]
-#[command(name = "dump1090", about = "ADS-B Mode S decoder in Rust")]
+#[command(name = "dump1090", version, about = "ADS-B Mode S decoder in Rust")]
 struct Args {
     #[arg(long, help = "RTL-SDR device index or serial")]
     device_index: Option<String>,
@@ -44,6 +47,10 @@ struct Args {
     net: bool,
     #[arg(long, default_value = "30005", help = "Beast output port")]
     net_beast_port: u16,
+    #[arg(long, default_value = "30003", help = "SBS output port")]
+    net_sbs_port: u16,
+    #[arg(long, default_value = "30002", help = "Raw output port")]
+    net_raw_port: u16,
 }
 
 /// Thin wrapper around `NetIo` exposing the API expected by main.
@@ -52,10 +59,9 @@ struct NetOutput {
 }
 
 impl NetOutput {
-    fn new(beast_port: u16) -> anyhow::Result<Self> {
+    fn new(beast_port: u16, sbs_port: u16, raw_port: u16) -> anyhow::Result<Self> {
         let inner = net_io::NetIo::new();
-        // Start the underlying listeners.  SBS and raw ports use dump1090 defaults.
-        inner.start(beast_port, 30003, 30002)?;
+        inner.start(beast_port, sbs_port, raw_port)?;
         Ok(NetOutput { inner })
     }
 
@@ -168,7 +174,11 @@ fn main() -> anyhow::Result<()> {
 
     // 5. If --net, start NetOutput
     let net_output: Option<NetOutput> = if args.net {
-        Some(NetOutput::new(args.net_beast_port)?)
+        Some(NetOutput::new(
+            args.net_beast_port,
+            args.net_sbs_port,
+            args.net_raw_port,
+        )?)
     } else {
         None
     };
@@ -181,7 +191,7 @@ fn main() -> anyhow::Result<()> {
     let mut buf = vec![0u16; buf_size];
     let start_time = SystemTime::now();
     let mut sample_timestamp: u64 = 0;
-    let ticks_per_sample: u64 = 12_000_000u64 / args.sample_rate as u64;
+    let ticks_per_sample: u64 = TICKS_PER_SECOND / args.sample_rate as u64;
 
     let mut demod_stats = DemodStats::default();
     let mut demod = Demodulator::new();
