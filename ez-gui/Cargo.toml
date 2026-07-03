@@ -27,11 +27,11 @@ axum = { version = "0.7", features = ["ws"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 # Async runtime / channels
-crossbeam-channel = "0.5"
+crossbeam-channel = { workspace = true }
 
 # WAV/audio recording
 hound = "3.5"
@@ -47,8 +47,8 @@ rumqttc = "0.24"
 rfd = "0.15"
 
 # Misc
-anyhow = "1"
-thiserror = "1"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 chrono = "0.4"
 urlencoding = "2"
 

@@ -63,6 +63,8 @@ mod tests {
     }
 }
 
+type PresetFn = fn() -> ThemeConfig;
+
 // ─── Theme Config ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,9 +312,8 @@ impl ThemeConfig {
     pub fn ui_editor(&mut self, ui: &mut egui::Ui, config_theme: &mut String) {
         ui.horizontal(|ui| {
             ui.label("Preset:");
-            #[allow(clippy::type_complexity)]
-            let presets: &[(&str, fn() -> ThemeConfig)] = &[
-                ("dark", ThemeConfig::dark as fn() -> ThemeConfig),
+            let presets: &[(&str, PresetFn)] = &[
+                ("dark", ThemeConfig::dark as PresetFn),
                 ("light", ThemeConfig::light),
                 ("high_contrast", ThemeConfig::high_contrast),
                 ("solarized_dark", ThemeConfig::solarized_dark),
