@@ -1,7 +1,7 @@
 # Graph Report - ez-sdr  (2026-07-03)
 
 ## Corpus Check
-- 57 files · ~134,572 words
+- 57 files · ~134,578 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b80b3216`
+- Built from commit: `d1f79ca2`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -138,6 +138,7 @@
 - 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 - 3-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/mqtt.rs -> ez-gui/src/adsb_panel.rs`
 - 3-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
+- 4-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/demod.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 
 ## Hyperedges (group relationships)
 - **Spectrum Visualization Ecosystem** — readme_spectrum_analyser, readme_waterfall, readme_band_plan_overlay, anchored_summary_vfo_b_marker, anchored_summary_waterfall_colormap [EXTRACTED 0.95]
@@ -382,12 +383,12 @@ Nodes (14): AcCategory, AdsBNotification, AircraftEntry, AircraftInfo, classify_
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `CentralApp` connect `UI Application Core` to `Tutorial & Help`, `Demodulation`, `AI & Chat`, `SDR Hardware Interface`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 47`, `Community 48`, `Community 83`, `AI & Tools`, `Community 88`, `Community 89`, `Community 24`?**
-  _High betweenness centrality (0.146) - this node is a cross-community bridge._
-- **Why does `SharedState` connect `UI Application Core` to `Spectrum Visualization`, `Demodulation`, `AI & Chat`, `Community 10`, `Community 12`, `Community 45`, `Community 47`, `Community 48`, `Community 83`, `Community 85`, `Community 86`, `Community 22`, `Community 88`, `Community 91`?**
-  _High betweenness centrality (0.145) - this node is a cross-community bridge._
 - **Why does `AdsBDecoder` connect `Community 89` to `UI Application Core`, `Community 31`, `Community 87`?**
-  _High betweenness centrality (0.136) - this node is a cross-community bridge._
+  _High betweenness centrality (0.152) - this node is a cross-community bridge._
+- **Why does `SharedState` connect `UI Application Core` to `Spectrum Visualization`, `Demodulation`, `AI & Chat`, `Community 10`, `Community 12`, `Community 45`, `Community 47`, `Community 48`, `Community 83`, `Community 85`, `Community 86`, `Community 22`, `Community 88`, `Community 91`?**
+  _High betweenness centrality (0.142) - this node is a cross-community bridge._
+- **Why does `CentralApp` connect `UI Application Core` to `Tutorial & Help`, `Demodulation`, `AI & Chat`, `SDR Hardware Interface`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 47`, `Community 48`, `Community 83`, `AI & Tools`, `Community 88`, `Community 89`, `Community 24`?**
+  _High betweenness centrality (0.138) - this node is a cross-community bridge._
 - **What connects `SoapySDRRange`, `ProviderPreset`, `Goal` to the rest of the system?**
   _121 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `UI Application Core` be split into smaller, more focused modules?**

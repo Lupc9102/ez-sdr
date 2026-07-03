@@ -7,7 +7,7 @@ description = "Software-defined radio ADS-B and general SDR receiver with egui G
 license = "MIT OR Apache-2.0"
 authors = ["Lupc9102"]
 repository = "https://github.com/Lupc9102/ez-sdr"
-readme = "README.md"
+readme = "../README.md"
 
 [dependencies]
 dump1090 = { path = "../dump1090" }

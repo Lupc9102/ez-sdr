@@ -28,7 +28,7 @@ pub enum RtlSdrError {
     Io(#[from] std::io::Error),
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "rtlsdr"), allow(dead_code))]
 mod ffi {
     use std::ffi::{c_char, c_int, c_void};
 
