@@ -493,10 +493,10 @@ impl SpectrumAnalyzer {
         let hz_per_bin = f64::from(self.sample_rate) / n as f64;
         let mut lines = String::from("frequency_hz,power_dbfs\n");
         for (i, &db) in self.spectrum_dbs.iter().enumerate() {
-            // FFT bin order: bins 0..N/2 are 0..+Fs/2, bins N/2..N are -Fs/2..0
-            // Reorder to increasing frequency
-            let bin = (i + n / 2) % n;
-            let offset = (bin as f64 - n as f64 / 2.0) * hz_per_bin;
+            // spectrum_dbs is already stored in ascending-frequency order
+            // (fftshift applied at push_iq_samples); bin 0 = center - Fs/2,
+            // bin n/2 = center. No additional shift needed here.
+            let offset = (i as f64 - n as f64 / 2.0) * hz_per_bin;
             let freq_hz = self.center_freq as f64 + offset;
             lines.push_str(&format!("{freq_hz:.0},{db:.2}\n"));
         }
@@ -544,25 +544,36 @@ impl SpectrumAnalyzer {
         let mut sum = 0.0f32;
         let mut peak = -120.0f32;
         let mut hist = [0u32; 120];
+        let n = self.spectrum_dbs.len();
+        // rustfft returns bins in ascending FFT frequency order (bin 0 = DC =
+        // center_freq, bin n/2 = +Fs/2, bin n/2+1..n-1 = negative frequencies).
+        // The display, peak_freq_hz, and click-to-tune all assume storage bin 0
+        // is the LEFT edge (center - Fs/2) and bin n/2 is center. Without this
+        // fftshift, a signal at center_freq appears at the screen's left edge
+        // and peak_freq_hz off by ±Fs/2 — affecting the Find Peak button, the
+        // T shortcut, and the CSV export (which previously applied its own shift
+        // at read time, double-shifting was avoided by removing it here too).
         for (i, c) in self.fft_input_buf.iter().enumerate() {
+            let dst = (i + n / 2) % n;
             let mag = c.norm() * scale;
             let db = if mag > 1e-10 {
                 20.0 * mag.log10()
             } else {
                 -120.0
             };
-            let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[i];
-            self.spectrum_dbs[i] = smoothed;
+            let prev = self.spectrum_dbs[dst];
+            let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * prev;
+            self.spectrum_dbs[dst] = smoothed;
             sum += smoothed;
             if smoothed > peak {
                 peak = smoothed;
             }
             let bin = ((smoothed + 120.0).clamp(0.0, 119.9) as usize).min(119);
             hist[bin] += 1;
-            if db > self.peak_hold[i] {
-                self.peak_hold[i] = db;
+            if db > self.peak_hold[dst] {
+                self.peak_hold[dst] = db;
             } else {
-                self.peak_hold[i] = 0.999 * self.peak_hold[i] + 0.001 * db;
+                self.peak_hold[dst] = 0.999 * self.peak_hold[dst] + 0.001 * db;
             }
         }
         self.cached_signal_level = sum / self.fft_size as f32;
@@ -3262,6 +3273,50 @@ mod tests {
             w[0].abs() < 0.001,
             "Blackman first value should be ≈0.0, got {}",
             w[0]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // FFT bin → frequency mapping (fftshift regression)
+    // -----------------------------------------------------------------------
+    // Push a complex sinusoid at center_freq + offset and verify peak_freq_hz
+    // reports the correct frequency. Without the fftshift at storage time the
+    // peak landed at the wrong bin and peak_freq_hz was off by ±Fs/2.
+    #[test]
+    fn peak_freq_hz_matches_injected_tone_offset() {
+        let mut s = SpectrumAnalyzer::new();
+        let center = 100_000_000u64;
+        let rate = 2_048_000u32;
+        s.update_params(center, rate);
+        let n = s.fft_size;
+        let offset_hz: i64 = 100_000; // +100 kHz above center
+                                      // A complex sinusoid at offset_hz has phaseadvance per sample = 2π*offset/rate.
+                                      // IQ bytes: i = cos(phase)*127 + 127, q = sin(phase)*127 + 127.
+        let mut iq = vec![0u8; n * 2];
+        let phase_step = 2.0 * std::f64::consts::PI * offset_hz as f64 / rate as f64;
+        for k in 0..n {
+            let p = phase_step * k as f64;
+            let i = ((p.cos() * 100.0) + 127.4) as u8;
+            let q = ((p.sin() * 100.0) + 127.4) as u8;
+            iq[2 * k] = i;
+            iq[2 * k + 1] = q;
+        }
+        // push several buffers so the smoothed spectrum stabilises around
+        // the true peak (avg_alpha smoothing needs a few iterations).
+        for _ in 0..16 {
+            s.push_iq_samples(&iq);
+        }
+        let got = s.peak_freq_hz() as i64;
+        let err = (got - center as i64 - offset_hz).abs();
+        // Tolerance: ±2 bins (windowing may smear the peak slightly).
+        let bin_hz = (rate as i64) / n as i64;
+        assert!(
+            err <= 2 * bin_hz,
+            "peak_freq_hz={got} expected ≈{expected} (center+{offset_hz}); \
+             err={err} Hz, tolerance=±{tol} Hz. Likely spectrum_dbs is still \
+             stored in raw FFT bin order instead of fftshifted (centered) order.",
+            expected = center + offset_hz as u64,
+            tol = 2 * bin_hz,
         );
     }
 }
