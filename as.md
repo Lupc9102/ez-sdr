@@ -17,9 +17,11 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 
 - [x] `dump1090/src/mode_s.rs` — `decode_mode_s_message()` fully implemented: handles DF17/18 callsign, altitude, velocity; DF0/4/5/16/20/21 altitude; CRC validation. 11 tests pass.
 - [x] `dump1090/src/cpr.rs` — Airborne decode test verified against dump1090 reference implementation; values match to within tolerance. Test passes.
+- [x] `dump1090/src/mode_ac.rs` — stub replaced with full implementation; round-trip tests pass.
 
 ## Missing Test Coverage
 
+- [x] `dump1090/test` coverage — `fifo`, `stats`, `track`, `demod`, `ifile`, `convert`, `net_io`, `icao_filter` all have tests.
 - [x] `dump1090/src/sdr/soapy.rs` — SoapySDR device interface. Added constructor/factory tests (`SoapyConfig::default()`, `SoapySdr::new()`, Drop with null pointers, Send impl). Feature-gated behind `#[cfg(feature = "soapy")]`.
 - [x] `dump1090/src/sdr/rtlsdr.rs` — RTL-SDR device interface. Added constructor/factory tests (`RtlSdr::new()` with/without device name, Drop with null device, Send impl, gains is empty). Feature-gated behind `#[cfg(feature = "rtlsdr")]`.
 - [x] `ez-gui/src/adaptive.rs` — 17 new tests for AdaptiveThreshold (commit b0d3189).
@@ -35,6 +37,8 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 ## Technical Debt / Cleanup
 
 - [x] `ez_sdr_config.json` — tracked in git with `web_remote_enabled: true` (non-default). Already in `.gitignore`; removed from git tracking via `git rm --cached`.
+- [x] `dump1090/src/config.rs` — `items_after_test_module` Clippy lint fixed.
+- [x] Unused `libc` dependency — removed from `Cargo.toml`.
 - [x] `ez-gui/src/airport_db.rs` — 9-element `AirportEntry` tuple struct replaced with named struct; inner frequency tuples replaced with `FallbackFreq` named struct.
 - [x] `graphify-out/2026-*/` dirs — already in `.gitignore` (line 11).
 - [ ] `Cargo.lock` — `cargo outdated` not installed; skipped (install with `cargo install cargo-outdated`).
@@ -43,6 +47,7 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 ## Documentation
 
 - [x] Public API docs — all public items in `discord.rs`, `source_manager.rs`, `spectrum.rs`, `sdr_panel.rs` already have complete `///` doc comments. Verified no missing public item docs in these files.
+- [x] `SAFETY` comments — added to all 78 `unsafe` blocks in SDR modules (`dump1090/src/sdr/`).
 - [x] README.md — build instructions are good. Test commands and CI badge added.
 
 ## CI / Infrastructure

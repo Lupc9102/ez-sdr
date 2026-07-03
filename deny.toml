@@ -1,0 +1,26 @@
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+notice = "warn"
+
+[licenses]
+unlicensed = "deny"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSL-1.0",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "0BSD",
+]
+
+[bans]
+multiple-versions = "warn"
+skip-tree = [
+    { name = "calloop", version = "0.13" },
+    { name = "rustix", version = "0.38" },
+    { name = "linux-raw-sys", version = "0.4" },
+    { name = "hashbrown", version = "0.14" },
+    { name = "foldhash", version = "0.1" },
+]

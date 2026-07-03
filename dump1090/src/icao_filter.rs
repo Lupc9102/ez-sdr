@@ -137,4 +137,30 @@ mod tests {
         f.add(0x000000);
         assert!(f.contains(0x000000));
     }
+
+    #[test]
+    fn add_duplicate() {
+        let mut f = IcaoFilter::new();
+        f.add(0xABCDEF);
+        f.add(0xABCDEF);
+        assert!(f.contains(0xABCDEF));
+    }
+
+    #[test]
+    fn capacity_many_addresses() {
+        let mut f = IcaoFilter::new();
+        for i in 0..4096u32 {
+            f.add(i);
+        }
+        assert!(f.contains(0));
+        assert!(f.contains(2048));
+        assert!(f.contains(4095));
+    }
+
+    #[test]
+    fn edge_case_max_icao() {
+        let mut f = IcaoFilter::new();
+        f.add(0xFFFFFF);
+        assert!(f.contains(0xFFFFFF));
+    }
 }
