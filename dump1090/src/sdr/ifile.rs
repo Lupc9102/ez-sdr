@@ -112,6 +112,54 @@ impl IFileSdr {
     }
 }
 
+impl SdrSource for IFileSdr {
+    fn start(&mut self) -> anyhow::Result<()> {
+        self.open()
+    }
+
+    fn stop(&mut self) {
+        self.source = None;
+    }
+
+    fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
+        self.frequency = freq;
+        Ok(())
+    }
+
+    fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
+        self.sample_rate = rate;
+        Ok(())
+    }
+
+    fn set_gain(&mut self, gain: f64) -> anyhow::Result<()> {
+        self.gain = gain;
+        Ok(())
+    }
+
+    fn read_samples(&mut self, buf: &mut [u16]) -> anyhow::Result<usize> {
+        self.open()?;
+
+        let mut total = 0usize;
+        while total < buf.len() {
+            let remaining = buf.len() - total;
+            let (samples, eof) = self.read_raw(remaining)?;
+            self.convert(samples, &mut buf[total..total + samples]);
+            total += samples;
+
+            if eof {
+                if self.loop_file && self.path != "-" {
+                    if let Some(ref mut s) = self.source {
+                        let _ = s.seek(SeekFrom::Start(0));
+                        continue;
+                    }
+                }
+                break;
+            }
+        }
+        Ok(total)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,53 +324,5 @@ mod tests {
         let n3 = sdr.read_samples(&mut buf).unwrap();
         assert_eq!(n3, 0);
         cleanup(&path);
-    }
-}
-
-impl SdrSource for IFileSdr {
-    fn start(&mut self) -> anyhow::Result<()> {
-        self.open()
-    }
-
-    fn stop(&mut self) {
-        self.source = None;
-    }
-
-    fn set_frequency(&mut self, freq: u64) -> anyhow::Result<()> {
-        self.frequency = freq;
-        Ok(())
-    }
-
-    fn set_sample_rate(&mut self, rate: u32) -> anyhow::Result<()> {
-        self.sample_rate = rate;
-        Ok(())
-    }
-
-    fn set_gain(&mut self, gain: f64) -> anyhow::Result<()> {
-        self.gain = gain;
-        Ok(())
-    }
-
-    fn read_samples(&mut self, buf: &mut [u16]) -> anyhow::Result<usize> {
-        self.open()?;
-
-        let mut total = 0usize;
-        while total < buf.len() {
-            let remaining = buf.len() - total;
-            let (samples, eof) = self.read_raw(remaining)?;
-            self.convert(samples, &mut buf[total..total + samples]);
-            total += samples;
-
-            if eof {
-                if self.loop_file && self.path != "-" {
-                    if let Some(ref mut s) = self.source {
-                        let _ = s.seek(SeekFrom::Start(0));
-                        continue;
-                    }
-                }
-                break;
-            }
-        }
-        Ok(total)
     }
 }

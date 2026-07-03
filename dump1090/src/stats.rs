@@ -743,8 +743,10 @@ mod tests {
     #[test]
     fn add_accumulates_demod_preambles() {
         let mut a = Stats::default();
-        let mut b = Stats::default();
-        b.demod_preambles = 5;
+        let b = Stats {
+            demod_preambles: 5,
+            ..Default::default()
+        };
         a.add(&b);
         assert_eq!(a.demod_preambles, 5);
         a.add(&b);
@@ -768,9 +770,11 @@ mod tests {
     #[test]
     fn add_accumulates_samples() {
         let mut a = Stats::default();
-        let mut b = Stats::default();
-        b.samples_processed = 1000;
-        b.samples_dropped = 50;
+        let b = Stats {
+            samples_processed: 1000,
+            samples_dropped: 50,
+            ..Default::default()
+        };
         a.add(&b);
         assert_eq!(a.samples_processed, 1000);
         assert_eq!(a.samples_dropped, 50);
@@ -782,12 +786,14 @@ mod tests {
     #[test]
     fn add_accumulates_cpr_counters() {
         let mut a = Stats::default();
-        let mut b = Stats::default();
-        b.cpr_surface = 10;
-        b.cpr_airborne = 20;
-        b.cpr_global_ok = 5;
-        b.cpr_global_bad = 2;
-        b.cpr_local_ok = 8;
+        let b = Stats {
+            cpr_surface: 10,
+            cpr_airborne: 20,
+            cpr_global_ok: 5,
+            cpr_global_bad: 2,
+            cpr_local_ok: 8,
+            ..Default::default()
+        };
         a.add(&b);
         assert_eq!(a.cpr_surface, 10);
         assert_eq!(a.cpr_airborne, 20);
@@ -799,8 +805,10 @@ mod tests {
     #[test]
     fn add_accumulates_messages_total_and_by_df() {
         let mut a = Stats::default();
-        let mut b = Stats::default();
-        b.messages_total = 7;
+        let mut b = Stats {
+            messages_total: 7,
+            ..Default::default()
+        };
         b.messages_by_df[17] = 4;
         b.messages_by_df[11] = 3;
         a.add(&b);
@@ -970,12 +978,14 @@ mod tests {
 
     #[test]
     fn display_shows_counters_when_set() {
-        let mut s = Stats::default();
-        s.start_ms = 1000;
-        s.end_ms = 2000;
-        s.samples_processed = 50000;
-        s.demod_preambles = 100;
-        s.messages_total = 42;
+        let mut s = Stats {
+            start_ms: 1000,
+            end_ms: 2000,
+            samples_processed: 50000,
+            demod_preambles: 100,
+            messages_total: 42,
+            ..Default::default()
+        };
         s.messages_by_df[17] = 30;
         s.messages_by_df[11] = 12;
         let output = format!("{s}");
@@ -999,11 +1009,13 @@ mod tests {
 
     #[test]
     fn display_shows_noise_power_when_set() {
-        let mut s = Stats::default();
-        s.noise_power_sum = 0.01;
-        s.noise_power_count = 1;
-        s.signal_power_sum = 0.1;
-        s.signal_power_count = 2;
+        let s = Stats {
+            noise_power_sum: 0.01,
+            noise_power_count: 1,
+            signal_power_sum: 0.1,
+            signal_power_count: 2,
+            ..Default::default()
+        };
         let output = format!("{s}");
         assert!(output.contains("dBFS noise power"));
         assert!(output.contains("dBFS mean signal power"));
@@ -1011,10 +1023,12 @@ mod tests {
 
     #[test]
     fn reset_returns_to_default() {
-        let mut s = Stats::default();
-        s.demod_preambles = 100;
-        s.samples_processed = 50000;
-        s.messages_total = 42;
+        let mut s = Stats {
+            demod_preambles: 100,
+            samples_processed: 50000,
+            messages_total: 42,
+            ..Default::default()
+        };
         s.reset();
         assert_eq!(s.demod_preambles, 0);
         assert_eq!(s.samples_processed, 0);
@@ -1023,12 +1037,16 @@ mod tests {
 
     #[test]
     fn large_values_accumulate() {
-        let mut a = Stats::default();
-        a.demod_preambles = 1_000_000;
-        a.samples_processed = 1_000_000_000;
-        let mut b = Stats::default();
-        b.demod_preambles = 2_000_000;
-        b.samples_processed = 2_000_000_000;
+        let mut a = Stats {
+            demod_preambles: 1_000_000,
+            samples_processed: 1_000_000_000,
+            ..Default::default()
+        };
+        let b = Stats {
+            demod_preambles: 2_000_000,
+            samples_processed: 2_000_000_000,
+            ..Default::default()
+        };
         a.add(&b);
         assert_eq!(a.demod_preambles, 3_000_000);
         assert_eq!(a.samples_processed, 3_000_000_000);

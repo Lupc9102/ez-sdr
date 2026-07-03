@@ -289,7 +289,9 @@ impl AppConfig {
     /// Serialise and write the configuration to `ez_sdr_config.json`.
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write("ez_sdr_config.json", json);
+            if let Err(e) = std::fs::write("ez_sdr_config.json", &json) {
+                eprintln!("[config] failed to write config file: {}", e);
+            }
         }
     }
 }
@@ -572,7 +574,9 @@ impl AppConfig {
                         .save_file()
                     {
                         if let Ok(json) = serde_json::to_string_pretty(self) {
-                            let _ = std::fs::write(&path, json);
+                            if let Err(e) = std::fs::write(&path, json) {
+                                eprintln!("[config] failed to export config to {}: {}", path.display(), e);
+                            }
                         }
                     }
                 }
@@ -668,13 +672,15 @@ mod tests {
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        let mut cfg = AppConfig::default();
-        cfg.default_freq_hz = 433_000_000;
-        cfg.theme = "light".to_string();
-        cfg.ai_model = "custom-model".to_string();
-        cfg.output_directory = "/tmp/recordings".to_string();
-        cfg.observer_lat = 40.7128;
-        cfg.observer_lon = -74.0060;
+        let cfg = AppConfig {
+            default_freq_hz: 433_000_000,
+            theme: "light".to_string(),
+            ai_model: "custom-model".to_string(),
+            output_directory: "/tmp/recordings".to_string(),
+            observer_lat: 40.7128,
+            observer_lon: -74.0060,
+            ..Default::default()
+        };
         cfg.save();
 
         let loaded = AppConfig::load_or_default();

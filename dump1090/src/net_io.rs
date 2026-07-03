@@ -263,7 +263,7 @@ mod tests {
         let frame = encode_beast_frame(0, 0, &[]);
         assert_eq!(frame[0], 0x1a);
         assert_eq!(frame[1], 0x33);
-        assert_eq!(frame.len(), 1 + 1 + 6 + 1 + 0);
+        assert_eq!(frame.len(), 1 + 1 + 6 + 1);
     }
 
     #[test]

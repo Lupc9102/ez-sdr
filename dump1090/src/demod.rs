@@ -1384,8 +1384,8 @@ mod tests {
         assert_eq!(mag[0], 0);
         assert!(mag[1] > 0);
         assert!(mag[2] > 0);
-        for i in 3..10 {
-            assert_eq!(mag[i], 0, "mag[{}] should be untouched", i);
+        for (i, val) in mag.iter().enumerate().take(10).skip(3) {
+            assert_eq!(*val, 0, "mag[{}] should be untouched", i);
         }
     }
 

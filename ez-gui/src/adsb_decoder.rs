@@ -491,8 +491,8 @@ mod tests {
         // Note: N-bit = Q-bit (both 0x10), so N-bit can never be set without entering Q-mode
         let mut msg = [0u8; 14];
         msg[5] = 0x20 | 0x05; // M-bit + d12=5
-        msg[6] = 0b001_011_10; // d10=1, d8=3, d6 low=2
-        msg[7] = 0b10_1111_00; // d6 high=1, d4=15
+        msg[6] = 0b0010_1110; // d10=1, d8=3, d6 low=2
+        msg[7] = 0b1011_1100; // d6 high=1, d4=15
                                // d12=5, d10=1, d8=3, d6=4, d4=15, m=1600, n=0
                                // 5*500 + 1*100 + 3*20 + 4*4 + 15 + 1600 = 2500+100+60+16+15+1600 = 4291
         assert_eq!(decode_altitude(&msg), 4291);
@@ -508,8 +508,8 @@ mod tests {
         // d6  occupies ((msg[6] & 0x03) << 1) | ((msg[7] >> 6) & 0x01)
         // d4  occupies (msg[7] >> 2) & 0x0F
         msg[5] = 0x05; // d12 = 5
-        msg[6] = 0b001_011_10; // d10=1, d8=3, d6 low=2
-        msg[7] = 0b10_1111_00; // d6 high=1, d4=15
+        msg[6] = 0b0010_1110; // d10=1, d8=3, d6 low=2
+        msg[7] = 0b1011_1100; // d6 high=1, d4=15
                                // d12=5, d10=1, d8=3, d6=((2 << 1) | 0) = 4, d4=15
                                // 5*500 + 1*100 + 3*20 + 4*4 + 15 = 2500+100+60+16+15 = 2691
         assert_eq!(decode_altitude(&msg), 2691);

@@ -47,10 +47,10 @@ cpal = { version = "0.15", optional = true }
 image = "0.25"
 
 # MQTT
-rumqttc = "0.24"
+rumqttc = "0.25"
 
 # File picker
-rfd = "0.15"
+rfd = "0.17"
 
 # Misc
 anyhow = { workspace = true }
