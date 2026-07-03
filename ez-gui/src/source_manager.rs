@@ -290,7 +290,15 @@ impl SourceManager {
                                 }
                             }
 
-                            let _ = tx.try_send(buf.clone());
+                            // Exit when the channel has no receivers left (the
+                            // previous stop() dropped the receiver). Without
+                            // this check the detached worker would loop
+                            // forever burning a core, because the channel's
+                            // try_send failure was previously discarded with
+                            // `let _ =` (parity with the Replay mode at :175).
+                            if tx.try_send(buf.clone()).is_err() {
+                                break;
+                            }
                         }
                     }
                 }
@@ -307,8 +315,16 @@ impl SourceManager {
     /// the next `start()` call. Status returns to `Idle`.
     pub fn stop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
-        self.worker_handle.take(); // detach thread — it will exit on next loop check
-                                   // Recreate channel for next start()
+        // Join the worker instead of detaching it. The worker exits within one
+        // buffer-sleep window after observing running=false (Replay) or on the
+        // next try_send into the dropped channel (Simulated), so join returns
+        // promptly. Joining prevents the old worker from re-entering its loop
+        // after a subsequent start() re-flips the shared running Arc to true —
+        // which previously leaked a CPU-bound thread per stop→start cycle.
+        if let Some(handle) = self.worker_handle.take() {
+            let _ = handle.join();
+        }
+        // Recreate channel for next start()
         let (new_tx, new_rx) = bounded(32);
         self.tx = Some(new_tx);
         self.rx = Some(new_rx);
