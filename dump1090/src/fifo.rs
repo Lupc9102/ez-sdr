@@ -137,3 +137,89 @@ impl Fifo {
         self.inner.lock().expect("fifo mutex poisoned").halted
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn new_creates_empty_fifo() {
+        let fifo = Fifo::new(10);
+        assert!(fifo.is_empty());
+        assert_eq!(fifo.len(), 0);
+        assert!(!fifo.is_halted());
+    }
+
+    #[test]
+    fn push_then_pop_returns_item() {
+        let fifo = Fifo::new(10);
+        let item = vec![1u8, 2, 3];
+        assert!(fifo.push(item.clone(), 100).is_none());
+        assert_eq!(fifo.pop(100), Some(item));
+    }
+
+    #[test]
+    fn pop_blocks_until_item_available() {
+        let fifo = Arc::new(Fifo::new(10));
+        let fifo2 = Arc::clone(&fifo);
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            let _ = fifo2.push(vec![42u8], 100);
+        });
+        let popped = fifo.pop(1000);
+        assert_eq!(popped, Some(vec![42u8]));
+    }
+
+    #[test]
+    fn multiple_items_in_sequence() {
+        let fifo = Fifo::new(10);
+        for i in 0..5 {
+            assert!(fifo.push(vec![i], 100).is_none());
+        }
+        for i in 0..5 {
+            assert_eq!(fifo.pop(100), Some(vec![i]));
+        }
+        assert!(fifo.is_empty());
+    }
+
+    #[test]
+    fn fifo_ordering() {
+        let fifo = Fifo::new(10);
+        let items: Vec<Vec<u8>> = (0..10).map(|i| vec![i as u8; i + 1]).collect();
+        for item in &items {
+            assert!(fifo.push(item.clone(), 100).is_none());
+        }
+        for expected in &items {
+            assert_eq!(fifo.pop(100).as_ref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn capacity_exceeded_returns_item() {
+        let fifo = Fifo::new(2);
+        assert!(fifo.push(vec![1], 100).is_none());
+        assert!(fifo.push(vec![2], 100).is_none());
+        let returned = fifo.push(vec![3], 0);
+        assert_eq!(returned, Some(vec![3]));
+    }
+
+    #[test]
+    fn pop_empty_nonblocking_returns_none() {
+        let fifo = Fifo::new(10);
+        assert_eq!(fifo.pop(0), None);
+    }
+
+    #[test]
+    fn halt_wakes_waiters_and_clears_queue() {
+        let fifo = Fifo::new(10);
+        assert!(fifo.push(vec![1], 100).is_none());
+        assert!(fifo.push(vec![2], 100).is_none());
+        fifo.halt();
+        assert!(fifo.is_halted());
+        assert!(fifo.is_empty());
+        assert_eq!(fifo.pop(100), None);
+    }
+}

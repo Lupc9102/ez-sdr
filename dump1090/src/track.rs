@@ -51,3 +51,70 @@ impl Tracker {
         self.aircraft.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::demod::ModesMessage;
+
+    fn make_msg(addr: u32, ts: u64) -> ModesMessage {
+        ModesMessage {
+            addr,
+            sys_timestamp_msg: ts,
+            ..ModesMessage::default()
+        }
+    }
+
+    #[test]
+    fn new_creates_empty_tracker() {
+        let t = Tracker::new();
+        assert!(t.is_empty());
+        assert_eq!(t.len(), 0);
+    }
+
+    #[test]
+    fn update_from_message_creates_entry() {
+        let mut t = Tracker::new();
+        t.update_from_message(&make_msg(0xABCDEF, 1000));
+        assert_eq!(t.len(), 1);
+        let state = t.aircraft.get(&0xABCDEF).unwrap();
+        assert_eq!(state.addr, 0xABCDEF);
+        assert_eq!(state.msg_count, 1);
+        assert_eq!(state.last_seen_ms, 1000);
+    }
+
+    #[test]
+    fn update_from_message_increments_msg_count() {
+        let mut t = Tracker::new();
+        let msg = make_msg(0xABCDEF, 1000);
+        t.update_from_message(&msg);
+        t.update_from_message(&msg);
+        t.update_from_message(&msg);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t.aircraft.get(&0xABCDEF).unwrap().msg_count, 3);
+    }
+
+    #[test]
+    fn update_from_message_updates_last_seen() {
+        let mut t = Tracker::new();
+        t.update_from_message(&make_msg(0xABCDEF, 1000));
+        t.update_from_message(&make_msg(0xABCDEF, 2000));
+        assert_eq!(t.aircraft.get(&0xABCDEF).unwrap().last_seen_ms, 2000);
+    }
+
+    #[test]
+    fn multiple_aircraft_tracked_separately() {
+        let mut t = Tracker::new();
+        t.update_from_message(&make_msg(0xAAAAAA, 1000));
+        t.update_from_message(&make_msg(0xBBBBBB, 1000));
+        t.update_from_message(&make_msg(0xAAAAAA, 2000));
+        assert_eq!(t.len(), 2);
+        assert_eq!(t.aircraft.get(&0xAAAAAA).unwrap().msg_count, 2);
+        assert_eq!(t.aircraft.get(&0xBBBBBB).unwrap().msg_count, 1);
+    }
+
+    #[test]
+    fn default_equals_new() {
+        assert_eq!(Tracker::default().len(), Tracker::new().len());
+    }
+}
