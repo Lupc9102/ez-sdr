@@ -593,30 +593,49 @@ impl AdsBPanel {
 
         std::thread::spawn(move || {
             let url = format!("https://api.planespotters.net/pub/photos/hex/{icao_hex}");
-            if let Ok(resp) = ureq::get(&url).call() {
-                if let Ok(json) = resp.into_json::<serde_json::Value>() {
-                    let model = json["aircraft"]["model"]
-                        .as_str()
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    let operator = json["aircraft"]["operator"]
-                        .as_str()
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    let registration = json["aircraft"]["registration"]
-                        .as_str()
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    let _ = tx.send((
-                        icao,
-                        AircraftInfo {
-                            model,
-                            operator,
-                            registration,
-                        },
-                    ));
-                }
-            }
+            // Send on EVERY path: a fetch failure must still overwrite the
+            // "Loading..." placeholder so it stops blocking retries, and must
+            // surface "Unknown" so the user sees the lookup failed. The
+            // previous code dropped both error paths silently, leaving the
+            // aircraft info panel stuck at "Loading..." forever after one
+            // transient network blip (the contains_key guard at the top then
+            // prevented any retry for the rest of the session).
+            let (model, operator, registration) = match ureq::get(&url).call() {
+                Ok(resp) => match resp.into_json::<serde_json::Value>() {
+                    Ok(json) => (
+                        json["aircraft"]["model"]
+                            .as_str()
+                            .unwrap_or("Unknown")
+                            .to_string(),
+                        json["aircraft"]["operator"]
+                            .as_str()
+                            .unwrap_or("Unknown")
+                            .to_string(),
+                        json["aircraft"]["registration"]
+                            .as_str()
+                            .unwrap_or("Unknown")
+                            .to_string(),
+                    ),
+                    Err(_) => (
+                        "Unknown".to_string(),
+                        "Unknown".to_string(),
+                        "Unknown".to_string(),
+                    ),
+                },
+                Err(_) => (
+                    "Unknown".to_string(),
+                    "Unknown".to_string(),
+                    "Unknown".to_string(),
+                ),
+            };
+            let _ = tx.send((
+                icao,
+                AircraftInfo {
+                    model,
+                    operator,
+                    registration,
+                },
+            ));
         });
     }
 
@@ -663,12 +682,25 @@ impl AdsBPanel {
         let tx = self.tile_download_tx.clone();
         std::thread::spawn(move || {
             let url = format!("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
-            if let Ok(resp) = ureq::get(&url).set("User-Agent", "ez-sdr/0.1").call() {
-                let mut bytes = Vec::new();
-                if resp.into_reader().read_to_end(&mut bytes).is_ok() {
-                    let _ = tx.send(((z, x, y), bytes));
+            // Send on EVERY path: a download failure must still clear the
+            // pending entry via process_tile_downloads so the next render
+            // frame can retry. Sending an empty Vec is safe downstream
+            // (image::load_from_memory(&[]) returns Err → tile_cache stays
+            // empty → next frame re-requests the tile). The previous code
+            // silently dropped the error path, leaving the key in
+            // tile_pending forever and breaking the map for the rest of
+            // the session on the first transient network blip.
+            let bytes = match ureq::get(&url).set("User-Agent", "ez-sdr/0.1").call() {
+                Ok(resp) => {
+                    let mut buf = Vec::new();
+                    match resp.into_reader().read_to_end(&mut buf) {
+                        Ok(_) => buf,
+                        Err(_) => Vec::new(),
+                    }
                 }
-            }
+                Err(_) => Vec::new(),
+            };
+            let _ = tx.send(((z, x, y), bytes));
         });
     }
 
