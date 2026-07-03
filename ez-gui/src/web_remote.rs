@@ -1,6 +1,6 @@
 use std::sync::mpsc;
 use std::thread;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 
 pub enum RemoteCommand {
     Tune { freq_hz: u64 },
@@ -19,6 +19,14 @@ pub struct WebRemote {
     pub port: u16,
     pub tx: Option<broadcast::Sender<String>>,
     pub cmd_rx: Option<mpsc::Receiver<RemoteCommand>>,
+    // JoinHandle of the worker thread running axum::serve. Joined in stop()/Drop
+    // so the thread, its tokio runtime, and the bound TCP socket are released
+    // instead of leaking one per stop() when stop() only dropped the channel clones.
+    join: Option<thread::JoinHandle<()>>,
+    // One-shot shutdown signal sent to the worker before joining. axum's
+    // with_graceful_shutdown resolves the serve future when this fires, letting
+    // rt.block_on return and the thread exit promptly.
+    shutdown: Option<oneshot::Sender<()>>,
 }
 
 pub struct StreamState<'a> {
@@ -41,10 +49,22 @@ impl WebRemote {
             port: 5259,
             tx: None,
             cmd_rx: None,
+            join: None,
+            shutdown: None,
         }
     }
 
     pub fn stop(&mut self) {
+        // Fire the graceful-shutdown signal first so axum stops accepting and
+        // drains in-flight connections, then join the worker thread. Order
+        // matters: joining without the signal would block until the next bind
+        // error (i.e. forever).
+        if let Some(tx) = self.shutdown.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.join.take() {
+            let _ = handle.join();
+        }
         self.tx = None;
         self.cmd_rx = None;
     }
@@ -66,8 +86,10 @@ impl WebRemote {
             self.cmd_rx = Some(cmd_rx);
 
             let port = self.port;
+            let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+            self.shutdown = Some(shutdown_tx);
 
-            thread::spawn(move || {
+            let handle = thread::spawn(move || {
                 let rt = match tokio::runtime::Runtime::new() {
                     Ok(rt) => rt,
                     Err(e) => {
@@ -151,13 +173,22 @@ impl WebRemote {
                     println!("[web_remote] listening on http://{addr}");
                     let listener = match tokio::net::TcpListener::bind(&addr).await {
                         Ok(l) => l,
-                        Err(e) => { eprintln!("[web_remote] bind failed on {addr}: {e}"); return; }
+                        Err(e) => {
+                            eprintln!("[web_remote] bind failed on {addr}: {e}");
+                            return;
+                        }
                     };
-                    if let Err(e) = axum::serve(listener, app).await {
+                    if let Err(e) = axum::serve(listener, app)
+                        .with_graceful_shutdown(async move {
+                            let _ = shutdown_rx.await;
+                        })
+                        .await
+                    {
                         eprintln!("[web_remote] server error: {e}");
                     }
                 });
             });
+            self.join = Some(handle);
         }
     }
 
@@ -195,6 +226,13 @@ impl WebRemote {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         let _ = tx.send(json.to_string());
+    }
+}
+
+impl Drop for WebRemote {
+    fn drop(&mut self) {
+        // Best-effort cleanup on shutdown if stop() wasn't called explicitly.
+        self.stop();
     }
 }
 
