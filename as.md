@@ -26,7 +26,11 @@ _All items below resolved — no `#[allow(dead_code)]` annotations remain in the
 - [x] `ez-gui/src/recorder_panel.rs` — 7 new tests including free_disk_space (commit b0d3189).
 - [x] `ez-gui/src/web_remote.rs` — 8 new tests for RemoteCommand, set_enabled, etc. (commit b0d3189).
 - [x] `ez-gui/src/sdr_panel.rs` — 12 new tests for DemodMode, identify_frequency, etc. (commit b0d3189).
-- [ ] Large UI modules without unit tests: `app.rs` (3020), `ai_panel.rs` (1412), `adsb_panel.rs` (1640), `satellite_panel.rs`, `discord_panel.rs`, `howto_panel.rs` — these are egui-heavy, hard to unit-test without integration framework.
+- [x] `ez-gui/src/spectrum.rs` — 29 tests for color pipeline (lerp_color, sample_palette, color_map, waterfall_color_classic, WindowType::generate). Commit b4297fa.
+- [x] `ez-gui/src/discord.rs` — 30+ tests for categories(), kinds_in(), is_enabled(), is_starred(), all 13 embed builders. Commits fd5a022 & 4d85771.
+- [x] `ez-gui/src/scanner.rs` — 17 tests for parse_json helpers. Refactored into generic parse_json_value<T>. Commit fd5a022.
+- [x] `ez-gui/src/app.rs` — 9 tests for parse_hhmm_today_at (timezone bug fixed). Commit 52fd9d1.
+- [ ] Large UI panel modules: `ai_panel.rs` (1412), `adsb_panel.rs` (1640), `satellite_panel.rs`, `discord_panel.rs`, `howto_panel.rs` — egui-heavy, need integration harness.
 
 ## Technical Debt / Cleanup
 
