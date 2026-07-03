@@ -756,6 +756,163 @@ mod tests {
         // After a full block, a gain change may or may not be suggested
         // depending on the state machine — but the call should not panic
         // and should not spin.
-        assert!(ag.loud_undecoded >= 0);
+    }
+
+    #[test]
+    fn recompute_gain_limits_full_range() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0, 30.0, 40.0];
+        ag.min_gain_db = 0.0;
+        ag.max_gain_db = 40.0;
+        ag.recompute_gain_limits();
+        assert_eq!(ag.gain_min, 0);
+        assert_eq!(ag.gain_max, 4);
+    }
+
+    #[test]
+    fn recompute_gain_limits_single_step() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![25.0];
+        ag.min_gain_db = 0.0;
+        ag.max_gain_db = 100.0;
+        ag.recompute_gain_limits();
+        assert_eq!(ag.gain_min, 0);
+        assert_eq!(ag.gain_max, 0);
+    }
+
+    #[test]
+    fn recompute_gain_limits_clamp_min() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 5.0, 10.0, 20.0];
+        ag.min_gain_db = 10.0;
+        ag.max_gain_db = 100.0;
+        ag.recompute_gain_limits();
+        assert_eq!(ag.gain_min, 2);
+        assert_eq!(ag.gain_max, 3);
+    }
+
+    #[test]
+    fn recompute_gain_limits_clamp_max() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0, 50.0, 100.0];
+        ag.min_gain_db = 0.0;
+        ag.max_gain_db = 30.0;
+        ag.recompute_gain_limits();
+        assert_eq!(ag.gain_min, 0);
+        assert_eq!(ag.gain_max, 2);
+    }
+
+    #[test]
+    fn gain_changed_first_step() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0];
+        ag.current_gain_step = 0;
+        ag.gain_changed();
+        assert_eq!(ag.gain_up_db, 10.0);
+        assert_eq!(ag.gain_down_db, 0.0);
+        assert!(ag.burst_loud_threshold > 0.0);
+    }
+
+    #[test]
+    fn gain_changed_last_step() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0];
+        ag.current_gain_step = 2;
+        ag.gain_changed();
+        assert_eq!(ag.gain_up_db, 0.0);
+        assert_eq!(ag.gain_down_db, 10.0);
+    }
+
+    #[test]
+    fn set_gain_below_min() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0];
+        ag.gain_min = 1;
+        ag.gain_max = 2;
+        assert!(ag.set_gain(0));
+        assert_eq!(ag.current_gain_step, 1);
+    }
+
+    #[test]
+    fn set_gain_above_max() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.gain_table = vec![0.0, 10.0, 20.0];
+        ag.gain_min = 0;
+        ag.gain_max = 1;
+        assert!(ag.set_gain(5));
+        assert_eq!(ag.current_gain_step, 1);
+    }
+
+    #[test]
+    fn set_duty_cycle_extremes() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.set_duty_cycle(0.0001);
+        assert_eq!(ag.duty_n, 1);
+        ag.set_duty_cycle(1.0);
+        assert_eq!(ag.duty_n, ag.duty_d);
+    }
+
+    #[test]
+    fn update_with_range_enabled_does_not_panic() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.range_enabled = true;
+        ag.set_duty_cycle(1.0);
+        ag.gain_table = vec![0.0, 10.0, 20.0, 30.0];
+        ag.min_gain_db = 0.0;
+        ag.max_gain_db = 30.0;
+        ag.configure_gain(vec![0.0, 10.0, 20.0, 30.0], 2);
+        let buf = vec![100u16; ag.samples_per_subblock * ag.subblocks_per_block];
+        let result = ag.update(&buf, None);
+        assert!(result.is_none() || result.is_some());
+        assert!(ag.noise_floor_dbfs <= 0.0);
+    }
+
+    #[test]
+    fn burst_end_of_window_accumulates_runlength() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        let threshold = ag.samples_per_window / 4;
+        // More than threshold loud samples = loud window
+        ag.burst_end_of_window(threshold + 1);
+        assert_eq!(ag.burst_runlength, 1);
+        // Fewer = quiet, and if runlength was 2-5, it increments loud_undecoded
+        ag.burst_end_of_window(0);
+        assert_eq!(ag.burst_runlength, 0);
+    }
+
+    #[test]
+    fn burst_end_of_window_short_runlength_does_not_count() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        // runlength of 1 should not be counted as burst
+        ag.burst_end_of_window(9999);
+        assert_eq!(ag.burst_runlength, 1);
+        ag.burst_end_of_window(0);
+        assert_eq!(ag.burst_runlength, 0);
+        assert_eq!(ag.burst_block_loud_undecoded, 0);
+    }
+
+    #[test]
+    fn decoded_message_skips_burst() {
+        let mut ag = AdaptiveGain::new(2_000_000);
+        ag.burst_enabled = true;
+        ag.set_duty_cycle(1.0);
+        ag.gain_table = vec![0.0, 10.0, 20.0];
+        ag.min_gain_db = 0.0;
+        ag.max_gain_db = 20.0;
+        ag.configure_gain(vec![0.0, 10.0, 20.0], 1);
+        let msg = DecodedMessage { signal_level: 0.5 };
+        let buf = vec![50000u16; ag.samples_per_subblock * ag.subblocks_per_block];
+        let _result = ag.update(&buf, Some(&msg));
+        // Should not have counted bursts since all samples were "decoded"
+        assert_eq!(ag.loud_undecoded, 0);
+    }
+
+    #[test]
+    fn different_sample_rates_work() {
+        for rate in [1_000_000, 2_000_000, 2_400_000] {
+            let ag = AdaptiveGain::new(rate);
+            assert_eq!(ag.sample_rate, rate);
+            assert!(ag.samples_per_window > 0);
+            assert!(ag.samples_per_subblock > 0);
+        }
     }
 }

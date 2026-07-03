@@ -254,4 +254,92 @@ mod tests {
         );
         // No listeners — should silently return without panicking.
     }
+
+    #[test]
+    fn set_enabled_true_sets_fields() {
+        let mut wr = WebRemote::new();
+        wr.set_enabled(true, 8080);
+        assert!(wr.enabled);
+        assert_eq!(wr.port, 8080);
+        // tx and cmd_rx may or may not be set depending on thread success
+    }
+
+    #[test]
+    fn set_enabled_toggle_re_enables() {
+        let mut wr = WebRemote::new();
+        wr.set_enabled(true, 8080);
+        wr.set_enabled(false, 8080);
+        assert!(!wr.enabled);
+        assert!(wr.tx.is_none());
+        assert!(wr.cmd_rx.is_none());
+        wr.set_enabled(true, 9090);
+        assert!(wr.enabled);
+        assert_eq!(wr.port, 9090);
+    }
+
+    #[test]
+    fn remote_command_tune_variant() {
+        match (RemoteCommand::Tune { freq_hz: 1090000000 }) {
+            RemoteCommand::Tune { freq_hz } => assert_eq!(freq_hz, 1090000000),
+            _ => panic!("expected Tune variant"),
+        }
+    }
+
+    #[test]
+    fn remote_command_set_gain_variant() {
+        match (RemoteCommand::SetGain { gain_db: 42.5 }) {
+            RemoteCommand::SetGain { gain_db } => assert!((gain_db - 42.5).abs() < f64::EPSILON),
+            _ => panic!("expected SetGain variant"),
+        }
+    }
+
+    #[test]
+    fn remote_command_set_demod_variant() {
+        match (RemoteCommand::SetDemod { mode: "AM".into() }) {
+            RemoteCommand::SetDemod { mode } => assert_eq!(mode, "AM"),
+            _ => panic!("expected SetDemod variant"),
+        }
+    }
+
+    #[test]
+    fn remote_command_set_squelch_variant() {
+        match (RemoteCommand::SetSquelch { db: -60.0 }) {
+            RemoteCommand::SetSquelch { db } => assert!((db - -60.0).abs() < f32::EPSILON),
+            _ => panic!("expected SetSquelch variant"),
+        }
+    }
+
+    #[test]
+    fn remote_command_set_volume_variant() {
+        match (RemoteCommand::SetVolume { level: 0.75 }) {
+            RemoteCommand::SetVolume { level } => assert!((level - 0.75).abs() < f32::EPSILON),
+            _ => panic!("expected SetVolume variant"),
+        }
+    }
+
+    #[test]
+    fn remote_command_unit_variants() {
+        assert!(matches!(RemoteCommand::StartRecord, RemoteCommand::StartRecord));
+        assert!(matches!(RemoteCommand::StopRecord, RemoteCommand::StopRecord));
+        assert!(matches!(RemoteCommand::StartScan, RemoteCommand::StartScan));
+        assert!(matches!(RemoteCommand::StopScan, RemoteCommand::StopScan));
+    }
+
+    #[test]
+    fn broadcast_state_with_listener_no_crash() {
+        let mut wr = WebRemote::new();
+        let (tx, rx) = broadcast::channel(128);
+        let _rx = rx; // keep rx alive so sender has receivers
+        wr.tx = Some(tx);
+        wr.broadcast_state(1090000000, 40.0, "RAW", 5, &[], 0.0, 0.8, false, false, 12.0);
+        drop(_rx);
+    }
+
+    #[test]
+    fn poll_commands_after_stop_is_empty() {
+        let mut wr = WebRemote::new();
+        wr.set_enabled(true, 5259);
+        wr.set_enabled(false, 5259);
+        assert!(wr.poll_commands().is_empty());
+    }
 }

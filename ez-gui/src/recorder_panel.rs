@@ -911,6 +911,36 @@ fn free_disk_space_with_timeout(path: &str) -> (f64, String) {
 mod tests {
     use super::*;
 
+    fn make_shared_state() -> Arc<Mutex<crate::app::SharedState>> {
+        Arc::new(Mutex::new(crate::app::SharedState {
+            source: crate::source_manager::SourceManager::new(),
+            spectrum: crate::spectrum::SpectrumAnalyzer::new(),
+            config: crate::config::AppConfig::default(),
+            bookmarks: crate::bookmarks::BookmarkDb::load_or_default(),
+            scheduler: crate::scheduler::Scheduler::new(),
+            tle: crate::tle_engine::TleEngine::new(),
+            demod_mode: crate::sdr_panel::DemodMode::Fm,
+            recording: false,
+            adsb_running: false,
+            selected_satellite: None,
+            audio_running: false,
+            volume: 0.5,
+            squelch: -50.0,
+            lpf_cutoff: 15000.0,
+            fm_deviation_hz: 0.0,
+            audio_peak: 0.0,
+            freq_history: std::collections::VecDeque::with_capacity(20),
+            vfo_b: 0,
+            freq_memory: std::array::from_fn(|_| crate::app::FreqMemEntry::default()),
+            tune_step_fine_hz: 100_000,
+            tune_step_coarse_hz: 1_000_000,
+            lo_offset_hz: 0,
+            mqtt_connected: false,
+            mqtt_enabled: false,
+            bookmarks_modified: true,
+        }))
+    }
+
     #[test]
     fn free_disk_space_returns_reasonable_value() {
         let (amount, unit) = free_disk_space_with_timeout("/");
@@ -923,5 +953,54 @@ mod tests {
         let (amount, unit) = free_disk_space_with_timeout("/nonexistent_path_xyz123");
         assert_eq!(amount, 99.9);
         assert_eq!(unit, "GB");
+    }
+
+    #[test]
+    fn free_disk_space_tmp_dir() {
+        let (amount, unit) = free_disk_space_with_timeout("/tmp");
+        assert!(amount > 0.0);
+        assert_eq!(unit, "GB");
+    }
+
+    #[test]
+    fn free_disk_space_dot_returns_something() {
+        let (amount, unit) = free_disk_space_with_timeout(".");
+        assert!(amount > 0.0);
+        assert_eq!(unit, "GB");
+    }
+
+    #[test]
+    fn apply_filename_template_basic() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{date}_{freq}MHz", "20240101_120000", 145.5, "NFM");
+        assert_eq!(result, "20240101_120000_145.500MHz");
+    }
+
+    #[test]
+    fn apply_filename_template_all_tokens() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{date}_{freq}_{freq1}_{freq0}_{mode}", "20240101", 145.525, "NFM");
+        assert_eq!(result, "20240101_145.525_145.5_146_NFM");
+    }
+
+    #[test]
+    fn apply_filename_template_spaces_replaced() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("{date} test file", "20240101", 100.0, "AM");
+        assert_eq!(result, "20240101_test_file");
+    }
+
+    #[test]
+    fn apply_filename_template_no_tokens() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("static_name", "ignored", 0.0, "RAW");
+        assert_eq!(result, "static_name");
+    }
+
+    #[test]
+    fn apply_filename_template_empty_template() {
+        let panel = RecorderPanel::new(make_shared_state());
+        let result = panel.apply_filename_template("", "ts", 100.0, "FM");
+        assert_eq!(result, "");
     }
 }

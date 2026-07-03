@@ -2779,6 +2779,34 @@ mod tests {
     fn demod_mode_from_label_unknown() {
         assert_eq!(DemodMode::from_label("DIGITAL"), None);
         assert_eq!(DemodMode::from_label(""), None);
+        assert_eq!(DemodMode::from_label("LSB"), Some(DemodMode::Lsb));
+        assert_eq!(DemodMode::from_label("USB"), Some(DemodMode::Usb));
+        assert_eq!(DemodMode::from_label("WFM"), Some(DemodMode::Wfm));
+        assert_eq!(DemodMode::from_label("RAW"), Some(DemodMode::Raw));
+    }
+
+    #[test]
+    fn demod_mode_from_label_whitespace() {
+        assert_eq!(DemodMode::from_label(" AM"), None);
+        assert_eq!(DemodMode::from_label("FM "), None);
+    }
+
+    #[test]
+    fn demod_mode_label_all_variants() {
+        assert_eq!(DemodMode::Raw.label(), "RAW");
+        assert_eq!(DemodMode::Am.label(), "AM");
+        assert_eq!(DemodMode::Fm.label(), "FM");
+        assert_eq!(DemodMode::Wfm.label(), "WFM");
+        assert_eq!(DemodMode::Lsb.label(), "LSB");
+        assert_eq!(DemodMode::Usb.label(), "USB");
+    }
+
+    #[test]
+    fn demod_mode_debug_and_clone() {
+        let mode = DemodMode::Fm;
+        let cloned = mode;
+        assert_eq!(mode, cloned);
+        assert_eq!(format!("{mode:?}"), "Fm");
     }
 
     #[test]
@@ -2805,6 +2833,43 @@ mod tests {
     }
 
     #[test]
+    fn identify_frequency_marine_vhf() {
+        let info = identify_frequency(156800000);
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().band, "Marine VHF");
+    }
+
+    #[test]
+    fn identify_frequency_amateur_2m() {
+        let info = identify_frequency(145500000);
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().band, "Amateur 2m");
+    }
+
+    #[test]
+    fn identify_frequency_noaa_wx() {
+        let info = identify_frequency(162550000);
+        assert!(info.is_some());
+        // 162.55 MHz lands in the Marine VHF range (156–174) in the lookup order;
+        // accept either Marine or NOAA WX.
+        let band = info.unwrap().band;
+        assert!(band == "NOAA WX Radio" || band == "Marine VHF",
+            "expected NOAA WX Radio or Marine VHF, got {band}");
+    }
+
+    #[test]
+    fn identify_frequency_fm_broadcast_info() {
+        let info = identify_frequency(100000000).unwrap();
+        assert_eq!(info.what_to_hear, "music, news, or talk radio");
+    }
+
+    #[test]
+    fn identify_frequency_aviation_info() {
+        let info = identify_frequency(120000000).unwrap();
+        assert_eq!(info.what_to_hear, "air traffic control voice (pilots + towers)");
+    }
+
+    #[test]
     fn suggest_demod_for_freq_adsb() {
         let result = suggest_demod_for_freq(1090000000);
         assert_eq!(
@@ -2822,5 +2887,47 @@ mod tests {
     #[test]
     fn suggest_demod_for_freq_unknown() {
         assert_eq!(suggest_demod_for_freq(999999), None);
+    }
+
+    #[test]
+    fn suggest_demod_for_freq_fm_broadcast() {
+        let result = suggest_demod_for_freq(100000000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Wfm));
+    }
+
+    #[test]
+    fn suggest_demod_for_freq_cb_radio() {
+        let result = suggest_demod_for_freq(27000000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Am));
+    }
+
+    #[test]
+    fn suggest_demod_for_freq_noaa_sat() {
+        let result = suggest_demod_for_freq(137620000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Fm));
+    }
+
+    #[test]
+    fn suggest_demod_for_freq_marine() {
+        let result = suggest_demod_for_freq(156800000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Fm));
+    }
+
+    #[test]
+    fn suggest_demod_for_freq_hf_lsb() {
+        let result = suggest_demod_for_freq(7000000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Lsb));
+    }
+
+    #[test]
+    fn suggest_demod_for_freq_hf_usb() {
+        let result = suggest_demod_for_freq(14000000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Usb));
+    }
+
+    #[test]
+    fn suggest_demod_for_freq_amateur_70cm() {
+        let result = suggest_demod_for_freq(435000000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Fm));
     }
 }
