@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::adsb_panel::AircraftEntry;
@@ -16,6 +17,12 @@ pub struct MqttPublisher {
     client: Option<Client>,
     connected_flag: Arc<AtomicBool>,
     reconnect_after: Option<Instant>,
+    // Stop signal shared with the background drain thread. Set by disconnect().
+    stop_flag: Arc<AtomicBool>,
+    // Handle to the background drain thread. Joined on disconnect/drop so the
+    // underlying MQTT connection (and its socket) is released instead of
+    // leaking one FD + thread per reconnect cycle.
+    drain_handle: Option<JoinHandle<()>>,
 }
 
 impl MqttPublisher {
@@ -28,6 +35,8 @@ impl MqttPublisher {
             client: None,
             connected_flag: Arc::new(AtomicBool::new(false)),
             reconnect_after: None,
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            drain_handle: None,
         }
     }
 
@@ -52,23 +61,49 @@ impl MqttPublisher {
 
         let flag = Arc::clone(&self.connected_flag);
         flag.store(true, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            for notification in connection.iter() {
-                if notification.is_err() {
-                    break;
+        // Ensure any previously-detached drain thread (from an earlier
+        // connect/disconnect cycle) is signalled and joined so we don't
+        // accumulate one thread + socket per reconnect.
+        self.stop_flag.store(false, Ordering::Relaxed);
+        self.join_drain();
+        let stop = Arc::clone(&self.stop_flag);
+        let handle = std::thread::spawn(move || {
+            // Drain connection events with a bounded poll so we can observe the
+            // stop flag without blocking forever on `recv()`. 250 ms is short
+            // enough for responsive shutdown and long enough to avoid busy-spin.
+            while !stop.load(Ordering::Relaxed) {
+                match connection.recv_timeout(Duration::from_millis(250)) {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(_)) => break,
+                    Err(_) => break,
                 }
             }
             flag.store(false, Ordering::Relaxed);
         });
 
         self.client = Some(client);
+        self.drain_handle = Some(handle);
         self.reconnect_after = None;
+    }
+
+    /// Signal the drain thread to stop and join it, releasing the underlying
+    /// MQTT connection and its socket. No-op if no thread is running.
+    fn join_drain(&mut self) {
+        if let Some(handle) = self.drain_handle.take() {
+            self.stop_flag.store(true, Ordering::Relaxed);
+            // The thread polls recv_timeout every 250 ms, so join should return
+            // within ~250 ms. If it somehow hangs (would only happen if
+            // rumqttc's recv_timeout ignored its timeout), drop the handle to
+            // detach rather than block the GUI thread indefinitely.
+            let _ = handle.join();
+        }
     }
 
     pub fn disconnect(&mut self) {
         self.connected_flag.store(false, Ordering::Relaxed);
         self.client = None;
         self.reconnect_after = None;
+        self.join_drain();
     }
 
     pub fn is_connected(&self) -> bool {
@@ -177,6 +212,13 @@ impl MqttPublisher {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
         self.publish("satellite/passes", &json.to_string());
+    }
+}
+
+impl Drop for MqttPublisher {
+    fn drop(&mut self) {
+        // Best-effort cleanup on shutdown if disconnect() wasn't called.
+        self.join_drain();
     }
 }
 

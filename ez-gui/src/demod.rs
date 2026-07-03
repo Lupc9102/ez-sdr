@@ -199,11 +199,11 @@ impl Demodulator {
         // De-emphasis time constant τ = 50 μs → pole at f_c = 1/(2π·τ) ≈ 3183 Hz.
         // Discrete IIR: alpha = dt/(τ + dt) where dt = 1/sample_rate
         let tau = 50.0e-6_f32; // 50 microseconds
-        // The de-emphasis IIR advances once per input IQ pair, so dt must use
-        // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
-        // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
-        // ≈1.6e-5, effectively disabling the 50 µs pole and leaving WFM audio
-        // harsh with no bass restoration.
+                               // The de-emphasis IIR advances once per input IQ pair, so dt must use
+                               // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
+                               // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
+                               // ≈1.6e-5, effectively disabling the 50 µs pole and leaving WFM audio
+                               // harsh with no bass restoration.
         let dt = 1.0 / self.input_rate as f32;
         let alpha = dt / (tau + dt);
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
