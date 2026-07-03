@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 //! SoapySDR source - translated from sdr_soapy.c
 
 use std::ffi::{c_char, c_int, c_long, c_void, CStr, CString};

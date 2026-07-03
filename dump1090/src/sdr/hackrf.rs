@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 //! HackRF source - translated from sdr_hackrf.c
 
 use std::ffi::{c_int, c_void};
@@ -80,15 +82,16 @@ struct HackRfCtx {
 // are provided by the HackRF library and are valid for the duration of the
 // callback invocation per the libhackrf API contract.
 unsafe extern "C" fn rx_callback(transfer: *mut HackrfTransfer) -> c_int {
-    if EXIT.load(Ordering::Relaxed) || (*transfer).valid_length <= 0 {
+    if EXIT.load(Ordering::Relaxed) || unsafe { (*transfer).valid_length } <= 0 {
         return -1;
     }
     // SAFETY: `ctx` was allocated as `Box::into_raw(Box::new(HackRfCtx))` and
     // is still alive because RX has not been stopped yet.
-    let ctx = &*((*transfer).ctx as *mut HackRfCtx);
+    let ctx = unsafe { &*((*transfer).ctx as *mut HackRfCtx) };
     // SAFETY: `buffer` and `valid_length` are valid for the callback duration
     // per the libhackrf API; we read-only slice of `valid_length` bytes.
-    let slice = std::slice::from_raw_parts((*transfer).buffer, (*transfer).valid_length as usize);
+    let (buf_ptr, buf_len) = unsafe { ((*transfer).buffer, (*transfer).valid_length as usize) };
+    let slice = unsafe { std::slice::from_raw_parts(buf_ptr, buf_len) };
     let mut data = slice.to_vec();
     for b in data.iter_mut() {
         *b ^= 0x80;

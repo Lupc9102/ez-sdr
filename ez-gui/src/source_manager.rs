@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 //! SDR source configuration and management.
 //!
 //! Provides [`SourceManager`] for enumerating, selecting, and connecting to
@@ -527,15 +529,27 @@ unsafe fn rtl_sdr_open(
         fn rtlsdr_set_bias_tee(dev: *mut std::ffi::c_void, on: i32) -> i32;
     }
     let mut dev: *mut std::ffi::c_void = std::ptr::null_mut();
-    if rtlsdr_open(&mut dev, 0) != 0 {
+    if unsafe { rtlsdr_open(&mut dev, 0) } != 0 {
         return std::ptr::null_mut();
     }
-    rtlsdr_set_center_freq(dev, freq as u32);
-    rtlsdr_set_sample_rate(dev, rate);
-    rtlsdr_set_tuner_gain_mode(dev, 1);
-    rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32);
-    rtlsdr_set_freq_correction(dev, ppm);
-    rtlsdr_set_bias_tee(dev, if bias { 1 } else { 0 });
+    unsafe {
+        rtlsdr_set_center_freq(dev, freq as u32);
+    }
+    unsafe {
+        rtlsdr_set_sample_rate(dev, rate);
+    }
+    unsafe {
+        rtlsdr_set_tuner_gain_mode(dev, 1);
+    }
+    unsafe {
+        rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32);
+    }
+    unsafe {
+        rtlsdr_set_freq_correction(dev, ppm);
+    }
+    unsafe {
+        rtlsdr_set_bias_tee(dev, if bias { 1 } else { 0 });
+    }
     dev
 }
 
@@ -552,7 +566,9 @@ unsafe fn rtl_sdr_read_sync(dev: *mut std::ffi::c_void, buf: &mut [u8]) -> usize
         ) -> i32;
     }
     let mut n_read = 0u32;
-    rtlsdr_read_sync(dev, buf.as_mut_ptr(), buf.len() as u32, &mut n_read);
+    unsafe {
+        rtlsdr_read_sync(dev, buf.as_mut_ptr(), buf.len() as u32, &mut n_read);
+    }
     n_read as usize
 }
 
@@ -563,5 +579,7 @@ unsafe fn rtl_sdr_close(dev: *mut std::ffi::c_void) {
     extern "C" {
         fn rtlsdr_close(dev: *mut std::ffi::c_void) -> i32;
     }
-    rtlsdr_close(dev);
+    unsafe {
+        rtlsdr_close(dev);
+    }
 }

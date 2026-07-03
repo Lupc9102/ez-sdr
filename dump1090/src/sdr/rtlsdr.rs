@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 //! RTL-SDR source - translated from sdr_rtlsdr.c
 
 use std::ffi::{c_char, c_int, CStr};

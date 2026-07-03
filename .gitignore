@@ -25,3 +25,11 @@ ez_sdr_bookmarks_*.csv
 ez_sdr_bookmarks.json
 ez_sdr_config.json
 graphify-out/graph.json
+__pycache__/
+*.pyc
+.env
+*.log
+.claude/night_shift_start
+graphify-out/skills/
+graphify-out/community.csv
+.DS_Store
