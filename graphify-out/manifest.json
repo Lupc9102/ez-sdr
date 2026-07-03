@@ -220,8 +220,8 @@
     "semantic_hash": "23396ed6d8151fad9363638e6529bff8"
   },
   "README.md": {
-    "mtime": 1783094320.652709,
-    "ast_hash": "f76850621862540e48f0fca71705ea39",
+    "mtime": 1783098056.229635,
+    "ast_hash": "1889b559fb22e467009e6f9d80074be1",
     "semantic_hash": ""
   },
   "ez-gui/src/web_remote.html": {
@@ -322,6 +322,11 @@
   ".github/dependabot.yml": {
     "mtime": 1783094310.691441,
     "ast_hash": "e26f7a322eb667834f98b10790d4e94d",
+    "semantic_hash": ""
+  },
+  ".github/workflows/release.yml": {
+    "mtime": 1783098048.146419,
+    "ast_hash": "4266ec2904652c7ec129803bdb6728ef",
     "semantic_hash": ""
   }
 }

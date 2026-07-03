@@ -58,6 +58,25 @@ cargo run --release --no-default-features
 
 The first build compiles `dump1090` (the Rust ADS‑B decoder library) and `ez-gui` (the main application). Release builds are strongly recommended — debug builds are noticeably slower for spectrum rendering.
 
+### Install from source
+
+To install the binary system-wide via `cargo install`:
+
+```
+cargo install --path ez-gui --bin ez-gui
+```
+
+(Install `dump1090` the same way with `--bin dump1090`.)
+
+## Quick Start
+
+1. **Connect your SDR device** (RTL‑SDR, Airspy, HackRF, etc.)
+2. **Run the application:** `cargo run --release` (or `ez-gui` if installed)
+3. **Select your source** in the Source Manager panel (USB device, file, or network)
+4. **Adjust frequency and gain**, pick a demodulation mode, and listen
+
+For a faster first build (skip ADS‑B decoder), set `--no-default-features`. Re-enable with the `audio` feature flag or the `rtlsdr`/`soapy`/`hackrf` device backends as described in the `dump1090/` crate features.
+
 ## Testing
 
 ```
