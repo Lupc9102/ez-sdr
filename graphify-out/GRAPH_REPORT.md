@@ -1,16 +1,16 @@
 # Graph Report - ez-sdr  (2026-07-03)
 
 ## Corpus Check
-- 58 files · ~134,394 words
+- 58 files · ~135,424 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1636 nodes · 3196 edges · 91 communities (62 shown, 29 thin omitted)
+- 1663 nodes · 3260 edges · 92 communities (63 shown, 29 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 12 edges (avg confidence: 0.84)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `afcdb3fb`
+- Built from commit: `33bf3baa`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -104,6 +104,7 @@
 - [[_COMMUNITY_Community 88|Community 88]]
 - [[_COMMUNITY_Community 89|Community 89]]
 - [[_COMMUNITY_Community 90|Community 90]]
+- [[_COMMUNITY_Community 91|Community 91]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `CentralApp` - 46 edges
@@ -131,13 +132,13 @@
 
 ## Import Cycles
 - 1-file cycle: `ez-gui/src/audio_output.rs -> ez-gui/src/audio_output.rs`
-- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs`
-- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/recorder_panel.rs -> ez-gui/src/app.rs`
-- 2-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_panel.rs`
 - 2-file cycle: `ez-gui/src/ai_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/ai_panel.rs`
+- 2-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_panel.rs`
+- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/recorder_panel.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/satellite_panel.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
+- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs`
 - 3-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/mqtt.rs -> ez-gui/src/adsb_panel.rs`
 - 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 - 3-file cycle: `ez-gui/src/app.rs -> ez-gui/src/tutorial.rs -> ez-gui/src/user_level.rs -> ez-gui/src/app.rs`
@@ -148,19 +149,19 @@
 - **Demodulation and Signal Analysis Chain** — readme_demodulators, readme_adsb_decoder, night_work_frequency_based_mode, night_work_rf_filter_presets [INFERRED 0.85]
 - **Web Remote Control Interface** — ez_gui_src_web_remote_html_frequency_control, ez_gui_src_web_remote_html_demodulation, ez_gui_src_web_remote_html_gain_recording, ez_gui_src_web_remote_html_satellite_passes [EXTRACTED 1.00]
 
-## Communities (91 total, 29 thin omitted)
+## Communities (92 total, 29 thin omitted)
 
 ### Community 0 - "UI Application Core"
-Cohesion: 0.09
-Nodes (28): App, CreationContext, Demodulator, AppTab, CentralApp, parse_hhmm_today(), parse_hhmm_today_at(), Arc (+20 more)
+Cohesion: 0.05
+Nodes (51): App, CreationContext, Demodulator, AntennaChecklist, ChecklistItem, crit(), item(), Arc (+43 more)
 
 ### Community 1 - "Spectrum Visualization"
 Cohesion: 0.09
 Nodes (11): Complex32, Arc, Option, Pos2, Self, String, TextureHandle, Ui (+3 more)
 
 ### Community 2 - "ADS-B Decoder"
-Cohesion: 0.05
-Nodes (40): AircraftState, CprFrame, AdsBDecoder, AircraftState, CprFrame, decode_altitude(), decoder_new_starts_empty(), HashMap (+32 more)
+Cohesion: 0.17
+Nodes (13): AdsBNotification, AdsBPanel, AircraftInfo, HashMap, HashSet, Instant, Option, Receiver (+5 more)
 
 ### Community 3 - "Configuration & UI"
 Cohesion: 0.12
@@ -172,7 +173,7 @@ Nodes (16): case_insensitive_keyword(), case_insensitive_section_title(), HowToP
 
 ### Community 5 - "Demodulation"
 Cohesion: 0.11
-Nodes (36): BufWriter, apply_filename_template_adjacent_tokens(), apply_filename_template_all_tokens(), apply_filename_template_basic(), apply_filename_template_case_sensitive_no_match(), apply_filename_template_empty_template(), apply_filename_template_no_tokens(), apply_filename_template_only_date() (+28 more)
+Nodes (35): BufWriter, apply_filename_template_adjacent_tokens(), apply_filename_template_all_tokens(), apply_filename_template_basic(), apply_filename_template_case_sensitive_no_match(), apply_filename_template_empty_template(), apply_filename_template_no_tokens(), apply_filename_template_only_date() (+27 more)
 
 ### Community 6 - "AI & Chat"
 Cohesion: 0.15
@@ -196,7 +197,7 @@ Nodes (37): compute_passes_contains_expected_sats(), compute_passes_empty_tles()
 
 ### Community 11 - "AI Integration"
 Cohesion: 0.05
-Nodes (41): c_char, HackRf, HackRfConfig, HackRfCtx, HackrfDevice, HackrfTransfer, c_int, c_void (+33 more)
+Nodes (39): c_char, Send, SdrSource, find_device_index(), Drop, Option, Result, Self (+31 more)
 
 ### Community 12 - "Community 12"
 Cohesion: 0.11
@@ -223,16 +224,16 @@ Cohesion: 0.08
 Nodes (18): check_crc(), crc24(), crc24_parity(), test_crc24_generates_correct_parity(), test_crc24_parity_short_msg_panics(), AircraftMessage, decode_altitude(), decode_callsign() (+10 more)
 
 ### Community 18 - "Demodulation Core"
-Cohesion: 0.13
-Nodes (16): find_device_index(), Drop, Option, Result, Self, Send, String, Vec (+8 more)
+Cohesion: 0.12
+Nodes (18): HackRf, HackRfConfig, HackRfCtx, HackrfDevice, HackrfTransfer, c_int, c_void, Default (+10 more)
 
 ### Community 19 - "Community 19"
 Cohesion: 0.09
 Nodes (28): beast_frame_all_0x1a_payload(), beast_frame_all_0x1a_payload_long(), beast_frame_contains_signal_byte(), beast_frame_empty_message(), beast_frame_escapes_0x1a_in_payload_only(), beast_frame_frame_length_matches_input(), beast_frame_indicator_defaults_to_long(), beast_frame_indicator_for_14byte_msg() (+20 more)
 
 ### Community 20 - "AI & Tools"
-Cohesion: 0.13
-Nodes (14): audio_output_mark_failed(), audio_output_new_defaults(), audio_output_start_fails_without_feature(), audio_output_stop_clears_state(), AudioOutput, Arc, Mutex, Option (+6 more)
+Cohesion: 0.14
+Nodes (18): audio_output_mark_failed(), audio_output_mark_failed_after_stop(), audio_output_mark_failed_twice(), audio_output_new_defaults(), audio_output_start_fails_without_feature(), audio_output_stop_after_stop(), audio_output_stop_clears_state(), audio_output_stop_idempotent() (+10 more)
 
 ### Community 21 - "Community 21"
 Cohesion: 0.15
@@ -247,8 +248,8 @@ Cohesion: 0.22
 Nodes (12): add_duplicate(), capacity_many_addresses(), clear_removes_all(), contains_after_add(), contains_multiple_addresses(), edge_case_max_icao(), hash_is_deterministic(), IcaoFilter (+4 more)
 
 ### Community 24 - "Community 24"
-Cohesion: 0.15
-Nodes (13): mqtt_is_connected_requires_enabled_and_client(), mqtt_new_defaults_disabled(), mqtt_new_no_reconnect(), mqtt_new_not_connected(), mqtt_publish_without_client_no_crash(), mqtt_set_enabled_disabled_noop(), MqttPublisher, Arc (+5 more)
+Cohesion: 0.11
+Nodes (18): mqtt_disconnect_no_client(), mqtt_is_connected_requires_enabled_and_client(), mqtt_new_defaults_disabled(), mqtt_new_no_reconnect(), mqtt_new_not_connected(), mqtt_publish_noop_when_disabled(), mqtt_publish_without_client_no_crash(), mqtt_set_enabled_disabled_does_not_connect() (+10 more)
 
 ### Community 26 - "Web Remote"
 Cohesion: 0.12
@@ -264,7 +265,7 @@ Nodes (7): CI / Infrastructure, Dead Code / Lint Suppressions to Clean Up, Docum
 
 ### Community 30 - "Community 30"
 Cohesion: 0.11
-Nodes (25): AsRef, cleanup(), create_temp_file(), ifile_eof_returns_zero(), ifile_loop_rewinds(), ifile_new_sc16q11_bytes_per_sample(), ifile_new_with_path(), ifile_new_with_stdin() (+17 more)
+Nodes (26): AsRef, cleanup(), create_temp_file(), ifile_eof_returns_zero(), ifile_loop_rewinds(), ifile_new_sc16q11_bytes_per_sample(), ifile_new_with_path(), ifile_new_with_stdin() (+18 more)
 
 ### Community 31 - "Community 31"
 Cohesion: 0.21
@@ -299,16 +300,16 @@ Cohesion: 0.07
 Nodes (26): All Subsystems Verified, Architecture, Autonomous Daemon — Final Comprehensive Status Report, Beginner Experience (Verified), Build & Test, Code Metrics Summary, Code Quality, Daemon Protocol Status (+18 more)
 
 ### Community 47 - "Community 47"
-Cohesion: 0.10
-Nodes (21): FreqIdInfo, identify_frequency(), identify_frequency_adsb(), identify_frequency_airband(), identify_frequency_amateur_2m(), identify_frequency_aviation_info(), identify_frequency_fm_broadcast(), identify_frequency_fm_broadcast_info() (+13 more)
+Cohesion: 0.07
+Nodes (36): demod_mode_roundtrip(), DemodMode, format_hz(), FreqIdInfo, identify_frequency(), identify_frequency_adsb(), identify_frequency_airband(), identify_frequency_amateur_2m() (+28 more)
 
 ### Community 48 - "Community 48"
 Cohesion: 0.08
 Nodes (13): FrequencyScanner, HitsSort, parse_json_f32_valid(), Arc, Instant, Mutex, Option, Self (+5 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.20
-Nodes (12): demod_am_dc_signal_envelope(), demod_fm_constant_phase_near_zero(), demod_lsb_produces_finite_output(), demod_raw_output_length(), demod_usb_produces_finite_output(), demod_wfm_produces_output(), Demodulator, make_iq_dc() (+4 more)
+Cohesion: 0.16
+Nodes (20): agc_attack_on_loud_signal(), agc_clamps_gain_and_output(), agc_decay_on_quiet_signal(), apply_lpf_bypass_when_alpha_near_one(), apply_lpf_filters_when_alpha_small(), demod_am_dc_signal_envelope(), demod_fm_constant_phase_near_zero(), demod_lsb_produces_finite_output() (+12 more)
 
 ### Community 50 - "Community 50"
 Cohesion: 0.10
@@ -375,20 +376,24 @@ Cohesion: 0.12
 Nodes (15): AppConfig, config_default_has_reasonable_freq(), config_default_has_theme_and_discord(), config_default_observer_at_london(), config_default_sample_rate(), config_default_theme_is_dark(), config_load_or_default_nonexistent_returns_default(), config_save_and_load_roundtrip() (+7 more)
 
 ### Community 87 - "Community 87"
-Cohesion: 0.17
-Nodes (15): demod_mode_roundtrip(), DemodMode, format_hz(), render_antenna_card(), Arc, HashSet, Instant, Mutex (+7 more)
+Cohesion: 0.16
+Nodes (4): CprFrame, try_cpr_decode(), try_cpr_decode_identical_timestamps(), try_cpr_decode_matching_frames()
 
 ### Community 88 - "Community 88"
-Cohesion: 0.29
-Nodes (11): AntennaChecklist, Arc, Mutex, Option, Self, String, Ui, Vec (+3 more)
+Cohesion: 0.18
+Nodes (5): Arc, Context, Mutex, Self, Ui
 
 ### Community 89 - "Community 89"
-Cohesion: 0.23
-Nodes (9): Arc, Instant, Mutex, Option, Self, String, Ui, Vec (+1 more)
+Cohesion: 0.24
+Nodes (7): AircraftState, AdsBDecoder, decode_altitude(), decoder_new_starts_empty(), HashMap, Self, Vec
 
 ### Community 90 - "Community 90"
-Cohesion: 0.83
-Nodes (3): ChecklistItem, crit(), item()
+Cohesion: 0.29
+Nodes (7): CprFrame, AircraftState, Instant, Option, String, AircraftEntry, Default
+
+### Community 91 - "Community 91"
+Cohesion: 0.38
+Nodes (6): AcCategory, classify_aircraft(), draw_plane_model(), Color32, Pos2, Painter
 
 ## Knowledge Gaps
 - **115 isolated node(s):** `SoapySDRRange`, `ProviderPreset`, `Goal`, `Constraints & Preferences`, `Done` (+110 more)
@@ -398,17 +403,17 @@ Nodes (3): ChecklistItem, crit(), item()
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AdsBDecoder` connect `ADS-B Decoder` to `UI Application Core`, `Community 27`, `Community 31`?**
-  _High betweenness centrality (0.147) - this node is a cross-community bridge._
-- **Why does `SharedState` connect `Community 88` to `UI Application Core`, `Spectrum Visualization`, `ADS-B Decoder`, `Demodulation`, `AI & Chat`, `Community 10`, `Community 12`, `Community 45`, `Community 47`, `Community 48`, `Community 83`, `Community 85`, `Community 22`, `Community 86`, `Community 87`, `Community 89`, `Community 90`?**
-  _High betweenness centrality (0.130) - this node is a cross-community bridge._
-- **Why does `CentralApp` connect `UI Application Core` to `Community 89`, `ADS-B Decoder`, `Tutorial & Help`, `Demodulation`, `AI & Chat`, `SDR Hardware Interface`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 48`, `Community 83`, `AI & Tools`, `Community 87`, `Community 88`, `Community 24`?**
-  _High betweenness centrality (0.127) - this node is a cross-community bridge._
+- **Why does `AdsBDecoder` connect `Community 89` to `UI Application Core`, `Community 27`, `Community 31`, `Community 87`?**
+  _High betweenness centrality (0.150) - this node is a cross-community bridge._
+- **Why does `SharedState` connect `UI Application Core` to `Spectrum Visualization`, `ADS-B Decoder`, `Demodulation`, `AI & Chat`, `Community 10`, `Community 12`, `Community 45`, `Community 47`, `Community 48`, `Community 83`, `Community 85`, `Community 22`, `Community 86`, `Community 88`, `Community 91`?**
+  _High betweenness centrality (0.138) - this node is a cross-community bridge._
+- **Why does `CentralApp` connect `UI Application Core` to `ADS-B Decoder`, `Tutorial & Help`, `Demodulation`, `AI & Chat`, `SDR Hardware Interface`, `Community 12`, `Community 45`, `Hardware Interface`, `Community 47`, `Community 48`, `Community 83`, `AI & Tools`, `Community 24`, `Community 89`?**
+  _High betweenness centrality (0.137) - this node is a cross-community bridge._
 - **What connects `SoapySDRRange`, `ProviderPreset`, `Goal` to the rest of the system?**
   _125 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `UI Application Core` be split into smaller, more focused modules?**
-  _Cohesion score 0.09176470588235294 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.054061624649859946 - nodes in this community are weakly interconnected._
 - **Should `Spectrum Visualization` be split into smaller, more focused modules?**
   _Cohesion score 0.08870967741935484 - nodes in this community are weakly interconnected._
-- **Should `ADS-B Decoder` be split into smaller, more focused modules?**
-  _Cohesion score 0.05223880597014925 - nodes in this community are weakly interconnected._
+- **Should `Configuration & UI` be split into smaller, more focused modules?**
+  _Cohesion score 0.12435897435897436 - nodes in this community are weakly interconnected._

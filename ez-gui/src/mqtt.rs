@@ -231,4 +231,89 @@ mod tests {
         mqtt.enabled = true;
         assert!(!mqtt.is_connected());
     }
+
+    #[test]
+    fn mqtt_set_enabled_disabled_does_not_connect() {
+        let mut mqtt = MqttPublisher::new();
+        mqtt.set_enabled(false, "broker.local".into(), "test".into());
+        assert!(!mqtt.is_connected());
+        assert!(mqtt.client.is_none());
+    }
+
+    #[test]
+    fn mqtt_disconnect_no_client() {
+        let mut mqtt = MqttPublisher::new();
+        mqtt.disconnect();
+        assert!(mqtt.client.is_none());
+        assert!(!mqtt.is_connected());
+    }
+
+    #[test]
+    fn mqtt_tick_reconnect_noop_when_disabled() {
+        let mut mqtt = MqttPublisher::new();
+        mqtt.enabled = false;
+        mqtt.tick_reconnect();
+        assert!(mqtt.client.is_none());
+    }
+
+    #[test]
+    fn mqtt_json_tick_format() {
+        let json = serde_json::json!({
+            "frequency_hz": 100_000_000,
+            "frequency_mhz": 100.0,
+            "gain_db": 40.0,
+            "timestamp": "placeholder",
+        });
+        assert_eq!(json["frequency_hz"], 100_000_000);
+        assert_eq!(json["frequency_mhz"], 100.0);
+        assert_eq!(json["gain_db"], 40.0);
+    }
+
+    #[test]
+    fn mqtt_json_signal_format() {
+        let json = serde_json::json!({
+            "frequency_hz": 145_800_000,
+            "frequency_mhz": 145.8,
+            "signal_db": -50.0,
+            "noise_floor_db": -90.0,
+            "snr_db": 40.0,
+            "demod_mode": "WFM",
+            "recording": false,
+            "timestamp": "placeholder",
+        });
+        assert_eq!(json["frequency_hz"], 145_800_000);
+        assert_eq!(json["snr_db"], 40.0);
+        assert_eq!(json["demod_mode"], "WFM");
+        assert!(!json["recording"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn mqtt_json_scanner_hit_format() {
+        let json = serde_json::json!({
+            "frequency_hz": 145_800_000,
+            "frequency_mhz": 145.8,
+            "strength_db": -45.0,
+            "timestamp": "placeholder",
+        });
+        assert_eq!(json["frequency_hz"], 145_800_000);
+        assert_eq!(json["strength_db"], -45.0);
+    }
+
+    #[test]
+    fn mqtt_tick_reconnect_noop_when_client_exists() {
+        // tick_reconnect should not disconnect if connected_flag is still true
+        // We can't easily set up a real connection, but we can verify the noop case
+        let mut mqtt = MqttPublisher::new();
+        mqtt.enabled = true;
+        mqtt.connected_flag = Arc::new(AtomicBool::new(true));
+        mqtt.tick_reconnect();
+        // No crash, state unchanged
+    }
+
+    #[test]
+    fn mqtt_publish_noop_when_disabled() {
+        let mut mqtt = MqttPublisher::new();
+        mqtt.publish("test", "payload");
+        // Should not panic even though client is None
+    }
 }

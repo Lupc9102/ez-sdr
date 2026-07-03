@@ -391,4 +391,102 @@ mod tests {
             assert!(s.is_finite());
         }
     }
+
+    #[test]
+    fn reset_clears_state() {
+        let mut d = Demodulator::new();
+        d.prev_i = 0.5;
+        d.prev_q = -0.3;
+        d.prev_phase = 1.2;
+        d.decim_counter = 42;
+        d.reset();
+        assert_eq!(d.prev_i, 0.0);
+        assert_eq!(d.prev_q, 0.0);
+        assert_eq!(d.prev_phase, 0.0);
+        assert_eq!(d.decim_counter, 0);
+    }
+
+    #[test]
+    fn apply_lpf_bypass_when_alpha_near_one() {
+        let mut d = Demodulator::new();
+        d.lpf_alpha = 0.999;
+        let samples = vec![0.5, -0.3, 0.8, -0.1];
+        let out = d.apply_lpf(samples.clone());
+        assert_eq!(out, samples);
+    }
+
+    #[test]
+    fn apply_lpf_filters_when_alpha_small() {
+        let mut d = Demodulator::new();
+        d.lpf_alpha = 0.1;
+        let samples = vec![1.0, 0.0, 0.0, 0.0];
+        let out = d.apply_lpf(samples);
+        assert_eq!(out.len(), 4);
+        // First sample: state = 0 + 0.1 * (1.0 - 0) = 0.1
+        assert!((out[0] - 0.1).abs() < 1e-6);
+        // Second sample: state = 0.1 + 0.1 * (0.0 - 0.1) = 0.09
+        assert!((out[1] - 0.09).abs() < 1e-6);
+    }
+
+    #[test]
+    fn agc_clamps_gain_and_output() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false; // We'll call apply_agc directly
+        d.agc_gain = 50.0; // above MAX_GAIN = 40.0
+        let samples = vec![0.5, -0.5];
+        let out = d.apply_agc(samples);
+        // Gain is clamped to 40 after each sample, then attack pulls it below 40
+        assert!(d.agc_gain <= 40.0);
+        assert!(d.agc_gain >= 0.1);
+        for &s in &out {
+            assert!(s.abs() <= 1.0);
+        }
+    }
+
+    #[test]
+    fn agc_attack_on_loud_signal() {
+        let mut d = Demodulator::new();
+        d.agc_gain = 1.0;
+        // Loud signal (out = 1.0 * 1.0 = 1.0 > 0.25 target) → gain should drop
+        let samples = vec![1.0];
+        d.apply_agc(samples);
+        assert!(d.agc_gain < 1.0);
+    }
+
+    #[test]
+    fn agc_decay_on_quiet_signal() {
+        let mut d = Demodulator::new();
+        d.agc_gain = 0.5;
+        // Quiet signal (out = 0.0 * 0.5 = 0.0 < 0.25 target) → gain should rise
+        let samples = vec![0.0];
+        d.apply_agc(samples);
+        assert!(d.agc_gain > 0.5);
+    }
+
+    #[test]
+    fn set_lpf_cutoff_computes_alpha() {
+        let mut d = Demodulator::new();
+        d.set_lpf_cutoff(10000.0);
+        assert!(d.lpf_alpha > 0.0);
+        assert!(d.lpf_alpha <= 1.0);
+    }
+
+    #[test]
+    fn empty_iq_returns_empty() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        for mode in &[
+            DemodMode::Raw,
+            DemodMode::Am,
+            DemodMode::Fm,
+            DemodMode::Lsb,
+            DemodMode::Usb,
+        ] {
+            let out = d.demodulate(&[], *mode);
+            assert!(
+                out.is_empty(),
+                "mode {mode:?} with empty IQ should return empty"
+            );
+        }
+    }
 }

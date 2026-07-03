@@ -224,4 +224,48 @@ mod tests {
         ao.mark_failed();
         assert!(ao.has_failed());
     }
+
+    #[test]
+    fn audio_output_stop_idempotent() {
+        let mut ao = AudioOutput::new();
+        // Stop when already stopped should not panic
+        ao.stop();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+        // Stop again
+        ao.stop();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+    }
+
+    #[test]
+    fn audio_output_mark_failed_twice() {
+        let mut ao = AudioOutput::new();
+        ao.mark_failed();
+        assert!(ao.has_failed());
+        ao.mark_failed();
+        assert!(ao.has_failed());
+    }
+
+    #[test]
+    fn audio_output_mark_failed_after_stop() {
+        let mut ao = AudioOutput::new();
+        ao.mark_failed();
+        assert!(ao.has_failed());
+        ao.stop();
+        assert!(!ao.has_failed());
+        ao.mark_failed();
+        assert!(ao.has_failed());
+    }
+
+    #[test]
+    fn audio_output_stop_after_stop() {
+        let mut ao = AudioOutput::new();
+        ao.stop();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+        ao.stop();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+    }
 }

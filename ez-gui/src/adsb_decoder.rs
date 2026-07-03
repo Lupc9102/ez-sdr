@@ -436,4 +436,99 @@ mod tests {
         });
         assert!(try_cpr_decode(&even, &odd).is_none());
     }
+
+    #[test]
+    fn try_cpr_decode_matching_frames() {
+        // Two frames close in time → produces a (lat, lon) pair
+        let even = Some(CprFrame {
+            raw_lat: 50000,
+            raw_lon: 60000,
+            timestamp: 0.0,
+        });
+        let odd = Some(CprFrame {
+            raw_lat: 50000,
+            raw_lon: 60000,
+            timestamp: 10.0,
+        });
+        let result = try_cpr_decode(&even, &odd);
+        assert!(result.is_some());
+        let (lat, lon) = result.unwrap();
+        assert!(lat.is_finite());
+        assert!(lon.is_finite());
+        assert!((-90.0..=90.0).contains(&lat));
+    }
+
+    #[test]
+    fn try_cpr_decode_identical_timestamps() {
+        let even = Some(CprFrame {
+            raw_lat: 70000,
+            raw_lon: 80000,
+            timestamp: 100.0,
+        });
+        let odd = Some(CprFrame {
+            raw_lat: 70001,
+            raw_lon: 80001,
+            timestamp: 100.0,
+        });
+        let result = try_cpr_decode(&even, &odd);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn decode_altitude_max_qbit() {
+        // Q-bit set, all altitude bits 1 → max value
+        let mut msg = [0u8; 14];
+        msg[5] = 0x10 | 0xFE; // Q-bit + upper bits 1
+        msg[6] = 0xFF; // lower bits all 1
+                       // alt16 = (0xFE << 1) | (0xFF >> 7) = 0x1FC | 0x01 = 0x1FD = 509
+                       // ((509 & 0x1FF) * 25 + 1000) / 4 = (509 * 25 + 1000) / 4 = (12725 + 1000) / 4 = 13725 / 4 = 3431
+        assert_eq!(decode_altitude(&msg), 3431);
+    }
+
+    #[test]
+    fn decode_altitude_non_q_m_bit_with_digit_fields() {
+        // Q-bit clear, M-bit set, some digit fields populated
+        // Note: N-bit = Q-bit (both 0x10), so N-bit can never be set without entering Q-mode
+        let mut msg = [0u8; 14];
+        msg[5] = 0x20 | 0x05; // M-bit + d12=5
+        msg[6] = 0b001_011_10; // d10=1, d8=3, d6 low=2
+        msg[7] = 0b10_1111_00; // d6 high=1, d4=15
+                               // d12=5, d10=1, d8=3, d6=4, d4=15, m=1600, n=0
+                               // 5*500 + 1*100 + 3*20 + 4*4 + 15 + 1600 = 2500+100+60+16+15+1600 = 4291
+        assert_eq!(decode_altitude(&msg), 4291);
+    }
+
+    #[test]
+    fn decode_altitude_non_q_with_data() {
+        // Q-bit clear, all digit fields populated
+        let mut msg = [0u8; 14];
+        // d12 occupies msg[5] & 0x0F = 0x05 → 5
+        // d10 occupies (msg[6] >> 5) & 0x07 → need msg[6] bits 5-7
+        // d8  occupies (msg[6] >> 2) & 0x07 → need msg[6] bits 2-4
+        // d6  occupies ((msg[6] & 0x03) << 1) | ((msg[7] >> 6) & 0x01)
+        // d4  occupies (msg[7] >> 2) & 0x0F
+        msg[5] = 0x05; // d12 = 5
+        msg[6] = 0b001_011_10; // d10=1, d8=3, d6 low=2
+        msg[7] = 0b10_1111_00; // d6 high=1, d4=15
+                               // d12=5, d10=1, d8=3, d6=((2 << 1) | 0) = 4, d4=15
+                               // 5*500 + 1*100 + 3*20 + 4*4 + 15 = 2500+100+60+16+15 = 2691
+        assert_eq!(decode_altitude(&msg), 2691);
+    }
+
+    #[test]
+    fn decode_altitude_non_q_only_d12() {
+        // Only d12 set, no M/N bits
+        let mut msg = [0u8; 14];
+        msg[5] = 0x05;
+        // d12=5 → 5*500 = 2500
+        assert_eq!(decode_altitude(&msg), 2500);
+    }
+
+    #[test]
+    fn decode_altitude_non_q_m_bit_only() {
+        // Only M-bit set → 1600
+        let mut msg = [0u8; 14];
+        msg[5] = 0x20; // m_bit only
+        assert_eq!(decode_altitude(&msg), 1600);
+    }
 }
