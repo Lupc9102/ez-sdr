@@ -2931,3 +2931,337 @@ fn waterfall_color_classic(norm: f32) -> (u8, u8, u8) {
         (200, (200.0 + t * 55.0) as u8, (40.0 + t * 100.0) as u8)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // lerp_color
+    // -----------------------------------------------------------------------
+    #[test]
+    fn lerp_color_at_zero_returns_a() {
+        let a = (10, 20, 30);
+        let b = (200, 210, 220);
+        assert_eq!(lerp_color(a, b, 0.0), a);
+    }
+
+    #[test]
+    fn lerp_color_at_one_returns_b() {
+        let a = (10, 20, 30);
+        let b = (200, 210, 220);
+        assert_eq!(lerp_color(a, b, 1.0), b);
+    }
+
+    #[test]
+    fn lerp_color_at_half_returns_midpoint() {
+        let a = (10, 20, 30);
+        let b = (200, 210, 220);
+        let mid = lerp_color(a, b, 0.5);
+        assert_eq!(mid, ((10 + 200) / 2, (20 + 210) / 2, (30 + 220) / 2));
+    }
+
+    #[test]
+    fn lerp_color_identical_colors() {
+        let c = (128, 128, 128);
+        let t = 0.3;
+        assert_eq!(lerp_color(c, c, t), c);
+    }
+
+    // -----------------------------------------------------------------------
+    // sample_palette
+    // -----------------------------------------------------------------------
+    #[test]
+    fn sample_palette_at_zero() {
+        let pal = &[(10, 20, 30), (100, 200, 250), (200, 100, 50)];
+        assert_eq!(sample_palette(pal, 0.0), pal[0]);
+    }
+
+    #[test]
+    fn sample_palette_at_one() {
+        let pal = &[(10, 20, 30), (100, 200, 250), (200, 100, 50)];
+        assert_eq!(sample_palette(pal, 1.0), pal[2]);
+    }
+
+    #[test]
+    fn sample_palette_at_half() {
+        let pal = &[(10, 20, 30), (100, 200, 250), (200, 100, 50)];
+        let mid = sample_palette(pal, 0.5);
+        // scaled = 0.5 * 2 = 1.0, lo=1, hi=1, lerp_color(pal[1], pal[1], 0.0)
+        assert_eq!(mid, pal[1]);
+    }
+
+    #[test]
+    fn sample_palette_single_color() {
+        let pal = &[(42, 84, 168)];
+        assert_eq!(sample_palette(pal, 0.0), (42, 84, 168));
+        assert_eq!(sample_palette(pal, 0.5), (42, 84, 168));
+        assert_eq!(sample_palette(pal, 1.0), (42, 84, 168));
+    }
+
+    #[test]
+    fn sample_palette_empty_returns_black() {
+        let pal: &[(u8, u8, u8)] = &[];
+        assert_eq!(sample_palette(pal, 0.0), (0, 0, 0));
+        assert_eq!(sample_palette(pal, 0.5), (0, 0, 0));
+        assert_eq!(sample_palette(pal, 1.0), (0, 0, 0));
+    }
+
+    // -----------------------------------------------------------------------
+    // color_map — all 8 variants produce valid RGB for 0.0, 0.5, 1.0
+    // -----------------------------------------------------------------------
+    const COLOR_MAP_VARIANTS: &[ColorMap] = &[
+        ColorMap::Classic,
+        ColorMap::Viridis,
+        ColorMap::Plasma,
+        ColorMap::Magma,
+        ColorMap::Grayscale,
+        ColorMap::Hot,
+        ColorMap::Inferno,
+        ColorMap::Turbo,
+    ];
+
+    #[test]
+    fn color_map_all_variants_return_valid_rgb() {
+        for cmap in COLOR_MAP_VARIANTS {
+            for &t in &[0.0, 0.5, 1.0] {
+                let (_r, _g, _b) = color_map(*cmap, t);
+                // u8 guarantees 0..=255 range; this just validates no panic
+            }
+        }
+    }
+
+    #[test]
+    fn color_map_classic_boundaries() {
+        let (r, g, b) = color_map(ColorMap::Classic, 0.0);
+        assert_eq!((r, g, b), (0, 0, 0));
+        let (r, g, b) = color_map(ColorMap::Classic, 1.0);
+        assert_eq!((r, g, b), (200, 255, 140));
+    }
+
+    // -----------------------------------------------------------------------
+    // waterfall_color_classic
+    // -----------------------------------------------------------------------
+    #[test]
+    fn waterfall_color_classic_zero() {
+        assert_eq!(waterfall_color_classic(0.0), (0, 0, 0));
+    }
+
+    #[test]
+    fn waterfall_color_classic_half() {
+        let (r, g, b) = waterfall_color_classic(0.5);
+        assert!(r <= 200 && g <= 200 && b <= 200);
+    }
+
+    #[test]
+    fn waterfall_color_classic_one() {
+        // norm = 1.0 gets caught by else branch (>=0.75)
+        let (r, g, b) = waterfall_color_classic(1.0);
+        assert_eq!(r, 200);
+        assert_eq!(g, 255);
+        assert_eq!(b, 140);
+    }
+
+    #[test]
+    fn waterfall_color_classic_region_boundaries() {
+        // just above 0.15
+        let c = waterfall_color_classic(0.151);
+        assert!(c.2 >= 80, "got ({},{},{})", c.0, c.1, c.2);
+
+        // just above 0.35
+        let c = waterfall_color_classic(0.351);
+        assert!(c.0 > 0);
+
+        // just above 0.55
+        let c = waterfall_color_classic(0.551);
+        assert!(c.0 > 60);
+
+        // just above 0.75
+        let c = waterfall_color_classic(0.751);
+        assert!(c.0 == 200);
+    }
+
+    // -----------------------------------------------------------------------
+    // category_color
+    // -----------------------------------------------------------------------
+    #[test]
+    fn category_color_aviation() {
+        let (line, label) = category_color("aviation");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140)
+        );
+        assert_eq!(
+            label,
+            egui::Color32::from_rgba_premultiplied(100, 180, 255, 200)
+        );
+    }
+
+    #[test]
+    fn category_color_weather() {
+        let (line, _label) = category_color("weather");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(80, 220, 80, 140)
+        );
+    }
+
+    #[test]
+    fn category_color_marine() {
+        let (line, _label) = category_color("marine");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(0, 200, 200, 140)
+        );
+    }
+
+    #[test]
+    fn category_color_amateur() {
+        let (line, _label) = category_color("amateur");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(200, 100, 255, 140)
+        );
+    }
+
+    #[test]
+    fn category_color_broadcast() {
+        let (line, _label) = category_color("broadcast");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(255, 140, 60, 140)
+        );
+    }
+
+    #[test]
+    fn category_color_scanner() {
+        let (line, _label) = category_color("scanner");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(255, 80, 80, 140)
+        );
+    }
+
+    #[test]
+    fn category_color_unknown_returns_default() {
+        let (line, _label) = category_color("unknown_category_xyz");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(255, 215, 0, 120)
+        );
+    }
+
+    #[test]
+    fn category_color_is_case_insensitive() {
+        let (line, _) = category_color("AVIATION");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140)
+        );
+    }
+
+    #[test]
+    fn category_color_alt_names() {
+        // "air" matches the aviation branch
+        let (line, _) = category_color("air");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140)
+        );
+
+        // "noaa" matches weather
+        let (line, _) = category_color("noaa");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(80, 220, 80, 140)
+        );
+
+        // "ham" matches amateur
+        let (line, _) = category_color("ham");
+        assert_eq!(
+            line,
+            egui::Color32::from_rgba_premultiplied(200, 100, 255, 140)
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // WindowType::generate
+    // -----------------------------------------------------------------------
+    #[test]
+    fn window_hann_generates_correct_length() {
+        let w = WindowType::Hann.generate(256);
+        assert_eq!(w.len(), 256);
+    }
+
+    #[test]
+    fn window_hamming_generates_correct_length() {
+        let w = WindowType::Hamming.generate(512);
+        assert_eq!(w.len(), 512);
+    }
+
+    #[test]
+    fn window_blackman_generates_correct_length() {
+        let w = WindowType::Blackman.generate(1024);
+        assert_eq!(w.len(), 1024);
+    }
+
+    #[test]
+    fn window_tapers_to_zero_at_ends() {
+        // Hann and Blackman start at ~0; Hamming starts at 0.08
+        for wt in &[WindowType::Hann, WindowType::Blackman] {
+            let w = wt.generate(256);
+            assert!(
+                w[0].abs() < 0.01,
+                "first value for {wt:?} should be ≈0, got {}",
+                w[0]
+            );
+        }
+    }
+
+    #[test]
+    fn window_peaks_in_center() {
+        let w = WindowType::Hann.generate(256);
+        let mid = w[128];
+        assert!(
+            (mid - 1.0).abs() < 0.01,
+            "mid value should be ≈1.0, got {mid}"
+        );
+    }
+
+    #[test]
+    fn window_hann_sum_approximate_half_length() {
+        let n = 256;
+        let w = WindowType::Hann.generate(n);
+        let sum: f32 = w.iter().sum();
+        // For Hann: sum ≈ n/2
+        let expected = n as f32 / 2.0;
+        assert!(
+            (sum - expected).abs() < 1.0,
+            "Hann sum {sum} not close to {expected}"
+        );
+    }
+
+    #[test]
+    fn window_hamming_sum_approximate_half_length() {
+        let n = 512;
+        let w = WindowType::Hamming.generate(n);
+        let sum: f32 = w.iter().sum();
+        // For Hamming: sum ≈ 0.54n (asymmetric, so slightly different)
+        let expected = 0.54 * n as f32;
+        assert!(
+            (sum - expected).abs() < 1.0,
+            "Hamming sum {sum} not close to {expected}"
+        );
+    }
+
+    #[test]
+    fn window_blackman_flat_start() {
+        let w = WindowType::Blackman.generate(256);
+        // Blackman first value ~ 0.42 - 0.5 + 0.08 = 0.0
+        assert!(
+            w[0].abs() < 0.001,
+            "Blackman first value should be ≈0.0, got {}",
+            w[0]
+        );
+    }
+}
