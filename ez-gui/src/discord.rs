@@ -1085,4 +1085,203 @@ mod tests {
         let settings = DiscordSettings::default();
         assert!(!is_starred(&settings, "nonexistent"));
     }
+
+    // ── Embed builder tests ──────────────────────────────────────────
+
+    #[test]
+    fn embed_generic_builds_correctly() {
+        let e = embed_generic("Hello", "World desc", "🚀", 0xFF00FF);
+        assert!(e.title.contains("🚀"));
+        assert!(e.title.contains("Hello"));
+        assert_eq!(e.description, "World desc");
+        assert_eq!(e.color, 0xFF00FF);
+        assert!(e.fields.is_empty());
+    }
+
+    #[test]
+    fn embed_aircraft_fields_and_image() {
+        let ac = AircraftData {
+            icao: "ABCDEF".into(),
+            callsign: "UAL123".into(),
+            lat: 37.77,
+            lon: -122.42,
+            alt_ft: 35000,
+            speed_kts: 480,
+            heading: 270,
+        };
+
+        let e = embed_aircraft(&ac, None);
+        assert_eq!(e.color, 0x0088FF);
+        assert!(e.title.contains("UAL123"));
+        assert!(e.fields.iter().any(|(n, ..)| n == "ICAO"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Altitude" && v == "35000 ft"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Speed" && v == "480 kts"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Heading" && v == "270°"));
+        assert!(e.image_url.is_none());
+
+        let e2 = embed_aircraft(&ac, Some("https://example.com/photo.jpg".into()));
+        assert_eq!(e2.image_url, Some("https://example.com/photo.jpg".into()));
+    }
+
+    #[test]
+    fn embed_scanner_hit_builds_correctly() {
+        let e = embed_scanner_hit(123_456_789, -45.3);
+        assert!(e.title.contains("Scanner Hit"));
+        let f_mhz = 123_456_789f64 / 1e6;
+        assert!(e.description.contains(&format!("{:.4}", f_mhz)));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Strength" && v == "-45.3 dB"));
+    }
+
+    #[test]
+    fn embed_recording_started_all_combos() {
+        let base = |is_iq, is_audio| embed_recording_started(100_000_000, "NFM", is_iq, is_audio);
+
+        let iq_audio = base(true, true);
+        assert!(iq_audio.description.contains("I/Q + Audio"));
+
+        let iq = base(true, false);
+        assert!(iq.description.contains("I/Q") && !iq.description.contains("Audio"));
+
+        let audio = base(false, true);
+        assert!(audio.description.contains("Audio") && !audio.description.contains("I/Q"));
+
+        let unknown = base(false, false);
+        assert!(unknown.description.contains("Unknown"));
+
+        // All have frequency in title
+        assert!(iq_audio.title.contains("Recording Started"));
+    }
+
+    #[test]
+    fn embed_recording_stopped_builds_correctly() {
+        let e = embed_recording_stopped(100_000_000, "NFM", 12345, 6_000_000);
+        assert!(e.title.contains("Recording Stopped"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Duration" && v == "12345 sec"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Size" && v == "6.0 MB"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Frequency" && v.contains("100.0000")));
+    }
+
+    #[test]
+    fn embed_recording_error_builds_correctly() {
+        let e = embed_recording_error("Disk full");
+        assert!(e.description.contains("Disk full"));
+        assert_eq!(e.color, 0xFF3333);
+    }
+
+    #[test]
+    fn embed_strong_signal_builds_correctly() {
+        let e = embed_strong_signal(100_000_000, 25.5);
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Frequency" && v.contains("100.0000")));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "SNR" && v == "25.5 dB"));
+    }
+
+    #[test]
+    fn embed_source_error_builds_correctly() {
+        let e = embed_source_error("No device found");
+        assert!(e.description.contains("No device found"));
+        assert_eq!(e.color, 0xFF0000);
+    }
+
+    #[test]
+    fn embed_task_fired_builds_correctly() {
+        let e = embed_task_fired("Daily log", 150_000_000);
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Task" && v == "Daily log"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Frequency" && v.contains("150.0000")));
+    }
+
+    #[test]
+    fn embed_sat_aos_builds_correctly() {
+        let e = embed_sat_aos("ISS", 437_800_000, 45.0);
+        assert!(e.title.contains("ISS"));
+        assert!(e.title.contains("AOS"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Max Elevation" && v == "45.0°"));
+    }
+
+    #[test]
+    fn embed_sat_los_builds_correctly() {
+        let e = embed_sat_los("ISS");
+        assert!(e.title.contains("ISS"));
+        assert!(e.title.contains("LOS"));
+    }
+
+    #[test]
+    fn embed_sat_upcoming_builds_correctly() {
+        let e = embed_sat_upcoming("ISS", "12:00", "12:15", 67.5, 437_800_000);
+        assert!(e.title.contains("ISS"));
+        assert!(e.fields.iter().any(|(n, v, _)| n == "AOS" && v == "12:00"));
+        assert!(e.fields.iter().any(|(n, v, _)| n == "LOS" && v == "12:15"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Max Elevation" && v == "67.5°"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Frequency" && v.contains("437.800")));
+    }
+
+    #[test]
+    fn embed_session_summary_builds_correctly() {
+        let e = embed_session_summary(3661, 100.5, "USB", 5, 42, 7, 3);
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Uptime" && v == "1h 1m"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Current Frequency" && v.contains("100.5000")));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Aircraft Tracked" && v == "5"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Scanner Hits" && v == "42"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Recordings" && v == "7"));
+        assert!(e
+            .fields
+            .iter()
+            .any(|(n, v, _)| n == "Upcoming Passes" && v == "3"));
+    }
 }
