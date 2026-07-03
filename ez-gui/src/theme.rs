@@ -61,13 +61,102 @@ mod tests {
         assert_eq!(Rgba(1, 2, 3, 4), Rgba(1, 2, 3, 4));
         assert_ne!(Rgba(1, 2, 3, 4), Rgba(5, 2, 3, 4));
     }
+
+    #[test]
+    fn theme_dark_preset_has_correct_name() {
+        let t = ThemeConfig::dark();
+        assert_eq!(t.preset, "dark");
+        assert_eq!(t.accent, Rgba::from_rgb(52, 152, 219));
+        assert_eq!(t.bg, Rgba::from_rgb(20, 22, 28));
+    }
+
+    #[test]
+    fn theme_light_preset_overrides_dark() {
+        let t = ThemeConfig::light();
+        assert_eq!(t.preset, "light");
+        assert_eq!(t.bg, Rgba::from_rgb(245, 245, 245));
+        assert_eq!(t.surface, Rgba::from_rgb(255, 255, 255));
+        assert_eq!(t.text_normal, Rgba::from_rgb(40, 40, 50));
+    }
+
+    #[test]
+    fn theme_high_contrast_preset() {
+        let t = ThemeConfig::high_contrast();
+        assert_eq!(t.preset, "high_contrast");
+        assert_eq!(t.bg, Rgba::from_rgb(0, 0, 0));
+        assert_eq!(t.text_normal, Rgba::from_rgb(255, 255, 255));
+        assert_eq!(t.accent, Rgba::from_rgb(0, 200, 255));
+    }
+
+    #[test]
+    fn theme_solarized_dark_preset() {
+        let t = ThemeConfig::solarized_dark();
+        assert_eq!(t.preset, "solarized_dark");
+        assert_eq!(t.bg, Rgba::from_rgb(0, 43, 54));
+        assert_eq!(t.accent, Rgba::from_rgb(38, 139, 210));
+    }
+
+    #[test]
+    fn theme_nord_preset() {
+        let t = ThemeConfig::nord();
+        assert_eq!(t.preset, "nord");
+        assert_eq!(t.bg, Rgba::from_rgb(46, 52, 64));
+        assert_eq!(t.surface, Rgba::from_rgb(59, 66, 82));
+        assert_eq!(t.accent, Rgba::from_rgb(136, 192, 208));
+    }
+
+    #[test]
+    fn theme_default_is_dark() {
+        let t = ThemeConfig::default();
+        assert_eq!(t.preset, "dark");
+        assert_eq!(t, ThemeConfig::dark());
+    }
+
+    #[test]
+    fn theme_bg_luminance_dark_below_threshold() {
+        let dark_bg = Rgba::from_rgb(20, 22, 28);
+        let luma = bg_luminance(&dark_bg);
+        assert!(luma < 0.5);
+    }
+
+    #[test]
+    fn theme_bg_luminance_light_above_threshold() {
+        let light_bg = Rgba::from_rgb(245, 245, 245);
+        let luma = bg_luminance(&light_bg);
+        assert!(luma > 0.5);
+    }
+
+    #[test]
+    fn theme_mix_color_clamps_t() {
+        let a = Rgba::from_rgb(0, 0, 0);
+        let b = Rgba::from_rgb(100, 100, 100);
+        let mixed = mix_color(&a, &b, 0.5);
+        assert_eq!(mixed, Rgba(50, 50, 50, 255));
+        let clamped = mix_color(&a, &b, 1.5);
+        assert_eq!(clamped, b);
+    }
+
+    #[test]
+    fn theme_each_preset_has_unique_name() {
+        let names = vec![
+            ThemeConfig::dark().preset,
+            ThemeConfig::light().preset,
+            ThemeConfig::high_contrast().preset,
+            ThemeConfig::solarized_dark().preset,
+            ThemeConfig::nord().preset,
+        ];
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(names.len(), unique.len(), "All preset names must be unique");
+    }
 }
 
 type PresetFn = fn() -> ThemeConfig;
 
 // ─── Theme Config ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThemeConfig {
     pub preset: String,
     pub accent: Rgba,

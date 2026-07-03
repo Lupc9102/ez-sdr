@@ -379,8 +379,8 @@ impl SatellitePanel {
                         countdown_text = format!("{mins:02}:{secs:02}");
                         countdown_color = egui::Color32::YELLOW;
                     } else {
-                    let hours = secs_until_aos as u64 / 3600;
-                    let mins = (secs_until_aos as u64 % 3600) / 60;
+                        let hours = secs_until_aos as u64 / 3600;
+                        let mins = (secs_until_aos as u64 % 3600) / 60;
                         countdown_text = format!("{hours}h {mins:02}m");
                         countdown_color = egui::Color32::GRAY;
                     }
