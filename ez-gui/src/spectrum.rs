@@ -7,6 +7,7 @@
 
 use num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
+// serde imported for potential future use in signal history serialization
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -363,6 +364,23 @@ impl SpectrumAnalyzer {
     /// Return the maximum number of samples kept in the signal history.
     pub fn signal_history_max(&self) -> usize {
         self.signal_history_max
+    }
+
+    /// Save the current signal history to `signal_history.json`.
+    pub fn save_signal_history(&self) {
+        let data: Vec<f32> = self.signal_history.iter().copied().collect();
+        if let Ok(json) = serde_json::to_string_pretty(&data) {
+            let _ = std::fs::write("signal_history.json", json);
+        }
+    }
+
+    /// Load signal history from `signal_history.json`.
+    pub fn load_signal_history(&mut self) {
+        if let Ok(s) = std::fs::read_to_string("signal_history.json") {
+            if let Ok(data) = serde_json::from_str::<Vec<f32>>(&s) {
+                self.signal_history = data.into_iter().collect();
+            }
+        }
     }
 
     /// Cycle to the next colour map variant and mark the waterfall dirty.
@@ -2434,6 +2452,10 @@ impl SpectrumAnalyzer {
             }
             if ui.button("📊 Export spectrum CSV").on_hover_text("Export current FFT data to CSV (frequency_hz, power_dbfs). Opens a file dialog.").clicked() {
                 self.export_spectrum_csv();
+                ui.close();
+            }
+            if ui.button("📈 Save signal history").on_hover_text("Save the signal history to signal_history.json (auto-saves on exit).").clicked() {
+                self.save_signal_history();
                 ui.close();
             }
             if ui.button("🔍 Reset zoom (1x)").clicked() {

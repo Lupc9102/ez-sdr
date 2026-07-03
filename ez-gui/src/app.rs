@@ -202,9 +202,11 @@ impl CentralApp {
         let audio_rx = Arc::new(Mutex::new(audio_rx));
 
         let config = AppConfig::load_or_default();
+        let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.load_signal_history();
         let shared = Arc::new(Mutex::new(SharedState {
             source: SourceManager::new(),
-            spectrum: SpectrumAnalyzer::new(),
+            spectrum,
             config,
             bookmarks: BookmarkDb::load_or_default(),
             scheduler: Scheduler::new(),
@@ -2179,6 +2181,7 @@ impl eframe::App for CentralApp {
                 }
             }
             cfg.save();
+            state.spectrum.save_signal_history();
         }
     }
 }
