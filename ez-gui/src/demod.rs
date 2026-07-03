@@ -199,8 +199,13 @@ impl Demodulator {
         // De-emphasis time constant τ = 50 μs → pole at f_c = 1/(2π·τ) ≈ 3183 Hz.
         // Discrete IIR: alpha = dt/(τ + dt) where dt = 1/sample_rate
         let tau = 50.0e-6_f32; // 50 microseconds
-        let dt = 1.0 / self.audio_sample_rate as f32;
-        let alpha = dt / (tau + dt); // ≈ 0.294 at 48 kHz
+        // The de-emphasis IIR advances once per input IQ pair, so dt must use
+        // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
+        // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
+        // ≈1.6e-5, effectively disabling the 50 µs pole and leaving WFM audio
+        // harsh with no bass restoration.
+        let dt = 1.0 / self.input_rate as f32;
+        let alpha = dt / (tau + dt);
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));
 
         for chunk in iq.chunks(2) {
@@ -380,6 +385,35 @@ mod tests {
             assert!(s.is_finite(), "WFM output must be finite");
             assert!(s.abs() <= 1.5, "WFM output unexpectedly large: {s}");
         }
+    }
+
+    /// Regression: de-emphasis `dt` must use `input_rate`, not `audio_sample_rate`.
+    /// With input_rate=2_048_000 the correct alpha ≈ 1.6e-5, so after one 256-sample
+    /// chunk the de-emphasis state has barely advanced (~0.4% of the step). The
+    /// prior bug used audio_sample_rate=48_000 → alpha≈0.294, fully settling the
+    /// filter inside a single chunk. A small per-chunk gain catches that regression
+    /// without depending on exact sample values.
+    #[test]
+    fn demod_wfm_deemph_runs_at_input_rate() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        d.decimation = 1;
+        d.set_sample_rates(2_048_000, 48_000);
+        let iq = make_iq_dc(180, 100, 256);
+        let out = d.demodulate(&iq, DemodMode::Wfm);
+        assert!(!out.is_empty());
+        let peak = out.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+        // Correct alpha → after 256 samples the de-emphasis state reaches
+        // `1 - (1 - alpha)^256` of the step. With alpha≈1.6e-5 that's ≈0.004.
+        // With the broken alpha≈0.294 the state would reach ≈1.0 (settled) and
+        // the peak (after the *0.8 scale in demod_wfm) would approach ~0.8.
+        // A 0.05 cap cleanly separates the two regimes.
+        assert!(
+            peak < 0.05,
+            "de-emphasis advanced too fast; expected slow attack at \
+             input_rate (alpha≈1.6e-5) but got peak={peak} (likely using \
+             audio_sample_rate → alpha≈0.294)",
+        );
     }
 
     #[test]
