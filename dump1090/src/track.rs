@@ -3,6 +3,7 @@
 use crate::demod::ModesMessage;
 use std::collections::HashMap;
 
+/// Per-aircraft tracking state: ICAO address, message count, and last seen timestamp.
 #[derive(Debug, Default)]
 pub struct AircraftState {
     pub addr: u32,
@@ -10,6 +11,7 @@ pub struct AircraftState {
     pub last_seen_ms: u64,
 }
 
+/// Tracks unique aircraft seen via Mode S / ADS-B messages.
 pub struct Tracker {
     pub aircraft: HashMap<u32, AircraftState>,
 }
@@ -21,6 +23,7 @@ impl Default for Tracker {
 }
 
 impl Tracker {
+    /// Create a new, empty tracker.
     #[must_use]
     pub fn new() -> Self {
         Tracker {
@@ -28,6 +31,8 @@ impl Tracker {
         }
     }
 
+    /// Update tracking state from a decoded Mode S message.
+    /// Creates a new entry if the aircraft's ICAO address has not been seen before.
     pub fn update_from_message(&mut self, msg: &ModesMessage) {
         let entry = self
             .aircraft
@@ -41,11 +46,13 @@ impl Tracker {
         entry.last_seen_ms = msg.sys_timestamp_msg;
     }
 
+    /// Number of unique aircraft tracked.
     #[must_use]
     pub fn len(&self) -> usize {
         self.aircraft.len()
     }
 
+    /// Returns `true` when no aircraft are being tracked.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.aircraft.is_empty()

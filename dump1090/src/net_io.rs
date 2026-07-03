@@ -24,6 +24,7 @@ impl Default for NetIo {
 }
 
 impl NetIo {
+    /// Create a new `NetIo` with empty client lists for Beast, SBS, and raw AVR output.
     #[must_use]
     pub fn new() -> Self {
         NetIo {

@@ -163,6 +163,8 @@ pub fn extract_df(msg: &[u8]) -> u8 {
     msg[0] >> 3
 }
 
+/// Decoded Mode S / ADS-B aircraft message containing ICAO address, downlink format,
+/// and optional altitude, callsign, position, and velocity fields.
 #[derive(Debug, Clone, Default)]
 pub struct AircraftMessage {
     pub icao: u32,

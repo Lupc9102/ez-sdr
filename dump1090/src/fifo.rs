@@ -10,6 +10,8 @@ struct Inner {
     halted: bool,
 }
 
+/// Bounded FIFO queue for `Vec<u8>` items with blocking push/pop and thread-safe
+/// signalling via condition variables. Translated from `fifo.c`.
 pub struct Fifo {
     inner: Mutex<Inner>,
     not_empty: Condvar,
@@ -129,10 +131,12 @@ impl Fifo {
         self.inner.lock().expect("fifo mutex poisoned").queue.len()
     }
 
+    /// Returns `true` if the queue contains no items.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Returns `true` if the queue has been halted.
     pub fn is_halted(&self) -> bool {
         self.inner.lock().expect("fifo mutex poisoned").halted
     }

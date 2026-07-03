@@ -273,9 +273,9 @@ mod tests {
         assert!(!wr.enabled);
         assert!(wr.tx.is_none());
         assert!(wr.cmd_rx.is_none());
-        wr.set_enabled(true, 9090);
+        wr.set_enabled(true, 0);
         assert!(wr.enabled);
-        assert_eq!(wr.port, 9090);
+        assert_eq!(wr.port, 0);
     }
 
     #[test]
@@ -359,8 +359,46 @@ mod tests {
     #[test]
     fn poll_commands_after_stop_is_empty() {
         let mut wr = WebRemote::new();
-        wr.set_enabled(true, 5259);
-        wr.set_enabled(false, 5259);
+        wr.set_enabled(true, 0);
+        wr.set_enabled(false, 0);
         assert!(wr.poll_commands().is_empty());
+    }
+
+    /// Bind to a random OS-assigned port, hand the port to the WebRemote,
+    /// and wait briefly for the server thread to start.
+    fn start_on_random_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener); // race window is negligible in practice
+        port
+    }
+
+    #[test]
+    fn serve_index_via_http() {
+        let port = start_on_random_port();
+        let mut wr = WebRemote::new();
+        wr.set_enabled(true, port);
+        // give the async server thread time to bind
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let url = format!("http://127.0.0.1:{port}/");
+        let resp = reqwest::blocking::get(&url).expect("HTTP request should succeed");
+        assert_eq!(resp.status(), 200);
+        let body = resp.text().unwrap();
+        assert!(body.contains("SDR"), "response should contain page content");
+        drop(wr);
+    }
+
+    #[test]
+    fn serve_index_rejects_bad_path() {
+        let port = start_on_random_port();
+        let mut wr = WebRemote::new();
+        wr.set_enabled(true, port);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let url = format!("http://127.0.0.1:{port}/nonexistent");
+        let resp = reqwest::blocking::get(&url).expect("HTTP request should succeed");
+        assert_eq!(resp.status(), 404);
+        drop(wr);
     }
 }
