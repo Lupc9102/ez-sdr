@@ -1159,7 +1159,8 @@ fn compute_magnitude_uc8(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let nsamples = mag.len().min(iq.len() / 2);
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
-    for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(2)) {
+    let (chunks, _) = iq.as_chunks::<2>();
+    for (out, sample) in mag[..nsamples].iter_mut().zip(chunks) {
         let i_val = i32::from(sample[0]) - 127;
         let q_val = i32::from(sample[1]) - 127;
         let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
@@ -1176,7 +1177,8 @@ fn compute_magnitude_sc16(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let nsamples = mag.len().min(iq.len() / 4);
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
-    for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(4)) {
+    let (chunks, _) = iq.as_chunks::<4>();
+    for (out, sample) in mag[..nsamples].iter_mut().zip(chunks) {
         let i_val = i32::from(i16::from_le_bytes([sample[0], sample[1]]));
         let q_val = i32::from(i16::from_le_bytes([sample[2], sample[3]]));
         let m = f64::from(i_val * i_val + q_val * q_val).sqrt();
@@ -1197,7 +1199,8 @@ fn compute_magnitude_sc16q11(iq: &[u8], mag: &mut [u16]) -> (f64, f64) {
     let nsamples = mag.len().min(iq.len() / 4);
     let mut sum_level: f64 = 0.0;
     let mut sum_power: f64 = 0.0;
-    for (out, sample) in mag[..nsamples].iter_mut().zip(iq.chunks_exact(4)) {
+    let (chunks, _) = iq.as_chunks::<4>();
+    for (out, sample) in mag[..nsamples].iter_mut().zip(chunks) {
         let i_val = i32::from(i16::from_le_bytes([sample[0], sample[1]])) >> 5;
         let q_val = i32::from(i16::from_le_bytes([sample[2], sample[3]])) >> 5;
         let m = f64::from(i_val * i_val + q_val * q_val).sqrt();

@@ -120,12 +120,12 @@ impl SatellitePanel {
         let passes = self.cached_passes.clone();
         let now_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
+            .map(|dur| dur.as_secs_f64())
             .unwrap_or(0.0);
 
         if let Some(active) = passes
             .iter()
-            .find(|p| p.aos_dt <= now_unix && p.los_dt > now_unix)
+            .find(|pas| pas.aos_dt <= now_unix && pas.los_dt > now_unix)
         {
             let remaining = (active.los_dt - now_unix).max(0.0) as u64;
             ui.group(|ui| {
@@ -148,14 +148,15 @@ impl SatellitePanel {
                     );
                 }
             });
-        } else if let Some(next) = passes
-            .iter()
-            .filter(|p| p.aos_dt > now_unix)
-            .min_by(|a, b| {
-                a.aos_dt
-                    .partial_cmp(&b.aos_dt)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+        } else if let Some(next) =
+            passes
+                .iter()
+                .filter(|pas| pas.aos_dt > now_unix)
+                .min_by(|pa, pb| {
+                    pa.aos_dt
+                        .partial_cmp(&pb.aos_dt)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
         {
             let secs = (next.aos_dt - now_unix).max(0.0) as u64;
             ui.group(|ui| {
@@ -321,7 +322,7 @@ impl SatellitePanel {
         let passes = self.cached_passes.clone();
         let now_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
+            .map(|dur| dur.as_secs_f64())
             .unwrap_or(0.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -365,22 +366,22 @@ impl SatellitePanel {
                     let countdown_color;
                     if is_active {
                         let remaining = secs_until_los.max(0.0) as u64;
-                        let m = remaining / 60;
-                        let s = remaining % 60;
-                        countdown_text = format!("▶ {m:02}:{s:02}");
+                        let mins = remaining / 60;
+                        let secs = remaining % 60;
+                        countdown_text = format!("▶ {mins:02}:{secs:02}");
                         countdown_color = egui::Color32::from_rgb(50, 255, 100);
                     } else if secs_until_aos < 0.0 {
                         countdown_text = "past".to_string();
                         countdown_color = egui::Color32::GRAY;
                     } else if secs_until_aos < 600.0 {
-                        let m = secs_until_aos as u64 / 60;
-                        let s = secs_until_aos as u64 % 60;
-                        countdown_text = format!("{m:02}:{s:02}");
+                        let mins = secs_until_aos as u64 / 60;
+                        let secs = secs_until_aos as u64 % 60;
+                        countdown_text = format!("{mins:02}:{secs:02}");
                         countdown_color = egui::Color32::YELLOW;
                     } else {
-                        let h = secs_until_aos as u64 / 3600;
-                        let m = (secs_until_aos as u64 % 3600) / 60;
-                        countdown_text = format!("{h}h {m:02}m");
+                    let hours = secs_until_aos as u64 / 3600;
+                    let mins = (secs_until_aos as u64 % 3600) / 60;
+                        countdown_text = format!("{hours}h {mins:02}m");
                         countdown_color = egui::Color32::GRAY;
                     }
                     ui.colored_label(countdown_color, countdown_text)
