@@ -111,7 +111,12 @@ impl SourceManager {
             return;
         }
         self.status = SourceStatus::Opening;
-        self.running = Arc::new(AtomicBool::new(true));
+        // Reuse the existing Arc<AtomicBool> rather than allocating a new one
+        // on every start: any previously-detached worker still holds a clone,
+        // and reallocating would orphan it (its `running` flag would never be
+        // flipped by a later stop). Resetting the shared flag in-place ensures
+        // all live and future workers observe the same signal.
+        self.running.store(true, Ordering::SeqCst);
         let running = self.running.clone();
 
         // Recreate channel if needed (after a previous stop)
