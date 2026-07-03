@@ -160,7 +160,11 @@ impl TleEngine {
     pub fn doppler_shift(&self, sat: &TleEntry, freq_hz: f64, t: f64) -> f64 {
         let period_s = 1440.0 / sat.mean_motion * 60.0;
         let orbit_phase = (t % period_s) / period_s;
-        let vel_lat = sat.inclination * 2.0 * std::f64::consts::PI * orbit_phase.cos();
+        let vel_lat = sat.inclination
+            * 2.0
+            * std::f64::consts::PI
+            / period_s
+            * orbit_phase.cos();
         let vel_lon = 2.0 * std::f64::consts::PI * 7000.0 / period_s;
         let range_rate = (vel_lat * vel_lat + vel_lon * vel_lon).sqrt() * 0.5;
         let c = 299_792_458.0;
@@ -272,9 +276,12 @@ mod tests {
         let shift = engine.doppler_shift_for_sat("ISS", 145_800_000.0, 100_000.0);
         // Doppler shift should be a reasonable value (not zero, not huge)
         assert!(shift.abs() > 0.0);
+        // For LEO at 145.8 MHz the worst-case Doppler is ~±10 kHz. A prior
+        // missing /period_s factor in vel_lat inflated this by ~5400×, so a
+        // 30 kHz cap catches that regression.
         assert!(
-            shift.abs() < 100_000.0,
-            "doppler shift too large: {}",
+            shift.abs() < 30_000.0,
+            "doppler shift too large (likely missing period_s divisor): {}",
             shift
         );
     }
