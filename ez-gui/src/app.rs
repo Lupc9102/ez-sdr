@@ -2,6 +2,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use chrono::{DateTime, Datelike, Local, TimeZone};
+
 #[derive(Debug, Clone, Default)]
 pub struct FreqMemEntry {
     pub freq_hz: u64,
@@ -3576,21 +3578,130 @@ impl CentralApp {
 
 /// Parse "HH:MM" or "HH:MM:SS" as a unix timestamp for today in local time.
 fn parse_hhmm_today(s: &str) -> Option<f64> {
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    let h: u64 = parts[0].parse().ok()?;
-    let m: u64 = parts[1].parse().ok()?;
-    let sec: u64 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
-    if h > 23 || m > 59 || sec > 59 {
-        return None;
-    }
-    // Get start of today in UTC via SystemTime
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_secs();
-    let today_start = now - (now % 86400);
-    Some((today_start + h * 3600 + m * 60 + sec) as f64)
+    parse_hhmm_today_at(s, now)
+}
+
+/// Parse "HH:MM" or "HH:MM:SS" as a unix timestamp for today in local time,
+/// given an arbitrary `now_unix` (seconds since epoch) as the reference "now".
+fn parse_hhmm_today_at(s: &str, now_unix: u64) -> Option<f64> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let h: u32 = parts[0].parse().ok()?;
+    let m: u32 = parts[1].parse().ok()?;
+    let sec: u32 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    if h > 23 || m > 59 || sec > 59 {
+        return None;
+    }
+
+    // Convert UTC timestamp to local time to find today's local midnight
+    let utc_dt = DateTime::from_timestamp(now_unix as i64, 0)?;
+    let local_dt = utc_dt.with_timezone(&Local);
+    let midnight = Local
+        .with_ymd_and_hms(local_dt.year(), local_dt.month(), local_dt.day(), 0, 0, 0)
+        .single()?;
+
+    let target = midnight
+        + chrono::Duration::hours(h as i64)
+        + chrono::Duration::minutes(m as i64)
+        + chrono::Duration::seconds(sec as i64);
+
+    Some(target.timestamp() as f64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Local, TimeZone};
+
+    #[test]
+    fn test_midnight() {
+        // 2024-01-15T12:00:00 UTC -> local midnight + 0h should be local midnight
+        let ts = 1705320000u64;
+        let result = parse_hhmm_today_at("00:00", ts).unwrap();
+        let local_midnight = Local
+            .with_ymd_and_hms(2024, 1, 15, 0, 0, 0)
+            .single()
+            .unwrap();
+        assert!((result - local_midnight.timestamp() as f64).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_noon() {
+        let ts = 1705320000u64;
+        let midnight = parse_hhmm_today_at("00:00", ts).unwrap();
+        let noon = parse_hhmm_today_at("12:00", ts).unwrap();
+        assert!((noon - midnight - 12.0 * 3600.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_midnight_to_midnight_consistency() {
+        let ts = 1705320000u64;
+        let result = parse_hhmm_today_at("00:00", ts).unwrap();
+        let local_midnight = Local
+            .with_ymd_and_hms(2024, 1, 15, 0, 0, 0)
+            .single()
+            .unwrap();
+        assert!((result - local_midnight.timestamp() as f64).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_invalid_empty() {
+        assert!(parse_hhmm_today_at("", 0).is_none());
+    }
+
+    #[test]
+    fn test_invalid_abc() {
+        assert!(parse_hhmm_today_at("abc", 0).is_none());
+    }
+
+    #[test]
+    fn test_invalid_hour_range() {
+        assert!(parse_hhmm_today_at("25:00", 0).is_none());
+    }
+
+    #[test]
+    fn test_invalid_minute_range() {
+        assert!(parse_hhmm_today_at("12:60", 0).is_none());
+    }
+
+    #[test]
+    fn test_invalid_second_range() {
+        assert!(parse_hhmm_today_at("12:00:60", 0).is_none());
+    }
+
+    #[test]
+    fn test_different_now_unix_produces_different_results() {
+        let ts1 = 1705320000u64; // 2024-01-15T12:00:00 UTC
+        let ts2 = 1705406400u64; // 2024-01-16T12:00:00 UTC (next day)
+        let r1 = parse_hhmm_today_at("09:00", ts1).unwrap();
+        let r2 = parse_hhmm_today_at("09:00", ts2).unwrap();
+        assert!(
+            (r2 - r1 - 86400.0).abs() < 2.0,
+            "expected ~24h difference, got {}",
+            r2 - r1
+        );
+    }
+
+    #[test]
+    fn test_with_seconds() {
+        let ts = 1705320000u64;
+        let r1 = parse_hhmm_today_at("01:02:03", ts).unwrap();
+        let r2 = parse_hhmm_today_at("01:02:00", ts).unwrap();
+        assert!((r1 - r2 - 3.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_result_within_day_of_now() {
+        let ts = 1705320000u64;
+        let result = parse_hhmm_today_at("09:30", ts).unwrap();
+        let local_ts = Local.timestamp_opt(ts as i64, 0).single().unwrap();
+        let local_result = Local.timestamp_opt(result as i64, 0).single().unwrap();
+        assert_eq!(local_result.date_naive(), local_ts.date_naive());
+    }
 }
