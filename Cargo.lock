@@ -1338,7 +1338,6 @@ dependencies = [
  "anyhow",
  "clap",
  "ctrlc",
- "libc",
  "thiserror 1.0.69",
 ]
 
