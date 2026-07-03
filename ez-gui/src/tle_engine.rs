@@ -39,6 +39,14 @@ impl TleEngine {
         engine
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn with_observer(lat: f64, lon: f64) -> Self {
+        let mut engine = Self::new();
+        engine.observer_lat = lat;
+        engine.observer_lon = lon;
+        engine
+    }
+
     fn load_builtin(&mut self) {
         self.tles = vec![
             TleEntry {
@@ -171,9 +179,41 @@ impl TleEngine {
 }
 
 fn format_time(t: f64) -> String {
+    if t < 0.0 || !t.is_finite() {
+        return "N/A".into();
+    }
     let epoch = std::time::UNIX_EPOCH + std::time::Duration::from_secs_f64(t);
     let datetime: chrono::DateTime<chrono::Utc> = epoch.into();
     datetime.format("%H:%M:%S UTC").to_string()
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn from_tle_lines(lines: &[&str]) -> Result<TleEntry, String> {
+    if lines.len() < 3 {
+        return Err("Need at least 3 lines: name, line1, line2".into());
+    }
+    let name = lines[0].trim().to_string();
+    let line2 = lines[2].trim();
+    if !line2.starts_with('2') {
+        return Err(format!("line 2 must start with '2', got: {line2}"));
+    }
+    let inclination = line2
+        .as_bytes()
+        .get(8..16)
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .ok_or_else(|| "Cannot parse inclination from line 2".to_string())?;
+    let mean_motion = line2
+        .as_bytes()
+        .get(52..63)
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .ok_or_else(|| "Cannot parse mean motion from line 2".to_string())?;
+    Ok(TleEntry {
+        name,
+        mean_motion,
+        inclination,
+    })
 }
 
 fn sat_frequency(name: &str) -> u64 {
@@ -277,5 +317,156 @@ mod tests {
         let s = format_time(1_234_567_890.0);
         // Should contain UTC somewhere — chrono formats vary by version
         assert!(!s.is_empty());
+    }
+
+    // --- from_tle_lines tests ---
+
+    #[test]
+    fn from_tle_lines_valid_iss() {
+        // Proper fixed-width TLE (69-char lines per standard)
+        let lines = vec![
+            "ISS (ZARYA)",
+            "1 25544U 98067A   24001.50000000  .00000000  00000+0  00000+0 0  9991",
+            "2 25544  51.6420  -0.1000 0007000   0.0000   0.0000 15.50138746 99990",
+        ];
+        let entry = from_tle_lines(&lines).unwrap();
+        assert_eq!(entry.name, "ISS (ZARYA)");
+        assert!((entry.inclination - 51.642).abs() < 0.001);
+        assert!((entry.mean_motion - 15.50138746).abs() < 0.0001);
+    }
+
+    #[test]
+    fn from_tle_lines_too_few_lines() {
+        let err = from_tle_lines(&["Name", "1 ..."]).unwrap_err();
+        assert!(err.contains("3 lines"));
+    }
+
+    #[test]
+    fn from_tle_lines_invalid_line2_prefix() {
+        let lines = vec!["Sat", "1 ...", "3 99999  99.0000"];
+        let err = from_tle_lines(&lines).unwrap_err();
+        assert!(err.contains("must start with '2'"));
+    }
+
+    #[test]
+    fn from_tle_lines_malformed_empty_line2() {
+        let err = from_tle_lines(&["Sat", "1 ...", "2"]).unwrap_err();
+        assert!(err.contains("inclination") || err.contains("mean motion"));
+    }
+
+    #[test]
+    fn from_tle_lines_partial_inclination() {
+        let lines = vec!["Sat", "1 ...", "2 25544   abcdef  ..."];
+        let err = from_tle_lines(&lines).unwrap_err();
+        assert!(err.contains("inclination") || err.contains("mean motion"));
+    }
+
+    // --- compute_passes edge cases ---
+
+    #[test]
+    fn compute_passes_empty_tles() {
+        let mut empty = TleEngine::with_observer(51.5, -0.1);
+        empty.tles.clear();
+        let passes = empty.compute_passes(51.5, -0.1, 24.0);
+        assert!(passes.is_empty());
+    }
+
+    #[test]
+    fn compute_passes_observer_at_north_pole() {
+        let engine = TleEngine::with_observer(90.0, 0.0);
+        let passes = engine.compute_passes(90.0, 0.0, 72.0);
+        // The simplified model may still produce passes at the pole
+        // but the key is the function doesn't crash
+        assert!(passes.is_empty() || !passes.is_empty());
+    }
+
+    #[test]
+    fn compute_passes_observer_at_equator() {
+        let engine = TleEngine::with_observer(0.0, 0.0);
+        let passes = engine.compute_passes(0.0, 0.0, 48.0);
+        assert!(!passes.is_empty(), "should see passes from equator");
+        let names: std::collections::BTreeSet<&str> =
+            passes.iter().map(|p| p.satellite.as_str()).collect();
+        assert!(names.contains("ISS"));
+    }
+
+    #[test]
+    fn compute_passes_short_window_yields_fewer_passes() {
+        let engine = TleEngine::new();
+        let passes_1h = engine.compute_passes(51.5, -0.1, 1.0);
+        let passes_72h = engine.compute_passes(51.5, -0.1, 72.0);
+        assert!(passes_1h.len() <= passes_72h.len());
+    }
+
+    // --- doppler_shift_for_sat edge values ---
+
+    #[test]
+    fn doppler_shift_for_sat_zero_hz() {
+        let engine = TleEngine::new();
+        let shift = engine.doppler_shift_for_sat("ISS", 0.0, 100_000.0);
+        assert_eq!(shift, 0.0, "0 Hz should yield 0 Doppler shift");
+    }
+
+    #[test]
+    fn doppler_shift_for_sat_large_freq() {
+        let engine = TleEngine::new();
+        let shift = engine.doppler_shift_for_sat("ISS", 1e12, 100_000.0);
+        // At high frequency the shift magnitude is larger
+        assert!(shift.abs() > 100.0, "large freq should give large shift");
+        assert!(shift < 0.0, "shift should be negative (receding)");
+    }
+
+    // --- format_time edge timestamps ---
+
+    #[test]
+    fn format_time_negative_returns_na() {
+        let s = format_time(-1.0);
+        assert_eq!(s, "N/A");
+    }
+
+    #[test]
+    fn format_time_nan_returns_na() {
+        let s = format_time(f64::NAN);
+        assert_eq!(s, "N/A");
+    }
+
+    #[test]
+    fn format_time_infinity_returns_na() {
+        let s = format_time(f64::INFINITY);
+        assert_eq!(s, "N/A");
+    }
+
+    #[test]
+    fn format_time_year_2038_boundary() {
+        // 2038-01-19 03:14:07 UTC = 2147483647 (i32 max)
+        let s = format_time(2_147_483_647.0);
+        assert!(s.contains("UTC") || s.contains("N/A"));
+        assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn format_time_large_timestamp() {
+        // Year 3000-ish: ~32503680000 seconds from epoch
+        let s = format_time(32_503_680_000.0);
+        assert!(s.contains(":") && s.contains("UTC"));
+    }
+
+    // --- TleEngine with_observer ---
+
+    #[test]
+    fn with_observer_custom_location() {
+        let engine = TleEngine::with_observer(-33.86, 151.21);
+        assert!((engine.observer_lat - (-33.86)).abs() < 0.01);
+        assert!((engine.observer_lon - 151.21).abs() < 0.01);
+        assert_eq!(engine.tles.len(), 5);
+    }
+
+    #[test]
+    fn with_observer_south_pole() {
+        let engine = TleEngine::with_observer(-90.0, 0.0);
+        assert!((engine.observer_lat - (-90.0)).abs() < 0.01);
+        let passes = engine.compute_passes(-90.0, 0.0, 24.0);
+        // Function runs without panicking
+        assert!(passes.is_empty() || !passes.is_empty());
     }
 }

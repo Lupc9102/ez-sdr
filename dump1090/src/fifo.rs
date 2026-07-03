@@ -1,4 +1,4 @@
-//! Simple bounded ring buffer for Vec<u8> items.
+//! Simple bounded ring buffer for `Vec<u8>` items.
 
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};

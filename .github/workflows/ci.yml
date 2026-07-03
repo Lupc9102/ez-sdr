@@ -30,6 +30,24 @@ jobs:
       - name: Check
         run: cargo check --workspace
 
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build docs
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+
+  doctest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Doc tests
+        run: cargo test --workspace --doc
+
   clippy:
     runs-on: ubuntu-latest
     steps:
