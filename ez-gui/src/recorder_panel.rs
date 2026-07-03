@@ -221,9 +221,16 @@ impl RecorderPanel {
             free_gb * 1024.0
         };
         if free_mb < 500.0 {
-            self.last_error = format!(
-                "⚠ Low disk space: only {free_gb:.0} {unit} free on recording drive. Recording may fail or be cut short."
-            );
+            self.last_error = if free_mb == 0.0 {
+                "⚠ Disk space check failed (df missing/timed out/unparseable). \
+                 Cannot verify free space — recording may fail."
+                    .to_string()
+            } else {
+                format!(
+                    "⚠ Low disk space: only {free_gb:.0} {unit} free on recording drive. \
+                     Recording may fail or be cut short."
+                )
+            };
             // Don't block — just warn. User can still record.
         }
         let dir = std::path::Path::new(&output_dir);
@@ -914,7 +921,11 @@ fn free_disk_space_with_timeout(path: &str) -> (f64, String) {
             }
         }
     }
-    (99.9, "GB".to_string())
+    // Disk-space probe failed (df missing / timed out / unparseable output).
+    // Return 0.0 GB so start_recording's 500 MB pre-flight guard triggers and
+    // the user is warned, instead of falsely reporting ~100 GB free and
+    // silently proceeding to ENOSPC mid-write.
+    (0.0, "GB".to_string())
 }
 
 #[cfg(test)]
@@ -961,7 +972,9 @@ mod tests {
     #[test]
     fn free_disk_space_nonexistent_path_returns_fallback() {
         let (amount, unit) = free_disk_space_with_timeout("/nonexistent_path_xyz123");
-        assert_eq!(amount, 99.9);
+        // Fallback now reports 0.0 (not 99.9) so the pre-flight guard triggers
+        // instead of falsely claiming ~100 GB free on a disk we can't probe.
+        assert_eq!(amount, 0.0);
         assert_eq!(unit, "GB");
     }
 
@@ -1023,14 +1036,14 @@ mod tests {
     #[test]
     fn free_disk_space_special_chars_path() {
         let result = free_disk_space_with_timeout("/tmp/test path with spaces");
-        assert_eq!(result, (99.9, "GB".to_string()));
+        assert_eq!(result, (0.0, "GB".to_string()));
     }
 
     #[test]
     fn free_disk_space_very_long_path() {
         let long_path = "a".repeat(4096);
         let result = free_disk_space_with_timeout(&long_path);
-        assert_eq!(result, (99.9, "GB".to_string()));
+        assert_eq!(result, (0.0, "GB".to_string()));
     }
 
     #[test]
