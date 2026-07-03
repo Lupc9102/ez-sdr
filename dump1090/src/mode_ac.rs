@@ -5,6 +5,11 @@
 /// This is the inverse of the original C function `ModeAToModeC`.
 /// Valid altitudes range from -12 (−1200 ft) to 1267 (126 700 ft).
 /// Returns `None` for out-of-range or mathematically invalid inputs.
+///
+/// TODO: This utility has tests but no production callers yet.
+/// It exists as a building block for future Mode A/C encoding needs
+/// (e.g., synthetic squawk generation or round-trip validation in the
+/// mode_s decoder).
 #[must_use]
 pub fn altitude_100ft_to_squawk(mode_c: i32) -> Option<u32> {
     // From ModeAToModeC: altitude = FiveHundreds × 5 + OneHundreds − 13
