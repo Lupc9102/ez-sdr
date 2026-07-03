@@ -504,7 +504,8 @@ pub fn decode_mode_s_message(
 
 #[inline]
 fn receiveclock_ms_elapsed(t1: u64, t2: u64) -> u64 {
-    (t2 - t1) / 12000
+    // Avoid subtraction underflow by using saturating arithmetic.
+    t2.saturating_sub(t1) / 12_000
 }
 
 // ========================================================================

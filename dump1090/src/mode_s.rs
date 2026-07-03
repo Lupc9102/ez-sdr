@@ -82,7 +82,7 @@ fn decode_callsign(msg: &[u8]) -> String {
         msg[10] & 0x3F,
     ];
 
-    chars
+    let s: String = chars
         .iter()
         .map(|&c| match c {
             0 | 32 => ' ',
@@ -90,9 +90,8 @@ fn decode_callsign(msg: &[u8]) -> String {
             48..=57 => (b'0' + c - 48) as char,
             _ => ' ',
         })
-        .collect::<String>()
-        .trim()
-        .to_string()
+        .collect();
+    s.trim().to_string()
 }
 
 /// Decode a barometric altitude field shared by surveillance replies and

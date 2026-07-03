@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.92"
 description = "Software-defined radio ADS-B and general SDR receiver with egui GUI"
+keywords = ["sdr", "ads-b", "radio", "gui", "dsp"]
+categories = ["science::radio", "gui"]
 license = "MIT OR Apache-2.0"
 authors = ["Lupc9102"]
 repository = "https://github.com/Lupc9102/ez-sdr"
@@ -19,7 +21,7 @@ egui = "0.35"
 rtlsdr_sys = { version = "1.1", optional = true }
 
 # DSP / math
-num-complex = "0.4"
+num-complex = { workspace = true }
 rustfft = "6"
 
 # Networking
@@ -68,3 +70,6 @@ default = ["audio"]
 audio = ["dep:cpal"]
 # RTL-SDR device support
 rtlsdr = ["dep:rtlsdr_sys"]
+
+[lints]
+workspace = true

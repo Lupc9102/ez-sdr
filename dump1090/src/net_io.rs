@@ -134,7 +134,9 @@ fn encode_beast_frame(timestamp: u64, signal: u8, msg: &[u8]) -> Vec<u8> {
     };
     let mut payload = Vec::with_capacity(msg.len() + 7);
     payload.push(indicator);
-    payload.extend_from_slice(&timestamp.to_be_bytes()[2..]); // 6 bytes big-endian
+    // Beast timestamps are 6-byte big-endian; truncate the high 2 bytes of
+    // the 8-byte u64. Valid because the protocol defines a 48-bit timestamp.
+    payload.extend_from_slice(&timestamp.to_be_bytes()[2..]);
     payload.push(signal);
     payload.extend_from_slice(msg);
 

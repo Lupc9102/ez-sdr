@@ -223,9 +223,10 @@ fn main() -> anyhow::Result<()> {
 
         let (mean_level, mean_power) = compute_magbuf_stats(magnitudes);
 
+        let total_length = magnitudes.len();
         let mag_buf = MagBuf {
             data: magnitudes.to_vec(),
-            total_length: magnitudes.len(),
+            total_length,
             valid_length: magnitudes.len(),
             overlap: 0,
             sample_timestamp,

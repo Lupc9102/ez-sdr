@@ -6,11 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Global exit flag (replaces Modes.exit).
 pub static EXIT: AtomicBool = AtomicBool::new(false);
 
-/// Return current wall-clock time in milliseconds.
+/// Return current wall-clock time in milliseconds since the Unix epoch.
 #[must_use]
 pub fn mstime() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+        .map_or(0, |d| d.as_millis() as u64)
 }

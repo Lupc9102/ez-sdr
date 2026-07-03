@@ -3,7 +3,9 @@ name = "dump1090"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.92"
-description = "Software-defined radio ADS-B and general SDR receiver with egui GUI"
+description = "ADS-B Mode S decoder and SDR data processing library"
+keywords = ["ads-b", "mode-s", "sdr", "decoder", "aviation"]
+categories = ["science::radio", "aerospace", "encoding"]
 license = "MIT OR Apache-2.0"
 authors = ["Lupc9102"]
 repository = "https://github.com/Lupc9102/ez-sdr"
@@ -31,3 +33,6 @@ rtlsdr = []
 hackrf = []
 # SoapySDR backend (requires SoapySDR)
 soapy = []
+
+[lints]
+workspace = true
