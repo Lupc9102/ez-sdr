@@ -112,7 +112,7 @@ impl WebRemote {
                                 msg = rx.recv() => {
                                     match msg {
                                         Ok(data) => {
-                                            if socket.send(Message::Text(data)).await.is_err() { break; }
+                                            if socket.send(Message::Text(data.into())).await.is_err() { break; }
                                         }
                                         Err(_) => break,
                                     }
