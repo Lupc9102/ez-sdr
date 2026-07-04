@@ -141,15 +141,15 @@ mod tests {
 
     #[test]
     fn mode_c_altitude_ground_level() {
-        let ma = altitude_100ft_to_squawk(0).unwrap();
-        let alt = mode_a_to_mode_c(ma).unwrap();
+        let ma = altitude_100ft_to_squawk(0).expect("0 is within valid range");
+        let alt = mode_a_to_mode_c(ma).expect("decoded squawk should be valid");
         assert_eq!(alt, 0);
     }
 
     #[test]
     fn mode_c_altitude_lower_bound() {
         // −1200 ft → −12 (100-ft units)
-        let ma = altitude_100ft_to_squawk(-12).unwrap();
+        let ma = altitude_100ft_to_squawk(-12).expect("-12 is within valid range");
         assert_ne!(ma & 0x000000F0, 0);
     }
 
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn mode_c_known_good_example() {
         // 3500 ft → 35 (100-ft units)
-        let ma = altitude_100ft_to_squawk(35).unwrap();
+        let ma = altitude_100ft_to_squawk(35).expect("35 is within valid range");
         // C bits should be non-zero (C2 set for OH=3)
         assert_ne!(ma & 0x000000F0, 0);
         // D1 must stay clear

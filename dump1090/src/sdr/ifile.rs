@@ -172,9 +172,13 @@ mod tests {
         let dir = std::env::temp_dir();
         let n = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = dir.join(format!("ifile_test_{}_{}", std::process::id(), n));
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(data).unwrap();
+        let mut f = std::fs::File::create(&path).expect("temp file creation should succeed");
+        f.write_all(data).expect("temp file write should succeed");
         path
+    }
+
+    fn path_to_str(path: &std::path::Path) -> &str {
+        path.to_str().expect("temp path is valid UTF-8")
     }
 
     fn cleanup(path: &std::path::Path) {
@@ -184,8 +188,8 @@ mod tests {
     #[test]
     fn ifile_new_with_path() {
         let path = create_temp_file(b"test");
-        let sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
-        assert_eq!(sdr.path, path.to_str().unwrap());
+        let sdr = IFileSdr::new(path_to_str(&path), IqFormat::Uc8, false);
+        assert_eq!(sdr.path, path_to_str(&path));
         assert_eq!(sdr.format, IqFormat::Uc8);
         assert_eq!(sdr.bytes_per_sample, 2);
         assert!(!sdr.loop_file);
@@ -219,9 +223,11 @@ mod tests {
             255, 128, // sample 2
         ];
         let path = create_temp_file(&data);
-        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        let mut sdr = IFileSdr::new(path_to_str(&path), IqFormat::Uc8, false);
         let mut buf = [0u16; 4];
-        let n = sdr.read_samples(&mut buf).unwrap();
+        let n = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n, 3);
 
         // Compute expected: fi=(127-127.4)=-0.4, fq=(127-127.4)=-0.4, mag~sqrt(0.32)*512~289
@@ -235,7 +241,9 @@ mod tests {
         );
 
         // Read another attempt at EOF -> 0 samples
-        let n2 = sdr.read_samples(&mut buf).unwrap();
+        let n2 = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n2, 0);
 
         cleanup(&path);
@@ -247,9 +255,11 @@ mod tests {
         // magnitude = sqrt(100^2 + 0^2) * 2 = 200
         let data: Vec<u8> = vec![100, 0, 0, 0, 0, 0, 0, 0];
         let path = create_temp_file(&data);
-        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Sc16, false);
+        let mut sdr = IFileSdr::new(path_to_str(&path), IqFormat::Sc16, false);
         let mut buf = [0u16; 4];
-        let n = sdr.read_samples(&mut buf).unwrap();
+        let n = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n, 2);
         assert_eq!(buf[0], 200);
         assert_eq!(buf[1], 0);
@@ -261,9 +271,11 @@ mod tests {
         // SC16Q11: I=100, Q=0 => magnitude = sqrt(100^2 + 0^2) * 32 = 3200
         let data: Vec<u8> = vec![100, 0, 0, 0];
         let path = create_temp_file(&data);
-        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Sc16Q11, false);
+        let mut sdr = IFileSdr::new(path_to_str(&path), IqFormat::Sc16Q11, false);
         let mut buf = [0u16; 4];
-        let n = sdr.read_samples(&mut buf).unwrap();
+        let n = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n, 1);
         assert_eq!(buf[0], 3200);
         cleanup(&path);
@@ -273,11 +285,15 @@ mod tests {
     fn ifile_eof_returns_zero() {
         let data = [200u8, 200];
         let path = create_temp_file(&data);
-        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        let mut sdr = IFileSdr::new(path_to_str(&path), IqFormat::Uc8, false);
         let mut buf = [0u16; 10];
-        let n = sdr.read_samples(&mut buf).unwrap();
+        let n = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n, 1);
-        let n2 = sdr.read_samples(&mut buf).unwrap();
+        let n2 = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n2, 0);
         cleanup(&path);
     }
@@ -286,15 +302,19 @@ mod tests {
     fn ifile_loop_rewinds() {
         let data = [200u8, 200, 210, 210];
         let path = create_temp_file(&data);
-        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        let mut sdr = IFileSdr::new(path_to_str(&path), IqFormat::Uc8, false);
         sdr.set_loop(true);
         // Read exactly the file size (2 samples) into a small buffer
         let mut buf = [0u16; 2];
-        let n1 = sdr.read_samples(&mut buf).unwrap();
+        let n1 = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n1, 2);
         let first_pass = buf.to_vec();
         // Read again — loop should rewind and yield the same 2 samples
-        let n2 = sdr.read_samples(&mut buf).unwrap();
+        let n2 = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n2, 2);
         assert_eq!(buf.to_vec(), first_pass);
         cleanup(&path);
@@ -315,13 +335,19 @@ mod tests {
         // 4 samples of UC8
         let data: Vec<u8> = (0u8..8).collect();
         let path = create_temp_file(&data);
-        let mut sdr = IFileSdr::new(path.to_str().unwrap(), IqFormat::Uc8, false);
+        let mut sdr = IFileSdr::new(path_to_str(&path), IqFormat::Uc8, false);
         let mut buf = [0u16; 2];
-        let n1 = sdr.read_samples(&mut buf).unwrap();
+        let n1 = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n1, 2);
-        let n2 = sdr.read_samples(&mut buf).unwrap();
+        let n2 = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n2, 2);
-        let n3 = sdr.read_samples(&mut buf).unwrap();
+        let n3 = sdr
+            .read_samples(&mut buf)
+            .expect("read_samples should succeed");
         assert_eq!(n3, 0);
         cleanup(&path);
     }
