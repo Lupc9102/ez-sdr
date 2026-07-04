@@ -1,4 +1,5 @@
 #![allow(clippy::unreadable_literal)]
+#![allow(unsafe_code)]
 
 pub mod adaptive;
 pub mod convert;
