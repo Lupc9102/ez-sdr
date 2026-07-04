@@ -900,3 +900,88 @@ pub fn render_tutorial(
 
     dismissed
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn beginner_steps_not_empty() {
+        let steps = beginner_steps();
+        assert!(!steps.is_empty(), "beginner should have tutorial steps");
+        assert!(steps.len() > 5, "expected at least 5 beginner steps");
+    }
+
+    #[test]
+    fn intermediate_steps_not_empty() {
+        let steps = intermediate_steps();
+        assert!(!steps.is_empty(), "intermediate should have tutorial steps");
+    }
+
+    #[test]
+    fn advanced_steps_not_empty() {
+        let steps = advanced_steps();
+        assert!(!steps.is_empty(), "advanced should have tutorial steps");
+    }
+
+    #[test]
+    fn clerk_maxwell_steps_not_empty() {
+        let steps = clerk_maxwell_steps();
+        assert!(
+            !steps.is_empty(),
+            "clerk_maxwell should have tutorial steps"
+        );
+    }
+
+    #[test]
+    fn steps_for_level_dispatches_user_beginner() {
+        let steps = steps_for_level(UserLevel::Beginner);
+        assert!(!steps.is_empty());
+    }
+
+    #[test]
+    fn steps_for_level_dispatches_intermediate() {
+        let steps = steps_for_level(UserLevel::Intermediate);
+        assert!(!steps.is_empty());
+    }
+
+    #[test]
+    fn steps_for_level_dispatches_advanced() {
+        let steps = steps_for_level(UserLevel::Advanced);
+        assert!(!steps.is_empty());
+    }
+
+    #[test]
+    fn steps_for_level_dispatches_clerk_maxwell() {
+        let steps = steps_for_level(UserLevel::ClerkMaxwell);
+        assert!(!steps.is_empty());
+    }
+
+    #[test]
+    fn all_steps_have_titles() {
+        for level in &[
+            UserLevel::Beginner,
+            UserLevel::Intermediate,
+            UserLevel::Advanced,
+            UserLevel::ClerkMaxwell,
+        ] {
+            for step in &steps_for_level(*level) {
+                assert!(!step.title.is_empty(), "step.title should be non-empty");
+            }
+        }
+    }
+
+    #[test]
+    fn all_steps_have_bodies() {
+        for level in &[
+            UserLevel::Beginner,
+            UserLevel::Intermediate,
+            UserLevel::Advanced,
+            UserLevel::ClerkMaxwell,
+        ] {
+            for step in &steps_for_level(*level) {
+                assert!(!step.body.is_empty(), "step.body should be non-empty");
+            }
+        }
+    }
+}
