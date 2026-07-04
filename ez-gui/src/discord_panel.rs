@@ -302,3 +302,55 @@ impl DiscordPanel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_defaults() {
+        let panel = DiscordPanel::new();
+        assert_eq!(panel.search, String::new());
+        assert!(!panel.starred_only);
+        assert_eq!(panel.test_status, String::new());
+    }
+
+    #[test]
+    fn test_search_filter() {
+        let mut panel = DiscordPanel::new();
+        assert_eq!(panel.search, "");
+
+        panel.search = "test".to_string();
+        assert_eq!(panel.search, "test");
+
+        panel.search.clear();
+        assert_eq!(panel.search, "");
+    }
+
+    #[test]
+    fn test_starred_only_toggle() {
+        let mut panel = DiscordPanel::new();
+        assert!(!panel.starred_only);
+
+        panel.starred_only = true;
+        assert!(panel.starred_only);
+
+        panel.starred_only = false;
+        assert!(!panel.starred_only);
+    }
+
+    #[test]
+    fn test_test_status_messages() {
+        let mut panel = DiscordPanel::new();
+        assert_eq!(panel.test_status, "");
+
+        panel.test_status = "✅ Success".to_string();
+        assert!(panel.test_status.contains("✅"));
+
+        panel.test_status = "❌ Error: failed".to_string();
+        assert!(panel.test_status.contains("❌"));
+
+        panel.test_status.clear();
+        assert_eq!(panel.test_status, "");
+    }
+}

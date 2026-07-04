@@ -92,7 +92,7 @@ impl Default for AircraftEntry {
 }
 
 /// Aircraft category used to select the 3D icon shape.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum AcCategory {
     WideBody,
     NarrowBody,
@@ -1397,5 +1397,81 @@ impl AdsBPanel {
                 }
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::make_shared_state;
+
+    #[test]
+    fn test_new_defaults() {
+        let panel = AdsBPanel::new(make_shared_state());
+        assert!(panel.aircraft.is_empty());
+        assert!(panel.selected_icao.is_none());
+        assert_eq!(panel.total_messages, 0);
+        assert_eq!(panel.decode_stats, (0, 0, 0));
+        assert!(panel.start_time.is_none());
+        assert_eq!(panel.min_altitude_ft, 0);
+        assert_eq!(panel.max_altitude_ft, 60_000);
+        assert!(!panel.altitude_filter_enabled);
+        assert!(panel.max_age_secs > 0);
+        assert!(panel.callsign_filter.is_empty());
+        assert!(panel.show_trails);
+        assert!(panel.pending_ai_prompt.is_none());
+        assert!(panel.alert_enabled);
+        assert!(!panel.desktop_notifications);
+    }
+
+    #[test]
+    fn test_classify_aircraft() {
+        assert_eq!(classify_aircraft("Boeing 737"), AcCategory::NarrowBody);
+        assert_eq!(classify_aircraft("Airbus A320"), AcCategory::NarrowBody);
+        assert_eq!(classify_aircraft("Bombardier CRJ900"), AcCategory::Regional);
+        assert_eq!(classify_aircraft("Cessna 172"), AcCategory::Generic);
+        assert_eq!(classify_aircraft("Boeing 777"), AcCategory::WideBody);
+        assert_eq!(classify_aircraft(""), AcCategory::Generic);
+        assert_eq!(classify_aircraft("boeing 737"), AcCategory::NarrowBody);
+        assert_eq!(classify_aircraft("xyzzy"), AcCategory::Generic);
+    }
+
+    #[test]
+    fn test_lon_to_tile_x() {
+        let eps = 1e-12;
+        assert!((AdsBPanel::lon_to_tile_x(0.0, 0) - 0.5).abs() < eps);
+        assert!((AdsBPanel::lon_to_tile_x(-180.0, 0) - 0.0).abs() < eps);
+        assert!((AdsBPanel::lon_to_tile_x(180.0, 0) - 1.0).abs() < eps);
+        assert!((AdsBPanel::lon_to_tile_x(0.0, 10) - 512.0).abs() < eps);
+        assert!((AdsBPanel::lon_to_tile_x(-90.0, 10) - 256.0).abs() < eps);
+        assert!((AdsBPanel::lon_to_tile_x(90.0, 10) - 768.0).abs() < eps);
+    }
+
+    #[test]
+    fn test_lat_to_tile_y() {
+        let eps = 1e-6;
+        assert!((AdsBPanel::lat_to_tile_y(0.0, 0) - 0.5).abs() < eps);
+        assert!((AdsBPanel::lat_to_tile_y(85.0511, 0) - 0.0).abs() < 0.01);
+        assert!((AdsBPanel::lat_to_tile_y(-85.0511, 0) - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_haversine_distance() {
+        let panel = AdsBPanel::new(make_shared_state());
+        let d = panel.haversine_distance(51.5, -0.1, 51.5, -0.1);
+        assert!(d.abs() < 1e-6);
+        let meridian_1deg = panel.haversine_distance(0.0, 0.0, 1.0, 0.0);
+        assert!((meridian_1deg - 111.195).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_bearing() {
+        let panel = AdsBPanel::new(make_shared_state());
+        let north = panel.bearing(0.0, 0.0, 10.0, 0.0);
+        assert!((north - 0.0).abs() < 1.0);
+        let east = panel.bearing(0.0, 0.0, 0.0, 10.0);
+        assert!((east - 90.0).abs() < 1.0);
+        let south = panel.bearing(10.0, 0.0, 0.0, 0.0);
+        assert!((south - 180.0).abs() < 1.0);
     }
 }

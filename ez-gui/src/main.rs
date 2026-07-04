@@ -23,6 +23,8 @@ mod scheduler;
 mod sdr_panel;
 mod source_manager;
 mod spectrum;
+#[cfg(test)]
+mod test_helpers;
 mod theme;
 mod tle_engine;
 mod tutorial;

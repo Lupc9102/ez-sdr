@@ -2936,4 +2936,82 @@ mod tests {
         let result = suggest_demod_for_freq(435000000);
         assert_eq!(result.map(|r| r.0), Some(DemodMode::Fm));
     }
+
+    #[test]
+    fn test_sdr_panel_new_defaults() {
+        let shared = crate::test_helpers::make_shared_state();
+        let panel = SdrPanel::new(shared);
+        assert_eq!(panel.squelch, -50.0);
+        assert_eq!(panel.filter_bw, 12_000);
+        assert!(panel.filter_bw > 0);
+        assert!(panel.bookmark_request.is_none());
+        assert!(panel.pending_ai_freq.is_none());
+        assert!(panel.tune_request.is_none());
+        assert!(panel.pending_status.is_none());
+    }
+
+    #[test]
+    fn test_sdr_panel_squelch_range() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut panel = SdrPanel::new(shared);
+        panel.squelch = 0.0;
+        assert_eq!(panel.squelch, 0.0);
+        panel.squelch = -100.0;
+        assert_eq!(panel.squelch, -100.0);
+        panel.squelch = -50.0;
+        assert_eq!(panel.squelch, -50.0);
+    }
+
+    #[test]
+    fn test_sdr_panel_filter_bw() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut panel = SdrPanel::new(shared);
+        assert_eq!(panel.filter_bw, 12_000);
+        panel.filter_bw = 10_000;
+        assert_eq!(panel.filter_bw, 10_000);
+        panel.filter_bw = 0;
+        assert_eq!(panel.filter_bw, 0);
+    }
+
+    #[test]
+    fn test_sdr_panel_tune_request() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut panel = SdrPanel::new(shared);
+        assert!(panel.tune_request.is_none());
+        panel.tune_request = Some(100_000_000);
+        assert_eq!(panel.tune_request, Some(100_000_000));
+        panel.tune_request = None;
+        assert!(panel.tune_request.is_none());
+    }
+
+    #[test]
+    fn test_sdr_panel_bookmark_request() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut panel = SdrPanel::new(shared);
+        assert!(panel.bookmark_request.is_none());
+        panel.bookmark_request = Some((100_000_000, "FM".to_string()));
+        assert_eq!(
+            panel.bookmark_request,
+            Some((100_000_000, "FM".to_string()))
+        );
+        panel.bookmark_request = None;
+        assert!(panel.bookmark_request.is_none());
+    }
+
+    #[test]
+    fn test_demod_mode_from_label_correctness() {
+        for mode in &[
+            DemodMode::Raw,
+            DemodMode::Am,
+            DemodMode::Fm,
+            DemodMode::Wfm,
+            DemodMode::Lsb,
+            DemodMode::Usb,
+        ] {
+            let label = mode.label();
+            let back = DemodMode::from_label(label);
+            assert_eq!(back, Some(*mode), "round-trip failed for {mode:?}");
+        }
+        assert_eq!(DemodMode::from_label("NFM"), Some(DemodMode::Fm));
+    }
 }

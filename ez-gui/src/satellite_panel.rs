@@ -430,3 +430,66 @@ impl SatellitePanel {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::make_shared_state;
+
+    #[test]
+    fn test_new_defaults() {
+        let panel = SatellitePanel::new(make_shared_state());
+        assert!(panel.selected_sat.is_none());
+        assert!(panel.auto_record);
+        assert_eq!(panel.signal_strength, -120.0);
+        assert_eq!(panel.doppler_hz, 0.0);
+        assert!(!panel.recording);
+        assert!(!panel.live_decode);
+        assert_eq!(panel.observer_lat, 51.5);
+        assert_eq!(panel.observer_lon, -0.1);
+        assert!(panel.auto_tune);
+        assert!(panel.pending_ai_prompt.is_none());
+        assert!(panel.pending_status.is_none());
+    }
+
+    #[test]
+    fn test_selected_sat_persistence() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        assert!(panel.selected_sat.is_none());
+        panel.selected_sat = Some("NOAA 19".to_string());
+        assert_eq!(panel.selected_sat.as_deref(), Some("NOAA 19"));
+        panel.selected_sat = None;
+        assert!(panel.selected_sat.is_none());
+    }
+
+    #[test]
+    fn test_auto_record_toggle() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        assert!(panel.auto_record);
+        panel.auto_record = false;
+        assert!(!panel.auto_record);
+        panel.auto_record = true;
+        assert!(panel.auto_record);
+    }
+
+    #[test]
+    fn test_observer_coordinates() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        assert_eq!(panel.observer_lat, 51.5);
+        assert_eq!(panel.observer_lon, -0.1);
+        panel.observer_lat = 40.7128;
+        panel.observer_lon = -74.0060;
+        assert_eq!(panel.observer_lat, 40.7128);
+        assert_eq!(panel.observer_lon, -74.0060);
+    }
+
+    #[test]
+    fn test_signal_strength_range() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        assert_eq!(panel.signal_strength, -120.0);
+        panel.signal_strength = -50.0;
+        assert_eq!(panel.signal_strength, -50.0);
+        panel.signal_strength = 0.0;
+        assert_eq!(panel.signal_strength, 0.0);
+    }
+}

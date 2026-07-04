@@ -2853,4 +2853,52 @@ mod tests {
         let expected = HowToPanel::search_matches("rtlsdr");
         assert_eq!(result, expected);
     }
+
+    #[test]
+    fn test_new_defaults() {
+        let panel = HowToPanel::new();
+        assert_eq!(panel.selected_section, 0);
+    }
+
+    #[test]
+    fn test_selected_section() {
+        let mut panel = HowToPanel::new();
+        assert_eq!(panel.selected_section, 0);
+        panel.selected_section = 5;
+        assert_eq!(panel.selected_section, 5);
+        panel.selected_section = 999;
+        assert_eq!(panel.selected_section, 999);
+    }
+
+    #[test]
+    fn test_sections_const() {
+        assert_eq!(SECTIONS.len(), 18);
+        assert_eq!(SECTIONS[0], "Getting Started");
+        assert!(SECTIONS.contains(&"ADS-B Aircraft Tracking"));
+        assert!(SECTIONS.contains(&"AI Agent Guide"));
+    }
+
+    #[test]
+    fn test_keyword_index_not_empty() {
+        assert!(KEYWORD_INDEX.len() > 50);
+        let rtl_entry = KEYWORD_INDEX.iter().find(|(kw, _)| *kw == "rtl-sdr");
+        assert!(rtl_entry.is_some());
+        assert_eq!(rtl_entry.unwrap().1, &[3]);
+        let aircraft_entry = KEYWORD_INDEX.iter().find(|(kw, _)| *kw == "aircraft");
+        assert!(aircraft_entry.is_some());
+        assert_eq!(aircraft_entry.unwrap().1, &[8]);
+        let satellite_entry = KEYWORD_INDEX.iter().find(|(kw, _)| *kw == "satellite");
+        assert!(satellite_entry.is_some());
+        assert_eq!(satellite_entry.unwrap().1, &[9]);
+    }
+
+    #[test]
+    fn test_search_matches_more() {
+        let fm = HowToPanel::search_matches("FM broadcast");
+        assert!(fm.contains(&7));
+        let ant = HowToPanel::search_matches("antenna coax");
+        assert_eq!(ant, vec![4]);
+        let beginner = HowToPanel::search_matches("beginner no hardware");
+        assert_eq!(beginner, vec![0, 1]);
+    }
 }

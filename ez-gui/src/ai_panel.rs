@@ -1632,3 +1632,109 @@ impl AiPanel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chat_message_new() {
+        let msg = ChatMessage::new("user", "hello");
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "hello");
+        assert!(msg.tool_calls.is_none());
+        assert!(!msg.streaming);
+        assert!(msg.timestamp_secs > 0);
+    }
+
+    #[test]
+    fn test_chat_message_format_time() {
+        let mut msg = ChatMessage::new("user", "");
+        msg.timestamp_secs = 0;
+        assert_eq!(msg.format_time(), "00:00");
+        msg.timestamp_secs = 3661;
+        assert_eq!(msg.format_time(), "01:01");
+        msg.timestamp_secs = 86399;
+        assert_eq!(msg.format_time(), "23:59");
+    }
+
+    #[test]
+    fn test_extract_tool_calls() {
+        let result = AiPanel::extract_tool_calls("");
+        assert!(result.is_empty());
+
+        let text = r#"Some text {"tool": "tune_frequency", "args": {"hz": 100000000}} more text"#;
+        let result = AiPanel::extract_tool_calls(text);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "tune_frequency");
+        assert_eq!(result[0].1["hz"], 100000000);
+
+        let text = r#"First {"tool": "set_gain", "args": {"db": 20.0}} then {"tool": "tune_frequency", "args": {"hz": 145800000}}"#;
+        let result = AiPanel::extract_tool_calls(text);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, "set_gain");
+        assert_eq!(result[1].0, "tune_frequency");
+
+        let text =
+            r#"Some text {"tool": "tune_frequency", "args": {"hz": 100000000} more malformed"#;
+        let result = AiPanel::extract_tool_calls(text);
+        assert!(result.is_empty());
+
+        let text = "Just some regular text with no tool calls";
+        let result = AiPanel::extract_tool_calls(text);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_find_next_freq() {
+        let result = AiPanel::find_next_freq("100.5 MHz");
+        assert_eq!(result, Some((0, 9, 100_500_000)));
+
+        let result = AiPanel::find_next_freq("145.800 MHz and 137.100 MHz");
+        assert_eq!(result, Some((0, 11, 145_800_000)));
+
+        let result = AiPanel::find_next_freq("no frequency here");
+        assert_eq!(result, None);
+
+        let result = AiPanel::find_next_freq("1000 Hz");
+        assert_eq!(result, None);
+
+        let result = AiPanel::find_next_freq("2.4 GHz");
+        assert_eq!(result, Some((0, 7, 2_400_000_000)));
+    }
+
+    #[test]
+    fn test_tokenize_inline() {
+        let result = AiPanel::tokenize_inline("hello world");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello world");
+        assert!(!result[0].1);
+        assert!(!result[0].2);
+        assert!(!result[0].3);
+        assert!(result[0].4.is_none());
+
+        let result = AiPanel::tokenize_inline("use `fn foo()` here");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].0, "use ");
+        assert_eq!(result[1].0, "fn foo()");
+        assert!(result[1].3);
+        assert_eq!(result[2].0, " here");
+
+        let result = AiPanel::tokenize_inline("Tune to 100.5 MHz now");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].0, "Tune to ");
+        assert_eq!(result[1].0, "100.5 MHz");
+        assert_eq!(result[1].4, Some(100_500_000));
+        assert_eq!(result[2].0, " now");
+    }
+
+    #[test]
+    fn test_ai_panel_new_defaults() {
+        let shared = crate::test_helpers::make_shared_state();
+        let panel = AiPanel::new(shared);
+        assert!(panel.messages.is_empty());
+        assert!(panel.input.is_empty());
+        assert!(!panel.thinking);
+        assert!(panel.pending_rx.is_none());
+    }
+}
