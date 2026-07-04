@@ -1,3 +1,12 @@
+use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
+    response::IntoResponse,
+    routing::get,
+    Router,
+};
 use std::sync::mpsc;
 use std::thread;
 use tokio::sync::{broadcast, oneshot};
@@ -40,6 +49,76 @@ pub struct StreamState<'a> {
     pub recording: bool,
     pub scanner_active: bool,
     pub snr_db: f32,
+}
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<(broadcast::Sender<String>, mpsc::Sender<RemoteCommand>)>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(
+    mut socket: WebSocket,
+    state: (broadcast::Sender<String>, mpsc::Sender<RemoteCommand>),
+) {
+    let (tx, cmd_tx) = state;
+    let mut rx = tx.subscribe();
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                match msg {
+                    Ok(data) => {
+                        if socket.send(Message::Text(data.into())).await.is_err() { break; }
+                    }
+                    Err(_) => break,
+                }
+            }
+            Some(Ok(msg)) = socket.recv() => {
+                if let Message::Text(text) = msg {
+                    if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(&text) {
+                        let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                        match action {
+                            "tune" => {
+                                if let Some(hz) = cmd.get("hz").and_then(serde_json::Value::as_u64) {
+                                    let _ = cmd_tx.send(RemoteCommand::Tune { freq_hz: hz });
+                                }
+                            }
+                            "set_gain" => {
+                                if let Some(db) = cmd.get("db").and_then(serde_json::Value::as_f64) {
+                                    let _ = cmd_tx.send(RemoteCommand::SetGain { gain_db: db });
+                                }
+                            }
+                            "set_demod" => {
+                                if let Some(mode) = cmd.get("mode").and_then(|v| v.as_str()) {
+                                    let _ = cmd_tx.send(RemoteCommand::SetDemod { mode: mode.to_string() });
+                                }
+                            }
+                            "set_squelch" => {
+                                if let Some(db) = cmd.get("db").and_then(serde_json::Value::as_f64) {
+                                    let _ = cmd_tx.send(RemoteCommand::SetSquelch { db: db as f32 });
+                                }
+                            }
+                            "set_volume" => {
+                                if let Some(level) = cmd.get("level").and_then(serde_json::Value::as_f64) {
+                                    let _ = cmd_tx.send(RemoteCommand::SetVolume { level: level as f32 });
+                                }
+                            }
+                            "start_record" => { let _ = cmd_tx.send(RemoteCommand::StartRecord); }
+                            "stop_record" => { let _ = cmd_tx.send(RemoteCommand::StopRecord); }
+                            "start_scan" => { let _ = cmd_tx.send(RemoteCommand::StartScan); }
+                            "stop_scan" => { let _ = cmd_tx.send(RemoteCommand::StopScan); }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn index_handler() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("web_remote.html"))
 }
 
 impl WebRemote {
@@ -98,72 +177,6 @@ impl WebRemote {
                     }
                 };
                 rt.block_on(async move {
-                    use axum::{routing::get, Router, extract::State, extract::ws::{WebSocket, WebSocketUpgrade, Message}, response::IntoResponse};
-
-                    async fn ws_handler(ws: WebSocketUpgrade, State(state): State<(broadcast::Sender<String>, mpsc::Sender<RemoteCommand>)>) -> impl IntoResponse {
-                        ws.on_upgrade(move |socket| handle_socket(socket, state))
-                    }
-
-                    async fn handle_socket(mut socket: WebSocket, state: (broadcast::Sender<String>, mpsc::Sender<RemoteCommand>)) {
-                        let (tx, cmd_tx) = state;
-                        let mut rx = tx.subscribe();
-                        loop {
-                            tokio::select! {
-                                msg = rx.recv() => {
-                                    match msg {
-                                        Ok(data) => {
-                                            if socket.send(Message::Text(data.into())).await.is_err() { break; }
-                                        }
-                                        Err(_) => break,
-                                    }
-                                }
-                                Some(Ok(msg)) = socket.recv() => {
-                                    if let Message::Text(text) = msg {
-                                        if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(&text) {
-                                            let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
-                                            match action {
-                                                "tune" => {
-                                                    if let Some(hz) = cmd.get("hz").and_then(serde_json::Value::as_u64) {
-                                                        let _ = cmd_tx.send(RemoteCommand::Tune { freq_hz: hz });
-                                                    }
-                                                }
-                                                "set_gain" => {
-                                                    if let Some(db) = cmd.get("db").and_then(serde_json::Value::as_f64) {
-                                                        let _ = cmd_tx.send(RemoteCommand::SetGain { gain_db: db });
-                                                    }
-                                                }
-                                                "set_demod" => {
-                                                    if let Some(mode) = cmd.get("mode").and_then(|v| v.as_str()) {
-                                                        let _ = cmd_tx.send(RemoteCommand::SetDemod { mode: mode.to_string() });
-                                                    }
-                                                }
-                                                "set_squelch" => {
-                                                    if let Some(db) = cmd.get("db").and_then(serde_json::Value::as_f64) {
-                                                        let _ = cmd_tx.send(RemoteCommand::SetSquelch { db: db as f32 });
-                                                    }
-                                                }
-                                                "set_volume" => {
-                                                    if let Some(level) = cmd.get("level").and_then(serde_json::Value::as_f64) {
-                                                        let _ = cmd_tx.send(RemoteCommand::SetVolume { level: level as f32 });
-                                                    }
-                                                }
-                                                "start_record" => { let _ = cmd_tx.send(RemoteCommand::StartRecord); }
-                                                "stop_record" => { let _ = cmd_tx.send(RemoteCommand::StopRecord); }
-                                                "start_scan" => { let _ = cmd_tx.send(RemoteCommand::StartScan); }
-                                                "stop_scan" => { let _ = cmd_tx.send(RemoteCommand::StopScan); }
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    async fn index_handler() -> axum::response::Html<&'static str> {
-                        axum::response::Html(include_str!("web_remote.html"))
-                    }
-
                     let app = Router::new()
                         .route("/ws", get(ws_handler))
                         .route("/", get(index_handler))

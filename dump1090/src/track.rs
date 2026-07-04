@@ -60,7 +60,7 @@ impl Tracker {
 
     /// Remove aircraft whose `last_seen_ms` is older than `cutoff_ms`.
     ///
-    /// Without this the `aircraft` HashMap grows unbounded over multi-hour
+    /// Without this the `aircraft` `HashMap` grows unbounded over multi-hour
     /// ADS-B sessions as aircraft leave range and are never seen again (the
     /// original `track.c` pruned at a 60 s idle threshold via `expireAircraft`).
     /// Returns the number of entries removed.

@@ -211,3 +211,54 @@ fn item(label: &'static str, detail: &'static str) -> ChecklistItem {
         checked: false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::make_shared_state;
+
+    #[test]
+    fn test_for_sdr_defaults() {
+        let shared = make_shared_state();
+        let checklist = AntennaChecklist::for_sdr(shared);
+        assert!(!checklist.items.is_empty());
+    }
+
+    #[test]
+    fn test_for_satellite_defaults() {
+        let shared = make_shared_state();
+        let checklist = AntennaChecklist::for_satellite(shared);
+        assert!(!checklist.items.is_empty());
+    }
+
+    #[test]
+    fn test_ui_does_not_panic() {
+        let shared = make_shared_state();
+        let mut checklist = AntennaChecklist::for_sdr(shared);
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new("test".into()).show(ctx, |ui| {
+                let _ = checklist.ui(ui);
+            });
+        });
+    }
+
+    #[test]
+    fn test_for_sdr_and_satellite_differ() {
+        let sdr = AntennaChecklist::for_sdr(make_shared_state());
+        let sat = AntennaChecklist::for_satellite(make_shared_state());
+        assert_ne!(sdr.items.len(), 0);
+        assert_ne!(sat.items.len(), 0);
+        assert_ne!(sdr.title, sat.title);
+    }
+
+    #[test]
+    fn test_pending_status() {
+        let shared = make_shared_state();
+        let mut checklist = AntennaChecklist::for_sdr(shared);
+        assert!(checklist.pending_status.is_none());
+        checklist.pending_status = Some("test message".to_string());
+        assert!(checklist.pending_status.is_some());
+        assert_eq!(checklist.pending_status.as_deref(), Some("test message"));
+    }
+}

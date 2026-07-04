@@ -268,4 +268,32 @@ mod tests {
         assert!(!ao.is_running());
         assert!(!ao.has_failed());
     }
+
+    #[test]
+    fn test_audio_output_start_stop() {
+        let mut ao = AudioOutput::new();
+        let (_tx, rx) = crossbeam_channel::unbounded::<Vec<f32>>();
+        let _ = ao.start(std::sync::Arc::new(std::sync::Mutex::new(rx)));
+        ao.stop();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+    }
+
+    #[test]
+    fn test_audio_output_double_start() {
+        let mut ao = AudioOutput::new();
+        let (_tx, rx) = crossbeam_channel::unbounded::<Vec<f32>>();
+        let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+        let _ = ao.start(rx.clone());
+        let _ = ao.start(rx);
+        ao.stop();
+    }
+
+    #[test]
+    fn test_audio_output_stop_without_start() {
+        let mut ao = AudioOutput::new();
+        ao.stop();
+        assert!(!ao.is_running());
+        assert!(!ao.has_failed());
+    }
 }
