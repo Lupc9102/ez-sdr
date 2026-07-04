@@ -7,9 +7,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SatelliteSubTab {
     Track,
-    Advanced,
     Decode,
-    Editor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +207,17 @@ impl SatellitePanel {
                 }
             });
 
+        if self.selected_sat.as_deref() == Some("Meteor-M2-2") {
+            ui.add_space(2.0);
+            if ui
+                .button("📡 Decode LRPT from Meteor-M2-2")
+                .on_hover_text("Jump to the Decode tab with the Meteor-M2-2 LRPT preset pre-filled")
+                .clicked()
+            {
+                self.request_decode_tab(DecodePreset::MeteorM2_2);
+            }
+        }
+
         ui.add_space(8.0);
         ui.separator();
 
@@ -304,13 +313,20 @@ impl SatellitePanel {
         if ui.button("🤖 Ask AI to track a satellite").clicked() {
             self.pending_ai_prompt = Some("Help me track a satellite. What satellites are currently active and how do I set up tracking?".to_string());
         }
+
+        // Advanced settings (observer location, TLE-driven pass table, Doppler
+        // detail, manual frequency override) folded into the Track panel now
+        // that the dedicated Advanced sub-tab has been removed.
+        ui.add_space(8.0);
+        ui.separator();
+        egui::CollapsingHeader::new("⚙ Advanced (observer, TLE, pass table)")
+            .default_open(false)
+            .show(ui, |ui| self.ui_advanced_inline(ui));
     }
 
-    /// Advanced sub-tab: Doppler detail, manual observer/frequency overrides, full pass table.
-    pub fn ui_advanced(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Satellite — Advanced");
-        ui.add_space(4.0);
-
+    /// Advanced settings inlined at the bottom of `ui_simple`: Doppler detail,
+    /// manual observer/frequency overrides, full pass table.
+    fn ui_advanced_inline(&mut self, ui: &mut egui::Ui) {
         // Sync observer location from shared state (e.g., when Settings → Save applies config values)
         if let Ok(state) = self.shared.try_lock() {
             if (state.tle.observer_lat - self.observer_lat).abs() > 0.001
@@ -1034,7 +1050,7 @@ mod tests {
         let ctx = egui::Context::default();
         let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::Area::new(egui::Id::new("test")).show(ctx, |ui| {
-                panel.ui_advanced(ui);
+                panel.ui_simple(ui);
             });
         });
     }

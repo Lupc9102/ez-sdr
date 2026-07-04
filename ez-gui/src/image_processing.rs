@@ -107,7 +107,7 @@ pub fn brightness_contrast(pixels: &mut [f32], brightness: f32, contrast: f32) {
 /// `hue_shift` in degrees (-180..180), `saturation` and `lightness` as multipliers
 /// (1.0 = no change, 0.0 = zero saturation / black).
 pub fn hue_saturation(rgb: &mut [f32], hue_shift: f32, saturation: f32, lightness: f32) {
-    if rgb.len() % 3 != 0 {
+    if !rgb.len().is_multiple_of(3) {
         return;
     }
     let h_rad = hue_shift.to_radians();

@@ -273,7 +273,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                 // Parse ch1..ch6
                 if i + 2 < chars.len() && chars[i + 1] == 'h' {
                     if let Some(digit) = chars[i + 2].to_digit(10) {
-                        if digit >= 1 && digit <= 6 {
+                        if (1..=6).contains(&digit) {
                             tokens.push(Token::Var((digit - 1) as u8));
                             i += 3;
                             continue;

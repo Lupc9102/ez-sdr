@@ -53,6 +53,23 @@ The "skill infinity" pattern from CLAUDE.md prescribes an autonomous 24/7 daemon
 4. **Validate:** `cargo fmt --check`, `cargo clippy -D warnings -W clippy::unwrap_used -W clippy::panic`, `cargo test` (620/620 pass) — all green
 5. **Graph update:** `graphify update .` — rebuilt graph (1766 nodes, 3539 edges, 88 communities)
 
+### What was done on this loop (run 2, 2026-07-04)
+1. **Observe:** Expanded clippy scope to redundant_clone, must_use_candidate, missing_panics_doc, missing_errors_doc
+2. **Execute:**
+   - Removed redundant `.clone()` calls in `app.rs`, `audio_output.rs`, `sdr_panel.rs`
+   - Removed redundant `&` reference in `format!()` in `app.rs`
+   - Converted `match` to `?` operator in `dump1090/fifo.rs`
+   - Refactored late initialization to `let-if` expression in `satellite_panel.rs`
+   - Added 12 tutorial tests (coverage for all 4 user levels + dispatch + data integrity)
+   - Simplified `Result::map().unwrap_or()` → `Result::map_or()` in `adsb_decoder.rs` and `recorder_panel.rs`
+   - Simplified `Result::map().unwrap_or_else()` → `Result::map_or_else()` in `recorder_panel.rs`
+   - Added `# Panics` and `# Errors` doc sections to `crc.rs`, `fifo.rs`, `demod.rs`, `net_io.rs`, `sdr/mod.rs`
+   - Added `#[must_use]` to constructors in `hackrf.rs`, `rtlsdr.rs`, `soapy.rs`, `dump1090/main.rs`
+3. **Validate:** `cargo fmt --check`, `cargo clippy` with 10+ lint groups, `cargo test` (630/630 pass) — all green
+4. **Commits:** `5eb36c9`, `0bd8ed6`, `b6ec46b`, `e39f260`, `6dd32be`
+
 ### Remaining work for next loop
-- Project is now clean under `-D warnings -W clippy::unwrap_used -W clippy::panic`. No remaining lints.
-- Next: explore deeper code quality — dead code removal, missing test coverage, test helper consolidation.
+- Project is now clean under `-D warnings -W clippy::unwrap_used -W clippy::panic -W clippy::must_use_candidate -W clippy::missing_panics_doc -W clippy::missing_errors_doc`. No remaining lints.
+- 411 ez-gui tests + 219 dump1090 tests = 630 total, all passing.
+- Full doc coverage for panics and errors in dump1090 public API.
+- Next: continue deeper code quality — unused code removal, test coverage expansion, error handling improvements.

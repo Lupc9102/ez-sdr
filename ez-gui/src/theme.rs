@@ -235,9 +235,264 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn gradient_sample_interpolates_between_stops() {
+        let g = Gradient::two(Rgba::from_rgb(0, 0, 0), Rgba::from_rgb(200, 100, 50));
+        assert_eq!(g.sample(0.0), Rgba::from_rgb(0, 0, 0));
+        assert_eq!(g.sample(1.0), Rgba::from_rgb(200, 100, 50));
+        let mid = g.sample(0.5);
+        assert_eq!(mid, Rgba::from_rgb(100, 50, 25));
+    }
+
+    #[test]
+    fn gradient_sample_clamps_out_of_range_t() {
+        let g = Gradient::two(Rgba::from_rgb(10, 10, 10), Rgba::from_rgb(20, 20, 20));
+        assert_eq!(g.sample(-1.0), g.sample(0.0));
+        assert_eq!(g.sample(2.0), g.sample(1.0));
+    }
+
+    #[test]
+    fn gradient_sample_empty_stops_returns_black() {
+        let g = Gradient { stops: vec![] };
+        assert_eq!(g.sample(0.5), Rgba::from_rgb(0, 0, 0));
+    }
+
+    #[test]
+    fn gradient_default_matches_two_stop_shape() {
+        let g = Gradient::default();
+        assert_eq!(g.stops.len(), 2);
+    }
+
+    #[test]
+    fn glow_config_default_is_disabled() {
+        let glow = GlowConfig::default();
+        assert!(!glow.enabled);
+    }
+
+    #[test]
+    fn all_presets_have_unique_names_and_apply_cleanly() {
+        for (name, make) in ThemeConfig::all_presets() {
+            let theme = make();
+            let ctx = egui::Context::default();
+            theme.apply_to_ctx(&ctx);
+            assert_eq!(&theme.preset, name, "preset field should match registry name");
+        }
+    }
+
+    #[test]
+    fn named_theme_roundtrips_through_json() {
+        let named = NamedTheme {
+            id: "abc123".to_string(),
+            name: "My Theme".to_string(),
+            theme: ThemeConfig::dark(),
+        };
+        let json = serde_json::to_string(&named).expect("NamedTheme should serialize");
+        let back: NamedTheme =
+            serde_json::from_str(&json).expect("NamedTheme JSON should deserialize round-trip");
+        assert_eq!(named.id, back.id);
+        assert_eq!(named.name, back.name);
+    }
 }
 
 type PresetFn = fn() -> ThemeConfig;
+
+// ─── Gradients ─────────────────────────────────────────────────────────────
+
+/// A multi-stop linear gradient, sampled top→bottom. `stops` are
+/// `(position 0..1, color)` pairs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Gradient {
+    pub stops: Vec<(f32, Rgba)>,
+}
+
+impl Gradient {
+    pub fn two(top: Rgba, bottom: Rgba) -> Self {
+        Self { stops: vec![(0.0, top), (1.0, bottom)] }
+    }
+
+    /// Sample the interpolated color at position `t` (clamped to `[0, 1]`).
+    pub fn sample(&self, t: f32) -> Rgba {
+        let t = t.clamp(0.0, 1.0);
+        if self.stops.is_empty() {
+            return Rgba::from_rgb(0, 0, 0);
+        }
+        let mut sorted = self.stops.clone();
+        sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        if sorted.len() == 1 {
+            return sorted[0].1;
+        }
+        if t <= sorted[0].0 {
+            return sorted[0].1;
+        }
+        for w in sorted.windows(2) {
+            let (p0, c0) = w[0];
+            let (p1, c1) = w[1];
+            if t >= p0 && t <= p1 {
+                let span = (p1 - p0).max(1e-6);
+                return mix_color(&c0, &c1, (t - p0) / span);
+            }
+        }
+        sorted.last().expect("checked non-empty above").1
+    }
+}
+
+impl Default for Gradient {
+    fn default() -> Self {
+        Self::two(Rgba::from_rgba(30, 120, 200, 100), Rgba::from_rgba(10, 30, 60, 20))
+    }
+}
+
+// ─── Glow ──────────────────────────────────────────────────────────────────
+
+/// Soft glow effect applied to active/highlighted elements (nav tab, status
+/// indicators). Rendered as concentric fading strokes since egui has no
+/// native blur.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GlowConfig {
+    pub enabled: bool,
+    pub color: Rgba,
+    pub radius: f32,
+    pub intensity: f32,
+}
+
+impl Default for GlowConfig {
+    fn default() -> Self {
+        Self { enabled: false, color: Rgba::from_rgb(0, 168, 255), radius: 8.0, intensity: 0.5 }
+    }
+}
+
+// ─── Corner roundness ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CornerStyle {
+    pub buttons: f32,
+    pub panels: f32,
+    pub windows: f32,
+}
+
+impl Default for CornerStyle {
+    fn default() -> Self {
+        Self { buttons: 4.0, panels: 6.0, windows: 6.0 }
+    }
+}
+
+// ─── Typography ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
+pub enum FontFamily {
+    /// egui's built-in proportional + monospace fonts.
+    #[default]
+    EguiDefault,
+    /// Bundled DejaVu Sans / DejaVu Sans Mono.
+    DejaVu,
+}
+
+
+impl FontFamily {
+    pub const ALL: [FontFamily; 2] = [FontFamily::EguiDefault, FontFamily::DejaVu];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FontFamily::EguiDefault => "Default",
+            FontFamily::DejaVu => "DejaVu",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TypographyConfig {
+    pub family: FontFamily,
+    pub heading_size: f32,
+    pub body_size: f32,
+    pub small_size: f32,
+    pub monospace_size: f32,
+    pub button_size: f32,
+}
+
+impl Default for TypographyConfig {
+    fn default() -> Self {
+        Self {
+            family: FontFamily::EguiDefault,
+            heading_size: 18.0,
+            body_size: 13.0,
+            small_size: 10.0,
+            monospace_size: 13.0,
+            button_size: 13.0,
+        }
+    }
+}
+
+// ─── Spacing / density ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
+pub enum Density {
+    Compact,
+    #[default]
+    Comfortable,
+    Spacious,
+}
+
+
+impl Density {
+    pub const ALL: [Density; 3] = [Density::Compact, Density::Comfortable, Density::Spacious];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Density::Compact => "Compact",
+            Density::Comfortable => "Comfortable",
+            Density::Spacious => "Spacious",
+        }
+    }
+
+    pub fn item_spacing(self) -> egui::Vec2 {
+        match self {
+            Density::Compact => egui::vec2(3.0, 2.0),
+            Density::Comfortable => egui::vec2(4.0, 3.0),
+            Density::Spacious => egui::vec2(8.0, 6.0),
+        }
+    }
+
+    pub fn button_padding(self) -> egui::Vec2 {
+        match self {
+            Density::Compact => egui::vec2(6.0, 1.0),
+            Density::Comfortable => egui::vec2(8.0, 2.0),
+            Density::Spacious => egui::vec2(12.0, 5.0),
+        }
+    }
+
+    pub fn indent(self) -> f32 {
+        match self {
+            Density::Compact => 12.0,
+            Density::Comfortable => 16.0,
+            Density::Spacious => 22.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SpacingConfig {
+    pub density: Density,
+}
+
+impl Default for SpacingConfig {
+    fn default() -> Self {
+        Self { density: Density::Comfortable }
+    }
+}
+
+// ─── Named theme gallery ────────────────────────────────────────────────────
+
+/// A user-saved theme in the customization gallery, distinct from the
+/// built-in presets returned by [`ThemeConfig::all_presets`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NamedTheme {
+    pub id: String,
+    pub name: String,
+    pub theme: ThemeConfig,
+}
 
 // ─── Theme Config ──────────────────────────────────────────────────────────
 
@@ -275,6 +530,21 @@ pub struct ThemeConfig {
     pub vfo_b_color: Rgba,
     pub status_signal: Rgba,
     pub status_recording: Rgba,
+    /// Corner roundness for buttons/panels/windows.
+    #[serde(default)]
+    pub corner: CornerStyle,
+    /// Glow effect applied to active nav tab + status indicators.
+    #[serde(default)]
+    pub glow: GlowConfig,
+    /// Gradient used for the spectrum fill-under-curve.
+    #[serde(default)]
+    pub spectrum_gradient: Gradient,
+    /// Font family + text sizes.
+    #[serde(default)]
+    pub typography: TypographyConfig,
+    /// Widget spacing density.
+    #[serde(default)]
+    pub spacing: SpacingConfig,
 }
 
 impl Default for ThemeConfig {
@@ -318,6 +588,14 @@ impl ThemeConfig {
             vfo_b_color: Rgba::from_rgb(100, 180, 255),
             status_signal: Rgba::from_rgb(46, 204, 113),
             status_recording: Rgba::from_rgb(231, 76, 60),
+            corner: CornerStyle::default(),
+            glow: GlowConfig::default(),
+            spectrum_gradient: Gradient::two(
+                Rgba::from_rgba(30, 120, 200, 100),
+                Rgba::from_rgba(10, 30, 60, 20),
+            ),
+            typography: TypographyConfig::default(),
+            spacing: SpacingConfig::default(),
         }
     }
 
@@ -407,8 +685,95 @@ impl ThemeConfig {
         t
     }
 
+    /// Neon-on-black preset with glow enabled and sharp corners.
+    pub fn cyberpunk() -> Self {
+        let mut t = Self::dark();
+        t.preset = "cyberpunk".into();
+        t.bg = Rgba::from_rgb(8, 4, 18);
+        t.surface = Rgba::from_rgb(18, 8, 32);
+        t.text_normal = Rgba::from_rgb(220, 240, 255);
+        t.text_heading = Rgba::from_rgb(255, 40, 200);
+        t.text_dim = Rgba::from_rgb(140, 100, 180);
+        t.accent = Rgba::from_rgb(255, 40, 200);
+        t.success = Rgba::from_rgb(60, 255, 180);
+        t.warning = Rgba::from_rgb(255, 220, 40);
+        t.error = Rgba::from_rgb(255, 60, 90);
+        t.spectrum_line = Rgba::from_rgb(0, 240, 255);
+        t.spectrum_fill_top = Rgba::from_rgba(255, 40, 200, 100);
+        t.spectrum_fill_bot = Rgba::from_rgba(0, 240, 255, 10);
+        t.spectrum_grid = Rgba::from_rgba(120, 40, 200, 90);
+        t.waterfall_bg = Rgba::from_rgb(4, 0, 10);
+        t.corner = CornerStyle { buttons: 0.0, panels: 2.0, windows: 2.0 };
+        t.glow = GlowConfig { enabled: true, color: Rgba::from_rgb(255, 40, 200), radius: 10.0, intensity: 0.8 };
+        t.spectrum_gradient = Gradient::two(t.spectrum_fill_top, t.spectrum_fill_bot);
+        t
+    }
+
+    /// Pure-black AMOLED preset — minimizes lit pixels, subtle cyan glow.
+    pub fn amoled() -> Self {
+        let mut t = Self::dark();
+        t.preset = "amoled".into();
+        t.bg = Rgba::from_rgb(0, 0, 0);
+        t.surface = Rgba::from_rgb(6, 6, 8);
+        t.text_normal = Rgba::from_rgb(200, 200, 205);
+        t.text_dim = Rgba::from_rgb(90, 90, 95);
+        t.accent = Rgba::from_rgb(0, 200, 200);
+        t.spectrum_line = Rgba::from_rgb(0, 220, 220);
+        t.spectrum_fill_top = Rgba::from_rgba(0, 200, 200, 70);
+        t.spectrum_fill_bot = Rgba::from_rgba(0, 0, 0, 0);
+        t.waterfall_bg = Rgba::from_rgb(0, 0, 0);
+        t.corner = CornerStyle { buttons: 8.0, panels: 10.0, windows: 10.0 };
+        t.glow = GlowConfig { enabled: true, color: Rgba::from_rgb(0, 200, 200), radius: 6.0, intensity: 0.4 };
+        t.spectrum_gradient = Gradient::two(t.spectrum_fill_top, t.spectrum_fill_bot);
+        t
+    }
+
+    /// Warm gradient-heavy preset inspired by sunset skies.
+    pub fn sunset() -> Self {
+        let mut t = Self::dark();
+        t.preset = "sunset".into();
+        t.bg = Rgba::from_rgb(30, 15, 25);
+        t.surface = Rgba::from_rgb(45, 22, 35);
+        t.text_normal = Rgba::from_rgb(250, 230, 220);
+        t.text_heading = Rgba::from_rgb(255, 200, 140);
+        t.text_dim = Rgba::from_rgb(180, 130, 130);
+        t.accent = Rgba::from_rgb(255, 130, 80);
+        t.success = Rgba::from_rgb(150, 220, 130);
+        t.warning = Rgba::from_rgb(255, 200, 60);
+        t.error = Rgba::from_rgb(230, 70, 90);
+        t.spectrum_line = Rgba::from_rgb(255, 150, 90);
+        t.spectrum_fill_top = Rgba::from_rgba(255, 100, 60, 130);
+        t.spectrum_fill_bot = Rgba::from_rgba(120, 20, 90, 20);
+        t.spectrum_grid = Rgba::from_rgba(180, 100, 100, 90);
+        t.corner = CornerStyle { buttons: 10.0, panels: 12.0, windows: 12.0 };
+        t.spectrum_gradient = Gradient {
+            stops: vec![
+                (0.0, Rgba::from_rgba(255, 220, 100, 160)),
+                (0.5, Rgba::from_rgba(255, 100, 60, 100)),
+                (1.0, Rgba::from_rgba(90, 20, 90, 10)),
+            ],
+        };
+        t
+    }
+
+    /// All built-in presets, in display order.
+    pub fn all_presets() -> &'static [(&'static str, PresetFn)] {
+        &[
+            ("dark", ThemeConfig::dark as PresetFn),
+            ("light", ThemeConfig::light),
+            ("high_contrast", ThemeConfig::high_contrast),
+            ("solarized_dark", ThemeConfig::solarized_dark),
+            ("nord", ThemeConfig::nord),
+            ("cyberpunk", ThemeConfig::cyberpunk),
+            ("amoled", ThemeConfig::amoled),
+            ("sunset", ThemeConfig::sunset),
+        ]
+    }
+
     /// Apply this theme to the egui context.
     pub fn apply_to_ctx(&self, ctx: &egui::Context) {
+        crate::fonts::install(ctx, self.typography.family);
+
         let is_dark = bg_luminance(&self.bg) < 0.5;
         let theme = egui::Theme::from_dark_mode(is_dark);
         let mut visuals = if is_dark {
@@ -432,7 +797,7 @@ impl ThemeConfig {
         visuals.error_fg_color = self.error.to_egui();
 
         let w = &mut visuals.widgets;
-        let cr = egui::CornerRadius::same(4);
+        let cr = egui::CornerRadius::same(self.corner.buttons as u8);
 
         w.noninteractive.bg_fill = self.bg.to_egui();
         w.noninteractive.weak_bg_fill = self.surface.to_egui();
@@ -467,79 +832,109 @@ impl ThemeConfig {
         w.open.bg_stroke = egui::Stroke::new(1.0, self.accent.to_egui());
         w.open.corner_radius = cr;
 
-        visuals.window_corner_radius = egui::CornerRadius::same(6);
-        visuals.menu_corner_radius = egui::CornerRadius::same(6);
+        let panel_cr = egui::CornerRadius::same(self.corner.panels.clamp(0.0, 255.0) as u8);
+        let window_cr = egui::CornerRadius::same(self.corner.windows.clamp(0.0, 255.0) as u8);
+        visuals.window_corner_radius = window_cr;
+        visuals.menu_corner_radius = panel_cr;
 
         ctx.set_visuals(visuals);
 
         let mut style = (*ctx.style_of(theme)).clone();
-        style.spacing.item_spacing = egui::vec2(4.0, 3.0);
-        style.spacing.button_padding = egui::vec2(8.0, 2.0);
-        style.spacing.indent = 16.0;
+        style.spacing.item_spacing = self.spacing.density.item_spacing();
+        style.spacing.button_padding = self.spacing.density.button_padding();
+        style.spacing.indent = self.spacing.density.indent();
         style.spacing.slider_width = 120.0;
         style.animation_time = 0.05;
+
+        use egui::{FontFamily as EguiFamily, FontId, TextStyle};
+        let prop = EguiFamily::Proportional;
+        let mono = EguiFamily::Monospace;
+        style.text_styles.insert(TextStyle::Heading, FontId::new(self.typography.heading_size, prop.clone()));
+        style.text_styles.insert(TextStyle::Body, FontId::new(self.typography.body_size, prop.clone()));
+        style.text_styles.insert(TextStyle::Button, FontId::new(self.typography.button_size, prop.clone()));
+        style.text_styles.insert(TextStyle::Small, FontId::new(self.typography.small_size, prop));
+        style.text_styles.insert(TextStyle::Monospace, FontId::new(self.typography.monospace_size, mono));
+
         ctx.set_style_of(theme, style);
     }
 
     // ─── UI: theme editor ──────────────────────────────────
 
     pub fn ui_editor(&mut self, ui: &mut egui::Ui, config_theme: &mut String) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Preset:");
-            let presets: &[(&str, PresetFn)] = &[
-                ("dark", ThemeConfig::dark as PresetFn),
-                ("light", ThemeConfig::light),
-                ("high_contrast", ThemeConfig::high_contrast),
-                ("solarized_dark", ThemeConfig::solarized_dark),
-                ("nord", ThemeConfig::nord),
-            ];
-            for (name, preset_fn) in presets {
+            for (name, preset_fn) in Self::all_presets() {
                 if ui.selectable_label(self.preset == *name, *name).clicked() {
                     *self = preset_fn();
-                    *config_theme = name.to_string();
+                    *config_theme = (*name).to_string();
                 }
             }
         });
 
         ui.add_space(4.0);
 
-        egui::Grid::new("theme_colors")
-            .num_columns(2)
-            .striped(true)
-            .spacing([8.0, 2.0])
-            .show(ui, |ui| {
-                color_row(ui, "Accent", &mut self.accent);
-                color_row(ui, "Background", &mut self.bg);
-                color_row(ui, "Surface", &mut self.surface);
-                color_row(ui, "Text Normal", &mut self.text_normal);
-                color_row(ui, "Text Heading", &mut self.text_heading);
-                color_row(ui, "Text Dim", &mut self.text_dim);
-                color_row(ui, "Success", &mut self.success);
-                color_row(ui, "Warning", &mut self.warning);
-                color_row(ui, "Error", &mut self.error);
-                color_row(ui, "Spectrum Line", &mut self.spectrum_line);
-                color_row(ui, "Spectrum Fill Top", &mut self.spectrum_fill_top);
-                color_row(ui, "Spectrum Fill Bot", &mut self.spectrum_fill_bot);
-                color_row(ui, "Spectrum Grid", &mut self.spectrum_grid);
-                color_row(ui, "Noise Floor", &mut self.noise_floor_line);
-                color_row(ui, "Waterfall BG", &mut self.waterfall_bg);
-                color_row(ui, "BM Aviation", &mut self.bm_aviation);
-                color_row(ui, "BM Weather", &mut self.bm_weather);
-                color_row(ui, "BM Marine", &mut self.bm_marine);
-                color_row(ui, "BM Amateur", &mut self.bm_amateur);
-                color_row(ui, "BM Broadcast", &mut self.bm_broadcast);
-                color_row(ui, "BM Scanner", &mut self.bm_scanner);
-                color_row(ui, "BM Default", &mut self.bm_default);
-                color_row(ui, "S-Meter Low", &mut self.smeter_low);
-                color_row(ui, "S-Meter Mid", &mut self.smeter_mid);
-                color_row(ui, "S-Meter High", &mut self.smeter_high);
-                color_row(ui, "S-Meter BG", &mut self.smeter_bg);
-                color_row(ui, "S-Meter Border", &mut self.smeter_border);
-                color_row(ui, "VFO A", &mut self.vfo_a_color);
-                color_row(ui, "VFO B", &mut self.vfo_b_color);
-                color_row(ui, "Status Signal", &mut self.status_signal);
-                color_row(ui, "Status Recording", &mut self.status_recording);
+        #[allow(clippy::type_complexity)]
+        let groups: &[(&str, &[(&str, fn(&mut Self) -> &mut Rgba)])] = &[
+            ("Base & Surfaces", &[
+                ("Accent", |t| &mut t.accent),
+                ("Background", |t| &mut t.bg),
+                ("Surface", |t| &mut t.surface),
+            ]),
+            ("Text", &[
+                ("Text Normal", |t| &mut t.text_normal),
+                ("Text Heading", |t| &mut t.text_heading),
+                ("Text Dim", |t| &mut t.text_dim),
+            ]),
+            ("Semantic", &[
+                ("Success", |t| &mut t.success),
+                ("Warning", |t| &mut t.warning),
+                ("Error", |t| &mut t.error),
+            ]),
+            ("Spectrum & Waterfall", &[
+                ("Spectrum Line", |t| &mut t.spectrum_line),
+                ("Spectrum Fill Top", |t| &mut t.spectrum_fill_top),
+                ("Spectrum Fill Bot", |t| &mut t.spectrum_fill_bot),
+                ("Spectrum Grid", |t| &mut t.spectrum_grid),
+                ("Noise Floor", |t| &mut t.noise_floor_line),
+                ("Waterfall BG", |t| &mut t.waterfall_bg),
+            ]),
+            ("Bookmark Categories", &[
+                ("Aviation", |t| &mut t.bm_aviation),
+                ("Weather", |t| &mut t.bm_weather),
+                ("Marine", |t| &mut t.bm_marine),
+                ("Amateur", |t| &mut t.bm_amateur),
+                ("Broadcast", |t| &mut t.bm_broadcast),
+                ("Scanner", |t| &mut t.bm_scanner),
+                ("Default", |t| &mut t.bm_default),
+            ]),
+            ("S-Meter", &[
+                ("Low", |t| &mut t.smeter_low),
+                ("Mid", |t| &mut t.smeter_mid),
+                ("High", |t| &mut t.smeter_high),
+                ("Background", |t| &mut t.smeter_bg),
+                ("Border", |t| &mut t.smeter_border),
+            ]),
+            ("VFO & Status", &[
+                ("VFO A", |t| &mut t.vfo_a_color),
+                ("VFO B", |t| &mut t.vfo_b_color),
+                ("Status Signal", |t| &mut t.status_signal),
+                ("Status Recording", |t| &mut t.status_recording),
+            ]),
+        ];
+
+        for (group_name, fields) in groups {
+            ui.collapsing(*group_name, |ui| {
+                egui::Grid::new(format!("theme_colors_{group_name}"))
+                    .num_columns(2)
+                    .striped(true)
+                    .spacing([8.0, 2.0])
+                    .show(ui, |ui| {
+                        for (label, getter) in *fields {
+                            color_row(ui, label, getter(self));
+                        }
+                    });
             });
+        }
     }
 }
 
