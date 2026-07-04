@@ -1,7 +1,7 @@
 //! Satellite image editor panel — composites, processing filters, histogram,
 //! zoom/pan viewer, AI-recommended edits, and PNG export.
 
-use crate::composite::{self, CompositePreset, Expr, METEOR_COMPOSITES};
+use crate::composite::{self, Expr, METEOR_COMPOSITES};
 use crate::image_processing::{self, ProcessingPipeline};
 use std::collections::HashMap;
 
@@ -468,11 +468,10 @@ impl EditorPanel {
         if ui.checkbox(&mut self.pipeline.equalize, "Equalize").changed() {
             self.dirty = true;
         }
-        if self.pipeline.equalize {
-            if ui.checkbox(&mut self.pipeline.equalize_per_channel, "Per Channel").changed() {
+        if self.pipeline.equalize
+            && ui.checkbox(&mut self.pipeline.equalize_per_channel, "Per Channel").changed() {
                 self.dirty = true;
             }
-        }
         if ui.checkbox(&mut self.pipeline.white_balance, "White Balance").changed() {
             self.dirty = true;
         }
@@ -846,7 +845,7 @@ fn ui_ctx() -> egui::Context {
 
 fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };

@@ -5,8 +5,44 @@
 //! configuration ([`ThemeConfig`]) and Discord integration settings.
 
 use crate::discord::DiscordSettings;
-use crate::theme::ThemeConfig;
+use crate::theme::{NamedTheme, ThemeConfig};
 use serde::{Deserialize, Serialize};
+
+/// A single togglable/reorderable entry in the sidebar layout.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutItem {
+    pub id: String,
+    pub visible: bool,
+}
+
+/// Which main tabs and secondary tools appear in the sidebar, and in what
+/// order. Driven entirely by user customization — see the Layout sub-tab of
+/// the Customize panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutConfig {
+    pub main_tabs: Vec<LayoutItem>,
+    pub secondary_tools: Vec<LayoutItem>,
+}
+
+impl Default for LayoutConfig {
+    fn default() -> Self {
+        fn items(ids: &[&str]) -> Vec<LayoutItem> {
+            ids.iter().map(|id| LayoutItem { id: (*id).to_string(), visible: true }).collect()
+        }
+        Self {
+            main_tabs: items(&["sdr", "adsb", "satellite", "ai"]),
+            secondary_tools: items(&[
+                "bookmarks",
+                "scanner",
+                "recorder",
+                "scheduler",
+                "discord",
+                "howto",
+                "settings",
+            ]),
+        }
+    }
+}
 
 /// Default AI provider API endpoint (`OpenRouter`).
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
@@ -217,6 +253,13 @@ pub struct AppConfig {
     /// Current tutorial step index.
     #[serde(default)]
     pub tutorial_step: usize,
+    /// User-saved named themes (the Customize tab's theme gallery), distinct
+    /// from the built-in presets in [`ThemeConfig::all_presets`].
+    #[serde(default)]
+    pub custom_themes: Vec<NamedTheme>,
+    /// Sidebar tab/tool visibility and ordering.
+    #[serde(default)]
+    pub layout: LayoutConfig,
 }
 
 impl Default for AppConfig {
@@ -266,6 +309,8 @@ impl Default for AppConfig {
             user_level: "beginner".to_string(),
             tutorial_seen: false,
             tutorial_step: 0,
+            custom_themes: Vec::new(),
+            layout: LayoutConfig::default(),
         }
     }
 }
@@ -495,33 +540,10 @@ impl AppConfig {
                     .on_hover_text("TCP port for the web remote. Default 5259. Open http://localhost:5259 in a browser.");
             });
 
-            ui.collapsing("Appearance", |ui| {
-                ui.label("Font scale:").on_hover_text("Scale all UI text. 1.0 is default. Increase for high-DPI displays or if text is too small.");
-                let resp = ui.add(egui::Slider::new(&mut self.font_scale, 0.6..=2.0)
-                    .step_by(0.05)
-                    .text("")
-                    .custom_formatter(|v, _| format!("{v:.2}x")));
-                if resp.changed() {
-                    self.needs_apply = true;
-                }
-                ui.horizontal(|ui| {
-                    for (label, scale) in [("Small", 0.8f64), ("Normal", 1.0), ("Large", 1.3), ("XL", 1.6)] {
-                        if ui.small_button(label).clicked() {
-                            self.font_scale = scale;
-                            self.needs_apply = true;
-                        }
-                    }
-                });
-
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new("Theme").strong());
-            self.theme_config.ui_editor(ui, &mut self.theme);
-            if ui.button("Apply theme").clicked() {
-                self.needs_apply = true;
-            }
-        });
+            ui.colored_label(
+                egui::Color32::GRAY,
+                "🎨 Theme, fonts, effects, and layout have moved to the Customize tab.",
+            );
 
         ui.collapsing("User Experience", |ui| {
             ui.label(egui::RichText::new("Knowledge Level").strong())
@@ -704,6 +726,50 @@ mod tests {
         assert_eq!(cfg.theme, "");
         assert_eq!(cfg.default_sample_rate, 0u32);
         assert!(!cfg.discord.enabled);
+    }
+
+    #[test]
+    fn layout_config_default_lists_all_current_tabs_and_tools_visible() {
+        let layout = LayoutConfig::default();
+        assert_eq!(
+            layout.main_tabs.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            vec!["sdr", "adsb", "satellite", "ai"]
+        );
+        assert_eq!(
+            layout.secondary_tools.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            vec!["bookmarks", "scanner", "recorder", "scheduler", "discord", "howto", "settings"]
+        );
+        assert!(layout.main_tabs.iter().all(|i| i.visible));
+        assert!(layout.secondary_tools.iter().all(|i| i.visible));
+    }
+
+    #[test]
+    fn config_default_has_empty_custom_theme_gallery() {
+        let cfg = AppConfig::default();
+        assert!(cfg.custom_themes.is_empty());
+    }
+
+    #[test]
+    fn config_missing_layout_and_custom_themes_fall_back_to_defaults() {
+        let json = r#"{"default_freq_hz": 144000000}"#;
+        let cfg: AppConfig = serde_json::from_str(json).expect("partial deserialize");
+        assert_eq!(cfg.layout, LayoutConfig::default());
+        assert!(cfg.custom_themes.is_empty());
+    }
+
+    #[test]
+    fn config_custom_themes_roundtrip_through_json() {
+        let mut cfg = AppConfig::default();
+        cfg.custom_themes.push(NamedTheme {
+            id: "t1".to_string(),
+            name: "My Custom".to_string(),
+            theme: ThemeConfig::cyberpunk(),
+        });
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        let back: AppConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.custom_themes.len(), 1);
+        assert_eq!(back.custom_themes[0].name, "My Custom");
+        assert_eq!(back.custom_themes[0].theme.preset, "cyberpunk");
     }
 
     #[test]

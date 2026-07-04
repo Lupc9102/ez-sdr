@@ -72,6 +72,12 @@ pub struct SpectrumAnalyzer {
     window_type: WindowType,
     /// Current colour map used for waterfall rendering.
     pub color_map: ColorMap,
+    /// Top colour of the spectrum fill gradient (driven by the active theme).
+    pub fill_top: egui::Color32,
+    /// Bottom colour of the spectrum fill gradient (driven by the active theme).
+    pub fill_bot: egui::Color32,
+    /// Glow effect applied to the "signal active" badge (driven by the active theme).
+    pub signal_glow: crate::theme::GlowConfig,
     zoom_factor: f32,
     zoom_offset: f32,
     markers: Vec<(u64, String)>,
@@ -266,6 +272,9 @@ impl SpectrumAnalyzer {
             sample_rate: 2_048_000,
             window_type,
             color_map: ColorMap::Classic,
+            fill_top: egui::Color32::from_rgba_unmultiplied(30, 120, 200, 100),
+            fill_bot: egui::Color32::from_rgba_unmultiplied(10, 30, 60, 20),
+            signal_glow: crate::theme::GlowConfig::default(),
             zoom_factor: 1.0,
             zoom_offset: 0.5,
             markers: Vec::new(),
@@ -1652,8 +1661,8 @@ impl SpectrumAnalyzer {
         // Fill under spectrum (zoom-aware)
         {
             let mut mesh = egui::Mesh::default();
-            let color_top = egui::Color32::from_rgba_premultiplied(30, 120, 200, 100);
-            let color_bot = egui::Color32::from_rgba_premultiplied(10, 30, 60, 20);
+            let color_top = self.fill_top;
+            let color_bot = self.fill_bot;
             let half_span = f64::from(self.sample_rate) / 2.0;
             let first_bin =
                 ((left_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
@@ -2001,6 +2010,9 @@ impl SpectrumAnalyzer {
                 egui::pos2(active_pos.x - badge_w, active_pos.y - 1.0),
                 egui::vec2(badge_w + 4.0, 14.0),
             );
+            if self.signal_active {
+                crate::fx::paint_glow(painter, bg_rect, 2.0, &self.signal_glow);
+            }
             painter.rect_filled(bg_rect, 2.0, bg_color);
             painter.text(
                 active_pos,

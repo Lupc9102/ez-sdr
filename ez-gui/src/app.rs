@@ -49,7 +49,18 @@ pub enum AppTab {
     AdsB,
     Satellite,
     Ai,
+    Customize,
 }
+
+/// `(id, tab, icon, hover tip)` for every main tab except [`AppTab::Customize`],
+/// which is always pinned last in the sidebar. `id` matches
+/// [`crate::config::LayoutConfig::main_tabs`] entries.
+const MAIN_TABS: &[(&str, AppTab, &str, &str)] = &[
+    ("sdr", AppTab::Sdr, "📻", "SDR — Spectrum, tuning, demodulation"),
+    ("adsb", AppTab::AdsB, "✈", "ADS-B — Aircraft tracking"),
+    ("satellite", AppTab::Satellite, "🛰", "Satellite — Pass predictions, Doppler"),
+    ("ai", AppTab::Ai, "🤖", "AI — Assistant, questions, tools"),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecondaryTool {
@@ -85,7 +96,31 @@ impl SecondaryTool {
             SecondaryTool::Discord => "Discord",
         }
     }
+
+    fn id(&self) -> &'static str {
+        match self {
+            SecondaryTool::Bookmarks => "bookmarks",
+            SecondaryTool::Scanner => "scanner",
+            SecondaryTool::Recorder => "recorder",
+            SecondaryTool::Scheduler => "scheduler",
+            SecondaryTool::Settings => "settings",
+            SecondaryTool::HowTo => "howto",
+            SecondaryTool::Discord => "discord",
+        }
+    }
 }
+
+/// All secondary tools, in the fallback order used when a layout id is
+/// missing from [`crate::config::LayoutConfig::secondary_tools`].
+const ALL_SECONDARY_TOOLS: &[SecondaryTool] = &[
+    SecondaryTool::Bookmarks,
+    SecondaryTool::Scanner,
+    SecondaryTool::Recorder,
+    SecondaryTool::Scheduler,
+    SecondaryTool::Discord,
+    SecondaryTool::HowTo,
+    SecondaryTool::Settings,
+];
 
 pub struct SharedState {
     pub source: SourceManager,
@@ -196,6 +231,7 @@ pub struct CentralApp {
     adsb_instructions_open: bool,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
     last_decode_running: bool,
+    customize_panel: crate::customize_panel::CustomizePanel,
 }
 
 impl CentralApp {
@@ -421,6 +457,7 @@ impl CentralApp {
             adsb_instructions_open: false,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
             last_decode_running: false,
+            customize_panel: crate::customize_panel::CustomizePanel::default(),
         }
     }
 }
@@ -1607,6 +1644,7 @@ impl eframe::App for CentralApp {
             AppTab::AdsB => self.render_adsb_tab(ui),
             AppTab::Satellite => self.render_satellite_tab(ui, &snapshot),
             AppTab::Ai => self.render_ai_tab(ui),
+            AppTab::Customize => self.render_customize_tab(ui),
         }
 
         // Tutorial / first-run onboarding
@@ -1819,7 +1857,7 @@ impl eframe::App for CentralApp {
                 }
 
                 ui.separator();
-                ui.small(format!("{}", state.demod_mode.label()));
+                ui.small(state.demod_mode.label().to_string());
 
                 ui.separator();
                 let signal_db = state.spectrum.signal_level();
@@ -1994,15 +2032,26 @@ impl CentralApp {
     fn render_main_nav(&mut self, ui: &mut egui::Ui) {
         ui.painter()
             .rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(10, 13, 18));
+
+        let glow = self
+            .shared
+            .try_lock()
+            .map(|state| state.config.theme_config.glow)
+            .unwrap_or_default();
+        let (main_tabs, secondary_tools) = self
+            .shared
+            .try_lock()
+            .map(|state| (state.config.layout.main_tabs.clone(), state.config.layout.secondary_tools.clone()))
+            .unwrap_or_default();
+
         ui.vertical_centered(|ui| {
             ui.add_space(4.0);
-            // Main tabs
-            for (tab, icon, tip) in [
-                (AppTab::Sdr, "📻", "SDR — Spectrum, tuning, demodulation"),
-                (AppTab::AdsB, "✈", "ADS-B — Aircraft tracking"),
-                (AppTab::Satellite, "🛰", "Satellite — Pass predictions, Doppler"),
-                (AppTab::Ai, "🤖", "AI — Assistant, questions, tools"),
-            ] {
+            // Main tabs, ordered/filtered by user layout config, with Customize always pinned last.
+            let ordered_tabs = main_tabs.iter().filter(|item| item.visible).filter_map(|item| {
+                MAIN_TABS.iter().find(|(id, ..)| *id == item.id).map(|(_, tab, icon, tip)| (tab.clone(), *icon, *tip))
+            }).chain(std::iter::once((AppTab::Customize, "🎨", "Customize — Themes, colors, effects, fonts, layout")));
+
+            for (tab, icon, tip) in ordered_tabs {
                 let is_active = self.current_tab == tab && self.active_secondary_tool.is_none();
                 let fg = if is_active {
                     egui::Color32::from_rgb(0, 168, 255)
@@ -2017,7 +2066,11 @@ impl CentralApp {
                 let btn = egui::Button::new(egui::RichText::new(icon).color(fg).size(18.0))
                     .fill(bg)
                     .min_size(egui::vec2(40.0, 36.0));
-                if ui.add(btn).on_hover_text(tip).clicked() {
+                let resp = ui.add(btn);
+                if is_active {
+                    crate::fx::paint_glow(ui.painter(), resp.rect, 4.0, &glow);
+                }
+                if resp.on_hover_text(tip).clicked() {
                     self.current_tab = tab;
                     self.active_secondary_tool = None;
                 }
@@ -2026,16 +2079,11 @@ impl CentralApp {
             ui.add_space(4.0);
             ui.separator();
             ui.add_space(4.0);
-            // Secondary tools
-            for tool in [
-                SecondaryTool::Bookmarks,
-                SecondaryTool::Scanner,
-                SecondaryTool::Recorder,
-                SecondaryTool::Scheduler,
-                SecondaryTool::Discord,
-                SecondaryTool::HowTo,
-                SecondaryTool::Settings,
-            ] {
+            // Secondary tools, ordered/filtered by user layout config.
+            let ordered_tools = secondary_tools.iter().filter(|item| item.visible).filter_map(|item| {
+                ALL_SECONDARY_TOOLS.iter().find(|t| t.id() == item.id).copied()
+            });
+            for tool in ordered_tools {
                 let is_active = self.active_secondary_tool == Some(tool);
                 let fg = if is_active {
                     egui::Color32::from_rgb(0, 168, 255)
@@ -2050,9 +2098,23 @@ impl CentralApp {
                 let btn = egui::Button::new(egui::RichText::new(tool.icon()).color(fg).size(16.0))
                     .fill(bg)
                     .min_size(egui::vec2(40.0, 32.0));
-                if ui.add(btn).on_hover_text(tool.label()).clicked() {
+                let resp = ui.add(btn);
+                if is_active {
+                    crate::fx::paint_glow(ui.painter(), resp.rect, 4.0, &glow);
+                }
+                if resp.on_hover_text(tool.label()).clicked() {
                     self.active_secondary_tool = if is_active { None } else { Some(tool) };
                 }
+            }
+        });
+    }
+
+    fn render_customize_tab(&mut self, ui: &mut egui::Ui) {
+        egui::CentralPanel::default().show(ui, |ui| {
+            ui.heading("🎨 Customize");
+            ui.separator();
+            if let Ok(mut state) = self.shared.try_lock() {
+                self.customize_panel.ui(ui, &mut state.config);
             }
         });
     }
@@ -2166,6 +2228,9 @@ impl CentralApp {
                 } else { None };
                 state.spectrum.squelch_db = state.squelch;
                 state.spectrum.source_running = state.source.status == crate::source_manager::SourceStatus::Running;
+                state.spectrum.fill_top = state.config.theme_config.spectrum_gradient.sample(0.0).to_egui();
+                state.spectrum.fill_bot = state.config.theme_config.spectrum_gradient.sample(1.0).to_egui();
+                state.spectrum.signal_glow = state.config.theme_config.glow;
                 let sq_active = state.squelch > -90.0 && state.spectrum.signal_level() > state.squelch;
                 state.spectrum.signal_active = sq_active;
                 if sq_active {
