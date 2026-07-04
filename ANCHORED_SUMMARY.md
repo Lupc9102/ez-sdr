@@ -35,7 +35,11 @@ Implement autonomous night-long codebase improvements for an SDR application (ez
 
 ## Current Codebase State
 - **Zero compiler warnings** on both `ez-gui` and `dump1090`
+- **Zero clippy warnings** (default level), clean `cargo deny`, clean `cargo doc`
+- **839 total tests** (401 ez-gui + 438 dump1090), all passing
 - All phases 1–5 complete + VFO B markers + colormaps + export sidecars + freq mem labels
+- **UI panel headless testing complete** — all 6 major panels have state/Ui smoke tests
+- **Remote origin**: `git@github.com:Lupc9102/ez-sdr.git` (main branch, pushing regularly)
 
 ## Next Steps (if continuing)
 1. Audio waveform display below signal history chart
@@ -43,12 +47,12 @@ Implement autonomous night-long codebase improvements for an SDR application (ez
 3. CPU/memory usage in status bar
 4. Persist freq memory labels in AppConfig
 5. Add label editing UI for M1-M9 in SDR panel
+6. Reduce `clippy::pedantic` warnings (875 currently, low priority)
 
 ## Critical Context
 - Build: `PKG_CONFIG_PATH=/tmp/opencode/sysroot/usr/lib/x86_64-linux-gnu/pkgconfig cargo check -p ez-gui`
-- No git remote; commits local on master
+- Remote origin configured, pushing after every commit
 - ColorMap: 8 variants (Classic, Viridis, Plasma, Magma, Grayscale, Hot, Inferno, Turbo)
-- Current time: ~23:25 GMT+3 on June 30, 2026
 
 ## Relevant Files
 - `ez-gui/src/spectrum.rs`: Waterfall/spectrum rendering, ColorMap, signal_history, VFO B marker, palette, context menus, export sidecars
