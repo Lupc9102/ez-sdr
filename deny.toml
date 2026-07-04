@@ -36,11 +36,4 @@ allow = [
 ]
 
 [bans]
-multiple-versions = "warn"
-skip-tree = [
-    { name = "calloop", version = "0.13" },
-    { name = "rustix", version = "0.38" },
-    { name = "linux-raw-sys", version = "0.4" },
-    { name = "hashbrown", version = "0.14" },
-    { name = "foldhash", version = "0.1" },
-]
+multiple-versions = "allow"
