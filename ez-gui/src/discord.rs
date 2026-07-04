@@ -324,6 +324,33 @@ pub const CATALOG: &[NotifKind] = &[
         essential: false,
         color: 0xFF9900,
     },
+    NotifKind {
+        id: "lrpt_decode_started",
+        category: "Satellite",
+        label: "LRPT Decode Started",
+        desc: "Meteor LRPT decoding began (live or file import)",
+        emoji: "📡",
+        essential: false,
+        color: 0x0066FF,
+    },
+    NotifKind {
+        id: "lrpt_decode_complete",
+        category: "Satellite",
+        label: "LRPT Decode Complete",
+        desc: "Meteor LRPT image decoded",
+        emoji: "🛰️",
+        essential: true,
+        color: 0x00CC00,
+    },
+    NotifKind {
+        id: "lrpt_decode_error",
+        category: "Satellite",
+        label: "LRPT Decode Error",
+        desc: "Decoding failed (no lock / RS failure rate too high)",
+        emoji: "❌",
+        essential: true,
+        color: 0xFF0000,
+    },
     // Recorder
     NotifKind {
         id: "rec_started",
@@ -502,6 +529,9 @@ pub struct DiscordEmbed {
     pub timestamp: String,
     /// Optional image URL to embed in the card.
     pub image_url: Option<String>,
+    /// Optional file name of a locally-attached image (sent via multipart
+    /// upload), referenced in the embed JSON as `attachment://{name}`.
+    pub image_attachment_name: Option<String>,
 }
 
 impl DiscordEmbed {
@@ -536,7 +566,14 @@ impl DiscordEmbed {
             "timestamp": self.timestamp
         });
 
-        if let Some(url) = &self.image_url {
+        if let Some(name) = &self.image_attachment_name {
+            if let Some(obj) = embed_json.as_object_mut() {
+                obj.insert(
+                    "image".to_string(),
+                    serde_json::json!({"url": format!("attachment://{name}")}),
+                );
+            }
+        } else if let Some(url) = &self.image_url {
             if let Some(obj) = embed_json.as_object_mut() {
                 obj.insert("image".to_string(), serde_json::json!({"url": url}));
             }
@@ -593,6 +630,7 @@ pub fn embed_aircraft(ac: &AircraftData, image_url: Option<String>) -> DiscordEm
         footer: "EZ-SDR • ADS-B".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url,
+        image_attachment_name: None,
     }
 }
 
@@ -611,6 +649,7 @@ pub fn embed_scanner_hit(freq_hz: u64, strength_db: f32) -> DiscordEmbed {
         footer: "EZ-SDR • Scanner".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -629,6 +668,7 @@ pub fn embed_sat_aos(sat_name: &str, freq_hz: u64, max_elev: f64) -> DiscordEmbe
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -642,6 +682,7 @@ pub fn embed_sat_los(sat_name: &str) -> DiscordEmbed {
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -668,6 +709,70 @@ pub fn embed_sat_upcoming(
         footer: "EZ-SDR • Satellite".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
+    }
+}
+
+/// Build a Discord embed for the start of a Meteor LRPT decode session.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn embed_lrpt_decode_started(sat_name: &str) -> DiscordEmbed {
+    DiscordEmbed {
+        title: format!("📡 LRPT Decode Started: {sat_name}"),
+        description: format!("Decoding **{sat_name}** LRPT downlink"),
+        color: 0x0066FF,
+        fields: vec![("Satellite".to_string(), sat_name.to_string(), false)],
+        footer: "EZ-SDR • Satellite".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        image_url: None,
+        image_attachment_name: None,
+    }
+}
+
+/// Build a Discord embed for a completed Meteor LRPT decode, including the
+/// resulting image.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn embed_lrpt_decode_complete(
+    sat_name: &str,
+    lines: u32,
+    rs_ok_pct: f32,
+    image_path: &str,
+) -> DiscordEmbed {
+    DiscordEmbed {
+        title: format!("🛰️ LRPT Decode Complete: {sat_name}"),
+        description: format!("**{sat_name}** image decoded successfully"),
+        color: 0x00CC00,
+        fields: vec![
+            ("Satellite".to_string(), sat_name.to_string(), true),
+            ("Lines".to_string(), lines.to_string(), true),
+            (
+                "RS OK".to_string(),
+                format!("{rs_ok_pct:.1}%"),
+                true,
+            ),
+            ("Image".to_string(), image_path.to_string(), false),
+        ],
+        footer: "EZ-SDR • Satellite".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        image_url: None,
+        image_attachment_name: None,
+    }
+}
+
+/// Build a Discord embed for a failed Meteor LRPT decode.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn embed_lrpt_decode_error(sat_name: &str, reason: &str) -> DiscordEmbed {
+    DiscordEmbed {
+        title: format!("❌ LRPT Decode Error: {sat_name}"),
+        description: format!("**{reason}**"),
+        color: 0xFF0000,
+        fields: vec![
+            ("Satellite".to_string(), sat_name.to_string(), true),
+            ("Reason".to_string(), reason.to_string(), false),
+        ],
+        footer: "EZ-SDR • Satellite".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -699,6 +804,7 @@ pub fn embed_recording_started(
         footer: "EZ-SDR • Recorder".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -726,6 +832,7 @@ pub fn embed_recording_stopped(
         footer: "EZ-SDR • Recorder".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -739,6 +846,7 @@ pub fn embed_recording_error(error: &str) -> DiscordEmbed {
         footer: "EZ-SDR • Recorder".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -756,6 +864,7 @@ pub fn embed_strong_signal(freq_hz: u64, snr_db: f32) -> DiscordEmbed {
         footer: "EZ-SDR • Signal".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -769,6 +878,7 @@ pub fn embed_source_error(error: &str) -> DiscordEmbed {
         footer: "EZ-SDR • Source".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -786,6 +896,7 @@ pub fn embed_task_fired(label: &str, freq_hz: u64) -> DiscordEmbed {
         footer: "EZ-SDR • Scheduler".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -829,6 +940,7 @@ pub fn embed_session_summary(
         footer: "EZ-SDR • System".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -842,6 +954,7 @@ pub fn embed_generic(title: &str, description: &str, emoji: &str, color: u32) ->
         footer: "EZ-SDR".to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         image_url: None,
+        image_attachment_name: None,
     }
 }
 
@@ -878,6 +991,19 @@ fn is_url_valid(url: &str) -> bool {
     }
 }
 
+/// A notification queued for dispatch by the background thread.
+///
+/// Carries a snapshot of the [`DiscordSettings`] in effect at the time
+/// `fire()`/`fire_with_attachment()` was called, since settings may change
+/// after the message is queued but before it is sent.
+enum QueuedNotification {
+    /// A plain embed with no file attachment.
+    Plain(DiscordEmbed, DiscordSettings),
+    /// An embed with an accompanying file to upload via multipart/form-data.
+    #[cfg_attr(not(test), allow(dead_code))]
+    WithAttachment(DiscordEmbed, DiscordSettings, Vec<u8>, String),
+}
+
 /// Manages Discord notification dispatch with rate-limiting.
 ///
 /// Holds a background thread that receives [`DiscordEmbed`] messages via a
@@ -885,7 +1011,7 @@ fn is_url_valid(url: &str) -> bool {
 /// per-kind enablement and a minimum inter-message interval.
 pub struct DiscordNotifier {
     pub settings: DiscordSettings,
-    tx: crossbeam_channel::Sender<DiscordEmbed>,
+    tx: crossbeam_channel::Sender<QueuedNotification>,
     last_send: Instant,
 }
 
@@ -896,9 +1022,19 @@ impl DiscordNotifier {
         std::thread::spawn(move || {
             let client = reqwest::blocking::Client::new();
             loop {
-                if let Ok(embed) = rx.recv() {
+                if let Ok(notification) = rx.recv() {
                     // Receive a batch to send (the main thread will rate-limit via Instant)
-                    if let Err(e) = Self::post_embed(&client, &embed) {
+                    let result = match notification {
+                        QueuedNotification::Plain(embed, settings) => {
+                            Self::post_embed(&client, &embed, &settings)
+                        }
+                        QueuedNotification::WithAttachment(embed, settings, bytes, name) => {
+                            Self::post_embed_with_attachment(
+                                &client, &embed, &settings, bytes, name,
+                            )
+                        }
+                    };
+                    if let Err(e) = result {
                         eprintln!("[discord] POST failed: {e}");
                     }
                 }
@@ -913,10 +1049,46 @@ impl DiscordNotifier {
     }
 
     fn post_embed(
-        _client: &reqwest::blocking::Client,
-        _embed: &DiscordEmbed,
+        client: &reqwest::blocking::Client,
+        embed: &DiscordEmbed,
+        settings: &DiscordSettings,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // This won't be called with invalid creds, but kept simple
+        let url = format!(
+            "https://discord.com/api/v10/channels/{}/messages",
+            settings.channel_id
+        );
+        let body = embed.to_json(settings);
+        client
+            .post(&url)
+            .header("Authorization", format!("Bot {}", settings.bot_token))
+            .json(&body)
+            .send()?;
+        Ok(())
+    }
+
+    fn post_embed_with_attachment(
+        client: &reqwest::blocking::Client,
+        embed: &DiscordEmbed,
+        settings: &DiscordSettings,
+        file_bytes: Vec<u8>,
+        file_name: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let url = format!(
+            "https://discord.com/api/v10/channels/{}/messages",
+            settings.channel_id
+        );
+        let body = embed.to_json(settings);
+        let form = reqwest::blocking::multipart::Form::new()
+            .text("payload_json", body.to_string())
+            .part(
+                "files[0]",
+                reqwest::blocking::multipart::Part::bytes(file_bytes).file_name(file_name),
+            );
+        client
+            .post(&url)
+            .header("Authorization", format!("Bot {}", settings.bot_token))
+            .multipart(form)
+            .send()?;
         Ok(())
     }
 
@@ -950,7 +1122,43 @@ impl DiscordNotifier {
         if elapsed < self.settings.min_send_interval_ms {
             return;
         }
-        let _ = self.tx.try_send(embed);
+        let _ = self
+            .tx
+            .try_send(QueuedNotification::Plain(embed, self.settings.clone()));
+        self.last_send = Instant::now();
+    }
+
+    /// Enqueue a notification embed with a local file attachment for dispatch.
+    ///
+    /// The embed's image should reference `attachment://{file_name}` (e.g. via
+    /// [`DiscordEmbed::image_attachment_name`]) so Discord displays the
+    /// uploaded file inline. Subject to the same enablement and rate-limiting
+    /// rules as `fire()`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn fire_with_attachment(
+        &mut self,
+        kind_id: &str,
+        embed: DiscordEmbed,
+        file_bytes: Vec<u8>,
+        file_name: String,
+    ) {
+        if !self.settings.enabled || !self.is_configured() {
+            return;
+        }
+        if !is_enabled(&self.settings, kind_id) {
+            return;
+        }
+        // Rate-limit
+        let elapsed = self.last_send.elapsed().as_millis() as u64;
+        if elapsed < self.settings.min_send_interval_ms {
+            return;
+        }
+        let _ = self.tx.try_send(QueuedNotification::WithAttachment(
+            embed,
+            self.settings.clone(),
+            file_bytes,
+            file_name,
+        ));
         self.last_send = Instant::now();
     }
 

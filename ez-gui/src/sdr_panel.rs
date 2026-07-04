@@ -1305,12 +1305,19 @@ impl SdrPanel {
 
             ui.separator();
         }
+
+        // ── Demodulation controls (merged from the former ui_demod panel) ──
+        // Mode selection, signal meter, squelch, filter bandwidth, audio
+        // volume, band presets, and the airport frequency finder all live
+        // in this single scrollable left panel now.
+        ui.separator();
+        self.ui_demod_inline(ui);
     }
 
-    /// Render the egui UI for demodulation controls (mode selection, signal
-    /// meter, squelch, filter bandwidth, audio volume, band presets, and the
-    /// airport frequency finder).
-    pub fn ui_demod(&mut self, ui: &mut egui::Ui) {
+    /// Render the demodulation controls (mode selection, signal meter,
+    /// squelch, filter bandwidth, audio volume, band presets, and the
+    /// airport frequency finder). Inlined at the bottom of `ui_source`.
+    fn ui_demod_inline(&mut self, ui: &mut egui::Ui) {
         let user_level = self
             .shared
             .try_lock()
