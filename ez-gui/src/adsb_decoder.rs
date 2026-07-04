@@ -64,8 +64,7 @@ impl AdsBDecoder {
             sample_timestamp: self.frame_count * nsamples as u64 * 5,
             sys_timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0),
+                .map_or(0, |d| d.as_millis() as u64),
             flags: dump1090::demod::MagBufFlags(0),
             mean_level,
             mean_power,

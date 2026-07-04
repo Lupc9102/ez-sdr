@@ -176,21 +176,19 @@ impl RecorderPanel {
                     .and_then(|n| n.to_str())
                     .unwrap_or("")
                     .to_string();
-                let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                let modified = entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .map(|t| {
+                let size_bytes = entry.metadata().map_or(0, |m| m.len());
+                let modified = entry.metadata().and_then(|m| m.modified()).map_or_else(
+                    |_| "?".to_string(),
+                    |t| {
                         let secs = t
                             .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
+                            .map_or(0, |d| d.as_secs());
                         let ts = chrono::DateTime::<chrono::Local>::from(
                             std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
                         );
                         ts.format("%Y-%m-%d %H:%M").to_string()
-                    })
-                    .unwrap_or_else(|_| "?".to_string());
+                    },
+                );
                 files.push(RecordingFile {
                     name,
                     size_bytes,
