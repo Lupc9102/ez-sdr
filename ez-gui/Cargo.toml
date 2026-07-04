@@ -71,5 +71,5 @@ audio = ["dep:cpal"]
 # RTL-SDR device support
 rtlsdr = ["dep:rtlsdr_sys"]
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "allow"
