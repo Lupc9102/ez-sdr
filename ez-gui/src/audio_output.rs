@@ -33,7 +33,7 @@ mod audio_impl {
                 .ok_or("No audio output device found")?;
             let supported = device.default_output_config().map_err(|e| e.to_string())?;
             let sample_format = supported.sample_format();
-            self.sample_rate = supported.sample_rate().0;
+            self.sample_rate = supported.sample_rate();
             let config: cpal::StreamConfig = supported.into();
 
             let err_fn = |err| eprintln!("Audio error: {err}");
@@ -42,7 +42,7 @@ mod audio_impl {
                 cpal::SampleFormat::F32 => {
                     let rx = rx.clone();
                     device.build_output_stream(
-                        &config,
+                        config,
                         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                             if let Ok(guard) = rx.try_lock() {
                                 if let Ok(samples) = guard.try_recv() {
@@ -69,7 +69,7 @@ mod audio_impl {
                 cpal::SampleFormat::I16 => {
                     let rx = rx.clone();
                     device.build_output_stream(
-                        &config,
+                        config,
                         move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
                             if let Ok(guard) = rx.try_lock() {
                                 if let Ok(samples) = guard.try_recv() {
