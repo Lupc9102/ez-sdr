@@ -445,6 +445,10 @@ pub fn mode_s_message_len_by_type(df: u8) -> usize {
 /// Decode a raw Mode S message into a [`ModesMessage`].
 ///
 /// Returns `Ok(())` on success, or an error code if the message is rejected.
+///
+/// # Errors
+/// Returns `Err(i32)` with a negative error code when the message does not pass
+/// scoring or validity checks.
 pub fn decode_mode_s_message(
     mm: &mut ModesMessage,
     input: &[u8; MODES_LONG_MSG_BYTES],

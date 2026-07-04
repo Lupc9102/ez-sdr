@@ -35,6 +35,9 @@ impl Fifo {
     /// Push an item. If the queue is full, blocks up to `timeout_ms`.
     /// `timeout_ms=0` is non-blocking: returns `Some(item)` immediately if full.
     /// Returns `Some(item)` if it could not be pushed (timeout or halted).
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
     #[must_use]
     pub fn push(&self, item: Vec<u8>, timeout_ms: u32) -> Option<Vec<u8>> {
         let mut inner = self.inner.lock().expect("fifo mutex poisoned");
@@ -79,6 +82,9 @@ impl Fifo {
     /// Pop an item. Blocks up to `timeout_ms` waiting.
     /// `timeout_ms=0` is non-blocking: returns `None` immediately if empty.
     /// Returns `None` if the queue is empty, halted, or timed out.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
     pub fn pop(&self, timeout_ms: u32) -> Option<Vec<u8>> {
         let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         let deadline = if timeout_ms > 0 {
@@ -113,6 +119,9 @@ impl Fifo {
     }
 
     /// Halt the FIFO. Wake all waiters.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
     pub fn halt(&self) {
         let mut inner = self.inner.lock().expect("fifo mutex poisoned");
         inner.halted = true;
@@ -122,6 +131,9 @@ impl Fifo {
     }
 
     /// Current number of items in the queue.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
     pub fn len(&self) -> usize {
         self.inner.lock().expect("fifo mutex poisoned").queue.len()
     }
@@ -132,6 +144,9 @@ impl Fifo {
     }
 
     /// Returns `true` if the queue has been halted.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
     pub fn is_halted(&self) -> bool {
         self.inner.lock().expect("fifo mutex poisoned").halted
     }

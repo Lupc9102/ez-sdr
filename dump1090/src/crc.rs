@@ -49,6 +49,9 @@ pub fn crc24(data: &[u8]) -> u32 {
 ///
 /// For a 56-bit message, `msg` must be exactly 7 bytes.\
 /// For a 112-bit message, `msg` must be exactly 14 bytes.
+///
+/// # Panics
+/// Panics if `msg` contains fewer than 3 bytes.
 #[must_use]
 pub fn crc24_parity(msg: &[u8]) -> u32 {
     let n = msg.len();

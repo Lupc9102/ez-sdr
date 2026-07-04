@@ -35,6 +35,10 @@ impl NetIo {
     }
 
     /// Start listening on the given ports.
+    ///
+    /// # Errors
+    /// Returns `anyhow::Error` if a TCP listener fails to bind on any of the
+    /// requested ports.
     pub fn start(&self, beast_port: u16, sbs_port: u16, raw_port: u16) -> anyhow::Result<()> {
         Self::spawn_listener(beast_port, self.beast_clients.clone(), "Beast");
         Self::spawn_listener(sbs_port, self.sbs_clients.clone(), "SBS");
