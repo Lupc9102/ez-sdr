@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 use eframe::NativeOptions;
 
 mod adsb_decoder;
