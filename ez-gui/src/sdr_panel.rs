@@ -3014,4 +3014,270 @@ mod tests {
         }
         assert_eq!(DemodMode::from_label("NFM"), Some(DemodMode::Fm));
     }
+
+    #[test]
+    fn test_identify_frequency_band_categories() {
+        // LF/MF (includes AM broadcast on medium wave, 150-500 kHz)
+        let info = identify_frequency(300_000).unwrap();
+        assert_eq!(info.band, "LF/MF");
+
+        // 160m HF Amateur
+        let info = identify_frequency(1_850_000).unwrap();
+        assert_eq!(info.band, "160m HF Amateur");
+
+        // 80m HF Amateur
+        let info = identify_frequency(3_750_000).unwrap();
+        assert_eq!(info.band, "80m HF Amateur");
+
+        // 40m HF Amateur
+        let info = identify_frequency(7_150_000).unwrap();
+        assert_eq!(info.band, "40m HF Amateur");
+
+        // 20m HF Amateur
+        let info = identify_frequency(14_200_000).unwrap();
+        assert_eq!(info.band, "20m HF Amateur");
+
+        // 15m HF Amateur
+        let info = identify_frequency(21_200_000).unwrap();
+        assert_eq!(info.band, "15m HF Amateur");
+
+        // 10m HF Amateur
+        let info = identify_frequency(28_500_000).unwrap();
+        assert_eq!(info.band, "10m HF Amateur");
+
+        // CB Radio
+        let info = identify_frequency(27_185_000).unwrap();
+        assert_eq!(info.band, "CB (Citizens Band)");
+
+        // VOR/ILS navigation
+        let info = identify_frequency(112_000_000).unwrap();
+        assert_eq!(info.band, "VOR/ILS");
+
+        // Aviation VHF
+        let info = identify_frequency(120_000_000).unwrap();
+        assert_eq!(info.band, "Aviation VHF");
+
+        // NOAA Satellites
+        let info = identify_frequency(137_500_000).unwrap();
+        assert_eq!(info.band, "NOAA Satellites");
+
+        // FM Broadcast
+        let info = identify_frequency(100_000_000).unwrap();
+        assert_eq!(info.band, "FM Broadcast");
+
+        // Marine VHF
+        let info = identify_frequency(156_800_000).unwrap();
+        assert_eq!(info.band, "Marine VHF");
+
+        // NOAA WX Radio (or Marine VHF due to overlap)
+        let info = identify_frequency(162_550_000).unwrap();
+        assert!(
+            info.band == "NOAA WX Radio" || info.band == "Marine VHF",
+            "expected NOAA WX Radio or Marine VHF, got {}",
+            info.band
+        );
+
+        // Amateur 2m
+        let info = identify_frequency(145_500_000).unwrap();
+        assert_eq!(info.band, "Amateur 2m");
+
+        // Amateur 70cm
+        let info = identify_frequency(435_000_000).unwrap();
+        assert_eq!(info.band, "Amateur 70cm");
+
+        // ISM 433 MHz overlaps with Amateur 70cm (420-450) and ISM (433-435);
+        // first match wins → Amateur 70cm.
+        let info = identify_frequency(434_000_000).unwrap();
+        assert_eq!(info.band, "Amateur 70cm");
+
+        // Land Mobile
+        let info = identify_frequency(152_000_000).unwrap();
+        assert_eq!(info.band, "Land Mobile");
+
+        // GSM 900 (cellular)
+        let info = identify_frequency(940_000_000).unwrap();
+        assert_eq!(info.band, "GSM 900");
+
+        // ADS-B
+        let info = identify_frequency(1_090_000_000).unwrap();
+        assert_eq!(info.band, "ADS-B");
+
+        // L-band Radar
+        let info = identify_frequency(1_230_000_000).unwrap();
+        assert_eq!(info.band, "L-band Radar");
+
+        // L-band Sat
+        let info = identify_frequency(1_540_000_000).unwrap();
+        assert_eq!(info.band, "L-band Sat");
+
+        // GPS/GNSS
+        let info = identify_frequency(1_575_420_000).unwrap();
+        assert_eq!(info.band, "GPS/GNSS");
+
+        // Iridium
+        let info = identify_frequency(1_640_000_000).unwrap();
+        assert_eq!(info.band, "Iridium");
+
+        // GOES Sat
+        let info = identify_frequency(1_695_000_000).unwrap();
+        assert_eq!(info.band, "GOES Sat");
+
+        // Verify all returned BandInfo have reasonable descriptions
+        for freq in &[300_000, 7_150_000, 100_000_000, 120_000_000, 1_090_000_000] {
+            let info = identify_frequency(*freq).unwrap();
+            assert!(
+                !info.short_desc.is_empty(),
+                "short_desc empty for freq {freq}"
+            );
+            assert!(!info.detail.is_empty(), "detail empty for freq {freq}");
+            assert!(!info.tips.is_empty(), "tips empty for freq {freq}");
+        }
+    }
+
+    #[test]
+    fn test_suggest_demod_for_freq_more() {
+        // DC (0 Hz) → None
+        assert_eq!(suggest_demod_for_freq(0), None);
+
+        // Very high frequency (100 GHz) → None
+        assert_eq!(suggest_demod_for_freq(100_000_000_000), None);
+
+        // LF/MF (300 kHz, like AM broadcast) → Am
+        let result = suggest_demod_for_freq(300_000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Am));
+
+        // NOAA satellite 137.9125 MHz → Fm
+        let result = suggest_demod_for_freq(137_912_500);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Fm));
+
+        // CB radio 27.185 MHz → Am
+        let result = suggest_demod_for_freq(27_185_000);
+        assert_eq!(result.map(|r| r.0), Some(DemodMode::Am));
+
+        // Boundary just below first band → None
+        assert_eq!(suggest_demod_for_freq(149_999), None);
+
+        // Boundary at start of LF/MF band → Am
+        assert_eq!(
+            suggest_demod_for_freq(150_000).map(|r| r.0),
+            Some(DemodMode::Am)
+        );
+
+        // Boundary at end of LF/MF band → Am
+        assert_eq!(
+            suggest_demod_for_freq(500_000).map(|r| r.0),
+            Some(DemodMode::Am)
+        );
+
+        // Just beyond last mapped band → None
+        assert!(suggest_demod_for_freq(1_700_000_000).is_none());
+    }
+
+    #[test]
+    fn test_format_hz_edge_cases() {
+        assert_eq!(format_hz(0), "0 Hz");
+        assert_eq!(format_hz(1), "1 Hz");
+        assert_eq!(format_hz(999), "999 Hz");
+        assert_eq!(format_hz(1000), "1.0 kHz");
+        assert_eq!(format_hz(999_999), "1000.0 kHz");
+        assert_eq!(format_hz(1_000_000), "1.00 MHz");
+        assert_eq!(format_hz(1_000_000_000), "1000.00 MHz");
+        assert_eq!(
+            format_hz(u32::MAX),
+            format!("{:.2} MHz", u32::MAX as f64 / 1e6)
+        );
+    }
+
+    #[test]
+    fn test_demod_mode_all_methods() {
+        for mode in &[
+            DemodMode::Raw,
+            DemodMode::Am,
+            DemodMode::Fm,
+            DemodMode::Wfm,
+            DemodMode::Lsb,
+            DemodMode::Usb,
+        ] {
+            let label = mode.label();
+            assert!(!label.is_empty());
+            assert_eq!(DemodMode::from_label(label), Some(*mode));
+
+            // Wrong case returns None
+            let wrong_case = label.to_lowercase();
+            assert_eq!(DemodMode::from_label(&wrong_case), None);
+
+            // Clone derive works
+            let cloned = *mode;
+            assert_eq!(mode, &cloned);
+
+            // Debug derive works
+            let debug_str = format!("{mode:?}");
+            assert!(!debug_str.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_band_info_entry_type() {
+        // BandInfoEntry tuple construction
+        let entry: BandInfoEntry = (100_000, 200_000, "test", (255, 0, 0));
+        assert_eq!(entry.0, 100_000);
+        assert_eq!(entry.1, 200_000);
+        assert_eq!(entry.2, "test");
+        assert_eq!(entry.3, (255, 0, 0));
+
+        // format_hz with u32 boundary values
+        assert_eq!(format_hz(0), "0 Hz");
+        assert_eq!(format_hz(1), "1 Hz");
+        assert_eq!(format_hz(999), "999 Hz");
+        assert_eq!(format_hz(1000), "1.0 kHz");
+        assert_eq!(format_hz(1_000_000), "1.00 MHz");
+        assert_eq!(format_hz(1_000_000_000), "1000.00 MHz");
+    }
+
+    #[test]
+    fn test_suggest_demod_for_freq_entire_map() {
+        // Test every defined frequency band by its center frequency
+        let known_freqs: &[(u64, DemodMode)] = &[
+            (300_000, DemodMode::Am),        // LF/MF
+            (1_900_000, DemodMode::Lsb),     // 160m
+            (3_750_000, DemodMode::Lsb),     // 80m
+            (7_150_000, DemodMode::Lsb),     // 40m
+            (10_125_000, DemodMode::Usb),    // 30m
+            (14_200_000, DemodMode::Usb),    // 20m
+            (21_200_000, DemodMode::Usb),    // 15m
+            (24_940_000, DemodMode::Usb),    // 12m
+            (28_500_000, DemodMode::Usb),    // 10m
+            (52_000_000, DemodMode::Usb),    // 6m
+            (27_185_000, DemodMode::Am),     // CB Radio
+            (100_000_000, DemodMode::Wfm),   // FM Broadcast
+            (120_000_000, DemodMode::Am),    // Aviation
+            (137_500_000, DemodMode::Fm),    // NOAA APT
+            (145_000_000, DemodMode::Fm),    // Amateur 2m
+            (153_000_000, DemodMode::Fm),    // Land Mobile
+            (160_000_000, DemodMode::Fm),    // Marine VHF
+            (162_500_000, DemodMode::Fm),    // NOAA Weather (overlaps Marine VHF; Fm wins)
+            (406_050_000, DemodMode::Fm),    // EPIRB/PLB
+            (435_000_000, DemodMode::Fm),    // Amateur 70cm
+            (434_000_000, DemodMode::Fm),    // ISM 433 MHz
+            (460_000_000, DemodMode::Fm),    // UHF LMR
+            (1_090_000_000, DemodMode::Raw), // ADS-B
+        ];
+        for &(freq, expected_mode) in known_freqs {
+            let result = suggest_demod_for_freq(freq);
+            assert!(
+                result.is_some(),
+                "expected Some for freq {} Hz ({:.3} MHz)",
+                freq,
+                freq as f64 / 1e6
+            );
+            assert_eq!(
+                result.map(|r| r.0),
+                Some(expected_mode),
+                "mode mismatch for {} Hz: expected {:?}, got {:?}",
+                freq,
+                expected_mode,
+                result.map(|r| r.0)
+            );
+        }
+    }
 }

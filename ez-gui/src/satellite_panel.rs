@@ -492,4 +492,58 @@ mod tests {
         panel.signal_strength = 0.0;
         assert_eq!(panel.signal_strength, 0.0);
     }
+
+    #[test]
+    fn test_ui_simple_no_crash() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test")).show(ctx, |ui| {
+                panel.ui_simple(ui);
+            });
+        });
+    }
+
+    #[test]
+    fn test_ui_advanced_no_crash() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        panel.cached_passes = vec![crate::tle_engine::PassInfo {
+            satellite: "NOAA 19".into(),
+            aos: "12:00:00".into(),
+            los: "12:10:00".into(),
+            max_elevation: 45.0,
+            frequency_hz: 137_100_000,
+            aos_dt: now,
+            los_dt: now + 600.0,
+        }];
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test")).show(ctx, |ui| {
+                panel.ui_advanced(ui);
+            });
+        });
+    }
+
+    #[test]
+    fn test_pending_status_flow() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        assert!(panel.pending_status.is_none());
+
+        panel.pending_status = Some("Test status message".into());
+        assert_eq!(panel.pending_status.as_deref(), Some("Test status message"));
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test")).show(ctx, |ui| {
+                panel.ui_simple(ui);
+            });
+        });
+
+        // ui_simple does not drain panel.pending_status, so it remains Some
+        assert_eq!(panel.pending_status.as_deref(), Some("Test status message"));
+    }
 }

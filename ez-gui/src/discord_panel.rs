@@ -353,4 +353,32 @@ mod tests {
         panel.test_status.clear();
         assert_eq!(panel.test_status, "");
     }
+
+    #[test]
+    fn test_ui_no_crash() {
+        let mut panel = DiscordPanel::new();
+        let mut notifier = DiscordNotifier::new();
+        let shared = crate::test_helpers::make_shared_state();
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test")).show(ctx, |ui| {
+                panel.ui(ui, &mut notifier, &shared);
+            });
+        });
+    }
+
+    #[test]
+    fn test_test_status_lifecycle() {
+        let mut panel = DiscordPanel::new();
+        assert_eq!(panel.test_status, "");
+
+        panel.test_status = "✅ Test sent! Check Discord.".to_string();
+        assert!(panel.test_status.contains("✅"));
+
+        panel.test_status = "❌ Error: network failure".to_string();
+        assert!(panel.test_status.contains("❌"));
+
+        panel.test_status.clear();
+        assert!(panel.test_status.is_empty());
+    }
 }

@@ -1474,4 +1474,93 @@ mod tests {
         let south = panel.bearing(10.0, 0.0, 0.0, 0.0);
         assert!((south - 180.0).abs() < 1.0);
     }
+
+    #[test]
+    fn test_check_for_new_aircraft_adds_new() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.check_for_new_aircraft();
+        panel.aircraft.push(AircraftEntry {
+            icao: 123456,
+            callsign: "TEST".into(),
+            lat: 51.5,
+            lon: -0.1,
+            altitude: 35000,
+            speed: 450,
+            heading: 270,
+            seen: std::time::Instant::now(),
+        });
+        panel.check_for_new_aircraft();
+    }
+
+    #[test]
+    fn test_render_toasts() {
+        let ctx = egui::Context::default();
+        let mut panel = AdsBPanel::new(make_shared_state());
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            panel.render_toasts(ctx);
+        });
+        panel.notifications.push_back(AdsBNotification {
+            id: 1,
+            icao: 123456,
+            callsign: "TEST".into(),
+            lat: 51.5,
+            lon: -0.1,
+            altitude: 35000,
+            speed: 450,
+            distance_km: Some(10.0),
+            bearing_deg: Some(45.0),
+            timestamp: std::time::Instant::now(),
+            dismissed: false,
+        });
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            panel.render_toasts(ctx);
+        });
+    }
+
+    #[test]
+    fn test_ui_methods_no_crash() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test_antenna")).show(ctx, |ui| {
+                panel.ui_antenna_guide(ui);
+            });
+        });
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test_list")).show(ctx, |ui| {
+                panel.ui_list(ui);
+            });
+        });
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test_map")).show(ctx, |ui| {
+                panel.ui_map(ui);
+            });
+        });
+    }
+
+    #[test]
+    fn test_haversine_distance_known_values() {
+        let panel = AdsBPanel::new(make_shared_state());
+        let d = panel.haversine_distance(51.5074, -0.1278, 48.8566, 2.3522);
+        assert!(
+            (d - 344.0).abs() < 10.0,
+            "London-Paris distance {d} not ≈344 km"
+        );
+        let d = panel.haversine_distance(51.5074, -0.1278, 40.7128, -74.0060);
+        assert!(
+            (d - 5570.0).abs() < 50.0,
+            "London-NYC distance {d} not ≈5570 km"
+        );
+        let d = panel.haversine_distance(51.5, -0.1, 51.5, -0.1);
+        assert!(d.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_bearing_known_values() {
+        let panel = AdsBPanel::new(make_shared_state());
+        let b = panel.bearing(0.0, 0.0, 10.0, 0.0);
+        assert!((b - 0.0).abs() < 1.0, "north bearing {b} not ≈0°");
+        let b = panel.bearing(0.0, 0.0, 0.0, 10.0);
+        assert!((b - 90.0).abs() < 1.0, "east bearing {b} not ≈90°");
+    }
 }

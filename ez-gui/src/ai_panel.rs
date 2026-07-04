@@ -1737,4 +1737,114 @@ mod tests {
         assert!(!panel.thinking);
         assert!(panel.pending_rx.is_none());
     }
+
+    #[test]
+    fn test_execute_tool_call_functions() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut panel = AiPanel::new(shared);
+
+        let result = panel.execute_tool_call("get_status", &serde_json::json!({}));
+        assert!(
+            !result.is_empty(),
+            "get_status should return a non-empty string"
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&result).expect("get_status should return valid JSON");
+        assert!(parsed.is_object(), "get_status should return a JSON object");
+
+        let result = panel.execute_tool_call("unknown_tool", &serde_json::json!({}));
+        assert!(
+            result.contains("Unknown tool"),
+            "unknown tool should return error string"
+        );
+    }
+
+    #[test]
+    fn test_find_next_freq_various_patterns() {
+        let result = AiPanel::find_next_freq("Tune to 100.5 MHz for the weather");
+        assert_eq!(result, Some((8, 17, 100_500_000)));
+
+        let result = AiPanel::find_next_freq("Try 145.800 MHz for ISS");
+        assert_eq!(result, Some((4, 15, 145_800_000)));
+
+        let result = AiPanel::find_next_freq("Listen on 2.4 GHz");
+        assert_eq!(result, Some((10, 17, 2_400_000_000)));
+
+        let result = AiPanel::find_next_freq("No frequency here");
+        assert_eq!(result, None);
+
+        let result = AiPanel::find_next_freq("");
+        assert_eq!(result, None);
+
+        let result = AiPanel::find_next_freq("137.100");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_tokenize_inline_variants() {
+        let result = AiPanel::tokenize_inline("hello world");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello world");
+
+        let result = AiPanel::tokenize_inline("use `code` here");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].0, "use ");
+        assert_eq!(result[1].0, "code");
+        assert!(result[1].3);
+        assert_eq!(result[2].0, " here");
+
+        let result = AiPanel::tokenize_inline("Try 100.5 MHz now");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].0, "Try ");
+        assert_eq!(result[1].0, "100.5 MHz");
+        assert_eq!(result[1].4, Some(100_500_000));
+        assert_eq!(result[2].0, " now");
+
+        let result = AiPanel::tokenize_inline("**bold** `code` 100.5 MHz");
+        assert_eq!(result.len(), 5);
+        assert_eq!(result[0].0, "bold");
+        assert!(result[0].1);
+        assert_eq!(result[1].0, " ");
+        assert_eq!(result[2].0, "code");
+        assert!(result[2].3);
+        assert_eq!(result[3].0, " ");
+        assert_eq!(result[4].0, "100.5 MHz");
+        assert_eq!(result[4].4, Some(100_500_000));
+    }
+
+    #[test]
+    fn test_chat_message_time_edges() {
+        let mut msg = ChatMessage::new("user", "");
+
+        msg.timestamp_secs = 0;
+        assert_eq!(msg.format_time(), "00:00");
+
+        msg.timestamp_secs = 3600;
+        assert_eq!(msg.format_time(), "01:00");
+
+        msg.timestamp_secs = 43200;
+        assert_eq!(msg.format_time(), "12:00");
+
+        msg.timestamp_secs = 86399;
+        assert_eq!(msg.format_time(), "23:59");
+    }
+
+    #[test]
+    fn test_ai_panel_abort_flag() {
+        let shared = crate::test_helpers::make_shared_state();
+        let panel = AiPanel::new(shared);
+        assert!(
+            !panel.abort_flag.load(Ordering::Relaxed),
+            "abort_flag should be false initially"
+        );
+    }
+
+    #[test]
+    fn test_web_search_fn() {
+        let result = AiPanel::web_search("");
+        assert!(
+            !result.is_empty(),
+            "web_search should return a non-empty string"
+        );
+    }
 }
