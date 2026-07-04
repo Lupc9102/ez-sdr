@@ -32,7 +32,7 @@ tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
 
 # Database
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
