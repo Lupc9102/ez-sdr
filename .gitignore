@@ -34,3 +34,4 @@ graphify-out/skills/
 graphify-out/community.csv
 .DS_Store
 timer.py
+*.rlib
