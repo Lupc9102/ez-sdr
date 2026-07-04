@@ -35,6 +35,7 @@ Do not wait for a prompt. Run tools independently to identify areas requiring at
 * Code Quality: Scan for deeply nested functions, untested files, missing types, or duplicate logic.
 * Issues: Read local tracking files, workspace TODOs, or open bugs.
 * Failures: Run the test suites to check for broken components.
+* CI Status: Check GitHub Actions status; if any jobs are failing, prioritize fixing them immediately.
 
 ### Phase 2: Self-Directed Planning
 * Keep an internal, prioritized backlog of tasks found during observation.
