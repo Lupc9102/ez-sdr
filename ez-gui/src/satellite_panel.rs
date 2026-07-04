@@ -1,5 +1,76 @@
 use crate::app::SharedState;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+// ── Decode sub-tab types ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SatelliteSubTab {
+    Track,
+    Advanced,
+    Decode,
+    Editor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodePreset {
+    MeteorM2_2,
+    MeteorM2_3,
+    MeteorM2_4,
+    Custom,
+}
+
+impl DecodePreset {
+    pub fn sample_rate(&self) -> u32 {
+        match self {
+            Self::MeteorM2_2 | Self::MeteorM2_3 | Self::MeteorM2_4 => 2_048_000,
+            Self::Custom => 2_048_000,
+        }
+    }
+
+    pub fn symbol_rate(&self) -> u32 {
+        match self {
+            Self::MeteorM2_2 | Self::MeteorM2_3 | Self::MeteorM2_4 => 72_000,
+            Self::Custom => 72_000,
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            Self::MeteorM2_2 => "Meteor-M2-2 (137.1 MHz, LRPT)",
+            Self::MeteorM2_3 => "Meteor-M2-3 (137.9 MHz, LRPT)",
+            Self::MeteorM2_4 => "Meteor-M2-4 (137.1 MHz, LRPT)",
+            Self::Custom => "Custom",
+        }
+    }
+
+    pub fn all() -> &'static [DecodePreset] {
+        &[
+            Self::MeteorM2_2,
+            Self::MeteorM2_3,
+            Self::MeteorM2_4,
+            Self::Custom,
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DecodeResultDisplay {
+    pub satellite: String,
+    pub lines_decoded: u32,
+    pub rs_ok: u32,
+    pub rs_failed: u32,
+    pub image_paths: Vec<String>,
+    pub elapsed_ms: u64,
+}
+
+/// Internal message sent from decode thread when finished.
+struct DecodeThreadResult {
+    result: Option<DecodeResultDisplay>,
+    error: Option<String>,
+    /// Decoded channel images keyed by APID (64=ch1..69=ch6).
+    channels: Vec<(u16, image::GrayImage)>,
+}
 
 pub struct SatellitePanel {
     shared: Arc<Mutex<SharedState>>,
@@ -17,6 +88,22 @@ pub struct SatellitePanel {
     pub pending_ai_prompt: Option<String>,
     checklist: crate::antenna_checklist::AntennaChecklist,
     pub pending_status: Option<String>,
+    // Decode pipeline state
+    pub decode_file_path: String,
+    pub decode_running: bool,
+    pub decode_progress: Option<lrpt_decode::DecodeProgress>,
+    pub decode_result: Option<DecodeResultDisplay>,
+    pub decode_satellite_preset: DecodePreset,
+    pub decode_sample_rate: u32,
+    pub decode_symbol_rate: u32,
+    pub decode_output_dir: String,
+    pub decode_error: Option<String>,
+    decode_rx: Option<crossbeam_channel::Receiver<lrpt_decode::DecodeProgress>>,
+    decode_done_rx: Option<crossbeam_channel::Receiver<DecodeThreadResult>>,
+    decode_handle: Option<std::thread::JoinHandle<()>>,
+    /// Channels from the most recent decode, ready for the editor.
+    pub decoded_channels: Vec<(u16, image::GrayImage)>,
+    pub pending_decode_tab: bool,
 }
 
 impl SatellitePanel {
@@ -37,6 +124,21 @@ impl SatellitePanel {
             pending_ai_prompt: None,
             checklist: crate::antenna_checklist::AntennaChecklist::for_satellite(shared),
             pending_status: None,
+            // Decode pipeline
+            decode_file_path: String::new(),
+            decode_running: false,
+            decode_progress: None,
+            decode_result: None,
+            decode_satellite_preset: DecodePreset::MeteorM2_2,
+            decode_sample_rate: 2_048_000,
+            decode_symbol_rate: 72_000,
+            decode_output_dir: "./decoded".to_string(),
+            decode_error: None,
+            decode_rx: None,
+            decode_done_rx: None,
+            decode_handle: None,
+            decoded_channels: Vec::new(),
+            pending_decode_tab: false,
         }
     }
 
@@ -423,8 +525,414 @@ impl SatellitePanel {
             });
         });
     }
-}
 
+    // ── Decode pipeline methods ─────────────────────────────────────────────
+
+    /// Called from Track sub-tab to jump to Decode with a preset pre-filled.
+    pub fn request_decode_tab(&mut self, preset: DecodePreset) {
+        self.decode_satellite_preset = preset;
+        self.pending_decode_tab = true;
+    }
+
+    fn start_decode(&mut self) {
+        let path = PathBuf::from(&self.decode_file_path);
+        let sample_rate = self.decode_sample_rate;
+        let symbol_rate = self.decode_symbol_rate;
+        let output_dir = PathBuf::from(&self.decode_output_dir);
+        let preset_label = self.decode_satellite_preset.label().to_string();
+
+        self.decode_running = true;
+        self.decode_progress = None;
+        self.decode_result = None;
+        self.decode_error = None;
+
+        let (progress_tx, progress_rx) = crossbeam_channel::unbounded();
+        let (done_tx, done_rx) = crossbeam_channel::bounded(1);
+        self.decode_rx = Some(progress_rx);
+        self.decode_done_rx = Some(done_rx);
+
+        let handle = std::thread::spawn(move || {
+            let _ = std::fs::create_dir_all(&output_dir);
+            let start = std::time::Instant::now();
+
+            let result = lrpt_decode::decode_file(&path, sample_rate, symbol_rate, progress_tx);
+
+            let thread_result = match result {
+                Ok(decode_result) => {
+                    let mut image_paths = Vec::new();
+                    let mut channels = Vec::new();
+                    for (apid, img) in &decode_result.images {
+                        let filename = format!(
+                            "{}_apid{}.png",
+                            path.file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy(),
+                            apid
+                        );
+                        let img_path = output_dir.join(&filename);
+                        let _ = img.save(&img_path);
+                        image_paths.push(img_path.display().to_string());
+                        channels.push((*apid, img.clone()));
+                    }
+
+                    let elapsed = start.elapsed().as_millis() as u64;
+                    DecodeThreadResult {
+                        result: Some(DecodeResultDisplay {
+                            satellite: preset_label,
+                            lines_decoded: decode_result
+                                .images
+                                .iter()
+                                .map(|(_, img)| img.height())
+                                .max()
+                                .unwrap_or(0),
+                            rs_ok: decode_result.rs_ok,
+                            rs_failed: decode_result.rs_failed,
+                            image_paths,
+                            elapsed_ms: elapsed,
+                        }),
+                        error: None,
+                        channels,
+                    }
+                }
+                Err(e) => DecodeThreadResult {
+                    result: None,
+                    error: Some(format!("{e}")),
+                    channels: Vec::new(),
+                },
+            };
+
+            let _ = done_tx.send(thread_result);
+        });
+
+        self.decode_handle = Some(handle);
+    }
+
+    /// Poll decode thread for progress/completion. Call every UI frame.
+    pub fn tick_decode(&mut self) {
+        if !self.decode_running {
+            return;
+        }
+
+        // Drain progress updates
+        if let Some(ref rx) = self.decode_rx {
+            while let Ok(progress) = rx.try_recv() {
+                self.decode_progress = Some(progress);
+            }
+        }
+
+        // Check for completion
+        if let Some(ref rx) = self.decode_done_rx {
+            if let Ok(thread_result) = rx.try_recv() {
+                self.decode_running = false;
+                self.decode_rx = None;
+                self.decode_done_rx = None;
+                if let Some(h) = self.decode_handle.take() {
+                    let _ = h.join();
+                }
+
+                if let Some(result) = thread_result.result {
+                    let total = result.rs_ok + result.rs_failed;
+                    let pct = if total > 0 {
+                        result.rs_ok as f32 / total as f32 * 100.0
+                    } else {
+                        0.0
+                    };
+                    self.pending_status = Some(format!(
+                        "✅ Decoded {} — {} lines, RS {:.1}%",
+                        result.satellite, result.lines_decoded, pct
+                    ));
+                    self.decoded_channels = thread_result.channels;
+                    self.decode_result = Some(result);
+                } else if let Some(err) = thread_result.error {
+                    self.pending_status = Some(format!("❌ Decode failed: {err}"));
+                    self.decode_error = Some(err);
+                }
+            }
+        }
+    }
+
+    pub fn ui_decode(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Satellite Signal Decode");
+        ui.add_space(4.0);
+
+        // ── Preset Picker ──
+        ui.label(egui::RichText::new("Preset").strong());
+        egui::ComboBox::from_id_salt("decode_preset")
+            .selected_text(self.decode_satellite_preset.label())
+            .show_ui(ui, |ui| {
+                for preset in DecodePreset::all() {
+                    ui.selectable_value(
+                        &mut self.decode_satellite_preset,
+                        *preset,
+                        preset.label(),
+                    );
+                }
+            });
+
+        ui.add_space(8.0);
+        ui.separator();
+
+        // ── File Import ──
+        ui.label(egui::RichText::new("Import Recording").strong());
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut self.decode_file_path)
+                .on_hover_text("Path to .iq recording file");
+            if ui.button("Browse...").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("IQ Recording", &["iq"])
+                    .add_filter("All Files", &["*"])
+                    .pick_file()
+                {
+                    self.decode_file_path = path.display().to_string();
+                    if let Some(sidecar) = lrpt_decode::load_sidecar(&path) {
+                        self.decode_sample_rate = sidecar.sample_rate_hz;
+                        match sidecar.frequency_hz {
+                            137_100_000..=137_110_000 => {
+                                self.decode_satellite_preset = DecodePreset::MeteorM2_2;
+                            }
+                            137_900_000..=137_920_000 => {
+                                self.decode_satellite_preset = DecodePreset::MeteorM2_3;
+                            }
+                            _ => {
+                                self.decode_satellite_preset = DecodePreset::Custom;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // File info
+        if !self.decode_file_path.is_empty() {
+            let path = std::path::Path::new(&self.decode_file_path);
+            if path.exists() {
+                let size_mb = std::fs::metadata(path)
+                    .map(|m| m.len() as f64 / 1e6)
+                    .unwrap_or(0.0);
+                ui.label(format!(
+                    "  {} ({:.1} MB)",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    size_mb
+                ));
+            } else {
+                ui.colored_label(egui::Color32::RED, "  File not found");
+            }
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+
+        // ── Decode Parameters (collapsible) ──
+        ui.collapsing("Decode Parameters", |ui| {
+            egui::Grid::new("decode_params")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label("Sample Rate:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.decode_sample_rate).suffix(" Hz"),
+                    );
+                    ui.end_row();
+                    ui.label("Symbol Rate:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.decode_symbol_rate).suffix(" Hz"),
+                    );
+                    ui.end_row();
+                });
+        });
+
+        ui.add_space(8.0);
+
+        // ── Output Directory ──
+        ui.horizontal(|ui| {
+            ui.label("Output:");
+            ui.text_edit_singleline(&mut self.decode_output_dir);
+            if ui
+                .button("📁")
+                .on_hover_text("Select output directory")
+                .clicked()
+            {
+                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                    self.decode_output_dir = dir.display().to_string();
+                }
+            }
+        });
+
+        ui.add_space(8.0);
+
+        // ── Decode Button ──
+        let can_decode = !self.decode_file_path.is_empty()
+            && std::path::Path::new(&self.decode_file_path).exists()
+            && !self.decode_running;
+
+        if can_decode {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("▶ Decode")
+                            .size(15.0)
+                            .strong(),
+                    )
+                    .min_size(egui::vec2(ui.available_width(), 32.0)),
+                )
+                .clicked()
+            {
+                self.start_decode();
+            }
+        } else if self.decode_running {
+            ui.colored_label(egui::Color32::YELLOW, "⏳ Decoding...");
+        }
+
+        // ── Progress ──
+        if let Some(ref progress) = self.decode_progress {
+            ui.add_space(8.0);
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("Decode Progress").strong());
+                let total = progress.rs_ok + progress.rs_failed;
+                let pct = if total > 0 {
+                    progress.rs_ok as f32 / total as f32
+                } else {
+                    0.0
+                };
+                ui.add(
+                    egui::ProgressBar::new(pct).text(format!(
+                        "RS OK: {} / {} ({:.1}%)",
+                        progress.rs_ok,
+                        total,
+                        pct * 100.0
+                    )),
+                );
+                ui.label(format!("Lines decoded: {}", progress.lines_decoded));
+                ui.horizontal(|ui| {
+                    ui.label(if progress.costas_locked {
+                        "🟢 Costas locked"
+                    } else {
+                        "🔴 Costas unlocked"
+                    });
+                    ui.separator();
+                    ui.label(if progress.frame_locked {
+                        "🟢 Frame sync"
+                    } else {
+                        "🔴 Frame unlock"
+                    });
+                });
+
+                for (apid, img) in &progress.preview {
+                    ui.add_space(4.0);
+                    ui.label(format!(
+                        "APID {} — {}×{} px, {} lines",
+                        apid,
+                        img.width(),
+                        img.height(),
+                        img.height()
+                    ));
+                }
+            });
+        }
+
+        // ── Result ──
+        if let Some(ref result) = self.decode_result {
+            ui.add_space(8.0);
+            ui.group(|ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(50, 255, 100),
+                    egui::RichText::new("✅ Decode Complete").strong(),
+                );
+                ui.label(format!("Satellite: {}", result.satellite));
+                ui.label(format!(
+                    "Lines: {} · RS OK: {} · RS Failed: {}",
+                    result.lines_decoded, result.rs_ok, result.rs_failed
+                ));
+                ui.label(format!("Time: {} ms", result.elapsed_ms));
+                if !result.image_paths.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Output Images:").strong());
+                    for path in &result.image_paths {
+                        ui.label(format!("  📷 {path}"));
+                    }
+                    if ui.button("📂 Open Output Folder").clicked() {
+                        let _ = std::process::Command::new("xdg-open")
+                            .arg(&self.decode_output_dir)
+                            .spawn();
+                    }
+                }
+            });
+        }
+
+        // ── Error ──
+        if let Some(ref err) = self.decode_error {
+            ui.add_space(8.0);
+            ui.group(|ui| {
+                ui.colored_label(
+                    egui::Color32::RED,
+                    egui::RichText::new("❌ Decode Error").strong(),
+                );
+                ui.label(err.as_str());
+            });
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+
+        // ── Recent Recordings ──
+        ui.collapsing("Recent Recordings", |ui| {
+            let recordings_dir = std::path::Path::new("./recordings");
+            if recordings_dir.exists() {
+                let mut files: Vec<_> = std::fs::read_dir(recordings_dir)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| e.ok())
+                    .filter(|e| {
+                        e.path()
+                            .extension()
+                            .map(|ext| ext == "iq")
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                files.sort_by(|a, b| {
+                    b.metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::UNIX_EPOCH)
+                        .cmp(
+                            &a.metadata()
+                                .and_then(|m| m.modified())
+                                .unwrap_or(std::time::UNIX_EPOCH),
+                        )
+                });
+
+                for entry in files.iter().take(10) {
+                    let path = entry.path();
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    let size = entry
+                        .metadata()
+                        .map(|m| m.len() as f64 / 1e6)
+                        .unwrap_or(0.0);
+                    if ui
+                        .selectable_label(false, format!("{name} ({size:.1} MB)"))
+                        .clicked()
+                    {
+                        self.decode_file_path = path.display().to_string();
+                        if let Some(sidecar) = lrpt_decode::load_sidecar(&path) {
+                            self.decode_sample_rate = sidecar.sample_rate_hz;
+                            match sidecar.frequency_hz {
+                                137_100_000..=137_110_000 => {
+                                    self.decode_satellite_preset = DecodePreset::MeteorM2_2;
+                                }
+                                137_900_000..=137_920_000 => {
+                                    self.decode_satellite_preset = DecodePreset::MeteorM2_3;
+                                }
+                                _ => {
+                                    self.decode_satellite_preset = DecodePreset::Custom;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                ui.label("No recordings directory found");
+            }
+        });
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +952,15 @@ mod tests {
         assert!(panel.auto_tune);
         assert!(panel.pending_ai_prompt.is_none());
         assert!(panel.pending_status.is_none());
+        // Decode fields
+        assert!(!panel.decode_running);
+        assert!(panel.decode_file_path.is_empty());
+        assert_eq!(panel.decode_satellite_preset, DecodePreset::MeteorM2_2);
+        assert_eq!(panel.decode_sample_rate, 2_048_000);
+        assert_eq!(panel.decode_symbol_rate, 72_000);
+        assert!(!panel.pending_decode_tab);
+        assert!(panel.decode_result.is_none());
+        assert!(panel.decode_error.is_none());
     }
 
     #[test]
@@ -539,5 +1056,43 @@ mod tests {
 
         // ui_simple does not drain panel.pending_status, so it remains Some
         assert_eq!(panel.pending_status.as_deref(), Some("Test status message"));
+    }
+
+    #[test]
+    fn test_decode_preset_values() {
+        assert_eq!(DecodePreset::MeteorM2_2.sample_rate(), 2_048_000);
+        assert_eq!(DecodePreset::MeteorM2_2.symbol_rate(), 72_000);
+        assert_eq!(DecodePreset::MeteorM2_3.sample_rate(), 2_048_000);
+        assert_eq!(DecodePreset::MeteorM2_4.sample_rate(), 2_048_000);
+        assert_eq!(DecodePreset::Custom.symbol_rate(), 72_000);
+        assert_eq!(DecodePreset::all().len(), 4);
+    }
+
+    #[test]
+    fn test_tick_decode_no_op_when_not_running() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        panel.tick_decode(); // should not panic
+        assert!(panel.decode_result.is_none());
+        assert!(panel.decode_error.is_none());
+    }
+
+    #[test]
+    fn test_request_decode_tab() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        assert!(!panel.pending_decode_tab);
+        panel.request_decode_tab(DecodePreset::MeteorM2_3);
+        assert!(panel.pending_decode_tab);
+        assert_eq!(panel.decode_satellite_preset, DecodePreset::MeteorM2_3);
+    }
+
+    #[test]
+    fn test_ui_decode_no_crash() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::Area::new(egui::Id::new("test_decode")).show(ctx, |ui| {
+                panel.ui_decode(ui);
+            });
+        });
     }
 }

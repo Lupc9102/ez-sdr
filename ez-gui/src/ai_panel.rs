@@ -25,6 +25,7 @@ struct StreamParams<'a> {
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    pub image_url: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
     pub streaming: bool,
     pub timestamp_secs: u64,
@@ -39,10 +40,18 @@ impl ChatMessage {
         Self {
             role: role.to_string(),
             content: content.to_string(),
+            image_url: None,
             tool_calls: None,
             streaming: false,
             timestamp_secs,
         }
+    }
+
+    /// Create a message with an image attachment for vision models.
+    fn with_image(role: &str, content: &str, image_url: String) -> Self {
+        let mut msg = Self::new(role, content);
+        msg.image_url = Some(image_url);
+        msg
     }
 
     fn format_time(&self) -> String {
@@ -296,10 +305,21 @@ impl AiPanel {
             if m.role == "system" {
                 continue;
             }
-            let mut obj = serde_json::json!({
-                "role": m.role,
-                "content": m.content,
-            });
+            // Vision messages use array content format for OpenAI/Anthropic compatibility
+            let mut obj = if let Some(ref url) = m.image_url {
+                serde_json::json!({
+                    "role": m.role,
+                    "content": [
+                        {"type": "text", "text": m.content},
+                        {"type": "image_url", "image_url": {"url": url}},
+                    ],
+                })
+            } else {
+                serde_json::json!({
+                    "role": m.role,
+                    "content": m.content,
+                })
+            };
             if let Some(ref calls) = m.tool_calls {
                 let tools: Vec<serde_json::Value> = calls
                     .iter()
@@ -1298,6 +1318,111 @@ impl AiPanel {
         clicked
     }
 
+    /// Send a single-shot (non-streaming) vision request. Returns the full response text.
+    /// Used by EditorPanel for AI recommend, not for the chat UI.
+    pub fn send_vision_request(
+        endpoint: &str,
+        api_key: &str,
+        model: &str,
+        provider: &str,
+        messages: &[serde_json::Value],
+    ) -> Result<String, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .map_err(|e| format!("Client error: {e}"))?;
+
+        let is_anthropic = provider == "Anthropic";
+
+        let body = if is_anthropic {
+            // Anthropic format: separate system, content blocks with image
+            let system = messages
+                .iter()
+                .find(|m| m["role"] == "system")
+                .map(|m| m["content"].clone())
+                .unwrap_or(serde_json::json!(""));
+            let non_system: Vec<&serde_json::Value> = messages
+                .iter()
+                .filter(|m| m["role"].as_str() != Some("system"))
+                .collect();
+            serde_json::json!({
+                "model": model,
+                "max_tokens": 4096,
+                "system": system,
+                "messages": non_system,
+            })
+        } else {
+            serde_json::json!({
+                "model": model,
+                "messages": messages,
+                "max_tokens": 4096,
+            })
+        };
+
+        let mut req = client
+            .post(endpoint)
+            .header("Content-Type", "application/json")
+            .json(&body);
+
+        if is_anthropic {
+            req = req
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01");
+        } else if !api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {api_key}"));
+        }
+
+        let resp = req.send().map_err(|e| format!("HTTP error: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().unwrap_or_default();
+            return Err(format!("HTTP {status}: {text}"));
+        }
+
+        let json: serde_json::Value =
+            resp.json().map_err(|e| format!("Failed to parse response: {e}"))?;
+
+        if is_anthropic {
+            // Anthropic: content[0].text
+            json["content"][0]["text"]
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| format!("Unexpected Anthropic response: {json}"))
+        } else {
+            // OpenAI: choices[0].message.content
+            json["choices"][0]["message"]["content"]
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| format!("Unexpected response: {json}"))
+        }
+    }
+
+    /// Encode raw bytes as a data URL with base64.
+    pub fn base64_encode(data: &[u8], media_type: &str) -> String {
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+        for chunk in data.chunks(3) {
+            let b0 = chunk[0] as u32;
+            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+            let triple = (b0 << 16) | (b1 << 8) | b2;
+            result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+            result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+            if chunk.len() > 1 {
+                result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+            } else {
+                result.push('=');
+            }
+            if chunk.len() > 2 {
+                result.push(CHARS[(triple & 0x3F) as usize] as char);
+            } else {
+                result.push('=');
+            }
+        }
+        format!("data:{media_type};base64,{result}")
+    }
+
     fn export_chat(&self) {
         let mut text = String::new();
         for msg in &self.messages {
@@ -1846,5 +1971,21 @@ mod tests {
             !result.is_empty(),
             "web_search should return a non-empty string"
         );
+    }
+
+    #[test]
+    fn test_chat_message_with_image() {
+        let msg = ChatMessage::with_image("user", "Analyze this", "data:image/png;base64,abc123".to_string());
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "Analyze this");
+        assert_eq!(msg.image_url.as_deref(), Some("data:image/png;base64,abc123"));
+    }
+
+    #[test]
+    fn test_base64_encode() {
+        let data = b"hello world";
+        let result = AiPanel::base64_encode(data, "text/plain");
+        assert!(result.starts_with("data:text/plain;base64,"));
+        assert_eq!(&result[23..], "aGVsbG8gd29ybGQ=");
     }
 }
