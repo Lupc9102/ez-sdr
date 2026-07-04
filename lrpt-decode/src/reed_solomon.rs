@@ -137,7 +137,9 @@ mod tests {
 
     #[test]
     fn interleave_deinterleave_round_trip() {
-        let frame: Vec<u8> = (0..INTERLEAVED_FRAME_LEN).map(|i| (i % 256) as u8).collect();
+        let frame: Vec<u8> = (0..INTERLEAVED_FRAME_LEN)
+            .map(|i| (i % 256) as u8)
+            .collect();
         let codewords = deinterleave(&frame);
         for i in 0..INTERLEAVED_FRAME_LEN {
             let cw = i % INTERLEAVE;
@@ -201,8 +203,14 @@ mod tests {
         // Codewords 0, 2, 3 payload bytes should still match originals.
         for pos in 0..RS_DATA_LEN {
             assert_eq!(result.data[pos * INTERLEAVE], payload[pos * INTERLEAVE]);
-            assert_eq!(result.data[pos * INTERLEAVE + 2], payload[pos * INTERLEAVE + 2]);
-            assert_eq!(result.data[pos * INTERLEAVE + 3], payload[pos * INTERLEAVE + 3]);
+            assert_eq!(
+                result.data[pos * INTERLEAVE + 2],
+                payload[pos * INTERLEAVE + 2]
+            );
+            assert_eq!(
+                result.data[pos * INTERLEAVE + 3],
+                payload[pos * INTERLEAVE + 3]
+            );
         }
     }
 }

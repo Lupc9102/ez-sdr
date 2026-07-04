@@ -394,7 +394,8 @@ mod tests {
         const PREAMBLE_SYMBOLS: usize = 200;
         const POSTAMBLE_SYMBOLS: usize = 40;
 
-        let mut full_quadrants = Vec::with_capacity(quadrants.len() + PREAMBLE_SYMBOLS + POSTAMBLE_SYMBOLS);
+        let mut full_quadrants =
+            Vec::with_capacity(quadrants.len() + PREAMBLE_SYMBOLS + POSTAMBLE_SYMBOLS);
         let first_q = *quadrants.first().unwrap_or(&0);
         let last_q = *quadrants.last().unwrap_or(&0);
         full_quadrants.extend(std::iter::repeat(first_q).take(PREAMBLE_SYMBOLS));
@@ -512,7 +513,10 @@ mod tests {
 
         let mut framer = frame_sync::FrameSync::new();
         let frames = framer.push_bits(&bits);
-        assert!(!frames.is_empty(), "frame sync never locked (mapping={mapping:?})");
+        assert!(
+            !frames.is_empty(),
+            "frame sync never locked (mapping={mapping:?})"
+        );
 
         let cadu = &frames[0];
         assert_eq!(cadu.len(), frame_sync::CADU_LEN_BYTES);
@@ -520,16 +524,24 @@ mod tests {
         let transport = &cadu[4..4 + reed_solomon::INTERLEAVED_FRAME_LEN];
         let derandomized = randomizer::derandomize(transport);
         let rs_result = reed_solomon::decode_interleaved(&derandomized);
-        assert_eq!(rs_result.codewords_failed, 0, "RS decode should succeed with clean synthetic signal");
+        assert_eq!(
+            rs_result.codewords_failed, 0,
+            "RS decode should succeed with clean synthetic signal"
+        );
         assert_eq!(rs_result.codewords_ok, 4);
 
-        assert_eq!(&rs_result.data[..payload.len()], &payload[..], "recovered payload must match original exactly");
+        assert_eq!(
+            &rs_result.data[..payload.len()],
+            &payload[..],
+            "recovered payload must match original exactly"
+        );
 
         // Also confirm the packet layer reassembles the original bytes.
         let vcdu_payload = &rs_result.data;
-        let mpdu_header =
-            ccsds::parse_mpdu_header(&vcdu_payload[ccsds::VCDU_HEADER_LEN..ccsds::VCDU_HEADER_LEN + ccsds::MPDU_HEADER_LEN])
-                .unwrap();
+        let mpdu_header = ccsds::parse_mpdu_header(
+            &vcdu_payload[ccsds::VCDU_HEADER_LEN..ccsds::VCDU_HEADER_LEN + ccsds::MPDU_HEADER_LEN],
+        )
+        .unwrap();
         let mpdu_payload = &vcdu_payload[ccsds::VCDU_HEADER_LEN + ccsds::MPDU_HEADER_LEN..];
         let mut reassembler = ccsds::PacketReassembler::new();
         reassembler.push_mpdu_payload(mpdu_payload, mpdu_header.first_header_pointer);
@@ -538,7 +550,11 @@ mod tests {
         // (APID 0x7FF) used to pad the frame to its fixed RS payload size;
         // only the real-APID packet's content matters for this assertion.
         let real: Vec<_> = completed.iter().filter(|p| p.apid == apid).collect();
-        assert_eq!(real.len(), 1, "expected exactly one packet on the real APID");
+        assert_eq!(
+            real.len(),
+            1,
+            "expected exactly one packet on the real APID"
+        );
         assert_eq!(real[0].data, packet_data);
     }
 
@@ -569,9 +585,15 @@ mod tests {
         while rx.try_recv().is_ok() {}
 
         let result = decoder.finish();
-        assert!(result.is_some(), "decoder should have achieved CADU sync on a clean synthetic signal");
+        assert!(
+            result.is_some(),
+            "decoder should have achieved CADU sync on a clean synthetic signal"
+        );
         let result = result.unwrap();
-        assert!(result.rs_ok > 0, "expected at least one successfully RS-decoded codeword");
+        assert!(
+            result.rs_ok > 0,
+            "expected at least one successfully RS-decoded codeword"
+        );
     }
 
     #[test]
@@ -663,6 +685,9 @@ mod tests {
             result.is_some(),
             "decoder should recover lock by falling back to the Gray mapping after Natural fails on noise"
         );
-        assert!(result.unwrap().rs_ok > 0, "expected at least one successfully RS-decoded codeword after fallback");
+        assert!(
+            result.unwrap().rs_ok > 0,
+            "expected at least one successfully RS-decoded codeword after fallback"
+        );
     }
 }

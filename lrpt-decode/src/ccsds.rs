@@ -48,7 +48,8 @@ pub fn parse_vcdu_header(bytes: &[u8]) -> Option<VcduHeader> {
     let version = (bytes[0] >> 6) & 0b11;
     let spacecraft_id = (u16::from(bytes[0] & 0x3F) << 2) | u16::from(bytes[1] >> 6);
     let virtual_channel_id = bytes[1] & 0x3F;
-    let frame_counter = (u32::from(bytes[2]) << 16) | (u32::from(bytes[3]) << 8) | u32::from(bytes[4]);
+    let frame_counter =
+        (u32::from(bytes[2]) << 16) | (u32::from(bytes[3]) << 8) | u32::from(bytes[4]);
     Some(VcduHeader {
         version,
         spacecraft_id,
@@ -72,7 +73,9 @@ pub fn parse_mpdu_header(bytes: &[u8]) -> Option<MpduHeader> {
     }
     let raw = (u16::from(bytes[0]) << 8) | u16::from(bytes[1]);
     let first_header_pointer = raw & 0x07FF;
-    Some(MpduHeader { first_header_pointer })
+    Some(MpduHeader {
+        first_header_pointer,
+    })
 }
 
 /// Parsed CCSDS Space Packet primary header.
@@ -133,16 +136,28 @@ pub fn parse_space_packet_header(bytes: &[u8]) -> Option<SpacePacketHeader> {
 // they're kept as documented, spec-accurate constants for callers that
 // want to inspect `SpacePacketHeader::sequence_flags` directly (e.g. to
 // detect and report anomalous segmentation).
-#[allow(dead_code, reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic")]
+#[allow(
+    dead_code,
+    reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic"
+)]
 /// Sequence flags: packet is a standalone (unsegmented) packet.
 pub const SEQ_FLAG_UNSEGMENTED: u8 = 0b11;
-#[allow(dead_code, reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic")]
+#[allow(
+    dead_code,
+    reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic"
+)]
 /// Sequence flags: first segment of a packet.
 pub const SEQ_FLAG_FIRST: u8 = 0b01;
-#[allow(dead_code, reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic")]
+#[allow(
+    dead_code,
+    reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic"
+)]
 /// Sequence flags: continuation segment.
 pub const SEQ_FLAG_CONTINUATION: u8 = 0b00;
-#[allow(dead_code, reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic")]
+#[allow(
+    dead_code,
+    reason = "documented CCSDS constant for header inspection, not yet consulted by reassembly logic"
+)]
 /// Sequence flags: last segment.
 pub const SEQ_FLAG_LAST: u8 = 0b10;
 
@@ -321,7 +336,7 @@ mod tests {
 
     fn build_space_packet(apid: u16, seq: u16, data: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
-        let word0 = (0u16 << 13) | (0u16 << 12) | (0u16 << 11) | (apid & 0x07FF);
+        let word0 = apid & 0x07FF;
         bytes.push((word0 >> 8) as u8);
         bytes.push((word0 & 0xFF) as u8);
         let word1 = (SEQ_FLAG_UNSEGMENTED as u16) << 14 | (seq & 0x3FFF);

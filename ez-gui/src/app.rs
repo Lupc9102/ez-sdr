@@ -56,9 +56,19 @@ pub enum AppTab {
 /// which is always pinned last in the sidebar. `id` matches
 /// [`crate::config::LayoutConfig::main_tabs`] entries.
 const MAIN_TABS: &[(&str, AppTab, &str, &str)] = &[
-    ("sdr", AppTab::Sdr, "📻", "SDR — Spectrum, tuning, demodulation"),
+    (
+        "sdr",
+        AppTab::Sdr,
+        "📻",
+        "SDR — Spectrum, tuning, demodulation",
+    ),
     ("adsb", AppTab::AdsB, "✈", "ADS-B — Aircraft tracking"),
-    ("satellite", AppTab::Satellite, "🛰", "Satellite — Pass predictions, Doppler"),
+    (
+        "satellite",
+        AppTab::Satellite,
+        "🛰",
+        "Satellite — Pass predictions, Doppler",
+    ),
     ("ai", AppTab::Ai, "🤖", "AI — Assistant, questions, tools"),
 ];
 
@@ -1840,18 +1850,38 @@ impl eframe::App for CentralApp {
         ui.horizontal(|ui| {
             if let Ok(state) = self.shared.try_lock() {
                 let running = state.source.status == crate::source_manager::SourceStatus::Running;
-                let status_color = if running { egui::Color32::GREEN } else { egui::Color32::GRAY };
-                ui.colored_label(status_color, "●").on_hover_text(if running { "SDR running" } else { "SDR stopped — Space to start" });
+                let status_color = if running {
+                    egui::Color32::GREEN
+                } else {
+                    egui::Color32::GRAY
+                };
+                ui.colored_label(status_color, "●")
+                    .on_hover_text(if running {
+                        "SDR running"
+                    } else {
+                        "SDR stopped — Space to start"
+                    });
 
                 let true_hz = (state.source.frequency_hz as i64 + state.lo_offset_hz).max(0) as u64;
                 let freq_str = if state.lo_offset_hz != 0 {
-                    format!("{:.3} MHz (+{:.0}M)", true_hz as f64 / 1e6, state.lo_offset_hz as f64 / 1e6)
+                    format!(
+                        "{:.3} MHz (+{:.0}M)",
+                        true_hz as f64 / 1e6,
+                        state.lo_offset_hz as f64 / 1e6
+                    )
                 } else {
                     format!("{:.3} MHz", state.source.frequency_hz as f64 / 1e6)
                 };
-                let freq_resp = ui.add(egui::Label::new(egui::RichText::new(&freq_str).monospace().size(13.0)
-                    .color(if state.lo_offset_hz != 0 || state.source.ppm_correction != 0 { egui::Color32::from_rgb(255, 200, 80) } else { egui::Color32::WHITE }))
-                    .sense(egui::Sense::click()));
+                let freq_resp = ui.add(
+                    egui::Label::new(egui::RichText::new(&freq_str).monospace().size(13.0).color(
+                        if state.lo_offset_hz != 0 || state.source.ppm_correction != 0 {
+                            egui::Color32::from_rgb(255, 200, 80)
+                        } else {
+                            egui::Color32::WHITE
+                        },
+                    ))
+                    .sense(egui::Sense::click()),
+                );
                 if freq_resp.clicked() {
                     ui.ctx().copy_text(format!("{:.6}", true_hz as f64 / 1e6));
                 }
@@ -1861,9 +1891,13 @@ impl eframe::App for CentralApp {
 
                 ui.separator();
                 let signal_db = state.spectrum.signal_level();
-                let sig_color = if signal_db > -40.0 { egui::Color32::GREEN }
-                    else if signal_db > -80.0 { egui::Color32::YELLOW }
-                    else { egui::Color32::DARK_GRAY };
+                let sig_color = if signal_db > -40.0 {
+                    egui::Color32::GREEN
+                } else if signal_db > -80.0 {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::DARK_GRAY
+                };
                 ui.colored_label(sig_color, format!("{signal_db:.0} dB"));
 
                 if state.recording {
@@ -1876,7 +1910,10 @@ impl eframe::App for CentralApp {
                     if since.elapsed().as_secs_f32() < 3.0 {
                         let alpha = ((3.0 - since.elapsed().as_secs_f32()) / 3.0 * 255.0) as u8;
                         ui.separator();
-                        ui.colored_label(egui::Color32::from_rgba_unmultiplied(220, 200, 80, alpha), msg);
+                        ui.colored_label(
+                            egui::Color32::from_rgba_unmultiplied(220, 200, 80, alpha),
+                            msg,
+                        );
                     }
                 }
             }
@@ -2041,15 +2078,31 @@ impl CentralApp {
         let (main_tabs, secondary_tools) = self
             .shared
             .try_lock()
-            .map(|state| (state.config.layout.main_tabs.clone(), state.config.layout.secondary_tools.clone()))
+            .map(|state| {
+                (
+                    state.config.layout.main_tabs.clone(),
+                    state.config.layout.secondary_tools.clone(),
+                )
+            })
             .unwrap_or_default();
 
         ui.vertical_centered(|ui| {
             ui.add_space(4.0);
             // Main tabs, ordered/filtered by user layout config, with Customize always pinned last.
-            let ordered_tabs = main_tabs.iter().filter(|item| item.visible).filter_map(|item| {
-                MAIN_TABS.iter().find(|(id, ..)| *id == item.id).map(|(_, tab, icon, tip)| (tab.clone(), *icon, *tip))
-            }).chain(std::iter::once((AppTab::Customize, "🎨", "Customize — Themes, colors, effects, fonts, layout")));
+            let ordered_tabs = main_tabs
+                .iter()
+                .filter(|item| item.visible)
+                .filter_map(|item| {
+                    MAIN_TABS
+                        .iter()
+                        .find(|(id, ..)| *id == item.id)
+                        .map(|(_, tab, icon, tip)| (tab.clone(), *icon, *tip))
+                })
+                .chain(std::iter::once((
+                    AppTab::Customize,
+                    "🎨",
+                    "Customize — Themes, colors, effects, fonts, layout",
+                )));
 
             for (tab, icon, tip) in ordered_tabs {
                 let is_active = self.current_tab == tab && self.active_secondary_tool.is_none();
@@ -2080,9 +2133,15 @@ impl CentralApp {
             ui.separator();
             ui.add_space(4.0);
             // Secondary tools, ordered/filtered by user layout config.
-            let ordered_tools = secondary_tools.iter().filter(|item| item.visible).filter_map(|item| {
-                ALL_SECONDARY_TOOLS.iter().find(|t| t.id() == item.id).copied()
-            });
+            let ordered_tools = secondary_tools
+                .iter()
+                .filter(|item| item.visible)
+                .filter_map(|item| {
+                    ALL_SECONDARY_TOOLS
+                        .iter()
+                        .find(|t| t.id() == item.id)
+                        .copied()
+                });
             for tool in ordered_tools {
                 let is_active = self.active_secondary_tool == Some(tool);
                 let fg = if is_active {
@@ -2422,14 +2481,12 @@ impl CentralApp {
             self.satellite_subtab = crate::satellite_panel::SatelliteSubTab::Decode;
         }
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            match self.satellite_subtab {
-                crate::satellite_panel::SatelliteSubTab::Decode => {
-                    self.render_decode_central(ui);
-                }
-                _ => {
-                    self.render_satellite_world_map(ui);
-                }
+        egui::CentralPanel::default().show(ui, |ui| match self.satellite_subtab {
+            crate::satellite_panel::SatelliteSubTab::Decode => {
+                self.render_decode_central(ui);
+            }
+            _ => {
+                self.render_satellite_world_map(ui);
             }
         });
     }
@@ -2566,10 +2623,7 @@ impl CentralApp {
                         ui.painter().image(
                             tex_handle.id(),
                             img_rect,
-                            egui::Rect::from_min_size(
-                                egui::pos2(0.0, 0.0),
-                                egui::vec2(1.0, 1.0),
-                            ),
+                            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1.0, 1.0)),
                             egui::Color32::WHITE,
                         );
 

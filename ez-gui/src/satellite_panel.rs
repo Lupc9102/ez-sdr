@@ -580,9 +580,7 @@ impl SatellitePanel {
                     for (apid, img) in &decode_result.images {
                         let filename = format!(
                             "{}_apid{}.png",
-                            path.file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy(),
+                            path.file_stem().unwrap_or_default().to_string_lossy(),
                             apid
                         );
                         let img_path = output_dir.join(&filename);
@@ -677,11 +675,7 @@ impl SatellitePanel {
             .selected_text(self.decode_satellite_preset.label())
             .show_ui(ui, |ui| {
                 for preset in DecodePreset::all() {
-                    ui.selectable_value(
-                        &mut self.decode_satellite_preset,
-                        *preset,
-                        preset.label(),
-                    );
+                    ui.selectable_value(&mut self.decode_satellite_preset, *preset, preset.label());
                 }
             });
 
@@ -744,14 +738,10 @@ impl SatellitePanel {
                 .num_columns(2)
                 .show(ui, |ui| {
                     ui.label("Sample Rate:");
-                    ui.add(
-                        egui::DragValue::new(&mut self.decode_sample_rate).suffix(" Hz"),
-                    );
+                    ui.add(egui::DragValue::new(&mut self.decode_sample_rate).suffix(" Hz"));
                     ui.end_row();
                     ui.label("Symbol Rate:");
-                    ui.add(
-                        egui::DragValue::new(&mut self.decode_symbol_rate).suffix(" Hz"),
-                    );
+                    ui.add(egui::DragValue::new(&mut self.decode_symbol_rate).suffix(" Hz"));
                     ui.end_row();
                 });
         });
@@ -783,12 +773,8 @@ impl SatellitePanel {
         if can_decode {
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new("▶ Decode")
-                            .size(15.0)
-                            .strong(),
-                    )
-                    .min_size(egui::vec2(ui.available_width(), 32.0)),
+                    egui::Button::new(egui::RichText::new("▶ Decode").size(15.0).strong())
+                        .min_size(egui::vec2(ui.available_width(), 32.0)),
                 )
                 .clicked()
             {
@@ -809,14 +795,12 @@ impl SatellitePanel {
                 } else {
                     0.0
                 };
-                ui.add(
-                    egui::ProgressBar::new(pct).text(format!(
-                        "RS OK: {} / {} ({:.1}%)",
-                        progress.rs_ok,
-                        total,
-                        pct * 100.0
-                    )),
-                );
+                ui.add(egui::ProgressBar::new(pct).text(format!(
+                    "RS OK: {} / {} ({:.1}%)",
+                    progress.rs_ok,
+                    total,
+                    pct * 100.0
+                )));
                 ui.label(format!("Lines decoded: {}", progress.lines_decoded));
                 ui.horizontal(|ui| {
                     ui.label(if progress.costas_locked {
@@ -897,12 +881,7 @@ impl SatellitePanel {
                     .into_iter()
                     .flatten()
                     .filter_map(|e| e.ok())
-                    .filter(|e| {
-                        e.path()
-                            .extension()
-                            .map(|ext| ext == "iq")
-                            .unwrap_or(false)
-                    })
+                    .filter(|e| e.path().extension().map(|ext| ext == "iq").unwrap_or(false))
                     .collect();
                 files.sort_by(|a, b| {
                     b.metadata()

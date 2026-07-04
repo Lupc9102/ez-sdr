@@ -180,7 +180,7 @@ impl Expr {
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
     Num(f32),
-    Var(u8),  // 0..5 for ch1..ch6
+    Var(u8), // 0..5 for ch1..ch6
     Plus,
     Minus,
     Star,
@@ -266,7 +266,9 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     tokens.push(Token::Eq);
                     i += 2;
                 } else {
-                    return Err(format!("Unexpected '=' at position {i}, did you mean '=='?"));
+                    return Err(format!(
+                        "Unexpected '=' at position {i}, did you mean '=='?"
+                    ));
                 }
             }
             'c' => {

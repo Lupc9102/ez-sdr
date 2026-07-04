@@ -3,7 +3,7 @@
 //! primitives, so these build vertex-colored meshes / concentric fading
 //! strokes instead.
 
-use crate::theme::{Gradient, GlowConfig};
+use crate::theme::{GlowConfig, Gradient};
 
 /// Paint a vertical (top→bottom) linear gradient into `rect` using a
 /// vertex-colored triangle mesh — one quad per pair of adjacent stops.
@@ -39,7 +39,12 @@ pub fn gradient_rect_vertical(painter: &egui::Painter, rect: egui::Rect, gradien
 
 /// Paint a soft glow around `rect` as concentric fading rounded-rect strokes.
 /// No-op if `glow.enabled` is false.
-pub fn paint_glow(painter: &egui::Painter, rect: egui::Rect, corner_radius: f32, glow: &GlowConfig) {
+pub fn paint_glow(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    corner_radius: f32,
+    glow: &GlowConfig,
+) {
     if !glow.enabled || glow.radius <= 0.0 {
         return;
     }
@@ -71,7 +76,11 @@ mod tests {
         ctx.begin_pass(egui::RawInput::default());
         let painter = ctx.debug_painter();
         let gradient = Gradient { stops: vec![] };
-        gradient_rect_vertical(&painter, egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)), &gradient);
+        gradient_rect_vertical(
+            &painter,
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)),
+            &gradient,
+        );
         ctx.end_pass();
     }
 
@@ -80,8 +89,18 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.begin_pass(egui::RawInput::default());
         let painter = ctx.debug_painter();
-        let glow = GlowConfig { enabled: false, color: Rgba::from_rgb(255, 0, 0), radius: 10.0, intensity: 1.0 };
-        paint_glow(&painter, egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)), 4.0, &glow);
+        let glow = GlowConfig {
+            enabled: false,
+            color: Rgba::from_rgb(255, 0, 0),
+            radius: 10.0,
+            intensity: 1.0,
+        };
+        paint_glow(
+            &painter,
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)),
+            4.0,
+            &glow,
+        );
         ctx.end_pass();
     }
 }

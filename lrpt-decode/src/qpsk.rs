@@ -127,7 +127,8 @@ fn lowpass_taps(cutoff_ratio: f32, n_taps: usize) -> Vec<f32> {
             (2.0 * std::f32::consts::PI * cutoff_ratio * x).sin() / (std::f32::consts::PI * x)
         };
         // Hamming window.
-        let window = 0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (n_taps as f32 - 1.0)).cos();
+        let window =
+            0.54 - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (n_taps as f32 - 1.0)).cos();
         *tap = sinc * window;
     }
     let sum: f32 = taps.iter().sum();
@@ -214,7 +215,8 @@ pub struct QpskDemod {
 impl QpskDemod {
     #[must_use]
     pub fn new(config: QpskConfig) -> Self {
-        let decim_factor = ((config.sample_rate / (config.symbol_rate * 6.0)).floor() as usize).max(1);
+        let decim_factor =
+            ((config.sample_rate / (config.symbol_rate * 6.0)).floor() as usize).max(1);
         let decimated_rate = config.sample_rate / decim_factor as f32;
         let sps = decimated_rate / config.symbol_rate;
 
@@ -392,10 +394,16 @@ mod tests {
         let taps = rrc_taps(0.5, 4.0, 6);
         let n = taps.len();
         for i in 0..n / 2 {
-            assert!((taps[i] - taps[n - 1 - i]).abs() < 1e-4, "taps not symmetric at {i}");
+            assert!(
+                (taps[i] - taps[n - 1 - i]).abs() < 1e-4,
+                "taps not symmetric at {i}"
+            );
         }
         let sum: f32 = taps.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-3, "taps should sum to ~1.0, got {sum}");
+        assert!(
+            (sum - 1.0).abs() < 1e-3,
+            "taps should sum to ~1.0, got {sum}"
+        );
     }
 
     #[test]
@@ -413,7 +421,10 @@ mod tests {
             let out = agc.process(Complex32::new(50.0, 0.0));
             last_mag = out.norm();
         }
-        assert!((last_mag - 1.0).abs() < 0.2, "AGC did not converge, got {last_mag}");
+        assert!(
+            (last_mag - 1.0).abs() < 0.2,
+            "AGC did not converge, got {last_mag}"
+        );
     }
 
     #[test]

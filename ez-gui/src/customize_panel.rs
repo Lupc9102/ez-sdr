@@ -35,7 +35,14 @@ impl Default for CustomizePanel {
 
 fn swatch(ui: &mut egui::Ui, theme: &ThemeConfig) {
     ui.horizontal(|ui| {
-        for c in [theme.bg, theme.surface, theme.accent, theme.success, theme.warning, theme.error] {
+        for c in [
+            theme.bg,
+            theme.surface,
+            theme.accent,
+            theme.success,
+            theme.warning,
+            theme.error,
+        ] {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
             ui.painter().rect_filled(rect, 3.0, c.to_egui());
         }
@@ -60,14 +67,16 @@ impl CustomizePanel {
         });
         ui.separator();
 
-        egui::ScrollArea::vertical().id_salt("customize_scroll").show(ui, |ui| match self.subtab {
-            CustomizeSubTab::Themes => self.ui_themes(ui, cfg),
-            CustomizeSubTab::Colors => self.ui_colors(ui, cfg),
-            CustomizeSubTab::Effects => self.ui_effects(ui, cfg),
-            CustomizeSubTab::Typography => self.ui_typography(ui, cfg),
-            CustomizeSubTab::Layout => self.ui_layout(ui, cfg),
-            CustomizeSubTab::ImportExport => self.ui_import_export(ui, cfg),
-        });
+        egui::ScrollArea::vertical()
+            .id_salt("customize_scroll")
+            .show(ui, |ui| match self.subtab {
+                CustomizeSubTab::Themes => self.ui_themes(ui, cfg),
+                CustomizeSubTab::Colors => self.ui_colors(ui, cfg),
+                CustomizeSubTab::Effects => self.ui_effects(ui, cfg),
+                CustomizeSubTab::Typography => self.ui_typography(ui, cfg),
+                CustomizeSubTab::Layout => self.ui_layout(ui, cfg),
+                CustomizeSubTab::ImportExport => self.ui_import_export(ui, cfg),
+            });
     }
 
     fn ui_themes(&mut self, ui: &mut egui::Ui, cfg: &mut AppConfig) {
@@ -151,8 +160,12 @@ impl CustomizePanel {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut self.new_theme_name)
-                .on_hover_text("Name for a new saved theme, created from the currently active theme.");
-            if ui.button("💾 Save current as new theme").clicked() && !self.new_theme_name.trim().is_empty() {
+                .on_hover_text(
+                    "Name for a new saved theme, created from the currently active theme.",
+                );
+            if ui.button("💾 Save current as new theme").clicked()
+                && !self.new_theme_name.trim().is_empty()
+            {
                 cfg.custom_themes.push(NamedTheme {
                     id: format!("custom-{}", cfg.custom_themes.len()),
                     name: self.new_theme_name.trim().to_string(),
@@ -216,10 +229,15 @@ impl CustomizePanel {
             t.spectrum_gradient.stops.remove(i);
         }
         if ui.small_button("+ Add stop").clicked() {
-            t.spectrum_gradient.stops.push((0.5, t.spectrum_gradient.sample(0.5)));
+            t.spectrum_gradient
+                .stops
+                .push((0.5, t.spectrum_gradient.sample(0.5)));
         }
 
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().min(260.0), 24.0), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width().min(260.0), 24.0),
+            egui::Sense::hover(),
+        );
         crate::fx::gradient_rect_vertical(ui.painter(), rect, &t.spectrum_gradient);
 
         if ui.button("Apply").clicked() {
@@ -232,7 +250,10 @@ impl CustomizePanel {
         ui.label(egui::RichText::new("Font family").strong());
         ui.horizontal(|ui| {
             for family in FontFamily::ALL {
-                if ui.selectable_label(t.typography.family == family, family.label()).clicked() {
+                if ui
+                    .selectable_label(t.typography.family == family, family.label())
+                    .clicked()
+                {
                     t.typography.family = family;
                 }
             }
@@ -242,7 +263,9 @@ impl CustomizePanel {
         ui.add(egui::Slider::new(&mut t.typography.heading_size, 10.0..=36.0).text("Heading size"));
         ui.add(egui::Slider::new(&mut t.typography.body_size, 8.0..=24.0).text("Body size"));
         ui.add(egui::Slider::new(&mut t.typography.small_size, 6.0..=18.0).text("Small text size"));
-        ui.add(egui::Slider::new(&mut t.typography.monospace_size, 8.0..=24.0).text("Monospace size"));
+        ui.add(
+            egui::Slider::new(&mut t.typography.monospace_size, 8.0..=24.0).text("Monospace size"),
+        );
         ui.add(egui::Slider::new(&mut t.typography.button_size, 8.0..=24.0).text("Button size"));
 
         ui.add_space(8.0);
@@ -250,7 +273,10 @@ impl CustomizePanel {
         ui.label(egui::RichText::new("Widget density").strong());
         ui.horizontal(|ui| {
             for d in Density::ALL {
-                if ui.selectable_label(t.spacing.density == d, d.label()).clicked() {
+                if ui
+                    .selectable_label(t.spacing.density == d, d.label())
+                    .clicked()
+                {
                     t.spacing.density = d;
                 }
             }
@@ -323,13 +349,20 @@ impl CustomizePanel {
                 {
                     if let Ok(json) = serde_json::to_string_pretty(&cfg.theme_config) {
                         if let Err(e) = std::fs::write(&path, json) {
-                            eprintln!("[customize] failed to export theme to {}: {}", path.display(), e);
+                            eprintln!(
+                                "[customize] failed to export theme to {}: {}",
+                                path.display(),
+                                e
+                            );
                         }
                     }
                 }
             }
             if ui.button("📥 Import theme…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("JSON", &["json"])
+                    .pick_file()
+                {
                     if let Ok(data) = std::fs::read_to_string(&path) {
                         if let Ok(loaded) = serde_json::from_str::<ThemeConfig>(&data) {
                             cfg.theme_config = loaded;

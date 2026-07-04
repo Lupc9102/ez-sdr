@@ -261,7 +261,10 @@ impl EditorPanel {
 
         let mut png_bytes = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut png_bytes);
-        if rgba_img.write_to(&mut cursor, image::ImageFormat::Png).is_err() {
+        if rgba_img
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .is_err()
+        {
             self.ai_error = Some("Failed to encode PNG".to_string());
             self.ai_recommending = false;
             return;
@@ -333,7 +336,8 @@ impl EditorPanel {
         };
 
         // Get channel data as f32 arrays for pixel evaluation
-        let ch_data: Vec<Option<&Vec<f32>>> = (64..=69).map(|apid| self.channels.get(&apid)).collect();
+        let ch_data: Vec<Option<&Vec<f32>>> =
+            (64..=69).map(|apid| self.channels.get(&apid)).collect();
 
         // Build per-pixel channel values
         let mut r_buf = vec![0.0f32; n];
@@ -355,8 +359,13 @@ impl EditorPanel {
         }
 
         // Apply processing pipeline
-        self.pipeline
-            .apply(self.channel_width, self.channel_height, &mut r_buf, &mut g_buf, &mut b_buf);
+        self.pipeline.apply(
+            self.channel_width,
+            self.channel_height,
+            &mut r_buf,
+            &mut g_buf,
+            &mut b_buf,
+        );
 
         // Compute histogram
         self.histogram_r = image_processing::histogram(&r_buf);
@@ -366,21 +375,20 @@ impl EditorPanel {
         // Convert to RGBA u8
         self.output_rgba = Vec::with_capacity(n * 4);
         for i in 0..n {
-            self.output_rgba.push((r_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
-            self.output_rgba.push((g_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
-            self.output_rgba.push((b_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
+            self.output_rgba
+                .push((r_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
+            self.output_rgba
+                .push((g_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
+            self.output_rgba
+                .push((b_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
             self.output_rgba.push(255); // alpha
         }
 
         // Upload texture
-        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-            [w, h],
-            &self.output_rgba,
-        );
+        let color_image = egui::ColorImage::from_rgba_unmultiplied([w, h], &self.output_rgba);
         let tex_key = "editor_output";
-        self.output_texture = Some(
-            ui_ctx().load_texture(tex_key, color_image, egui::TextureOptions::default()),
-        );
+        self.output_texture =
+            Some(ui_ctx().load_texture(tex_key, color_image, egui::TextureOptions::default()));
 
         self.dirty = false;
     }
@@ -438,7 +446,10 @@ impl EditorPanel {
                 .show_ui(ui, |ui| {
                     for (i, preset) in METEOR_COMPOSITES.iter().enumerate() {
                         let label = format!("{} — {}", preset.name, preset.description);
-                        if ui.selectable_value(&mut self.selected_preset, i, label).clicked() {
+                        if ui
+                            .selectable_value(&mut self.selected_preset, i, label)
+                            .clicked()
+                        {
                             self.dirty = true;
                         }
                     }
@@ -465,14 +476,23 @@ impl EditorPanel {
     fn ui_processing(&mut self, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("Processing").strong());
 
-        if ui.checkbox(&mut self.pipeline.equalize, "Equalize").changed() {
+        if ui
+            .checkbox(&mut self.pipeline.equalize, "Equalize")
+            .changed()
+        {
             self.dirty = true;
         }
         if self.pipeline.equalize
-            && ui.checkbox(&mut self.pipeline.equalize_per_channel, "Per Channel").changed() {
-                self.dirty = true;
-            }
-        if ui.checkbox(&mut self.pipeline.white_balance, "White Balance").changed() {
+            && ui
+                .checkbox(&mut self.pipeline.equalize_per_channel, "Per Channel")
+                .changed()
+        {
+            self.dirty = true;
+        }
+        if ui
+            .checkbox(&mut self.pipeline.white_balance, "White Balance")
+            .changed()
+        {
             self.dirty = true;
         }
 
@@ -480,27 +500,45 @@ impl EditorPanel {
 
         let mut changed = false;
         ui.label("Brightness:");
-        if ui.add(egui::Slider::new(&mut self.pipeline.brightness, -1.0..=1.0)).changed() {
+        if ui
+            .add(egui::Slider::new(&mut self.pipeline.brightness, -1.0..=1.0))
+            .changed()
+        {
             changed = true;
         }
         ui.label("Contrast:");
-        if ui.add(egui::Slider::new(&mut self.pipeline.contrast, 0.0..=2.0)).changed() {
+        if ui
+            .add(egui::Slider::new(&mut self.pipeline.contrast, 0.0..=2.0))
+            .changed()
+        {
             changed = true;
         }
         ui.label("Hue:");
-        if ui.add(egui::Slider::new(&mut self.pipeline.hue_shift, -180.0..=180.0).suffix("°")).changed() {
+        if ui
+            .add(egui::Slider::new(&mut self.pipeline.hue_shift, -180.0..=180.0).suffix("°"))
+            .changed()
+        {
             changed = true;
         }
         ui.label("Saturation:");
-        if ui.add(egui::Slider::new(&mut self.pipeline.saturation, 0.0..=2.0)).changed() {
+        if ui
+            .add(egui::Slider::new(&mut self.pipeline.saturation, 0.0..=2.0))
+            .changed()
+        {
             changed = true;
         }
         ui.label("Lightness:");
-        if ui.add(egui::Slider::new(&mut self.pipeline.lightness, -1.0..=1.0)).changed() {
+        if ui
+            .add(egui::Slider::new(&mut self.pipeline.lightness, -1.0..=1.0))
+            .changed()
+        {
             changed = true;
         }
 
-        if ui.checkbox(&mut self.pipeline.median_blur, "Median Blur").changed() {
+        if ui
+            .checkbox(&mut self.pipeline.median_blur, "Median Blur")
+            .changed()
+        {
             self.dirty = true;
         }
         if ui.checkbox(&mut self.pipeline.invert, "Invert").changed() {
@@ -573,7 +611,12 @@ impl EditorPanel {
                 );
             }
 
-            painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, egui::Color32::GRAY), egui::StrokeKind::Outside);
+            painter.rect_stroke(
+                rect,
+                0.0,
+                egui::Stroke::new(1.0, egui::Color32::GRAY),
+                egui::StrokeKind::Outside,
+            );
         }
     }
 
@@ -592,8 +635,8 @@ impl EditorPanel {
         ui.horizontal_wrapped(|ui| {
             for (apid, label) in channel_names {
                 if self.channels.contains_key(&apid) {
-                    let is_selected = self.view_mode == ViewMode::SingleChannel
-                        && self.selected_channel == apid;
+                    let is_selected =
+                        self.view_mode == ViewMode::SingleChannel && self.selected_channel == apid;
                     if ui.selectable_label(is_selected, label).clicked() {
                         if is_selected {
                             self.view_mode = ViewMode::Composite;
@@ -751,8 +794,7 @@ impl EditorPanel {
                 && (img_x as u32) < self.channel_width
                 && (img_y as u32) < self.channel_height
             {
-                let idx =
-                    (img_y as u32 * self.channel_width + img_x as u32) as usize * 4;
+                let idx = (img_y as u32 * self.channel_width + img_x as u32) as usize * 4;
                 if idx + 3 < self.output_rgba.len() {
                     let r = self.output_rgba[idx];
                     let g = self.output_rgba[idx + 1];
@@ -805,8 +847,13 @@ impl EditorPanel {
             let mut g_buf = ch_data.clone();
             let mut b_buf = ch_data.clone();
 
-            self.pipeline
-                .apply(self.channel_width, self.channel_height, &mut r_buf, &mut g_buf, &mut b_buf);
+            self.pipeline.apply(
+                self.channel_width,
+                self.channel_height,
+                &mut r_buf,
+                &mut g_buf,
+                &mut b_buf,
+            );
 
             self.histogram_r = image_processing::histogram(&r_buf);
             self.histogram_g = image_processing::histogram(&g_buf);
@@ -814,17 +861,19 @@ impl EditorPanel {
 
             self.output_rgba = Vec::with_capacity(n * 4);
             for i in 0..n {
-                self.output_rgba.push((r_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
-                self.output_rgba.push((g_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
-                self.output_rgba.push((b_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
+                self.output_rgba
+                    .push((r_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
+                self.output_rgba
+                    .push((g_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
+                self.output_rgba
+                    .push((b_buf[i] * 255.0).round().clamp(0.0, 255.0) as u8);
                 self.output_rgba.push(255);
             }
 
             let color_image = egui::ColorImage::from_rgba_unmultiplied([w, h], &self.output_rgba);
             let tex_key = "editor_output";
-            self.output_texture = Some(
-                ui_ctx().load_texture(tex_key, color_image, egui::TextureOptions::default()),
-            );
+            self.output_texture =
+                Some(ui_ctx().load_texture(tex_key, color_image, egui::TextureOptions::default()));
 
             self.dirty = false;
         }
@@ -893,8 +942,12 @@ fn call_openai_vision(
         .send_json(&body)
         .map_err(|e| format!("HTTP error: {e}"))?;
 
-    let resp_text = resp.body_mut().read_to_string().map_err(|e| format!("Read error: {e}"))?;
-    let json: serde_json::Value = serde_json::from_str(&resp_text).map_err(|e| format!("JSON error: {e}"))?;
+    let resp_text = resp
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("Read error: {e}"))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&resp_text).map_err(|e| format!("JSON error: {e}"))?;
     let text = json["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("");
@@ -938,11 +991,13 @@ fn call_anthropic_vision(
         .send_json(&body)
         .map_err(|e| format!("HTTP error: {e}"))?;
 
-    let resp_text = resp.body_mut().read_to_string().map_err(|e| format!("Read error: {e}"))?;
-    let json: serde_json::Value = serde_json::from_str(&resp_text).map_err(|e| format!("JSON error: {e}"))?;
-    let text = json["content"][0]["text"]
-        .as_str()
-        .unwrap_or("");
+    let resp_text = resp
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("Read error: {e}"))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&resp_text).map_err(|e| format!("JSON error: {e}"))?;
+    let text = json["content"][0]["text"].as_str().unwrap_or("");
     Ok(text.to_string())
 }
 

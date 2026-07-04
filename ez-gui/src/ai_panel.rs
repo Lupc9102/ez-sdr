@@ -1380,8 +1380,9 @@ impl AiPanel {
             return Err(format!("HTTP {status}: {text}"));
         }
 
-        let json: serde_json::Value =
-            resp.json().map_err(|e| format!("Failed to parse response: {e}"))?;
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|e| format!("Failed to parse response: {e}"))?;
 
         if is_anthropic {
             // Anthropic: content[0].text
@@ -1975,10 +1976,17 @@ mod tests {
 
     #[test]
     fn test_chat_message_with_image() {
-        let msg = ChatMessage::with_image("user", "Analyze this", "data:image/png;base64,abc123".to_string());
+        let msg = ChatMessage::with_image(
+            "user",
+            "Analyze this",
+            "data:image/png;base64,abc123".to_string(),
+        );
         assert_eq!(msg.role, "user");
         assert_eq!(msg.content, "Analyze this");
-        assert_eq!(msg.image_url.as_deref(), Some("data:image/png;base64,abc123"));
+        assert_eq!(
+            msg.image_url.as_deref(),
+            Some("data:image/png;base64,abc123")
+        );
     }
 
     #[test]

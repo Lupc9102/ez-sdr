@@ -27,7 +27,12 @@ pub struct LayoutConfig {
 impl Default for LayoutConfig {
     fn default() -> Self {
         fn items(ids: &[&str]) -> Vec<LayoutItem> {
-            ids.iter().map(|id| LayoutItem { id: (*id).to_string(), visible: true }).collect()
+            ids.iter()
+                .map(|id| LayoutItem {
+                    id: (*id).to_string(),
+                    visible: true,
+                })
+                .collect()
         }
         Self {
             main_tabs: items(&["sdr", "adsb", "satellite", "ai"]),
@@ -732,12 +737,28 @@ mod tests {
     fn layout_config_default_lists_all_current_tabs_and_tools_visible() {
         let layout = LayoutConfig::default();
         assert_eq!(
-            layout.main_tabs.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            layout
+                .main_tabs
+                .iter()
+                .map(|i| i.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["sdr", "adsb", "satellite", "ai"]
         );
         assert_eq!(
-            layout.secondary_tools.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
-            vec!["bookmarks", "scanner", "recorder", "scheduler", "discord", "howto", "settings"]
+            layout
+                .secondary_tools
+                .iter()
+                .map(|i| i.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "bookmarks",
+                "scanner",
+                "recorder",
+                "scheduler",
+                "discord",
+                "howto",
+                "settings"
+            ]
         );
         assert!(layout.main_tabs.iter().all(|i| i.visible));
         assert!(layout.secondary_tools.iter().all(|i| i.visible));

@@ -94,7 +94,12 @@ pub fn find_sync(bits: &[u8]) -> Option<SyncMatch> {
         if errors <= MAX_MARKER_ERRORS {
             match best {
                 Some(b) if b.errors <= errors => {}
-                _ => best = Some(SyncMatch { bit_offset: offset, errors }),
+                _ => {
+                    best = Some(SyncMatch {
+                        bit_offset: offset,
+                        errors,
+                    })
+                }
             }
             if errors == 0 {
                 break; // Perfect match, no need to keep scanning.
@@ -285,6 +290,9 @@ mod tests {
 
     #[test]
     fn cadu_len_matches_reed_solomon_interleaved_frame_len() {
-        assert_eq!(TRANSPORT_FRAME_LEN, crate::reed_solomon::INTERLEAVED_FRAME_LEN);
+        assert_eq!(
+            TRANSPORT_FRAME_LEN,
+            crate::reed_solomon::INTERLEAVED_FRAME_LEN
+        );
     }
 }

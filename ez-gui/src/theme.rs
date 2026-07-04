@@ -276,7 +276,10 @@ mod tests {
             let theme = make();
             let ctx = egui::Context::default();
             theme.apply_to_ctx(&ctx);
-            assert_eq!(&theme.preset, name, "preset field should match registry name");
+            assert_eq!(
+                &theme.preset, name,
+                "preset field should match registry name"
+            );
         }
     }
 
@@ -308,7 +311,9 @@ pub struct Gradient {
 
 impl Gradient {
     pub fn two(top: Rgba, bottom: Rgba) -> Self {
-        Self { stops: vec![(0.0, top), (1.0, bottom)] }
+        Self {
+            stops: vec![(0.0, top), (1.0, bottom)],
+        }
     }
 
     /// Sample the interpolated color at position `t` (clamped to `[0, 1]`).
@@ -339,7 +344,10 @@ impl Gradient {
 
 impl Default for Gradient {
     fn default() -> Self {
-        Self::two(Rgba::from_rgba(30, 120, 200, 100), Rgba::from_rgba(10, 30, 60, 20))
+        Self::two(
+            Rgba::from_rgba(30, 120, 200, 100),
+            Rgba::from_rgba(10, 30, 60, 20),
+        )
     }
 }
 
@@ -358,7 +366,12 @@ pub struct GlowConfig {
 
 impl Default for GlowConfig {
     fn default() -> Self {
-        Self { enabled: false, color: Rgba::from_rgb(0, 168, 255), radius: 8.0, intensity: 0.5 }
+        Self {
+            enabled: false,
+            color: Rgba::from_rgb(0, 168, 255),
+            radius: 8.0,
+            intensity: 0.5,
+        }
     }
 }
 
@@ -373,14 +386,17 @@ pub struct CornerStyle {
 
 impl Default for CornerStyle {
     fn default() -> Self {
-        Self { buttons: 4.0, panels: 6.0, windows: 6.0 }
+        Self {
+            buttons: 4.0,
+            panels: 6.0,
+            windows: 6.0,
+        }
     }
 }
 
 // ─── Typography ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FontFamily {
     /// egui's built-in proportional + monospace fonts.
     #[default]
@@ -388,7 +404,6 @@ pub enum FontFamily {
     /// Bundled DejaVu Sans / DejaVu Sans Mono.
     DejaVu,
 }
-
 
 impl FontFamily {
     pub const ALL: [FontFamily; 2] = [FontFamily::EguiDefault, FontFamily::DejaVu];
@@ -426,15 +441,13 @@ impl Default for TypographyConfig {
 
 // ─── Spacing / density ─────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Density {
     Compact,
     #[default]
     Comfortable,
     Spacious,
 }
-
 
 impl Density {
     pub const ALL: [Density; 3] = [Density::Compact, Density::Comfortable, Density::Spacious];
@@ -479,7 +492,9 @@ pub struct SpacingConfig {
 
 impl Default for SpacingConfig {
     fn default() -> Self {
-        Self { density: Density::Comfortable }
+        Self {
+            density: Density::Comfortable,
+        }
     }
 }
 
@@ -703,8 +718,17 @@ impl ThemeConfig {
         t.spectrum_fill_bot = Rgba::from_rgba(0, 240, 255, 10);
         t.spectrum_grid = Rgba::from_rgba(120, 40, 200, 90);
         t.waterfall_bg = Rgba::from_rgb(4, 0, 10);
-        t.corner = CornerStyle { buttons: 0.0, panels: 2.0, windows: 2.0 };
-        t.glow = GlowConfig { enabled: true, color: Rgba::from_rgb(255, 40, 200), radius: 10.0, intensity: 0.8 };
+        t.corner = CornerStyle {
+            buttons: 0.0,
+            panels: 2.0,
+            windows: 2.0,
+        };
+        t.glow = GlowConfig {
+            enabled: true,
+            color: Rgba::from_rgb(255, 40, 200),
+            radius: 10.0,
+            intensity: 0.8,
+        };
         t.spectrum_gradient = Gradient::two(t.spectrum_fill_top, t.spectrum_fill_bot);
         t
     }
@@ -722,8 +746,17 @@ impl ThemeConfig {
         t.spectrum_fill_top = Rgba::from_rgba(0, 200, 200, 70);
         t.spectrum_fill_bot = Rgba::from_rgba(0, 0, 0, 0);
         t.waterfall_bg = Rgba::from_rgb(0, 0, 0);
-        t.corner = CornerStyle { buttons: 8.0, panels: 10.0, windows: 10.0 };
-        t.glow = GlowConfig { enabled: true, color: Rgba::from_rgb(0, 200, 200), radius: 6.0, intensity: 0.4 };
+        t.corner = CornerStyle {
+            buttons: 8.0,
+            panels: 10.0,
+            windows: 10.0,
+        };
+        t.glow = GlowConfig {
+            enabled: true,
+            color: Rgba::from_rgb(0, 200, 200),
+            radius: 6.0,
+            intensity: 0.4,
+        };
         t.spectrum_gradient = Gradient::two(t.spectrum_fill_top, t.spectrum_fill_bot);
         t
     }
@@ -745,7 +778,11 @@ impl ThemeConfig {
         t.spectrum_fill_top = Rgba::from_rgba(255, 100, 60, 130);
         t.spectrum_fill_bot = Rgba::from_rgba(120, 20, 90, 20);
         t.spectrum_grid = Rgba::from_rgba(180, 100, 100, 90);
-        t.corner = CornerStyle { buttons: 10.0, panels: 12.0, windows: 12.0 };
+        t.corner = CornerStyle {
+            buttons: 10.0,
+            panels: 12.0,
+            windows: 12.0,
+        };
         t.spectrum_gradient = Gradient {
             stops: vec![
                 (0.0, Rgba::from_rgba(255, 220, 100, 160)),
@@ -849,11 +886,26 @@ impl ThemeConfig {
         use egui::{FontFamily as EguiFamily, FontId, TextStyle};
         let prop = EguiFamily::Proportional;
         let mono = EguiFamily::Monospace;
-        style.text_styles.insert(TextStyle::Heading, FontId::new(self.typography.heading_size, prop.clone()));
-        style.text_styles.insert(TextStyle::Body, FontId::new(self.typography.body_size, prop.clone()));
-        style.text_styles.insert(TextStyle::Button, FontId::new(self.typography.button_size, prop.clone()));
-        style.text_styles.insert(TextStyle::Small, FontId::new(self.typography.small_size, prop));
-        style.text_styles.insert(TextStyle::Monospace, FontId::new(self.typography.monospace_size, mono));
+        style.text_styles.insert(
+            TextStyle::Heading,
+            FontId::new(self.typography.heading_size, prop.clone()),
+        );
+        style.text_styles.insert(
+            TextStyle::Body,
+            FontId::new(self.typography.body_size, prop.clone()),
+        );
+        style.text_styles.insert(
+            TextStyle::Button,
+            FontId::new(self.typography.button_size, prop.clone()),
+        );
+        style.text_styles.insert(
+            TextStyle::Small,
+            FontId::new(self.typography.small_size, prop),
+        );
+        style.text_styles.insert(
+            TextStyle::Monospace,
+            FontId::new(self.typography.monospace_size, mono),
+        );
 
         ctx.set_style_of(theme, style);
     }
@@ -875,51 +927,72 @@ impl ThemeConfig {
 
         #[allow(clippy::type_complexity)]
         let groups: &[(&str, &[(&str, fn(&mut Self) -> &mut Rgba)])] = &[
-            ("Base & Surfaces", &[
-                ("Accent", |t| &mut t.accent),
-                ("Background", |t| &mut t.bg),
-                ("Surface", |t| &mut t.surface),
-            ]),
-            ("Text", &[
-                ("Text Normal", |t| &mut t.text_normal),
-                ("Text Heading", |t| &mut t.text_heading),
-                ("Text Dim", |t| &mut t.text_dim),
-            ]),
-            ("Semantic", &[
-                ("Success", |t| &mut t.success),
-                ("Warning", |t| &mut t.warning),
-                ("Error", |t| &mut t.error),
-            ]),
-            ("Spectrum & Waterfall", &[
-                ("Spectrum Line", |t| &mut t.spectrum_line),
-                ("Spectrum Fill Top", |t| &mut t.spectrum_fill_top),
-                ("Spectrum Fill Bot", |t| &mut t.spectrum_fill_bot),
-                ("Spectrum Grid", |t| &mut t.spectrum_grid),
-                ("Noise Floor", |t| &mut t.noise_floor_line),
-                ("Waterfall BG", |t| &mut t.waterfall_bg),
-            ]),
-            ("Bookmark Categories", &[
-                ("Aviation", |t| &mut t.bm_aviation),
-                ("Weather", |t| &mut t.bm_weather),
-                ("Marine", |t| &mut t.bm_marine),
-                ("Amateur", |t| &mut t.bm_amateur),
-                ("Broadcast", |t| &mut t.bm_broadcast),
-                ("Scanner", |t| &mut t.bm_scanner),
-                ("Default", |t| &mut t.bm_default),
-            ]),
-            ("S-Meter", &[
-                ("Low", |t| &mut t.smeter_low),
-                ("Mid", |t| &mut t.smeter_mid),
-                ("High", |t| &mut t.smeter_high),
-                ("Background", |t| &mut t.smeter_bg),
-                ("Border", |t| &mut t.smeter_border),
-            ]),
-            ("VFO & Status", &[
-                ("VFO A", |t| &mut t.vfo_a_color),
-                ("VFO B", |t| &mut t.vfo_b_color),
-                ("Status Signal", |t| &mut t.status_signal),
-                ("Status Recording", |t| &mut t.status_recording),
-            ]),
+            (
+                "Base & Surfaces",
+                &[
+                    ("Accent", |t| &mut t.accent),
+                    ("Background", |t| &mut t.bg),
+                    ("Surface", |t| &mut t.surface),
+                ],
+            ),
+            (
+                "Text",
+                &[
+                    ("Text Normal", |t| &mut t.text_normal),
+                    ("Text Heading", |t| &mut t.text_heading),
+                    ("Text Dim", |t| &mut t.text_dim),
+                ],
+            ),
+            (
+                "Semantic",
+                &[
+                    ("Success", |t| &mut t.success),
+                    ("Warning", |t| &mut t.warning),
+                    ("Error", |t| &mut t.error),
+                ],
+            ),
+            (
+                "Spectrum & Waterfall",
+                &[
+                    ("Spectrum Line", |t| &mut t.spectrum_line),
+                    ("Spectrum Fill Top", |t| &mut t.spectrum_fill_top),
+                    ("Spectrum Fill Bot", |t| &mut t.spectrum_fill_bot),
+                    ("Spectrum Grid", |t| &mut t.spectrum_grid),
+                    ("Noise Floor", |t| &mut t.noise_floor_line),
+                    ("Waterfall BG", |t| &mut t.waterfall_bg),
+                ],
+            ),
+            (
+                "Bookmark Categories",
+                &[
+                    ("Aviation", |t| &mut t.bm_aviation),
+                    ("Weather", |t| &mut t.bm_weather),
+                    ("Marine", |t| &mut t.bm_marine),
+                    ("Amateur", |t| &mut t.bm_amateur),
+                    ("Broadcast", |t| &mut t.bm_broadcast),
+                    ("Scanner", |t| &mut t.bm_scanner),
+                    ("Default", |t| &mut t.bm_default),
+                ],
+            ),
+            (
+                "S-Meter",
+                &[
+                    ("Low", |t| &mut t.smeter_low),
+                    ("Mid", |t| &mut t.smeter_mid),
+                    ("High", |t| &mut t.smeter_high),
+                    ("Background", |t| &mut t.smeter_bg),
+                    ("Border", |t| &mut t.smeter_border),
+                ],
+            ),
+            (
+                "VFO & Status",
+                &[
+                    ("VFO A", |t| &mut t.vfo_a_color),
+                    ("VFO B", |t| &mut t.vfo_b_color),
+                    ("Status Signal", |t| &mut t.status_signal),
+                    ("Status Recording", |t| &mut t.status_recording),
+                ],
+            ),
         ];
 
         for (group_name, fields) in groups {

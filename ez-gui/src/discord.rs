@@ -744,11 +744,7 @@ pub fn embed_lrpt_decode_complete(
         fields: vec![
             ("Satellite".to_string(), sat_name.to_string(), true),
             ("Lines".to_string(), lines.to_string(), true),
-            (
-                "RS OK".to_string(),
-                format!("{rs_ok_pct:.1}%"),
-                true,
-            ),
+            ("RS OK".to_string(), format!("{rs_ok_pct:.1}%"), true),
             ("Image".to_string(), image_path.to_string(), false),
         ],
         footer: "EZ-SDR • Satellite".to_string(),
