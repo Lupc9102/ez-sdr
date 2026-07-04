@@ -202,6 +202,7 @@ pub struct RtlSdr {
 unsafe impl Send for RtlSdr {}
 
 impl RtlSdr {
+    #[must_use]
     pub fn new(
         dev_name: Option<String>,
         freq: u64,

@@ -116,6 +116,7 @@ pub struct HackRf {
 unsafe impl Send for HackRf {}
 
 impl HackRf {
+    #[must_use]
     pub fn new(config: HackRfConfig) -> Self {
         let freq = config.freq;
         let sample_rate = config.rate;

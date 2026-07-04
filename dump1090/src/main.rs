@@ -88,6 +88,7 @@ impl Default for Demodulator {
 }
 
 impl Demodulator {
+    #[must_use]
     pub fn new() -> Self {
         Demodulator {
             inner: demod::Demod2400::new(),

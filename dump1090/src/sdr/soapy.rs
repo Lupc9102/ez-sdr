@@ -274,6 +274,7 @@ pub struct SoapySdr {
 unsafe impl Send for SoapySdr {}
 
 impl SoapySdr {
+    #[must_use]
     pub fn new(config: SoapyConfig, sample_rate: f64, freq: f64) -> Self {
         Self {
             dev: ptr::null_mut(),
