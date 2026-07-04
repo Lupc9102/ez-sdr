@@ -150,6 +150,88 @@ mod tests {
         unique.dedup();
         assert_eq!(names.len(), unique.len(), "All preset names must be unique");
     }
+
+    #[test]
+    fn test_theme_apply_to_ctx_no_crash() {
+        for theme in &[
+            ThemeConfig::dark(),
+            ThemeConfig::light(),
+            ThemeConfig::high_contrast(),
+            ThemeConfig::solarized_dark(),
+            ThemeConfig::nord(),
+        ] {
+            let ctx = egui::Context::default();
+            theme.apply_to_ctx(&ctx);
+        }
+    }
+
+    #[test]
+    fn test_theme_serialize_deserialize() {
+        for theme in &[
+            ThemeConfig::dark(),
+            ThemeConfig::light(),
+            ThemeConfig::nord(),
+        ] {
+            let json = serde_json::to_string(theme).unwrap();
+            let back: ThemeConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(*theme, back);
+        }
+    }
+
+    #[test]
+    fn test_rgba_serde_roundtrip() {
+        let c = Rgba(100, 150, 200, 255);
+        let json = serde_json::to_string(&c).unwrap();
+        let back: Rgba = serde_json::from_str(&json).unwrap();
+        assert_eq!(c, back);
+
+        let zero = Rgba(0, 0, 0, 0);
+        let json = serde_json::to_string(&zero).unwrap();
+        let back: Rgba = serde_json::from_str(&json).unwrap();
+        assert_eq!(zero, back);
+    }
+
+    #[test]
+    fn test_bg_luminance_extremes() {
+        assert_eq!(bg_luminance(&Rgba::from_rgb(0, 0, 0)), 0.0);
+        assert_eq!(bg_luminance(&Rgba::from_rgb(255, 255, 255)), 1.0);
+        let mid = bg_luminance(&Rgba::from_rgb(128, 128, 128));
+        assert!((mid - 0.5).abs() < 0.01, "expected ~0.5, got {mid}");
+    }
+
+    #[test]
+    fn test_mix_color_boundaries() {
+        let a = Rgba(10, 20, 30, 255);
+        let b = Rgba(100, 200, 50, 128);
+        assert_eq!(mix_color(&a, &b, 0.0), a);
+        assert_eq!(mix_color(&a, &b, 1.0), b);
+        assert_eq!(mix_color(&a, &b, -0.5), a);
+        assert_eq!(mix_color(&a, &b, 1.5), b);
+    }
+
+    #[test]
+    fn test_apply_to_ctx_all_presets() {
+        let presets = [
+            ThemeConfig::dark(),
+            ThemeConfig::light(),
+            ThemeConfig::high_contrast(),
+            ThemeConfig::solarized_dark(),
+            ThemeConfig::nord(),
+        ];
+        for theme in &presets {
+            let ctx = egui::Context::default();
+            theme.apply_to_ctx(&ctx);
+            let is_dark = bg_luminance(&theme.bg) < 0.5;
+            let egui_theme = egui::Theme::from_dark_mode(is_dark);
+            let style = ctx.style_of(egui_theme);
+            assert_ne!(
+                style.visuals.window_fill,
+                egui::Color32::default(),
+                "theme {} did not modify visuals",
+                theme.preset,
+            );
+        }
+    }
 }
 
 type PresetFn = fn() -> ThemeConfig;

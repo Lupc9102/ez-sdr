@@ -1695,3 +1695,223 @@ impl Airport {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_freq_type_from_raw_emergency() {
+        assert_eq!(FreqType::from_raw("EMERG"), FreqType::Emergency);
+        assert_eq!(FreqType::from_raw("GUARD"), FreqType::Emergency);
+        assert_eq!(FreqType::from_raw("121.5"), FreqType::Emergency);
+        assert_eq!(FreqType::from_raw("emerg"), FreqType::Emergency);
+    }
+
+    #[test]
+    fn test_freq_type_from_raw_atis() {
+        assert_eq!(FreqType::from_raw("ATIS"), FreqType::Atis);
+        assert_eq!(FreqType::from_raw("AWOS"), FreqType::Awos);
+        assert_eq!(FreqType::from_raw("ASOS"), FreqType::Awos);
+    }
+
+    #[test]
+    fn test_freq_type_from_raw_tower() {
+        assert_eq!(FreqType::from_raw("TWR"), FreqType::Tower);
+        assert_eq!(FreqType::from_raw("TOWER"), FreqType::Tower);
+        assert_eq!(FreqType::from_raw("GND"), FreqType::Ground);
+        assert_eq!(FreqType::from_raw("GROUND"), FreqType::Ground);
+        assert_eq!(FreqType::from_raw("CLD"), FreqType::Clearance);
+        assert_eq!(FreqType::from_raw("CLNC"), FreqType::Clearance);
+        assert_eq!(FreqType::from_raw("DEL"), FreqType::Clearance);
+    }
+
+    #[test]
+    fn test_freq_type_from_raw_approach_departure() {
+        assert_eq!(FreqType::from_raw("APP"), FreqType::Approach);
+        assert_eq!(FreqType::from_raw("ARR"), FreqType::Approach);
+        assert_eq!(FreqType::from_raw("DEP"), FreqType::Departure);
+    }
+
+    #[test]
+    fn test_freq_type_from_raw_center() {
+        assert_eq!(FreqType::from_raw("CNTR"), FreqType::Center);
+        assert_eq!(FreqType::from_raw("ACC"), FreqType::Center);
+        assert_eq!(FreqType::from_raw("ARTC"), FreqType::Center);
+        assert_eq!(FreqType::from_raw("CENTER"), FreqType::Center);
+        assert_eq!(FreqType::from_raw("CENTRE"), FreqType::Center);
+    }
+
+    #[test]
+    fn test_freq_type_from_raw_other() {
+        assert_eq!(FreqType::from_raw("CTAF"), FreqType::Ctaf);
+        assert_eq!(FreqType::from_raw("ATF"), FreqType::Ctaf);
+        assert_eq!(FreqType::from_raw("UNICOM"), FreqType::Unicom);
+        assert_eq!(FreqType::from_raw("FSS"), FreqType::Fss);
+        assert_eq!(FreqType::from_raw("RDO"), FreqType::Fss);
+        assert_eq!(FreqType::from_raw("RCO"), FreqType::Fss);
+        assert_eq!(FreqType::from_raw("RAMP"), FreqType::Ramp);
+        assert_eq!(FreqType::from_raw("RMP"), FreqType::Ramp);
+        assert_eq!(FreqType::from_raw(""), FreqType::Other);
+    }
+
+    #[test]
+    fn test_freq_type_from_raw_unknown() {
+        assert_eq!(FreqType::from_raw("UNKNOWN"), FreqType::Other);
+        assert_eq!(FreqType::from_raw("WEIRD_STUFF"), FreqType::Other);
+        assert_eq!(FreqType::from_raw("12345"), FreqType::Other);
+    }
+
+    #[test]
+    fn test_freq_type_label_roundtrip() {
+        for variant in &[
+            FreqType::Emergency,
+            FreqType::Atis,
+            FreqType::Awos,
+            FreqType::Clearance,
+            FreqType::Ground,
+            FreqType::Tower,
+            FreqType::Approach,
+            FreqType::Departure,
+            FreqType::Center,
+            FreqType::Unicom,
+            FreqType::Ctaf,
+            FreqType::Fss,
+            FreqType::Ramp,
+            FreqType::Other,
+        ] {
+            let label = variant.label();
+            assert!(!label.is_empty(), "label for {:?} is empty", variant);
+        }
+    }
+
+    #[test]
+    fn test_freq_type_priority_values() {
+        assert_eq!(FreqType::Emergency.priority(), 0);
+        for variant in &[
+            FreqType::Atis,
+            FreqType::Awos,
+            FreqType::Clearance,
+            FreqType::Ground,
+            FreqType::Tower,
+            FreqType::Approach,
+            FreqType::Departure,
+            FreqType::Center,
+            FreqType::Unicom,
+            FreqType::Ctaf,
+            FreqType::Fss,
+            FreqType::Ramp,
+        ] {
+            assert!(
+                FreqType::Emergency.priority() < variant.priority(),
+                "Emergency should have lower priority number than {:?}",
+                variant
+            );
+        }
+        for variant in &[
+            FreqType::Emergency,
+            FreqType::Atis,
+            FreqType::Awos,
+            FreqType::Clearance,
+            FreqType::Ground,
+            FreqType::Tower,
+            FreqType::Approach,
+            FreqType::Departure,
+            FreqType::Center,
+            FreqType::Unicom,
+            FreqType::Ctaf,
+            FreqType::Fss,
+            FreqType::Ramp,
+        ] {
+            assert!(
+                FreqType::Other.priority() > variant.priority(),
+                "Other should have higher priority number than {:?}",
+                variant
+            );
+        }
+    }
+
+    #[test]
+    fn test_antenna_dims_edge_cases() {
+        let d = antenna_dims(0.0);
+        assert!(d.quarter_wave_cm.is_infinite());
+        assert!(d.half_wave_dipole_cm.is_infinite());
+        assert!(d.ground_plane_radial_cm.is_infinite());
+        assert!(d.coax_collinear_segment_cm.is_infinite());
+        assert!(!d.suggested_antenna.is_empty());
+
+        let d = antenna_dims(100.0);
+        assert!((d.quarter_wave_cm - 75.0).abs() < 0.001);
+        assert!((d.half_wave_dipole_cm - 150.0).abs() < 0.001);
+        assert_eq!(d.suggested_antenna, "Half-wave dipole or discone (VHF low)");
+
+        let d = antenna_dims(1000.0);
+        assert!((d.quarter_wave_cm - 7.5).abs() < 0.001);
+        assert!((d.half_wave_dipole_cm - 15.0).abs() < 0.001);
+
+        let d = antenna_dims(1.0);
+        assert!((d.quarter_wave_cm - 7500.0).abs() < 0.001);
+        assert!((d.half_wave_dipole_cm - 15000.0).abs() < 0.001);
+        assert_eq!(d.suggested_antenna, "Long-wire / magnetic loop (HF)");
+    }
+
+    #[test]
+    fn test_suggested_antenna_variants() {
+        assert_eq!(
+            antenna_dims(1.0).suggested_antenna,
+            "Long-wire / magnetic loop (HF)"
+        );
+        assert_eq!(
+            antenna_dims(50.0).suggested_antenna,
+            "Half-wave dipole or discone (VHF low)"
+        );
+        assert_eq!(
+            antenna_dims(118.0).suggested_antenna,
+            "Half-wave dipole / discone (airband)"
+        );
+        assert_eq!(
+            antenna_dims(137.0).suggested_antenna,
+            "V-dipole 53.4 cm arms @ 120 deg (NOAA 137 MHz)"
+        );
+        assert_eq!(
+            antenna_dims(160.0).suggested_antenna,
+            "Quarter-wave vertical + ground plane"
+        );
+        assert_eq!(
+            antenna_dims(300.0).suggested_antenna,
+            "Discone or quarter-wave vertical"
+        );
+        assert_eq!(
+            antenna_dims(700.0).suggested_antenna,
+            "Discone or log-periodic (UHF)"
+        );
+        assert_eq!(
+            antenna_dims(1090.0).suggested_antenna,
+            "Quarter-wave ground-plane (6.9 cm) or coaxial collinear"
+        );
+        assert_eq!(
+            antenna_dims(1690.0).suggested_antenna,
+            "Helical (7-12 turns RHCP) or grid dish (GOES)"
+        );
+        assert_eq!(
+            antenna_dims(2000.0).suggested_antenna,
+            "Quarter-wave vertical + ground plane"
+        );
+    }
+
+    #[test]
+    fn test_csv_split_empty() {
+        assert_eq!(csv_split(""), vec![""]);
+        assert_eq!(csv_split("a,b,c"), vec!["a", "b", "c"]);
+        assert_eq!(csv_split("a,\"b,c\",d"), vec!["a", "b,c", "d"]);
+    }
+
+    #[test]
+    fn test_csv_split_quoted_fields() {
+        assert_eq!(csv_split(r#""a,b",c"#), vec!["a,b", "c"]);
+        assert_eq!(csv_split(r#"x,"y,z""#), vec!["x", "y,z"]);
+        assert_eq!(csv_split(r#""hello""#), vec!["hello"]);
+        assert_eq!(csv_split(r#""""#), vec![""]);
+        assert_eq!(csv_split(r#"a,""b""",c"#), vec!["a", "b\",c"]);
+    }
+}

@@ -538,4 +538,60 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_demod_new_defaults() {
+        let d = Demodulator::new();
+        assert_eq!(d.prev_i, 0.0);
+        assert_eq!(d.prev_q, 0.0);
+        assert_eq!(d.prev_phase, 0.0);
+        assert_eq!(d.decimation, 1);
+        assert_eq!(d.decim_counter, 0);
+        assert_eq!(d.audio_sample_rate, 48000);
+        assert_eq!(d.agc_gain, 1.0);
+        assert!(d.agc_enabled);
+    }
+
+    #[test]
+    fn test_demod_reset() {
+        let mut d = Demodulator::new();
+        d.prev_i = 0.7;
+        d.lpf_state_l = 0.5;
+        d.reset();
+        assert_eq!(d.prev_i, 0.0);
+        assert_eq!(d.lpf_state_l, 0.0);
+    }
+
+    #[test]
+    fn test_demod_process_empty_iq() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        for mode in &[
+            DemodMode::Raw,
+            DemodMode::Am,
+            DemodMode::Fm,
+            DemodMode::Wfm,
+            DemodMode::Lsb,
+            DemodMode::Usb,
+        ] {
+            let out = d.demodulate(&[], *mode);
+            assert!(
+                out.is_empty(),
+                "mode {mode:?} with empty IQ should be empty"
+            );
+        }
+    }
+
+    #[test]
+    fn test_demod_mode_switch_does_not_panic() {
+        let mut d = Demodulator::new();
+        d.agc_enabled = false;
+        let iq = make_iq_dc(128, 128, 32);
+        let _raw = d.demodulate(&iq, DemodMode::Raw);
+        let _am = d.demodulate(&iq, DemodMode::Am);
+        let _fm = d.demodulate(&iq, DemodMode::Fm);
+        let _wfm = d.demodulate(&iq, DemodMode::Wfm);
+        let _lsb = d.demodulate(&iq, DemodMode::Lsb);
+        let _usb = d.demodulate(&iq, DemodMode::Usb);
+    }
 }
