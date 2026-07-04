@@ -601,7 +601,7 @@ impl AdsBPanel {
             // transient network blip (the contains_key guard at the top then
             // prevented any retry for the rest of the session).
             let (model, operator, registration) = match ureq::get(&url).call() {
-                Ok(resp) => match resp.into_json::<serde_json::Value>() {
+                Ok(resp) => match resp.into_body().read_json::<serde_json::Value>() {
                     Ok(json) => (
                         json["aircraft"]["model"]
                             .as_str()
@@ -690,10 +690,10 @@ impl AdsBPanel {
             // silently dropped the error path, leaving the key in
             // tile_pending forever and breaking the map for the rest of
             // the session on the first transient network blip.
-            let bytes = match ureq::get(&url).set("User-Agent", "ez-sdr/0.1").call() {
+            let bytes = match ureq::get(&url).header("User-Agent", "ez-sdr/0.1").call() {
                 Ok(resp) => {
                     let mut buf = Vec::new();
-                    match resp.into_reader().read_to_end(&mut buf) {
+                    match resp.into_body().into_reader().read_to_end(&mut buf) {
                         Ok(_) => buf,
                         Err(_) => Vec::new(),
                     }
@@ -726,10 +726,10 @@ impl AdsBPanel {
         self.geo_rx = Some(rx);
         std::thread::spawn(move || {
             if let Ok(resp) = ureq::get("http://ip-api.com/json/")
-                .set("User-Agent", "ez-sdr/0.1")
+                .header("User-Agent", "ez-sdr/0.1")
                 .call()
             {
-                if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
                     if let (Some(lat), Some(lon)) = (json["lat"].as_f64(), json["lon"].as_f64()) {
                         let _ = tx.send((lat, lon));
                     }
