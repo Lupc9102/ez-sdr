@@ -39,63 +39,57 @@ mod audio_impl {
             let err_fn = |err| eprintln!("Audio error: {err}");
 
             let stream = match sample_format {
-                cpal::SampleFormat::F32 => {
-                    let rx = rx.clone();
-                    device.build_output_stream(
-                        config,
-                        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                            if let Ok(guard) = rx.try_lock() {
-                                if let Ok(samples) = guard.try_recv() {
-                                    let len = samples.len().min(data.len());
-                                    data[..len].copy_from_slice(&samples[..len]);
-                                    for s in &mut data[len..] {
-                                        *s = 0.0;
-                                    }
-                                } else {
-                                    for s in data.iter_mut() {
-                                        *s = 0.0;
-                                    }
+                cpal::SampleFormat::F32 => device.build_output_stream(
+                    config,
+                    move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                        if let Ok(guard) = rx.try_lock() {
+                            if let Ok(samples) = guard.try_recv() {
+                                let len = samples.len().min(data.len());
+                                data[..len].copy_from_slice(&samples[..len]);
+                                for s in &mut data[len..] {
+                                    *s = 0.0;
                                 }
                             } else {
                                 for s in data.iter_mut() {
                                     *s = 0.0;
                                 }
                             }
-                        },
-                        err_fn,
-                        None,
-                    )
-                }
-                cpal::SampleFormat::I16 => {
-                    let rx = rx.clone();
-                    device.build_output_stream(
-                        config,
-                        move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                            if let Ok(guard) = rx.try_lock() {
-                                if let Ok(samples) = guard.try_recv() {
-                                    let len = samples.len().min(data.len());
-                                    for i in 0..len {
-                                        data[i] =
-                                            (samples[i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
-                                    }
-                                    for s in &mut data[len..] {
-                                        *s = 0;
-                                    }
-                                } else {
-                                    for s in data.iter_mut() {
-                                        *s = 0;
-                                    }
+                        } else {
+                            for s in data.iter_mut() {
+                                *s = 0.0;
+                            }
+                        }
+                    },
+                    err_fn,
+                    None,
+                ),
+                cpal::SampleFormat::I16 => device.build_output_stream(
+                    config,
+                    move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+                        if let Ok(guard) = rx.try_lock() {
+                            if let Ok(samples) = guard.try_recv() {
+                                let len = samples.len().min(data.len());
+                                for i in 0..len {
+                                    data[i] =
+                                        (samples[i] * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                                }
+                                for s in &mut data[len..] {
+                                    *s = 0;
                                 }
                             } else {
                                 for s in data.iter_mut() {
                                     *s = 0;
                                 }
                             }
-                        },
-                        err_fn,
-                        None,
-                    )
-                }
+                        } else {
+                            for s in data.iter_mut() {
+                                *s = 0;
+                            }
+                        }
+                    },
+                    err_fn,
+                    None,
+                ),
                 _ => return Err(format!("Unsupported sample format: {sample_format:?}")),
             }
             .map_err(|e| e.to_string())?;

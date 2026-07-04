@@ -96,7 +96,10 @@ mod tests {
         let mut t = Tracker::new();
         t.update_from_message(&make_msg(0xABCDEF, 1000));
         assert_eq!(t.len(), 1);
-        let state = t.aircraft.get(&0xABCDEF).unwrap();
+        let state = t
+            .aircraft
+            .get(&0xABCDEF)
+            .expect("aircraft should exist after update_from_message");
         assert_eq!(state.addr, 0xABCDEF);
         assert_eq!(state.msg_count, 1);
         assert_eq!(state.last_seen_ms, 1000);
@@ -110,7 +113,13 @@ mod tests {
         t.update_from_message(&msg);
         t.update_from_message(&msg);
         assert_eq!(t.len(), 1);
-        assert_eq!(t.aircraft.get(&0xABCDEF).unwrap().msg_count, 3);
+        assert_eq!(
+            t.aircraft
+                .get(&0xABCDEF)
+                .expect("aircraft should exist after 3 updates")
+                .msg_count,
+            3
+        );
     }
 
     #[test]
@@ -118,7 +127,13 @@ mod tests {
         let mut t = Tracker::new();
         t.update_from_message(&make_msg(0xABCDEF, 1000));
         t.update_from_message(&make_msg(0xABCDEF, 2000));
-        assert_eq!(t.aircraft.get(&0xABCDEF).unwrap().last_seen_ms, 2000);
+        assert_eq!(
+            t.aircraft
+                .get(&0xABCDEF)
+                .expect("aircraft should exist after last_seen update")
+                .last_seen_ms,
+            2000
+        );
     }
 
     #[test]
@@ -128,8 +143,20 @@ mod tests {
         t.update_from_message(&make_msg(0xBBBBBB, 1000));
         t.update_from_message(&make_msg(0xAAAAAA, 2000));
         assert_eq!(t.len(), 2);
-        assert_eq!(t.aircraft.get(&0xAAAAAA).unwrap().msg_count, 2);
-        assert_eq!(t.aircraft.get(&0xBBBBBB).unwrap().msg_count, 1);
+        assert_eq!(
+            t.aircraft
+                .get(&0xAAAAAA)
+                .expect("AAAAAA should have msg_count 2")
+                .msg_count,
+            2
+        );
+        assert_eq!(
+            t.aircraft
+                .get(&0xBBBBBB)
+                .expect("BBBBBB should have msg_count 1")
+                .msg_count,
+            1
+        );
     }
 
     #[test]

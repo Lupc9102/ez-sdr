@@ -1383,7 +1383,10 @@ mod tests {
         let result =
             FrequencyScanner::parse_json_value::<f32>(r#"  {"strength_db":-60.5}"#, "strength_db");
         assert!(result.is_some());
-        assert!((result.unwrap() - (-60.5)).abs() < 1e-6);
+        assert!(
+            (result.expect("parse_json_value should return Some for valid input") - (-60.5)).abs()
+                < 1e-6
+        );
     }
 
     #[test]
@@ -1452,7 +1455,10 @@ mod tests {
             "strength_db",
         );
         assert!(result.is_some());
-        assert!((result.unwrap() - (-60.5)).abs() < 1e-6);
+        assert!(
+            (result.expect("parse_json_f32 should return Some for valid input") - (-60.5)).abs()
+                < 1e-6
+        );
     }
 
     #[test]

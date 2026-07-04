@@ -172,8 +172,9 @@ mod tests {
             ThemeConfig::light(),
             ThemeConfig::nord(),
         ] {
-            let json = serde_json::to_string(theme).unwrap();
-            let back: ThemeConfig = serde_json::from_str(&json).unwrap();
+            let json = serde_json::to_string(theme).expect("ThemeConfig should serialize to JSON");
+            let back: ThemeConfig = serde_json::from_str(&json)
+                .expect("ThemeConfig JSON should deserialize round-trip");
             assert_eq!(*theme, back);
         }
     }
@@ -181,13 +182,15 @@ mod tests {
     #[test]
     fn test_rgba_serde_roundtrip() {
         let c = Rgba(100, 150, 200, 255);
-        let json = serde_json::to_string(&c).unwrap();
-        let back: Rgba = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&c).expect("Rgba should serialize to JSON");
+        let back: Rgba =
+            serde_json::from_str(&json).expect("Rgba JSON should deserialize round-trip");
         assert_eq!(c, back);
 
         let zero = Rgba(0, 0, 0, 0);
-        let json = serde_json::to_string(&zero).unwrap();
-        let back: Rgba = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&zero).expect("zero Rgba should serialize to JSON");
+        let back: Rgba =
+            serde_json::from_str(&json).expect("zero Rgba JSON should deserialize round-trip");
         assert_eq!(zero, back);
     }
 

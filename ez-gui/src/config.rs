@@ -669,8 +669,8 @@ mod tests {
     fn config_save_and_load_roundtrip() {
         let dir = std::env::temp_dir().join(format!("ez_sdr_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&dir).unwrap();
+        let original_dir = std::env::current_dir().expect("test should have a current directory");
+        std::env::set_current_dir(&dir).expect("test should cd into temp dir");
 
         let cfg = AppConfig {
             default_freq_hz: 433_000_000,
@@ -691,7 +691,7 @@ mod tests {
         assert!((loaded.observer_lat - 40.7128).abs() < f64::EPSILON);
         assert!((loaded.observer_lon - (-74.0060)).abs() < f64::EPSILON);
 
-        std::env::set_current_dir(original_dir).unwrap();
+        std::env::set_current_dir(original_dir).expect("test should restore original directory");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -709,7 +709,8 @@ mod tests {
     #[test]
     fn config_partial_json_theme_and_discord() {
         let json = r#"{"theme": "light", "discord": {"enabled": true}}"#;
-        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        let cfg: AppConfig = serde_json::from_str(json)
+            .expect("config partial JSON should deserialize with defaults");
         assert_eq!(cfg.theme, "light");
         assert!(cfg.discord.enabled);
         assert_eq!(cfg.default_freq_hz, 0);
@@ -718,21 +719,24 @@ mod tests {
     #[test]
     fn config_edge_values_zero_freq() {
         let json = r#"{"version": "0.1.0", "default_freq_hz": 0}"#;
-        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        let cfg: AppConfig =
+            serde_json::from_str(json).expect("config edge values JSON should deserialize");
         assert_eq!(cfg.default_freq_hz, 0);
     }
 
     #[test]
     fn config_edge_values_max_freq() {
         let json = format!(r#"{{"version": "0.1.0", "default_freq_hz": {}}}"#, u64::MAX);
-        let cfg: AppConfig = serde_json::from_str(&json).unwrap();
+        let cfg: AppConfig =
+            serde_json::from_str(&json).expect("config max freq JSON should deserialize");
         assert_eq!(cfg.default_freq_hz, u64::MAX);
     }
 
     #[test]
     fn config_edge_values_empty_strings() {
         let json = r#"{"version": "0.1.0", "theme": "", "output_directory": "", "ai_model": ""}"#;
-        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        let cfg: AppConfig =
+            serde_json::from_str(json).expect("config empty strings JSON should deserialize");
         assert_eq!(cfg.theme, "");
         assert_eq!(cfg.output_directory, "");
         assert_eq!(cfg.ai_model, "");

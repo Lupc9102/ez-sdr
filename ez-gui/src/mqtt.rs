@@ -326,7 +326,9 @@ mod tests {
         assert_eq!(json["frequency_hz"], 145_800_000);
         assert_eq!(json["snr_db"], 40.0);
         assert_eq!(json["demod_mode"], "WFM");
-        assert!(!json["recording"].as_bool().unwrap());
+        assert!(!json["recording"]
+            .as_bool()
+            .expect("recording field should be a boolean"));
     }
 
     #[test]

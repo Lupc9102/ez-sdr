@@ -452,7 +452,7 @@ mod tests {
         });
         let result = try_cpr_decode(&even, &odd);
         assert!(result.is_some());
-        let (lat, lon) = result.unwrap();
+        let (lat, lon) = result.expect("CPR decode should produce valid coordinates");
         assert!(lat.is_finite());
         assert!(lon.is_finite());
         assert!((-90.0..=90.0).contains(&lat));

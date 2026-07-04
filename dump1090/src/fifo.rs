@@ -88,23 +88,18 @@ impl Fifo {
         };
 
         while inner.queue.is_empty() && !inner.halted {
-            match deadline {
-                Some(d) => {
-                    let dur = d.saturating_duration_since(Instant::now());
-                    if dur.is_zero() {
-                        return None;
-                    }
-                    let (guard, timed_out) = self
-                        .not_empty
-                        .wait_timeout(inner, dur)
-                        .expect("fifo mutex poisoned");
-                    inner = guard;
-                    if timed_out.timed_out() {
-                        return None;
-                    }
-                }
-                // timeout_ms=0: non-blocking, queue is empty
-                None => return None,
+            let d = deadline?;
+            let dur = d.saturating_duration_since(Instant::now());
+            if dur.is_zero() {
+                return None;
+            }
+            let (guard, timed_out) = self
+                .not_empty
+                .wait_timeout(inner, dur)
+                .expect("fifo mutex poisoned");
+            inner = guard;
+            if timed_out.timed_out() {
+                return None;
             }
         }
 

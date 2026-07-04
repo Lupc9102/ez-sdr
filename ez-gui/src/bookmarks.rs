@@ -511,7 +511,7 @@ mod tests {
             csv_path,
             "name,frequency_hz,mode,category,notes\nTestFM,98500000,WFM,Broadcast,test\n",
         )
-        .unwrap();
+        .expect("failed to write test CSV");
         let (count, err) = db.import_csv(csv_path);
         let _ = std::fs::remove_file(csv_path);
 
@@ -530,7 +530,7 @@ mod tests {
             csv_path,
             "name,frequency_hz,mode,category,notes\nDupNOAA,137620000,WFM,Weather,dup\n",
         )
-        .unwrap();
+        .expect("failed to write dedup test CSV");
         let (count, _err) = db.import_csv(csv_path);
         let _ = std::fs::remove_file(csv_path);
 

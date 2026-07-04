@@ -338,7 +338,7 @@ mod tests {
             "1 25544U 98067A   24001.50000000  .00000000  00000+0  00000+0 0  9991",
             "2 25544  51.6420  -0.1000 0007000   0.0000   0.0000 15.50138746 99990",
         ];
-        let entry = from_tle_lines(&lines).unwrap();
+        let entry = from_tle_lines(&lines).expect("valid TLE lines should parse to OrbitalEntry");
         assert_eq!(entry.name, "ISS (ZARYA)");
         assert!((entry.inclination - 51.642).abs() < 0.001);
         assert!((entry.mean_motion - 15.50138746).abs() < 0.0001);
@@ -346,27 +346,29 @@ mod tests {
 
     #[test]
     fn from_tle_lines_too_few_lines() {
-        let err = from_tle_lines(&["Name", "1 ..."]).unwrap_err();
+        let err =
+            from_tle_lines(&["Name", "1 ..."]).expect_err("too few lines should produce error");
         assert!(err.contains("3 lines"));
     }
 
     #[test]
     fn from_tle_lines_invalid_line2_prefix() {
         let lines = vec!["Sat", "1 ...", "3 99999  99.0000"];
-        let err = from_tle_lines(&lines).unwrap_err();
+        let err = from_tle_lines(&lines).expect_err("invalid line2 prefix should produce error");
         assert!(err.contains("must start with '2'"));
     }
 
     #[test]
     fn from_tle_lines_malformed_empty_line2() {
-        let err = from_tle_lines(&["Sat", "1 ...", "2"]).unwrap_err();
+        let err = from_tle_lines(&["Sat", "1 ...", "2"])
+            .expect_err("malformed line2 should produce error");
         assert!(err.contains("inclination") || err.contains("mean motion"));
     }
 
     #[test]
     fn from_tle_lines_partial_inclination() {
         let lines = vec!["Sat", "1 ...", "2 25544   abcdef  ..."];
-        let err = from_tle_lines(&lines).unwrap_err();
+        let err = from_tle_lines(&lines).expect_err("partial inclination should produce error");
         assert!(err.contains("inclination") || err.contains("mean motion"));
     }
 

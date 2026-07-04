@@ -984,7 +984,7 @@ impl eframe::App for CentralApp {
                         state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
                             name: "Quick".to_string(),
                             frequency_hz: freq,
-                            mode: mode.clone(),
+                            mode,
                             bandwidth_hz: 12_500,
                             category: "Quick".to_string(),
                             notes: String::new(),
@@ -1708,7 +1708,7 @@ impl eframe::App for CentralApp {
                                         for bm in bookmarks_to_show {
                                             let label = format!(
                                                 "  ⭐ {} ({:.3} MHz)",
-                                                &bm.name,
+                                                bm.name,
                                                 bm.frequency_hz as f64 / 1e6
                                             );
                                             if ui.selectable_label(false, &label).clicked() {
@@ -3626,30 +3626,33 @@ mod tests {
     fn test_midnight() {
         // 2024-01-15T12:00:00 UTC -> local midnight + 0h should be local midnight
         let ts = 1705320000u64;
-        let result = parse_hhmm_today_at("00:00", ts).unwrap();
+        let result =
+            parse_hhmm_today_at("00:00", ts).expect("00:00 should parse as local midnight");
         let local_midnight = Local
             .with_ymd_and_hms(2024, 1, 15, 0, 0, 0)
             .single()
-            .unwrap();
+            .expect("2024-01-15 00:00:00 should be a valid local time");
         assert!((result - local_midnight.timestamp() as f64).abs() < 1.0);
     }
 
     #[test]
     fn test_noon() {
         let ts = 1705320000u64;
-        let midnight = parse_hhmm_today_at("00:00", ts).unwrap();
-        let noon = parse_hhmm_today_at("12:00", ts).unwrap();
+        let midnight = parse_hhmm_today_at("00:00", ts)
+            .expect("00:00 should parse as local midnight for noon test");
+        let noon = parse_hhmm_today_at("12:00", ts).expect("12:00 should parse as local noon");
         assert!((noon - midnight - 12.0 * 3600.0).abs() < 1.0);
     }
 
     #[test]
     fn test_midnight_to_midnight_consistency() {
         let ts = 1705320000u64;
-        let result = parse_hhmm_today_at("00:00", ts).unwrap();
+        let result = parse_hhmm_today_at("00:00", ts)
+            .expect("00:00 should parse for midnight consistency test");
         let local_midnight = Local
             .with_ymd_and_hms(2024, 1, 15, 0, 0, 0)
             .single()
-            .unwrap();
+            .expect("2024-01-15 00:00:00 should be a valid local time for consistency");
         assert!((result - local_midnight.timestamp() as f64).abs() < 1.0);
     }
 
@@ -3682,8 +3685,8 @@ mod tests {
     fn test_different_now_unix_produces_different_results() {
         let ts1 = 1705320000u64; // 2024-01-15T12:00:00 UTC
         let ts2 = 1705406400u64; // 2024-01-16T12:00:00 UTC (next day)
-        let r1 = parse_hhmm_today_at("09:00", ts1).unwrap();
-        let r2 = parse_hhmm_today_at("09:00", ts2).unwrap();
+        let r1 = parse_hhmm_today_at("09:00", ts1).expect("09:00 should parse for ts1");
+        let r2 = parse_hhmm_today_at("09:00", ts2).expect("09:00 should parse for ts2");
         assert!(
             (r2 - r1 - 86400.0).abs() < 2.0,
             "expected ~24h difference, got {}",
@@ -3694,17 +3697,25 @@ mod tests {
     #[test]
     fn test_with_seconds() {
         let ts = 1705320000u64;
-        let r1 = parse_hhmm_today_at("01:02:03", ts).unwrap();
-        let r2 = parse_hhmm_today_at("01:02:00", ts).unwrap();
+        let r1 = parse_hhmm_today_at("01:02:03", ts).expect("01:02:03 should parse with seconds");
+        let r2 =
+            parse_hhmm_today_at("01:02:00", ts).expect("01:02:00 should parse without seconds");
         assert!((r1 - r2 - 3.0).abs() < 1.0);
     }
 
     #[test]
     fn test_result_within_day_of_now() {
         let ts = 1705320000u64;
-        let result = parse_hhmm_today_at("09:30", ts).unwrap();
-        let local_ts = Local.timestamp_opt(ts as i64, 0).single().unwrap();
-        let local_result = Local.timestamp_opt(result as i64, 0).single().unwrap();
+        let result =
+            parse_hhmm_today_at("09:30", ts).expect("09:30 should parse for within-day test");
+        let local_ts = Local
+            .timestamp_opt(ts as i64, 0)
+            .single()
+            .expect("local timestamp should exist for test ts");
+        let local_result = Local
+            .timestamp_opt(result as i64, 0)
+            .single()
+            .expect("local timestamp should exist for result ts");
         assert_eq!(local_result.date_naive(), local_ts.date_naive());
     }
 }

@@ -2883,13 +2883,28 @@ mod tests {
         assert!(KEYWORD_INDEX.len() > 50);
         let rtl_entry = KEYWORD_INDEX.iter().find(|(kw, _)| *kw == "rtl-sdr");
         assert!(rtl_entry.is_some());
-        assert_eq!(rtl_entry.unwrap().1, &[3]);
+        assert_eq!(
+            rtl_entry
+                .expect("rtl-sdr keyword should exist in KEYWORD_INDEX")
+                .1,
+            &[3]
+        );
         let aircraft_entry = KEYWORD_INDEX.iter().find(|(kw, _)| *kw == "aircraft");
         assert!(aircraft_entry.is_some());
-        assert_eq!(aircraft_entry.unwrap().1, &[8]);
+        assert_eq!(
+            aircraft_entry
+                .expect("aircraft keyword should exist in KEYWORD_INDEX")
+                .1,
+            &[8]
+        );
         let satellite_entry = KEYWORD_INDEX.iter().find(|(kw, _)| *kw == "satellite");
         assert!(satellite_entry.is_some());
-        assert_eq!(satellite_entry.unwrap().1, &[9]);
+        assert_eq!(
+            satellite_entry
+                .expect("satellite keyword should exist in KEYWORD_INDEX")
+                .1,
+            &[9]
+        );
     }
 
     #[test]

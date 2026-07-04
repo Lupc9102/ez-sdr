@@ -117,7 +117,11 @@ mod tests {
         let s = make_scheduler();
         let job = s.active_job(150.0);
         assert!(job.is_some());
-        assert_eq!(job.unwrap().frequency_hz, 100_000_000);
+        assert_eq!(
+            job.expect("active_job should find scheduled job in window")
+                .frequency_hz,
+            100_000_000
+        );
     }
 
     #[test]
@@ -150,7 +154,11 @@ mod tests {
         });
         let job = s.active_job(75.0);
         assert!(job.is_some());
-        assert_eq!(job.unwrap().satellite, "SatA"); // first in list wins
+        assert_eq!(
+            job.expect("active_job should return first matching job")
+                .satellite,
+            "SatA"
+        ); // first in list wins
     }
 
     #[test]

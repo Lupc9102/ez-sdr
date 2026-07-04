@@ -362,28 +362,22 @@ impl SatellitePanel {
                         .on_hover_text(if pass.max_elevation > 45.0 { "Excellent pass — overhead!" } else if pass.max_elevation > 20.0 { "Good pass" } else { "Low pass — horizon obstructions may affect signal" });
 
                     // Countdown
-                    let countdown_text;
-                    let countdown_color;
-                    if is_active {
+                    let (countdown_text, countdown_color) = if is_active {
                         let remaining = secs_until_los.max(0.0) as u64;
                         let mins = remaining / 60;
                         let secs = remaining % 60;
-                        countdown_text = format!("▶ {mins:02}:{secs:02}");
-                        countdown_color = egui::Color32::from_rgb(50, 255, 100);
+                        (format!("▶ {mins:02}:{secs:02}"), egui::Color32::from_rgb(50, 255, 100))
                     } else if secs_until_aos < 0.0 {
-                        countdown_text = "past".to_string();
-                        countdown_color = egui::Color32::GRAY;
+                        ("past".to_string(), egui::Color32::GRAY)
                     } else if secs_until_aos < 600.0 {
                         let mins = secs_until_aos as u64 / 60;
                         let secs = secs_until_aos as u64 % 60;
-                        countdown_text = format!("{mins:02}:{secs:02}");
-                        countdown_color = egui::Color32::YELLOW;
+                        (format!("{mins:02}:{secs:02}"), egui::Color32::YELLOW)
                     } else {
                         let hours = secs_until_aos as u64 / 3600;
                         let mins = (secs_until_aos as u64 % 3600) / 60;
-                        countdown_text = format!("{hours}h {mins:02}m");
-                        countdown_color = egui::Color32::GRAY;
-                    }
+                        (format!("{hours}h {mins:02}m"), egui::Color32::GRAY)
+                    };
                     ui.colored_label(countdown_color, countdown_text)
                         .on_hover_text(if is_active { "Pass in progress!" } else { "Time until AOS" });
 
@@ -509,7 +503,7 @@ mod tests {
         let mut panel = SatellitePanel::new(make_shared_state());
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("system time should be after UNIX epoch")
             .as_secs_f64();
         panel.cached_passes = vec![crate::tle_engine::PassInfo {
             satellite: "NOAA 19".into(),

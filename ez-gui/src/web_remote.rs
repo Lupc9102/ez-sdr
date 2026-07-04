@@ -331,44 +331,40 @@ mod tests {
 
     #[test]
     fn remote_command_tune_variant() {
-        match (RemoteCommand::Tune {
+        let cmd = RemoteCommand::Tune {
             freq_hz: 1090000000,
-        }) {
-            RemoteCommand::Tune { freq_hz } => assert_eq!(freq_hz, 1090000000),
-            _ => panic!("expected Tune variant"),
-        }
+        };
+        assert!(matches!(cmd, RemoteCommand::Tune { freq_hz } if freq_hz == 1090000000));
     }
 
     #[test]
     fn remote_command_set_gain_variant() {
-        match (RemoteCommand::SetGain { gain_db: 42.5 }) {
-            RemoteCommand::SetGain { gain_db } => assert!((gain_db - 42.5).abs() < f64::EPSILON),
-            _ => panic!("expected SetGain variant"),
-        }
+        let cmd = RemoteCommand::SetGain { gain_db: 42.5 };
+        assert!(
+            matches!(cmd, RemoteCommand::SetGain { gain_db } if (gain_db - 42.5).abs() < f64::EPSILON)
+        );
     }
 
     #[test]
     fn remote_command_set_demod_variant() {
-        match (RemoteCommand::SetDemod { mode: "AM".into() }) {
-            RemoteCommand::SetDemod { mode } => assert_eq!(mode, "AM"),
-            _ => panic!("expected SetDemod variant"),
-        }
+        let cmd = RemoteCommand::SetDemod { mode: "AM".into() };
+        assert!(matches!(cmd, RemoteCommand::SetDemod { ref mode } if mode == "AM"));
     }
 
     #[test]
     fn remote_command_set_squelch_variant() {
-        match (RemoteCommand::SetSquelch { db: -60.0 }) {
-            RemoteCommand::SetSquelch { db } => assert!((db - -60.0).abs() < f32::EPSILON),
-            _ => panic!("expected SetSquelch variant"),
-        }
+        let cmd = RemoteCommand::SetSquelch { db: -60.0 };
+        assert!(
+            matches!(cmd, RemoteCommand::SetSquelch { db } if (db - -60.0).abs() < f32::EPSILON)
+        );
     }
 
     #[test]
     fn remote_command_set_volume_variant() {
-        match (RemoteCommand::SetVolume { level: 0.75 }) {
-            RemoteCommand::SetVolume { level } => assert!((level - 0.75).abs() < f32::EPSILON),
-            _ => panic!("expected SetVolume variant"),
-        }
+        let cmd = RemoteCommand::SetVolume { level: 0.75 };
+        assert!(
+            matches!(cmd, RemoteCommand::SetVolume { level } if (level - 0.75).abs() < f32::EPSILON)
+        );
     }
 
     #[test]
@@ -418,8 +414,12 @@ mod tests {
     /// Bind to a random OS-assigned port, hand the port to the WebRemote,
     /// and wait briefly for the server thread to start.
     fn start_on_random_port() -> u16 {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("test server should bind to random port");
+        let port = listener
+            .local_addr()
+            .expect("bound listener should report its port")
+            .port();
         drop(listener); // race window is negligible in practice
         port
     }
@@ -435,7 +435,7 @@ mod tests {
         let url = format!("http://127.0.0.1:{port}/");
         let resp = reqwest::blocking::get(&url).expect("HTTP request should succeed");
         assert_eq!(resp.status(), 200);
-        let body = resp.text().unwrap();
+        let body = resp.text().expect("HTTP response body should be readable");
         assert!(body.contains("SDR"), "response should contain page content");
         drop(wr);
     }

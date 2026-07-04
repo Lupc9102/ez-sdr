@@ -156,7 +156,7 @@ impl SdrPanel {
             show_mode_guide: false,
             show_memory_editor: false,
             memory_labels_edit: std::array::from_fn(|_| String::new()),
-            checklist: crate::antenna_checklist::AntennaChecklist::for_sdr(shared.clone()),
+            checklist: crate::antenna_checklist::AntennaChecklist::for_sdr(shared),
             pending_status: None,
             airport_db: crate::airport_db::AirportDb::load(),
             airport_search: String::new(),
@@ -2837,14 +2837,20 @@ mod tests {
     fn identify_frequency_marine_vhf() {
         let info = identify_frequency(156800000);
         assert!(info.is_some());
-        assert_eq!(info.unwrap().band, "Marine VHF");
+        assert_eq!(
+            info.expect("156.8 MHz should identify as Marine VHF").band,
+            "Marine VHF"
+        );
     }
 
     #[test]
     fn identify_frequency_amateur_2m() {
         let info = identify_frequency(145500000);
         assert!(info.is_some());
-        assert_eq!(info.unwrap().band, "Amateur 2m");
+        assert_eq!(
+            info.expect("145.5 MHz should identify as Amateur 2m").band,
+            "Amateur 2m"
+        );
     }
 
     #[test]
@@ -2853,7 +2859,9 @@ mod tests {
         assert!(info.is_some());
         // 162.55 MHz lands in the Marine VHF range (156–174) in the lookup order;
         // accept either Marine or NOAA WX.
-        let band = info.unwrap().band;
+        let band = info
+            .expect("162.55 MHz should identify as NOAA or Marine")
+            .band;
         assert!(
             band == "NOAA WX Radio" || band == "Marine VHF",
             "expected NOAA WX Radio or Marine VHF, got {band}"
@@ -2862,13 +2870,13 @@ mod tests {
 
     #[test]
     fn identify_frequency_fm_broadcast_info() {
-        let info = identify_frequency(100000000).unwrap();
+        let info = identify_frequency(100000000).expect("100 MHz should identify as FM Broadcast");
         assert_eq!(info.what_to_hear, "music, news, or talk radio");
     }
 
     #[test]
     fn identify_frequency_aviation_info() {
-        let info = identify_frequency(120000000).unwrap();
+        let info = identify_frequency(120000000).expect("120 MHz should identify as Aviation");
         assert_eq!(
             info.what_to_hear,
             "air traffic control voice (pilots + towers)"
@@ -3018,59 +3026,70 @@ mod tests {
     #[test]
     fn test_identify_frequency_band_categories() {
         // LF/MF (includes AM broadcast on medium wave, 150-500 kHz)
-        let info = identify_frequency(300_000).unwrap();
+        let info = identify_frequency(300_000).expect("300 kHz should identify as LF/MF");
         assert_eq!(info.band, "LF/MF");
 
         // 160m HF Amateur
-        let info = identify_frequency(1_850_000).unwrap();
+        let info =
+            identify_frequency(1_850_000).expect("1.85 MHz should identify as 160m HF Amateur");
         assert_eq!(info.band, "160m HF Amateur");
 
         // 80m HF Amateur
-        let info = identify_frequency(3_750_000).unwrap();
+        let info =
+            identify_frequency(3_750_000).expect("3.75 MHz should identify as 80m HF Amateur");
         assert_eq!(info.band, "80m HF Amateur");
 
         // 40m HF Amateur
-        let info = identify_frequency(7_150_000).unwrap();
+        let info =
+            identify_frequency(7_150_000).expect("7.15 MHz should identify as 40m HF Amateur");
         assert_eq!(info.band, "40m HF Amateur");
 
         // 20m HF Amateur
-        let info = identify_frequency(14_200_000).unwrap();
+        let info =
+            identify_frequency(14_200_000).expect("14.2 MHz should identify as 20m HF Amateur");
         assert_eq!(info.band, "20m HF Amateur");
 
         // 15m HF Amateur
-        let info = identify_frequency(21_200_000).unwrap();
+        let info =
+            identify_frequency(21_200_000).expect("21.2 MHz should identify as 15m HF Amateur");
         assert_eq!(info.band, "15m HF Amateur");
 
         // 10m HF Amateur
-        let info = identify_frequency(28_500_000).unwrap();
+        let info =
+            identify_frequency(28_500_000).expect("28.5 MHz should identify as 10m HF Amateur");
         assert_eq!(info.band, "10m HF Amateur");
 
         // CB Radio
-        let info = identify_frequency(27_185_000).unwrap();
+        let info = identify_frequency(27_185_000).expect("27.185 MHz should identify as CB Radio");
         assert_eq!(info.band, "CB (Citizens Band)");
 
         // VOR/ILS navigation
-        let info = identify_frequency(112_000_000).unwrap();
+        let info = identify_frequency(112_000_000).expect("112 MHz should identify as VOR/ILS");
         assert_eq!(info.band, "VOR/ILS");
 
         // Aviation VHF
-        let info = identify_frequency(120_000_000).unwrap();
+        let info =
+            identify_frequency(120_000_000).expect("120 MHz should identify as Aviation VHF");
         assert_eq!(info.band, "Aviation VHF");
 
         // NOAA Satellites
-        let info = identify_frequency(137_500_000).unwrap();
+        let info =
+            identify_frequency(137_500_000).expect("137.5 MHz should identify as NOAA Satellites");
         assert_eq!(info.band, "NOAA Satellites");
 
         // FM Broadcast
-        let info = identify_frequency(100_000_000).unwrap();
+        let info =
+            identify_frequency(100_000_000).expect("100 MHz should identify as FM Broadcast");
         assert_eq!(info.band, "FM Broadcast");
 
         // Marine VHF
-        let info = identify_frequency(156_800_000).unwrap();
+        let info =
+            identify_frequency(156_800_000).expect("156.8 MHz should identify as Marine VHF");
         assert_eq!(info.band, "Marine VHF");
 
         // NOAA WX Radio (or Marine VHF due to overlap)
-        let info = identify_frequency(162_550_000).unwrap();
+        let info =
+            identify_frequency(162_550_000).expect("162.55 MHz should identify as NOAA or Marine");
         assert!(
             info.band == "NOAA WX Radio" || info.band == "Marine VHF",
             "expected NOAA WX Radio or Marine VHF, got {}",
@@ -3078,53 +3097,60 @@ mod tests {
         );
 
         // Amateur 2m
-        let info = identify_frequency(145_500_000).unwrap();
+        let info =
+            identify_frequency(145_500_000).expect("145.5 MHz should identify as Amateur 2m");
         assert_eq!(info.band, "Amateur 2m");
 
         // Amateur 70cm
-        let info = identify_frequency(435_000_000).unwrap();
+        let info =
+            identify_frequency(435_000_000).expect("435 MHz should identify as Amateur 70cm");
         assert_eq!(info.band, "Amateur 70cm");
 
         // ISM 433 MHz overlaps with Amateur 70cm (420-450) and ISM (433-435);
         // first match wins → Amateur 70cm.
-        let info = identify_frequency(434_000_000).unwrap();
+        let info =
+            identify_frequency(434_000_000).expect("434 MHz should identify as Amateur 70cm");
         assert_eq!(info.band, "Amateur 70cm");
 
         // Land Mobile
-        let info = identify_frequency(152_000_000).unwrap();
+        let info = identify_frequency(152_000_000).expect("152 MHz should identify as Land Mobile");
         assert_eq!(info.band, "Land Mobile");
 
         // GSM 900 (cellular)
-        let info = identify_frequency(940_000_000).unwrap();
+        let info = identify_frequency(940_000_000).expect("940 MHz should identify as GSM 900");
         assert_eq!(info.band, "GSM 900");
 
         // ADS-B
-        let info = identify_frequency(1_090_000_000).unwrap();
+        let info = identify_frequency(1_090_000_000).expect("1090 MHz should identify as ADS-B");
         assert_eq!(info.band, "ADS-B");
 
         // L-band Radar
-        let info = identify_frequency(1_230_000_000).unwrap();
+        let info =
+            identify_frequency(1_230_000_000).expect("1230 MHz should identify as L-band Radar");
         assert_eq!(info.band, "L-band Radar");
 
         // L-band Sat
-        let info = identify_frequency(1_540_000_000).unwrap();
+        let info =
+            identify_frequency(1_540_000_000).expect("1540 MHz should identify as L-band Sat");
         assert_eq!(info.band, "L-band Sat");
 
         // GPS/GNSS
-        let info = identify_frequency(1_575_420_000).unwrap();
+        let info =
+            identify_frequency(1_575_420_000).expect("1575.42 MHz should identify as GPS/GNSS");
         assert_eq!(info.band, "GPS/GNSS");
 
         // Iridium
-        let info = identify_frequency(1_640_000_000).unwrap();
+        let info = identify_frequency(1_640_000_000).expect("1640 MHz should identify as Iridium");
         assert_eq!(info.band, "Iridium");
 
         // GOES Sat
-        let info = identify_frequency(1_695_000_000).unwrap();
+        let info = identify_frequency(1_695_000_000).expect("1695 MHz should identify as GOES Sat");
         assert_eq!(info.band, "GOES Sat");
 
         // Verify all returned BandInfo have reasonable descriptions
         for freq in &[300_000, 7_150_000, 100_000_000, 120_000_000, 1_090_000_000] {
-            let info = identify_frequency(*freq).unwrap();
+            let info = identify_frequency(*freq)
+                .expect("each test frequency should identify successfully");
             assert!(
                 !info.short_desc.is_empty(),
                 "short_desc empty for freq {freq}"

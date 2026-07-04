@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
