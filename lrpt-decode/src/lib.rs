@@ -398,9 +398,9 @@ mod tests {
             Vec::with_capacity(quadrants.len() + PREAMBLE_SYMBOLS + POSTAMBLE_SYMBOLS);
         let first_q = *quadrants.first().unwrap_or(&0);
         let last_q = *quadrants.last().unwrap_or(&0);
-        full_quadrants.extend(std::iter::repeat(first_q).take(PREAMBLE_SYMBOLS));
+        full_quadrants.extend(std::iter::repeat_n(first_q, PREAMBLE_SYMBOLS));
         full_quadrants.extend(quadrants);
-        full_quadrants.extend(std::iter::repeat(last_q).take(POSTAMBLE_SYMBOLS));
+        full_quadrants.extend(std::iter::repeat_n(last_q, POSTAMBLE_SYMBOLS));
 
         let mut iq_bytes = Vec::with_capacity(full_quadrants.len() * sps * 2);
         for q in full_quadrants {

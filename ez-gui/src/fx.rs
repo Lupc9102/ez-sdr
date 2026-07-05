@@ -81,7 +81,7 @@ mod tests {
             egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(10.0, 10.0)),
             &gradient,
         );
-        ctx.end_pass();
+        let _ = ctx.end_pass();
     }
 
     #[test]
@@ -101,6 +101,6 @@ mod tests {
             4.0,
             &glow,
         );
-        ctx.end_pass();
+        let _ = ctx.end_pass();
     }
 }

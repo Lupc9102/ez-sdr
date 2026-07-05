@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 pub enum SatelliteSubTab {
     Track,
     Decode,
+    Editor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

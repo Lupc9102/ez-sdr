@@ -71,12 +71,16 @@ impl UserLevel {
 pub struct TutorialState {
     pub active: bool,
     pub level: UserLevel,
+    #[allow(dead_code)]
     pub step: usize,
     pub skip_confirm_phase: u8,
     pub highlight_target: Option<String>,
     pub tab_to_open: Option<Tab>,
+    #[allow(dead_code)]
     pub level_chosen: bool,
+    #[allow(dead_code)]
     pub asked_resume: bool,
+    #[allow(dead_code)]
     pub resume_response: Option<bool>,
 }
 

@@ -670,7 +670,7 @@ impl eframe::App for CentralApp {
                 if !self.satellite_panel.decoded_channels.is_empty() {
                     let channels = std::mem::take(&mut self.satellite_panel.decoded_channels);
                     self.editor_panel.load_channels(channels);
-                    self.satellite_subtab = crate::satellite_panel::SatelliteSubTab::Decode;
+                    self.satellite_subtab = crate::satellite_panel::SatelliteSubTab::Editor;
                 }
             } else if let Some(ref err) = self.satellite_panel.decode_error {
                 let sat = self.satellite_panel.decode_satellite_preset.label();
@@ -2406,6 +2406,7 @@ impl CentralApp {
                     for (subtab, label) in [
                         (SatelliteSubTab::Track, "🛰 Track"),
                         (SatelliteSubTab::Decode, "📡 Decode"),
+                        (SatelliteSubTab::Editor, "🖼 Editor"),
                     ] {
                         let is_active = self.satellite_subtab == subtab;
                         let fg = if is_active {
@@ -2464,6 +2465,7 @@ impl CentralApp {
                     match self.satellite_subtab {
                         SatelliteSubTab::Track => self.satellite_panel.ui_simple(ui),
                         SatelliteSubTab::Decode => self.satellite_panel.ui_decode(ui),
+                        SatelliteSubTab::Editor => self.editor_panel.ui(ui),
                     }
                     if let Some(prompt) = self.satellite_panel.pending_ai_prompt.take() {
                         self.ai_panel.input = prompt;
@@ -2484,6 +2486,9 @@ impl CentralApp {
         egui::CentralPanel::default().show(ui, |ui| match self.satellite_subtab {
             crate::satellite_panel::SatelliteSubTab::Decode => {
                 self.render_decode_central(ui);
+            }
+            crate::satellite_panel::SatelliteSubTab::Editor => {
+                self.editor_panel.ui_viewer(ui);
             }
             _ => {
                 self.render_satellite_world_map(ui);
