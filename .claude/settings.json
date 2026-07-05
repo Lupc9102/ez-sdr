@@ -1,4 +1,10 @@
 {
+  "model": "claude-haiku-4-5-20251001",
+  "alwaysThinkingEnabled": true,
+  "env": {
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+  },
   "hooks": {
     "PreToolUse": [
       {

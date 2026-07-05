@@ -957,6 +957,7 @@ mod tests {
             mqtt_connected: false,
             mqtt_enabled: false,
             bookmarks_modified: true,
+            scanner_command: None,
         }))
     }
 

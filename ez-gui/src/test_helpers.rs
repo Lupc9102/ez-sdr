@@ -36,6 +36,7 @@ pub fn make_shared_state() -> Arc<Mutex<SharedState>> {
         mqtt_connected: false,
         mqtt_enabled: false,
         bookmarks_modified: true,
+        scanner_command: None,
     }))
 }
 

@@ -119,6 +119,20 @@ const ALL_SECONDARY_TOOLS: &[SecondaryTool] = &[
     SecondaryTool::Settings,
 ];
 
+/// Scanner configuration request produced outside the scanner itself (the AI
+/// panel's `configure_scanner` tool call). Fields left `None` keep the
+/// scanner's current value; the app loop drains and applies it every frame.
+#[derive(Debug, Clone, Default)]
+pub struct ScannerCommand {
+    pub start_hz: Option<u64>,
+    pub stop_hz: Option<u64>,
+    pub step_hz: Option<u64>,
+    pub dwell_ms: Option<u64>,
+    pub threshold_db: Option<f32>,
+    /// `Some(true)` starts the sweep after applying settings, `Some(false)` stops it.
+    pub run: Option<bool>,
+}
+
 pub struct SharedState {
     pub source: SourceManager,
     pub spectrum: SpectrumAnalyzer,
@@ -145,6 +159,7 @@ pub struct SharedState {
     pub mqtt_connected: bool,
     pub mqtt_enabled: bool,
     pub bookmarks_modified: bool,
+    pub scanner_command: Option<ScannerCommand>,
 }
 
 pub struct CentralApp {
@@ -264,6 +279,7 @@ impl CentralApp {
             mqtt_connected: false,
             mqtt_enabled: false,
             bookmarks_modified: true,
+            scanner_command: None,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -1260,11 +1276,16 @@ impl eframe::App for CentralApp {
 
             // Frequency scanner tick (runs every frame, rate-limited by dwell_ms)
             {
-                let peak = if let Ok(state) = self.shared.try_lock() {
-                    state.spectrum.peak_level()
+                let (peak, scanner_cmd) = if let Ok(mut state) = self.shared.try_lock() {
+                    (state.spectrum.peak_level(), state.scanner_command.take())
                 } else {
-                    -120.0
+                    (-120.0, None)
                 };
+                // Apply any AI-issued scanner configuration before ticking so
+                // the sweep runs with the requested settings this frame.
+                if let Some(cmd) = scanner_cmd {
+                    self.scanner.apply_command(&cmd);
+                }
                 let prev_hits = self.scanner.hits.len();
                 self.scanner.tick(peak);
                 // Publish any new hits to MQTT + Discord
@@ -2134,7 +2155,18 @@ impl CentralApp {
                     }
                     self.scanner.ui(ui);
                     if let Some(prompt) = self.scanner.pending_ai_prompt.take() {
+                        // Actually dispatch the prompt instead of only pre-filling
+                        // the input box, and surface the AI panel so the user
+                        // sees the response (and any configure_scanner tool calls).
                         self.ai_panel.input = prompt;
+                        self.ai_panel.send_message();
+                        if self.current_tab == AppTab::Sdr {
+                            self.sdr_ai_panel_open = true;
+                        }
+                        self.status_flash = Some((
+                            "🤖 Scanner request sent to AI Agent".to_string(),
+                            std::time::Instant::now(),
+                        ));
                     }
                 }
                 SecondaryTool::Recorder => self.recorder_panel.ui(ui),
@@ -2232,8 +2264,18 @@ impl CentralApp {
                     state.spectrum.bookmark_freqs_dirty = true;
                 }
                 if let Some(sq) = state.spectrum.pending_squelch_db.take() { state.squelch = sq; }
-                if let Some(hz) = state.spectrum.pending_scan_start.take() { self.scanner.start_hz = hz; }
-                if let Some(hz) = state.spectrum.pending_scan_stop.take() { self.scanner.stop_hz = hz; }
+                let mut scan_range_changed = false;
+                if let Some(hz) = state.spectrum.pending_scan_start.take() {
+                    self.scanner.start_hz = hz;
+                    scan_range_changed = true;
+                }
+                if let Some(hz) = state.spectrum.pending_scan_stop.take() {
+                    self.scanner.stop_hz = hz;
+                    scan_range_changed = true;
+                }
+                if scan_range_changed {
+                    self.scanner.ensure_current_in_range();
+                }
                 if let Some(mode_str) = state.spectrum.pending_demod_mode.take() {
                     if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) { state.demod_mode = mode; }
                 }

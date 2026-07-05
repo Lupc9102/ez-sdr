@@ -85,6 +85,7 @@ Available tools:
 - add_bookmark(name: string, hz: u64, mode: string, notes: string) — Save a frequency as a bookmark
 - set_lpf_cutoff(hz: f64) — Set audio low-pass filter cutoff in Hz (e.g. 3000 for voice, 15000 for FM)
 - set_ppm(ppm: i32) — Set frequency correction in parts-per-million (corrects oscillator drift)
+- configure_scanner(start_mhz: f64, stop_mhz: f64, step_khz: f64, dwell_ms: u64, threshold_db: f64, run: bool) — Configure the frequency scanner. All args optional; only the ones you pass are changed. run=true starts the sweep after applying, run=false stops it. Example: {\"tool\": \"configure_scanner\", \"args\": {\"start_mhz\": 118.0, \"stop_mhz\": 137.0, \"step_khz\": 25.0, \"dwell_ms\": 300, \"threshold_db\": -60, \"run\": true}}
 - web_search(query: string) — Search the web for external information (current events, technical specs, frequency databases, regulatory info, etc.)
 
 When you want to call a tool respond with exactly:
@@ -905,6 +906,41 @@ impl AiPanel {
                         return format!("PPM correction set to {ppm} ppm");
                     }
                     return "Error: missing ppm argument".to_string();
+                }
+                "configure_scanner" => {
+                    // Merge into any command still pending from an earlier tool
+                    // call this frame so sequential calls don't clobber each other.
+                    let mut cmd = state.scanner_command.take().unwrap_or_default();
+                    let mut applied: Vec<String> = Vec::new();
+                    if let Some(mhz) = args["start_mhz"].as_f64() {
+                        cmd.start_hz = Some((mhz * 1e6) as u64);
+                        applied.push(format!("start {mhz:.3} MHz"));
+                    }
+                    if let Some(mhz) = args["stop_mhz"].as_f64() {
+                        cmd.stop_hz = Some((mhz * 1e6) as u64);
+                        applied.push(format!("stop {mhz:.3} MHz"));
+                    }
+                    if let Some(khz) = args["step_khz"].as_f64() {
+                        cmd.step_hz = Some((khz * 1e3) as u64);
+                        applied.push(format!("step {khz:.1} kHz"));
+                    }
+                    if let Some(ms) = args["dwell_ms"].as_u64() {
+                        cmd.dwell_ms = Some(ms);
+                        applied.push(format!("dwell {ms} ms"));
+                    }
+                    if let Some(db) = args["threshold_db"].as_f64() {
+                        cmd.threshold_db = Some(db as f32);
+                        applied.push(format!("threshold {db:.0} dB"));
+                    }
+                    if let Some(run) = args["run"].as_bool() {
+                        cmd.run = Some(run);
+                        applied.push(if run { "start sweep".to_string() } else { "stop sweep".to_string() });
+                    }
+                    if applied.is_empty() {
+                        return "Error: configure_scanner needs at least one of start_mhz, stop_mhz, step_khz, dwell_ms, threshold_db, run".to_string();
+                    }
+                    state.scanner_command = Some(cmd);
+                    return format!("Scanner configured: {}", applied.join(", "));
                 }
                 "web_search" => {
                     if let Some(q) = args["query"].as_str() {

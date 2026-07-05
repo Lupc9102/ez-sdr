@@ -53,6 +53,30 @@ pub struct FrequencyScanner {
     pub pending_ai_prompt: Option<String>,
     // Hits sort mode
     hits_sort: HitsSort,
+    // Antenna calibration
+    pub calibration_active: bool,
+    calibration_phase: CalibrationPhase,
+    calibration_step: usize,
+    calibration_element_length_cm: f64,
+    calibration_measurements: Vec<CalibrationMeasurement>,
+    calibration_msg: String,
+    calibration_freqs_at_lengths: Vec<(f64, u64)>,
+    calibration_delta_log: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CalibrationPhase {
+    Idle,
+    WaitingForInitialMeasurement,
+    WaitingForExtension,
+    Complete,
+}
+
+#[derive(Debug, Clone)]
+struct CalibrationMeasurement {
+    element_length_cm: f64,
+    freq_hz: u64,
+    strength_db: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -104,6 +128,14 @@ impl FrequencyScanner {
             exclude_input: String::new(),
             pending_ai_prompt: None,
             hits_sort: HitsSort::Discovery,
+            calibration_active: false,
+            calibration_phase: CalibrationPhase::Idle,
+            calibration_step: 0,
+            calibration_element_length_cm: 10.0,
+            calibration_measurements: Vec::new(),
+            calibration_msg: String::new(),
+            calibration_freqs_at_lengths: Vec::new(),
+            calibration_delta_log: Vec::new(),
         }
     }
 
@@ -134,6 +166,148 @@ impl FrequencyScanner {
         self.memory_scan = false;
         self.enabled = false;
         self.status_text = format!("Memory scan stopped ({} hits)", self.hits.len());
+    }
+
+    pub fn apply_command(&mut self, cmd: &crate::app::ScannerCommand) {
+        if let Some(hz) = cmd.start_hz {
+            self.start_hz = hz;
+        }
+        if let Some(hz) = cmd.stop_hz {
+            self.stop_hz = hz;
+        }
+        if let Some(hz) = cmd.step_hz {
+            self.step_hz = hz;
+        }
+        if let Some(ms) = cmd.dwell_ms {
+            self.dwell_ms = ms;
+        }
+        if let Some(db) = cmd.threshold_db {
+            self.threshold_db = db;
+        }
+        if let Some(run) = cmd.run {
+            if run {
+                if !self.enabled {
+                    self.start();
+                }
+            } else {
+                self.stop();
+            }
+        }
+        // Clamp current_freq_hz into the new range if scan is running
+        if self.enabled {
+            if self.current_freq_hz < self.start_hz || self.current_freq_hz > self.stop_hz {
+                self.current_freq_hz = self.start_hz;
+                self.tune_request_hz = Some(self.current_freq_hz);
+            }
+        }
+        self.status_text = if self.enabled {
+            format!(
+                "Scanning {:.3}–{:.3} MHz",
+                self.start_hz as f64 / 1e6,
+                self.stop_hz as f64 / 1e6
+            )
+        } else {
+            "Scanner configured (idle)".into()
+        };
+    }
+
+    pub fn start_calibration(&mut self) {
+        self.calibration_active = true;
+        self.calibration_phase = CalibrationPhase::WaitingForInitialMeasurement;
+        self.calibration_step = 0;
+        self.calibration_element_length_cm = 10.0;
+        self.calibration_measurements.clear();
+        self.calibration_freqs_at_lengths.clear();
+        self.calibration_delta_log.clear();
+        self.calibration_msg = format!(
+            "Step 1/3: Construct a 180° dipole with each element at {:.0} cm. \
+             Tune to the strongest signal and press 'Log Measurement'.",
+            self.calibration_element_length_cm
+        );
+    }
+
+    pub fn log_calibration_measurement(&mut self, peak_freq_hz: u64, peak_db: f32) {
+        self.calibration_measurements.push(CalibrationMeasurement {
+            element_length_cm: self.calibration_element_length_cm,
+            freq_hz: peak_freq_hz,
+            strength_db: peak_db,
+        });
+        self.calibration_freqs_at_lengths
+            .push((self.calibration_element_length_cm, peak_freq_hz));
+
+        if self.calibration_freqs_at_lengths.len() >= 2 {
+            let prev = self.calibration_freqs_at_lengths
+                [self.calibration_freqs_at_lengths.len() - 2];
+            let curr = *self.calibration_freqs_at_lengths.last().unwrap();
+            let delta_hz = curr.1 as i64 - prev.1 as i64;
+            let delta_cm = curr.0 - prev.0;
+            self.calibration_delta_log.push(format!(
+                "{:.0}cm → {:.0}cm: {:+.3} kHz ({:+} Hz/cm)",
+                prev.0,
+                curr.0,
+                delta_hz as f64 / 1e3,
+                delta_hz as i64 / delta_cm.max(1.0) as i64
+            ));
+        }
+
+        self.calibration_step += 1;
+        self.calibration_element_length_cm += 10.0;
+
+        if self.calibration_measurements.len() >= 3 {
+            self.calibration_phase = CalibrationPhase::Complete;
+            self.calibration_active = false;
+            let mut summary = String::from("=== Antenna Calibration Complete ===\n");
+            for m in &self.calibration_measurements {
+                summary.push_str(&format!(
+                    "  {:.0} cm → {:.3} MHz ({:.1} dB)\n",
+                    m.element_length_cm,
+                    m.freq_hz as f64 / 1e6,
+                    m.strength_db
+                ));
+            }
+            summary.push_str("\nDeltas:\n");
+            for d in &self.calibration_delta_log {
+                summary.push_str(&format!("  {d}\n"));
+            }
+            if self.calibration_measurements.len() >= 2 {
+                let first = self.calibration_measurements.first().unwrap();
+                let last = self.calibration_measurements.last().unwrap();
+                let total_shift = last.freq_hz as i64 - first.freq_hz as i64;
+                summary.push_str(&format!(
+                    "\nTotal shift: {:+.3} kHz over {:.0} cm",
+                    total_shift as f64 / 1e3,
+                    last.element_length_cm - first.element_length_cm
+                ));
+            }
+            self.calibration_msg = summary;
+        } else {
+            self.calibration_phase = CalibrationPhase::WaitingForExtension;
+            self.calibration_msg = format!(
+                "Step {}/3: Extend each element by +10 cm (now {:.0} cm total). \
+                 Tune to the strongest signal and press 'Log Measurement'.",
+                self.calibration_measurements.len() + 1,
+                self.calibration_element_length_cm
+            );
+        }
+    }
+
+    pub fn stop_calibration(&mut self) {
+        self.calibration_active = false;
+        self.calibration_phase = CalibrationPhase::Idle;
+        self.calibration_msg.clear();
+    }
+
+    /// Clamp `current_freq_hz` into the current `start_hz..stop_hz` range.
+    /// Call after the range is changed externally (spectrum click-drag, AI
+    /// configure, web remote, etc.) so the next tune request stays in-bounds.
+    pub fn ensure_current_in_range(&mut self) {
+        if self.current_freq_hz < self.start_hz {
+            self.current_freq_hz = self.start_hz;
+            self.tune_request_hz = Some(self.current_freq_hz);
+        } else if self.current_freq_hz > self.stop_hz {
+            self.current_freq_hz = self.start_hz;
+            self.tune_request_hz = Some(self.current_freq_hz);
+        }
     }
 
     pub fn export_hits_csv(&mut self) {
@@ -817,6 +991,21 @@ impl FrequencyScanner {
                     self.start_hz = start;
                     self.stop_hz = stop;
                     self.step_hz = step;
+                    // If scan is running, clamp current frequency into new range
+                    if self.enabled {
+                        if self.current_freq_hz < self.start_hz
+                            || self.current_freq_hz > self.stop_hz
+                        {
+                            self.current_freq_hz = self.start_hz;
+                            self.tune_request_hz = Some(self.current_freq_hz);
+                        }
+                        self.progress = 0.0;
+                        self.status_text = format!(
+                            "Scanning {:.3}–{:.3} MHz",
+                            self.start_hz as f64 / 1e6,
+                            self.stop_hz as f64 / 1e6
+                        );
+                    }
                 }
             }
         });
@@ -852,6 +1041,55 @@ impl FrequencyScanner {
                 ui.colored_label(egui::Color32::from_rgb(100, 220, 100),
                     format!("Scanning channel {}/{} — {:.3} MHz", i, n, self.current_freq_hz as f64 / 1e6));
                 ui.add(egui::ProgressBar::new(self.progress).desired_width(200.0));
+            }
+        });
+        // Antenna Calibration
+        ui.collapsing("📐 Antenna Calibration (dipole tuning)", |ui| {
+            ui.label("Interactive loop for physical antenna tuning. Follow the prompts to measure how antenna element length affects resonant frequency.");
+            ui.add_space(4.0);
+
+            if !self.calibration_active && self.calibration_phase == CalibrationPhase::Idle {
+                if ui.button("▶ Start Calibration").on_hover_text(
+                    "Begin a 3-step dipole calibration: 10cm → 20cm → 30cm elements"
+                ).clicked() {
+                    self.start_calibration();
+                }
+            }
+
+            if self.calibration_active {
+                ui.colored_label(egui::Color32::from_rgb(255, 200, 50), &self.calibration_msg);
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.button("📌 Log Measurement").on_hover_text(
+                        "Record the current peak frequency as the resonant point for this antenna length."
+                    ).clicked() {
+                        let freq = self.current_freq_hz;
+                        let db = self.last_peak_db;
+                        self.log_calibration_measurement(freq, db);
+                    }
+                    if ui.button("⏹ Cancel").clicked() {
+                        self.stop_calibration();
+                    }
+                });
+                let progress = self.calibration_measurements.len() as f32 / 3.0;
+                ui.add(egui::ProgressBar::new(progress).desired_width(200.0)
+                    .text(format!("{}/3 measurements", self.calibration_measurements.len())));
+            }
+
+            if self.calibration_phase == CalibrationPhase::Complete && !self.calibration_msg.is_empty() {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("Results").strong());
+                    ui.label(&self.calibration_msg);
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("🔄 Restart").clicked() {
+                        self.start_calibration();
+                    }
+                    if ui.button("✕ Dismiss").clicked() {
+                        self.calibration_phase = CalibrationPhase::Idle;
+                        self.calibration_msg.clear();
+                    }
+                });
             }
         });
         ui.separator();
