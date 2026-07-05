@@ -934,7 +934,11 @@ impl AiPanel {
                     }
                     if let Some(run) = args["run"].as_bool() {
                         cmd.run = Some(run);
-                        applied.push(if run { "start sweep".to_string() } else { "stop sweep".to_string() });
+                        applied.push(if run {
+                            "start sweep".to_string()
+                        } else {
+                            "stop sweep".to_string()
+                        });
                     }
                     if applied.is_empty() {
                         return "Error: configure_scanner needs at least one of start_mhz, stop_mhz, step_khz, dwell_ms, threshold_db, run".to_string();

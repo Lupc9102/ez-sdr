@@ -236,8 +236,8 @@ impl FrequencyScanner {
             .push((self.calibration_element_length_cm, peak_freq_hz));
 
         if self.calibration_freqs_at_lengths.len() >= 2 {
-            let prev = self.calibration_freqs_at_lengths
-                [self.calibration_freqs_at_lengths.len() - 2];
+            let prev =
+                self.calibration_freqs_at_lengths[self.calibration_freqs_at_lengths.len() - 2];
             let curr = *self.calibration_freqs_at_lengths.last().unwrap();
             let delta_hz = curr.1 as i64 - prev.1 as i64;
             let delta_cm = curr.0 - prev.0;

@@ -324,33 +324,6 @@ pub const CATALOG: &[NotifKind] = &[
         essential: false,
         color: 0xFF9900,
     },
-    NotifKind {
-        id: "lrpt_decode_started",
-        category: "Satellite",
-        label: "LRPT Decode Started",
-        desc: "Meteor LRPT decoding began (live or file import)",
-        emoji: "📡",
-        essential: false,
-        color: 0x0066FF,
-    },
-    NotifKind {
-        id: "lrpt_decode_complete",
-        category: "Satellite",
-        label: "LRPT Decode Complete",
-        desc: "Meteor LRPT image decoded",
-        emoji: "🛰️",
-        essential: true,
-        color: 0x00CC00,
-    },
-    NotifKind {
-        id: "lrpt_decode_error",
-        category: "Satellite",
-        label: "LRPT Decode Error",
-        desc: "Decoding failed (no lock / RS failure rate too high)",
-        emoji: "❌",
-        essential: true,
-        color: 0xFF0000,
-    },
     // Recorder
     NotifKind {
         id: "rec_started",
@@ -714,64 +687,6 @@ pub fn embed_sat_upcoming(
 }
 
 /// Build a Discord embed for the start of a Meteor LRPT decode session.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn embed_lrpt_decode_started(sat_name: &str) -> DiscordEmbed {
-    DiscordEmbed {
-        title: format!("📡 LRPT Decode Started: {sat_name}"),
-        description: format!("Decoding **{sat_name}** LRPT downlink"),
-        color: 0x0066FF,
-        fields: vec![("Satellite".to_string(), sat_name.to_string(), false)],
-        footer: "EZ-SDR • Satellite".to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        image_url: None,
-        image_attachment_name: None,
-    }
-}
-
-/// Build a Discord embed for a completed Meteor LRPT decode, including the
-/// resulting image.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn embed_lrpt_decode_complete(
-    sat_name: &str,
-    lines: u32,
-    rs_ok_pct: f32,
-    image_path: &str,
-) -> DiscordEmbed {
-    DiscordEmbed {
-        title: format!("🛰️ LRPT Decode Complete: {sat_name}"),
-        description: format!("**{sat_name}** image decoded successfully"),
-        color: 0x00CC00,
-        fields: vec![
-            ("Satellite".to_string(), sat_name.to_string(), true),
-            ("Lines".to_string(), lines.to_string(), true),
-            ("RS OK".to_string(), format!("{rs_ok_pct:.1}%"), true),
-            ("Image".to_string(), image_path.to_string(), false),
-        ],
-        footer: "EZ-SDR • Satellite".to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        image_url: None,
-        image_attachment_name: None,
-    }
-}
-
-/// Build a Discord embed for a failed Meteor LRPT decode.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn embed_lrpt_decode_error(sat_name: &str, reason: &str) -> DiscordEmbed {
-    DiscordEmbed {
-        title: format!("❌ LRPT Decode Error: {sat_name}"),
-        description: format!("**{reason}**"),
-        color: 0xFF0000,
-        fields: vec![
-            ("Satellite".to_string(), sat_name.to_string(), true),
-            ("Reason".to_string(), reason.to_string(), false),
-        ],
-        footer: "EZ-SDR • Satellite".to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        image_url: None,
-        image_attachment_name: None,
-    }
-}
-
 /// Build a Discord embed for a recording-started event.
 pub fn embed_recording_started(
     freq_hz: u64,

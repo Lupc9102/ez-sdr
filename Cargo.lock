@@ -1606,7 +1606,6 @@ dependencies = [
  "egui",
  "hound",
  "image",
- "lrpt-decode",
  "num-complex",
  "reqwest",
  "rfd",
@@ -2689,19 +2688,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fae87c125b03c1d2c0150c90365d7d6bcc53fb73a9acaef207d2d065860f062"
 dependencies = [
  "imgref",
-]
-
-[[package]]
-name = "lrpt-decode"
-version = "0.1.0"
-dependencies = [
- "crossbeam-channel",
- "image",
- "num-complex",
- "reed-solomon",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3964,12 +3950,6 @@ checksum = "c5102a6aaa05aa011a238e178e6bca86d2cb56fc9f586d37cb80f5bca6e07759"
 dependencies = [
  "bitflags 2.13.0",
 ]
-
-[[package]]
-name = "reed-solomon"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13de68c877a77f35885442ac72c8beb7c2f0b09380c43b734b9d63d1db69ee54"
 
 [[package]]
 name = "renderdoc-sys"

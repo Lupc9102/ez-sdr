@@ -718,11 +718,16 @@ impl AdsBPanel {
         if self.tile_pending.contains(&(z, x, y)) {
             return;
         }
-        if self.tile_inflight.load(std::sync::atomic::Ordering::Relaxed) >= Self::MAX_CONCURRENT_TILE_DOWNLOADS {
+        if self
+            .tile_inflight
+            .load(std::sync::atomic::Ordering::Relaxed)
+            >= Self::MAX_CONCURRENT_TILE_DOWNLOADS
+        {
             return;
         }
         self.tile_pending.insert((z, x, y));
-        self.tile_inflight.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.tile_inflight
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tx = self.tile_download_tx.clone();
         let inflight = std::sync::Arc::clone(&self.tile_inflight);
         std::thread::spawn(move || {
@@ -1030,7 +1035,8 @@ impl AdsBPanel {
 
         // Evict least-recently-used tiles if over the cap
         if self.tile_cache.len() > Self::MAX_CACHED_TILES {
-            let mut by_age: Vec<((u32, u32, u32), u64)> = self.tile_last_used.iter().map(|(k, v)| (*k, *v)).collect();
+            let mut by_age: Vec<((u32, u32, u32), u64)> =
+                self.tile_last_used.iter().map(|(k, v)| (*k, *v)).collect();
             by_age.sort_by_key(|(_, frame)| *frame);
             let excess = self.tile_cache.len() - Self::MAX_CACHED_TILES;
             for (key, _) in by_age.into_iter().take(excess) {

@@ -222,6 +222,106 @@ pub fn from_tle_lines(lines: &[&str]) -> Result<TleEntry, String> {
     })
 }
 
+impl TleEngine {
+    /// Compute real-time satellite azimuth/elevation/distance from observer.
+    pub fn satellite_position(
+        &self,
+        name: &str,
+        observer_lat: f64,
+        observer_lon: f64,
+        t: f64,
+    ) -> Option<crate::satellite::types::SatPosition> {
+        let sat = self.tles.iter().find(|s| s.name == name)?;
+        let period_s = 1440.0 / sat.mean_motion * 60.0;
+        let orbit_phase = (t % period_s) / period_s;
+
+        let sat_lat = sat.inclination * (2.0 * std::f64::consts::PI * orbit_phase).sin();
+        let sat_lon = (observer_lon + 360.0 * orbit_phase) % 360.0 - 180.0;
+
+        let dlat = (sat_lat - observer_lat).to_radians();
+        let dlon = (sat_lon - observer_lon).to_radians();
+        let a = (dlat * 0.5).sin().powi(2)
+            + observer_lat.to_radians().cos()
+                * sat_lat.to_radians().cos()
+                * (dlon * 0.5).sin().powi(2);
+        let c: f64 = 2.0 * a.sqrt().asin();
+        let earth_r: f64 = 6371.0;
+        let orbit_alt: f64 = 850.0;
+        let dist_ground: f64 = earth_r * c;
+        let dist_km: f64 = (dist_ground * dist_ground + orbit_alt * orbit_alt).sqrt();
+
+        let elev_ground = (90.0 - c.to_degrees()).max(0.0);
+        let elevation = (orbit_alt / dist_km).atan().to_degrees() + elev_ground * 0.3;
+
+        let y = dlon.sin() * sat_lat.to_radians().cos();
+        let x = observer_lat.to_radians().cos() * sat_lat.to_radians().sin()
+            - observer_lat.to_radians().sin() * sat_lat.to_radians().cos() * dlon.cos();
+        let azimuth = (y.atan2(x).to_degrees() + 360.0) % 360.0;
+
+        Some(crate::satellite::types::SatPosition {
+            azimuth,
+            elevation: elevation.min(90.0),
+            distance_km: dist_km,
+            lat: sat_lat,
+            lon: sat_lon,
+            timestamp: t,
+        })
+    }
+
+    /// Compute ground-track polyline for a full pass over the next N hours.
+    pub fn pass_trajectory(
+        &self,
+        name: &str,
+        observer_lat: f64,
+        observer_lon: f64,
+        hours: f64,
+    ) -> Vec<crate::satellite::types::TrajectoryPoint> {
+        let mut points = Vec::new();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+        let dt = 30.0;
+        let steps = (hours * 3600.0 / dt) as usize;
+
+        let pass_window = self
+            .compute_passes(observer_lat, observer_lon, hours)
+            .iter()
+            .find(|p| p.satellite == name)
+            .map(|p| (p.aos_dt, p.los_dt));
+
+        let (aos_dt, los_dt) = match pass_window {
+            Some((a, l)) => (a, l),
+            None => return points,
+        };
+
+        for i in 0..steps {
+            let t = now + i as f64 * dt;
+            if t < aos_dt - 600.0 || t > los_dt + 600.0 {
+                continue;
+            }
+            if let Some(pos) = self.satellite_position(name, observer_lat, observer_lon, t) {
+                let segment = if t < aos_dt {
+                    crate::satellite::types::TrajectorySegment::PreAOS
+                } else if t > los_dt {
+                    crate::satellite::types::TrajectorySegment::PostLOS
+                } else {
+                    crate::satellite::types::TrajectorySegment::InPass
+                };
+                points.push(crate::satellite::types::TrajectoryPoint {
+                    geo: crate::satellite::types::GeoPoint {
+                        lat: pos.lat,
+                        lon: pos.lon,
+                    },
+                    segment,
+                    timestamp: t,
+                });
+            }
+        }
+        points
+    }
+}
+
 fn sat_frequency(name: &str) -> u64 {
     match name {
         "NOAA 15" => 137_620_000,

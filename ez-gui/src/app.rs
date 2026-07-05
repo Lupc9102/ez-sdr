@@ -169,7 +169,6 @@ pub struct CentralApp {
     adsb_panel: AdsBPanel,
     recorder_panel: RecorderPanel,
     ai_panel: AiPanel,
-    editor_panel: crate::editor_panel::EditorPanel,
     howto_panel: HowToPanel,
     web_remote: WebRemote,
     mqtt: MqttPublisher,
@@ -241,7 +240,6 @@ pub struct CentralApp {
     sdr_ai_panel_open: bool,
     adsb_instructions_open: bool,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
-    last_decode_running: bool,
     customize_panel: crate::customize_panel::CustomizePanel,
 }
 
@@ -389,7 +387,6 @@ impl CentralApp {
             adsb_panel: AdsBPanel::new(shared.clone()),
             recorder_panel: RecorderPanel::new(shared.clone()),
             ai_panel: AiPanel::new(shared.clone()),
-            editor_panel: crate::editor_panel::EditorPanel::new(),
             howto_panel: HowToPanel::new(),
             web_remote,
             mqtt,
@@ -456,7 +453,6 @@ impl CentralApp {
             sdr_ai_panel_open: false,
             adsb_instructions_open: false,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
-            last_decode_running: false,
             customize_panel: crate::customize_panel::CustomizePanel::default(),
         }
     }
@@ -518,6 +514,7 @@ impl eframe::App for CentralApp {
                 }
             }
             self.recorder_panel.write_samples(samples);
+            self.satellite_panel.feed_recording(samples);
 
             // Demodulate and send audio
             if audio_running {
@@ -589,54 +586,8 @@ impl eframe::App for CentralApp {
         if let Some(msg) = self.satellite_panel.pending_status.take() {
             self.status_flash = Some((msg, std::time::Instant::now()));
         }
-        // Poll satellite decode pipeline
-        self.satellite_panel.tick_decode();
-        // Sync AI config to editor panel
-        {
-            if let Ok(state) = self.shared.try_lock() {
-                self.editor_panel.set_ai_config(
-                    &state.config.ai_endpoint,
-                    &state.config.ai_api_key,
-                    &state.config.ai_model,
-                    &state.config.ai_provider,
-                );
-            }
-        }
-        self.editor_panel.tick();
-        // Fire Discord notifications for decode events
-        if self.satellite_panel.decode_running && !self.last_decode_running {
-            let sat = self.satellite_panel.decode_satellite_preset.label();
-            let embed = crate::discord::embed_lrpt_decode_started(sat);
-            self.discord.fire("lrpt_decode_started", embed);
-        }
-        if !self.satellite_panel.decode_running && self.last_decode_running {
-            if let Some(ref result) = self.satellite_panel.decode_result {
-                let total = result.rs_ok + result.rs_failed;
-                let rs_pct = if total > 0 {
-                    result.rs_ok as f32 / total as f32 * 100.0
-                } else {
-                    0.0
-                };
-                let embed = crate::discord::embed_lrpt_decode_complete(
-                    &result.satellite,
-                    result.lines_decoded,
-                    rs_pct,
-                    result.image_paths.first().unwrap_or(&String::new()),
-                );
-                self.discord.fire("lrpt_decode_complete", embed);
-                // Load decoded channels into editor and switch to Editor sub-tab
-                if !self.satellite_panel.decoded_channels.is_empty() {
-                    let channels = std::mem::take(&mut self.satellite_panel.decoded_channels);
-                    self.editor_panel.load_channels(channels);
-                    self.satellite_subtab = crate::satellite_panel::SatelliteSubTab::Editor;
-                }
-            } else if let Some(ref err) = self.satellite_panel.decode_error {
-                let sat = self.satellite_panel.decode_satellite_preset.label();
-                let embed = crate::discord::embed_lrpt_decode_error(sat, err);
-                self.discord.fire("lrpt_decode_error", embed);
-            }
-        }
-        self.last_decode_running = self.satellite_panel.decode_running;
+        // Poll satellite real-time position
+        self.satellite_panel.tick_realtime();
         // Fire Discord notifications for new aircraft
         for ac in &self.adsb_panel.aircraft {
             if self.seen_aircraft.insert(ac.icao) {
@@ -2365,8 +2316,7 @@ impl CentralApp {
                     use crate::satellite_panel::SatelliteSubTab;
                     for (subtab, label) in [
                         (SatelliteSubTab::Track, "🛰 Track"),
-                        (SatelliteSubTab::Decode, "📡 Decode"),
-                        (SatelliteSubTab::Editor, "🖼 Editor"),
+                        (SatelliteSubTab::Alignment, "🧭 Align"),
                     ] {
                         let is_active = self.satellite_subtab == subtab;
                         let fg = if is_active {
@@ -2421,12 +2371,7 @@ impl CentralApp {
             .default_size(280.0)
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    use crate::satellite_panel::SatelliteSubTab;
-                    match self.satellite_subtab {
-                        SatelliteSubTab::Track => self.satellite_panel.ui_simple(ui),
-                        SatelliteSubTab::Decode => self.satellite_panel.ui_decode(ui),
-                        SatelliteSubTab::Editor => self.editor_panel.ui(ui),
-                    }
+                    self.satellite_panel.ui(ui, self.satellite_subtab);
                     if let Some(prompt) = self.satellite_panel.pending_ai_prompt.take() {
                         self.ai_panel.input = prompt;
                         self.status_flash = Some((
@@ -2437,205 +2382,48 @@ impl CentralApp {
                 });
             });
 
-        // Handle "jump to decode" request from Track sub-tab
-        if self.satellite_panel.pending_decode_tab {
-            self.satellite_panel.pending_decode_tab = false;
-            self.satellite_subtab = crate::satellite_panel::SatelliteSubTab::Decode;
-        }
-
         egui::CentralPanel::default().show(ui, |ui| match self.satellite_subtab {
-            crate::satellite_panel::SatelliteSubTab::Decode => {
-                self.render_decode_central(ui);
+            crate::satellite_panel::SatelliteSubTab::Track => {
+                self.satellite_panel.map_renderer.ui(ui);
             }
-            crate::satellite_panel::SatelliteSubTab::Editor => {
-                self.editor_panel.ui_viewer(ui);
-            }
-            _ => {
-                self.render_satellite_world_map(ui);
+            crate::satellite_panel::SatelliteSubTab::Alignment => {
+                self.render_satellite_alignment_central(ui);
             }
         });
     }
 
-    fn render_satellite_world_map(&mut self, ui: &mut egui::Ui) {
-        let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
-        let painter = ui.painter();
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(8, 14, 24));
-
-        for lat_step in 0..=6i32 {
-            let lat = -90.0 + lat_step as f32 * 30.0;
-            let y = rect.top() + ((90.0 - lat) / 180.0) * rect.height();
-            painter.line_segment(
-                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)),
-            );
-        }
-        for lon_step in 0..=12i32 {
-            let lon = -180.0 + lon_step as f32 * 30.0;
-            let x = rect.left() + ((lon + 180.0) / 360.0) * rect.width();
-            painter.line_segment(
-                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                egui::Stroke::new(0.4, egui::Color32::from_rgb(28, 42, 60)),
-            );
-        }
-        for lat in [-60i32, -30, 0, 30, 60] {
-            let y = rect.top() + ((90.0 - lat as f32) / 180.0) * rect.height();
-            painter.text(
-                egui::pos2(rect.left() + 5.0, y),
-                egui::Align2::LEFT_CENTER,
-                format!("{lat}°"),
-                egui::FontId::proportional(8.0),
-                egui::Color32::from_gray(50),
-            );
-        }
-
-        let obs_x = rect.left()
-            + ((self.satellite_panel.observer_lon as f32 + 180.0) / 360.0) * rect.width();
-        let obs_y = rect.top()
-            + ((90.0 - self.satellite_panel.observer_lat as f32) / 180.0) * rect.height();
-        if rect.contains(egui::pos2(obs_x, obs_y)) {
-            painter.line_segment(
-                [
-                    egui::pos2(obs_x - 9.0, obs_y),
-                    egui::pos2(obs_x + 9.0, obs_y),
-                ],
-                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)),
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(obs_x, obs_y - 9.0),
-                    egui::pos2(obs_x, obs_y + 9.0),
-                ],
-                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)),
-            );
-            painter.circle_stroke(
-                egui::pos2(obs_x, obs_y),
-                5.0,
-                egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 240, 80)),
-            );
-            painter.text(
-                egui::pos2(obs_x + 11.0, obs_y - 7.0),
-                egui::Align2::LEFT_CENTER,
-                "Observer",
-                egui::FontId::proportional(9.0),
-                egui::Color32::from_rgb(210, 200, 70),
-            );
-        }
-
-        painter.text(
-            egui::pos2(rect.left() + 8.0, rect.bottom() - 8.0),
-            egui::Align2::LEFT_BOTTOM,
-            "Select a satellite in the panel to track its ground path",
-            egui::FontId::proportional(9.0),
-            egui::Color32::from_gray(45),
-        );
-    }
-
-    fn render_decode_central(&mut self, ui: &mut egui::Ui) {
-        let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
-        let painter = ui.painter();
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(8, 14, 24));
-
-        if let Some(ref result) = self.satellite_panel.decode_result {
-            if !result.image_paths.is_empty() {
-                let padding = 16.0;
-                let mut y = rect.top() + padding;
-
-                painter.text(
-                    egui::pos2(rect.left() + padding, y),
-                    egui::Align2::LEFT_TOP,
-                    format!("Decoded: {}", result.satellite),
-                    egui::FontId::proportional(16.0),
-                    egui::Color32::from_rgb(0, 168, 255),
-                );
-                y += 28.0;
-
-                painter.text(
-                    egui::pos2(rect.left() + padding, y),
-                    egui::Align2::LEFT_TOP,
-                    format!(
-                        "{} lines · RS OK: {} · {} ms",
-                        result.lines_decoded, result.rs_ok, result.elapsed_ms
-                    ),
-                    egui::FontId::proportional(12.0),
-                    egui::Color32::from_rgb(180, 190, 200),
-                );
-                y += 24.0;
-
-                for path in &result.image_paths {
-                    let img_path = std::path::Path::new(path);
-                    if let Ok(img) = image::open(img_path) {
-                        let rgba = img.to_rgba8();
-                        let (w, h) = rgba.dimensions();
-                        let available_w = rect.width() - padding * 2.0;
-                        let scale = (available_w / w as f32).min(1.0);
-                        let disp_w = w as f32 * scale;
-                        let disp_h = h as f32 * scale;
-
-                        let img_rect = egui::Rect::from_min_size(
-                            egui::pos2(rect.left() + padding, y),
-                            egui::vec2(disp_w, disp_h),
-                        );
-
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                            [w as usize, h as usize],
-                            rgba.as_raw(),
-                        );
-                        let tex_handle = ui.ctx().load_texture(
-                            format!("decode_{path}"),
-                            color_image,
-                            egui::TextureOptions::default(),
-                        );
-                        ui.painter().image(
-                            tex_handle.id(),
-                            img_rect,
-                            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1.0, 1.0)),
-                            egui::Color32::WHITE,
-                        );
-
-                        y += disp_h + padding;
+    fn render_satellite_alignment_central(&mut self, ui: &mut egui::Ui) {
+        if let Some(idx) = self.satellite_panel.selected_sat_index {
+            if idx < self.satellite_panel.satellite_catalog.len() {
+                if let Some(pos) = self.satellite_panel.current_sat_position {
+                    let align = crate::satellite::alignment::compute_dipole_alignment(
+                        pos,
+                        crate::satellite::alignment::DipoleType::VDipole137,
+                    );
+                    if let Some(alignment) = align {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(12.0);
+                            crate::satellite::alignment::compass_rose_ui(
+                                ui,
+                                alignment.compass_heading,
+                                pos.azimuth,
+                                pos.elevation,
+                                pos.distance_km,
+                            );
+                        });
+                        return;
                     }
                 }
-            } else {
-                painter.text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "Decode complete — no images produced",
-                    egui::FontId::proportional(14.0),
-                    egui::Color32::from_rgb(120, 130, 140),
-                );
             }
-        } else if self.satellite_panel.decode_running {
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Decoding satellite signal...",
-                egui::FontId::proportional(18.0),
-                egui::Color32::from_rgb(0, 168, 255),
-            );
-            if let Some(ref progress) = self.satellite_panel.decode_progress {
-                let status = format!(
-                    "Lines: {} · RS OK: {} · RS Failed: {}",
-                    progress.lines_decoded, progress.rs_ok, progress.rs_failed
-                );
-                painter.text(
-                    egui::pos2(rect.center().x, rect.center().y + 30.0),
-                    egui::Align2::CENTER_TOP,
-                    status,
-                    egui::FontId::proportional(12.0),
-                    egui::Color32::from_rgb(180, 190, 200),
-                );
-            }
-        } else {
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "📡 Import a recording and click Decode\n\n\
-                 Supports .iq files from EZ-SDR Recorder\n\
-                 and other RTL-SDR compatible recordings.",
-                egui::FontId::proportional(14.0),
-                egui::Color32::from_rgb(100, 110, 120),
-            );
         }
+        let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Select a satellite in the Track tab and wait for a position update.",
+            egui::FontId::proportional(14.0),
+            egui::Color32::from_gray(120),
+        );
     }
 
     fn render_bookmarks_full(&mut self, ui: &mut egui::Ui) {

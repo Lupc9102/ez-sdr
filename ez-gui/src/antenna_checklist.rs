@@ -18,7 +18,7 @@ pub struct ChecklistItem {
 /// `skip_antenna_checklists` to the config and auto-passes on future launches.
 pub struct AntennaChecklist {
     shared: Arc<Mutex<SharedState>>,
-    items: Vec<ChecklistItem>,
+    pub items: Vec<ChecklistItem>,
     passed: bool,
     title: &'static str,
     intro: &'static str,
