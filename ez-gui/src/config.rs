@@ -52,7 +52,7 @@ impl Default for LayoutConfig {
 /// Default AI provider API endpoint (`OpenRouter`).
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 /// Default AI model identifier.
-pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-3-haiku";
+pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-haiku-4.5";
 
 /// A known AI provider preset with its endpoint, default model, and notes.
 pub struct ProviderPreset {
@@ -72,14 +72,14 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
     ProviderPreset {
         name: "OpenRouter",
         endpoint: "https://openrouter.ai/api/v1/chat/completions",
-        default_model: "anthropic/claude-3-5-haiku",
+        default_model: "anthropic/claude-haiku-4.5",
         needs_key: true,
         note: "Access 100+ models with one key. Free tier available.",
     },
     ProviderPreset {
         name: "Anthropic",
         endpoint: "https://api.anthropic.com/v1/messages",
-        default_model: "claude-3-5-haiku-20241022",
+        default_model: "claude-haiku-4-5-20251001",
         needs_key: true,
         note: "Direct Anthropic API. Uses x-api-key header.",
     },
@@ -219,9 +219,6 @@ pub struct AppConfig {
     /// Local oscillator offset (Hz) for upconverter / downconverter.
     #[serde(default)]
     pub lo_offset_hz: i64,
-    /// Whether the welcome dialog has been shown (migration flag).
-    #[serde(default)]
-    pub welcome_seen: bool,
     /// Last-used frequency from previous session.
     #[serde(default)]
     pub last_session_freq_hz: u64,
@@ -252,12 +249,6 @@ pub struct AppConfig {
     /// User experience level string (e.g. "beginner", "advanced").
     #[serde(default)]
     pub user_level: String,
-    /// Whether the interactive tutorial has been seen.
-    #[serde(default)]
-    pub tutorial_seen: bool,
-    /// Current tutorial step index.
-    #[serde(default)]
-    pub tutorial_step: usize,
     /// User-saved named themes (the Customize tab's theme gallery), distinct
     /// from the built-in presets in [`ThemeConfig::all_presets`].
     #[serde(default)]
@@ -301,7 +292,6 @@ impl Default for AppConfig {
             wf_min_db: -120.0,
             wf_max_db: -20.0,
             lo_offset_hz: 0,
-            welcome_seen: false,
             last_session_freq_hz: 0,
             last_session_gain_db: -1.0,
             last_session_demod: String::new(),
@@ -312,8 +302,6 @@ impl Default for AppConfig {
             discord: DiscordSettings::default(),
             skip_antenna_checklists: false,
             user_level: "beginner".to_string(),
-            tutorial_seen: false,
-            tutorial_step: 0,
             custom_themes: Vec::new(),
             layout: LayoutConfig::default(),
         }
@@ -321,18 +309,12 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    /// Load configuration from `ez_sdr_config.json`, or return defaults if the
-    /// file does not exist or cannot be parsed. Also migrates the legacy
-    /// `welcome_seen` flag to the `tutorial_seen` field.
+    /// Load configuration from `ez_sdr_config.json`, or return defaults if the file does not exist or cannot be parsed.
     pub fn load_or_default() -> Self {
-        let mut cfg = std::fs::read_to_string("ez_sdr_config.json")
+        let cfg = std::fs::read_to_string("ez_sdr_config.json")
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
             .unwrap_or_default();
-        // Migrate from old welcome_seen to tutorial_seen
-        if cfg.welcome_seen && !cfg.tutorial_seen {
-            cfg.tutorial_seen = true;
-        }
         cfg
     }
 
@@ -441,7 +423,7 @@ impl AppConfig {
                         ui.add_space(2.0);
                         ui.label(egui::RichText::new("Popular models:").small());
                         ui.horizontal_wrapped(|ui| {
-                            for m in &["anthropic/claude-3-5-haiku", "google/gemini-flash-1.5", "meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-7b-instruct:free"] {
+                            for m in &["anthropic/claude-haiku-4.5", "google/gemini-flash-1.5", "meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-7b-instruct:free"] {
                                 if ui.small_button(*m).clicked() {
                                     self.ai_model = m.to_string();
                                 }
@@ -461,7 +443,7 @@ impl AppConfig {
                         ui.add_space(2.0);
                         ui.label(egui::RichText::new("Popular models:").small());
                         ui.horizontal_wrapped(|ui| {
-                            for m in &["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"] {
+                            for m in &["claude-haiku-4-5-20251001", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"] {
                                 if ui.small_button(*m).clicked() {
                                     self.ai_model = m.to_string();
                                 }
@@ -567,13 +549,6 @@ impl AppConfig {
                 ui.colored_label(egui::Color32::from_rgb(100, 200, 255),
                     format!("{} — {}", level.label(), level.description()));
                 self.user_level = level.to_str().to_string();
-            }
-
-            ui.add_space(4.0);
-            if ui.button("🔁 Restart Tutorial").on_hover_text("Re-open the first-run tutorial on next launch.").clicked() {
-                self.tutorial_seen = false;
-                self.tutorial_step = 0;
-                self.needs_apply = true;
             }
         });
 

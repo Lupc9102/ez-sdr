@@ -28,20 +28,7 @@ use crate::sdr_panel::SdrPanel;
 use crate::source_manager::SourceManager;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
-use crate::tutorial;
-use crate::user_level::{TutorialState, UserLevel};
 use crate::web_remote::{RemoteCommand, WebRemote};
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Tab {
-    Sdr,
-    Spectrum,
-    Satellite,
-    AdsB,
-    Scanner,
-    AiAgent,
-    Settings,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppTab {
@@ -186,7 +173,6 @@ pub struct CentralApp {
     freq_history_idx: Option<usize>,
     status_flash: Option<(String, std::time::Instant)>,
     recording_start: Option<std::time::Instant>,
-    tutorial: TutorialState,
     bm_last_len: usize,
     bm_dirty_since: Option<std::time::Instant>,
     // New-bookmark form state
@@ -439,18 +425,6 @@ impl CentralApp {
             recording_start: None,
             bm_last_len: 0,
             bm_dirty_since: None,
-            // Tutorial: first boot welcome dialog
-            tutorial: {
-                let state = shared.lock().expect("shared state mutex poisoned");
-                let mut t = TutorialState::new();
-                if state.config.tutorial_seen {
-                    t.active = false;
-                } else {
-                    t.active = true;
-                    t.level = UserLevel::from_str(&state.config.user_level);
-                }
-                t
-            },
             show_starred_only: false,
             last_recording: false,
             last_adsb_running: false,
@@ -468,38 +442,6 @@ impl CentralApp {
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
             last_decode_running: false,
             customize_panel: crate::customize_panel::CustomizePanel::default(),
-        }
-    }
-}
-
-impl CentralApp {
-    /// Programmatically focus a tab (used by tutorial navigation).
-    fn focus_tab(&mut self, tab: &Tab) {
-        match tab {
-            Tab::AdsB => {
-                self.current_tab = AppTab::AdsB;
-                self.active_secondary_tool = None;
-            }
-            Tab::Satellite => {
-                self.current_tab = AppTab::Satellite;
-                self.active_secondary_tool = None;
-            }
-            Tab::AiAgent => {
-                self.current_tab = AppTab::Ai;
-                self.active_secondary_tool = None;
-            }
-            Tab::Settings => {
-                self.current_tab = AppTab::Sdr;
-                self.active_secondary_tool = Some(SecondaryTool::Settings);
-            }
-            Tab::Scanner => {
-                self.current_tab = AppTab::Sdr;
-                self.active_secondary_tool = Some(SecondaryTool::Scanner);
-            }
-            Tab::Sdr | Tab::Spectrum => {
-                self.current_tab = AppTab::Sdr;
-                self.active_secondary_tool = None;
-            }
         }
     }
 }
@@ -1657,26 +1599,6 @@ impl eframe::App for CentralApp {
             AppTab::Customize => self.render_customize_tab(ui),
         }
 
-        // Tutorial / first-run onboarding
-        if self.tutorial.active {
-            let dismissed = tutorial::render_tutorial(&mut self.tutorial, &self.shared, ui);
-            if dismissed && !self.tutorial.active {
-                if let Ok(mut state) = self.shared.try_lock() {
-                    state.config.tutorial_seen = true;
-                    state.config.user_level = self.tutorial.level.to_str().to_string();
-                    state.config.tutorial_step = 0;
-                    state.config.save();
-                }
-            }
-            return; // Don't render main UI during tutorial
-        }
-
-        // Handle tab navigation from tutorial
-        if let Some(tab) = self.tutorial.tab_to_open.take() {
-            // Focus the tab by selecting it in the dock
-            self.focus_tab(&tab);
-        }
-
         // Frequency jump dialog (J key)
         if self.show_freq_jump {
             let mut close = false;
@@ -2047,10 +1969,6 @@ impl eframe::App for CentralApp {
             cfg.color_map = state.spectrum.color_map.name().to_string();
             cfg.freq_memory_hz = state.freq_memory.iter().map(|m| m.freq_hz).collect();
             cfg.freq_memory_labels = state.freq_memory.iter().map(|m| m.label.clone()).collect();
-            // Save tutorial state
-            if self.tutorial.active {
-                cfg.user_level = self.tutorial.level.to_str().to_string();
-            }
             cfg.save();
             state.spectrum.save_signal_history();
         }

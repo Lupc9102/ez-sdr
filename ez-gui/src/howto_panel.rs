@@ -2660,12 +2660,12 @@ impl HowToPanel {
                     (
                         "OpenRouter",
                         "Pay-per-use",
-                        "Access to many models with one key; claude-3-haiku is cheap",
+                        "Access to many models with one key; claude-haiku-4.5 is cheap",
                     ),
                     (
                         "Anthropic",
                         "Pay-per-use",
-                        "Claude models; claude-3-5-haiku is best value",
+                        "Claude models; claude-haiku-4.5 is best value",
                     ),
                     ("OpenAI", "Pay-per-use", "gpt-4o-mini is cost-effective"),
                     ("Mistral", "Pay-per-use", "mistral-7b is fast and cheap"),

@@ -1,5 +1,3 @@
-use crate::app::Tab;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UserLevel {
     Beginner,
@@ -65,45 +63,6 @@ impl UserLevel {
             Self::Advanced,
             Self::ClerkMaxwell,
         ]
-    }
-}
-
-pub struct TutorialState {
-    pub active: bool,
-    pub level: UserLevel,
-    #[allow(dead_code)]
-    pub step: usize,
-    pub skip_confirm_phase: u8,
-    pub highlight_target: Option<String>,
-    pub tab_to_open: Option<Tab>,
-    #[allow(dead_code)]
-    pub level_chosen: bool,
-    #[allow(dead_code)]
-    pub asked_resume: bool,
-    #[allow(dead_code)]
-    pub resume_response: Option<bool>,
-}
-
-impl TutorialState {
-    pub fn new() -> Self {
-        Self {
-            active: true,
-            level: UserLevel::Beginner,
-            step: 0,
-            skip_confirm_phase: 0,
-            highlight_target: None,
-            tab_to_open: None,
-            level_chosen: false,
-            asked_resume: false,
-            resume_response: None,
-        }
-    }
-
-    pub fn dismiss(&mut self) {
-        self.active = false;
-        self.highlight_target = None;
-        self.tab_to_open = None;
-        self.skip_confirm_phase = 0;
     }
 }
 
@@ -184,25 +143,5 @@ mod tests {
         assert!(lvls.contains(&UserLevel::Intermediate));
         assert!(lvls.contains(&UserLevel::Advanced));
         assert!(lvls.contains(&UserLevel::ClerkMaxwell));
-    }
-
-    #[test]
-    fn tutorial_state_new() {
-        let state = TutorialState::new();
-        assert!(state.active);
-        assert_eq!(state.level, UserLevel::Beginner);
-        assert_eq!(state.step, 0);
-        assert!(!state.level_chosen);
-    }
-
-    #[test]
-    fn tutorial_state_dismiss() {
-        let mut state = TutorialState::new();
-        state.step = 5;
-        state.level_chosen = true;
-        state.dismiss();
-        assert!(!state.active);
-        assert!(state.highlight_target.is_none());
-        assert_eq!(state.skip_confirm_phase, 0);
     }
 }

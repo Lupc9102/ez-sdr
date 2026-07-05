@@ -38,6 +38,10 @@ pub struct AdsBPanel {
     tile_zoom: u32,
     tile_cx: f64,
     tile_cy: f64,
+    zoom_accum: f64,
+    tile_last_used: std::collections::HashMap<(u32, u32, u32), u64>,
+    tile_frame_counter: u64,
+    tile_inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     geo_rx: Option<std::sync::mpsc::Receiver<(f64, f64)>>,
 }
 
@@ -335,6 +339,10 @@ impl AdsBPanel {
             tile_zoom: 8,
             tile_cx: init_cx,
             tile_cy: init_cy,
+            zoom_accum: 0.0,
+            tile_last_used: std::collections::HashMap::new(),
+            tile_frame_counter: 0,
+            tile_inflight: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             geo_rx: None,
         }
     }
@@ -662,6 +670,9 @@ impl AdsBPanel {
     }
 
     // --- OSM tile helpers ---
+    const SCROLL_POINTS_PER_ZOOM_LEVEL: f64 = 50.0;
+    const MAX_CACHED_TILES: usize = 400;
+    const MAX_CONCURRENT_TILE_DOWNLOADS: usize = 8;
 
     fn lon_to_tile_x(lon: f64, zoom: u32) -> f64 {
         let n = (1u64 << zoom) as f64;
@@ -674,33 +685,50 @@ impl AdsBPanel {
         (1.0 - (lat_rad.tan().asinh() / std::f64::consts::PI)) / 2.0 * n
     }
 
+    fn tile_disk_path(z: u32, x: u32, y: u32) -> std::path::PathBuf {
+        std::path::PathBuf::from(format!("tile_cache/{z}/{x}/{y}.png"))
+    }
+
+    fn load_or_fetch_tile(z: u32, x: u32, y: u32) -> Vec<u8> {
+        let path = Self::tile_disk_path(z, x, y);
+        if let Ok(cached) = std::fs::read(&path) {
+            return cached;
+        }
+        let url = format!("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
+        let fetched = match ureq::get(&url).header("User-Agent", "ez-sdr/0.1").call() {
+            Ok(resp) => {
+                let mut buf = Vec::new();
+                match resp.into_body().into_reader().read_to_end(&mut buf) {
+                    Ok(_) => buf,
+                    Err(_) => Vec::new(),
+                }
+            }
+            Err(_) => Vec::new(),
+        };
+        if !fetched.is_empty() {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&path, &fetched);
+        }
+        fetched
+    }
+
     fn request_tile(&mut self, z: u32, x: u32, y: u32) {
         if self.tile_pending.contains(&(z, x, y)) {
             return;
         }
+        if self.tile_inflight.load(std::sync::atomic::Ordering::Relaxed) >= Self::MAX_CONCURRENT_TILE_DOWNLOADS {
+            return;
+        }
         self.tile_pending.insert((z, x, y));
+        self.tile_inflight.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tx = self.tile_download_tx.clone();
+        let inflight = std::sync::Arc::clone(&self.tile_inflight);
         std::thread::spawn(move || {
-            let url = format!("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
-            // Send on EVERY path: a download failure must still clear the
-            // pending entry via process_tile_downloads so the next render
-            // frame can retry. Sending an empty Vec is safe downstream
-            // (image::load_from_memory(&[]) returns Err → tile_cache stays
-            // empty → next frame re-requests the tile). The previous code
-            // silently dropped the error path, leaving the key in
-            // tile_pending forever and breaking the map for the rest of
-            // the session on the first transient network blip.
-            let bytes = match ureq::get(&url).header("User-Agent", "ez-sdr/0.1").call() {
-                Ok(resp) => {
-                    let mut buf = Vec::new();
-                    match resp.into_body().into_reader().read_to_end(&mut buf) {
-                        Ok(_) => buf,
-                        Err(_) => Vec::new(),
-                    }
-                }
-                Err(_) => Vec::new(),
-            };
+            let bytes = Self::load_or_fetch_tile(z, x, y);
             let _ = tx.send(((z, x, y), bytes));
+            inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         });
     }
 
@@ -714,6 +742,35 @@ impl AdsBPanel {
                 let name = format!("tile_{z}_{x}_{y}");
                 let handle = ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR);
                 self.tile_cache.insert((z, x, y), handle);
+            }
+        }
+    }
+
+    fn prefetch_adjacent_zoom(&mut self, rect: egui::Rect) {
+        let zoom = self.tile_zoom;
+        let tile_px = 256.0_f64;
+        let half_w = f64::from(rect.width() / 2.0);
+        let half_h = f64::from(rect.height() / 2.0);
+        for &z2 in &[zoom.wrapping_sub(1), zoom + 1] {
+            if z2 < 2 || z2 > 18 || z2 == zoom {
+                continue;
+            }
+            let scale = 2.0_f64.powi(z2 as i32 - zoom as i32);
+            let cx2 = self.tile_cx * scale;
+            let cy2 = self.tile_cy * scale;
+            let n = 1u64 << z2;
+            let tx_s = (cx2 - half_w / tile_px).floor() as i64;
+            let tx_e = (cx2 + half_w / tile_px).ceil() as i64;
+            let ty_s = (cy2 - half_h / tile_px).floor() as i64;
+            let ty_e = (cy2 + half_h / tile_px).ceil() as i64;
+            for tx in tx_s..tx_e {
+                for ty in ty_s..ty_e {
+                    let wt = tx.rem_euclid(n as i64) as u32;
+                    let wu = ty.rem_euclid(n as i64) as u32;
+                    if !self.tile_cache.contains_key(&(z2, wt, wu)) {
+                        self.request_tile(z2, wt, wu);
+                    }
+                }
             }
         }
     }
@@ -876,6 +933,7 @@ impl AdsBPanel {
 
         // Process incoming tile downloads
         self.process_tile_downloads(ui.ctx());
+        self.tile_frame_counter += 1;
 
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
@@ -887,24 +945,34 @@ impl AdsBPanel {
         // Background fill (shows behind tiles during loading)
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(28, 40, 51));
 
-        // Scroll-to-zoom
+        // Scroll-to-zoom with throttled accumulator
         if response.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let zoom_delta = ui.input(|i| i.zoom_delta());
             if scroll != 0.0 {
-                let dz = if scroll > 0.0 { 1i32 } else { -1 };
+                self.zoom_accum += f64::from(scroll) / Self::SCROLL_POINTS_PER_ZOOM_LEVEL;
+            }
+            if zoom_delta != 1.0 {
+                self.zoom_accum += f64::from(zoom_delta).ln() / std::f64::consts::LN_2;
+            }
+            while self.zoom_accum.abs() >= 1.0 {
+                let dz = if self.zoom_accum > 0.0 { 1i32 } else { -1i32 };
                 let new_zoom = (self.tile_zoom as i32 + dz).clamp(2, 18) as u32;
-                if new_zoom != self.tile_zoom {
-                    let factor = 2.0_f64.powi(if dz > 0 { 1 } else { -1 });
-                    if let Some(mouse) = response.hover_pos() {
-                        let mx = f64::from(mouse.x) - f64::from(rect.center().x);
-                        let my = f64::from(mouse.y) - f64::from(rect.center().y);
-                        let tile_mx = mx / 256.0 + self.tile_cx;
-                        let tile_my = my / 256.0 + self.tile_cy;
-                        self.tile_cx = tile_mx * factor - mx / 256.0;
-                        self.tile_cy = tile_my * factor - my / 256.0;
-                    }
-                    self.tile_zoom = new_zoom;
+                if new_zoom == self.tile_zoom {
+                    self.zoom_accum = 0.0;
+                    break;
                 }
+                let factor = 2.0_f64.powi(if dz > 0 { 1 } else { -1 });
+                if let Some(mouse) = response.hover_pos() {
+                    let mx = f64::from(mouse.x) - f64::from(rect.center().x);
+                    let my = f64::from(mouse.y) - f64::from(rect.center().y);
+                    let tile_mx = mx / 256.0 + self.tile_cx;
+                    let tile_my = my / 256.0 + self.tile_cy;
+                    self.tile_cx = tile_mx * factor - mx / 256.0;
+                    self.tile_cy = tile_my * factor - my / 256.0;
+                }
+                self.tile_zoom = new_zoom;
+                self.zoom_accum -= dz as f64;
             }
         }
 
@@ -946,6 +1014,7 @@ impl AdsBPanel {
                 let wu = ty.rem_euclid(n) as u32;
                 let key = (zoom, wt, wu);
                 if let Some(handle) = self.tile_cache.get(&key) {
+                    self.tile_last_used.insert(key, self.tile_frame_counter);
                     painter.image(
                         handle.id(),
                         tile_rect,
@@ -958,6 +1027,20 @@ impl AdsBPanel {
                 }
             }
         }
+
+        // Evict least-recently-used tiles if over the cap
+        if self.tile_cache.len() > Self::MAX_CACHED_TILES {
+            let mut by_age: Vec<((u32, u32, u32), u64)> = self.tile_last_used.iter().map(|(k, v)| (*k, *v)).collect();
+            by_age.sort_by_key(|(_, frame)| *frame);
+            let excess = self.tile_cache.len() - Self::MAX_CACHED_TILES;
+            for (key, _) in by_age.into_iter().take(excess) {
+                self.tile_cache.remove(&key);
+                self.tile_last_used.remove(&key);
+            }
+        }
+
+        // Prefetch adjacent zoom levels
+        self.prefetch_adjacent_zoom(rect);
 
         // Click handler (select aircraft) — use coordinate from tile projection
         if response.clicked() {

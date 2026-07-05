@@ -105,18 +105,18 @@
     "semantic_hash": ""
   },
   "ez-gui/src/adsb_panel.rs": {
-    "mtime": 1783158856.8054943,
-    "ast_hash": "2ff4fade86ab5026b519a03cf4893a7a",
+    "mtime": 1783258105.9827886,
+    "ast_hash": "de685d245c614a6e5548cfb524fcdb54",
     "semantic_hash": ""
   },
   "ez-gui/src/ai_panel.rs": {
-    "mtime": 1783158856.8184946,
-    "ast_hash": "106e05ac34f76cffe492d5bca2202f54",
+    "mtime": 1783241247.7486544,
+    "ast_hash": "51523cdf03cec5d27e436725360375d1",
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1783164327.4807837,
-    "ast_hash": "2b0438485702e4800461fdabeb545fbb",
+    "mtime": 1783257866.1055174,
+    "ast_hash": "fa69b03157d003e83753ddd1a5af3e2e",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -130,8 +130,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/config.rs": {
-    "mtime": 1783164016.1846178,
-    "ast_hash": "c8df2fce6e287ce5a94e3f3f5a18e5b3",
+    "mtime": 1783257840.9242067,
+    "ast_hash": "620dbe8f57cdd3ae09aee8a9967811f9",
     "semantic_hash": ""
   },
   "ez-gui/src/demod.rs": {
@@ -140,17 +140,17 @@
     "semantic_hash": ""
   },
   "ez-gui/src/howto_panel.rs": {
-    "mtime": 1783164016.2196186,
-    "ast_hash": "717a742aecc1bae3d4245e15318c5dc9",
+    "mtime": 1783257576.6861577,
+    "ast_hash": "de555976c6732fc21b3f03bdfb673ee8",
     "semantic_hash": ""
   },
   "ez-gui/src/main.rs": {
-    "mtime": 1783158448.9217353,
-    "ast_hash": "222d60e71cbd949ff6c58c625df5ead5",
+    "mtime": 1783257611.2779179,
+    "ast_hash": "8ff6827505bef2a8806a49b8bfe51628",
     "semantic_hash": ""
   },
   "ez-gui/src/mqtt.rs": {
-    "mtime": 1783164016.2216187,
+    "mtime": 1783235036.0569172,
     "ast_hash": "854b9e2383b24213ec68a52808d11f32",
     "semantic_hash": ""
   },
@@ -160,8 +160,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/satellite_panel.rs": {
-    "mtime": 1783164346.203292,
-    "ast_hash": "d41c19c132224dcf59b95fa6951aab34",
+    "mtime": 1783241638.168854,
+    "ast_hash": "90d4d09a8cbe854ef8d22ed093987783",
     "semantic_hash": ""
   },
   "ez-gui/src/scanner.rs": {
@@ -175,8 +175,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/sdr_panel.rs": {
-    "mtime": 1783164328.372808,
-    "ast_hash": "c270700ea7cbb2a5639d20cfc4b58d44",
+    "mtime": 1783196208.0793107,
+    "ast_hash": "618a4b60501238311fed3c625c730493",
     "semantic_hash": ""
   },
   "ez-gui/src/source_manager.rs": {
@@ -185,13 +185,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/spectrum.rs": {
-    "mtime": 1783111749.1475165,
-    "ast_hash": "7504784d0413aac116fa7bff9d585a0f",
+    "mtime": 1783196208.0803106,
+    "ast_hash": "87f8abdfd1ff69f7894551fc4fd47685",
     "semantic_hash": ""
   },
   "ez-gui/src/theme.rs": {
-    "mtime": 1783164016.3216212,
-    "ast_hash": "cb20b7528481f2eb863c884571c5c003",
+    "mtime": 1783196334.9534712,
+    "ast_hash": "66de65dfb2d807797c86434dced3298a",
     "semantic_hash": ""
   },
   "ez-gui/src/tle_engine.rs": {
@@ -230,8 +230,8 @@
     "semantic_hash": "3e825c3120dd5c0df0b6a5998baf63bc"
   },
   ".claude/settings.json": {
-    "mtime": 1782896464.105364,
-    "ast_hash": "e51077b6a7f1f67afc748f1a32a1557d",
+    "mtime": 1783244593.6010246,
+    "ast_hash": "1c72882572859ca4e0bf49ba6db11e60",
     "semantic_hash": ""
   },
   ".claude/settings.local.json": {
@@ -260,8 +260,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/discord.rs": {
-    "mtime": 1783169740.0054333,
-    "ast_hash": "3d4920e96dde69c49e47664f0a11ee1c",
+    "mtime": 1783196334.7984674,
+    "ast_hash": "e2ef99a091bad2fa985138e3b1e26dcf",
     "semantic_hash": ""
   },
   "ez-gui/src/discord_panel.rs": {
@@ -269,14 +269,9 @@
     "ast_hash": "85ff21eedf63b08a20d3b619caf49ad0",
     "semantic_hash": ""
   },
-  "ez-gui/src/tutorial.rs": {
-    "mtime": 1783164574.2122166,
-    "ast_hash": "76a6227f25d7ffbf7555d9b797cc1882",
-    "semantic_hash": ""
-  },
   "ez-gui/src/user_level.rs": {
-    "mtime": 1783020680.8798578,
-    "ast_hash": "5c1449122ce4ec91688f8998ae8d759b",
+    "mtime": 1783257645.8626778,
+    "ast_hash": "007d14937f1efd358e74b2e4444c8b29",
     "semantic_hash": ""
   },
   "ez_sdr_bookmarks.json": {
@@ -300,8 +295,8 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1783158207.7503738,
-    "ast_hash": "476d6df0c49f31a64002dd89e476f8e4",
+    "mtime": 1783242695.8605695,
+    "ast_hash": "4eed281aacd34e1cc114772d526b04b3",
     "semantic_hash": ""
   },
   "to_be_reviewed.md": {
@@ -335,43 +330,123 @@
     "semantic_hash": ""
   },
   "INFINITY_COMPARISON.md": {
-    "mtime": 1783165121.2378116,
+    "mtime": 1783196208.0717688,
     "ast_hash": "ea55da0ece17be68f6bee3a437a7ff41",
     "semantic_hash": ""
   },
   "lrpt-decode/src/ccsds.rs": {
-    "mtime": 1783169801.5088797,
-    "ast_hash": "31612066636ed0a3ab364956435381e9",
+    "mtime": 1783196375.731487,
+    "ast_hash": "ef4fb690bc643a8d9baef31b1bdf13e1",
     "semantic_hash": ""
   },
   "lrpt-decode/src/diff_decode.rs": {
-    "mtime": 1783169707.9596796,
-    "ast_hash": "5a9e90dedf61cfd21385c07cc107d345",
+    "mtime": 1783196208.0826828,
+    "ast_hash": "14336438ecac65e9e369b9f55161c974",
     "semantic_hash": ""
   },
   "lrpt-decode/src/frame_sync.rs": {
-    "mtime": 1783169749.0286455,
-    "ast_hash": "3216710d62add9e5cd540f74f6722ada",
+    "mtime": 1783196334.9654715,
+    "ast_hash": "0533985ee81d6022087497a8167f8338",
     "semantic_hash": ""
   },
   "lrpt-decode/src/iq_source.rs": {
-    "mtime": 1783169681.4070551,
+    "mtime": 1783196208.0826828,
     "ast_hash": "2bcdb3db7de6f85ccba896d5e083fd60",
     "semantic_hash": ""
   },
   "lrpt-decode/src/lib.rs": {
-    "mtime": 1783169374.6788418,
-    "ast_hash": "2ca0b0317426ce0dd083cd1eb2e58d31",
+    "mtime": 1783238435.7120616,
+    "ast_hash": "762aaffcce71193778acd987bd11cddf",
     "semantic_hash": ""
   },
   "lrpt-decode/src/randomizer.rs": {
-    "mtime": 1783169569.6714275,
-    "ast_hash": "e91b788a72c7d5a0b4c15dc836dba188",
+    "mtime": 1783196208.0826828,
+    "ast_hash": "0b68c71ceea698dbc60a6996182a6bed",
     "semantic_hash": ""
   },
   "lrpt-decode/src/reed_solomon.rs": {
-    "mtime": 1783169642.622143,
-    "ast_hash": "e845784c14da8d2bac0351c418c4805a",
+    "mtime": 1783196334.9724717,
+    "ast_hash": "d370b89454afc2af94a3d82827d53308",
+    "semantic_hash": ""
+  },
+  ".opencode/package.json": {
+    "mtime": 1783183872.3468142,
+    "ast_hash": "2bffcf9dc5701114d97f5dc5e7c50482",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/composite.rs": {
+    "mtime": 1783241247.7506733,
+    "ast_hash": "6813456799ebdeced1ae106ade826876",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/customize_panel.rs": {
+    "mtime": 1783196334.789467,
+    "ast_hash": "d29371530efb98e329b6841751f33d62",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/editor_panel.rs": {
+    "mtime": 1783241247.7524428,
+    "ast_hash": "776f85b54284ecf19f32030a791f0779",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/fonts.rs": {
+    "mtime": 1783196208.0783107,
+    "ast_hash": "3d517f76b9f3ca71063850e11a465db2",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/fx.rs": {
+    "mtime": 1783238371.949285,
+    "ast_hash": "6312705a7f67acb8fd1414ed1e764d06",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/image_processing.rs": {
+    "mtime": 1783241247.7541068,
+    "ast_hash": "f81e28f49ab3c9a6474fc349990e92ef",
+    "semantic_hash": ""
+  },
+  "lrpt-decode/src/image_builder.rs": {
+    "mtime": 1783196208.0826828,
+    "ast_hash": "017d14b9732d484a65971894835e9c9c",
+    "semantic_hash": ""
+  },
+  "lrpt-decode/src/qpsk.rs": {
+    "mtime": 1783196334.9714718,
+    "ast_hash": "b2ace472859634a0d67a9de822463bca",
+    "semantic_hash": ""
+  },
+  "signal_history.json": {
+    "mtime": 1783244435.0588932,
+    "ast_hash": "c511db28645d1d8aa9c0a1cadddfcd96",
+    "semantic_hash": ""
+  },
+  ".opencode/plans/ai-recommend.md": {
+    "mtime": 1783196208.0706778,
+    "ast_hash": "0d9a53da1cd93e2eb50cf0862bfb4ce1",
+    "semantic_hash": ""
+  },
+  ".opencode/plans/image-editor.md": {
+    "mtime": 1783196208.0717688,
+    "ast_hash": "dd943d1f12b5046506c4b1672e8d40c9",
+    "semantic_hash": ""
+  },
+  "SATELLITE_DECODE_TAB.md": {
+    "mtime": 1783196208.0717688,
+    "ast_hash": "7822e111f52a6d4383d0d1c320624706",
+    "semantic_hash": ""
+  },
+  "ez-gui/assets/fonts/LICENSE-DejaVu.txt": {
+    "mtime": 1783196208.0763106,
+    "ast_hash": "425865e1c534c5788b1341d401f131d9",
+    "semantic_hash": ""
+  },
+  "plan#1.md": {
+    "mtime": 1783257130.7903595,
+    "ast_hash": "9330b0f2f0f11fb30ffe62147ee179ac",
+    "semantic_hash": ""
+  },
+  "ez-gui/tile_cache/8/129/84.png": {
+    "mtime": 1783258127.032252,
+    "ast_hash": "722c72e59e7cb61669e91c1fc096ae4b",
     "semantic_hash": ""
   }
 }
