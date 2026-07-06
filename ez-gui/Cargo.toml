@@ -13,6 +13,7 @@ readme = "../README.md"
 
 [dependencies]
 dump1090 = { path = "../dump1090" }
+lrpt-decode = { path = "../lrpt-decode" }
 
 eframe = { version = "0.35", features = ["glow", "wayland", "x11"] }
 egui = "0.35"

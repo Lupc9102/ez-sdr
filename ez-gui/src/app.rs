@@ -16,6 +16,8 @@ use crate::ai_panel::AiPanel;
 use crate::audio_output::AudioOutput;
 use crate::bookmarks::BookmarkDb;
 use crate::config::AppConfig;
+use crate::constellation::ConstellationDisplay;
+use crate::decoding_panel::DecodingPanel;
 use crate::demod::Demodulator;
 use crate::discord::DiscordNotifier;
 use crate::discord_panel::DiscordPanel;
@@ -36,6 +38,7 @@ pub enum AppTab {
     AdsB,
     Satellite,
     Ai,
+    Decoding,
     Customize,
 }
 
@@ -57,6 +60,12 @@ const MAIN_TABS: &[(&str, AppTab, &str, &str)] = &[
         "Satellite — Pass predictions, Doppler",
     ),
     ("ai", AppTab::Ai, "🤖", "AI — Assistant, questions, tools"),
+    (
+        "decoding",
+        AppTab::Decoding,
+        "🛸",
+        "Decoding — LRPT satellite image decode",
+    ),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +177,8 @@ pub struct CentralApp {
     satellite_panel: SatellitePanel,
     adsb_panel: AdsBPanel,
     recorder_panel: RecorderPanel,
+    constellation: ConstellationDisplay,
+    decoding_panel: DecodingPanel,
     ai_panel: AiPanel,
     howto_panel: HowToPanel,
     web_remote: WebRemote,
@@ -386,6 +397,8 @@ impl CentralApp {
             satellite_panel: SatellitePanel::new(shared.clone()),
             adsb_panel: AdsBPanel::new(shared.clone()),
             recorder_panel: RecorderPanel::new(shared.clone()),
+            constellation: ConstellationDisplay::default(),
+            decoding_panel: DecodingPanel::default(),
             ai_panel: AiPanel::new(shared.clone()),
             howto_panel: HowToPanel::new(),
             web_remote,
@@ -515,6 +528,7 @@ impl eframe::App for CentralApp {
             }
             self.recorder_panel.write_samples(samples);
             self.satellite_panel.feed_recording(samples);
+            self.constellation.push_iq_samples(samples);
 
             // Demodulate and send audio
             if audio_running {
@@ -586,8 +600,17 @@ impl eframe::App for CentralApp {
         if let Some(msg) = self.satellite_panel.pending_status.take() {
             self.status_flash = Some((msg, std::time::Instant::now()));
         }
+        if let Some(req) = self.satellite_panel.pending_decode_request.take() {
+            self.current_tab = AppTab::Decoding;
+            self.active_secondary_tool = None;
+            self.decoding_panel.request_from_satellite(req);
+        }
+        if let Some(msg) = self.decoding_panel.pending_status.take() {
+            self.status_flash = Some((msg, std::time::Instant::now()));
+        }
         // Poll satellite real-time position
         self.satellite_panel.tick_realtime();
+        self.decoding_panel.tick_decode();
         // Fire Discord notifications for new aircraft
         for ac in &self.adsb_panel.aircraft {
             if self.seen_aircraft.insert(ac.icao) {
@@ -1568,6 +1591,7 @@ impl eframe::App for CentralApp {
             AppTab::AdsB => self.render_adsb_tab(ui),
             AppTab::Satellite => self.render_satellite_tab(ui, &snapshot),
             AppTab::Ai => self.render_ai_tab(ui),
+            AppTab::Decoding => self.render_decoding_tab(ui, &snapshot),
             AppTab::Customize => self.render_customize_tab(ui),
         }
 
@@ -2128,6 +2152,15 @@ impl CentralApp {
             });
     }
 
+    fn render_decoding_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
+        let _ = snapshot;
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                self.decoding_panel.ui(ui);
+            });
+        });
+    }
+
     fn render_ai_tab(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().show(ui, |ui| {
             self.ai_panel.ui(ui);
@@ -2161,6 +2194,9 @@ impl CentralApp {
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.sdr_panel.ui_source(ui);
+                    ui.collapsing("IQ Constellation", |ui| {
+                        self.constellation.ui(ui);
+                    });
                     if let Some(freq) = self.sdr_panel.tune_request.take() {
                         if let Ok(mut state) = self.shared.try_lock() {
                             state.source.frequency_hz = freq;
@@ -2359,7 +2395,7 @@ impl CentralApp {
                         ui.separator();
                         ui.colored_label(egui::Color32::GREEN, "✓ Auto-tune");
                     }
-                    if self.satellite_panel.recording {
+                    if self.satellite_panel.cf32_recording {
                         ui.separator();
                         ui.colored_label(egui::Color32::RED, "● REC");
                     }
@@ -2378,6 +2414,22 @@ impl CentralApp {
                             "🤖 Satellite details sent to AI".to_string(),
                             std::time::Instant::now(),
                         ));
+                    }
+
+                    // Live signal-quality constellation — phase/amplitude view
+                    // (SatDump-style) while a pass is active or recording.
+                    if self.satellite_panel.cf32_recording
+                        || self.satellite_panel.map_renderer.in_pass_now
+                    {
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.label(egui::RichText::new("📶 Signal Quality").strong());
+                        ui.label(
+                            egui::RichText::new("IQ constellation")
+                                .small()
+                                .color(egui::Color32::from_gray(140)),
+                        );
+                        self.constellation.ui(ui);
                     }
                 });
             });

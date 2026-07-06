@@ -35,7 +35,7 @@ impl Default for LayoutConfig {
                 .collect()
         }
         Self {
-            main_tabs: items(&["sdr", "adsb", "satellite", "ai"]),
+            main_tabs: items(&["sdr", "adsb", "satellite", "ai", "decoding"]),
             secondary_tools: items(&[
                 "bookmarks",
                 "scanner",
@@ -311,10 +311,16 @@ impl Default for AppConfig {
 impl AppConfig {
     /// Load configuration from `ez_sdr_config.json`, or return defaults if the file does not exist or cannot be parsed.
     pub fn load_or_default() -> Self {
-        let cfg = std::fs::read_to_string("ez_sdr_config.json")
+        let mut cfg: AppConfig = std::fs::read_to_string("ez_sdr_config.json")
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
             .unwrap_or_default();
+        if !cfg.layout.main_tabs.iter().any(|i| i.id == "decoding") {
+            cfg.layout.main_tabs.push(LayoutItem {
+                id: "decoding".to_string(),
+                visible: true,
+            });
+        }
         cfg
     }
 
@@ -608,6 +614,11 @@ impl AppConfig {
 mod tests {
     use super::*;
 
+    // `std::env::current_dir`/`set_current_dir` are process-global, so any test
+    // that changes cwd must serialize with other cwd-changing tests or they'll
+    // race and clobber each other's "restore" step under parallel test execution.
+    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn config_default_has_reasonable_freq() {
         let cfg = AppConfig::default();
@@ -669,6 +680,7 @@ mod tests {
 
     #[test]
     fn config_save_and_load_roundtrip() {
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("ez_sdr_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let original_dir = std::env::current_dir().expect("test should have a current directory");
@@ -717,7 +729,7 @@ mod tests {
                 .iter()
                 .map(|i| i.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["sdr", "adsb", "satellite", "ai"]
+            vec!["sdr", "adsb", "satellite", "ai", "decoding"]
         );
         assert_eq!(
             layout
@@ -743,6 +755,45 @@ mod tests {
     fn config_default_has_empty_custom_theme_gallery() {
         let cfg = AppConfig::default();
         assert!(cfg.custom_themes.is_empty());
+    }
+
+    #[test]
+    fn layout_migration_adds_decoding_tab_to_existing_config() {
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("ez_sdr_test_migrate_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let original_dir = std::env::current_dir().expect("test should have a current directory");
+        std::env::set_current_dir(&dir).expect("test should cd into temp dir");
+
+        // Simulate a config saved before the "decoding" tab existed.
+        let mut old_layout = LayoutConfig::default();
+        old_layout.main_tabs.retain(|i| i.id != "decoding");
+        let old_cfg = AppConfig {
+            layout: old_layout,
+            ..Default::default()
+        };
+        old_cfg.save();
+
+        let loaded = AppConfig::load_or_default();
+        let ids: Vec<&str> = loaded
+            .layout
+            .main_tabs
+            .iter()
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["sdr", "adsb", "satellite", "ai", "decoding"]);
+        assert!(
+            loaded
+                .layout
+                .main_tabs
+                .iter()
+                .find(|i| i.id == "decoding")
+                .expect("decoding entry should be present")
+                .visible
+        );
+
+        std::env::set_current_dir(original_dir).expect("test should restore original directory");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

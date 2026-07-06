@@ -153,6 +153,10 @@ impl Cf32StreamWriter {
             .to_string_lossy()
             .to_string()
     }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
 }
 
 fn raw_iq_bytes_to_cf32_le(samples: &[u8]) -> Vec<u8> {

@@ -1,5 +1,5 @@
 [workspace]
-members = ["dump1090", "ez-gui"]
+members = ["dump1090", "ez-gui", "lrpt-decode"]
 resolver = "2"
 
 [profile.release]

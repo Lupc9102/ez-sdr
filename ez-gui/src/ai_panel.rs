@@ -48,6 +48,7 @@ impl ChatMessage {
     }
 
     /// Create a message with an image attachment for vision models.
+    #[allow(dead_code)]
     fn with_image(role: &str, content: &str, image_url: String) -> Self {
         let mut msg = Self::new(role, content);
         msg.image_url = Some(image_url);
@@ -1360,6 +1361,7 @@ impl AiPanel {
 
     /// Send a single-shot (non-streaming) vision request. Returns the full response text.
     /// Used by EditorPanel for AI recommend, not for the chat UI.
+    #[allow(dead_code)]
     pub fn send_vision_request(
         endpoint: &str,
         api_key: &str,
@@ -1440,6 +1442,7 @@ impl AiPanel {
     }
 
     /// Encode raw bytes as a data URL with base64.
+    #[allow(dead_code)]
     pub fn base64_encode(data: &[u8], media_type: &str) -> String {
         const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut result = String::with_capacity(data.len().div_ceil(3) * 4);

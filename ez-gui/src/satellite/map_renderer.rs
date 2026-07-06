@@ -10,6 +10,7 @@ pub struct MapRenderer {
     sat_marker: Option<Pos2>,
     observer_marker: Pos2,
     pub in_pass_now: bool,
+    #[allow(dead_code)]
     drag_start: Option<Pos2>,
 }
 
@@ -282,9 +283,11 @@ fn lat_lon_to_screen(lat: f64, lon: f64, center_lat: f64, center_lon: f64, zoom:
 
 fn trajectory_segment_style(seg: TrajectorySegment, in_pass_now: bool) -> (Color32, f32) {
     match (seg, in_pass_now) {
-        (TrajectorySegment::InPass, true) => (Color32::from_rgb(0, 255, 200), 3.0),
-        (TrajectorySegment::InPass, false) => (Color32::from_rgb(0, 200, 160), 2.0),
-        (TrajectorySegment::PreAOS, _) => (Color32::from_gray(80), 1.0),
-        (TrajectorySegment::PostLOS, _) => (Color32::from_gray(80), 1.0),
+        // AOS→LOS window: bright, thick, high-visibility while live.
+        (TrajectorySegment::InPass, true) => (Color32::from_rgb(0, 255, 200), 5.0),
+        (TrajectorySegment::InPass, false) => (Color32::from_rgb(0, 220, 170), 3.5),
+        // Approach / past segments are dim so the pass arc stands out.
+        (TrajectorySegment::PreAOS, _) => (Color32::from_gray(70), 1.0),
+        (TrajectorySegment::PostLOS, _) => (Color32::from_gray(70), 1.0),
     }
 }

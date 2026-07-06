@@ -2,6 +2,7 @@ use crate::satellite::types::SatPosition;
 use egui::{Color32, Shape, Stroke, Vec2};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub enum DipoleType {
     VDipole137,
     Turnstile,
@@ -25,6 +26,26 @@ pub struct DipoleAlignment {
     pub compass_heading: f64,
     pub elevation_tilt: f64,
     pub dipole_type: DipoleType,
+}
+
+/// Convert a compass bearing in degrees to an 8-point cardinal name
+/// (e.g. 135° → "Southeast"). Wraps negatives and values ≥ 360.
+pub fn azimuth_to_cardinal(deg: f64) -> &'static str {
+    const POINTS: [&str; 8] = [
+        "North",
+        "Northeast",
+        "East",
+        "Southeast",
+        "South",
+        "Southwest",
+        "West",
+        "Northwest",
+    ];
+    let normalized = deg.rem_euclid(360.0);
+    // Each 8-point sector spans 45°; offset by half a sector so the
+    // boundary sits mid-sector (337.5°..22.5° → North).
+    let idx = (((normalized + 22.5) / 45.0) as usize) % 8;
+    POINTS[idx]
 }
 
 pub fn compute_dipole_alignment(
@@ -142,11 +163,19 @@ pub fn compass_rose_ui(
 
     // Heading label
     painter.text(
-        center,
+        center + Vec2::new(0.0, -8.0),
         egui::Align2::CENTER_CENTER,
         format!("{:.0}°", heading_deg),
         egui::FontId::proportional(26.0),
         Color32::from_rgb(0, 220, 255),
+    );
+    // Cardinal direction for the V-opening, directly under the bearing.
+    painter.text(
+        center + Vec2::new(0.0, 14.0),
+        egui::Align2::CENTER_CENTER,
+        azimuth_to_cardinal(heading_deg),
+        egui::FontId::proportional(14.0),
+        Color32::from_rgb(0, 255, 150),
     );
 
     // Inner ring
@@ -157,7 +186,7 @@ pub fn compass_rose_ui(
     );
 
     // Elevation arc (small indicator below main compass)
-    let el_rad = (90.0 - elevation).max(0.0).min(90.0).to_radians();
+    let el_rad = (90.0 - elevation).clamp(0.0, 90.0).to_radians();
     let el_len = radius * 0.25;
     let el_tip = center
         + Vec2::new(0.0, -el_len * (el_rad.sin()) as f32)
@@ -199,12 +228,16 @@ pub fn alignment_info_ui(ui: &mut egui::Ui, align: &DipoleAlignment, pos: &SatPo
             ui.colored_label(Color32::from_rgb(0, 200, 255), align.dipole_type.label());
         });
 
+        // Primary instruction: which way the V-opening should point, as a
+        // human-readable cardinal direction plus the exact bearing.
+        ui.add_space(2.0);
+        let cardinal = azimuth_to_cardinal(align.compass_heading);
         ui.horizontal(|ui| {
-            ui.label("Compass Heading:");
+            ui.label("Point V-opening:");
             ui.colored_label(
-                Color32::from_rgb(0, 220, 255),
-                egui::RichText::new(format!("{:.0}°", align.compass_heading))
-                    .size(20.0)
+                Color32::from_rgb(0, 255, 150),
+                egui::RichText::new(format!("{}  ({:.0}°)", cardinal, align.compass_heading))
+                    .size(22.0)
                     .strong(),
             );
         });
@@ -288,4 +321,37 @@ pub fn dipole_tutorial_ui(ui: &mut egui::Ui) {
             ui.label("Use the compass above to rotate the V-dipole so the opening points toward the satellite azimuth. Re-aim for each pass for maximum signal.");
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cardinal_maps_exact_bearings() {
+        assert_eq!(azimuth_to_cardinal(0.0), "North");
+        assert_eq!(azimuth_to_cardinal(45.0), "Northeast");
+        assert_eq!(azimuth_to_cardinal(90.0), "East");
+        assert_eq!(azimuth_to_cardinal(135.0), "Southeast");
+        assert_eq!(azimuth_to_cardinal(180.0), "South");
+        assert_eq!(azimuth_to_cardinal(225.0), "Southwest");
+        assert_eq!(azimuth_to_cardinal(270.0), "West");
+        assert_eq!(azimuth_to_cardinal(315.0), "Northwest");
+    }
+
+    #[test]
+    fn cardinal_snaps_within_sector() {
+        // 22.5° is the North/Northeast boundary → rounds up to Northeast.
+        assert_eq!(azimuth_to_cardinal(22.5), "Northeast");
+        // Just below the boundary stays North.
+        assert_eq!(azimuth_to_cardinal(22.0), "North");
+        assert_eq!(azimuth_to_cardinal(350.0), "North");
+    }
+
+    #[test]
+    fn cardinal_wraps_out_of_range_bearings() {
+        assert_eq!(azimuth_to_cardinal(360.0), "North");
+        assert_eq!(azimuth_to_cardinal(405.0), "Northeast");
+        assert_eq!(azimuth_to_cardinal(-45.0), "Northwest");
+    }
 }

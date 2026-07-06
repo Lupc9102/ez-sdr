@@ -110,6 +110,7 @@ impl MqttPublisher {
         self.enabled && self.client.is_some() && self.connected_flag.load(Ordering::Relaxed)
     }
 
+    #[allow(dead_code)]
     pub fn reconnect_in_secs(&self) -> Option<u64> {
         self.reconnect_after
             .map(|t| t.saturating_duration_since(Instant::now()).as_secs())

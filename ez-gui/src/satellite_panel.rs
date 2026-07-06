@@ -1,4 +1,5 @@
 use crate::app::SharedState;
+use crate::decoding_panel::{satellite_to_preset, DecodeRequest};
 use crate::satellite::alignment::{
     alignment_info_ui, compass_rose_ui, compute_dipole_alignment, dipole_tutorial_ui, DipoleType,
 };
@@ -46,10 +47,7 @@ pub struct SatellitePanel {
 
     // Legacy state (tracking, tuning, schedule)
     pub selected_sat: Option<String>,
-    pub auto_record: bool,
-    pub signal_strength: f32,
     pub doppler_hz: f64,
-    pub recording: bool,
     pub observer_lat: f64,
     pub observer_lon: f64,
     pub auto_tune: bool,
@@ -58,6 +56,7 @@ pub struct SatellitePanel {
     pub pending_ai_prompt: Option<String>,
     checklist: crate::antenna_checklist::AntennaChecklist,
     pub pending_status: Option<String>,
+    pub pending_decode_request: Option<DecodeRequest>,
 }
 
 impl SatellitePanel {
@@ -77,10 +76,7 @@ impl SatellitePanel {
             cf32_recording: false,
             cf32_output_dir: "./recordings".to_string(),
             selected_sat: None,
-            auto_record: true,
-            signal_strength: -120.0,
             doppler_hz: 0.0,
-            recording: false,
             observer_lat: 51.5,
             observer_lon: -0.1,
             auto_tune: true,
@@ -89,6 +85,7 @@ impl SatellitePanel {
             pending_ai_prompt: None,
             checklist: crate::antenna_checklist::AntennaChecklist::for_satellite(shared),
             pending_status: None,
+            pending_decode_request: None,
         }
     }
 
@@ -186,126 +183,109 @@ impl SatellitePanel {
         ui.heading("Satellite Tracking");
         ui.add_space(4.0);
 
-        // Destructure to avoid borrow conflicts in closures
-        let SatellitePanel {
-            ref satellite_catalog,
-            ref mut selected_sat_index,
-            ref mut picker_search,
-            ref cached_passes,
-            ref mut selected_sat,
-            ref mut auto_tune,
-            ..
-        } = *self;
+        // Refresh the pass cache periodically — drives the pass summary below.
+        if self.pass_cache_at.elapsed() > std::time::Duration::from_secs(5) {
+            if let Ok(mut state) = self.shared.try_lock() {
+                self.cached_passes = state.tle.upcoming_passes().to_vec();
+                self.pass_cache_at = std::time::Instant::now();
+            }
+        }
 
-        let catalog = satellite_catalog.clone();
-        let selected_before = *selected_sat_index;
+        let catalog = self.satellite_catalog.clone();
+        let selected_before = self.selected_sat_index;
 
+        // 1. Pick a satellite.
         egui::Frame::group(ui.style())
             .inner_margin(6)
             .show(ui, |ui| {
                 ui.label(egui::RichText::new("Satellites").strong());
-                satellite_picker_ui(ui, &catalog, selected_sat_index, picker_search, |_idx| {});
+                satellite_picker_ui(
+                    ui,
+                    &catalog,
+                    &mut self.selected_sat_index,
+                    &mut self.picker_search,
+                    |_idx| {},
+                );
             });
 
-        ui.add_space(4.0);
-
-        // Upcoming pass for selected satellite
-        if let Some(idx) = *selected_sat_index {
-            if idx < catalog.len() {
-                let name = &catalog[idx].tle_name;
-                let passes = cached_passes.clone();
-                let now_unix = current_unix_time();
-
-                if let Some(active) = passes
-                    .iter()
-                    .find(|p| p.satellite == *name && p.aos_dt <= now_unix && p.los_dt > now_unix)
-                {
-                    let remaining = (active.los_dt - now_unix).max(0.0) as u64;
-                    ui.group(|ui| {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(50, 255, 100),
-                            egui::RichText::new(format!("▶ {} — IN PASS", active.satellite))
-                                .size(15.0)
-                                .strong(),
-                        );
-                        ui.label(format!(
-                            "{:02}:{:02} remaining · max elevation {:.0}°",
-                            remaining / 60,
-                            remaining % 60,
-                            active.max_elevation
-                        ));
-                    });
-                } else if let Some(next) = passes
-                    .iter()
-                    .filter(|p| p.satellite == *name && p.aos_dt > now_unix)
-                    .min_by(|a, b| {
-                        a.aos_dt
-                            .partial_cmp(&b.aos_dt)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                {
-                    let secs = (next.aos_dt - now_unix).max(0.0) as u64;
-                    ui.group(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("Next pass: {}", next.satellite))
-                                .size(14.0)
-                                .strong(),
-                        );
-                        let countdown = if secs < 3600 {
-                            format!("{}m {}s", secs / 60, secs % 60)
-                        } else {
-                            format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
-                        };
-                        ui.label(format!(
-                            "in {} · AOS {} · max elevation {:.0}°",
-                            countdown, next.aos, next.max_elevation
-                        ));
-                    });
-                } else {
-                    ui.colored_label(egui::Color32::GRAY, "No upcoming passes — update TLE data.");
-                }
+        // Selection change → retune to downlink and reset the trajectory.
+        if self.selected_sat_index != selected_before {
+            if let Some(idx) = self.selected_sat_index {
+                self.on_satellite_selected(idx);
             }
         }
 
-        // Handle selection change
-        if *selected_sat_index != selected_before {
-            if let Some(idx) = *selected_sat_index {
-                if idx < catalog.len() {
-                    *selected_sat = Some(catalog[idx].name.clone());
-                    self.trajectory_loaded = false;
-                    self.current_sat_position = None;
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        state.source.frequency_hz = catalog[idx].frequency_hz;
-                    }
-                    *auto_tune = true;
-                }
+        ui.add_space(6.0);
+
+        // 2. Compact next/active pass summary for the selection.
+        if let Some(idx) = self.selected_sat_index {
+            if let Some(entry) = catalog.get(idx) {
+                let name = entry.tle_name.clone();
+                self.ui_pass_summary(ui, &name);
             }
         }
 
+        // 3. One big Record button (rendered by ui_record_control).
         ui.add_space(8.0);
-        ui.separator();
         self.ui_record_control(ui);
-        ui.add_space(4.0);
-        self.ui_preflight_badges(ui);
+    }
 
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.auto_tune, "Auto-tune + Doppler");
-            ui.checkbox(&mut self.auto_record, "Auto-record");
-        });
+    /// Compact upcoming/active pass summary for the given TLE name, using the
+    /// cached pass list. Kept intentionally minimal — the full schedule lives
+    /// in the dedicated Scheduler tab.
+    fn ui_pass_summary(&self, ui: &mut egui::Ui, name: &str) {
+        let now_unix = current_unix_time();
 
-        ui.add_space(4.0);
-        if ui.button("🤖 Ask AI to track a satellite").clicked() {
-            self.pending_ai_prompt = Some(
-                "Help me track a satellite. What satellites are currently active and how do I set up tracking?".to_string(),
-            );
+        if let Some(active) = self
+            .cached_passes
+            .iter()
+            .find(|p| p.satellite == name && p.aos_dt <= now_unix && p.los_dt > now_unix)
+        {
+            let remaining = (active.los_dt - now_unix).max(0.0) as u64;
+            ui.group(|ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(50, 255, 100),
+                    egui::RichText::new(format!("▶ {} — IN PASS", active.satellite))
+                        .size(15.0)
+                        .strong(),
+                );
+                ui.label(format!(
+                    "{:02}:{:02} remaining · max elevation {:.0}°",
+                    remaining / 60,
+                    remaining % 60,
+                    active.max_elevation
+                ));
+            });
+        } else if let Some(next) = self
+            .cached_passes
+            .iter()
+            .filter(|p| p.satellite == name && p.aos_dt > now_unix)
+            .min_by(|a, b| {
+                a.aos_dt
+                    .partial_cmp(&b.aos_dt)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        {
+            let secs = (next.aos_dt - now_unix).max(0.0) as u64;
+            let countdown = if secs < 3600 {
+                format!("{}m {}s", secs / 60, secs % 60)
+            } else {
+                format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+            };
+            ui.group(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("Next pass: {}", next.satellite))
+                        .size(14.0)
+                        .strong(),
+                );
+                ui.label(format!(
+                    "in {} · AOS {} · max elevation {:.0}°",
+                    countdown, next.aos, next.max_elevation
+                ));
+            });
+        } else {
+            ui.colored_label(egui::Color32::GRAY, "No upcoming passes — update TLE data.");
         }
-
-        ui.add_space(8.0);
-        ui.separator();
-        egui::CollapsingHeader::new("⚙ Advanced")
-            .default_open(false)
-            .show(ui, |ui| self.ui_advanced_inline(ui));
     }
 
     fn on_satellite_selected(&mut self, idx: usize) {
@@ -326,43 +306,51 @@ impl SatellitePanel {
     // ── Record control ────────────────────────────────────────────────────
 
     fn ui_record_control(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            let is_rec = self.cf32_recording;
-            let label = if is_rec {
-                "■ STOP CF32"
-            } else {
-                "● REC CF32"
-            };
-            let fill = if is_rec {
-                egui::Color32::from_rgb(200, 50, 50)
-            } else {
-                egui::Color32::from_rgb(50, 180, 50)
-            };
-            let btn = egui::Button::new(egui::RichText::new(label).size(16.0).strong())
-                .fill(fill)
-                .min_size(egui::vec2(140.0, 38.0));
-            if ui.add(btn).clicked() {
-                if is_rec {
-                    self.stop_cf32_recording();
-                } else {
-                    self.start_cf32_recording();
-                }
-            }
-
+        let is_rec = self.cf32_recording;
+        let label = if is_rec {
+            "■  STOP RECORDING"
+        } else {
+            "●  RECORD  (raw cf32 I/Q)"
+        };
+        let fill = if is_rec {
+            egui::Color32::from_rgb(200, 45, 45)
+        } else {
+            egui::Color32::from_rgb(45, 175, 60)
+        };
+        // One large, full-width, high-contrast button — the primary action.
+        let btn = egui::Button::new(
+            egui::RichText::new(label)
+                .size(20.0)
+                .strong()
+                .color(egui::Color32::WHITE),
+        )
+        .fill(fill)
+        .min_size(egui::vec2(ui.available_width(), 56.0));
+        if ui.add(btn).clicked() {
             if is_rec {
-                if let Some(w) = &self.cf32_writer {
-                    let mb = w.bytes_written() as f64 / 1_048_576.0;
-                    let secs = w.elapsed_secs();
-                    let line = format!(
-                        "  {:.1} MB  ·  {:.0}s  ·  {:.1} MB/s",
-                        mb,
-                        secs,
-                        if secs > 0.0 { mb / secs } else { 0.0 }
-                    );
-                    ui.colored_label(egui::Color32::RED, line);
-                }
+                self.stop_cf32_recording();
+            } else {
+                self.start_cf32_recording();
             }
-        });
+        }
+
+        if is_rec {
+            if let Some(w) = &self.cf32_writer {
+                let mb = w.bytes_written() as f64 / 1_048_576.0;
+                let secs = w.elapsed_secs();
+                let line = format!(
+                    "● REC  ·  {:.1} MB  ·  {:.0}s  ·  {:.1} MB/s",
+                    mb,
+                    secs,
+                    if secs > 0.0 { mb / secs } else { 0.0 }
+                );
+                ui.add_space(4.0);
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 90, 90),
+                    egui::RichText::new(line).size(13.0).strong(),
+                );
+            }
+        }
     }
 
     fn start_cf32_recording(&mut self) {
@@ -401,6 +389,12 @@ impl SatellitePanel {
                         meta.duration_sec,
                         w.filename()
                     ));
+                    self.pending_decode_request = Some(DecodeRequest {
+                        file_path: w.path().display().to_string(),
+                        preset: meta.satellite.as_deref().and_then(satellite_to_preset),
+                        sample_rate: meta.sample_rate_hz,
+                        satellite_name: meta.satellite.clone(),
+                    });
                 }
                 Err(e) => {
                     self.pending_status = Some(format!("❌ Recorder stop error: {e}"));
@@ -419,24 +413,6 @@ impl SatellitePanel {
         }
     }
 
-    // ── Pre-flight badges ─────────────────────────────────────────────────
-
-    fn ui_preflight_badges(&mut self, ui: &mut egui::Ui) {
-        let checklist =
-            crate::antenna_checklist::AntennaChecklist::for_satellite(self.shared.clone());
-        ui.horizontal_wrapped(|ui| {
-            for item in &checklist.items {
-                let (color, icon) = if true {
-                    (egui::Color32::GREEN, "✓")
-                } else {
-                    (egui::Color32::YELLOW, "⚠")
-                };
-                ui.colored_label(color, format!("{} {}", icon, item.label))
-                    .on_hover_text(item.detail);
-            }
-        });
-    }
-
     // ── Alignment subtab ──────────────────────────────────────────────────
 
     fn ui_alignment(&mut self, ui: &mut egui::Ui) {
@@ -445,8 +421,6 @@ impl SatellitePanel {
 
         if let Some(idx) = self.selected_sat_index {
             if idx < self.satellite_catalog.len() {
-                let _sat = &self.satellite_catalog[idx];
-
                 if let Some(pos) = self.current_sat_position {
                     let align = compute_dipole_alignment(pos, DipoleType::VDipole137);
                     if let Some(alignment) = align {
@@ -470,6 +444,9 @@ impl SatellitePanel {
                 }
 
                 ui.add_space(12.0);
+                self.ui_observer_location(ui);
+
+                ui.add_space(8.0);
                 ui.separator();
                 dipole_tutorial_ui(ui);
             }
@@ -481,9 +458,10 @@ impl SatellitePanel {
         }
     }
 
-    // ── Advanced inline ───────────────────────────────────────────────────
-
-    fn ui_advanced_inline(&mut self, ui: &mut egui::Ui) {
+    /// Observer latitude/longitude control. Lives in the Align subtab since it
+    /// directly affects the computed azimuth/elevation the compass depends on.
+    fn ui_observer_location(&mut self, ui: &mut egui::Ui) {
+        // Keep local copy in sync with shared TLE state (e.g. GPS/config updates).
         if let Ok(state) = self.shared.try_lock() {
             if (state.tle.observer_lat - self.observer_lat).abs() > 0.001
                 || (state.tle.observer_lon - self.observer_lon).abs() > 0.001
@@ -493,7 +471,7 @@ impl SatellitePanel {
             }
         }
 
-        ui.collapsing("Observer Location", |ui| {
+        ui.collapsing("📍 Observer Location", |ui| {
             let changed_lat = ui
                 .add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
                 .changed();
@@ -506,166 +484,6 @@ impl SatellitePanel {
                     state.tle.observer_lon = self.observer_lon;
                 }
             }
-        });
-
-        ui.separator();
-
-        ui.checkbox(&mut self.auto_record, "Auto-record on pass");
-        ui.checkbox(&mut self.auto_tune, "Auto-tune to downlink + Doppler");
-
-        ui.separator();
-
-        ui.horizontal(|ui| {
-            ui.label("Signal Strength:");
-            let norm = ((self.signal_strength + 120.0) / 120.0).clamp(0.0, 1.0);
-            let color = if norm > 0.5 {
-                egui::Color32::GREEN
-            } else if norm > 0.2 {
-                egui::Color32::YELLOW
-            } else {
-                egui::Color32::RED
-            };
-            ui.add(
-                egui::ProgressBar::new(norm)
-                    .fill(color)
-                    .text(format!("{:.1} dB", self.signal_strength)),
-            );
-        });
-
-        {
-            let doppler_color = if self.doppler_hz.abs() > 5000.0 {
-                egui::Color32::from_rgb(255, 120, 60)
-            } else if self.doppler_hz.abs() > 1000.0 {
-                egui::Color32::from_rgb(255, 220, 80)
-            } else {
-                egui::Color32::from_rgb(120, 220, 120)
-            };
-            let doppler_str = if self.doppler_hz.abs() >= 1000.0 {
-                format!("Doppler: {:+.2} kHz", self.doppler_hz / 1000.0)
-            } else {
-                format!("Doppler: {:+.0} Hz", self.doppler_hz)
-            };
-            ui.horizontal(|ui| {
-                ui.colored_label(doppler_color, &doppler_str)
-                    .on_hover_text("Real-time Doppler shift. Positive = approaching.");
-                if self.auto_tune {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(80, 200, 120),
-                        egui::RichText::new("✓ Corrected").small(),
-                    );
-                }
-            });
-        }
-
-        ui.separator();
-        ui.heading("Manual Frequency Override");
-        ui.horizontal(|ui| {
-            if let Ok(mut state) = self.shared.try_lock() {
-                let mut mhz = state.source.frequency_hz as f64 / 1e6;
-                if ui
-                    .add(egui::DragValue::new(&mut mhz).speed(0.001).suffix(" MHz"))
-                    .changed()
-                {
-                    state.source.frequency_hz = (mhz * 1e6) as u64;
-                }
-            }
-        });
-
-        ui.separator();
-        self.ui_pass_table(ui);
-    }
-
-    fn ui_pass_table(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Upcoming Passes");
-        if self.pass_cache_at.elapsed() > std::time::Duration::from_secs(5) {
-            if let Ok(mut state) = self.shared.try_lock() {
-                self.cached_passes = state.tle.upcoming_passes().to_vec();
-                self.pass_cache_at = std::time::Instant::now();
-            }
-        }
-        let passes = self.cached_passes.clone();
-        let now_unix = current_unix_time();
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("pass_grid").num_columns(7).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("Satellite").strong());
-                ui.label(egui::RichText::new("AOS").strong());
-                ui.label(egui::RichText::new("LOS").strong());
-                ui.label(egui::RichText::new("MaxEl").strong());
-                ui.label(egui::RichText::new("In").strong());
-                ui.label(egui::RichText::new("Tune").strong());
-                ui.label(egui::RichText::new("AI").strong());
-                ui.end_row();
-
-                for pass in &passes {
-                    let selected = self.selected_sat.as_deref() == Some(&pass.satellite);
-                    let secs_until_aos = pass.aos_dt - now_unix;
-                    let secs_until_los = pass.los_dt - now_unix;
-                    let is_active = secs_until_aos <= 0.0 && secs_until_los > 0.0;
-
-                    let name_color = if is_active {
-                        egui::Color32::from_rgb(50, 255, 100)
-                    } else if selected {
-                        egui::Color32::from_rgb(0, 220, 255)
-                    } else {
-                        egui::Color32::WHITE
-                    };
-
-                    ui.colored_label(name_color, &pass.satellite);
-                    ui.label(&pass.aos);
-                    ui.label(&pass.los);
-                    ui.label(format!("{:.0}°", pass.max_elevation));
-
-                    let (countdown_text, countdown_color) = if is_active {
-                        let remaining = secs_until_los.max(0.0) as u64;
-                        (format!("▶ {:02}:{:02}", remaining / 60, remaining % 60), egui::Color32::from_rgb(50, 255, 100))
-                    } else if secs_until_aos < 0.0 {
-                        ("past".to_string(), egui::Color32::GRAY)
-                    } else if secs_until_aos < 600.0 {
-                        let mins = secs_until_aos as u64 / 60;
-                        let secs = secs_until_aos as u64 % 60;
-                        (format!("{mins:02}:{secs:02}"), egui::Color32::YELLOW)
-                    } else {
-                        let hours = secs_until_aos as u64 / 3600;
-                        let mins = (secs_until_aos as u64 % 3600) / 60;
-                        (format!("{hours}h {mins:02}m"), egui::Color32::GRAY)
-                    };
-                    ui.colored_label(countdown_color, countdown_text);
-
-                    if ui.button(if is_active { "▶ Tune" } else if selected { "✓ Sel" } else { "Select" }).clicked() {
-                        self.selected_sat = Some(pass.satellite.clone());
-                        if self.auto_tune {
-                            if let Ok(mut state) = self.shared.try_lock() {
-                                state.source.frequency_hz = pass.frequency_hz;
-                            }
-                        }
-                    }
-
-                    let pass_status = if is_active {
-                        format!("IN PROGRESS — {:.0}s remaining", secs_until_los.max(0.0))
-                    } else if secs_until_aos > 0.0 {
-                        format!("in {:.0}m {:.0}s", secs_until_aos / 60.0, secs_until_aos % 60.0)
-                    } else {
-                        "past".to_string()
-                    };
-                    if ui.small_button("🤖").clicked() {
-                        self.pending_ai_prompt = Some(format!(
-                            "Tell me about the {} satellite pass:\n\
-                             - Frequency: {:.3} MHz\n\
-                             - AOS: {}, LOS: {}\n\
-                             - Max elevation: {:.0}°\n\
-                             - Status: {}\n\
-                             What can I receive from this satellite, and what settings should I use?",
-                            pass.satellite,
-                            pass.frequency_hz as f64 / 1e6,
-                            pass.aos, pass.los,
-                            pass.max_elevation,
-                            pass_status,
-                        ));
-                    }
-                    ui.end_row();
-                }
-            });
         });
     }
 }
@@ -758,10 +576,7 @@ mod tests {
     fn test_new_defaults() {
         let panel = SatellitePanel::new(make_shared_state());
         assert!(panel.selected_sat.is_none());
-        assert!(panel.auto_record);
-        assert_eq!(panel.signal_strength, -120.0);
         assert_eq!(panel.doppler_hz, 0.0);
-        assert!(!panel.recording);
         assert!(!panel.cf32_recording);
         assert!(panel.cf32_writer.is_none());
         assert!(panel.selected_sat_index.is_none());
@@ -807,14 +622,6 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_record_toggle() {
-        let mut panel = SatellitePanel::new(make_shared_state());
-        assert!(panel.auto_record);
-        panel.auto_record = false;
-        assert!(!panel.auto_record);
-    }
-
-    #[test]
     fn test_observer_coordinates() {
         let mut panel = SatellitePanel::new(make_shared_state());
         assert_eq!(panel.observer_lat, 51.5);
@@ -823,14 +630,6 @@ mod tests {
         panel.observer_lon = -74.0060;
         assert_eq!(panel.observer_lat, 40.7128);
         assert_eq!(panel.observer_lon, -74.0060);
-    }
-
-    #[test]
-    fn test_signal_strength_range() {
-        let mut panel = SatellitePanel::new(make_shared_state());
-        assert_eq!(panel.signal_strength, -120.0);
-        panel.signal_strength = -50.0;
-        assert_eq!(panel.signal_strength, -50.0);
     }
 
     #[test]
@@ -875,5 +674,71 @@ mod tests {
         assert!(panel.pending_status.is_none());
         panel.pending_status = Some("Test status".into());
         assert_eq!(panel.pending_status.as_deref(), Some("Test status"));
+    }
+
+    #[test]
+    fn stop_cf32_recording_sets_pending_decode_request_on_success() {
+        use crate::decoding_panel::DecodePreset;
+
+        let mut panel = SatellitePanel::new(make_shared_state());
+        let tmp_dir =
+            std::env::temp_dir().join(format!("ez_sdr_test_decode_req_{}", std::process::id()));
+        panel.cf32_output_dir = tmp_dir.to_string_lossy().to_string();
+        panel.cf32_writer = Some(
+            Cf32StreamWriter::start(
+                &panel.cf32_output_dir,
+                Some("METEOR-M2-3".to_string()),
+                2_048_000,
+                137_900_000,
+                51.5,
+                -0.1,
+            )
+            .expect("writer should start"),
+        );
+        panel.cf32_recording = true;
+
+        panel.stop_cf32_recording();
+
+        assert!(!panel.cf32_recording);
+        let req = panel
+            .pending_decode_request
+            .expect("expected a pending decode request");
+        assert_eq!(req.satellite_name.as_deref(), Some("METEOR-M2-3"));
+        assert_eq!(req.sample_rate, 2_048_000);
+        assert_eq!(req.preset, Some(DecodePreset::MeteorM2_3));
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn pending_decode_request_carries_full_path_not_just_filename() {
+        let mut panel = SatellitePanel::new(make_shared_state());
+        let tmp_dir =
+            std::env::temp_dir().join(format!("ez_sdr_test_decode_path_{}", std::process::id()));
+        panel.cf32_output_dir = tmp_dir.to_string_lossy().to_string();
+        let writer = Cf32StreamWriter::start(
+            &panel.cf32_output_dir,
+            Some("NOAA 19".to_string()),
+            2_048_000,
+            137_100_000,
+            51.5,
+            -0.1,
+        )
+        .expect("writer should start");
+        let bare_filename = writer.filename();
+        panel.cf32_writer = Some(writer);
+        panel.cf32_recording = true;
+
+        panel.stop_cf32_recording();
+
+        let req = panel
+            .pending_decode_request
+            .expect("expected a pending decode request");
+        assert_ne!(req.file_path, bare_filename);
+        assert!(req.file_path.ends_with(&bare_filename));
+        assert!(req.file_path.contains(&tmp_dir.to_string_lossy().to_string()));
+        assert!(req.preset.is_none());
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

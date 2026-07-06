@@ -105,18 +105,18 @@
     "semantic_hash": ""
   },
   "ez-gui/src/adsb_panel.rs": {
-    "mtime": 1783258105.9827886,
-    "ast_hash": "de685d245c614a6e5548cfb524fcdb54",
+    "mtime": 1783277312.6983724,
+    "ast_hash": "d405639dccb90e00fdc3e2fc141525ba",
     "semantic_hash": ""
   },
   "ez-gui/src/ai_panel.rs": {
-    "mtime": 1783241247.7486544,
-    "ast_hash": "51523cdf03cec5d27e436725360375d1",
+    "mtime": 1783284512.871268,
+    "ast_hash": "01d2cdf640081245f4d65b08eaa382aa",
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1783257866.1055174,
-    "ast_hash": "fa69b03157d003e83753ddd1a5af3e2e",
+    "mtime": 1783359231.0503087,
+    "ast_hash": "a523fe86c3e73834c8cacc7179306dbf",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -130,8 +130,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/config.rs": {
-    "mtime": 1783257840.9242067,
-    "ast_hash": "620dbe8f57cdd3ae09aee8a9967811f9",
+    "mtime": 1783282322.0521495,
+    "ast_hash": "661b39304ff63be29620a560509b5ab2",
     "semantic_hash": ""
   },
   "ez-gui/src/demod.rs": {
@@ -145,28 +145,28 @@
     "semantic_hash": ""
   },
   "ez-gui/src/main.rs": {
-    "mtime": 1783257611.2779179,
-    "ast_hash": "8ff6827505bef2a8806a49b8bfe51628",
+    "mtime": 1783281184.1500525,
+    "ast_hash": "4d6b47c1aa4523a7e128fdb13a5ece67",
     "semantic_hash": ""
   },
   "ez-gui/src/mqtt.rs": {
-    "mtime": 1783235036.0569172,
-    "ast_hash": "854b9e2383b24213ec68a52808d11f32",
+    "mtime": 1783284604.105504,
+    "ast_hash": "254c5d3d43e610b4d15b5ca0a614854f",
     "semantic_hash": ""
   },
   "ez-gui/src/recorder_panel.rs": {
-    "mtime": 1783164726.8190563,
-    "ast_hash": "fffd55d1b27d0d40fec9a0227350ff3d",
+    "mtime": 1783259426.0316246,
+    "ast_hash": "39155e075d36a3eff420c03bddc25e3c",
     "semantic_hash": ""
   },
   "ez-gui/src/satellite_panel.rs": {
-    "mtime": 1783241638.168854,
-    "ast_hash": "90d4d09a8cbe854ef8d22ed093987783",
+    "mtime": 1783359291.354867,
+    "ast_hash": "b296cf7a20d5568afa4350e3d26d76aa",
     "semantic_hash": ""
   },
   "ez-gui/src/scanner.rs": {
-    "mtime": 1783164016.2576196,
-    "ast_hash": "0c18891929ebe76a140856fe5fa494a5",
+    "mtime": 1783277312.912378,
+    "ast_hash": "c7ddede7931f205e775dcbd373735ba6",
     "semantic_hash": ""
   },
   "ez-gui/src/scheduler.rs": {
@@ -195,8 +195,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/tle_engine.rs": {
-    "mtime": 1783164016.323621,
-    "ast_hash": "2569013ccd63436455433f7767768991",
+    "mtime": 1783277313.0053804,
+    "ast_hash": "5b6b71396c5e5dc43a81a5569b60ec79",
     "semantic_hash": ""
   },
   "ez-gui/src/web_remote.rs": {
@@ -255,13 +255,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/antenna_checklist.rs": {
-    "mtime": 1783159288.1518562,
-    "ast_hash": "aa90ab505a7420578878b7b249f4758a",
+    "mtime": 1783270537.6620076,
+    "ast_hash": "b857d0eca55e37f1304388e9d91f4c21",
     "semantic_hash": ""
   },
   "ez-gui/src/discord.rs": {
-    "mtime": 1783196334.7984674,
-    "ast_hash": "e2ef99a091bad2fa985138e3b1e26dcf",
+    "mtime": 1783276810.7232323,
+    "ast_hash": "ab4418cf2aeda7277d31770dfa8ddd28",
     "semantic_hash": ""
   },
   "ez-gui/src/discord_panel.rs": {
@@ -325,48 +325,43 @@
     "semantic_hash": ""
   },
   "ez-gui/src/test_helpers.rs": {
-    "mtime": 1783163603.4094546,
-    "ast_hash": "d894fe4fb02c7b0aaf0d1102adfec621",
-    "semantic_hash": ""
-  },
-  "INFINITY_COMPARISON.md": {
-    "mtime": 1783196208.0717688,
-    "ast_hash": "ea55da0ece17be68f6bee3a437a7ff41",
+    "mtime": 1783259403.3331068,
+    "ast_hash": "96c63c1dbde3b90e615d7c9fd278e82c",
     "semantic_hash": ""
   },
   "lrpt-decode/src/ccsds.rs": {
-    "mtime": 1783196375.731487,
+    "mtime": 1783281298.4819496,
     "ast_hash": "ef4fb690bc643a8d9baef31b1bdf13e1",
     "semantic_hash": ""
   },
   "lrpt-decode/src/diff_decode.rs": {
-    "mtime": 1783196208.0826828,
+    "mtime": 1783281298.4833937,
     "ast_hash": "14336438ecac65e9e369b9f55161c974",
     "semantic_hash": ""
   },
   "lrpt-decode/src/frame_sync.rs": {
-    "mtime": 1783196334.9654715,
+    "mtime": 1783281298.4833937,
     "ast_hash": "0533985ee81d6022087497a8167f8338",
     "semantic_hash": ""
   },
   "lrpt-decode/src/iq_source.rs": {
-    "mtime": 1783196208.0826828,
-    "ast_hash": "2bcdb3db7de6f85ccba896d5e083fd60",
+    "mtime": 1783281385.2605948,
+    "ast_hash": "63593d8dec1cf9a5a46a537fc696f064",
     "semantic_hash": ""
   },
   "lrpt-decode/src/lib.rs": {
-    "mtime": 1783238435.7120616,
-    "ast_hash": "762aaffcce71193778acd987bd11cddf",
+    "mtime": 1783281652.907604,
+    "ast_hash": "1f22308cd14a219439f2f2580916912a",
     "semantic_hash": ""
   },
   "lrpt-decode/src/randomizer.rs": {
-    "mtime": 1783196208.0826828,
+    "mtime": 1783281298.4839497,
     "ast_hash": "0b68c71ceea698dbc60a6996182a6bed",
     "semantic_hash": ""
   },
   "lrpt-decode/src/reed_solomon.rs": {
-    "mtime": 1783196334.9724717,
-    "ast_hash": "d370b89454afc2af94a3d82827d53308",
+    "mtime": 1783284364.5636334,
+    "ast_hash": "96d92eaa090ff0778f1253e426db7201",
     "semantic_hash": ""
   },
   ".opencode/package.json": {
@@ -374,19 +369,9 @@
     "ast_hash": "2bffcf9dc5701114d97f5dc5e7c50482",
     "semantic_hash": ""
   },
-  "ez-gui/src/composite.rs": {
-    "mtime": 1783241247.7506733,
-    "ast_hash": "6813456799ebdeced1ae106ade826876",
-    "semantic_hash": ""
-  },
   "ez-gui/src/customize_panel.rs": {
     "mtime": 1783196334.789467,
     "ast_hash": "d29371530efb98e329b6841751f33d62",
-    "semantic_hash": ""
-  },
-  "ez-gui/src/editor_panel.rs": {
-    "mtime": 1783241247.7524428,
-    "ast_hash": "776f85b54284ecf19f32030a791f0779",
     "semantic_hash": ""
   },
   "ez-gui/src/fonts.rs": {
@@ -399,18 +384,13 @@
     "ast_hash": "6312705a7f67acb8fd1414ed1e764d06",
     "semantic_hash": ""
   },
-  "ez-gui/src/image_processing.rs": {
-    "mtime": 1783241247.7541068,
-    "ast_hash": "f81e28f49ab3c9a6474fc349990e92ef",
-    "semantic_hash": ""
-  },
   "lrpt-decode/src/image_builder.rs": {
-    "mtime": 1783196208.0826828,
+    "mtime": 1783281298.4833937,
     "ast_hash": "017d14b9732d484a65971894835e9c9c",
     "semantic_hash": ""
   },
   "lrpt-decode/src/qpsk.rs": {
-    "mtime": 1783196334.9714718,
+    "mtime": 1783281298.4839497,
     "ast_hash": "b2ace472859634a0d67a9de822463bca",
     "semantic_hash": ""
   },
@@ -429,11 +409,6 @@
     "ast_hash": "dd943d1f12b5046506c4b1672e8d40c9",
     "semantic_hash": ""
   },
-  "SATELLITE_DECODE_TAB.md": {
-    "mtime": 1783196208.0717688,
-    "ast_hash": "7822e111f52a6d4383d0d1c320624706",
-    "semantic_hash": ""
-  },
   "ez-gui/assets/fonts/LICENSE-DejaVu.txt": {
     "mtime": 1783196208.0763106,
     "ast_hash": "425865e1c534c5788b1341d401f131d9",
@@ -447,6 +422,61 @@
   "ez-gui/tile_cache/8/129/84.png": {
     "mtime": 1783258127.032252,
     "ast_hash": "722c72e59e7cb61669e91c1fc096ae4b",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/constellation.rs": {
+    "mtime": 1783282239.8150587,
+    "ast_hash": "6cd5b3fc01e9bada0c94162d73d2b542",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/decoding_panel.rs": {
+    "mtime": 1783281694.6709416,
+    "ast_hash": "0a197a7d0df0357bdd57938022b04788",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/satellite/alignment.rs": {
+    "mtime": 1783359357.4907005,
+    "ast_hash": "af34019bf40ced08c95bbe8df84cb654",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/satellite/map_renderer.rs": {
+    "mtime": 1783358914.059762,
+    "ast_hash": "98bb4e2cd5fd67879597cb34b7681177",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/satellite/mod.rs": {
+    "mtime": 1783270227.806015,
+    "ast_hash": "a02f492aecd0c40a7510e8e47205b5e9",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/satellite/picker.rs": {
+    "mtime": 1783277312.874377,
+    "ast_hash": "d86a54cb5f3500b6827c17377ff4b77a",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/satellite/recorder.rs": {
+    "mtime": 1783281736.586831,
+    "ast_hash": "e56f67770159b01defc92be7cee7eec0",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/satellite/types.rs": {
+    "mtime": 1783270232.1791127,
+    "ast_hash": "1fac54bea94a1854d05bd8e4ac05eef1",
+    "semantic_hash": ""
+  },
+  ".opencode/plans/scanner-refactor.md": {
+    "mtime": 1783268145.57833,
+    "ast_hash": "c58f69e2b2939c49655f6b9a597086b0",
+    "semantic_hash": ""
+  },
+  "ez-gui/tile_cache/8/127/84.png": {
+    "mtime": 1783282252.6413848,
+    "ast_hash": "07dc4c1867116cf9e86d7ef5bbcbeff7",
+    "semantic_hash": ""
+  },
+  "ez-gui/tile_cache/8/129/85.png": {
+    "mtime": 1783268354.427962,
+    "ast_hash": "c579419eaa5e3b1c39e3c0e841a08866",
     "semantic_hash": ""
   }
 }
