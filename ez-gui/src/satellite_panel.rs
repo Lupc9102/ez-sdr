@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 pub enum SatelliteSubTab {
     Track,
     Alignment,
+    /// LRPT/APT image decode, folded in from the old standalone Decoding tab.
+    Decode,
 }
 
 fn current_unix_time() -> f64 {
@@ -172,7 +174,9 @@ impl SatellitePanel {
         }
 
         match subtab {
-            SatelliteSubTab::Track => self.ui_track(ui),
+            // Decode reuses the Track pipeline as its side controls — that's
+            // where a pass is selected/recorded and handed to the decoder.
+            SatelliteSubTab::Track | SatelliteSubTab::Decode => self.ui_track(ui),
             SatelliteSubTab::Alignment => self.ui_alignment(ui),
         }
     }
@@ -312,12 +316,24 @@ impl SatellitePanel {
         } else {
             "●  RECORD  (raw cf32 I/Q)"
         };
+        // Pulse the REC button during recording
+        let pulse = if is_rec {
+            let t = ui.input(|i| i.time);
+            let phase = (t * 4.0).sin() * 0.3 + 0.7;
+            (phase * 60.0) as u8
+        } else {
+            0
+        };
         let fill = if is_rec {
-            egui::Color32::from_rgb(200, 45, 45)
+            egui::Color32::from_rgb(200, 45 + pulse, 45)
         } else {
             egui::Color32::from_rgb(45, 175, 60)
         };
-        // One large, full-width, high-contrast button — the primary action.
+        let stroke_color = if is_rec {
+            egui::Color32::from_rgba_premultiplied(255, 0, 0, pulse.saturating_sub(20))
+        } else {
+            egui::Color32::TRANSPARENT
+        };
         let btn = egui::Button::new(
             egui::RichText::new(label)
                 .size(20.0)
@@ -325,6 +341,7 @@ impl SatellitePanel {
                 .color(egui::Color32::WHITE),
         )
         .fill(fill)
+        .stroke(egui::Stroke::new(2.0, stroke_color))
         .min_size(egui::vec2(ui.available_width(), 56.0));
         if ui.add(btn).clicked() {
             if is_rec {

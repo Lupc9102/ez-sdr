@@ -32,39 +32,42 @@ use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
 use crate::web_remote::{RemoteCommand, WebRemote};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The three task-oriented modes that make up the whole app. Everything else
+/// (AI, decoding, bookmarks, scanner, settings…) lives *inside* a mode as a
+/// slide-over or subtab rather than as a peer navigation target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppTab {
-    Sdr,
-    AdsB,
-    Satellite,
-    Ai,
-    Decoding,
-    Customize,
+    /// 🎧 Listen — spectrum, tuning, demodulation (the default home).
+    Listen,
+    /// ✈ Planes — ADS-B aircraft tracking (auto-configures the SDR on entry).
+    Planes,
+    /// 🛰 Satellites — pass predictions, Doppler, alignment, and image decode.
+    Satellites,
 }
 
-/// `(id, tab, icon, hover tip)` for every main tab except [`AppTab::Customize`],
-/// which is always pinned last in the sidebar. `id` matches
-/// [`crate::config::LayoutConfig::main_tabs`] entries.
-const MAIN_TABS: &[(&str, AppTab, &str, &str)] = &[
+/// `(id, tab, icon, label, hover tip)` for the three top-level modes rendered
+/// in the mode bar. `id` matches [`crate::config::LayoutConfig::main_tabs`].
+const MAIN_TABS: &[(&str, AppTab, &str, &str, &str)] = &[
     (
-        "sdr",
-        AppTab::Sdr,
-        "📻",
-        "SDR — Spectrum, tuning, demodulation",
+        "listen",
+        AppTab::Listen,
+        "🎧",
+        "Listen",
+        "Listen — Spectrum, tuning, radio",
     ),
-    ("adsb", AppTab::AdsB, "✈", "ADS-B — Aircraft tracking"),
     (
-        "satellite",
-        AppTab::Satellite,
+        "planes",
+        AppTab::Planes,
+        "✈",
+        "Planes",
+        "Planes — Live aircraft tracking (ADS-B)",
+    ),
+    (
+        "satellites",
+        AppTab::Satellites,
         "🛰",
-        "Satellite — Pass predictions, Doppler",
-    ),
-    ("ai", AppTab::Ai, "🤖", "AI — Assistant, questions, tools"),
-    (
-        "decoding",
-        AppTab::Decoding,
-        "🛸",
-        "Decoding — LRPT satellite image decode",
+        "Satellites",
+        "Satellites — Passes, Doppler, image decode",
     ),
 ];
 
@@ -77,6 +80,7 @@ pub enum SecondaryTool {
     Settings,
     HowTo,
     Discord,
+    Customize,
 }
 
 impl SecondaryTool {
@@ -89,6 +93,7 @@ impl SecondaryTool {
             SecondaryTool::Settings => "⚙",
             SecondaryTool::HowTo => "❓",
             SecondaryTool::Discord => "💬",
+            SecondaryTool::Customize => "🎨",
         }
     }
     fn label(&self) -> &'static str {
@@ -100,6 +105,7 @@ impl SecondaryTool {
             SecondaryTool::Settings => "Settings",
             SecondaryTool::HowTo => "How To",
             SecondaryTool::Discord => "Discord",
+            SecondaryTool::Customize => "Customize",
         }
     }
 
@@ -112,7 +118,34 @@ impl SecondaryTool {
             SecondaryTool::Settings => "settings",
             SecondaryTool::HowTo => "howto",
             SecondaryTool::Discord => "discord",
+            SecondaryTool::Customize => "customize",
         }
+    }
+
+    /// Lowest [`UserLevel`] at which this tool appears in the ⚙ More deck.
+    /// Everyday tools are always shown; power tools are revealed as the user
+    /// raises their level (progressive disclosure). Customize is handled
+    /// separately (always available) and is not part of `ALL_SECONDARY_TOOLS`.
+    fn min_level(&self) -> crate::user_level::UserLevel {
+        use crate::user_level::UserLevel::*;
+        match self {
+            // Always available.
+            SecondaryTool::Bookmarks
+            | SecondaryTool::Settings
+            | SecondaryTool::HowTo
+            | SecondaryTool::Customize => Beginner,
+            // Power tools.
+            SecondaryTool::Scanner
+            | SecondaryTool::Recorder
+            | SecondaryTool::Scheduler => Advanced,
+            // Expert integrations.
+            SecondaryTool::Discord => ClerkMaxwell,
+        }
+    }
+
+    /// Whether this tool should be listed for a user at `level`.
+    fn available_at(&self, level: crate::user_level::UserLevel) -> bool {
+        (level as usize) >= (self.min_level() as usize)
     }
 }
 
@@ -248,7 +281,10 @@ pub struct CentralApp {
     last_traffic_bucket: usize,
     last_manual_tune_time: std::time::Instant,
     active_secondary_tool: Option<SecondaryTool>,
-    sdr_ai_panel_open: bool,
+    /// 🤖 Ask — ambient AI slide-over, openable from every mode's bar button.
+    ai_ask_open: bool,
+    /// ⚙ More — whether the tool-picker menu (deck of hidden tools) is showing.
+    more_menu_open: bool,
     adsb_instructions_open: bool,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
     customize_panel: crate::customize_panel::CustomizePanel,
@@ -397,7 +433,7 @@ impl CentralApp {
             satellite_panel: SatellitePanel::new(shared.clone()),
             adsb_panel: AdsBPanel::new(shared.clone()),
             recorder_panel: RecorderPanel::new(shared.clone()),
-            constellation: ConstellationDisplay::default(),
+            constellation: ConstellationDisplay::new(),
             decoding_panel: DecodingPanel::default(),
             ai_panel: AiPanel::new(shared.clone()),
             howto_panel: HowToPanel::new(),
@@ -458,12 +494,13 @@ impl CentralApp {
             last_mqtt_connected: false,
             seen_aircraft: std::collections::HashSet::new(),
             last_active_pass_sat: String::new(),
-            current_tab: AppTab::Sdr,
+            current_tab: AppTab::Listen,
             discord_summary_last: std::time::Instant::now(),
             last_traffic_bucket: 0,
             last_manual_tune_time: std::time::Instant::now(),
             active_secondary_tool: None,
-            sdr_ai_panel_open: false,
+            ai_ask_open: false,
+            more_menu_open: false,
             adsb_instructions_open: false,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
             customize_panel: crate::customize_panel::CustomizePanel::default(),
@@ -601,7 +638,8 @@ impl eframe::App for CentralApp {
             self.status_flash = Some((msg, std::time::Instant::now()));
         }
         if let Some(req) = self.satellite_panel.pending_decode_request.take() {
-            self.current_tab = AppTab::Decoding;
+            self.current_tab = AppTab::Satellites;
+            self.satellite_subtab = crate::satellite_panel::SatelliteSubTab::Decode;
             self.active_secondary_tool = None;
             self.decoding_panel.request_from_satellite(req);
         }
@@ -1575,10 +1613,13 @@ impl eframe::App for CentralApp {
             }
         };
 
-        egui::Panel::left("main_nav")
-            .exact_size(48.0)
-            .show(ui, |ui| self.render_main_nav(ui));
+        // Top mode bar: 3 task modes + ambient 🤖 Ask + ⚙ More.
+        egui::Panel::top("mode_bar")
+            .exact_size(44.0)
+            .show(ui, |ui| self.render_mode_bar(ui));
 
+        // ⚙ More — the deck of hidden tools (Bookmarks/Scanner/Settings/…) as a
+        // left slide-over, reusing the existing secondary-tool machinery.
         if let Some(tool) = self.active_secondary_tool {
             egui::Panel::left("secondary_panel")
                 .resizable(true)
@@ -1586,13 +1627,29 @@ impl eframe::App for CentralApp {
                 .show(ui, |ui| self.render_secondary_panel(ui, tool, &snapshot));
         }
 
+        // 🤖 Ask — ambient AI slide-over, available in every mode.
+        if self.ai_ask_open {
+            egui::Panel::right("ai_ask_panel")
+                .resizable(true)
+                .default_size(340.0)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("🤖 Ask").strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✕").on_hover_text("Close").clicked() {
+                                self.ai_ask_open = false;
+                            }
+                        });
+                    });
+                    ui.separator();
+                    self.ai_panel.ui(ui);
+                });
+        }
+
         match self.current_tab {
-            AppTab::Sdr => self.render_sdr_tab(ui, &snapshot),
-            AppTab::AdsB => self.render_adsb_tab(ui),
-            AppTab::Satellite => self.render_satellite_tab(ui, &snapshot),
-            AppTab::Ai => self.render_ai_tab(ui),
-            AppTab::Decoding => self.render_decoding_tab(ui, &snapshot),
-            AppTab::Customize => self.render_customize_tab(ui),
+            AppTab::Listen => self.render_sdr_tab(ui, &snapshot),
+            AppTab::Planes => self.render_adsb_tab(ui),
+            AppTab::Satellites => self.render_satellite_tab(ui, &snapshot),
         }
 
         // Frequency jump dialog (J key)
@@ -1980,7 +2037,10 @@ struct SharedSnapshot {
 // ── New 3-tab render methods ──────────────────────────────────────────────────
 
 impl CentralApp {
-    fn render_main_nav(&mut self, ui: &mut egui::Ui) {
+    /// Top mode bar: the entire top-level navigation. Left = the 3 task modes
+    /// (icon + word); right = the ambient `🤖 Ask` slide-over toggle and the
+    /// `⚙ More` deck of hidden tools (opened as a menu, revealed by user level).
+    fn render_mode_bar(&mut self, ui: &mut egui::Ui) {
         ui.painter()
             .rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(10, 13, 18));
 
@@ -1989,50 +2049,29 @@ impl CentralApp {
             .try_lock()
             .map(|state| state.config.theme_config.glow)
             .unwrap_or_default();
-        let (main_tabs, secondary_tools) = self
-            .shared
-            .try_lock()
-            .map(|state| {
-                (
-                    state.config.layout.main_tabs.clone(),
-                    state.config.layout.secondary_tools.clone(),
-                )
-            })
-            .unwrap_or_default();
 
-        ui.vertical_centered(|ui| {
-            ui.add_space(4.0);
-            // Main tabs, ordered/filtered by user layout config, with Customize always pinned last.
-            let ordered_tabs = main_tabs
-                .iter()
-                .filter(|item| item.visible)
-                .filter_map(|item| {
-                    MAIN_TABS
-                        .iter()
-                        .find(|(id, ..)| *id == item.id)
-                        .map(|(_, tab, icon, tip)| (tab.clone(), *icon, *tip))
-                })
-                .chain(std::iter::once((
-                    AppTab::Customize,
-                    "🎨",
-                    "Customize — Themes, colors, effects, fonts, layout",
-                )));
-
-            for (tab, icon, tip) in ordered_tabs {
+        ui.horizontal_centered(|ui| {
+            ui.add_space(6.0);
+            // ── Task modes ──────────────────────────────────────────────
+            for (_, tab, icon, label, tip) in MAIN_TABS.iter().copied() {
                 let is_active = self.current_tab == tab && self.active_secondary_tool.is_none();
                 let fg = if is_active {
                     egui::Color32::from_rgb(0, 168, 255)
                 } else {
-                    egui::Color32::from_rgb(155, 165, 175)
+                    egui::Color32::from_rgb(160, 170, 180)
                 };
                 let bg = if is_active {
                     egui::Color32::from_rgb(20, 26, 34)
                 } else {
                     egui::Color32::TRANSPARENT
                 };
-                let btn = egui::Button::new(egui::RichText::new(icon).color(fg).size(18.0))
-                    .fill(bg)
-                    .min_size(egui::vec2(40.0, 36.0));
+                let btn = egui::Button::new(
+                    egui::RichText::new(format!("{icon}  {label}"))
+                        .color(fg)
+                        .size(16.0),
+                )
+                .fill(bg)
+                .min_size(egui::vec2(0.0, 34.0));
                 let resp = ui.add(btn);
                 if is_active {
                     crate::fx::paint_glow(ui.painter(), resp.rect, 4.0, &glow);
@@ -2041,54 +2080,58 @@ impl CentralApp {
                     self.current_tab = tab;
                     self.active_secondary_tool = None;
                 }
+                ui.add_space(2.0);
             }
-            // Separator
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-            // Secondary tools, ordered/filtered by user layout config.
-            let ordered_tools = secondary_tools
-                .iter()
-                .filter(|item| item.visible)
-                .filter_map(|item| {
-                    ALL_SECONDARY_TOOLS
-                        .iter()
-                        .find(|t| t.id() == item.id)
-                        .copied()
+
+            // ── Ambient tools, pushed to the right edge ─────────────────
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // ⚙ More — deck of hidden tools, gated by user level.
+                let level = self
+                    .shared
+                    .try_lock()
+                    .map(|s| crate::user_level::UserLevel::from_str(&s.config.user_level))
+                    .unwrap_or(crate::user_level::UserLevel::Beginner);
+                ui.menu_button(egui::RichText::new("⚙ More").size(15.0), |ui| {
+                    ui.set_min_width(180.0);
+                    let mut chosen: Option<SecondaryTool> = None;
+                    for tool in ALL_SECONDARY_TOOLS.iter().copied() {
+                        if !tool.available_at(level) {
+                            continue;
+                        }
+                        if ui
+                            .button(format!("{}  {}", tool.icon(), tool.label()))
+                            .clicked()
+                        {
+                            chosen = Some(tool);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("🎨  Customize").clicked() {
+                        chosen = Some(SecondaryTool::Customize);
+                    }
+                    if let Some(tool) = chosen {
+                        self.active_secondary_tool =
+                            if self.active_secondary_tool == Some(tool) { None } else { Some(tool) };
+                    }
                 });
-            for tool in ordered_tools {
-                let is_active = self.active_secondary_tool == Some(tool);
-                let fg = if is_active {
+
+                // 🤖 Ask — ambient AI slide-over toggle.
+                let ask_fg = if self.ai_ask_open {
                     egui::Color32::from_rgb(0, 168, 255)
                 } else {
-                    egui::Color32::from_rgb(140, 150, 160)
+                    egui::Color32::from_rgb(160, 170, 180)
                 };
-                let bg = if is_active {
-                    egui::Color32::from_rgb(20, 26, 34)
-                } else {
-                    egui::Color32::TRANSPARENT
-                };
-                let btn = egui::Button::new(egui::RichText::new(tool.icon()).color(fg).size(16.0))
-                    .fill(bg)
-                    .min_size(egui::vec2(40.0, 32.0));
-                let resp = ui.add(btn);
-                if is_active {
-                    crate::fx::paint_glow(ui.painter(), resp.rect, 4.0, &glow);
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new("🤖 Ask").color(ask_fg).size(15.0))
+                            .fill(egui::Color32::TRANSPARENT),
+                    )
+                    .on_hover_text("Ask the AI assistant (available in every mode)")
+                    .clicked()
+                {
+                    self.ai_ask_open = !self.ai_ask_open;
                 }
-                if resp.on_hover_text(tool.label()).clicked() {
-                    self.active_secondary_tool = if is_active { None } else { Some(tool) };
-                }
-            }
-        });
-    }
-
-    fn render_customize_tab(&mut self, ui: &mut egui::Ui) {
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading("🎨 Customize");
-            ui.separator();
-            if let Ok(mut state) = self.shared.try_lock() {
-                self.customize_panel.ui(ui, &mut state.config);
-            }
+            });
         });
     }
 
@@ -2135,9 +2178,7 @@ impl CentralApp {
                         // sees the response (and any configure_scanner tool calls).
                         self.ai_panel.input = prompt;
                         self.ai_panel.send_message();
-                        if self.current_tab == AppTab::Sdr {
-                            self.sdr_ai_panel_open = true;
-                        }
+                        self.ai_ask_open = true;
                         self.status_flash = Some((
                             "🤖 Scanner request sent to AI Agent".to_string(),
                             std::time::Instant::now(),
@@ -2149,44 +2190,16 @@ impl CentralApp {
                 SecondaryTool::Discord => {
                     self.discord_panel.ui(ui, &mut self.discord, &self.shared);
                 }
+                SecondaryTool::Customize => {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        self.customize_panel.ui(ui, &mut state.config);
+                    }
+                }
             });
-    }
-
-    fn render_decoding_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
-        let _ = snapshot;
-        egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                self.decoding_panel.ui(ui);
-            });
-        });
-    }
-
-    fn render_ai_tab(&mut self, ui: &mut egui::Ui) {
-        egui::CentralPanel::default().show(ui, |ui| {
-            self.ai_panel.ui(ui);
-        });
     }
 
     fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
         let _ = snapshot;
-
-        if self.sdr_ai_panel_open {
-            egui::Panel::right("sdr_ai_panel")
-                .resizable(true)
-                .default_size(320.0)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("🤖 AI Assistant").strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("✕").clicked() {
-                                self.sdr_ai_panel_open = false;
-                            }
-                        });
-                    });
-                    ui.separator();
-                    self.ai_panel.ui(ui);
-                });
-        }
 
         egui::Panel::left("sdr_modules")
             .resizable(true)
@@ -2353,6 +2366,7 @@ impl CentralApp {
                     for (subtab, label) in [
                         (SatelliteSubTab::Track, "🛰 Track"),
                         (SatelliteSubTab::Alignment, "🧭 Align"),
+                        (SatelliteSubTab::Decode, "🛸 Decode"),
                     ] {
                         let is_active = self.satellite_subtab == subtab;
                         let fg = if is_active {
@@ -2440,6 +2454,11 @@ impl CentralApp {
             }
             crate::satellite_panel::SatelliteSubTab::Alignment => {
                 self.render_satellite_alignment_central(ui);
+            }
+            crate::satellite_panel::SatelliteSubTab::Decode => {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.decoding_panel.ui(ui);
+                });
             }
         });
     }
