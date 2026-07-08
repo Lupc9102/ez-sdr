@@ -1,4 +1,5 @@
 use crate::app::SharedState;
+use crate::ui_kit::module_card;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 
@@ -828,6 +829,11 @@ impl AdsBPanel {
     /// Renders the standalone ADS-B receive/antenna setup guide — used as an
     /// on-page instructions banner on the ADS-B tab.
     pub fn ui_antenna_guide(&mut self, ui: &mut egui::Ui) {
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new("📡 ADS-B Antenna Setup Guide")
@@ -837,7 +843,7 @@ impl AdsBPanel {
         ui.add_space(4.0);
 
         ui.horizontal_wrapped(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+            ui.colored_label(theme.success.to_egui(), "TIP");
             ui.separator();
             ui.label("The antenna is the #1 factor in ADS-B range. A well-placed $15 antenna beats a $200 SDR with a poor antenna every time.");
         });
@@ -880,7 +886,7 @@ impl AdsBPanel {
             ui.label("  LMR-600:         ~1.8 dB — best for long runs");
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.colored_label(theme.warning.to_egui(), "NOTE");
                 ui.separator();
                 ui.label("If you must run >10 m of coax, mount the RTL-SDR + Pi near the antenna and use Ethernet backhaul instead.");
             });
@@ -898,13 +904,13 @@ impl AdsBPanel {
             ui.label("  4. Coax cable to SDR");
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.colored_label(theme.success.to_egui(), "TIP");
                 ui.separator();
                 ui.label("Buy the filter FIRST. An LNA amplifies signal AND noise equally — filtering addresses the real problem. Many combo filtered-LNA products (SAWbird+) simplify this.");
             });
             ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
+                ui.colored_label(theme.error.to_egui(), "AVOID");
                 ui.separator();
                 ui.label("Don't buy a wideband LNA without a 1090 MHz filter. It will amplify nearby cellular interference and make things worse.");
             });
@@ -921,7 +927,7 @@ impl AdsBPanel {
             ui.label("  Mast 5–10 m high:     300–450 km (best — above obstructions, line-of-sight to horizon)");
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.colored_label(theme.success.to_egui(), "TIP");
                 ui.separator();
                 ui.label("The single biggest improvement you can make: move the antenna from indoors to outdoors. This alone can triple your aircraft count.");
             });
@@ -938,6 +944,11 @@ impl AdsBPanel {
 
     /// Renders just the aircraft map filling all available space — for the ADS-B tab central panel.
     pub fn ui_map(&mut self, ui: &mut egui::Ui) {
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
         if let Ok(state) = self.shared.try_lock() {
             if (state.config.observer_lat - self.observer_lat).abs() > 0.001
                 || (state.config.observer_lon - self.observer_lon).abs() > 0.001
@@ -973,7 +984,7 @@ impl AdsBPanel {
         let painter = ui.painter();
 
         // Background fill (shows behind tiles during loading)
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(28, 40, 51));
+        painter.rect_filled(rect, 0.0, theme.bg.to_egui());
 
         // Scroll-to-zoom with throttled accumulator
         if response.hovered() {
@@ -1057,7 +1068,7 @@ impl AdsBPanel {
                         egui::Color32::WHITE,
                     );
                 } else if should_fetch_tiles {
-                    painter.rect_filled(tile_rect, 0.0, egui::Color32::from_rgb(40, 55, 70));
+                    painter.rect_filled(tile_rect, 0.0, theme.surface.to_egui());
                     self.request_tile(zoom, wt, wu);
                 }
             }
@@ -1141,10 +1152,7 @@ impl AdsBPanel {
                 for w in ring_points.windows(2) {
                     painter.line_segment(
                         [w[0], w[1]],
-                        egui::Stroke::new(
-                            0.5,
-                            egui::Color32::from_rgba_unmultiplied(100, 200, 100, alpha),
-                        ),
+                        egui::Stroke::new(0.5, theme.success.with_alpha(alpha).to_egui()),
                     );
                 }
                 if let Some(first) = ring_points.first() {
@@ -1153,20 +1161,16 @@ impl AdsBPanel {
                         egui::Align2::LEFT_BOTTOM,
                         format!("{}km", dist_km as u32),
                         egui::FontId::proportional(9.0),
-                        egui::Color32::from_rgba_unmultiplied(120, 220, 120, alpha),
+                        theme.success.with_alpha(alpha.saturating_add(20)).to_egui(),
                     );
                 }
             }
             painter.circle_stroke(
                 egui::pos2(obs_x, obs_y),
                 6.0,
-                egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 240, 80)),
+                egui::Stroke::new(1.5, theme.warning.to_egui()),
             );
-            painter.circle_filled(
-                egui::pos2(obs_x, obs_y),
-                2.5,
-                egui::Color32::from_rgb(255, 240, 80),
-            );
+            painter.circle_filled(egui::pos2(obs_x, obs_y), 2.5, theme.warning.to_egui());
         }
 
         // Trails
@@ -1289,14 +1293,14 @@ impl AdsBPanel {
             egui::Align2::CENTER_TOP,
             "40k ft",
             egui::FontId::proportional(7.0),
-            egui::Color32::GRAY,
+            theme.text_dim.to_egui(),
         );
         painter.text(
             egui::pos2(legend_x + 5.0, legend_top + legend_h),
             egui::Align2::CENTER_BOTTOM,
             "0 ft",
             egui::FontId::proportional(7.0),
-            egui::Color32::GRAY,
+            theme.text_dim.to_egui(),
         );
     }
 
@@ -1312,6 +1316,12 @@ impl AdsBPanel {
             self.pending_status_flash = Some(msg);
         }
 
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
+
         while let Ok((icao, info)) = self.info_rx.try_recv() {
             self.aircraft_info.insert(icao, info);
         }
@@ -1325,7 +1335,25 @@ impl AdsBPanel {
             }
         }
 
-        // Stats + start/stop
+        // Update trails here so they're ready when ui_map() renders. Kept
+        // outside the collapsible cards below so trail history keeps building
+        // even while a card is collapsed (module_card skips contents when closed).
+        for ac in &self.aircraft {
+            if ac.lat == 0.0 && ac.lon == 0.0 {
+                continue;
+            }
+            let trail = self.aircraft_trails.entry(ac.icao).or_default();
+            if trail.back().is_none_or(|&(lat, lon)| {
+                (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001
+            }) {
+                trail.push_back((ac.lat, ac.lon));
+                if trail.len() > 30 {
+                    trail.pop_front();
+                }
+            }
+        }
+
+        // Stats summary — always visible above the cards, like SDR++'s status line.
         let now_inst = std::time::Instant::now();
         let active_count = self
             .aircraft
@@ -1349,82 +1377,68 @@ impl AdsBPanel {
             "✈ {active_count} aircraft  ({with_pos} w/pos)  {msg_rate:.0} msg/s"
         ));
 
-        ui.horizontal(|ui| {
-            if self.start_time.is_some() {
-                if ui.button("■ Stop").clicked() {
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        state.adsb_running = false;
+        module_card(ui, &theme, "planes.controls", "🎛", "Controls & Filters", true, |ui| {
+            ui.horizontal(|ui| {
+                if self.start_time.is_some() {
+                    if ui.button("■ Stop").clicked() {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            state.adsb_running = false;
+                        }
+                        self.start_time = None;
                     }
-                    self.start_time = None;
+                } else if ui.button("▶ Start ADS-B").clicked() {
+                    self.begin();
                 }
-            } else if ui.button("▶ Start ADS-B").clicked() {
-                self.begin();
-            }
-            ui.checkbox(&mut self.alert_enabled, "🔔");
-            if self.alert_enabled {
+                ui.checkbox(&mut self.alert_enabled, "🔔");
+                if self.alert_enabled {
+                    ui.add(
+                        egui::DragValue::new(&mut self.alert_range_km)
+                            .speed(5.0)
+                            .range(0..=1000)
+                            .suffix("km"),
+                    );
+                    ui.label("(0=any)");
+                }
+            });
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.altitude_filter_enabled, "Alt");
+                if self.altitude_filter_enabled {
+                    ui.add(
+                        egui::DragValue::new(&mut self.min_altitude_ft)
+                            .speed(500.0)
+                            .range(0..=60_000)
+                            .suffix("↑"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.max_altitude_ft)
+                            .speed(500.0)
+                            .range(0..=100_000)
+                            .suffix("↑max"),
+                    );
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Age:");
                 ui.add(
-                    egui::DragValue::new(&mut self.alert_range_km)
+                    egui::DragValue::new(&mut self.max_age_secs)
                         .speed(5.0)
-                        .range(0..=1000)
-                        .suffix("km"),
+                        .range(10..=600)
+                        .suffix("s"),
                 );
-                ui.label("(0=any)");
-            }
-        });
-
-        // Update trails here so they're ready when ui_map() renders
-        for ac in &self.aircraft {
-            if ac.lat == 0.0 && ac.lon == 0.0 {
-                continue;
-            }
-            let trail = self.aircraft_trails.entry(ac.icao).or_default();
-            if trail.back().is_none_or(|&(lat, lon)| {
-                (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001
-            }) {
-                trail.push_back((ac.lat, ac.lon));
-                if trail.len() > 30 {
-                    trail.pop_front();
+                ui.checkbox(&mut self.show_trails, "Trails");
+            });
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.callsign_filter)
+                        .desired_width(100.0)
+                        .hint_text("search callsign/ICAO"),
+                );
+                if !self.callsign_filter.is_empty() && ui.small_button("✕").clicked() {
+                    self.callsign_filter.clear();
                 }
-            }
-        }
-
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.altitude_filter_enabled, "Alt");
-            if self.altitude_filter_enabled {
-                ui.add(
-                    egui::DragValue::new(&mut self.min_altitude_ft)
-                        .speed(500.0)
-                        .range(0..=60_000)
-                        .suffix("↑"),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut self.max_altitude_ft)
-                        .speed(500.0)
-                        .range(0..=100_000)
-                        .suffix("↑max"),
-                );
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Age:");
-            ui.add(
-                egui::DragValue::new(&mut self.max_age_secs)
-                    .speed(5.0)
-                    .range(10..=600)
-                    .suffix("s"),
-            );
-            ui.checkbox(&mut self.show_trails, "Trails");
-        });
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.callsign_filter)
-                    .desired_width(100.0)
-                    .hint_text("search callsign/ICAO"),
-            );
-            if !self.callsign_filter.is_empty() && ui.small_button("✕").clicked() {
-                self.callsign_filter.clear();
-            }
+            });
         });
 
         // Selected aircraft detail
@@ -1432,14 +1446,15 @@ impl AdsBPanel {
             if let Some(info) = self.aircraft_info.get(&icao) {
                 ui.separator();
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(15, 25, 20))
+                    .fill(theme.surface.to_egui())
+                    .stroke(egui::Stroke::new(1.0, theme.accent.with_alpha(120).to_egui()))
                     .corner_radius(4.0)
                     .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
                         ui.label(
                             egui::RichText::new(format!("{icao:06X}"))
                                 .strong()
-                                .color(egui::Color32::from_rgb(0, 220, 255)),
+                                .color(theme.accent.to_egui()),
                         );
                         if info.model != "Loading..." && info.model != "Unknown" {
                             ui.label(egui::RichText::new(&info.model).small());
@@ -1450,7 +1465,7 @@ impl AdsBPanel {
                                         info.operator, info.registration
                                     ))
                                     .small()
-                                    .color(egui::Color32::GRAY),
+                                    .color(theme.text_dim.to_egui()),
                                 );
                             }
                         }
@@ -1459,7 +1474,8 @@ impl AdsBPanel {
         }
 
         ui.separator();
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        module_card(ui, &theme, "planes.list", "✈", "Aircraft", true, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("adsb_list_compact").num_columns(6).striped(true).show(ui, |ui| {
                 ui.label(egui::RichText::new("Flight").small().strong());
                 ui.label(egui::RichText::new("Alt").small().strong());
@@ -1483,8 +1499,15 @@ impl AdsBPanel {
                     }
                     let is_selected = self.selected_icao == Some(ac.icao);
                     let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
-                    let brightness = (255.0 * (1.0 - age_frac * 0.65)) as u8;
-                    let row_col = if is_selected { egui::Color32::from_rgb(0, 255, 255) } else { egui::Color32::from_rgb(brightness, brightness, brightness) };
+                    // Age fade: blend text_normal → text_dim as the contact goes stale.
+                    let row_col = if is_selected {
+                        theme.accent.to_egui()
+                    } else {
+                        let n = theme.text_normal;
+                        let d = theme.text_dim;
+                        let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * age_frac * 0.85) as u8;
+                        egui::Color32::from_rgb(lerp(n.0, d.0), lerp(n.1, d.1), lerp(n.2, d.2))
+                    };
                     let label = if ac.callsign.is_empty() { format!("{:06X}", ac.icao) } else { ac.callsign.clone() };
                     if ui.label(egui::RichText::new(&label).color(row_col).small()).clicked() {
                         self.selected_icao = Some(ac.icao);
@@ -1494,7 +1517,7 @@ impl AdsBPanel {
                     ui.label(egui::RichText::new(format!("{}kt", ac.speed)).color(row_col).small());
                     let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
                     ui.label(egui::RichText::new(format!("{dist:.0}km")).color(row_col).small());
-                    let age_color = if age < 10 { egui::Color32::GREEN } else if age < 30 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
+                    let age_color = if age < 10 { theme.success.to_egui() } else if age < 30 { theme.warning.to_egui() } else { theme.text_dim.to_egui() };
                     ui.label(egui::RichText::new(format!("{age}s")).color(age_color).small());
                     if ui.small_button("🤖").clicked() {
                         let bearing = self.bearing(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
@@ -1508,6 +1531,7 @@ impl AdsBPanel {
                 if let Some(icao) = fetch_icao {
                     self.fetch_aircraft_info(icao);
                 }
+            });
             });
         });
     }
