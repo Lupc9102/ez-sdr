@@ -106,6 +106,23 @@ impl MapRenderer {
             for i in 1..screen_pts.len() {
                 let seg = self.trajectory[i].segment;
                 let (color, width) = trajectory_segment_style(seg, self.in_pass_now);
+                // Glow layer: wider, semi-transparent stroke behind the main line
+                if self.in_pass_now && seg == TrajectorySegment::InPass {
+                    painter.line_segment(
+                        [screen_pts[i - 1], screen_pts[i]],
+                        Stroke::new(
+                            width + 8.0,
+                            Color32::from_rgba_premultiplied(0, 255, 200, 40),
+                        ),
+                    );
+                    painter.line_segment(
+                        [screen_pts[i - 1], screen_pts[i]],
+                        Stroke::new(
+                            width + 4.0,
+                            Color32::from_rgba_premultiplied(0, 255, 200, 80),
+                        ),
+                    );
+                }
                 painter.line_segment(
                     [screen_pts[i - 1], screen_pts[i]],
                     Stroke::new(width, color),

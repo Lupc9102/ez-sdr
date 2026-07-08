@@ -137,6 +137,16 @@ pub struct SpectrumAnalyzer {
     /// Unix timestamp of the last time signal went above squelch.
     pub last_signal_unix: Option<f64>,
     noise_baseline: f32,
+    /// Draw spectrum/waterfall grid lines.
+    pub show_grid: bool,
+    /// Peak-hold decay time constant (seconds). Larger = peaks linger.
+    pub peak_hold_time: f32,
+    /// Spectrum persistence / afterglow amount 0..1 (0 = off).
+    pub persistence: f32,
+    /// Retained trace buffer for persistence blending.
+    persist_buf: Vec<f32>,
+    /// Fill the area under the spectrum line with a gradient.
+    pub gradient_fill: bool,
     /// Squelch value pending from a right-click "set squelch here" action.
     pub pending_squelch_db: Option<f32>,
     /// Scan range start (Hz) pending from context menu.
@@ -176,6 +186,8 @@ pub enum WindowType {
     Hamming,
     /// Blackman window — best sidelobe suppression, wider main lobe.
     Blackman,
+    /// Flat-top window — excellent amplitude accuracy, widest main lobe.
+    FlatTop,
 }
 
 /// Colour map used for waterfall and spectrum visualisation.
@@ -222,6 +234,7 @@ impl WindowType {
             WindowType::Hann => "Hann",
             WindowType::Hamming => "Hamming",
             WindowType::Blackman => "Blackman",
+            WindowType::FlatTop => "FlatTop",
         }
     }
 
@@ -246,6 +259,22 @@ impl WindowType {
                     let n = i as f32;
                     let size = len as f32;
                     0.42 - 0.5 * (2.0 * PI * n / size).cos() + 0.08 * (4.0 * PI * n / size).cos()
+                })
+                .collect(),
+            WindowType::FlatTop => (0..len)
+                .map(|i| {
+                    let n = i as f32;
+                    let size = len as f32;
+                    let a0 = 0.21557895;
+                    let a1 = 0.41663158;
+                    let a2 = 0.277263158;
+                    let a3 = 0.083578947;
+                    let a4 = 0.006947368;
+                    a0
+                        - a1 * (2.0 * PI * n / size).cos()
+                        + a2 * (4.0 * PI * n / size).cos()
+                        - a3 * (6.0 * PI * n / size).cos()
+                        + a4 * (8.0 * PI * n / size).cos()
                 })
                 .collect(),
         }
@@ -318,6 +347,11 @@ impl SpectrumAnalyzer {
             signal_active: false,
             last_signal_unix: None,
             noise_baseline: -120.0,
+            show_grid: true,
+            peak_hold_time: 1.0,
+            persistence: 0.0,
+            persist_buf: vec![-100.0; fft_size],
+            gradient_fill: true,
             pending_squelch_db: None,
             pending_scan_start: None,
             pending_scan_stop: None,
@@ -339,12 +373,65 @@ impl SpectrumAnalyzer {
         self.fft_size = size;
         self.spectrum_dbs = vec![-100.0; size];
         self.peak_hold = vec![-120.0; size];
+        self.persist_buf = vec![-100.0; size];
         self.waterfall_pixels = vec![vec![0u8; size * 4]; self.waterfall_history];
         self.window_cache = self.window_type.generate(size);
         self.fft_input_buf = Vec::with_capacity(size.max(4096));
         let mut planner = FftPlanner::<f32>::new();
         self.fft = Some(planner.plan_fft_forward(size));
         self.waterfall_texture = None;
+    }
+
+    /// Set the FFT window function (recomputes the window cache).
+    pub fn set_window(&mut self, w: WindowType) {
+        self.window_type = w;
+        self.window_cache = self.window_type.generate(self.fft_size);
+    }
+
+    /// Set the waterfall history depth (number of retained rows).
+    pub fn set_waterfall_history(&mut self, depth: usize) {
+        let depth = depth.clamp(32, 4096);
+        if depth != self.waterfall_history {
+            self.waterfall_history = depth;
+            self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; depth];
+            self.waterfall_texture = None;
+        }
+    }
+
+    /// Enable/disable spectrum & waterfall grid lines.
+    pub fn set_grid(&mut self, on: bool) {
+        self.show_grid = on;
+    }
+
+    /// Set peak-hold decay time constant (seconds).
+    pub fn set_peak_hold_time(&mut self, secs: f32) {
+        self.peak_hold_time = secs.clamp(0.1, 60.0);
+    }
+
+    /// Set the spectrum trace averaging factor (0 = no smoothing .. 1 = max).
+    pub fn set_avg_alpha(&mut self, alpha: f32) {
+        self.avg_alpha = alpha.clamp(0.0, 1.0);
+    }
+
+    /// Set the persistence / afterglow amount (0 = off).
+    pub fn set_persistence(&mut self, p: f32) {
+        self.persistence = p.clamp(0.0, 0.98);
+    }
+
+    /// Enable/disable the gradient fill under the spectrum line.
+    pub fn set_gradient_fill(&mut self, on: bool) {
+        self.gradient_fill = on;
+    }
+
+    /// Set the waterfall/colour-map palette.
+    pub fn set_color_map(&mut self, map: ColorMap) {
+        self.color_map = map;
+        self.waterfall_dirty = true;
+    }
+
+    /// Set the zoom factor directly (larger = more zoomed in).
+    pub fn set_zoom_factor(&mut self, z: f32) {
+        self.zoom_factor = z.clamp(1.0, 200.0);
     }
 
     /// Update the centre frequency and sample rate parameters.
@@ -600,7 +687,15 @@ impl SpectrumAnalyzer {
             if db > self.peak_hold[dst] {
                 self.peak_hold[dst] = db;
             } else {
-                self.peak_hold[dst] = 0.999 * self.peak_hold[dst] + 0.001 * db;
+                // Decay rate derived from the user-configured hold time
+                // (frames ≈ hold_time * 60fps). Higher time → slower decay.
+                let frames = (self.peak_hold_time * 60.0).max(1.0);
+                let k = 1.0 / frames;
+                self.peak_hold[dst] = (1.0 - k) * self.peak_hold[dst] + k * db;
+            }
+            if self.persistence > 0.0 {
+                let p = self.persistence;
+                self.persist_buf[dst] = p * self.persist_buf[dst] + (1.0 - p) * self.spectrum_dbs[dst];
             }
         }
         self.cached_signal_level = sum / self.fft_size as f32;
@@ -1141,7 +1236,7 @@ impl SpectrumAnalyzer {
         let range = (max_db - min_db).max(1.0);
 
         // Horizontal dB grid lines — adaptive step based on display range
-        {
+        if self.show_grid {
             let db_step = if range > 80.0 {
                 20.0f32
             } else if range > 40.0 {
@@ -1188,7 +1283,7 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Zoom parameters
+        // Zoom parameters (used by all overlays below)
         let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
             .max(f64::from(self.sample_rate) * 0.01);
         let zoom_center_offset = (f64::from(self.zoom_offset) - 0.5) * zoom_span;
@@ -1200,6 +1295,7 @@ impl SpectrumAnalyzer {
 
         // Vertical grid lines (frequency) with zoom support
         let n_grid = 8;
+        if self.show_grid {
         for i in 0..=n_grid {
             let frac = i as f32 / n_grid as f32;
             let x = spectrum_rect.left() + frac * spectrum_rect.width();
@@ -1219,6 +1315,7 @@ impl SpectrumAnalyzer {
                 egui::FontId::proportional(8.0),
                 egui::Color32::from_gray(90),
             );
+        }
         }
 
         // Band plan overlay
@@ -1659,7 +1756,7 @@ impl SpectrumAnalyzer {
         }
 
         // Fill under spectrum (zoom-aware)
-        {
+        if self.gradient_fill {
             let mut mesh = egui::Mesh::default();
             let color_top = self.fill_top;
             let color_bot = self.fill_bot;
@@ -1795,7 +1892,11 @@ impl SpectrumAnalyzer {
             for i in first_bin..last_bin {
                 let frac = (i - first_bin) as f32 / visible_bins as f32;
                 let x = spectrum_rect.left() + frac * spectrum_rect.width();
-                let db = self.spectrum_dbs[i];
+                let db = if self.persistence > 0.0 {
+                    self.persist_buf[i]
+                } else {
+                    self.spectrum_dbs[i]
+                };
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
                 if let Some(prev) = prev_pos {

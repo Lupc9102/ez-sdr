@@ -7,11 +7,13 @@
   "theme": "dark",
   "ai_api_key": "",
   "ai_endpoint": "https://openrouter.ai/api/v1/chat/completions",
-  "ai_model": "anthropic/claude-3-haiku",
+  "ai_model": "anthropic/claude-haiku-4.5",
   "ai_max_tokens": 2048,
   "ai_temperature": 0.7,
   "ai_system_prompt": "",
   "ai_provider": "OpenRouter",
+  "ai_reasoning_effort": "off",
+  "ai_web_search": false,
   "mqtt_broker": "localhost:1883",
   "mqtt_topic_prefix": "ezsdr",
   "web_remote_enabled": false,
@@ -20,81 +22,20 @@
   "observer_lon": -0.1,
   "font_scale": 1.0,
   "needs_apply": false,
-  "recent_frequencies": [
-    100000000,
-    99000000,
-    98000000,
-    97000000,
-    98000000,
-    99000000,
-    100000000,
-    101000000,
-    102000000,
-    103000000,
-    104000000,
-    105000000,
-    106000000,
-    107000000,
-    108000000,
-    109000000,
-    110000000,
-    111000000,
-    112000000,
-    113000000,
-    114000000,
-    115000000,
-    116000000,
-    117000000,
-    118000000,
-    119000000,
-    120000000,
-    121000000,
-    122000000,
-    123000000,
-    124000000,
-    125000000,
-    125100000,
-    125200000,
-    125300000,
-    125400000,
-    125500000,
-    1090000000,
-    118000000
-  ],
+  "recent_frequencies": [],
   "spectrum_min_db": -120.0,
   "spectrum_max_db": 0.0,
   "ppm_correction": 0,
-  "vfo_b_hz": 100000000,
+  "vfo_b_hz": 0,
   "wf_min_db": -120.0,
   "wf_max_db": -20.0,
   "lo_offset_hz": 0,
-  "welcome_seen": false,
-  "last_session_freq_hz": 118000000,
-  "last_session_gain_db": 40.0,
-  "last_session_demod": "AM",
+  "last_session_freq_hz": 0,
+  "last_session_gain_db": -1.0,
+  "last_session_demod": "",
   "color_map": "Classic",
-  "freq_memory_hz": [
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0
-  ],
-  "freq_memory_labels": [
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    ""
-  ],
+  "freq_memory_hz": [],
+  "freq_memory_labels": [],
   "theme_config": {
     "preset": "dark",
     "accent": [
@@ -282,7 +223,56 @@
       76,
       60,
       255
-    ]
+    ],
+    "corner": {
+      "buttons": 4.0,
+      "panels": 6.0,
+      "windows": 6.0
+    },
+    "glow": {
+      "enabled": false,
+      "color": [
+        0,
+        168,
+        255,
+        255
+      ],
+      "radius": 8.0,
+      "intensity": 0.5
+    },
+    "spectrum_gradient": {
+      "stops": [
+        [
+          0.0,
+          [
+            30,
+            120,
+            200,
+            100
+          ]
+        ],
+        [
+          1.0,
+          [
+            10,
+            30,
+            60,
+            20
+          ]
+        ]
+      ]
+    },
+    "typography": {
+      "family": "EguiDefault",
+      "heading_size": 18.0,
+      "body_size": 13.0,
+      "small_size": 10.0,
+      "monospace_size": 13.0,
+      "button_size": 13.0
+    },
+    "spacing": {
+      "density": "Comfortable"
+    }
   },
   "discord": {
     "enabled": false,
@@ -311,6 +301,55 @@
   },
   "skip_antenna_checklists": false,
   "user_level": "beginner",
-  "tutorial_seen": true,
-  "tutorial_step": 0
+  "custom_themes": [],
+  "layout": {
+    "main_tabs": [
+      {
+        "id": "sdr",
+        "visible": true
+      },
+      {
+        "id": "adsb",
+        "visible": true
+      },
+      {
+        "id": "satellite",
+        "visible": true
+      },
+      {
+        "id": "ai",
+        "visible": true
+      }
+    ],
+    "secondary_tools": [
+      {
+        "id": "bookmarks",
+        "visible": true
+      },
+      {
+        "id": "scanner",
+        "visible": true
+      },
+      {
+        "id": "recorder",
+        "visible": true
+      },
+      {
+        "id": "scheduler",
+        "visible": true
+      },
+      {
+        "id": "discord",
+        "visible": true
+      },
+      {
+        "id": "howto",
+        "visible": true
+      },
+      {
+        "id": "settings",
+        "visible": true
+      }
+    ]
+  }
 }

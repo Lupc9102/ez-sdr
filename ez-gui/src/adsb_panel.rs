@@ -42,6 +42,7 @@ pub struct AdsBPanel {
     tile_last_used: std::collections::HashMap<(u32, u32, u32), u64>,
     tile_frame_counter: u64,
     tile_inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    last_zoom_change: std::time::Instant,
     geo_rx: Option<std::sync::mpsc::Receiver<(f64, f64)>>,
 }
 
@@ -340,11 +341,34 @@ impl AdsBPanel {
             tile_cx: init_cx,
             tile_cy: init_cy,
             zoom_accum: 0.0,
+            last_zoom_change: std::time::Instant::now(),
             tile_last_used: std::collections::HashMap::new(),
             tile_frame_counter: 0,
             tile_inflight: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             geo_rx: None,
         }
+    }
+
+    /// Auto-configure the SDR for ADS-B and start receiving. Idempotent: if the
+    /// receiver is already running it does nothing (so re-entering the Planes
+    /// mode doesn't reset stats). Called on entry to the Planes mode.
+    pub fn begin(&mut self) {
+        {
+            if let Ok(state) = self.shared.try_lock() {
+                if state.adsb_running {
+                    return;
+                }
+            }
+        }
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.source.frequency_hz = 1_090_000_000;
+            state.source.sample_rate_hz = 2_048_000;
+            if state.source.status != crate::source_manager::SourceStatus::Running {
+                state.source.start();
+            }
+            state.adsb_running = true;
+        }
+        self.start_time = Some(std::time::Instant::now());
     }
 
     /// Passive ADS-B: scan the current aircraft list for newcomers and fire a
@@ -670,7 +694,8 @@ impl AdsBPanel {
     }
 
     // --- OSM tile helpers ---
-    const SCROLL_POINTS_PER_ZOOM_LEVEL: f64 = 50.0;
+    const SCROLL_POINTS_PER_ZOOM_LEVEL: f64 = 250.0;
+    const ZOOM_DEBOUNCE_MS: u64 = 300;
     const MAX_CACHED_TILES: usize = 400;
     const MAX_CONCURRENT_TILE_DOWNLOADS: usize = 8;
 
@@ -978,6 +1003,7 @@ impl AdsBPanel {
                 }
                 self.tile_zoom = new_zoom;
                 self.zoom_accum -= dz as f64;
+                self.last_zoom_change = std::time::Instant::now();
             }
         }
 
@@ -998,6 +1024,10 @@ impl AdsBPanel {
         let center_x = f64::from(rect.center().x);
         let center_y = f64::from(rect.center().y);
         let zoom = self.tile_zoom;
+        let zoom_debouncing = self.last_zoom_change.elapsed()
+            < std::time::Duration::from_millis(Self::ZOOM_DEBOUNCE_MS);
+
+        let should_fetch_tiles = !zoom_debouncing || self.tile_frame_counter & 3 == 0;
 
         let tx_s = (cx - half_w / tile_px).floor() as i64;
         let tx_e = (cx + half_w / tile_px).ceil() as i64;
@@ -1026,7 +1056,7 @@ impl AdsBPanel {
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                         egui::Color32::WHITE,
                     );
-                } else {
+                } else if should_fetch_tiles {
                     painter.rect_filled(tile_rect, 0.0, egui::Color32::from_rgb(40, 55, 70));
                     self.request_tile(zoom, wt, wu);
                 }
@@ -1045,8 +1075,10 @@ impl AdsBPanel {
             }
         }
 
-        // Prefetch adjacent zoom levels
-        self.prefetch_adjacent_zoom(rect);
+        // Prefetch adjacent zoom levels (debounced)
+        if !zoom_debouncing {
+            self.prefetch_adjacent_zoom(rect);
+        }
 
         // Click handler (select aircraft) — use coordinate from tile projection
         if response.clicked() {
@@ -1326,15 +1358,7 @@ impl AdsBPanel {
                     self.start_time = None;
                 }
             } else if ui.button("▶ Start ADS-B").clicked() {
-                if let Ok(mut state) = self.shared.try_lock() {
-                    state.source.frequency_hz = 1_090_000_000;
-                    state.source.sample_rate_hz = 2_048_000;
-                    if state.source.status != crate::source_manager::SourceStatus::Running {
-                        state.source.start();
-                    }
-                    state.adsb_running = true;
-                }
-                self.start_time = Some(std::time::Instant::now());
+                self.begin();
             }
             ui.checkbox(&mut self.alert_enabled, "🔔");
             if self.alert_enabled {

@@ -8,6 +8,203 @@ use crate::discord::DiscordSettings;
 use crate::theme::{NamedTheme, ThemeConfig};
 use serde::{Deserialize, Serialize};
 
+/// Advanced / experimental user-tunable parameters exposed via the
+/// `⚙ More → Advanced` drawer. All fields are persisted to `ez_sdr_config.json`
+/// (every field carries `#[serde(default)]` so a missing key never breaks load).
+///
+/// Conventions used to keep sliders "real but off by default":
+/// * Frequencies/amounts of `0.0` mean *disabled* (no DSP stage runs).
+/// * Booleans default to the existing app behaviour so the panel is a strict
+///   superset — turning everything to its default reproduces stock EZ-SDR.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AdvancedConfig {
+    // ---------- Audio / DSP ----------
+    /// Audio high-pass cutoff (Hz). 0 = disabled.
+    #[serde(default)]
+    pub audio_hpf_hz: f32,
+    /// DC blocker blend 0..1 (0 = off, 1 = full removal).
+    #[serde(default)]
+    pub dc_blocker: f32,
+    /// Audio AGC enabled.
+    #[serde(default)]
+    pub agc_enabled: bool,
+    /// AGC target RMS level (0..1).
+    #[serde(default)]
+    pub agc_target: f32,
+    /// AGC attack coefficient (higher = faster gain reduction).
+    #[serde(default)]
+    pub agc_attack: f32,
+    /// AGC decay coefficient (higher = faster gain recovery).
+    #[serde(default)]
+    pub agc_decay: f32,
+    /// FM de-emphasis time constant (microseconds). 50 = EU, 75 = US.
+    #[serde(default)]
+    pub deemph_tau_us: f32,
+    /// Bass shelf gain (dB), -24..+24.
+    #[serde(default)]
+    pub bass_db: f32,
+    /// Treble shelf gain (dB), -24..+24.
+    #[serde(default)]
+    pub treble_db: f32,
+    /// Audio notch centre frequency (Hz). 0 = disabled.
+    #[serde(default)]
+    pub notch_hz: f32,
+    /// Audio notch bandwidth (Hz).
+    #[serde(default)]
+    pub notch_width_hz: f32,
+    /// Noise blanker strength 0..1 (0 = off).
+    #[serde(default)]
+    pub noise_blanker: f32,
+    /// Pitch shift in octaves (-2..+2, 0 = none).
+    #[serde(default)]
+    pub pitch_octaves: f32,
+    /// Extra audio gain multiplier (1.0 = unity).
+    #[serde(default)]
+    pub audio_gain: f32,
+
+    // ---------- Display / Spectrum ----------
+    /// FFT size (power of two, 256..8192).
+    #[serde(default)]
+    pub fft_size: usize,
+    /// FFT window name: "Hann" | "Hamming" | "Blackman" | "FlatTop".
+    #[serde(default)]
+    pub window: String,
+    /// Waterfall scroll interval (push every N frames). 1 = fastest.
+    #[serde(default)]
+    pub wf_speed: u32,
+    /// Waterfall history depth (rows).
+    #[serde(default)]
+    pub wf_depth: usize,
+    /// Draw spectrum/waterfall grid lines.
+    #[serde(default)]
+    pub grid: bool,
+    /// Peak-hold decay time (seconds). Larger = peaks linger longer.
+    #[serde(default)]
+    pub peak_hold_time: f32,
+    /// Spectrum trace averaging alpha (0..1, higher = smoother).
+    #[serde(default)]
+    pub avg_alpha: f32,
+    /// Spectrum persistence / afterglow 0..1 (0 = off).
+    #[serde(default)]
+    pub persistence: f32,
+    /// Gradient fill under the spectrum line.
+    #[serde(default)]
+    pub gradient_fill: bool,
+    /// Spectrum display floor (dBFS).
+    #[serde(default)]
+    pub db_min: f32,
+    /// Spectrum display ceiling (dBFS).
+    #[serde(default)]
+    pub db_max: f32,
+
+    // ---------- RF / Source ----------
+    /// Tuner (hardware) AGC mode.
+    #[serde(default)]
+    pub tuner_agc: bool,
+    /// RTL AGC mode.
+    #[serde(default)]
+    pub rtl_agc: bool,
+    /// Direct sampling (RTL-SDR zero-IF mode).
+    #[serde(default)]
+    pub direct_sampling: bool,
+    /// RF IQ decimation factor (1 = off, 2/4/8 downsample before demod).
+    #[serde(default)]
+    pub rf_decim: u32,
+    /// Remove DC offset from raw IQ.
+    #[serde(default)]
+    pub rf_dc_remove: bool,
+    /// RF band-reject notch (software).
+    #[serde(default)]
+    pub rf_notch: bool,
+    /// RF impulse noise blanker (software).
+    #[serde(default)]
+    pub rf_noise_blanker: bool,
+    /// Bias-T enabled.
+    #[serde(default)]
+    pub bias_tee: bool,
+    /// RF notch centre frequency (Hz).
+    #[serde(default)]
+    pub rf_notch_hz: f32,
+
+    // ---------- Scan / Record / AI / Satellite extras ----------
+    /// Scanner sweep direction: "up" | "down".
+    #[serde(default)]
+    pub scan_direction: String,
+    /// Recorder file format: "wav" | "raw".
+    #[serde(default)]
+    pub record_format: String,
+    /// Recorder auto-split size in MB (0 = no split).
+    #[serde(default)]
+    pub record_split_mb: u32,
+    /// AI context window cap in tokens (0 = unlimited).
+    #[serde(default)]
+    pub ai_context_window: u32,
+    /// Satellite elevation offset (degrees).
+    #[serde(default)]
+    pub sat_elevation_offset: f32,
+    /// Satellite azimuth offset (degrees).
+    #[serde(default)]
+    pub sat_azimuth_offset: f32,
+    /// Map zoom multiplier (0.5..4).
+    #[serde(default)]
+    pub map_zoom: f32,
+    /// Satellite pass prediction lead time (minutes).
+    #[serde(default)]
+    pub pass_lead_min: u32,
+}
+
+impl Default for AdvancedConfig {
+    fn default() -> Self {
+        Self {
+            audio_hpf_hz: 0.0,
+            dc_blocker: 0.0,
+            agc_enabled: true,
+            agc_target: 0.25,
+            agc_attack: 0.01,
+            agc_decay: 0.0001,
+            deemph_tau_us: 50.0,
+            bass_db: 0.0,
+            treble_db: 0.0,
+            notch_hz: 0.0,
+            notch_width_hz: 100.0,
+            noise_blanker: 0.0,
+            pitch_octaves: 0.0,
+            audio_gain: 1.0,
+
+            fft_size: 2048,
+            window: "Hann".to_string(),
+            wf_speed: 2,
+            wf_depth: 256,
+            grid: true,
+            peak_hold_time: 1.0,
+            avg_alpha: 0.3,
+            persistence: 0.0,
+            gradient_fill: true,
+            db_min: -120.0,
+            db_max: 0.0,
+
+            tuner_agc: false,
+            rtl_agc: false,
+            direct_sampling: false,
+            rf_decim: 1,
+            rf_dc_remove: false,
+            rf_notch: false,
+            rf_noise_blanker: false,
+            bias_tee: false,
+            rf_notch_hz: 10_000.0,
+
+            scan_direction: "up".to_string(),
+            record_format: "wav".to_string(),
+            record_split_mb: 0,
+            ai_context_window: 0,
+            sat_elevation_offset: 0.0,
+            sat_azimuth_offset: 0.0,
+            map_zoom: 1.0,
+            pass_lead_min: 5,
+        }
+    }
+}
+
 /// A single togglable/reorderable entry in the sidebar layout.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutItem {
@@ -35,7 +232,7 @@ impl Default for LayoutConfig {
                 .collect()
         }
         Self {
-            main_tabs: items(&["sdr", "adsb", "satellite", "ai", "decoding"]),
+            main_tabs: items(&["listen", "planes", "satellites"]),
             secondary_tools: items(&[
                 "bookmarks",
                 "scanner",
@@ -52,7 +249,7 @@ impl Default for LayoutConfig {
 /// Default AI provider API endpoint (`OpenRouter`).
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 /// Default AI model identifier.
-pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-haiku-4.5";
+pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-haiku-latest";
 
 /// A known AI provider preset with its endpoint, default model, and notes.
 pub struct ProviderPreset {
@@ -72,7 +269,7 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
     ProviderPreset {
         name: "OpenRouter",
         endpoint: "https://openrouter.ai/api/v1/chat/completions",
-        default_model: "anthropic/claude-haiku-4.5",
+        default_model: "anthropic/claude-haiku-latest",
         needs_key: true,
         note: "Access 100+ models with one key. Free tier available.",
     },
@@ -256,6 +453,9 @@ pub struct AppConfig {
     /// Sidebar tab/tool visibility and ordering.
     #[serde(default)]
     pub layout: LayoutConfig,
+    /// Advanced / experimental tunables (⚙ More → Advanced drawer).
+    #[serde(default)]
+    pub advanced: AdvancedConfig,
 }
 
 impl Default for AppConfig {
@@ -304,6 +504,7 @@ impl Default for AppConfig {
             user_level: "beginner".to_string(),
             custom_themes: Vec::new(),
             layout: LayoutConfig::default(),
+            advanced: AdvancedConfig::default(),
         }
     }
 }
@@ -315,11 +516,12 @@ impl AppConfig {
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
             .unwrap_or_default();
-        if !cfg.layout.main_tabs.iter().any(|i| i.id == "decoding") {
-            cfg.layout.main_tabs.push(LayoutItem {
-                id: "decoding".to_string(),
-                visible: true,
-            });
+        // Migration: the old 6-tab layout (sdr/adsb/satellite/ai/decoding/…)
+        // collapses to the three task modes. Any config lacking the canonical
+        // `listen` tab is normalized to the new mode set, preserving the
+        // "keep plumbing + migration pattern" contract.
+        if !cfg.layout.main_tabs.iter().any(|i| i.id == "listen") {
+            cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
         }
         cfg
     }
@@ -429,7 +631,7 @@ impl AppConfig {
                         ui.add_space(2.0);
                         ui.label(egui::RichText::new("Popular models:").small());
                         ui.horizontal_wrapped(|ui| {
-                            for m in &["anthropic/claude-haiku-4.5", "google/gemini-flash-1.5", "meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-7b-instruct:free"] {
+                            for m in &["anthropic/claude-haiku-latest", "anthropic/claude-sonnet-latest", "google/gemini-flash-1.5", "meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-7b-instruct:free"] {
                                 if ui.small_button(*m).clicked() {
                                     self.ai_model = m.to_string();
                                 }
@@ -729,7 +931,7 @@ mod tests {
                 .iter()
                 .map(|i| i.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["sdr", "adsb", "satellite", "ai", "decoding"]
+            vec!["listen", "planes", "satellites"]
         );
         assert_eq!(
             layout
@@ -758,16 +960,22 @@ mod tests {
     }
 
     #[test]
-    fn layout_migration_adds_decoding_tab_to_existing_config() {
+    fn layout_migration_maps_legacy_tabs_to_three_modes() {
         let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("ez_sdr_test_migrate_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let original_dir = std::env::current_dir().expect("test should have a current directory");
         std::env::set_current_dir(&dir).expect("test should cd into temp dir");
 
-        // Simulate a config saved before the "decoding" tab existed.
+        // Simulate a config saved under the old 6-tab layout.
         let mut old_layout = LayoutConfig::default();
-        old_layout.main_tabs.retain(|i| i.id != "decoding");
+        old_layout.main_tabs = vec![
+            LayoutItem { id: "sdr".into(), visible: true },
+            LayoutItem { id: "adsb".into(), visible: true },
+            LayoutItem { id: "satellite".into(), visible: true },
+            LayoutItem { id: "ai".into(), visible: true },
+            LayoutItem { id: "decoding".into(), visible: true },
+        ];
         let old_cfg = AppConfig {
             layout: old_layout,
             ..Default::default()
@@ -781,16 +989,17 @@ mod tests {
             .iter()
             .map(|i| i.id.as_str())
             .collect();
-        assert_eq!(ids, vec!["sdr", "adsb", "satellite", "ai", "decoding"]);
+        assert_eq!(ids, vec!["listen", "planes", "satellites"]);
         assert!(
             loaded
                 .layout
                 .main_tabs
                 .iter()
-                .find(|i| i.id == "decoding")
-                .expect("decoding entry should be present")
+                .find(|i| i.id == "listen")
+                .expect("listen entry should be present")
                 .visible
         );
+        assert!(!loaded.layout.main_tabs.iter().any(|i| i.id == "decoding"));
 
         std::env::set_current_dir(original_dir).expect("test should restore original directory");
         let _ = std::fs::remove_dir_all(&dir);

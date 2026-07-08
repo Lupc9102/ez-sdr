@@ -195,10 +195,17 @@ impl SatellitePanel {
             }
         }
 
+        self.ui_picker(ui);
+        ui.add_space(8.0);
+        self.ui_record_control(ui);
+    }
+
+    /// Shared satellite picker + upcoming/active pass summary. Selection change
+    /// fires [`Self::on_satellite_selected`], so it works from every subtab
+    /// (Track / Align / Decode), not just Track.
+    fn ui_picker(&mut self, ui: &mut egui::Ui) {
         let catalog = self.satellite_catalog.clone();
         let selected_before = self.selected_sat_index;
-
-        // 1. Pick a satellite.
         egui::Frame::group(ui.style())
             .inner_margin(6)
             .show(ui, |ui| {
@@ -212,26 +219,19 @@ impl SatellitePanel {
                 );
             });
 
+        ui.add_space(6.0);
+        if let Some(idx) = self.selected_sat_index {
+            if let Some(entry) = catalog.get(idx) {
+                self.ui_pass_summary(ui, &entry.tle_name.clone());
+            }
+        }
+
         // Selection change → retune to downlink and reset the trajectory.
         if self.selected_sat_index != selected_before {
             if let Some(idx) = self.selected_sat_index {
                 self.on_satellite_selected(idx);
             }
         }
-
-        ui.add_space(6.0);
-
-        // 2. Compact next/active pass summary for the selection.
-        if let Some(idx) = self.selected_sat_index {
-            if let Some(entry) = catalog.get(idx) {
-                let name = entry.tle_name.clone();
-                self.ui_pass_summary(ui, &name);
-            }
-        }
-
-        // 3. One big Record button (rendered by ui_record_control).
-        ui.add_space(8.0);
-        self.ui_record_control(ui);
     }
 
     /// Compact upcoming/active pass summary for the given TLE name, using the
@@ -436,41 +436,23 @@ impl SatellitePanel {
         ui.heading("🧭 Dipole Alignment");
         ui.add_space(4.0);
 
-        if let Some(idx) = self.selected_sat_index {
-            if idx < self.satellite_catalog.len() {
-                if let Some(pos) = self.current_sat_position {
-                    let align = compute_dipole_alignment(pos, DipoleType::VDipole137);
-                    if let Some(alignment) = align {
-                        ui.columns(2, |cols| {
-                            cols[0].vertical(|ui| {
-                                compass_rose_ui(
-                                    ui,
-                                    alignment.compass_heading,
-                                    pos.azimuth,
-                                    pos.elevation,
-                                    pos.distance_km,
-                                );
-                            });
-                            cols[1].vertical(|ui| {
-                                alignment_info_ui(ui, &alignment, &pos);
-                            });
-                        });
-                    }
-                } else {
-                    ui.colored_label(egui::Color32::GRAY, "No satellite position data. Select a satellite in the Track tab and wait for position update.");
-                }
+        // Shared picker (also used by Track/Decode). Selecting here updates the
+        // live position + auto-tune via on_satellite_selected, so the compass in
+        // the center updates without leaving this tab.
+        self.ui_picker(ui);
 
-                ui.add_space(12.0);
-                self.ui_observer_location(ui);
+        ui.add_space(12.0);
+        self.ui_observer_location(ui);
 
-                ui.add_space(8.0);
-                ui.separator();
-                dipole_tutorial_ui(ui);
-            }
-        } else {
+        ui.add_space(8.0);
+        ui.separator();
+        dipole_tutorial_ui(ui);
+
+        if self.current_sat_position.is_none() {
+            ui.add_space(8.0);
             ui.colored_label(
                 egui::Color32::GRAY,
-                "Select a satellite from the Track tab first.",
+                "Pick a satellite above and wait for a live position update — the compass shows in the center.",
             );
         }
     }

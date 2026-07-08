@@ -90,7 +90,6 @@ AI stops being a tab. The `🤖 Ask` bar-button opens `AiPanel::ui` as a right s
 
 **Deletions (after the above compile):** old left-rail rendering, the `AppTab::Ai/Decoding/Customize` match arms and their now-unused standalone render wrappers where fully absorbed. Keep all *panel* code — only their hosting changes.
 
----
 
 ## Phasing (each phase: `cargo build -p ez-gui` → `cargo test -p ez-gui` → `graphify update .`)
 
@@ -100,7 +99,6 @@ AI stops being a tab. The `🤖 Ask` bar-button opens `AiPanel::ui` as a right s
 - **Phase 3 — Modes fold-in.** `AdsBPanel::begin()` auto-start on Planes entry; `SatelliteSubTab::Decode` + reroute decode handoff; delete standalone Decoding tab.
 - **Phase 4 — Progressive gating + cleanup.** `min_level()` gating in the More drawer; update `LayoutConfig` defaults + migration; humanize status strip; remove dead rail code and unused fields.
 
----
 
 ## Verification
 

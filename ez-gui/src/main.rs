@@ -4,6 +4,7 @@ use eframe::NativeOptions;
 
 mod adsb_decoder;
 mod adsb_panel;
+mod advanced_panel;
 mod ai_panel;
 mod airport_db;
 mod antenna_checklist;

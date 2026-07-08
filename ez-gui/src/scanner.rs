@@ -200,14 +200,19 @@ impl FrequencyScanner {
                 self.tune_request_hz = Some(self.current_freq_hz);
             }
         }
+        let applied_desc = format!(
+            "{:.3}–{:.3} MHz, step {:.1} kHz, dwell {} ms, threshold {:.0} dB{}",
+            self.start_hz as f64 / 1e6,
+            self.stop_hz as f64 / 1e6,
+            self.step_hz as f64 / 1e3,
+            self.dwell_ms,
+            self.threshold_db,
+            if self.enabled { " (running)" } else { " (idle)" }
+        );
         self.status_text = if self.enabled {
-            format!(
-                "Scanning {:.3}–{:.3} MHz",
-                self.start_hz as f64 / 1e6,
-                self.stop_hz as f64 / 1e6
-            )
+            format!("AI: Scanning {}", applied_desc)
         } else {
-            "Scanner configured (idle)".into()
+            format!("AI: {}", applied_desc)
         };
     }
 
@@ -991,20 +996,18 @@ impl FrequencyScanner {
                     self.start_hz = start;
                     self.stop_hz = stop;
                     self.step_hz = step;
-                    // If scan is running, clamp current frequency into new range
+                    self.current_freq_hz = start;
+                    self.tune_request_hz = Some(start);
+                    self.progress = 0.0;
+                    self.hits.clear();
+                    self.status_text = format!(
+                        "Preset loaded: {} — {:.3}–{:.3} MHz",
+                        name,
+                        start as f64 / 1e6,
+                        stop as f64 / 1e6
+                    );
                     if self.enabled {
-                        if self.current_freq_hz < self.start_hz
-                            || self.current_freq_hz > self.stop_hz
-                        {
-                            self.current_freq_hz = self.start_hz;
-                            self.tune_request_hz = Some(self.current_freq_hz);
-                        }
-                        self.progress = 0.0;
-                        self.status_text = format!(
-                            "Scanning {:.3}–{:.3} MHz",
-                            self.start_hz as f64 / 1e6,
-                            self.stop_hz as f64 / 1e6
-                        );
+                        self.last_step_time = Some(Instant::now());
                     }
                 }
             }
@@ -1049,20 +1052,25 @@ impl FrequencyScanner {
             ui.add_space(4.0);
 
             if !self.calibration_active && self.calibration_phase == CalibrationPhase::Idle {
-                if ui.button("▶ Start Calibration").on_hover_text(
-                    "Begin a 3-step dipole calibration: 10cm → 20cm → 30cm elements"
-                ).clicked() {
-                    self.start_calibration();
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("▶ Start Calibration").on_hover_text(
+                        "Begin a 3-step dipole calibration: 10cm → 20cm → 30cm elements"
+                    ).clicked() {
+                        self.start_calibration();
+                    }
+                });
             }
 
             if self.calibration_active {
                 ui.colored_label(egui::Color32::from_rgb(255, 200, 50), &self.calibration_msg);
                 ui.add_space(4.0);
+                ui.label("Make sure the scanner is running and tuned to the strongest signal before logging.");
                 ui.horizontal(|ui| {
-                    if ui.button("📌 Log Measurement").on_hover_text(
-                        "Record the current peak frequency as the resonant point for this antenna length."
-                    ).clicked() {
+                    let can_log = self.enabled || self.last_peak_db > -100.0;
+                    if ui.add_enabled(can_log, egui::Button::new("📌 Log Measurement"))
+                        .on_hover_text(
+                            "Record the current peak frequency as the resonant point for this antenna length. Scanner must be running."
+                        ).clicked() {
                         let freq = self.current_freq_hz;
                         let db = self.last_peak_db;
                         self.log_calibration_measurement(freq, db);

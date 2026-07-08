@@ -271,7 +271,13 @@ impl RecorderPanel {
                 }
             }
         }
-        if self.record_audio {
+        // "raw" advanced format writes IQ only (no WAV sidecar).
+        let adv_format = if let Ok(s) = self.shared.try_lock() {
+            s.config.advanced.record_format.clone()
+        } else {
+            "wav".to_string()
+        };
+        if self.record_audio && adv_format != "raw" {
             let wf = format!("{base_name}_audio.wav");
             let wav_path = dir.join(&wf);
             let spec = hound::WavSpec {

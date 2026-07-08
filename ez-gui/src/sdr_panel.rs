@@ -29,6 +29,11 @@ fn format_hz(hz: u32) -> String {
 /// WFM broadcast, SSB for weak-signal HF, RAW for digital decoders).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DemodMode {
+    /// Pick the right mode from the tuned frequency automatically. Beginners
+    /// never have to learn modulation — [`DemodMode::for_frequency`] maps the
+    /// band to a concrete mode, and [`DemodMode::resolve`] applies it in the
+    /// demod loop. Stored as the selected mode; never demodulated directly.
+    Auto,
     /// Raw I/Q samples passed through without demodulation.
     Raw,
     /// Amplitude Modulation (8 kHz, used for aviation / AM broadcast).
@@ -46,9 +51,10 @@ pub enum DemodMode {
 impl DemodMode {
     /// Parse a [`DemodMode`] from a string label (case-sensitive).
     ///
-    /// Accepts "RAW", "AM", "FM", "NFM" (→ `Fm`), "WFM", "LSB", "USB".
+    /// Accepts "AUTO", "RAW", "AM", "FM", "NFM" (→ `Fm`), "WFM", "LSB", "USB".
     pub fn from_label(s: &str) -> Option<Self> {
         match s {
+            "AUTO" => Some(Self::Auto),
             "RAW" => Some(Self::Raw),
             "AM" => Some(Self::Am),
             "FM" | "NFM" => Some(Self::Fm),
@@ -62,12 +68,43 @@ impl DemodMode {
     /// Return the uppercase string label for this demodulation mode.
     pub fn label(&self) -> &'static str {
         match self {
+            DemodMode::Auto => "AUTO",
             DemodMode::Raw => "RAW",
             DemodMode::Am => "AM",
             DemodMode::Fm => "FM",
             DemodMode::Wfm => "WFM",
             DemodMode::Lsb => "LSB",
             DemodMode::Usb => "USB",
+        }
+    }
+
+    /// The concrete modulation used on a given frequency, chosen from the same
+    /// band knowledge that powers [`identify_frequency`]. Used both to resolve
+    /// [`DemodMode::Auto`] and to drive the "Auto → WFM" chip in Listen.
+    pub fn for_frequency(freq_hz: u64) -> Self {
+        let mhz = freq_hz as f64 / 1e6;
+        match mhz {
+            // HF: SSB voice — USB above 10 MHz, LSB below (amateur convention).
+            f if f < 0.5 => DemodMode::Am,          // LF / longwave
+            f if f < 1.71 => DemodMode::Am,         // AM broadcast (MW)
+            f if f < 10.0 => DemodMode::Lsb,        // 160/80/40m SSB, lower SW
+            f if f < 30.0 => DemodMode::Usb,        // 20m and up SSB / SW
+            // VHF/UHF.
+            f if f < 87.5 => DemodMode::Am,         // 6m / aircraft edge / misc AM
+            f if f < 108.0 => DemodMode::Wfm,       // FM broadcast
+            f if f < 137.0 => DemodMode::Am,        // Aviation VHF (AM)
+            f if f < 300.0 => DemodMode::Fm,        // 2m, marine, weather, land mobile (NFM)
+            f if f < 1000.0 => DemodMode::Fm,       // 70cm / UHF land mobile (NFM)
+            _ => DemodMode::Fm,                     // default narrowband
+        }
+    }
+
+    /// Resolve to a concrete mode for demodulation. Concrete modes pass through
+    /// unchanged; [`DemodMode::Auto`] is mapped via [`DemodMode::for_frequency`].
+    pub fn resolve(self, freq_hz: u64) -> Self {
+        match self {
+            DemodMode::Auto => DemodMode::for_frequency(freq_hz),
+            other => other,
         }
     }
 }
@@ -1920,8 +1957,11 @@ impl SdrPanel {
                 let _bw_resp = ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
                     .on_hover_text("Receiver filter bandwidth. Set just wider than the signal. WFM: 200 kHz, NFM voice: 12–16 kHz, AM voice: 8 kHz, SSB: 2.4 kHz. Too wide = more noise.");
 
-                let (suggested_hz, tip) = match state.demod_mode {
-                    DemodMode::Raw => (0, "RAW: no filter applied"),
+                // Resolve Auto to the concrete mode for the tuned frequency so
+                // the bandwidth suggestion matches what's actually demodulated.
+                let effective = state.demod_mode.resolve(state.source.frequency_hz);
+                let (suggested_hz, tip) = match effective {
+                    DemodMode::Auto | DemodMode::Raw => (0, "RAW: no filter applied"),
                     DemodMode::Am => (8_000, "AM: 8 kHz typical for voice"),
                     DemodMode::Fm => (12_500, "NFM: 12.5 kHz standard"),
                     DemodMode::Wfm => (200_000, "WFM: 200 kHz for stereo broadcast"),

@@ -1,5 +1,99 @@
 use crate::sdr_panel::DemodMode;
 
+/// 2nd-order IIR biquad (RBJ cookbook) used for audio notch + bass/treble shelves.
+struct Biquad {
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
+}
+
+impl Biquad {
+    fn new() -> Self {
+        Self {
+            b0: 1.0,
+            b1: 0.0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.x1 = 0.0;
+        self.x2 = 0.0;
+        self.y1 = 0.0;
+        self.y2 = 0.0;
+    }
+
+    /// Configure as a notch at `f0` Hz with bandwidth `bw` Hz.
+    fn set_notch(&mut self, f0: f32, bw: f32, fs: f32) {
+        let w0 = 2.0 * std::f32::consts::PI * f0 / fs;
+        let q = if bw > 0.0 { (f0 / bw).max(0.1) } else { 0.1 };
+        let alpha = w0.sin() / (2.0 * q);
+        let cw = w0.cos();
+        let a0 = 1.0 + alpha;
+        self.b0 = 1.0 / a0;
+        self.b1 = (-2.0 * cw) / a0;
+        self.b2 = 1.0 / a0;
+        self.a1 = (-2.0 * cw) / a0;
+        self.a2 = (1.0 - alpha) / a0;
+    }
+
+    /// Configure as a low/high shelf of `gain_db` at `fc` Hz.
+    fn set_shelf(&mut self, fc: f32, gain_db: f32, fs: f32, high: bool) {
+        let a = 10.0_f32.powf(gain_db / 40.0);
+        let w0 = 2.0 * std::f32::consts::PI * fc / fs;
+        let alpha = w0.sin() / 2.0; // S = 1
+        let cw = w0.cos();
+        let sqa = 2.0 * a.sqrt() * alpha;
+        let (b0, b1, b2, a0, a1, a2) = if !high {
+            (
+                a * ((a + 1.0) - (a - 1.0) * cw + sqa),
+                2.0 * a * ((a - 1.0) - (a + 1.0) * cw),
+                a * ((a + 1.0) - (a - 1.0) * cw - sqa),
+                (a + 1.0) + (a - 1.0) * cw + sqa,
+                -2.0 * ((a - 1.0) + (a + 1.0) * cw),
+                (a + 1.0) + (a - 1.0) * cw - sqa,
+            )
+        } else {
+            (
+                a * ((a + 1.0) + (a - 1.0) * cw + sqa),
+                -2.0 * a * ((a - 1.0) + (a + 1.0) * cw),
+                a * ((a + 1.0) + (a - 1.0) * cw - sqa),
+                (a + 1.0) - (a - 1.0) * cw + sqa,
+                2.0 * ((a - 1.0) - (a + 1.0) * cw),
+                (a + 1.0) - (a - 1.0) * cw - sqa,
+            )
+        };
+        self.b0 = b0 / a0;
+        self.b1 = b1 / a0;
+        self.b2 = b2 / a0;
+        self.a1 = a1 / a0;
+        self.a2 = a2 / a0;
+    }
+
+    fn process(&mut self, x: f32) -> f32 {
+        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = x;
+        self.y2 = self.y1;
+        self.y1 = y;
+        y
+    }
+}
+
 pub struct Demodulator {
     prev_i: f32,
     prev_q: f32,
@@ -16,9 +110,53 @@ pub struct Demodulator {
     // AGC state
     agc_gain: f32,
     pub agc_enabled: bool,
+    agc_target: f32,
+    agc_attack: f32,
+    agc_decay: f32,
     // Persistent DSP state across demod chunks (avoids per-call transients).
     wfm_deemph_state: f32,
     ssb_osc_phase: f32,
+    // ---- Advanced audio DSP ----
+    /// Audio high-pass cutoff (Hz); 0 = disabled.
+    audio_hpf_hz: f32,
+    hpf_state: f32,
+    hpf_x_prev: f32,
+    hpf_alpha_computed: f32,
+    /// DC blocker blend 0..1.
+    dc_blocker: f32,
+    dc_block_state: f32,
+    dc_block_x_prev: f32,
+    /// FM de-emphasis time constant (microseconds).
+    deemph_tau_us: f32,
+    /// Extra audio gain multiplier.
+    audio_gain: f32,
+    /// Audio notch centre (Hz); 0 = disabled.
+    notch_hz: f32,
+    notch_width_hz: f32,
+    notch: Biquad,
+    /// Bass/treble shelf gains (dB).
+    bass_db: f32,
+    treble_db: f32,
+    bass: Biquad,
+    treble: Biquad,
+    /// Noise blanker strength 0..1.
+    noise_blanker: f32,
+    nb_avg: f32,
+    /// Pitch shift in octaves.
+    pitch_octaves: f32,
+    pitch_pos: f32,
+    // ---- Advanced RF IQ pre-stage ----
+    rf_dc_remove: bool,
+    rf_noise_blanker: bool,
+    rf_notch: bool,
+    rf_notch_hz: f32,
+    rf_decim: u32,
+    rf_nb_avg: f32,
+    rf_notch_b: (f32, f32, f32, f32, f32),
+    rf_notch_x1: (f32, f32),
+    rf_notch_x2: (f32, f32),
+    rf_notch_y1: (f32, f32),
+    rf_notch_y2: (f32, f32),
 }
 
 impl Demodulator {
@@ -38,8 +176,42 @@ impl Demodulator {
             input_rate: 2_048_000,
             agc_gain: 1.0,
             agc_enabled: true,
+            agc_target: 0.25,
+            agc_attack: 0.01,
+            agc_decay: 0.0001,
             wfm_deemph_state: 0.0,
             ssb_osc_phase: 0.0,
+            audio_hpf_hz: 0.0,
+            hpf_state: 0.0,
+            hpf_x_prev: 0.0,
+            hpf_alpha_computed: 0.0,
+            dc_blocker: 0.0,
+            dc_block_state: 0.0,
+            dc_block_x_prev: 0.0,
+            deemph_tau_us: 50.0,
+            audio_gain: 1.0,
+            notch_hz: 0.0,
+            notch_width_hz: 100.0,
+            notch: Biquad::new(),
+            bass_db: 0.0,
+            treble_db: 0.0,
+            bass: Biquad::new(),
+            treble: Biquad::new(),
+            noise_blanker: 0.0,
+            nb_avg: 0.0,
+            pitch_octaves: 0.0,
+            pitch_pos: 0.0,
+            rf_dc_remove: false,
+            rf_noise_blanker: false,
+            rf_notch: false,
+            rf_notch_hz: 10_000.0,
+            rf_decim: 1,
+            rf_nb_avg: 0.0,
+            rf_notch_b: (1.0, 0.0, 0.0, 0.0, 0.0),
+            rf_notch_x1: (0.0, 0.0),
+            rf_notch_x2: (0.0, 0.0),
+            rf_notch_y1: (0.0, 0.0),
+            rf_notch_y2: (0.0, 0.0),
         }
     }
 
@@ -57,40 +229,335 @@ impl Demodulator {
         if self.decimation < 1 {
             self.decimation = 1;
         }
+        self.recompute_audio_filters();
+    }
+
+    /// Recompute derived filter coefficients from the current user params.
+    /// Call after changing sample rate or any filter setting.
+    pub fn recompute_audio_filters(&mut self) {
+        let fs = self.audio_sample_rate as f32;
+        if self.audio_hpf_hz > 0.0 {
+            let rc = 1.0 / (2.0 * std::f32::consts::PI * self.audio_hpf_hz);
+            let dt = 1.0 / fs;
+            self.hpf_alpha_computed = (rc / (rc + dt)).clamp(0.001, 0.999);
+        } else {
+            self.hpf_alpha_computed = 0.0; // disabled
+        }
+        if self.notch_hz > 0.0 {
+            self.notch.set_notch(self.notch_hz, self.notch_width_hz, fs);
+        }
+        if self.bass_db.abs() > 0.01 {
+            self.bass.set_shelf(120.0, self.bass_db, fs, false);
+        } else {
+            self.bass = Biquad::new();
+        }
+        if self.treble_db.abs() > 0.01 {
+            self.treble.set_shelf(4000.0, self.treble_db, fs, true);
+        } else {
+            self.treble = Biquad::new();
+        }
+        self.recompute_rf_notch();
+    }
+
+    fn recompute_rf_notch(&mut self) {
+        if !self.rf_notch || self.rf_notch_hz <= 0.0 {
+            self.rf_notch_b = (1.0, 0.0, 0.0, 0.0, 0.0);
+            return;
+        }
+        let fs = self.input_rate as f32;
+        let w0 = 2.0 * std::f32::consts::PI * self.rf_notch_hz / fs;
+        let q = 10.0;
+        let alpha = w0.sin() / (2.0 * q);
+        let cw = w0.cos();
+        let a0 = 1.0 + alpha;
+        self.rf_notch_b = (1.0 / a0, (-2.0 * cw) / a0, 1.0 / a0, (-2.0 * cw) / a0, (1.0 - alpha) / a0);
+    }
+
+    // ---------------- Setters (driven by the Advanced panel) ----------------
+
+    pub fn set_audio_hpf(&mut self, hz: f32) {
+        self.audio_hpf_hz = hz.max(0.0);
+        self.recompute_audio_filters();
+    }
+    pub fn set_dc_blocker(&mut self, amt: f32) {
+        self.dc_blocker = amt.clamp(0.0, 1.0);
+    }
+    pub fn set_agc_enabled(&mut self, on: bool) {
+        self.agc_enabled = on;
+    }
+    pub fn set_agc_target(&mut self, v: f32) {
+        self.agc_target = v.clamp(0.01, 1.0);
+    }
+    pub fn set_agc_attack(&mut self, v: f32) {
+        self.agc_attack = v.clamp(0.0001, 1.0);
+    }
+    pub fn set_agc_decay(&mut self, v: f32) {
+        self.agc_decay = v.clamp(0.00001, 1.0);
+    }
+    pub fn set_deemph_tau(&mut self, us: f32) {
+        self.deemph_tau_us = us.clamp(1.0, 200.0);
+    }
+    pub fn set_audio_gain(&mut self, g: f32) {
+        self.audio_gain = g.clamp(0.0, 10.0);
+    }
+    pub fn set_notch(&mut self, hz: f32, width: f32) {
+        self.notch_hz = hz.max(0.0);
+        self.notch_width_hz = width.max(1.0);
+        self.recompute_audio_filters();
+    }
+    pub fn set_bass(&mut self, db: f32) {
+        self.bass_db = db.clamp(-24.0, 24.0);
+        self.recompute_audio_filters();
+    }
+    pub fn set_treble(&mut self, db: f32) {
+        self.treble_db = db.clamp(-24.0, 24.0);
+        self.recompute_audio_filters();
+    }
+    pub fn set_noise_blanker(&mut self, v: f32) {
+        self.noise_blanker = v.clamp(0.0, 1.0);
+    }
+    pub fn set_pitch(&mut self, oct: f32) {
+        self.pitch_octaves = oct.clamp(-2.0, 2.0);
+        self.pitch_pos = 0.0;
+    }
+    pub fn set_rf_dc_remove(&mut self, on: bool) {
+        self.rf_dc_remove = on;
+    }
+    pub fn set_rf_noise_blanker(&mut self, on: bool) {
+        self.rf_noise_blanker = on;
+    }
+    pub fn set_rf_notch(&mut self, on: bool, hz: f32) {
+        self.rf_notch = on;
+        self.rf_notch_hz = hz.max(0.0);
+        self.recompute_rf_notch();
+    }
+    pub fn set_rf_decim(&mut self, factor: u32) {
+        self.rf_decim = factor.max(1);
+    }
+
+    // ---------------- RF IQ pre-stage ----------------
+
+    fn iq_preprocess(&mut self, iq: &[u8]) -> Vec<u8> {
+        if !self.rf_dc_remove
+            && !self.rf_noise_blanker
+            && !self.rf_notch
+            && self.rf_decim <= 1
+        {
+            return iq.to_vec();
+        }
+        let mut v: Vec<f32> = Vec::with_capacity(iq.len());
+        for c in iq.chunks(2) {
+            if c.len() < 2 {
+                break;
+            }
+            v.push((f32::from(c[0]) - 127.4) / 128.0);
+            v.push((f32::from(c[1]) - 127.4) / 128.0);
+        }
+        let n = v.len() / 2;
+
+        if self.rf_dc_remove && n > 0 {
+            let mut mi = 0.0;
+            let mut mq = 0.0;
+            for k in 0..n {
+                mi += v[2 * k];
+                mq += v[2 * k + 1];
+            }
+            mi /= n as f32;
+            mq /= n as f32;
+            for k in 0..n {
+                v[2 * k] -= mi;
+                v[2 * k + 1] -= mq;
+            }
+        }
+
+        if self.rf_noise_blanker && n > 0 {
+            let mut avg = self.rf_nb_avg;
+            for k in 0..n {
+                let m = (v[2 * k].abs() + v[2 * k + 1].abs()) * 0.5;
+                avg = 0.95 * avg + 0.05 * m;
+            }
+            self.rf_nb_avg = avg;
+            let thr = avg * 8.0 + 1e-6;
+            for k in 0..n {
+                let mag = (v[2 * k].powi(2) + v[2 * k + 1].powi(2)).sqrt();
+                if mag > thr {
+                    let s = thr / (mag + 1e-9);
+                    v[2 * k] *= s;
+                    v[2 * k + 1] *= s;
+                }
+            }
+        }
+
+        if self.rf_notch && self.rf_notch_b.0 > 0.0 {
+            let (b0, b1, b2, a1, a2) = self.rf_notch_b;
+            let (mut x1, mut x2) = self.rf_notch_x1;
+            let (mut y1, mut y2) = self.rf_notch_y1;
+            let (mut x1q, mut x2q) = self.rf_notch_x2;
+            let (mut y1q, mut y2q) = self.rf_notch_y2;
+            for k in 0..n {
+                let xi = v[2 * k];
+                let yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+                x2 = x1;
+                x1 = xi;
+                y2 = y1;
+                y1 = yi;
+                let xq = v[2 * k + 1];
+                let yq = b0 * xq + b1 * x1q + b2 * x2q - a1 * y1q - a2 * y2q;
+                x2q = x1q;
+                x1q = xq;
+                y2q = y1q;
+                y1q = yq;
+                v[2 * k] = yi;
+                v[2 * k + 1] = yq;
+            }
+            self.rf_notch_x1 = (x1, x1q);
+            self.rf_notch_x2 = (x2, x2q);
+            self.rf_notch_y1 = (y1, y1q);
+            self.rf_notch_y2 = (y2, y2q);
+        }
+
+        // RF decimation: keep every `rf_decim`-th IQ pair.
+        if self.rf_decim > 1 {
+            let step = self.rf_decim as usize;
+            let mut out = Vec::with_capacity(v.len() / step + 2);
+            let mut idx = 0;
+            while idx + 1 < v.len() {
+                out.push(v[idx]);
+                out.push(v[idx + 1]);
+                idx += 2 * step;
+            }
+            v = out;
+        }
+
+        // Convert back to u8 IQ bytes.
+        let mut out = Vec::with_capacity(v.len());
+        for &s in &v {
+            out.push((s * 128.0 + 127.4).clamp(0.0, 255.0) as u8);
+        }
+        out
+    }
+
+    // ---------------- Audio post-chain ----------------
+
+    fn post_process(&mut self, mut samples: Vec<f32>) -> Vec<f32> {
+        if self.hpf_alpha_computed > 0.0 {
+            let mut out = Vec::with_capacity(samples.len());
+            for s in samples {
+                let y = self.hpf_alpha_computed
+                    * (self.hpf_state + s - self.hpf_x_prev);
+                self.hpf_x_prev = s;
+                self.hpf_state = y;
+                out.push(y);
+            }
+            samples = out;
+        }
+
+        if self.dc_blocker > 0.0 {
+            let mut out = Vec::with_capacity(samples.len());
+            for s in samples {
+                let hp = s - self.dc_block_x_prev + 0.995 * self.dc_block_state;
+                self.dc_block_x_prev = s;
+                self.dc_block_state = hp;
+                out.push(s * (1.0 - self.dc_blocker) + hp * self.dc_blocker);
+            }
+            samples = out;
+        }
+
+        if self.notch_hz > 0.0 {
+            for s in &mut samples {
+                *s = self.notch.process(*s);
+            }
+        }
+
+        if self.bass_db.abs() > 0.01 {
+            for s in &mut samples {
+                *s = self.bass.process(*s);
+            }
+        }
+        if self.treble_db.abs() > 0.01 {
+            for s in &mut samples {
+                *s = self.treble.process(*s);
+            }
+        }
+
+        if self.noise_blanker > 0.0 {
+            let thr = 1.0 + (1.0 - self.noise_blanker) * 20.0;
+            let mut out = Vec::with_capacity(samples.len());
+            for s in samples {
+                self.nb_avg = 0.95 * self.nb_avg + 0.05 * s.abs();
+                let limit = self.nb_avg * thr;
+                out.push(if s.abs() > limit {
+                    s.signum() * limit
+                } else {
+                    s
+                });
+            }
+            samples = out;
+        }
+
+        // Extra audio gain.
+        if (self.audio_gain - 1.0).abs() > 1e-4 {
+            for s in &mut samples {
+                *s *= self.audio_gain;
+            }
+        }
+
+        // Pitch shift via fractional linear resampling.
+        if self.pitch_octaves.abs() > 1e-4 {
+            let ratio = 2.0_f32.powf(self.pitch_octaves);
+            let out_len = (samples.len() as f32 / ratio).round().max(0.0) as usize;
+            let mut out = Vec::with_capacity(out_len);
+            for i in 0..out_len {
+                let pos = (i as f32) * ratio + self.pitch_pos;
+                let i0 = pos.floor() as usize;
+                let frac = pos - i0 as f32;
+                let a = samples.get(i0).copied().unwrap_or(0.0);
+                let b = samples.get(i0 + 1).copied().unwrap_or(a);
+                out.push(a + frac * (b - a));
+            }
+            // Keep fractional carry so consecutive chunks stay phase-aligned.
+            let carried = ((out_len as f32) * ratio + self.pitch_pos) - (out_len as f32 * ratio);
+            self.pitch_pos = carried.fract();
+            samples = out;
+        }
+
+        samples
     }
 
     pub fn demodulate(&mut self, iq: &[u8], mode: DemodMode) -> Vec<f32> {
+        let iq = self.iq_preprocess(iq);
         let samples = match mode {
-            DemodMode::Raw => self.demod_raw(iq),
-            DemodMode::Am => self.demod_am(iq),
-            DemodMode::Fm => self.demod_fm(iq),
-            DemodMode::Wfm => self.demod_wfm(iq),
-            DemodMode::Lsb => self.demod_ssb(iq, false),
-            DemodMode::Usb => self.demod_ssb(iq, true),
+            // Auto should be resolved to a concrete mode before reaching here
+            // (see `DemodMode::resolve`); pass through if it ever slips by.
+            DemodMode::Auto | DemodMode::Raw => self.demod_raw(&iq),
+            DemodMode::Am => self.demod_am(&iq),
+            DemodMode::Fm => self.demod_fm(&iq),
+            DemodMode::Wfm => self.demod_wfm(&iq),
+            DemodMode::Lsb => self.demod_ssb(&iq, false),
+            DemodMode::Usb => self.demod_ssb(&iq, true),
         };
         let filtered = self.apply_lpf(samples);
-        if self.agc_enabled {
+        let agc = if self.agc_enabled {
             self.apply_agc(filtered)
         } else {
             filtered
-        }
+        };
+        self.post_process(agc)
     }
 
     fn apply_agc(&mut self, mut samples: Vec<f32>) -> Vec<f32> {
-        // Soft-knee AGC: target RMS ~0.25, attack fast, decay slow
-        const TARGET: f32 = 0.25;
-        const ATTACK: f32 = 0.01; // fast attack (gain drops quickly on loud signal)
-        const DECAY: f32 = 0.0001; // slow decay (gain rises slowly when quiet)
+        // Soft-knee AGC with user-tunable target/attack/decay.
         const MAX_GAIN: f32 = 40.0;
         const MIN_GAIN: f32 = 0.1;
 
         for s in &mut samples {
             let out = *s * self.agc_gain;
             let abs = out.abs();
-            if abs > TARGET {
-                self.agc_gain *= 1.0 - ATTACK * (abs / TARGET - 1.0).min(1.0);
+            if abs > self.agc_target {
+                self.agc_gain *=
+                    1.0 - self.agc_attack * (abs / self.agc_target - 1.0).min(1.0);
             } else {
-                self.agc_gain *= 1.0 + DECAY;
+                self.agc_gain *= 1.0 + self.agc_decay;
             }
             self.agc_gain = self.agc_gain.clamp(MIN_GAIN, MAX_GAIN);
             *s = out.clamp(-1.0, 1.0);
@@ -194,10 +661,10 @@ impl Demodulator {
     }
 
     fn demod_wfm(&mut self, iq: &[u8]) -> Vec<f32> {
-        // Wide FM demodulation with correct 50 μs de-emphasis (EU standard).
-        // De-emphasis time constant τ = 50 μs → pole at f_c = 1/(2π·τ) ≈ 3183 Hz.
+        // Wide FM demodulation with correct de-emphasis. Time constant τ is
+        // user-selectable (50 µs EU / 75 µs US). τ = 1/(2π·f_c).
         // Discrete IIR: alpha = dt/(τ + dt) where dt = 1/sample_rate
-        let tau = 50.0e-6_f32; // 50 microseconds
+        let tau = (self.deemph_tau_us.max(1.0)) * 1e-6_f32;
                                // The de-emphasis IIR advances once per input IQ pair, so dt must use
                                // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
                                // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
@@ -287,6 +754,21 @@ impl Demodulator {
         self.lpf_state_l = 0.0;
         self.wfm_deemph_state = 0.0;
         self.ssb_osc_phase = 0.0;
+        self.hpf_state = 0.0;
+        self.hpf_x_prev = 0.0;
+        self.hpf_alpha_computed = 0.0;
+        self.dc_block_state = 0.0;
+        self.dc_block_x_prev = 0.0;
+        self.notch.reset();
+        self.bass.reset();
+        self.treble.reset();
+        self.nb_avg = 0.0;
+        self.pitch_pos = 0.0;
+        self.rf_nb_avg = 0.0;
+        self.rf_notch_x1 = (0.0, 0.0);
+        self.rf_notch_x2 = (0.0, 0.0);
+        self.rf_notch_y1 = (0.0, 0.0);
+        self.rf_notch_y2 = (0.0, 0.0);
     }
 }
 

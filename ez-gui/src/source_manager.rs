@@ -33,6 +33,10 @@ pub struct SourceManager {
     pub ppm_correction: i32,
     /// Direct-sampling mode for HF reception below 24 MHz.
     pub direct_sampling: bool,
+    /// Tuner (hardware) AGC mode. When true, the RTL-SDR manages gain automatically.
+    pub tuner_agc: bool,
+    /// RTL AGC mode (separate from tuner AGC).
+    pub rtl_agc: bool,
     /// Device temperature in degrees Celsius (if available).
     pub temperature: f32,
     /// Current source operating mode.
@@ -88,6 +92,8 @@ impl SourceManager {
             bias_tee: false,
             ppm_correction: 0,
             direct_sampling: false,
+            tuner_agc: false,
+            rtl_agc: false,
             temperature: 0.0,
             source_mode: SourceMode::Simulated,
             replay_file: None,
@@ -133,6 +139,9 @@ impl SourceManager {
         let _ppm = self.ppm_correction;
         let _bias = self.bias_tee;
         let _gain = self.gain_db;
+        let _tuner_agc = self.tuner_agc;
+        let _rtl_agc = self.rtl_agc;
+        let _direct = self.direct_sampling;
         let source_mode = self.source_mode.clone();
         let replay_file = self.replay_file.clone();
         let replay_loop = self.replay_loop;
@@ -195,7 +204,9 @@ impl SourceManager {
                         // SAFETY: `rtl_sdr_open` is an `unsafe` FFI wrapper but
                         // passes valid arguments to the wrapped C functions and
                         // initialises the device handle on success.
-                        let dev = unsafe { rtl_sdr_open(freq, rate, _ppm, _bias, _gain) };
+                        let dev = unsafe {
+                            rtl_sdr_open(freq, rate, _ppm, _bias, _gain, _tuner_agc, _rtl_agc, _direct)
+                        };
                         if dev.is_null() {
                             let _ = tx.send(b"ERROR".to_vec());
                             return;
@@ -539,6 +550,9 @@ unsafe fn rtl_sdr_open(
     ppm: i32,
     bias: bool,
     gain_db: f64,
+    tuner_agc: bool,
+    rtl_agc: bool,
+    direct_sampling: bool,
 ) -> *mut std::ffi::c_void {
     extern "C" {
         fn rtlsdr_open(dev: *mut *mut std::ffi::c_void, index: u32) -> i32;
@@ -548,6 +562,8 @@ unsafe fn rtl_sdr_open(
         fn rtlsdr_set_tuner_gain(dev: *mut std::ffi::c_void, gain: i32) -> i32;
         fn rtlsdr_set_freq_correction(dev: *mut std::ffi::c_void, ppm: i32) -> i32;
         fn rtlsdr_set_bias_tee(dev: *mut std::ffi::c_void, on: i32) -> i32;
+        fn rtlsdr_set_agc_mode(dev: *mut std::ffi::c_void, on: i32) -> i32;
+        fn rtlsdr_set_direct_sampling(dev: *mut std::ffi::c_void, mode: i32) -> i32;
     }
     let mut dev: *mut std::ffi::c_void = std::ptr::null_mut();
     if unsafe { rtlsdr_open(&mut dev, 0) } != 0 {
@@ -566,11 +582,27 @@ unsafe fn rtl_sdr_open(
     if unsafe { rtlsdr_set_sample_rate(dev, rate) } < 0 {
         return cleanup_and_fail(dev, "sample rate");
     }
-    if unsafe { rtlsdr_set_tuner_gain_mode(dev, 1) } < 0 {
-        return cleanup_and_fail(dev, "tuner gain mode");
+    // Tuner AGC (auto gain) vs manual gain.
+    if tuner_agc {
+        if unsafe { rtlsdr_set_tuner_gain_mode(dev, 0) } < 0 {
+            return cleanup_and_fail(dev, "tuner gain mode");
+        }
+    } else {
+        if unsafe { rtlsdr_set_tuner_gain_mode(dev, 1) } < 0 {
+            return cleanup_and_fail(dev, "tuner gain mode");
+        }
+        if unsafe { rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32) } < 0 {
+            return cleanup_and_fail(dev, "tuner gain");
+        }
     }
-    if unsafe { rtlsdr_set_tuner_gain(dev, (gain_db * 10.0) as i32) } < 0 {
-        return cleanup_and_fail(dev, "tuner gain");
+    if unsafe { rtlsdr_set_agc_mode(dev, if rtl_agc { 1 } else { 0 }) } < 0 {
+        eprintln!("rtlsdr: warning: failed to set RTL AGC mode");
+    }
+    if direct_sampling {
+        // Mode 1 = I-branch direct sampling, 2 = Q-branch.
+        if unsafe { rtlsdr_set_direct_sampling(dev, 1) } < 0 {
+            eprintln!("rtlsdr: warning: failed to set direct sampling");
+        }
     }
     if unsafe { rtlsdr_set_freq_correction(dev, ppm) } < 0 {
         eprintln!("rtlsdr: warning: failed to set frequency correction");
