@@ -34,6 +34,7 @@ mod spectrum;
 mod test_helpers;
 mod theme;
 mod tle_engine;
+mod ui_kit;
 mod user_level;
 mod web_remote;
 
