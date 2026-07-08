@@ -8,6 +8,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::app::SharedState;
+use crate::ui_kit::module_card;
 
 /// (range start Hz, range end Hz, description, RGB color) for a frequency band hint.
 type BandInfoEntry = (u64, u64, &'static str, (u8, u8, u8));
@@ -232,15 +233,20 @@ impl SdrPanel {
         let has_expand = user_level.has_inline_expand();
         let is_beginner = user_level.simplify_layout();
 
-        ui.heading("SDR Receiver");
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
 
+        module_card(ui, &theme, "listen.source", "📡", "Source", true, |ui| {
         // Start/Stop + source mode at the very top for discoverability
         if let Ok(mut state) = self.shared.try_lock() {
             let is_running = state.source.status == crate::source_manager::SourceStatus::Running;
             let is_opening = state.source.status == crate::source_manager::SourceStatus::Opening;
             ui.horizontal_wrapped(|ui| {
                 if is_running {
-                    if ui.add(egui::Button::new(egui::RichText::new("■ Stop").color(egui::Color32::from_rgb(220, 80, 80))))
+                    if ui.add(egui::Button::new(egui::RichText::new("■ Stop").color(theme.error.to_egui())))
                         .on_hover_text("Stop the SDR source (keyboard: Space)")
                         .clicked()
                     {
@@ -248,7 +254,7 @@ impl SdrPanel {
                     }
                 } else if is_opening {
                     ui.add_enabled(false, egui::Button::new("⌛ Starting…"));
-                } else if ui.add(egui::Button::new(egui::RichText::new("▶ Start").color(egui::Color32::from_rgb(80, 220, 120))))
+                } else if ui.add(egui::Button::new(egui::RichText::new("▶ Start").color(theme.success.to_egui())))
                     .on_hover_text("Start the SDR source and begin receiving (keyboard: Space)")
                     .clicked()
                 {
@@ -278,27 +284,29 @@ impl SdrPanel {
                 ui.separator();
                 // Compact status indicator
                 let (dot_color, status_text) = match &state.source.status {
-                    crate::source_manager::SourceStatus::Running => (egui::Color32::from_rgb(50, 220, 80), "Running"),
-                    crate::source_manager::SourceStatus::Idle    => (egui::Color32::GRAY, "Idle"),
-                    crate::source_manager::SourceStatus::Opening => (egui::Color32::YELLOW, "Opening…"),
-                    crate::source_manager::SourceStatus::Error(_)=> (egui::Color32::RED, "Error"),
+                    crate::source_manager::SourceStatus::Running => (theme.success.to_egui(), "Running"),
+                    crate::source_manager::SourceStatus::Idle    => (theme.text_dim.to_egui(), "Idle"),
+                    crate::source_manager::SourceStatus::Opening => (theme.warning.to_egui(), "Opening…"),
+                    crate::source_manager::SourceStatus::Error(_)=> (theme.error.to_egui(), "Error"),
                 };
                 ui.colored_label(dot_color, format!("● {status_text}"))
                     .on_hover_text("SDR source status. Press Space to toggle start/stop from anywhere.");
                 // MQTT status
                 if state.mqtt_enabled {
                     if state.mqtt_connected {
-                        ui.colored_label(egui::Color32::from_rgb(46, 204, 113), "MQTT ✓")
+                        ui.colored_label(theme.success.to_egui(), "MQTT ✓")
                             .on_hover_text("MQTT broker connected — publishing SDR state and ADS-B data.");
                     } else {
-                        ui.colored_label(egui::Color32::from_rgb(200, 150, 50), "MQTT ⏳")
+                        ui.colored_label(theme.warning.to_egui(), "MQTT ⏳")
                             .on_hover_text("MQTT enabled but waiting for connection — retrying every 10s.");
                     }
                 }
             });
         }
+        }); // Source card
         ui.separator();
 
+        module_card(ui, &theme, "listen.frequency", "🎯", "Frequency", true, |ui| {
         // Big frequency display with fine/coarse tuning
         if let Ok(mut state) = self.shared.try_lock() {
             // Row 1: Frequency readout + DragValue
@@ -307,13 +315,13 @@ impl SdrPanel {
                 ui.monospace(
                     egui::RichText::new(format!("{freq_mhz:.6}"))
                         .size(24.0)
-                        .color(egui::Color32::from_rgb(52, 152, 219)),
+                        .color(theme.accent.to_egui()),
                 )
                 .on_hover_text("Current tuned frequency. RTL-SDR range: 24 MHz – 1766 MHz.");
                 ui.label(
                     egui::RichText::new("MHz")
                         .size(14.0)
-                        .color(egui::Color32::GRAY),
+                        .color(theme.text_dim.to_egui()),
                 );
                 let is_dragging = ui
                     .add(
@@ -556,7 +564,9 @@ impl SdrPanel {
                 }
             }
         }
+        }); // Frequency card
 
+        module_card(ui, &theme, "listen.vfo", "🎚", "VFO", true, |ui| {
         // VFO A/B swap (hidden for beginners unless expanded)
         let show_vfo_b = show_advanced || !user_level.simplify_layout();
         if show_vfo_b || (has_expand && self.expand_vfo_b) {
@@ -564,10 +574,10 @@ impl SdrPanel {
                 let vfo_b_mhz = state.vfo_b as f64 / 1e6;
                 let cur_mhz = state.source.frequency_hz as f64 / 1e6;
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("VFO A").strong().color(egui::Color32::from_rgb(52, 200, 100)));
+                    ui.label(egui::RichText::new("VFO A").strong().color(theme.vfo_a_color.to_egui()));
                     ui.monospace(format!("{cur_mhz:.3} MHz"));
                     ui.separator();
-                    ui.label(egui::RichText::new("VFO B").color(egui::Color32::from_rgb(100, 180, 255)));
+                    ui.label(egui::RichText::new("VFO B").color(theme.vfo_b_color.to_egui()));
                     ui.monospace(format!("{vfo_b_mhz:.3} MHz"));
                     if ui.small_button("⇄ Swap")
                         .on_hover_text("Swap between VFO A and VFO B frequencies (keyboard: V). VFO B stores an alternate frequency for quick A/B comparison.")
@@ -639,8 +649,10 @@ impl SdrPanel {
         {
             self.expand_lo_offset = true;
         }
+        }); // VFO card
 
         if !is_beginner {
+            module_card(ui, &theme, "listen.gain", "🎛", "Gain", false, |ui| {
             // Sample rate quick buttons
             if let Ok(mut state) = self.shared.try_lock() {
                 ui.horizontal_wrapped(|ui| {
@@ -789,17 +801,19 @@ impl SdrPanel {
                                 "❌ Start to check"
                             };
                             let color = if signal_ok && is_running {
-                                egui::Color32::GREEN
+                                theme.success.to_egui()
                             } else {
-                                egui::Color32::RED
+                                theme.error.to_egui()
                             };
                             ui.colored_label(color, egui::RichText::new(signal_text).small());
                         });
                     });
                 }
             }
+            }); // Gain card
         }
 
+        module_card(ui, &theme, "listen.signal", "📶", "Signal", true, |ui| {
         // S-Meter style signal strength indicator
         if let Ok(state) = self.shared.try_lock() {
             let peak = state.spectrum.peak_level();
@@ -829,12 +843,9 @@ impl SdrPanel {
             };
 
             let meter_color = match s_value {
-                9 => egui::Color32::from_rgb(255, 0, 0), // Red: +20 (very strong)
-                8 => egui::Color32::from_rgb(255, 100, 0), // Orange
-                7 => egui::Color32::from_rgb(200, 200, 0), // Yellow
-                5..=6 => egui::Color32::from_rgb(0, 200, 0), // Green
-                3..=4 => egui::Color32::from_rgb(0, 150, 150), // Cyan
-                _ => egui::Color32::from_rgb(100, 100, 100), // Gray
+                8..=9 => theme.smeter_high.to_egui(),
+                5..=7 => theme.smeter_mid.to_egui(),
+                _ => theme.smeter_low.to_egui(),
             };
 
             ui.horizontal(|ui| {
@@ -845,7 +856,7 @@ impl SdrPanel {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_width, 14.0), egui::Sense::hover());
                 let painter = ui.painter();
 
-                painter.rect_filled(rect, 2.0, egui::Color32::from_rgb(20, 20, 30));
+                painter.rect_filled(rect, 2.0, theme.smeter_bg.to_egui());
                 let fill_frac = (s_value as f32 / 9.0).clamp(0.0, 1.0);
                 if fill_frac > 0.0 {
                     painter.rect_filled(
@@ -859,8 +870,10 @@ impl SdrPanel {
                     .on_hover_text(format!("Signal strength: {s_text} | Peak: {peak:.0}dBFS | Noise floor: {noise:.0}dBFS"));
             });
         }
+        }); // Signal card
 
         if !is_beginner {
+            module_card(ui, &theme, "listen.log_alerts", "📝", "Log & Alerts", false, |ui| {
             // Signal logging: auto-record strong signals and track statistics
             if let Ok(state) = self.shared.try_lock() {
                 let peak = state.spectrum.peak_level();
@@ -1035,9 +1048,11 @@ impl SdrPanel {
                     });
                 });
             }
+            }); // Log & Alerts card
         }
 
         if !is_beginner {
+            module_card(ui, &theme, "listen.tuning_aids", "🧭", "Tuning Aids", false, |ui| {
             // Nearest bookmark distance indicator
             if let Ok(state) = self.shared.try_lock() {
                 let cur_freq = state.source.frequency_hz;
@@ -1184,7 +1199,10 @@ impl SdrPanel {
                     });
                 }
             }
+            }); // Tuning Aids card
         }
+
+        module_card(ui, &theme, "listen.goto", "🔎", "Go to Frequency", true, |ui| {
         // Direct frequency entry
         ui.horizontal(|ui| {
             ui.label("Go to:").on_hover_text("Type a frequency and press Enter to jump. Examples: 145.5 (MHz), 145500000 (Hz), 145500k (kHz).");
@@ -1226,8 +1244,10 @@ impl SdrPanel {
                 self.freq_input_error_time = None;
             }
         }
+        }); // Go to Frequency card
 
         if !is_beginner {
+            module_card(ui, &theme, "listen.quick_bands", "⭐", "Quick Bands & Memory", false, |ui| {
             // Popular frequency bands quick-jump
             ui.collapsing("📻 Quick bands", |ui| {
                 ui.horizontal_wrapped(|ui| {
@@ -1341,6 +1361,7 @@ impl SdrPanel {
             }
 
             ui.separator();
+            }); // Quick Bands & Memory card
         }
 
         // ── Demodulation controls (merged from the former ui_demod panel) ──
