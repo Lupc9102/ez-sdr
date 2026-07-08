@@ -1,16 +1,16 @@
 # Graph Report - ez-sdr  (2026-07-08)
 
 ## Corpus Check
-- 85 files · ~285,574 words
+- 85 files · ~285,653 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2313 nodes · 4636 edges · 116 communities (83 shown, 33 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 49 edges (avg confidence: 0.81)
+- 2313 nodes · 4637 edges · 116 communities (83 shown, 33 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 50 edges (avg confidence: 0.81)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `97ab8192`
+- Built from commit: `fb8e36bc`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -156,13 +156,13 @@
 ## Import Cycles
 - 1-file cycle: `ez-gui/src/audio_output.rs -> ez-gui/src/audio_output.rs`
 - 1-file cycle: `lrpt-decode/src/reed_solomon.rs -> lrpt-decode/src/reed_solomon.rs`
-- 2-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_panel.rs`
-- 2-file cycle: `ez-gui/src/ai_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/ai_panel.rs`
-- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/recorder_panel.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/satellite_panel.rs -> ez-gui/src/app.rs`
 - 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs`
-- 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
+- 2-file cycle: `ez-gui/src/app.rs -> ez-gui/src/recorder_panel.rs -> ez-gui/src/app.rs`
+- 2-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_panel.rs`
+- 2-file cycle: `ez-gui/src/ai_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/ai_panel.rs`
 - 3-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/mqtt.rs -> ez-gui/src/adsb_panel.rs`
+- 3-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 - 4-file cycle: `ez-gui/src/adsb_decoder.rs -> ez-gui/src/demod.rs -> ez-gui/src/sdr_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/adsb_decoder.rs`
 
 ## Hyperedges (group relationships)
@@ -210,15 +210,15 @@ Nodes (31): broadcast_state_with_listener_no_crash(), handle_socket(), index_han
 
 ### Community 9 - "Frequency Scanner"
 Cohesion: 0.10
-Nodes (32): categories(), categories_contains_expected(), categories_no_duplicates(), categories_not_empty(), categories_sorted(), embed_recording_stopped(), embed_recording_stopped_builds_correctly(), embed_sat_los() (+24 more)
+Nodes (31): categories(), categories_contains_expected(), categories_no_duplicates(), categories_not_empty(), categories_sorted(), embed_recording_started(), embed_recording_started_all_combos(), embed_sat_aos() (+23 more)
 
 ### Community 10 - "Community 10"
 Cohesion: 0.08
 Nodes (38): compute_passes_contains_expected_sats(), compute_passes_empty_tles(), compute_passes_observer_at_equator(), compute_passes_observer_at_north_pole(), compute_passes_returns_sorted(), compute_passes_short_window_yields_fewer_passes(), doppler_shift_for_sat_iss(), doppler_shift_for_sat_large_freq() (+30 more)
 
 ### Community 11 - "AI Integration"
-Cohesion: 0.06
-Nodes (35): HackRf, HackRfConfig, HackRfCtx, HackrfDevice, HackrfTransfer, c_int, c_void, Default (+27 more)
+Cohesion: 0.13
+Nodes (16): find_device_index(), Drop, Option, Result, Self, Send, String, Vec (+8 more)
 
 ### Community 12 - "Community 12"
 Cohesion: 0.11
@@ -229,8 +229,8 @@ Cohesion: 0.09
 Nodes (28): adaptive_gain_configure_gain_sets_limits(), adaptive_gain_gain_changed_updates_threshold(), adaptive_gain_new_defaults(), adaptive_gain_set_duty_cycle_clamps(), adaptive_gain_set_gain_clamps(), adaptive_gain_update_returns_none_when_disabled(), adaptive_gain_update_with_burst_detection(), AdaptiveGain (+20 more)
 
 ### Community 14 - "Hardware Interface"
-Cohesion: 0.18
-Nodes (14): Box, BTreeMap, BTreeSet, Error, DiscordNotifier, DiscordSettings, is_starred(), QueuedNotification (+6 more)
+Cohesion: 0.20
+Nodes (10): BTreeMap, BTreeSet, DiscordNotifier, DiscordSettings, is_enabled(), is_starred(), QueuedNotification, Default (+2 more)
 
 ### Community 15 - "AI Tools"
 Cohesion: 0.12
@@ -357,8 +357,8 @@ Cohesion: 0.11
 Nodes (28): convert_sc16_to_mag(), convert_sc16_to_mag_all_zero(), convert_sc16_to_mag_both_negative(), convert_sc16_to_mag_empty_dst(), convert_sc16_to_mag_empty_src(), convert_sc16_to_mag_i16_min(), convert_sc16_to_mag_known(), convert_sc16_to_mag_max_iq() (+20 more)
 
 ### Community 79 - "Community 79"
-Cohesion: 0.38
-Nodes (7): AircraftData, embed_aircraft(), embed_aircraft_fields_and_image(), fetch_aircraft_image(), is_url_valid(), Option, String
+Cohesion: 0.15
+Nodes (17): AircraftData, DiscordEmbed, embed_aircraft(), embed_aircraft_fields_and_image(), embed_recording_error(), embed_recording_error_builds_correctly(), embed_recording_stopped(), embed_recording_stopped_builds_correctly() (+9 more)
 
 ### Community 80 - "Community 80"
 Cohesion: 0.17
@@ -369,8 +369,8 @@ Cohesion: 0.18
 Nodes (9): window_blackman_flat_start(), window_blackman_generates_correct_length(), window_hamming_generates_correct_length(), window_hamming_sum_approximate_half_length(), window_hann_generates_correct_length(), window_hann_sum_approximate_half_length(), window_peaks_in_center(), window_tapers_to_zero_at_ends() (+1 more)
 
 ### Community 82 - "Community 82"
-Cohesion: 0.15
-Nodes (13): DiscordEmbed, embed_generic(), embed_generic_builds_correctly(), embed_recording_error(), embed_recording_error_builds_correctly(), embed_recording_started(), embed_recording_started_all_combos(), embed_sat_aos() (+5 more)
+Cohesion: 0.27
+Nodes (8): Box, Error, embed_generic(), embed_generic_builds_correctly(), is_url_valid(), Result, Self, Value
 
 ### Community 83 - "Community 83"
 Cohesion: 0.20
@@ -413,8 +413,8 @@ Cohesion: 0.33
 Nodes (9): derandomize(), derandomize_in_place(), derandomize_in_place_matches_non_mutating(), derandomize_is_involution(), derandomize_wraps_at_255_bytes(), pn_table(), pn_table_has_correct_length_and_is_deterministic(), pn_table_starts_with_known_seed_derived_byte() (+1 more)
 
 ### Community 93 - "Community 93"
-Cohesion: 0.11
-Nodes (21): c_char, last_err(), c_int, Default, Drop, Option, Result, Self (+13 more)
+Cohesion: 0.05
+Nodes (40): c_char, HackRf, HackRfConfig, HackRfCtx, HackrfDevice, HackrfTransfer, c_int, c_void (+32 more)
 
 ### Community 94 - "Community 94"
 Cohesion: 0.14
@@ -501,7 +501,7 @@ Nodes (3): peak_freq_hz_matches_injected_tone_offset(), Self, Ui
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `SharedState` connect `Community 99` to `UI Application Core`, `Spectrum Visualization`, `Demodulation`, `AI & Chat`, `Community 10`, `Community 12`, `Demodulation Core`, `Community 47`, `Community 48`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 90`, `Community 98`, `Community 101`, `Community 102`, `Community 105`?**
-  _High betweenness centrality (0.187) - this node is a cross-community bridge._
+  _High betweenness centrality (0.186) - this node is a cross-community bridge._
 - **Why does `CentralApp` connect `UI Application Core` to `Tutorial & Help`, `Demodulation`, `AI & Chat`, `SDR Hardware Interface`, `Community 12`, `Hardware Interface`, `AI & Tools`, `Community 22`, `Community 24`, `Community 45`, `Community 47`, `Community 48`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 90`, `Community 98`, `Community 99`, `Community 104`, `Community 113`?**
   _High betweenness centrality (0.185) - this node is a cross-community bridge._
 - **Why does `AdsBDecoder` connect `Community 104` to `UI Application Core`, `Community 98`, `Community 31`, `Community 87`?**

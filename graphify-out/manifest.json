@@ -175,8 +175,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/sdr_panel.rs": {
-    "mtime": 1783445280.2802691,
-    "ast_hash": "cda7c41142766ee4f18c9e921838c10e",
+    "mtime": 1783522065.2114985,
+    "ast_hash": "e2ee1cdda7be42bb8346129bc98a1e7c",
     "semantic_hash": ""
   },
   "ez-gui/src/source_manager.rs": {
