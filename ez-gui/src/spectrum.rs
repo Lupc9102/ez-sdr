@@ -747,19 +747,189 @@ impl SpectrumAnalyzer {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.frame_counter = self.frame_counter.wrapping_add(1);
 
-        // Controls bar
+        // Controls bar — compact strip: high-frequency toggles stay inline,
+        // everything else groups into Display/Waterfall/View & Export menus.
         ui.horizontal(|ui| {
-            ui.label("FFT:");
-            for size in [512, 1024, 2048, 4096] {
-                if ui.selectable_label(self.fft_size == size, size.to_string()).clicked() {
-                    self.set_fft_size(size);
+            let freeze_label = if self.frozen { "❄ Frozen" } else { "❄ Freeze" };
+            if ui.toggle_value(&mut self.frozen, freeze_label)
+                .on_hover_text("Freeze the spectrum and waterfall display. Useful to examine a signal in detail without the display updating.")
+                .clicked() && !self.frozen {
+                // unfreeze: clear peak hold too
+            }
+            ui.toggle_value(&mut self.waterfall_paused, "⏸ Pause")
+                .on_hover_text("Pause waterfall scrolling (spectrum still updates)");
+            if ui.toggle_value(&mut self.show_peak_hold, "Peak").clicked()
+                && !self.show_peak_hold {
+                    self.peak_hold = vec![-120.0; self.fft_size];
                 }
+            if ui.small_button("Clear WF").on_hover_text("Clear the waterfall history").clicked() {
+                self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; self.waterfall_history];
+                self.waterfall_dirty = true;
             }
             ui.separator();
-            ui.label("Win:");
-            if ui.selectable_label(self.window_type == WindowType::Hann, "Hann").clicked() { self.window_type = WindowType::Hann; self.set_fft_size(self.fft_size); }
-            if ui.selectable_label(self.window_type == WindowType::Hamming, "Hamming").clicked() { self.window_type = WindowType::Hamming; self.set_fft_size(self.fft_size); }
-            if ui.selectable_label(self.window_type == WindowType::Blackman, "Blackman").clicked() { self.window_type = WindowType::Blackman; self.set_fft_size(self.fft_size); }
+
+            ui.menu_button("Display", |ui| {
+                ui.set_min_width(220.0);
+                ui.label("FFT size:");
+                ui.horizontal(|ui| {
+                    for size in [512, 1024, 2048, 4096] {
+                        if ui.selectable_label(self.fft_size == size, size.to_string()).clicked() {
+                            self.set_fft_size(size);
+                        }
+                    }
+                });
+                ui.label("Window:");
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(self.window_type == WindowType::Hann, "Hann").clicked() { self.window_type = WindowType::Hann; self.set_fft_size(self.fft_size); }
+                    if ui.selectable_label(self.window_type == WindowType::Hamming, "Hamming").clicked() { self.window_type = WindowType::Hamming; self.set_fft_size(self.fft_size); }
+                    if ui.selectable_label(self.window_type == WindowType::Blackman, "Blackman").clicked() { self.window_type = WindowType::Blackman; self.set_fft_size(self.fft_size); }
+                });
+                ui.separator();
+                ui.label("Averaging:").on_hover_text("Spectrum smoothing. Lower α = slower/smoother (better for weak signals). Higher α = faster response.");
+                ui.horizontal(|ui| {
+                    for (label, alpha, tip) in [
+                        ("Fast",  0.7f32, "Fast (α=0.7) — responds quickly to signal changes, more noise visible"),
+                        ("Med",   0.3,    "Medium (α=0.3) — balanced default"),
+                        ("Slow",  0.1,    "Slow (α=0.1) — smooth display, best for weak signals"),
+                        ("XSlow", 0.03,   "Extra slow (α=0.03) — maximum smoothing, good for noise floor characterization"),
+                    ] {
+                        let is_active = (self.avg_alpha - alpha).abs() < 0.05;
+                        let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
+                            .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 220) }))
+                            .fill(if is_active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(30, 40, 60, 60) })
+                            .small())
+                            .on_hover_text(tip);
+                        if btn.clicked() { self.avg_alpha = alpha; }
+                    }
+                });
+                ui.separator();
+                ui.label("dB range:").on_hover_text("Adjust the visible dB range on the spectrum plot. Drag the Floor/Ceil values to zoom in on a particular signal level.");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut self.display_min_db).speed(1.0).range(-160.0..=-40.0).suffix(" floor"))
+                        .on_hover_text("Bottom of the dB scale. Default -120 dBFS.");
+                    ui.add(egui::DragValue::new(&mut self.display_max_db).speed(1.0).range(-40.0..=20.0).suffix(" ceil"))
+                        .on_hover_text("Top of the dB scale. Default 0 dBFS.");
+                });
+                if self.display_min_db >= self.display_max_db - 10.0 {
+                    self.display_min_db = self.display_max_db - 10.0;
+                    self.waterfall_dirty = true;
+                }
+                ui.horizontal(|ui| {
+                    if ui.small_button("⟳ Reset").on_hover_text("Reset dB range to default (-120 to 0)").clicked() {
+                        self.display_min_db = -120.0;
+                        self.display_max_db = 0.0;
+                        self.waterfall_dirty = true;
+                    }
+                    if ui.small_button("Auto-fit").on_hover_text("Automatically set the dB range to the current signal min/max, centering the display on your signals.").clicked()
+                        && !self.spectrum_dbs.is_empty() {
+                            let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
+                                (f32::INFINITY, f32::NEG_INFINITY),
+                                |(mn, mx), &v| (mn.min(v), mx.max(v))
+                            );
+                            let margin = ((cur_max - cur_min) * 0.1).max(5.0);
+                            self.display_min_db = (cur_min - margin).max(-160.0);
+                            self.display_max_db = (cur_max + margin).min(20.0);
+                            self.waterfall_dirty = true;
+                        }
+                });
+                ui.separator();
+                let mark_count = self.markers.len();
+                ui.horizontal(|ui| {
+                    ui.label(format!("Marks: {mark_count}"));
+                    if ui.small_button("Clear").clicked() {
+                        self.markers.clear();
+                    }
+                });
+                if self.zoom_factor > 1.0
+                    && ui.small_button(format!("Reset zoom (currently {:.0}x)", self.zoom_factor)).clicked() {
+                        self.zoom_factor = 1.0;
+                        self.zoom_offset = 0.5;
+                    }
+                if ui.small_button("⊕ Tune to peak").on_hover_text("Tune to the frequency with the strongest signal currently visible in the spectrum.").clicked()
+                    && !self.spectrum_dbs.is_empty() {
+                        let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor)).max(f64::from(self.sample_rate) * 0.01);
+                        let zoom_center_offset = (f64::from(self.zoom_offset) - 0.5) * zoom_span;
+                        let left_hz = -zoom_span / 2.0 + zoom_center_offset;
+                        let n = self.spectrum_dbs.len();
+                        let (peak_bin, _) = self.spectrum_dbs.iter().enumerate()
+                            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                            .unwrap_or((0, &-120.0));
+                        let offset_hz = left_hz + (peak_bin as f64 / n as f64) * zoom_span;
+                        self.clicked_tune_freq = Some((self.center_freq as f64 + offset_hz) as u64);
+                    }
+            });
+
+            ui.menu_button(format!("Waterfall: {}", self.color_map.name()), |ui| {
+                ui.set_min_width(220.0);
+                ui.label("Palette:");
+                egui::Grid::new("wf_palette_grid").num_columns(2).show(ui, |ui| {
+                    let palettes = [("Classic", ColorMap::Classic), ("Viridis", ColorMap::Viridis), ("Plasma", ColorMap::Plasma), ("Magma", ColorMap::Magma), ("Inferno", ColorMap::Inferno), ("Turbo", ColorMap::Turbo), ("Gray", ColorMap::Grayscale), ("Hot", ColorMap::Hot)];
+                    for (i, (label, cmap)) in palettes.into_iter().enumerate() {
+                        if ui.selectable_label(self.color_map == cmap, label).clicked() {
+                            self.color_map = cmap;
+                            self.waterfall_dirty = true;
+                        }
+                        if i % 2 == 1 { ui.end_row(); }
+                    }
+                });
+                ui.separator();
+                ui.label("Scroll speed:");
+                ui.horizontal(|ui| {
+                    for (label, n) in [("1x", 1u32), ("2x", 2), ("4x", 4), ("8x", 8)] {
+                        if ui.selectable_label(self.waterfall_every_n == n, label).clicked() {
+                            self.waterfall_every_n = n;
+                        }
+                    }
+                });
+                ui.separator();
+                ui.label("Color range:").on_hover_text("Waterfall brightness/contrast: sets the dBFS range mapped to the full color palette. Narrow the range for more contrast on weak signals.");
+                ui.horizontal(|ui| {
+                    let wf_min_changed = ui.add(egui::DragValue::new(&mut self.wf_min_db).speed(1.0).range(-160.0..=-20.0).suffix(" dark"))
+                        .on_hover_text("Lowest dBFS shown in the waterfall (mapped to black/dark). Lower = more sensitive to faint signals.").changed();
+                    let wf_max_changed = ui.add(egui::DragValue::new(&mut self.wf_max_db).speed(1.0).range(-60.0..=20.0).suffix(" bright"))
+                        .on_hover_text("Highest dBFS shown in waterfall (mapped to brightest color). Lower = amplify weak signals.").changed();
+                    if wf_min_changed || wf_max_changed {
+                        if self.wf_min_db >= self.wf_max_db - 5.0 { self.wf_min_db = self.wf_max_db - 5.0; }
+                        self.waterfall_dirty = true;
+                    }
+                });
+                if ui.small_button("WF Auto").on_hover_text("Set waterfall color range to current signal min/max for best contrast.").clicked()
+                    && !self.spectrum_dbs.is_empty() {
+                        let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
+                            (f32::INFINITY, f32::NEG_INFINITY),
+                            |(mn, mx), &v| (mn.min(v), mx.max(v))
+                        );
+                        self.wf_min_db = (cur_min - 5.0).max(-160.0);
+                        self.wf_max_db = (cur_max + 5.0).min(20.0);
+                        self.waterfall_dirty = true;
+                    }
+            });
+
+            ui.menu_button("View/Export", |ui| {
+                ui.set_min_width(200.0);
+                ui.toggle_value(&mut self.show_vfo_bw, "VFO BW")
+                    .on_hover_text("Show shaded VFO filter bandwidth region centered on the tuned frequency.");
+                ui.toggle_value(&mut self.show_vfo_b, "VFO B")
+                    .on_hover_text("Show VFO B frequency as a dashed marker line on the spectrum and waterfall.");
+                ui.toggle_value(&mut self.show_bookmarks, "⭐ Bookmarks")
+                    .on_hover_text("Overlay bookmark frequencies as vertical lines on the spectrum.");
+                ui.toggle_value(&mut self.show_band_plan, "🗺 Band plan")
+                    .on_hover_text("Band plan overlay — colored regions show frequency allocations:\n🟢 Green = Amateur (Ham) bands\n🟠 Orange = Broadcast (AM/FM/DAB)\n🔵 Blue = Aviation (airband, VOR, ADS-B)\n🟢 Teal = Marine VHF\n💚 Lime = Weather (NOAA, GOES)\n🟣 Purple = Satellites / GPS\n🔴 Red = ISM (Wi-Fi, 433 MHz remotes)\n🟡 Yellow = Land mobile / PMR");
+                ui.toggle_value(&mut self.show_signal_history, "📈 History")
+                    .on_hover_text("Show a scrolling chart of peak signal strength over time. Useful for tracking intermittent signals.");
+                if !self.audio_waveform.is_empty() {
+                    ui.toggle_value(&mut self.show_audio_waveform, "🎵 Waveform")
+                        .on_hover_text("Show the live demodulated audio waveform. Only visible when audio is playing.");
+                }
+                ui.separator();
+                if ui.button("💾 Export CSV").on_hover_text("Export current spectrum data to CSV (frequency_hz, power_dbfs). Useful for analysis in spreadsheets or Python.").clicked() {
+                    self.export_spectrum_csv();
+                }
+                if ui.button("📸 Save waterfall PNG").on_hover_text("Save a PNG screenshot of the current waterfall display. Captures the entire waterfall history at full resolution.").clicked() {
+                    self.save_waterfall_png();
+                }
+            });
+
             ui.separator();
             ui.colored_label(egui::Color32::from_rgb(150, 180, 255), format!("{}·{}", self.fft_size, self.window_type.name()))
                 .on_hover_text(format!("Current FFT: {} bins, {} window. Larger FFT = better frequency resolution but slower updates.", self.fft_size, self.window_type.name()));
@@ -775,154 +945,9 @@ impl SpectrumAnalyzer {
             ui.colored_label(egui::Color32::from_rgb(180, 150, 180), format!("{}MSps·{}", span_mhz as u32, res_label))
                 .on_hover_text(format!("Sample rate: {} MSps (Nyquist: ±{:.1} MHz). Frequency resolution: {} per bin.",
                     f64::from(self.sample_rate) / 1e6, span_mhz / 2.0, res_label));
-            ui.separator();
-            if ui.toggle_value(&mut self.show_peak_hold, "Peak").clicked()
-                && !self.show_peak_hold {
-                    self.peak_hold = vec![-120.0; self.fft_size];
-                }
-            if ui.small_button("Clear WF").clicked() {
-                self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; self.waterfall_history];
-                self.waterfall_dirty = true;
-            }
-            ui.separator();
-            ui.label("Palette:");
-            for (label, cmap) in [("Classic", ColorMap::Classic), ("Viridis", ColorMap::Viridis), ("Plasma", ColorMap::Plasma), ("Magma", ColorMap::Magma), ("Inferno", ColorMap::Inferno), ("Turbo", ColorMap::Turbo), ("Gray", ColorMap::Grayscale), ("Hot", ColorMap::Hot)] {
-                if ui.selectable_label(self.color_map == cmap, label).clicked() {
-                    self.color_map = cmap;
-                    self.waterfall_dirty = true;
-                }
-            }
-            ui.separator();
-            ui.label("Avg:").on_hover_text("Spectrum smoothing. Lower α = slower/smoother (better for weak signals). Higher α = faster response.");
-            for (label, alpha, tip) in [
-                ("Fast",  0.7f32, "Fast (α=0.7) — responds quickly to signal changes, more noise visible"),
-                ("Med",   0.3,    "Medium (α=0.3) — balanced default"),
-                ("Slow",  0.1,    "Slow (α=0.1) — smooth display, best for weak signals"),
-                ("XSlow", 0.03,   "Extra slow (α=0.03) — maximum smoothing, good for noise floor characterization"),
-            ] {
-                let is_active = (self.avg_alpha - alpha).abs() < 0.05;
-                let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
-                    .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 220) }))
-                    .fill(if is_active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(30, 40, 60, 60) })
-                    .small())
-                    .on_hover_text(tip);
-                if btn.clicked() { self.avg_alpha = alpha; }
-            }
-            ui.separator();
-            ui.label("WF:");
-            for (label, n) in [("1x", 1u32), ("2x", 2), ("4x", 4), ("8x", 8)] {
-                if ui.selectable_label(self.waterfall_every_n == n, label).clicked() {
-                    self.waterfall_every_n = n;
-                }
-            }
-            ui.toggle_value(&mut self.waterfall_paused, "⏸ Pause")
-                .on_hover_text("Pause waterfall scrolling (spectrum still updates)");
-            ui.separator();
-            let mark_count = self.markers.len();
-            ui.label(format!("Marks: {mark_count}"));
-            if ui.small_button("Clear M").clicked() {
-                self.markers.clear();
-            }
-            ui.label("Zoom:");
-            if ui.small_button("1x").clicked() {
-                self.zoom_factor = 1.0;
-                self.zoom_offset = 0.5;
-            }
             if self.zoom_factor > 1.0 {
                 ui.colored_label(egui::Color32::from_rgb(100, 180, 255), format!("🔍 {:.0}x", self.zoom_factor))
-                    .on_hover_text("Current zoom level. Click '1x' to reset. Scroll on the spectrum to zoom in/out.");
-            }
-            ui.separator();
-            ui.label("dB range:").on_hover_text("Adjust the visible dB range on the spectrum plot. Drag the Floor/Ceil values to zoom in on a particular signal level.");
-            ui.add(egui::DragValue::new(&mut self.display_min_db).speed(1.0).range(-160.0..=-40.0).suffix(" floor"))
-                .on_hover_text("Bottom of the dB scale. Default -120 dBFS.");
-            ui.add(egui::DragValue::new(&mut self.display_max_db).speed(1.0).range(-40.0..=20.0).suffix(" ceil"))
-                .on_hover_text("Top of the dB scale. Default 0 dBFS.");
-            if self.display_min_db >= self.display_max_db - 10.0 {
-                self.display_min_db = self.display_max_db - 10.0;
-                self.waterfall_dirty = true;
-            }
-            ui.separator();
-            ui.label("WF color:").on_hover_text("Waterfall brightness/contrast: sets the dBFS range mapped to the full color palette. Narrow the range for more contrast on weak signals.");
-            let wf_min_changed = ui.add(egui::DragValue::new(&mut self.wf_min_db).speed(1.0).range(-160.0..=-20.0).suffix(" dark"))
-                .on_hover_text("Lowest dBFS shown in the waterfall (mapped to black/dark). Lower = more sensitive to faint signals.").changed();
-            let wf_max_changed = ui.add(egui::DragValue::new(&mut self.wf_max_db).speed(1.0).range(-60.0..=20.0).suffix(" bright"))
-                .on_hover_text("Highest dBFS shown in waterfall (mapped to brightest color). Lower = amplify weak signals.").changed();
-            if wf_min_changed || wf_max_changed {
-                if self.wf_min_db >= self.wf_max_db - 5.0 { self.wf_min_db = self.wf_max_db - 5.0; }
-                self.waterfall_dirty = true;
-            }
-            if ui.small_button("WF Auto").on_hover_text("Set waterfall color range to current signal min/max for best contrast.").clicked()
-                && !self.spectrum_dbs.is_empty() {
-                    let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
-                        (f32::INFINITY, f32::NEG_INFINITY),
-                        |(mn, mx), &v| (mn.min(v), mx.max(v))
-                    );
-                    self.wf_min_db = (cur_min - 5.0).max(-160.0);
-                    self.wf_max_db = (cur_max + 5.0).min(20.0);
-                    self.waterfall_dirty = true;
-                }
-            ui.separator();
-            let freeze_label = if self.frozen { "❄ Frozen" } else { "❄ Freeze" };
-            if ui.toggle_value(&mut self.frozen, freeze_label)
-                .on_hover_text("Freeze the spectrum and waterfall display. Useful to examine a signal in detail without the display updating.")
-                .clicked() && !self.frozen {
-                // unfreeze: clear peak hold too
-            }
-            ui.separator();
-            ui.colored_label(egui::Color32::GRAY, format!("WF: {}", self.color_map.name()))
-                .on_hover_text(format!("Current waterfall colormap: {}. Press C to cycle through colormaps.", self.color_map.name()));
-            ui.separator();
-            ui.toggle_value(&mut self.show_vfo_bw, "VFO BW")
-                .on_hover_text("Show shaded VFO filter bandwidth region centered on the tuned frequency.");
-            ui.toggle_value(&mut self.show_vfo_b, "VFO B")
-                .on_hover_text("Show VFO B frequency as a dashed marker line on the spectrum and waterfall.");
-            ui.toggle_value(&mut self.show_bookmarks, "⭐ BM")
-                .on_hover_text("Overlay bookmark frequencies as vertical lines on the spectrum.");
-            ui.toggle_value(&mut self.show_band_plan, "🗺 BP")
-                .on_hover_text("Band plan overlay — colored regions show frequency allocations:\n🟢 Green = Amateur (Ham) bands\n🟠 Orange = Broadcast (AM/FM/DAB)\n🔵 Blue = Aviation (airband, VOR, ADS-B)\n🟢 Teal = Marine VHF\n💚 Lime = Weather (NOAA, GOES)\n🟣 Purple = Satellites / GPS\n🔴 Red = ISM (Wi-Fi, 433 MHz remotes)\n🟡 Yellow = Land mobile / PMR");
-            if ui.small_button("⟳").on_hover_text("Reset dB range to default (-120 to 0)").clicked() {
-                self.display_min_db = -120.0;
-                self.display_max_db = 0.0;
-                self.waterfall_dirty = true;
-            }
-            if ui.small_button("Auto-fit").on_hover_text("Automatically set the dB range to the current signal min/max, centering the display on your signals.").clicked()
-                && !self.spectrum_dbs.is_empty() {
-                    let (cur_min, cur_max) = self.spectrum_dbs.iter().fold(
-                        (f32::INFINITY, f32::NEG_INFINITY),
-                        |(mn, mx), &v| (mn.min(v), mx.max(v))
-                    );
-                    let margin = ((cur_max - cur_min) * 0.1).max(5.0);
-                    self.display_min_db = (cur_min - margin).max(-160.0);
-                    self.display_max_db = (cur_max + margin).min(20.0);
-                    self.waterfall_dirty = true;
-                }
-            ui.separator();
-            if ui.small_button("⊕ Peak").on_hover_text("Tune to the frequency with the strongest signal currently visible in the spectrum.").clicked()
-                && !self.spectrum_dbs.is_empty() {
-                    let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor)).max(f64::from(self.sample_rate) * 0.01);
-                    let zoom_center_offset = (f64::from(self.zoom_offset) - 0.5) * zoom_span;
-                    let left_hz = -zoom_span / 2.0 + zoom_center_offset;
-                    let n = self.spectrum_dbs.len();
-                    let (peak_bin, _) = self.spectrum_dbs.iter().enumerate()
-                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                        .unwrap_or((0, &-120.0));
-                    let offset_hz = left_hz + (peak_bin as f64 / n as f64) * zoom_span;
-                    self.clicked_tune_freq = Some((self.center_freq as f64 + offset_hz) as u64);
-                }
-            ui.separator();
-            ui.toggle_value(&mut self.show_signal_history, "📈 History")
-                .on_hover_text("Show a scrolling chart of peak signal strength over time. Useful for tracking intermittent signals.");
-            if !self.audio_waveform.is_empty() {
-                ui.toggle_value(&mut self.show_audio_waveform, "🎵 Wave")
-                    .on_hover_text("Show the live demodulated audio waveform. Only visible when audio is playing.");
-            }
-            ui.separator();
-            if ui.small_button("💾 CSV").on_hover_text("Export current spectrum data to CSV (frequency_hz, power_dbfs). Useful for analysis in spreadsheets or Python.").clicked() {
-                self.export_spectrum_csv();
-            }
-            if ui.small_button("📸").on_hover_text("Save a PNG screenshot of the current waterfall display. Captures the entire waterfall history at full resolution.").clicked() {
-                self.save_waterfall_png();
+                    .on_hover_text("Current zoom level. Reset it from the Display menu. Scroll on the spectrum to zoom in/out.");
             }
         });
 
