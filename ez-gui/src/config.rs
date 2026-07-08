@@ -476,7 +476,7 @@ impl Default for AppConfig {
             ai_provider: "OpenRouter".to_string(),
             ai_reasoning_effort: "off".to_string(),
             ai_web_search: false,
-            mqtt_broker: "localhost".to_string(),
+            mqtt_broker: "localhost:1883".to_string(),
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
             web_remote_port: 5259,
@@ -517,10 +517,11 @@ impl AppConfig {
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
             .unwrap_or_default();
         // Migration: the old 6-tab layout (sdr/adsb/satellite/ai/decoding/…)
-        // collapses to the three task modes. Any config lacking the canonical
-        // `listen` tab is normalized to the new mode set, preserving the
+        // collapses to the three task modes. Any config with invalid tab IDs
+        // is normalized to the new mode set, preserving the
         // "keep plumbing + migration pattern" contract.
-        if !cfg.layout.main_tabs.iter().any(|i| i.id == "listen") {
+        let valid_tab_ids = ["listen", "planes", "satellites"];
+        if !cfg.layout.main_tabs.iter().all(|i| valid_tab_ids.contains(&i.id.as_str())) {
             cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
         }
         cfg
