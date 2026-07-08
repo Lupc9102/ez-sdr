@@ -70,7 +70,7 @@ One slide-over reusing the existing `active_secondary_tool` + `egui::Panel::left
 
 A Beginner opening "More" sees ~3 friendly entries; an Expert sees all ~10. Satisfies both "single drawer" and "gate by level."
 
-### 🤖 Ask (AI) — ambient
+###  Ask (AI) — ambient 
 AI stops being a tab. The `🤖 Ask` bar-button opens `AiPanel::ui` as a right slide-over — machinery already exists (`sdr_ai_panel_open` + right `egui::Panel` in `render_sdr_tab:2173`). Generalize it so it's available in every mode. Stays context-aware (already fed freq/mode/SNR via `pending_ai_freq`).
 
 ---
