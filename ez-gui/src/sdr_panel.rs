@@ -873,8 +873,9 @@ impl SdrPanel {
         }); // Signal card
 
         if !is_beginner {
-            module_card(ui, &theme, "listen.log_alerts", "📝", "Log & Alerts", false, |ui| {
-            // Signal logging: auto-record strong signals and track statistics
+            // Signal logging: auto-record strong signals and track statistics.
+            // Kept outside the collapsible card below so tracking keeps running
+            // even while the card is collapsed (module_card skips contents when closed).
             if let Ok(state) = self.shared.try_lock() {
                 let peak = state.spectrum.peak_level();
                 let noise = state.spectrum.noise_floor();
@@ -937,6 +938,7 @@ impl SdrPanel {
                 }
             }
 
+            module_card(ui, &theme, "listen.log_alerts", "📝", "Log & Alerts", false, |ui| {
             // Alert and auto-record controls
             ui.horizontal(|ui| {
                 ui.label("🔔 Alert Threshold:").on_hover_text(
