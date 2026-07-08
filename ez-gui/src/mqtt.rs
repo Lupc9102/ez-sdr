@@ -25,6 +25,25 @@ pub struct MqttPublisher {
     drain_handle: Option<JoinHandle<()>>,
 }
 
+/// Split a user-facing broker address (`"host"` or `"host:port"`) into a
+/// hostname and port, falling back to `default_port` when no `:port` suffix
+/// is present (or it doesn't parse as a u16).
+///
+/// `self.broker` is stored verbatim from config as typed by the user, e.g.
+/// "localhost" or "broker.local:1883". Passing that raw string straight into
+/// `MqttOptions::new()`'s host parameter — without splitting off the port —
+/// makes rumqttc try to resolve a hostname containing a colon, which always
+/// fails to connect. This must be called before every `MqttOptions::new()`.
+fn split_host_port(broker: &str, default_port: u16) -> (&str, u16) {
+    match broker.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() => match p.parse::<u16>() {
+            Ok(p) => (h, p),
+            Err(_) => (broker, default_port),
+        },
+        _ => (broker, default_port),
+    }
+}
+
 impl MqttPublisher {
     pub fn new() -> Self {
         Self {
@@ -55,7 +74,8 @@ impl MqttPublisher {
         if !self.enabled || self.client.is_some() {
             return;
         }
-        let mut opts = MqttOptions::new("ez-sdr", &self.broker, self.port);
+        let (host, port) = split_host_port(&self.broker, self.port);
+        let mut opts = MqttOptions::new("ez-sdr", host, port);
         opts.set_keep_alive(Duration::from_secs(10));
         let (client, mut connection) = Client::new(opts, 128);
 
@@ -360,5 +380,34 @@ mod tests {
         let mut mqtt = MqttPublisher::new();
         mqtt.publish("test", "payload");
         // Should not panic even though client is None
+    }
+
+    #[test]
+    fn split_host_port_with_explicit_port() {
+        assert_eq!(split_host_port("localhost:1883", 9999), ("localhost", 1883));
+        assert_eq!(
+            split_host_port("broker.local:8883", 1883),
+            ("broker.local", 8883)
+        );
+    }
+
+    #[test]
+    fn split_host_port_without_port_uses_default() {
+        assert_eq!(split_host_port("localhost", 1883), ("localhost", 1883));
+    }
+
+    #[test]
+    fn split_host_port_invalid_port_suffix_falls_back_to_whole_string() {
+        // Not a real host:port (e.g. an IPv6-ish or malformed address) —
+        // must not silently truncate the host or panic.
+        assert_eq!(
+            split_host_port("localhost:notaport", 1883),
+            ("localhost:notaport", 1883)
+        );
+    }
+
+    #[test]
+    fn split_host_port_empty_host_before_colon_falls_back() {
+        assert_eq!(split_host_port(":1883", 9999), (":1883", 9999));
     }
 }
