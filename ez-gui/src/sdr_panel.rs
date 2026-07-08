@@ -1386,7 +1386,13 @@ impl SdrPanel {
         let show_advanced = user_level.show_advanced_controls();
         let has_expand = user_level.has_inline_expand();
         let is_beginner = user_level.simplify_layout();
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
 
+        module_card(ui, &theme, "demod.mode", "🎙", "Demod Mode", true, |ui| {
         // Demodulation Mode Quick Guide
         if ui
             .button("📖 Mode Guide")
@@ -1401,7 +1407,7 @@ impl SdrPanel {
                 ui.label(
                     egui::RichText::new("📖 Demodulation Mode Guide")
                         .small()
-                        .color(egui::Color32::from_rgb(100, 200, 200)),
+                        .color(theme.accent.to_egui()),
                 );
                 ui.horizontal_wrapped(|ui| {
                     ui.vertical(|ui| {
@@ -1482,7 +1488,9 @@ impl SdrPanel {
                 }
             }
         }
+        }); // Demod Mode card
 
+        module_card(ui, &theme, "demod.signal_detail", "📈", "Signal Detail", true, |ui| {
         // Signal meter + SNR
         ui.separator();
         if let Ok(state) = self.shared.try_lock() {
@@ -1499,7 +1507,7 @@ impl SdrPanel {
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(bar_w, 14.0), egui::Sense::hover());
                 let response = response.on_hover_text(format!("Signal: {signal:.1} dBFS  SNR: {snr:.1} dB  Noise: {noise_floor:.1} dB"));
                 let p = ui.painter();
-                p.rect_filled(rect, 2.0, egui::Color32::from_rgb(15, 15, 25));
+                p.rect_filled(rect, 2.0, theme.smeter_bg.to_egui());
                 // Zones: 0–50% red, 50–75% yellow, 75–100% green
                 let zones = [
                     (0.0f32, 0.5f32, egui::Color32::from_rgb(150, 30, 30)),
@@ -1515,9 +1523,9 @@ impl SdrPanel {
                 }
                 // Filled bar up to signal level
                 let fill_w = norm * rect.width();
-                let fill_color = if norm > 0.75 { egui::Color32::from_rgb(50, 200, 80) }
-                    else if norm > 0.5 { egui::Color32::from_rgb(220, 180, 30) }
-                    else { egui::Color32::from_rgb(200, 50, 50) };
+                let fill_color = if norm > 0.75 { theme.smeter_high.to_egui() }
+                    else if norm > 0.5 { theme.smeter_mid.to_egui() }
+                    else { theme.smeter_low.to_egui() };
                 p.rect_filled(
                     egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, rect.height())),
                     2.0, fill_color,
@@ -1606,8 +1614,10 @@ impl SdrPanel {
                 }
             }
         }
+        }); // Signal Detail card
 
         if !is_beginner {
+            module_card(ui, &theme, "demod.gain_advanced", "⚡", "Overload & Smart Gain", false, |ui| {
             // Overload detection + smart gain
             if let Ok(mut state) = self.shared.try_lock() {
                 let peak = state.spectrum.peak_level();
@@ -1677,9 +1687,11 @@ impl SdrPanel {
                     }
                 }
             }
+            }); // Overload & Smart Gain card
         }
 
         // PPM correction quick presets (hidden for Beginner/Intermediate unless expanded)
+        module_card(ui, &theme, "demod.ppm", "📐", "PPM Correction", true, |ui| {
         let show_ppm = show_advanced;
         if show_ppm || (has_expand && self.expand_ppm) {
             if let Ok(mut state) = self.shared.try_lock() {
@@ -1705,8 +1717,10 @@ impl SdrPanel {
         {
             self.expand_ppm = true;
         }
+        }); // PPM Correction card
 
         if !is_beginner {
+            module_card(ui, &theme, "demod.quality", "📊", "Demod Quality", true, |ui| {
             // Demod quality indicators
             if let Ok(state) = self.shared.try_lock() {
                 let mode = state.demod_mode;
@@ -1767,7 +1781,7 @@ impl SdrPanel {
                         let bar_h = 10.0f32;
                         let (rect, resp) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
                         let painter = ui.painter();
-                        painter.rect_filled(rect, 2.0, egui::Color32::from_rgb(20, 20, 30));
+                        painter.rect_filled(rect, 2.0, theme.smeter_bg.to_egui());
                         let fill_w = rect.width() * peak_frac;
                         let bar_color = if peak_frac > 0.9 { egui::Color32::from_rgb(220, 50, 50) }
                             else if peak_frac > 0.6 { egui::Color32::from_rgb(50, 200, 80) }
@@ -1791,8 +1805,10 @@ impl SdrPanel {
                     });
                 }
             }
+            }); // Demod Quality card
         }
 
+        module_card(ui, &theme, "demod.audio", "🔊", "Audio", true, |ui| {
         // Audio controls
         ui.separator();
         ui.horizontal_wrapped(|ui| {
@@ -1836,10 +1852,10 @@ impl SdrPanel {
                 }
             }
         });
-
-        ui.separator();
+        }); // Audio card
 
         if !is_beginner {
+            module_card(ui, &theme, "demod.quick_presets", "🚀", "Quick Start Presets", false, |ui| {
             // Frequency presets (band quick-tune) — one-click: tune + mode + gain + filter BW + start audio
             ui.horizontal_wrapped(|ui| {
                 ui.label("Bands:").on_hover_text("One-click quick-start presets. Each button tunes to that frequency, picks the right demodulation mode, sets a sensible gain and filter bandwidth, and starts audio — so you hear sound immediately.");
@@ -1972,9 +1988,11 @@ impl SdrPanel {
                     });
                 }
             }
+            }); // Quick Start Presets card
         }
 
         if !is_beginner {
+            module_card(ui, &theme, "demod.filter", "🔧", "Filter", false, |ui| {
             // Filter bandwidth controls (hidden for beginners)
             if let Ok(mut state) = self.shared.try_lock() {
                 let _bw_resp = ui.add(egui::Slider::new(&mut self.filter_bw, 100..=250_000).text("Filter BW (Hz)").logarithmic(true))
@@ -2051,8 +2069,11 @@ impl SdrPanel {
                     }
                 });
             }
+            }); // Filter card
         }
-        // Auto-squelch tracking: update squelch every frame when enabled
+        // Auto-squelch tracking: update squelch every frame when enabled, kept
+        // outside the Squelch card below so Track mode keeps adjusting even
+        // while the card is collapsed (module_card skips contents when closed).
         if self.auto_squelch {
             if let Ok(mut state) = self.shared.try_lock() {
                 let noise = state.spectrum.noise_floor();
@@ -2063,6 +2084,7 @@ impl SdrPanel {
                 }
             }
         }
+        module_card(ui, &theme, "demod.squelch", "🔇", "Squelch", true, |ui| {
         ui.horizontal_wrapped(|ui| {
             let sq_resp = ui.add(egui::Slider::new(&mut self.squelch, -120.0..=0.0).text("Squelch (dB)"))
                 .on_hover_text("Signal level threshold. Audio is muted when signal drops below this value, silencing static between transmissions. Set ~5 dB above your noise floor.");
@@ -2088,9 +2110,9 @@ impl SdrPanel {
                 let is_open = signal_level > self.squelch;
                 let indicator_text = if is_open { "◉ OPEN" } else { "◉ closed" };
                 let indicator_color = if is_open {
-                    egui::Color32::from_rgb(80, 220, 120)
+                    theme.success.to_egui()
                 } else {
-                    egui::Color32::GRAY
+                    theme.text_dim.to_egui()
                 };
                 ui.colored_label(indicator_color, indicator_text)
                     .on_hover_text(format!("Squelch status: signal {:.1} dB {} threshold {:.1} dB",
@@ -2113,7 +2135,7 @@ impl SdrPanel {
                 }
             }
             let track_label = if self.auto_squelch {
-                egui::RichText::new("Track ON").color(egui::Color32::from_rgb(80, 220, 120))
+                egui::RichText::new("Track ON").color(theme.success.to_egui())
             } else {
                 egui::RichText::new("Track")
             };
@@ -2168,6 +2190,7 @@ impl SdrPanel {
                 ui.ctx().copy_text(format!("{:.1}", self.squelch));
             }
         });
+        }); // Squelch card
 
         // Frequency identification
         if let Ok(state) = self.shared.try_lock() {
@@ -2200,8 +2223,7 @@ impl SdrPanel {
             }
         }
 
-        ui.separator();
-
+        module_card(ui, &theme, "demod.upconverter", "⬆", "Upconverter Offset", false, |ui| {
         // LO / Upconverter offset
         if let Ok(mut state) = self.shared.try_lock() {
             ui.horizontal(|ui| {
@@ -2240,8 +2262,7 @@ impl SdrPanel {
                 }
             }
         }
-
-        ui.separator();
+        }); // Upconverter Offset card
 
         // Source controls
         if let Ok(mut state) = self.shared.try_lock() {
@@ -2250,7 +2271,7 @@ impl SdrPanel {
 
         ui.add_space(16.0);
         // ── Airport Frequency Finder (collapsible, optional) ──────────
-        ui.collapsing("✈️ Airport Frequency Finder", |ui| {
+        module_card(ui, &theme, "demod.airport_finder", "✈", "Airport Frequency Finder", false, |ui| {
             ui.add_space(4.0);
             // Download progress
             if let Some((done, total)) = self.airport_dl_progress {
