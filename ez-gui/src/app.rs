@@ -2282,7 +2282,30 @@ impl CentralApp {
         ui.horizontal_centered(|ui| {
             ui.add_space(6.0);
             // ── Task modes ──────────────────────────────────────────────
-            for (_, tab, icon, label, tip) in MAIN_TABS.iter().copied() {
+            // Read from layout config; fall back to MAIN_TABS order for missing entries.
+            let mut tabs_to_render = Vec::new();
+            let mut rendered_ids = std::collections::HashSet::new();
+            if let Ok(state) = self.shared.try_lock() {
+                for item in &state.config.layout.main_tabs {
+                    if item.visible {
+                        for (id, tab, icon, label, tip) in MAIN_TABS.iter().copied() {
+                            if id == item.id {
+                                tabs_to_render.push((tab, icon, label, tip));
+                                rendered_ids.insert(id);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // Fallback: append any tabs not in layout config.
+            for (id, tab, icon, label, tip) in MAIN_TABS.iter().copied() {
+                if !rendered_ids.contains(id) {
+                    tabs_to_render.push((tab, icon, label, tip));
+                }
+            }
+
+            for (tab, icon, label, tip) in tabs_to_render {
                 let is_active = self.current_tab == tab && self.active_secondary_tool.is_none();
                 let fg = if is_active {
                     egui::Color32::from_rgb(0, 168, 255)
@@ -2326,10 +2349,33 @@ impl CentralApp {
                 ui.menu_button(egui::RichText::new("⚙ More").size(15.0), |ui| {
                     ui.set_min_width(180.0);
                     let mut chosen: Option<SecondaryTool> = None;
-                    for tool in ALL_SECONDARY_TOOLS.iter().copied() {
-                        if !tool.available_at(level) {
-                            continue;
+
+                    // Build tools list from layout config; fall back to ALL_SECONDARY_TOOLS order.
+                    let mut tools_to_show = Vec::new();
+                    let mut rendered_tool_ids = std::collections::HashSet::new();
+                    if let Ok(state) = self.shared.try_lock() {
+                        for item in &state.config.layout.secondary_tools {
+                            if item.visible {
+                                for tool in ALL_SECONDARY_TOOLS.iter().copied() {
+                                    if tool.id() == item.id {
+                                        if tool.available_at(level) {
+                                            tools_to_show.push(tool);
+                                            rendered_tool_ids.insert(item.id.clone());
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
                         }
+                    }
+                    // Fallback: append any tools not in layout config.
+                    for tool in ALL_SECONDARY_TOOLS.iter().copied() {
+                        if !rendered_tool_ids.contains(tool.id()) && tool.available_at(level) {
+                            tools_to_show.push(tool);
+                        }
+                    }
+
+                    for tool in tools_to_show {
                         if ui
                             .button(format!("{}  {}", tool.icon(), tool.label()))
                             .clicked()
@@ -2479,7 +2525,7 @@ impl CentralApp {
                         if ui.checkbox(&mut enabled, "Enable MQTT").clicked() {
                             state.mqtt_enabled = enabled;
                             if enabled && state.config.mqtt_broker.is_empty() {
-                                state.config.mqtt_broker = "localhost:1883".to_string();
+                                state.config.mqtt_broker = "localhost".to_string();
                             }
                             self.mqtt.set_enabled(
                                 state.mqtt_enabled,
@@ -2501,13 +2547,15 @@ impl CentralApp {
                     if let Ok(mut state) = self.shared.try_lock() {
                         ui.label(egui::RichText::new("Web Remote").strong());
                         ui.label("Control ez-sdr from a browser via the local web API.");
-                        ui.checkbox(&mut state.config.web_remote_enabled, "Enable web remote");
-                        ui.add(
+                        let cb = ui.checkbox(&mut state.config.web_remote_enabled, "Enable web remote");
+                        let sl = ui.add(
                             egui::Slider::new(&mut state.config.web_remote_port, 1024..=65535)
                                 .text("Port"),
                         );
-                        self.web_remote
-                            .set_enabled(state.config.web_remote_enabled, state.config.web_remote_port);
+                        if cb.changed() || sl.changed() {
+                            self.web_remote
+                                .set_enabled(state.config.web_remote_enabled, state.config.web_remote_port);
+                        }
                         let status = if state.config.web_remote_enabled {
                             egui::RichText::new(format!("● Listening on :{}", state.config.web_remote_port))
                                 .color(egui::Color32::GREEN)
@@ -2520,6 +2568,7 @@ impl CentralApp {
                 SecondaryTool::Layout => {
                     ui.label(egui::RichText::new("Layout").strong());
                     ui.label("Reorder and show/hide the three task modes and tools.");
+                    self.customize_panel.subtab = crate::customize_panel::CustomizeSubTab::Layout;
                     if let Ok(mut state) = self.shared.try_lock() {
                         self.customize_panel.ui(ui, &mut state.config);
                     }
@@ -3056,6 +3105,8 @@ impl CentralApp {
                 if let Ok(mut state) = self.shared.try_lock() {
                     if let Some(loaded) = crate::bookmarks::BookmarkDb::load_saved() {
                         state.bookmarks.bookmarks = loaded;
+                        state.bookmarks_modified = true;
+                        state.spectrum.bookmark_freqs_dirty = true;
                     }
                 }
             }
@@ -3066,6 +3117,8 @@ impl CentralApp {
                             let (count, err) = state.bookmarks.import_csv(path_str);
                             if err.is_empty() {
                                 self.bm_import_msg = format!("Imported {count} bookmarks.");
+                                state.bookmarks_modified = true;
+                                state.spectrum.bookmark_freqs_dirty = true;
                             } else {
                                 self.bm_import_msg = err;
                             }
@@ -3321,6 +3374,8 @@ impl CentralApp {
                                                 bm.mode = self.edit_bm_mode.clone();
                                                 bm.category = if self.edit_bm_category.trim().is_empty() { "Custom".into() } else { self.edit_bm_category.trim().to_string() };
                                                 bm.notes = self.edit_bm_notes.trim().to_string();
+                                                state.bookmarks_modified = true;
+                                                state.spectrum.bookmark_freqs_dirty = true;
                                             }
                                         }
                                     }

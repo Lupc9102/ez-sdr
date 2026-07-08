@@ -345,6 +345,7 @@ impl RecorderPanel {
         self.recording = false;
         self.peak_level_dbfs = -120.0;
         self.peak_hold_time = None;
+        self.quick_duration_secs = 0;
         if let Ok(mut state) = self.shared.try_lock() {
             state.recording = false;
         }
@@ -732,6 +733,8 @@ impl RecorderPanel {
                         .on_hover_text("Starts a 30-second timed WAV recording of whatever you're currently listening to. Great first recording!")
                         .clicked() && !self.recording
                     {
+                        self.quick_duration_secs = 30;
+                        self.record_audio = true;
                         self.start_recording();
                     }
                     ui.add_space(4.0);

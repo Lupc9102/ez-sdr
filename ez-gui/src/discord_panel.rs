@@ -262,7 +262,7 @@ impl DiscordPanel {
     }
 
     fn send_test_kind(&mut self, notifier: &mut DiscordNotifier, kind_id: &str) {
-        let _embed = match kind_id {
+        let embed = match kind_id {
             "aircraft_new" => {
                 let image = discord::fetch_aircraft_image("ABCDEF");
                 discord::embed_aircraft(
@@ -297,8 +297,10 @@ impl DiscordPanel {
                 0x0099FF,
             ),
         };
-        if let Err(e) = notifier.send_test() {
+        if let Err(e) = notifier.send_test_embed(embed) {
             self.test_status = format!("❌ Error: {e}");
+        } else {
+            self.test_status = "✅ Sent".into();
         }
     }
 }

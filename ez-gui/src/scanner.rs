@@ -148,6 +148,7 @@ impl FrequencyScanner {
         self.memory_freqs = freqs;
         self.memory_idx = 0;
         self.enabled = true;
+        self.paused = false;
         self.holding = false;
         self.hold_last_active = None;
         self.last_step_time = Some(Instant::now());
@@ -486,6 +487,7 @@ impl FrequencyScanner {
 
     pub fn start(&mut self) {
         self.enabled = true;
+        self.paused = false;
         if self.reset_on_start {
             self.hits.clear();
             self.total_hits_logged = 0;
@@ -865,8 +867,6 @@ impl FrequencyScanner {
         });
         // Row 3: Options + status
         ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut self.auto_tune_on_hit, "Auto-tune on hit")
-                .on_hover_text("When enabled, the SDR tunes to each new signal hit immediately so you can hear it. Pauses the sweep while listening.");
             ui.checkbox(&mut self.hold_on_active, "Hold on activity")
                 .on_hover_text("Pause the sweep whenever a signal is detected above the threshold. Resumes scanning after signal drops and the resume delay expires.");
             if self.hold_on_active {
@@ -1066,8 +1066,7 @@ impl FrequencyScanner {
                 ui.add_space(4.0);
                 ui.label("Make sure the scanner is running and tuned to the strongest signal before logging.");
                 ui.horizontal(|ui| {
-                    let can_log = self.enabled || self.last_peak_db > -100.0;
-                    if ui.add_enabled(can_log, egui::Button::new("📌 Log Measurement"))
+                    if ui.add_enabled(self.enabled, egui::Button::new("📌 Log Measurement"))
                         .on_hover_text(
                             "Record the current peak frequency as the resonant point for this antenna length. Scanner must be running."
                         ).clicked() {
@@ -1392,10 +1391,10 @@ impl FrequencyScanner {
                         HitsSort::HitCount => hits_copy.sort_by_key(|b| std::cmp::Reverse(b.hit_count)),
                         HitsSort::Recent => hits_copy.sort_by_key(|b| std::cmp::Reverse(b.timestamp)),
                     }
-                    let mut remove_idx = None;
+                    let mut remove_freq: Option<u64> = None;
                     let mut exclude_freq = None;
                     let mut bookmark_freq: Option<u64> = None;
-                    for (i, hit) in hits_copy.iter().enumerate() {
+                    for (_, hit) in hits_copy.iter().enumerate() {
                         let already_excluded = self.exclude_hz.contains(&hit.freq_hz);
                         ui.horizontal(|ui| {
                             ui.set_min_width(80.0);
@@ -1451,7 +1450,7 @@ impl FrequencyScanner {
                             bookmark_freq = Some(hit.freq_hz);
                         }
                         if ui.small_button("✕").on_hover_text("Remove this hit from the list.").clicked() {
-                            remove_idx = Some(i);
+                            remove_freq = Some(hit.freq_hz);
                         }
                         let skip_btn = if already_excluded {
                             ui.small_button(egui::RichText::new("🚫").color(egui::Color32::from_rgb(255, 80, 80)))
@@ -1468,10 +1467,8 @@ impl FrequencyScanner {
                         }
                         ui.end_row();
                     }
-                    if let Some(idx) = remove_idx {
-                        if idx < self.hits.len() {
-                            self.hits.remove(idx);
-                        }
+                    if let Some(f) = remove_freq {
+                        self.hits.retain(|h| h.freq_hz != f);
                     }
                     if let Some(f) = exclude_freq {
                         if !self.exclude_hz.contains(&f) {

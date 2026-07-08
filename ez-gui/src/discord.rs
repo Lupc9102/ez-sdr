@@ -1077,16 +1077,21 @@ impl DiscordNotifier {
     /// channel configuration are working.
     #[must_use = "send a test Discord notification and check if it succeeded"]
     pub fn send_test(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.is_configured() {
-            return Err("Not configured".into());
-        }
-        let client = reqwest::blocking::Client::new();
         let embed = embed_generic(
             "Test Notification",
             "If you see this, Discord integration is working!",
             "✅",
             0x00AA00,
         );
+        self.send_test_embed(embed)
+    }
+
+    /// Send a test notification with a specific embed to Discord.
+    pub fn send_test_embed(&mut self, embed: DiscordEmbed) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.is_configured() {
+            return Err("Not configured".into());
+        }
+        let client = reqwest::blocking::Client::new();
         let url = format!(
             "https://discord.com/api/v10/channels/{}/messages",
             self.settings.channel_id

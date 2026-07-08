@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1783525057.9071512,
-    "ast_hash": "0c5c8492077a03f5213f8f0e04c051d9",
+    "mtime": 1783535833.3249695,
+    "ast_hash": "bc19fc2d69da06faee2a0632c861ba4b",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -130,8 +130,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/config.rs": {
-    "mtime": 1783451227.4119124,
-    "ast_hash": "5d412df05188ceab76827f1fe6de91e8",
+    "mtime": 1783535751.126941,
+    "ast_hash": "a2c14705cdb48d08f2e576609592011b",
     "semantic_hash": ""
   },
   "ez-gui/src/demod.rs": {
@@ -155,8 +155,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/recorder_panel.rs": {
-    "mtime": 1783451610.545074,
-    "ast_hash": "0aa4dff58c1a5e8e134a1ae8df3df27a",
+    "mtime": 1783535546.6849043,
+    "ast_hash": "94b3d463a15917babf8a5370f644778b",
     "semantic_hash": ""
   },
   "ez-gui/src/satellite_panel.rs": {
@@ -165,8 +165,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/scanner.rs": {
-    "mtime": 1783360950.1319127,
-    "ast_hash": "c9e9d429c69507849dd46e48f43da4d7",
+    "mtime": 1783535733.0744953,
+    "ast_hash": "9d474479a74c134a2d43629451c68891",
     "semantic_hash": ""
   },
   "ez-gui/src/scheduler.rs": {
@@ -230,8 +230,8 @@
     "semantic_hash": ""
   },
   ".claude/settings.local.json": {
-    "mtime": 1783011345.0134466,
-    "ast_hash": "7e3bb9758dca4ed1cdc4770af6ed05ff",
+    "mtime": 1783532683.306475,
+    "ast_hash": "83270f9265beaa90f284096fc896e207",
     "semantic_hash": ""
   },
   "ez-gui/ez_sdr_bookmarks.json": {
@@ -255,13 +255,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/discord.rs": {
-    "mtime": 1783276810.7232323,
-    "ast_hash": "ab4418cf2aeda7277d31770dfa8ddd28",
+    "mtime": 1783535588.8099368,
+    "ast_hash": "f58f5c1e47fe9845bc28614cd188c8ce",
     "semantic_hash": ""
   },
   "ez-gui/src/discord_panel.rs": {
-    "mtime": 1783158822.2825837,
-    "ast_hash": "85ff21eedf63b08a20d3b619caf49ad0",
+    "mtime": 1783535605.5973494,
+    "ast_hash": "0d8c09397ca00e9f14f76e44a666c99b",
     "semantic_hash": ""
   },
   "ez-gui/src/user_level.rs": {
@@ -475,8 +475,8 @@
     "semantic_hash": ""
   },
   "Plan#2.md": {
-    "mtime": 1783512283.3184817,
-    "ast_hash": "a6ad6f0a08edb5d201210030e04a47e7",
+    "mtime": 1783535847.037308,
+    "ast_hash": "58eac33810dbfad1f40a32db1973f8e9",
     "semantic_hash": ""
   },
   "ez-gui/src/advanced_panel.rs": {

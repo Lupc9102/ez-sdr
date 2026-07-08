@@ -476,7 +476,7 @@ impl Default for AppConfig {
             ai_provider: "OpenRouter".to_string(),
             ai_reasoning_effort: "off".to_string(),
             ai_web_search: false,
-            mqtt_broker: "localhost:1883".to_string(),
+            mqtt_broker: "localhost".to_string(),
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
             web_remote_port: 5259,
