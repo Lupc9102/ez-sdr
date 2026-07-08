@@ -2683,6 +2683,11 @@ impl CentralApp {
 
     fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
         let _ = snapshot;
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
 
         egui::Panel::left("sdr_modules")
             .resizable(true)
@@ -2691,7 +2696,7 @@ impl CentralApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.sdr_panel.ui_source(ui);
                     ui.collapsing("IQ Constellation", |ui| {
-                        self.constellation.ui(ui);
+                        self.constellation.ui(ui, &theme);
                     });
                     if let Some(freq) = self.sdr_panel.tune_request.take() {
                         if let Ok(mut state) = self.shared.try_lock() {
@@ -2874,6 +2879,11 @@ impl CentralApp {
 
     fn render_satellite_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
         let _ = snapshot;
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
         egui::Panel::top("sat_subtabs")
             .exact_size(36.0)
             .show(ui, |ui| {
@@ -2960,14 +2970,14 @@ impl CentralApp {
                                 .small()
                                 .color(egui::Color32::from_gray(140)),
                         );
-                        self.constellation.ui(ui);
+                        self.constellation.ui(ui, &theme);
                     }
                 });
             });
 
         egui::CentralPanel::default().show(ui, |ui| match self.satellite_subtab {
             crate::satellite_panel::SatelliteSubTab::Track => {
-                self.satellite_panel.map_renderer.ui(ui);
+                self.satellite_panel.map_renderer.ui(ui, &theme);
             }
             crate::satellite_panel::SatelliteSubTab::Alignment => {
                 self.render_satellite_alignment_central(ui);
@@ -2981,6 +2991,11 @@ impl CentralApp {
     }
 
     fn render_satellite_alignment_central(&mut self, ui: &mut egui::Ui) {
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
         if let Some(idx) = self.satellite_panel.selected_sat_index {
             if idx < self.satellite_panel.satellite_catalog.len() {
                 if let Some(pos) = self.satellite_panel.current_sat_position {
@@ -2997,6 +3012,7 @@ impl CentralApp {
                                 pos.azimuth,
                                 pos.elevation,
                                 pos.distance_km,
+                                &theme,
                             );
                         });
                         return;

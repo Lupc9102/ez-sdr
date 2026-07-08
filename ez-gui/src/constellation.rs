@@ -1,3 +1,4 @@
+use crate::theme::ThemeConfig;
 use std::collections::VecDeque;
 
 const DEFAULT_CAP: usize = 8192;
@@ -103,14 +104,14 @@ impl ConstellationDisplay {
         (err_sum / self.buf.len() as f64).to_degrees()
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, theme: &ThemeConfig) {
         ui.horizontal(|ui| {
             let freeze_label = if self.paused { "▶ Resume" } else { "⏸ Freeze" };
             if ui.small_button(freeze_label).clicked() {
                 self.paused = !self.paused;
             }
             if self.paused {
-                ui.colored_label(egui::Color32::YELLOW, "FROZEN");
+                ui.colored_label(theme.warning.to_egui(), "FROZEN");
             }
             if ui.small_button("↺ Reset").clicked() {
                 self.reset_density();
@@ -119,7 +120,7 @@ impl ConstellationDisplay {
         let side = ui.available_width().min(320.0);
         let (rect, _resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, egui::Color32::from_gray(12));
+        painter.rect_filled(rect, 0.0, theme.waterfall_bg.to_egui());
 
         let half = side / 2.0 - 6.0;
         let cx = rect.center().x;
@@ -128,16 +129,16 @@ impl ConstellationDisplay {
         painter.circle_stroke(
             egui::pos2(cx, cy),
             half,
-            egui::Stroke::new(1.0, egui::Color32::from_gray(40)),
+            egui::Stroke::new(1.0, theme.text_dim.with_alpha(70).to_egui()),
         );
 
         painter.line_segment(
             [egui::pos2(rect.left(), cy), egui::pos2(rect.right(), cy)],
-            egui::Stroke::new(1.0, egui::Color32::from_gray(55)),
+            egui::Stroke::new(1.0, theme.text_dim.with_alpha(90).to_egui()),
         );
         painter.line_segment(
             [egui::pos2(cx, rect.top()), egui::pos2(cx, rect.bottom())],
-            egui::Stroke::new(1.0, egui::Color32::from_gray(55)),
+            egui::Stroke::new(1.0, theme.text_dim.with_alpha(90).to_egui()),
         );
 
         if self.buf.is_empty() {
@@ -146,7 +147,7 @@ impl ConstellationDisplay {
                 egui::Align2::CENTER_CENTER,
                 "Waiting for signal\u{2026}",
                 egui::FontId::proportional(13.0),
-                egui::Color32::GRAY,
+                theme.text_dim.to_egui(),
             );
             return;
         }
@@ -171,7 +172,7 @@ impl ConstellationDisplay {
                         egui::vec2(cell_half * 2.0, cell_half * 2.0),
                     ),
                     0.0,
-                    egui::Color32::from_rgba_premultiplied(80, 220, 120, alpha),
+                    theme.success.with_alpha(alpha).to_egui(),
                 );
             }
         }
@@ -182,7 +183,7 @@ impl ConstellationDisplay {
             painter.circle_filled(
                 egui::pos2(px, py),
                 1.2,
-                egui::Color32::from_rgba_premultiplied(120, 255, 160, 180),
+                theme.success.with_alpha(180).to_egui(),
             );
         }
 
@@ -190,11 +191,11 @@ impl ConstellationDisplay {
         let phase_err = self.compute_phase_error();
         let info_y = rect.bottom() + 4.0;
         let evm_color = if evm < 10.0 {
-            egui::Color32::GREEN
+            theme.success.to_egui()
         } else if evm < 25.0 {
-            egui::Color32::YELLOW
+            theme.warning.to_egui()
         } else {
-            egui::Color32::RED
+            theme.error.to_egui()
         };
         painter.text(
             egui::pos2(rect.left(), info_y),
@@ -208,14 +209,14 @@ impl ConstellationDisplay {
             egui::Align2::CENTER_TOP,
             format!("\u{3c6} err: {phase_err:.1}\u{b0}"),
             egui::FontId::proportional(11.0),
-            egui::Color32::from_rgb(0, 200, 255),
+            theme.accent.to_egui(),
         );
         painter.text(
             egui::pos2(rect.right(), info_y),
             egui::Align2::RIGHT_TOP,
             format!("{} pts", self.buf.len()),
             egui::FontId::proportional(11.0),
-            egui::Color32::from_gray(120),
+            theme.text_dim.to_egui(),
         );
     }
 }

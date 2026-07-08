@@ -7,7 +7,9 @@ use crate::satellite::map_renderer::MapRenderer;
 use crate::satellite::picker::satellite_picker_ui;
 use crate::satellite::recorder::Cf32StreamWriter;
 use crate::satellite::types::*;
+use crate::theme::ThemeConfig;
 use crate::tle_engine::PassInfo;
+use crate::ui_kit::module_card;
 use std::sync::{Arc, Mutex};
 
 // ── Decode sub-tab types ─────────────────────────────────────────────────────
@@ -204,25 +206,27 @@ impl SatellitePanel {
     /// fires [`Self::on_satellite_selected`], so it works from every subtab
     /// (Track / Align / Decode), not just Track.
     fn ui_picker(&mut self, ui: &mut egui::Ui) {
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
         let catalog = self.satellite_catalog.clone();
         let selected_before = self.selected_sat_index;
-        egui::Frame::group(ui.style())
-            .inner_margin(6)
-            .show(ui, |ui| {
-                ui.label(egui::RichText::new("Satellites").strong());
-                satellite_picker_ui(
-                    ui,
-                    &catalog,
-                    &mut self.selected_sat_index,
-                    &mut self.picker_search,
-                    |_idx| {},
-                );
-            });
+        module_card(ui, &theme, "satellites.picker", "🛰", "Satellites", true, |ui| {
+            satellite_picker_ui(
+                ui,
+                &catalog,
+                &mut self.selected_sat_index,
+                &mut self.picker_search,
+                |_idx| {},
+            );
+        });
 
         ui.add_space(6.0);
         if let Some(idx) = self.selected_sat_index {
             if let Some(entry) = catalog.get(idx) {
-                self.ui_pass_summary(ui, &entry.tle_name.clone());
+                self.ui_pass_summary(ui, &theme, &entry.tle_name.clone());
             }
         }
 
@@ -237,7 +241,7 @@ impl SatellitePanel {
     /// Compact upcoming/active pass summary for the given TLE name, using the
     /// cached pass list. Kept intentionally minimal — the full schedule lives
     /// in the dedicated Scheduler tab.
-    fn ui_pass_summary(&self, ui: &mut egui::Ui, name: &str) {
+    fn ui_pass_summary(&self, ui: &mut egui::Ui, theme: &ThemeConfig, name: &str) {
         let now_unix = current_unix_time();
 
         if let Some(active) = self
@@ -248,7 +252,7 @@ impl SatellitePanel {
             let remaining = (active.los_dt - now_unix).max(0.0) as u64;
             ui.group(|ui| {
                 ui.colored_label(
-                    egui::Color32::from_rgb(50, 255, 100),
+                    theme.success.to_egui(),
                     egui::RichText::new(format!("▶ {} — IN PASS", active.satellite))
                         .size(15.0)
                         .strong(),
@@ -288,7 +292,10 @@ impl SatellitePanel {
                 ));
             });
         } else {
-            ui.colored_label(egui::Color32::GRAY, "No upcoming passes — update TLE data.");
+            ui.colored_label(
+                theme.text_dim.to_egui(),
+                "No upcoming passes — update TLE data.",
+            );
         }
     }
 
@@ -310,64 +317,71 @@ impl SatellitePanel {
     // ── Record control ────────────────────────────────────────────────────
 
     fn ui_record_control(&mut self, ui: &mut egui::Ui) {
-        let is_rec = self.cf32_recording;
-        let label = if is_rec {
-            "■  STOP RECORDING"
-        } else {
-            "●  RECORD  (raw cf32 I/Q)"
-        };
-        // Pulse the REC button during recording
-        let pulse = if is_rec {
-            let t = ui.input(|i| i.time);
-            let phase = (t * 4.0).sin() * 0.3 + 0.7;
-            (phase * 60.0) as u8
-        } else {
-            0
-        };
-        let fill = if is_rec {
-            egui::Color32::from_rgb(200, 45 + pulse, 45)
-        } else {
-            egui::Color32::from_rgb(45, 175, 60)
-        };
-        let stroke_color = if is_rec {
-            egui::Color32::from_rgba_premultiplied(255, 0, 0, pulse.saturating_sub(20))
-        } else {
-            egui::Color32::TRANSPARENT
-        };
-        let btn = egui::Button::new(
-            egui::RichText::new(label)
-                .size(20.0)
-                .strong()
-                .color(egui::Color32::WHITE),
-        )
-        .fill(fill)
-        .stroke(egui::Stroke::new(2.0, stroke_color))
-        .min_size(egui::vec2(ui.available_width(), 56.0));
-        if ui.add(btn).clicked() {
-            if is_rec {
-                self.stop_cf32_recording();
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
+        module_card(ui, &theme, "satellites.record", "⏺", "Recording", true, |ui| {
+            let is_rec = self.cf32_recording;
+            let label = if is_rec {
+                "■  STOP RECORDING"
             } else {
-                self.start_cf32_recording();
+                "●  RECORD  (raw cf32 I/Q)"
+            };
+            // Pulse the REC button during recording
+            let pulse = if is_rec {
+                let t = ui.input(|i| i.time);
+                let phase = (t * 4.0).sin() * 0.3 + 0.7;
+                (phase * 60.0) as u8
+            } else {
+                0
+            };
+            let fill = if is_rec {
+                egui::Color32::from_rgb(200, 45 + pulse, 45)
+            } else {
+                egui::Color32::from_rgb(45, 175, 60)
+            };
+            let stroke_color = if is_rec {
+                egui::Color32::from_rgba_premultiplied(255, 0, 0, pulse.saturating_sub(20))
+            } else {
+                egui::Color32::TRANSPARENT
+            };
+            let btn = egui::Button::new(
+                egui::RichText::new(label)
+                    .size(20.0)
+                    .strong()
+                    .color(egui::Color32::WHITE),
+            )
+            .fill(fill)
+            .stroke(egui::Stroke::new(2.0, stroke_color))
+            .min_size(egui::vec2(ui.available_width(), 56.0));
+            if ui.add(btn).clicked() {
+                if is_rec {
+                    self.stop_cf32_recording();
+                } else {
+                    self.start_cf32_recording();
+                }
             }
-        }
 
-        if is_rec {
-            if let Some(w) = &self.cf32_writer {
-                let mb = w.bytes_written() as f64 / 1_048_576.0;
-                let secs = w.elapsed_secs();
-                let line = format!(
-                    "● REC  ·  {:.1} MB  ·  {:.0}s  ·  {:.1} MB/s",
-                    mb,
-                    secs,
-                    if secs > 0.0 { mb / secs } else { 0.0 }
-                );
-                ui.add_space(4.0);
-                ui.colored_label(
-                    egui::Color32::from_rgb(255, 90, 90),
-                    egui::RichText::new(line).size(13.0).strong(),
-                );
+            if is_rec {
+                if let Some(w) = &self.cf32_writer {
+                    let mb = w.bytes_written() as f64 / 1_048_576.0;
+                    let secs = w.elapsed_secs();
+                    let line = format!(
+                        "● REC  ·  {:.1} MB  ·  {:.0}s  ·  {:.1} MB/s",
+                        mb,
+                        secs,
+                        if secs > 0.0 { mb / secs } else { 0.0 }
+                    );
+                    ui.add_space(4.0);
+                    ui.colored_label(
+                        theme.status_recording.to_egui(),
+                        egui::RichText::new(line).size(13.0).strong(),
+                    );
+                }
             }
-        }
+        });
     }
 
     fn start_cf32_recording(&mut self) {
@@ -460,6 +474,11 @@ impl SatellitePanel {
     /// Observer latitude/longitude control. Lives in the Align subtab since it
     /// directly affects the computed azimuth/elevation the compass depends on.
     fn ui_observer_location(&mut self, ui: &mut egui::Ui) {
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|s| s.config.theme_config.clone())
+            .unwrap_or_default();
         // Keep local copy in sync with shared TLE state (e.g. GPS/config updates).
         if let Ok(state) = self.shared.try_lock() {
             if (state.tle.observer_lat - self.observer_lat).abs() > 0.001
@@ -470,7 +489,7 @@ impl SatellitePanel {
             }
         }
 
-        ui.collapsing("📍 Observer Location", |ui| {
+        module_card(ui, &theme, "satellites.observer", "📍", "Observer Location", false, |ui| {
             let changed_lat = ui
                 .add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
                 .changed();

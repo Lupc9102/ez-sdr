@@ -1,4 +1,5 @@
 use crate::satellite::types::SatPosition;
+use crate::theme::ThemeConfig;
 use egui::{Color32, Shape, Stroke, Vec2};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -86,6 +87,7 @@ pub fn compass_rose_ui(
     azimuth: f64,
     elevation: f64,
     distance_km: f64,
+    theme: &ThemeConfig,
 ) {
     let size = ui.available_width().min(ui.available_height()).min(520.0);
     let (rect, _response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
@@ -94,12 +96,29 @@ pub fn compass_rose_ui(
         return;
     }
 
+    // Gentle pulse for the tracking glow ring while the satellite is up.
+    let pulse = ui.input(|i| (i.time * 2.5).sin() as f32) * 0.5 + 0.5;
+
     let painter = ui.painter();
     let center = rect.center();
     let radius = size * 0.38;
 
+    // Tracking glow ring — soft accent halo around the dial while the
+    // satellite is above the horizon (i.e. actually trackable).
+    if elevation > 0.0 {
+        for i in 0..4 {
+            let expand = radius * (0.04 + 0.03 * i as f32);
+            let alpha = ((1.0 - i as f32 / 4.0) * (30.0 + pulse * 50.0)) as u8;
+            painter.circle_stroke(
+                center,
+                radius + expand,
+                Stroke::new(2.0, theme.accent.with_alpha(alpha).to_egui()),
+            );
+        }
+    }
+
     // Background ring
-    painter.circle_stroke(center, radius, Stroke::new(2.0, Color32::from_gray(60)));
+    painter.circle_stroke(center, radius, Stroke::new(2.0, theme.text_dim.to_egui()));
 
     // Cardinal directions
     let cardinals: [(f64, &str); 8] = [
@@ -125,7 +144,7 @@ pub fn compass_rose_ui(
             egui::Align2::CENTER_CENTER,
             label,
             egui::FontId::proportional(13.0),
-            Color32::from_gray(140),
+            theme.text_dim.to_egui(),
         );
     }
 
@@ -138,7 +157,7 @@ pub fn compass_rose_ui(
             -arrow_len * sat_rad.cos() as f32,
         );
     let base = center;
-    let arrow_color = Color32::from_rgb(0, 220, 255);
+    let arrow_color = theme.accent.to_egui();
 
     // Arrow shaft
     painter.line_segment([base, tip], Stroke::new(2.0, arrow_color));
@@ -158,7 +177,7 @@ pub fn compass_rose_ui(
     painter.add(Shape::convex_polygon(
         vec![tip, left, right],
         arrow_color,
-        Stroke::new(1.0, Color32::from_gray(0)),
+        Stroke::new(1.0, theme.bg.to_egui()),
     ));
 
     // Heading label
@@ -167,7 +186,7 @@ pub fn compass_rose_ui(
         egui::Align2::CENTER_CENTER,
         format!("{:.0}°", heading_deg),
         egui::FontId::proportional(26.0),
-        Color32::from_rgb(0, 220, 255),
+        theme.accent.to_egui(),
     );
     // Cardinal direction for the V-opening, directly under the bearing.
     painter.text(
@@ -175,14 +194,14 @@ pub fn compass_rose_ui(
         egui::Align2::CENTER_CENTER,
         azimuth_to_cardinal(heading_deg),
         egui::FontId::proportional(14.0),
-        Color32::from_rgb(0, 255, 150),
+        theme.success.to_egui(),
     );
 
     // Inner ring
     painter.circle_stroke(
         center,
         radius * 0.3,
-        Stroke::new(1.0, Color32::from_gray(40)),
+        Stroke::new(1.0, theme.text_dim.with_alpha(90).to_egui()),
     );
 
     // Elevation arc (small indicator below main compass)
@@ -192,16 +211,13 @@ pub fn compass_rose_ui(
         + Vec2::new(0.0, -el_len * (el_rad.sin()) as f32)
         + Vec2::new(radius * 0.2, radius * 0.3);
     let el_base = center + Vec2::new(radius * 0.2, radius * 0.3);
-    painter.line_segment(
-        [el_base, el_tip],
-        Stroke::new(2.0, Color32::from_rgb(0, 255, 100)),
-    );
+    painter.line_segment([el_base, el_tip], Stroke::new(2.0, theme.success.to_egui()));
     painter.text(
         el_tip + Vec2::new(0.0, -12.0),
         egui::Align2::CENTER_CENTER,
         format!("{:.0}° el", elevation),
         egui::FontId::proportional(10.0),
-        Color32::from_rgb(0, 255, 100),
+        theme.success.to_egui(),
     );
 
     // Distance text
@@ -210,7 +226,7 @@ pub fn compass_rose_ui(
         egui::Align2::CENTER_CENTER,
         format!("{:.0} km", distance_km),
         egui::FontId::proportional(10.0),
-        Color32::from_gray(100),
+        theme.text_dim.to_egui(),
     );
 }
 

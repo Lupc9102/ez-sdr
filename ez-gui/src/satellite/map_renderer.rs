@@ -1,4 +1,5 @@
 use crate::satellite::types::{SatPosition, TrajectoryPoint, TrajectorySegment};
+use crate::theme::ThemeConfig;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
 pub struct MapRenderer {
@@ -47,7 +48,7 @@ impl MapRenderer {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, theme: &ThemeConfig) {
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), ui.available_height().max(300.0)),
             egui::Sense::click_and_drag(),
@@ -75,15 +76,18 @@ impl MapRenderer {
             }
         }
 
+        // Time drives the subtle pulse on the live-pass satellite halo.
+        let pulse = ui.input(|i| (i.time * 3.0).sin() as f32) * 0.5 + 0.5;
+
         let painter = ui.painter();
         let cx = rect.center().x;
         let cy = rect.center().y;
 
         // Background
-        painter.rect_filled(rect, 0.0, Color32::from_rgb(12, 16, 24));
+        painter.rect_filled(rect, 0.0, theme.bg.to_egui());
 
         // Grid lines (lat/lon)
-        self.draw_grid(&painter, rect, cx, cy);
+        self.draw_grid(&painter, rect, cx, cy, theme);
 
         // Trajectory polyline
         if !self.trajectory.is_empty() {
@@ -105,22 +109,16 @@ impl MapRenderer {
             // Draw segment by segment with per-segment styling
             for i in 1..screen_pts.len() {
                 let seg = self.trajectory[i].segment;
-                let (color, width) = trajectory_segment_style(seg, self.in_pass_now);
+                let (color, width) = trajectory_segment_style(seg, self.in_pass_now, theme);
                 // Glow layer: wider, semi-transparent stroke behind the main line
                 if self.in_pass_now && seg == TrajectorySegment::InPass {
                     painter.line_segment(
                         [screen_pts[i - 1], screen_pts[i]],
-                        Stroke::new(
-                            width + 8.0,
-                            Color32::from_rgba_premultiplied(0, 255, 200, 40),
-                        ),
+                        Stroke::new(width + 8.0, theme.success.with_alpha(40).to_egui()),
                     );
                     painter.line_segment(
                         [screen_pts[i - 1], screen_pts[i]],
-                        Stroke::new(
-                            width + 4.0,
-                            Color32::from_rgba_premultiplied(0, 255, 200, 80),
-                        ),
+                        Stroke::new(width + 4.0, theme.success.with_alpha(80).to_egui()),
                     );
                 }
                 painter.line_segment(
@@ -136,13 +134,13 @@ impl MapRenderer {
                 .position(|tp| tp.segment == TrajectorySegment::InPass)
             {
                 let aos_pt = screen_pts[aos_idx];
-                painter.circle_filled(aos_pt, 5.0, Color32::GREEN);
+                painter.circle_filled(aos_pt, 5.0, theme.success.to_egui());
                 painter.text(
                     aos_pt + Vec2::new(6.0, 0.0),
                     egui::Align2::LEFT_CENTER,
                     "AOS",
                     egui::FontId::proportional(10.0),
-                    Color32::GREEN,
+                    theme.success.to_egui(),
                 );
 
                 if let Some(los_idx) = self
@@ -152,13 +150,13 @@ impl MapRenderer {
                 {
                     if los_idx > aos_idx {
                         let los_pt = screen_pts[los_idx];
-                        painter.circle_filled(los_pt, 5.0, Color32::RED);
+                        painter.circle_filled(los_pt, 5.0, theme.error.to_egui());
                         painter.text(
                             los_pt + Vec2::new(6.0, 0.0),
                             egui::Align2::LEFT_CENTER,
                             "LOS",
                             egui::FontId::proportional(10.0),
-                            Color32::RED,
+                            theme.error.to_egui(),
                         );
                     }
                 }
@@ -173,29 +171,31 @@ impl MapRenderer {
             self.center_lon,
             self.zoom,
         ) + rect.center().to_vec2();
-        painter.circle_filled(self.observer_marker, 4.0, Color32::YELLOW);
+        painter.circle_filled(self.observer_marker, 4.0, theme.warning.to_egui());
         painter.text(
             self.observer_marker + Vec2::new(6.0, -6.0),
             egui::Align2::LEFT_BOTTOM,
             "YOU",
             egui::FontId::proportional(10.0),
-            Color32::YELLOW,
+            theme.warning.to_egui(),
         );
 
         // Satellite marker
         if let Some(sat_pos) = &self.sat_marker {
             let sat_abs = *sat_pos + rect.center().to_vec2();
+            // Pulsing halo while a pass is live — the eyecandy the user asked for.
+            if self.in_pass_now {
+                let halo_alpha = (40.0 + pulse * 70.0) as u8;
+                painter.circle_filled(sat_abs, 14.0, theme.accent.with_alpha(halo_alpha / 3).to_egui());
+                painter.circle_filled(sat_abs, 10.0, theme.accent.with_alpha(halo_alpha).to_egui());
+            }
             // Glow
-            painter.circle_filled(
-                sat_abs,
-                8.0,
-                Color32::from_rgba_premultiplied(0, 200, 255, 80),
-            );
-            painter.circle_filled(sat_abs, 4.0, Color32::from_rgb(0, 200, 255));
+            painter.circle_filled(sat_abs, 8.0, theme.accent.with_alpha(80).to_egui());
+            painter.circle_filled(sat_abs, 4.0, theme.accent.to_egui());
             // Azimuth line from observer to satellite
             painter.line_segment(
                 [self.observer_marker, sat_abs],
-                Stroke::new(1.0, Color32::from_rgba_premultiplied(0, 200, 255, 60)),
+                Stroke::new(1.0, theme.accent.with_alpha(60).to_egui()),
             );
         }
 
@@ -205,7 +205,7 @@ impl MapRenderer {
             egui::Align2::LEFT_TOP,
             format!("Zoom: {:.0}x", self.zoom),
             egui::FontId::proportional(10.0),
-            Color32::from_gray(100),
+            theme.text_dim.to_egui(),
         );
 
         // Hover tooltip for trajectory
@@ -223,7 +223,7 @@ impl MapRenderer {
                                     egui::Align2::CENTER_BOTTOM,
                                     label,
                                     egui::FontId::proportional(11.0),
-                                    Color32::WHITE,
+                                    theme.text_heading.to_egui(),
                                 );
                                 break;
                             }
@@ -244,12 +244,12 @@ impl MapRenderer {
             egui::Align2::LEFT_BOTTOM,
             coord_str,
             egui::FontId::proportional(10.0),
-            Color32::from_gray(100),
+            theme.text_dim.to_egui(),
         );
     }
 
-    fn draw_grid(&self, painter: &egui::Painter, rect: Rect, cx: f32, cy: f32) {
-        let grid_color = Color32::from_rgba_premultiplied(60, 60, 80, 40);
+    fn draw_grid(&self, painter: &egui::Painter, rect: Rect, cx: f32, cy: f32, theme: &ThemeConfig) {
+        let grid_color = theme.spectrum_grid.to_egui();
         for lat in (-80..=80).step_by(20) {
             if (lat as f64 - self.center_lat).abs() > 80.0 {
                 continue;
@@ -298,13 +298,17 @@ fn lat_lon_to_screen(lat: f64, lon: f64, center_lat: f64, center_lon: f64, zoom:
     Pos2::new(dx as f32, dy as f32)
 }
 
-fn trajectory_segment_style(seg: TrajectorySegment, in_pass_now: bool) -> (Color32, f32) {
+fn trajectory_segment_style(
+    seg: TrajectorySegment,
+    in_pass_now: bool,
+    theme: &ThemeConfig,
+) -> (Color32, f32) {
     match (seg, in_pass_now) {
         // AOS→LOS window: bright, thick, high-visibility while live.
-        (TrajectorySegment::InPass, true) => (Color32::from_rgb(0, 255, 200), 5.0),
-        (TrajectorySegment::InPass, false) => (Color32::from_rgb(0, 220, 170), 3.5),
+        (TrajectorySegment::InPass, true) => (theme.success.to_egui(), 5.0),
+        (TrajectorySegment::InPass, false) => (theme.success.with_alpha(200).to_egui(), 3.5),
         // Approach / past segments are dim so the pass arc stands out.
-        (TrajectorySegment::PreAOS, _) => (Color32::from_gray(70), 1.0),
-        (TrajectorySegment::PostLOS, _) => (Color32::from_gray(70), 1.0),
+        (TrajectorySegment::PreAOS, _) => (theme.text_dim.to_egui(), 1.0),
+        (TrajectorySegment::PostLOS, _) => (theme.text_dim.to_egui(), 1.0),
     }
 }
