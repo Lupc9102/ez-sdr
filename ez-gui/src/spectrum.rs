@@ -78,6 +78,36 @@ pub struct SpectrumAnalyzer {
     pub fill_bot: egui::Color32,
     /// Glow effect applied to the "signal active" badge (driven by the active theme).
     pub signal_glow: crate::theme::GlowConfig,
+    /// Background fill of the spectrum plot area (driven by the active theme).
+    pub plot_bg: egui::Color32,
+    /// Grid line/label colour for both dB and frequency gridlines (driven by the active theme).
+    pub grid_color: egui::Color32,
+    /// Main spectrum trace colour (driven by the active theme).
+    pub curve_color: egui::Color32,
+    /// Noise-floor indicator line/label colour (driven by the active theme).
+    pub noise_floor_color: egui::Color32,
+    /// Success/good-state colour, used by the SNR badge and signal-active badge (driven by the active theme).
+    pub color_success: egui::Color32,
+    /// Warning-state colour, used by the squelch line and SNR badge (driven by the active theme).
+    pub color_warning: egui::Color32,
+    /// Error/bad-state colour, used by the peak-hold trace and SNR badge (driven by the active theme).
+    pub color_error: egui::Color32,
+    /// Amateur radio band-plan fill colour (driven by the active theme).
+    pub bandplan_ham: egui::Color32,
+    /// Broadcast band-plan fill colour (driven by the active theme).
+    pub bandplan_broadcast: egui::Color32,
+    /// Aviation band-plan fill colour (driven by the active theme).
+    pub bandplan_aviation: egui::Color32,
+    /// Marine band-plan fill colour (driven by the active theme).
+    pub bandplan_marine: egui::Color32,
+    /// Weather band-plan fill colour (driven by the active theme).
+    pub bandplan_weather: egui::Color32,
+    /// Satellite band-plan fill colour (driven by the active theme).
+    pub bandplan_satellite: egui::Color32,
+    /// Land-mobile band-plan fill colour (driven by the active theme).
+    pub bandplan_mobile: egui::Color32,
+    /// ISM band-plan fill colour (driven by the active theme).
+    pub bandplan_ism: egui::Color32,
     zoom_factor: f32,
     zoom_offset: f32,
     markers: Vec<(u64, String)>,
@@ -304,6 +334,21 @@ impl SpectrumAnalyzer {
             fill_top: egui::Color32::from_rgba_unmultiplied(30, 120, 200, 100),
             fill_bot: egui::Color32::from_rgba_unmultiplied(10, 30, 60, 20),
             signal_glow: crate::theme::GlowConfig::default(),
+            plot_bg: egui::Color32::from_rgb(0, 0, 5),
+            grid_color: egui::Color32::from_rgba_unmultiplied(60, 65, 80, 120),
+            curve_color: egui::Color32::from_rgb(52, 152, 219),
+            noise_floor_color: egui::Color32::from_rgba_unmultiplied(100, 100, 200, 80),
+            color_success: egui::Color32::from_rgb(46, 204, 113),
+            color_warning: egui::Color32::from_rgb(241, 196, 15),
+            color_error: egui::Color32::from_rgb(231, 76, 60),
+            bandplan_ham: egui::Color32::from_rgba_premultiplied(80, 200, 80, 28),
+            bandplan_broadcast: egui::Color32::from_rgba_premultiplied(255, 140, 50, 28),
+            bandplan_aviation: egui::Color32::from_rgba_premultiplied(80, 160, 255, 28),
+            bandplan_marine: egui::Color32::from_rgba_premultiplied(0, 200, 180, 28),
+            bandplan_weather: egui::Color32::from_rgba_premultiplied(100, 255, 120, 28),
+            bandplan_satellite: egui::Color32::from_rgba_premultiplied(180, 100, 255, 28),
+            bandplan_mobile: egui::Color32::from_rgba_premultiplied(200, 180, 60, 22),
+            bandplan_ism: egui::Color32::from_rgba_premultiplied(255, 80, 80, 25),
             zoom_factor: 1.0,
             zoom_offset: 0.5,
             markers: Vec::new(),
@@ -1253,7 +1298,7 @@ impl SpectrumAnalyzer {
         let (spectrum_rect, response) =
             ui.allocate_exact_size(egui::vec2(avail.x, spectrum_height), egui::Sense::click());
         let painter = ui.painter();
-        painter.rect_filled(spectrum_rect, 0.0, egui::Color32::from_rgb(8, 8, 14));
+        painter.rect_filled(spectrum_rect, 0.0, self.plot_bg);
 
         let n = self.fft_size;
         let min_db = self.display_min_db;
@@ -1293,7 +1338,12 @@ impl SpectrumAnalyzer {
                     ],
                     egui::Stroke::new(
                         if is_zero { 0.7 } else { 0.4 },
-                        egui::Color32::from_rgba_premultiplied(70, 80, 100, line_alpha),
+                        egui::Color32::from_rgba_unmultiplied(
+                            self.grid_color.r(),
+                            self.grid_color.g(),
+                            self.grid_color.b(),
+                            line_alpha,
+                        ),
                     ),
                 );
                 // dB label on the right side
@@ -1303,7 +1353,12 @@ impl SpectrumAnalyzer {
                     egui::Align2::RIGHT_BOTTOM,
                     format!("{db:.0}"),
                     egui::FontId::proportional(8.5),
-                    egui::Color32::from_rgba_premultiplied(140, 160, 180, 160),
+                    egui::Color32::from_rgba_unmultiplied(
+                        self.grid_color.r(),
+                        self.grid_color.g(),
+                        self.grid_color.b(),
+                        160,
+                    ),
                 );
             }
         }
@@ -1331,14 +1386,27 @@ impl SpectrumAnalyzer {
                     egui::pos2(x, spectrum_rect.top()),
                     egui::pos2(x, spectrum_rect.bottom()),
                 ],
-                egui::Stroke::new(0.5, egui::Color32::from_rgba_premultiplied(40, 40, 50, 128)),
+                egui::Stroke::new(
+                    0.5,
+                    egui::Color32::from_rgba_unmultiplied(
+                        self.grid_color.r(),
+                        self.grid_color.g(),
+                        self.grid_color.b(),
+                        128,
+                    ),
+                ),
             );
             painter.text(
                 egui::pos2(x, spectrum_rect.bottom() + 2.0),
                 egui::Align2::CENTER_TOP,
                 format!("{freq_mhz:.2}"),
                 egui::FontId::proportional(8.0),
-                egui::Color32::from_gray(90),
+                egui::Color32::from_rgba_unmultiplied(
+                    self.grid_color.r(),
+                    self.grid_color.g(),
+                    self.grid_color.b(),
+                    200,
+                ),
             );
         }
         }
@@ -1352,264 +1420,265 @@ impl SpectrumAnalyzer {
                 color: egui::Color32,
             }
             // Colors: green=amateur, orange=broadcast, blue=aviation, teal=marine, lime=weather/utility, purple=satellite/space, red=ISM, gray=other
-            const HAM: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 200, 80, 28);
-            const BCAST: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 140, 50, 28);
-            const AIR: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 160, 255, 28);
-            const MAR: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 200, 180, 28);
-            const WX: egui::Color32 = egui::Color32::from_rgba_premultiplied(100, 255, 120, 28);
-            const SAT: egui::Color32 = egui::Color32::from_rgba_premultiplied(180, 100, 255, 28);
-            const ISM: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 80, 80, 25);
-            const MOB: egui::Color32 = egui::Color32::from_rgba_premultiplied(200, 180, 60, 22);
-            const BANDS: &[Band] = &[
+            // (all driven by the active theme's bandplan_* tokens)
+            let ham = self.bandplan_ham;
+            let bcast = self.bandplan_broadcast;
+            let air = self.bandplan_aviation;
+            let mar = self.bandplan_marine;
+            let wx = self.bandplan_weather;
+            let sat = self.bandplan_satellite;
+            let ism = self.bandplan_ism;
+            let mob = self.bandplan_mobile;
+            let bands: Vec<Band> = vec![
                 // HF amateur
                 Band {
                     name: "160m",
                     low_mhz: 1.8,
                     high_mhz: 2.0,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "80m",
                     low_mhz: 3.5,
                     high_mhz: 4.0,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "40m",
                     low_mhz: 7.0,
                     high_mhz: 7.3,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "20m",
                     low_mhz: 14.0,
                     high_mhz: 14.35,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "17m",
                     low_mhz: 18.068,
                     high_mhz: 18.168,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "15m",
                     low_mhz: 21.0,
                     high_mhz: 21.45,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "12m",
                     low_mhz: 24.89,
                     high_mhz: 24.99,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "10m",
                     low_mhz: 28.0,
                     high_mhz: 29.7,
-                    color: HAM,
+                    color: ham,
                 },
                 // VHF/UHF amateur
                 Band {
                     name: "6m",
                     low_mhz: 50.0,
                     high_mhz: 54.0,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "2m",
                     low_mhz: 144.0,
                     high_mhz: 148.0,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "1.25m",
                     low_mhz: 219.0,
                     high_mhz: 225.0,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "70cm",
                     low_mhz: 420.0,
                     high_mhz: 450.0,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "33cm",
                     low_mhz: 902.0,
                     high_mhz: 928.0,
-                    color: HAM,
+                    color: ham,
                 },
                 Band {
                     name: "23cm",
                     low_mhz: 1240.0,
                     high_mhz: 1300.0,
-                    color: HAM,
+                    color: ham,
                 },
                 // Broadcast
                 Band {
                     name: "AM",
                     low_mhz: 0.525,
                     high_mhz: 1.705,
-                    color: BCAST,
+                    color: bcast,
                 },
                 Band {
                     name: "FM",
                     low_mhz: 87.5,
                     high_mhz: 108.0,
-                    color: BCAST,
+                    color: bcast,
                 },
                 Band {
                     name: "DAB",
                     low_mhz: 174.0,
                     high_mhz: 230.0,
-                    color: BCAST,
+                    color: bcast,
                 },
                 // Aviation
                 Band {
                     name: "NDB",
                     low_mhz: 0.19,
                     high_mhz: 0.525,
-                    color: AIR,
+                    color: air,
                 },
                 Band {
                     name: "VOR/ILS",
                     low_mhz: 108.0,
                     high_mhz: 118.0,
-                    color: AIR,
+                    color: air,
                 },
                 Band {
                     name: "Airband",
                     low_mhz: 118.0,
                     high_mhz: 137.0,
-                    color: AIR,
+                    color: air,
                 },
                 Band {
                     name: "ADS-B",
                     low_mhz: 1090.0,
                     high_mhz: 1090.5,
-                    color: AIR,
+                    color: air,
                 },
                 Band {
                     name: "ACARS",
                     low_mhz: 129.0,
                     high_mhz: 136.9,
-                    color: AIR,
+                    color: air,
                 },
                 // Marine / maritime
                 Band {
                     name: "Marine",
                     low_mhz: 156.0,
                     high_mhz: 174.0,
-                    color: MAR,
+                    color: mar,
                 },
                 Band {
                     name: "Marine MF",
                     low_mhz: 1.6,
                     high_mhz: 4.0,
-                    color: MAR,
+                    color: mar,
                 },
                 // Weather / utility
                 Band {
                     name: "NOAA WX",
                     low_mhz: 162.4,
                     high_mhz: 162.55,
-                    color: WX,
+                    color: wx,
                 },
                 Band {
                     name: "NOAA APT",
                     low_mhz: 137.0,
                     high_mhz: 138.0,
-                    color: WX,
+                    color: wx,
                 },
                 Band {
                     name: "GOES",
                     low_mhz: 1686.0,
                     high_mhz: 1698.0,
-                    color: WX,
+                    color: wx,
                 },
                 // Satellites
                 Band {
                     name: "GPS L1",
                     low_mhz: 1575.2,
                     high_mhz: 1576.0,
-                    color: SAT,
+                    color: sat,
                 },
                 Band {
                     name: "GPS L2",
                     low_mhz: 1227.5,
                     high_mhz: 1228.0,
-                    color: SAT,
+                    color: sat,
                 },
                 Band {
                     name: "Iridium",
                     low_mhz: 1616.0,
                     high_mhz: 1626.5,
-                    color: SAT,
+                    color: sat,
                 },
                 Band {
                     name: "Meteor",
                     low_mhz: 137.0,
                     high_mhz: 138.0,
-                    color: SAT,
+                    color: sat,
                 },
                 // Land mobile / PMR
                 Band {
                     name: "LMR VHF",
                     low_mhz: 138.0,
                     high_mhz: 174.0,
-                    color: MOB,
+                    color: mob,
                 },
                 Band {
                     name: "PMR446",
                     low_mhz: 446.0,
                     high_mhz: 446.2,
-                    color: MOB,
+                    color: mob,
                 },
                 Band {
                     name: "LMR UHF",
                     low_mhz: 450.0,
                     high_mhz: 512.0,
-                    color: MOB,
+                    color: mob,
                 },
                 // ISM / unlicensed
                 Band {
                     name: "ISM 27",
                     low_mhz: 26.96,
                     high_mhz: 27.28,
-                    color: ISM,
+                    color: ism,
                 },
                 Band {
                     name: "ISM 433",
                     low_mhz: 433.05,
                     high_mhz: 434.79,
-                    color: ISM,
+                    color: ism,
                 },
                 Band {
                     name: "ISM 868",
                     low_mhz: 868.0,
                     high_mhz: 868.6,
-                    color: ISM,
+                    color: ism,
                 },
                 Band {
                     name: "ISM 915",
                     low_mhz: 902.0,
                     high_mhz: 928.0,
-                    color: ISM,
+                    color: ism,
                 },
                 Band {
                     name: "WiFi",
                     low_mhz: 2400.0,
                     high_mhz: 2500.0,
-                    color: ISM,
+                    color: ism,
                 },
             ];
             let center_mhz = self.center_freq as f64 / 1e6;
             let half_span_mhz = zoom_span / 2e6;
             let left_mhz = center_mhz - half_span_mhz + zoom_center_offset / 1e6;
             let right_mhz = center_mhz + half_span_mhz + zoom_center_offset / 1e6;
-            for band in BANDS {
+            for band in &bands {
                 let low = band.low_mhz.max(left_mhz);
                 let high = band.high_mhz.min(right_mhz);
                 if low < high {
@@ -1836,7 +1905,7 @@ impl SpectrumAnalyzer {
                 if let Some(prev) = prev_pos {
                     painter.line_segment(
                         [prev, egui::pos2(x, y)],
-                        egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 80, 80)),
+                        egui::Stroke::new(1.0, self.color_error),
                     );
                 }
                 prev_pos = Some(egui::pos2(x, y));
@@ -1886,7 +1955,12 @@ impl SpectrumAnalyzer {
                     [egui::pos2(x, y), egui::pos2(x, y - 10.0)],
                     egui::Stroke::new(
                         0.8,
-                        egui::Color32::from_rgba_premultiplied(255, 100, 100, 180),
+                        egui::Color32::from_rgba_unmultiplied(
+                            self.color_error.r(),
+                            self.color_error.g(),
+                            self.color_error.b(),
+                            180,
+                        ),
                     ),
                 );
                 // Label
@@ -1895,7 +1969,7 @@ impl SpectrumAnalyzer {
                     egui::Align2::CENTER_BOTTOM,
                     format!("{freq_mhz:.3}"),
                     egui::FontId::proportional(7.5),
-                    egui::Color32::from_rgb(255, 130, 130),
+                    self.color_error,
                 );
                 if labeled_xs.len() >= 5 {
                     break;
@@ -1927,7 +2001,7 @@ impl SpectrumAnalyzer {
                 if let Some(prev) = prev_pos {
                     painter.line_segment(
                         [prev, egui::pos2(x, y)],
-                        egui::Stroke::new(1.5, egui::Color32::from_rgb(46, 204, 113)),
+                        egui::Stroke::new(1.5, self.curve_color),
                     );
                 }
                 prev_pos = Some(egui::pos2(x, y));
@@ -1948,7 +2022,12 @@ impl SpectrumAnalyzer {
                 ],
                 egui::Stroke::new(
                     0.7,
-                    egui::Color32::from_rgba_premultiplied(80, 80, 210, alpha),
+                    egui::Color32::from_rgba_unmultiplied(
+                        self.noise_floor_color.r(),
+                        self.noise_floor_color.g(),
+                        self.noise_floor_color.b(),
+                        alpha,
+                    ),
                 ),
             );
             painter.text(
@@ -1956,7 +2035,12 @@ impl SpectrumAnalyzer {
                 egui::Align2::LEFT_BOTTOM,
                 format!("▸ noise {nf:.0} dB"),
                 egui::FontId::proportional(7.5),
-                egui::Color32::from_rgba_premultiplied(80, 100, 210, alpha),
+                egui::Color32::from_rgba_unmultiplied(
+                    self.noise_floor_color.r(),
+                    self.noise_floor_color.g(),
+                    self.noise_floor_color.b(),
+                    alpha,
+                ),
             );
         }
 
@@ -1975,7 +2059,12 @@ impl SpectrumAnalyzer {
                     [egui::pos2(x0, sq_y), egui::pos2(x1, sq_y)],
                     egui::Stroke::new(
                         1.0,
-                        egui::Color32::from_rgba_premultiplied(220, 140, 40, 180),
+                        egui::Color32::from_rgba_unmultiplied(
+                            self.color_warning.r(),
+                            self.color_warning.g(),
+                            self.color_warning.b(),
+                            180,
+                        ),
                     ),
                 );
             }
@@ -1984,7 +2073,12 @@ impl SpectrumAnalyzer {
                 egui::Align2::RIGHT_BOTTOM,
                 format!("SQ {:.0} dB", self.squelch_db),
                 egui::FontId::proportional(7.5),
-                egui::Color32::from_rgba_premultiplied(220, 140, 40, 200),
+                egui::Color32::from_rgba_unmultiplied(
+                    self.color_warning.r(),
+                    self.color_warning.g(),
+                    self.color_warning.b(),
+                    200,
+                ),
             );
         }
 
@@ -2070,11 +2164,11 @@ impl SpectrumAnalyzer {
             let noise = self.noise_floor();
             let snr = peak - noise;
             let snr_color = if snr > 20.0 {
-                egui::Color32::from_rgb(46, 204, 113)
+                self.color_success
             } else if snr > 10.0 {
-                egui::Color32::from_rgb(241, 196, 15)
+                self.color_warning
             } else {
-                egui::Color32::from_rgb(231, 76, 60)
+                self.color_error
             };
             let badge_text = format!("SNR {snr:.1} dB");
             let text_pos = egui::pos2(spectrum_rect.right() - 4.0, spectrum_rect.top() + 4.0);
@@ -2105,7 +2199,7 @@ impl SpectrumAnalyzer {
             let (badge_text, fg_color, bg_color) = if self.signal_active {
                 (
                     "● ACTIVE".to_string(),
-                    egui::Color32::from_rgb(60, 220, 80),
+                    self.color_success,
                     egui::Color32::from_rgba_premultiplied(0, 40, 0, 180),
                 )
             } else if let Some(last) = self.last_signal_unix {

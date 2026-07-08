@@ -2724,6 +2724,39 @@ impl CentralApp {
                 state.spectrum.fill_top = state.config.theme_config.spectrum_gradient.sample(0.0).to_egui();
                 state.spectrum.fill_bot = state.config.theme_config.spectrum_gradient.sample(1.0).to_egui();
                 state.spectrum.signal_glow = state.config.theme_config.glow;
+                state.spectrum.plot_bg = state.config.theme_config.waterfall_bg.to_egui();
+                state.spectrum.grid_color = state.config.theme_config.spectrum_grid.to_egui();
+                state.spectrum.curve_color = state.config.theme_config.spectrum_line.to_egui();
+                state.spectrum.noise_floor_color = state.config.theme_config.noise_floor_line.to_egui();
+                state.spectrum.color_success = state.config.theme_config.success.to_egui();
+                state.spectrum.color_warning = state.config.theme_config.warning.to_egui();
+                state.spectrum.color_error = state.config.theme_config.error.to_egui();
+                {
+                    let premul = |c: crate::theme::Rgba| {
+                        egui::Color32::from_rgba_premultiplied(c.0, c.1, c.2, c.3)
+                    };
+                    let (ham, bcast, air, mar, wx, sat, mob, ism) = {
+                        let bp = &state.config.theme_config;
+                        (
+                            bp.bandplan_ham,
+                            bp.bandplan_broadcast,
+                            bp.bandplan_aviation,
+                            bp.bandplan_marine,
+                            bp.bandplan_weather,
+                            bp.bandplan_satellite,
+                            bp.bandplan_mobile,
+                            bp.bandplan_ism,
+                        )
+                    };
+                    state.spectrum.bandplan_ham = premul(ham);
+                    state.spectrum.bandplan_broadcast = premul(bcast);
+                    state.spectrum.bandplan_aviation = premul(air);
+                    state.spectrum.bandplan_marine = premul(mar);
+                    state.spectrum.bandplan_weather = premul(wx);
+                    state.spectrum.bandplan_satellite = premul(sat);
+                    state.spectrum.bandplan_mobile = premul(mob);
+                    state.spectrum.bandplan_ism = premul(ism);
+                }
                 let sq_active = state.squelch > -90.0 && state.spectrum.signal_level() > state.squelch;
                 state.spectrum.signal_active = sq_active;
                 if sq_active {

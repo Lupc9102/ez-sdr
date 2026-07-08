@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1783508276.2286756,
-    "ast_hash": "017d2fb6b225b9a99e6220f6def2df3b",
+    "mtime": 1783520257.1544328,
+    "ast_hash": "f1b8e2d603bc1131f49a8da3f6e2b839",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -185,8 +185,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/spectrum.rs": {
-    "mtime": 1783517466.687318,
-    "ast_hash": "fa0e8bd8bad838b5e4e57de736cd2da1",
+    "mtime": 1783520148.9549837,
+    "ast_hash": "94812f45594fede0837819df036b0b94",
     "semantic_hash": ""
   },
   "ez-gui/src/theme.rs": {
