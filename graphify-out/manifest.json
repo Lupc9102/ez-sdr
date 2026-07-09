@@ -1670,13 +1670,18 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/mod.rs": {
-    "mtime": 1783595656.7950168,
-    "ast_hash": "e78e9897acde8b67a94b2d5a5502c985",
+    "mtime": 1783596291.0260704,
+    "ast_hash": "d48806e1e9f4ca488991d33f516d2be4",
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/spectrum.rs": {
     "mtime": 1783595701.8020794,
     "ast_hash": "e8eb0027554728896c4e1c204eb2a6df",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/pipelines/audio.rs": {
+    "mtime": 1783596337.9951098,
+    "ast_hash": "d0b9cb5feea46bb4f2618f53ee8c9941",
     "semantic_hash": ""
   }
 }
