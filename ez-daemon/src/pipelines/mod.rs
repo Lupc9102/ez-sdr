@@ -8,4 +8,5 @@
 //! obscure each one's actual control flow.
 
 pub mod audio;
+pub mod packet;
 pub mod spectrum;
