@@ -7,4 +7,5 @@
 //! DSP vs. block decode vs. event-driven parsing) that forcing a common trait would only
 //! obscure each one's actual control flow.
 
+pub mod audio;
 pub mod spectrum;
