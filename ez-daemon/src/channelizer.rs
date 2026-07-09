@@ -258,6 +258,17 @@ impl Channelizer {
         self.channels.len()
     }
 
+    /// Returns an additional, independent subscriber handle for an already-registered
+    /// channel (e.g. so a recording can attach to a channel already feeding a demod
+    /// pipeline, without disturbing it). `None` if `id` doesn't name a live channel.
+    #[must_use]
+    pub fn subscribe(&self, id: u64, capacity: usize) -> Option<SampleBusHandle> {
+        self.channels
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.bus.subscribe(capacity, OverflowPolicy::DropOldest))
+    }
+
     /// Waits up to `poll_timeout` for the next wideband block and, if one arrived, routes it
     /// through every active channel. Returns whether a block was actually processed —
     /// callers driving a shutdown-aware loop should check an external stop signal on `false`
@@ -472,6 +483,31 @@ mod tests {
         assert_eq!(chan.channel_count(), 1);
         chan.remove_channel(id);
         assert_eq!(chan.channel_count(), 0);
+    }
+
+    #[test]
+    fn subscribe_gives_an_additional_independent_handle_to_a_live_channel() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        let (id, first) = chan.add_channel(100_000_000, 200_000).unwrap();
+
+        let second = chan.subscribe(id, 4).expect("channel is live");
+
+        bus.publish(wideband_block(100_000_000, 2_000_000, tone(8_000, 0.0, 2_000_000.0)));
+        assert!(chan.tick(Duration::from_millis(200)));
+
+        let out_first = first.recv_timeout(Duration::from_millis(200)).expect("first subscriber output");
+        let out_second = second.recv_timeout(Duration::from_millis(200)).expect("second subscriber output");
+        assert_eq!(out_first.center_freq_hz, out_second.center_freq_hz);
+    }
+
+    #[test]
+    fn subscribe_returns_none_for_an_unknown_channel_id() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        assert!(chan.subscribe(42, 4).is_none());
     }
 
     #[test]
