@@ -1631,6 +1631,7 @@ dependencies = [
  "dump1090",
  "ez-proto",
  "futures-util",
+ "image",
  "lrpt-decode",
  "num-complex",
  "pkg-config",

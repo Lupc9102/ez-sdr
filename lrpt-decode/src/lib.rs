@@ -152,7 +152,7 @@ impl LrptDecoder {
     /// Feed a chunk of raw interleaved u8 IQ bytes (RTL-SDR `Uc8` convention).
     pub fn push_samples(&mut self, bytes: &[u8]) {
         let complex = iq_bytes_to_complex(bytes);
-        self.push_complex(complex);
+        self.push_complex(&complex);
     }
 
     /// Feed a chunk of LE-float32-interleaved I/Q bytes (current `.cf32`
@@ -160,11 +160,16 @@ impl LrptDecoder {
     /// `ez-gui/src/satellite/recorder.rs::raw_iq_bytes_to_cf32_le`).
     pub fn push_samples_cf32(&mut self, bytes: &[u8]) {
         let complex = cf32_le_bytes_to_complex(bytes);
-        self.push_complex(complex);
+        self.push_complex(&complex);
     }
 
-    fn push_complex(&mut self, complex: Vec<Complex32>) {
-        let symbols = self.demod.process(&complex);
+    /// Feed already-parsed complex baseband samples directly. Intended for callers that
+    /// already hold `Complex32` samples (e.g. a daemon pipeline consuming a
+    /// [`crate`]-external sample bus) and would otherwise have to re-serialize them to
+    /// bytes just for this decoder to re-parse — `push_samples`/`push_samples_cf32` are
+    /// thin wrappers around this for callers that only have raw bytes on hand.
+    pub fn push_complex(&mut self, complex: &[Complex32]) {
+        let symbols = self.demod.process(complex);
         if symbols.is_empty() {
             return;
         }

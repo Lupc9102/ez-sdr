@@ -14,7 +14,7 @@ thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 crossbeam-channel = { workspace = true }
-image = "0.25"
+image = { workspace = true }
 reed-solomon = "0.2.1"
 
 [lints]

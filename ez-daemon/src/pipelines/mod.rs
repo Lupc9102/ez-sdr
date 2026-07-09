@@ -10,3 +10,4 @@
 pub mod audio;
 pub mod packet;
 pub mod spectrum;
+pub mod telemetry;
