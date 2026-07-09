@@ -1,0 +1,51 @@
+[package]
+name = "ez-daemon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "Headless background service: hardware ingestion, wideband channelization, and multi-tenant DSP pipeline routing for ez-sdr"
+license = "MIT OR Apache-2.0"
+authors = ["Lupc9102"]
+
+[lib]
+name = "ez_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ez-daemon"
+path = "src/main.rs"
+
+[dependencies]
+ez-proto = { workspace = true }
+dump1090 = { workspace = true }
+lrpt-decode = { workspace = true }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+num-complex = { workspace = true }
+rustfft = { workspace = true }
+crossbeam-channel = { workspace = true }
+arc-swap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+clap = { workspace = true, features = ["derive"] }
+
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "sync", "signal", "macros", "time"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures-util = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
+[build-dependencies]
+pkg-config = { workspace = true }
+
+[features]
+default = []
+rtlsdr = []
+hackrf = []
+soapy = []
+
+[lints]
+workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "ez-proto"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "Wire protocol and binary codec shared between ez-daemon and its network clients"
+license = "MIT OR Apache-2.0"
+authors = ["Lupc9102"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+bincode = { workspace = true }
+tokio-util = { workspace = true, features = ["codec"] }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util"] }
+futures-util = { version = "0.3", features = ["sink"] }
+
+[lints]
+workspace = true
