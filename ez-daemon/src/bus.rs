@@ -182,7 +182,13 @@ pub struct SampleBusHandle {
 }
 
 impl SampleBusHandle {
-    /// Blocks until a block is available or the bus itself is gone.
+    /// Blocks until a block is available. Note this subscriber's own sending half lives
+    /// inside its `Subscriber` entry (removed only by this handle's own `Drop`), so unlike a
+    /// plain channel this never observes "disconnected" just because every `SampleBus`
+    /// clone on the publish side went away — it simply waits for the next `publish` call,
+    /// which may never come if ingestion has stopped. Callers that need to exit a wait loop
+    /// on shutdown should use [`Self::recv_timeout`] against an external stop signal instead
+    /// of relying on this returning `None`.
     pub fn recv(&self) -> Option<SampleBlock> {
         self.rx.recv().ok()
     }
@@ -190,6 +196,14 @@ impl SampleBusHandle {
     /// Returns immediately with `None` if no block is queued.
     pub fn try_recv(&self) -> Option<SampleBlock> {
         self.rx.try_recv().ok()
+    }
+
+    /// Blocks until a block is available or `timeout` elapses, whichever comes first.
+    /// Intended for run loops that must periodically poll an external shutdown signal
+    /// instead of blocking on [`Self::recv`] forever — see its doc comment for why this
+    /// channel never disconnects on its own.
+    pub fn recv_timeout(&self, timeout: std::time::Duration) -> Option<SampleBlock> {
+        self.rx.recv_timeout(timeout).ok()
     }
 
     /// How many blocks this subscriber has lost to its overflow policy since subscribing.
@@ -301,6 +315,21 @@ mod tests {
         // The two subscriber queues plus our local `payload` binding all now share the
         // same allocation — three owners, zero copies of the 1024-sample buffer.
         assert_eq!(Arc::strong_count(&payload), 3);
+    }
+
+    #[test]
+    fn recv_timeout_returns_none_when_idle_then_some_once_published() {
+        let bus = SampleBus::new();
+        let sub = bus.subscribe(4, OverflowPolicy::DropIncoming);
+
+        let timed_out = sub.recv_timeout(std::time::Duration::from_millis(20));
+        assert!(timed_out.is_none());
+
+        bus.publish(block(7, 1.0));
+        let received = sub
+            .recv_timeout(std::time::Duration::from_millis(20))
+            .expect("block published just before this call should be there");
+        assert_eq!(received.start_sample, 7);
     }
 
     #[test]

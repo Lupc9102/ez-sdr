@@ -12,4 +12,5 @@
 //! on-demand network observers/controllers (see `ez-proto`), never part of the hot path.
 
 pub mod bus;
+pub mod channelizer;
 pub mod hardware;
