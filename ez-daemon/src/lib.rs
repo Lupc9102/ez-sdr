@@ -15,3 +15,4 @@ pub mod broadcast;
 pub mod bus;
 pub mod channelizer;
 pub mod hardware;
+pub mod pipelines;
