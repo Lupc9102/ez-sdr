@@ -23,6 +23,13 @@ const WFM_DEVIATION_HZ: f32 = 75_000.0;
 /// Pole of the one-pole DC blocker applied after AM envelope detection: closer to 1.0 tracks
 /// slower drift and preserves more low-frequency audio content.
 const AM_DC_BLOCKER_POLE: f32 = 0.999;
+/// Upper bound accepted by [`AudioPipeline::set_volume`] — enough headroom for a weak
+/// signal without letting a client silently drive the output into extreme gain.
+const MAX_VOLUME: f32 = 4.0;
+/// Default squelch threshold (dBFS of mean input power): low enough that squelch is
+/// effectively disabled until a client raises it, matching [`SpectrumPipeline`]'s own
+/// noise-floor convention for "quiet" (`crate::pipelines::spectrum`).
+const DEFAULT_SQUELCH_DB: f32 = -120.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AudioConfig {
@@ -42,6 +49,8 @@ pub struct AudioPipeline {
     dc_prev_x: f32,
     dc_prev_y: f32,
     prev_sample: Complex32,
+    volume: f32,
+    squelch_db: f32,
     output: Broadcaster<AudioFrame>,
 }
 
@@ -55,6 +64,8 @@ impl AudioPipeline {
             dc_prev_x: 0.0,
             dc_prev_y: 0.0,
             prev_sample: Complex32::new(0.0, 0.0),
+            volume: 1.0,
+            squelch_db: DEFAULT_SQUELCH_DB,
             output: Broadcaster::new(),
         }
     }
@@ -73,6 +84,29 @@ impl AudioPipeline {
     #[must_use]
     pub fn mode(&self) -> DemodMode {
         self.mode
+    }
+
+    /// Sets output gain applied after demodulation, clamped to `[0, MAX_VOLUME]`. `0.0`
+    /// mutes without stopping the pipeline (state, e.g. the FM discriminator's carried
+    /// previous sample, keeps advancing) so unmuting resumes cleanly with no discontinuity.
+    pub fn set_volume(&mut self, level: f32) {
+        self.volume = level.clamp(0.0, MAX_VOLUME);
+    }
+
+    #[must_use]
+    pub fn volume(&self) -> f32 {
+        self.volume
+    }
+
+    /// Sets the squelch threshold in dBFS: a block whose mean input power falls below this
+    /// is still demodulated (to keep carried state continuous) but published as silence.
+    pub fn set_squelch(&mut self, db: f32) {
+        self.squelch_db = db;
+    }
+
+    #[must_use]
+    pub fn squelch_db(&self) -> f32 {
+        self.squelch_db
     }
 
     #[must_use]
@@ -105,7 +139,7 @@ impl AudioPipeline {
     }
 
     fn process_block(&mut self, block: &SampleBlock) {
-        let samples = match self.mode {
+        let mut samples: Vec<f32> = match self.mode {
             DemodMode::Raw => block.samples.iter().map(|s| s.re).collect(),
             DemodMode::Am => self.demod_am(&block.samples),
             DemodMode::Fm => self.demod_fm(&block.samples, block.sample_rate_hz, NFM_DEVIATION_HZ),
@@ -119,6 +153,20 @@ impl AudioPipeline {
                 block.samples.iter().map(|s| (2.0 * s.re).clamp(-1.0, 1.0)).collect()
             }
         };
+
+        // Squelch gates on the block's own mean input power so it reacts to the RF signal
+        // actually present, not to whatever the demodulator happened to output for it
+        // (e.g. FM's discriminator is meaningless on noise alone). Carried demod state
+        // above has already advanced against the real input either way, so un-squelching
+        // never reintroduces a discontinuity.
+        let mean_power: f32 =
+            block.samples.iter().map(|s| s.norm_sqr()).sum::<f32>() / block.samples.len().max(1) as f32;
+        let power_db = if mean_power > 1e-12 { 10.0 * mean_power.log10() } else { -240.0 };
+        if power_db < self.squelch_db {
+            samples.iter_mut().for_each(|s| *s = 0.0);
+        } else if self.volume != 1.0 {
+            samples.iter_mut().for_each(|s| *s = (*s * self.volume).clamp(-1.0, 1.0));
+        }
 
         self.output.publish(AudioFrame {
             channel_id: self.channel_id,
@@ -362,5 +410,83 @@ mod tests {
         assert_eq!(ap.subscriber_count(), 1);
         drop(a);
         assert_eq!(ap.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn set_volume_clamps_to_the_documented_range() {
+        let (_bus, mut ap) = pipeline_with(DemodMode::Raw);
+        ap.set_volume(-1.0);
+        assert_eq!(ap.volume(), 0.0);
+        ap.set_volume(1000.0);
+        assert_eq!(ap.volume(), MAX_VOLUME);
+        ap.set_volume(1.5);
+        assert_eq!(ap.volume(), 1.5);
+    }
+
+    #[test]
+    fn volume_scales_raw_output_and_stays_clamped_to_unit_range() {
+        let (bus, mut ap) = pipeline_with(DemodMode::Raw);
+        ap.set_volume(2.0);
+        let out = ap.subscribe(4);
+
+        bus.publish(block_of(vec![Complex32::new(0.5, 0.0), Complex32::new(-0.3, 0.0)], 48_000));
+        ap.tick(Duration::from_millis(50));
+        let frame = out.try_recv().expect("expected a frame");
+        // 0.5 * 2.0 == 1.0 exactly; -0.3 * 2.0 == -0.6 (no clamping needed).
+        assert_eq!(frame.samples, vec![1.0, -0.6]);
+    }
+
+    #[test]
+    fn default_squelch_passes_a_normal_signal_through() {
+        let (bus, mut ap) = pipeline_with(DemodMode::Raw);
+        let out = ap.subscribe(4);
+
+        bus.publish(block_of(tone(100, 1_000.0, 48_000.0), 48_000));
+        ap.tick(Duration::from_millis(50));
+        let frame = out.try_recv().expect("expected a frame");
+        assert!(frame.samples.iter().any(|&s| s != 0.0), "default squelch should not silence a real signal");
+    }
+
+    #[test]
+    fn raising_squelch_above_signal_power_silences_output() {
+        let (bus, mut ap) = pipeline_with(DemodMode::Raw);
+        ap.set_squelch(1.0); // unit-amplitude tone sits at ~0 dBFS, so 1.0 dB clearly gates it
+        assert_eq!(ap.squelch_db(), 1.0);
+        let out = ap.subscribe(4);
+
+        bus.publish(block_of(tone(100, 1_000.0, 48_000.0), 48_000));
+        ap.tick(Duration::from_millis(50));
+        let frame = out.try_recv().expect("expected a frame even when squelched");
+        assert!(frame.samples.iter().all(|&s| s == 0.0), "squelch above signal power should silence output");
+    }
+
+    #[test]
+    fn squelch_gates_output_without_discarding_discriminator_continuity() {
+        // Regression guard: squelching must zero the OUTPUT, not skip demodulation, so FM
+        // carried state (prev_sample) keeps advancing and un-squelching is glitch-free. Uses
+        // one continuous tone sliced in two (not two independently-phased tones), exactly
+        // like fm_discriminator_state_is_continuous_across_ticks, since prev_sample
+        // continuity is only meaningful against a genuinely continuous signal.
+        let sample_rate = 48_000.0;
+        let offset = 2_000.0;
+        let full_tone = tone(400, offset, sample_rate);
+        let (bus, mut ap) = pipeline_with(DemodMode::Fm);
+        ap.set_squelch(100.0); // above any signal power this tone can reach: always gated
+        let out = ap.subscribe(4);
+
+        bus.publish(block_of(full_tone[..200].to_vec(), sample_rate as u32));
+        ap.tick(Duration::from_millis(50));
+        let frame = out.try_recv().expect("expected a frame");
+        assert!(frame.samples.iter().all(|&s| s == 0.0));
+
+        ap.set_squelch(DEFAULT_SQUELCH_DB);
+        bus.publish(block_of(full_tone[200..].to_vec(), sample_rate as u32));
+        ap.tick(Duration::from_millis(50));
+        let unsquelched = out.try_recv().expect("expected a frame");
+        let expected = (offset / NFM_DEVIATION_HZ as f64) as f32;
+        // Had prev_sample not kept advancing under squelch, sample 0 here would show the
+        // same "no prior sample" reset artifact tested in
+        // fm_discriminator_state_is_continuous_across_ticks instead of the steady tone level.
+        assert!((unsquelched.samples[0] - expected).abs() < 0.01);
     }
 }

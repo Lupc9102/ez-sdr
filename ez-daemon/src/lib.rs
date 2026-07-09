@@ -11,9 +11,15 @@
 //! The daemon runs identically whether zero or many GUI clients are attached; clients are
 //! on-demand network observers/controllers (see `ez-proto`), never part of the hot path.
 
+pub mod app;
 pub mod broadcast;
 pub mod bus;
 pub mod channelizer;
 pub mod hardware;
+pub mod ingest;
 pub mod pipelines;
 pub mod recording;
+pub mod server;
+pub mod state;
+
+pub use app::{run, DaemonConfig, SourceConfig};

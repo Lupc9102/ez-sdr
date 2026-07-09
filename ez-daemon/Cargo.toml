@@ -33,7 +33,7 @@ clap = { workspace = true, features = ["derive"] }
 
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "sync", "signal", "macros", "time"] }
 tokio-util = { workspace = true, features = ["codec"] }
-futures-util = "0.3"
+futures-util = { version = "0.3", features = ["sink"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

@@ -258,6 +258,47 @@ impl Channelizer {
         self.channels.len()
     }
 
+    /// The wideband capture's current center frequency, as last set by [`Self::new`] or
+    /// [`Self::retune`]. Callers (e.g. `DaemonState`) need this to translate a client's
+    /// `center_offset_hz`-relative-to-wideband-center channel request into the absolute
+    /// `center_freq_hz` [`Self::add_channel`] expects.
+    #[must_use]
+    pub fn wideband_center_hz(&self) -> u64 {
+        self.wideband_center_hz
+    }
+
+    /// The actual decimated output sample rate of a live channel, or `None` if `id` doesn't
+    /// name one. This can differ from the `min_output_rate_hz` originally requested via
+    /// [`Self::add_channel`] (which only guarantees "at least this much"), so callers that
+    /// need the real rate (e.g. `TelemetryPipeline`'s fixed-rate decoder) must read it back
+    /// here rather than assuming their request was honored exactly.
+    #[must_use]
+    pub fn channel_output_rate_hz(&self, id: u64) -> Option<u32> {
+        self.channels.iter().find(|c| c.id == id).map(|c| c.output_rate_hz)
+    }
+
+    /// Re-centers the wideband capture (e.g. the hardware source retuned), recomputing every
+    /// active virtual channel's NCO offset against the new center so each channel stays
+    /// correctly tuned relative to its own absolute `center_freq_hz`. FIR/decimation state
+    /// (filter history, decimation phase) is preserved untouched — only the mix, which
+    /// depends on the *offset* from wideband center, needs to change; a brief NCO phase
+    /// discontinuity at the instant of retune is expected and physically matches the
+    /// hardware's own retune transient.
+    ///
+    /// Known limitation: a channel whose `center_freq_hz` now falls outside the new center's
+    /// Nyquist span is not removed or flagged — it keeps running and its NCO mix no longer
+    /// corresponds to a physically meaningful offset, so its output becomes meaningless
+    /// until the caller removes and re-adds it. Silently dropping it would be equally
+    /// surprising (a client's channel disappearing out from under it), so this is left as an
+    /// explicit, documented limitation rather than guessed at.
+    pub fn retune(&mut self, new_wideband_center_hz: u64) {
+        self.wideband_center_hz = new_wideband_center_hz;
+        for channel in &mut self.channels {
+            let offset_hz = channel.center_freq_hz as f64 - new_wideband_center_hz as f64;
+            channel.nco = Nco::new(offset_hz, self.wideband_rate_hz as f64);
+        }
+    }
+
     /// Returns an additional, independent subscriber handle for an already-registered
     /// channel (e.g. so a recording can attach to a channel already feeding a demod
     /// pipeline, without disturbing it). `None` if `id` doesn't name a live channel.
@@ -525,5 +566,68 @@ mod tests {
         let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
         let running = AtomicBool::new(false);
         chan.run(&running); // must return immediately, not hang
+    }
+
+    #[test]
+    fn wideband_center_hz_reflects_construction_and_retune() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        assert_eq!(chan.wideband_center_hz(), 100_000_000);
+        chan.retune(101_000_000);
+        assert_eq!(chan.wideband_center_hz(), 101_000_000);
+    }
+
+    #[test]
+    fn channel_output_rate_hz_reports_actual_decimated_rate() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        // 2_000_000 / 100_000 requested -> decimation factor 20 -> exact 100_000 Hz actual.
+        let (id, _out) = chan.add_channel(100_000_000, 100_000).unwrap();
+        assert_eq!(chan.channel_output_rate_hz(id), Some(100_000));
+    }
+
+    #[test]
+    fn channel_output_rate_hz_returns_none_for_unknown_channel() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        assert_eq!(chan.channel_output_rate_hz(42), None);
+    }
+
+    #[test]
+    fn retune_updates_nco_offset_so_channel_still_tracks_its_absolute_frequency() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        // Channel is absolute 100_050_000 Hz, i.e. +50kHz offset while wideband center is
+        // 100_000_000. After retuning the wideband center to 100_050_000, the channel's
+        // offset should become ~0 (it *is* the new center), so a DC tone injected at the
+        // wideband level should now survive the channel's low-pass essentially undamped.
+        let (id, out_handle) = chan.add_channel(100_050_000, 200_000).unwrap();
+        chan.retune(100_050_000);
+        let _ = id;
+
+        bus.publish(wideband_block(100_050_000, 2_000_000, tone(4_000, 0.0, 2_000_000.0)));
+        assert!(chan.tick(Duration::from_millis(200)));
+        let out = out_handle
+            .recv_timeout(Duration::from_millis(200))
+            .expect("expected decimated output after retune");
+        let tail = &out.samples[out.samples.len() / 2..];
+        let rms = (tail.iter().map(|c| c.norm_sqr()).sum::<f32>() / tail.len() as f32).sqrt();
+        assert!(rms > 0.7, "expected near-undamped DC tone after retune, got rms {rms}");
+    }
+
+    #[test]
+    fn retune_preserves_channel_count_and_registry() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        chan.add_channel(99_900_000, 200_000).unwrap();
+        chan.add_channel(100_100_000, 200_000).unwrap();
+        assert_eq!(chan.channel_count(), 2);
+        chan.retune(100_010_000);
+        assert_eq!(chan.channel_count(), 2);
     }
 }

@@ -225,8 +225,8 @@
     "semantic_hash": "3e825c3120dd5c0df0b6a5998baf63bc"
   },
   ".claude/settings.json": {
-    "mtime": 1783600242.1300569,
-    "ast_hash": "bac802a38fe49e9f7aeeb4a188862130",
+    "mtime": 1783605087.6640024,
+    "ast_hash": "5df6a3638c999a888f4039e7bd482335",
     "semantic_hash": ""
   },
   ".claude/settings.local.json": {
@@ -910,13 +910,13 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/lib.rs": {
-    "mtime": 1783602854.8104868,
-    "ast_hash": "77fb30b22b1294855d25b4d043874953",
+    "mtime": 1783606284.8718169,
+    "ast_hash": "229fca5a4bfff6a09b0dace64cc791d2",
     "semantic_hash": ""
   },
   "ez-daemon/src/main.rs": {
-    "mtime": 1783586044.021079,
-    "ast_hash": "965252f67642f480832477b7fc22f34c",
+    "mtime": 1783606355.3886092,
+    "ast_hash": "3abc84885a6b978923e25801a65747d4",
     "semantic_hash": ""
   },
   "ez-proto/src/codec.rs": {
@@ -1660,8 +1660,8 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/channelizer.rs": {
-    "mtime": 1783602721.7873638,
-    "ast_hash": "104881f33f8c62d1bbe5870f88a52b3a",
+    "mtime": 1783604976.2443066,
+    "ast_hash": "9d8d9211095b08f04e6fc1a4470c4876",
     "semantic_hash": ""
   },
   "ez-daemon/src/broadcast.rs": {
@@ -1680,8 +1680,8 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/audio.rs": {
-    "mtime": 1783596337.9951098,
-    "ast_hash": "d0b9cb5feea46bb4f2618f53ee8c9941",
+    "mtime": 1783604353.1064537,
+    "ast_hash": "8499ea73e6e89b2b18c6851b0679ec67",
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/packet.rs": {
@@ -1697,6 +1697,26 @@
   "ez-daemon/src/recording.rs": {
     "mtime": 1783602896.4664648,
     "ast_hash": "de8a871b77ef6e1dd4ce238626aa4634",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/app.rs": {
+    "mtime": 1783606269.4114237,
+    "ast_hash": "da5979a597130c7683b2ecaa590975ea",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/ingest.rs": {
+    "mtime": 1783606142.7411761,
+    "ast_hash": "dc3877b815cce622415724ffdc62db9d",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/server.rs": {
+    "mtime": 1783606026.1961586,
+    "ast_hash": "2a149afc4d4aa22f35103c7f7fc3a787",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/state.rs": {
+    "mtime": 1783605733.2965753,
+    "ast_hash": "43dbb19c4b7bb9acfb4ec96ed2a1e9c4",
     "semantic_hash": ""
   }
 }
