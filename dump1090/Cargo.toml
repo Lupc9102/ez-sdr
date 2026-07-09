@@ -25,6 +25,9 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 ctrlc = "3"
 
+[build-dependencies]
+pkg-config = { workspace = true }
+
 [features]
 default = []
 # RTL-SDR backend (requires librtlsdr)

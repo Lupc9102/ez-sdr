@@ -37,6 +37,7 @@ pub const SOAPY_SDR_RX: i32 = 2;
 pub const SOAPY_SDR_CS16: *const c_char = c"CS16".as_ptr();
 
 #[allow(dead_code)]
+#[link(name = "SoapySDR")]
 extern "C" {
     fn SoapySDRDevice_enumerateStrArgs(
         args: *const c_char,

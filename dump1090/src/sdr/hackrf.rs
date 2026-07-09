@@ -28,6 +28,7 @@ pub struct HackrfTransfer {
 
 pub const HACKRF_TRUE: u8 = 1;
 
+#[link(name = "hackrf")]
 extern "C" {
     fn hackrf_init() -> c_int;
     fn hackrf_open(device: *mut *mut HackrfDevice) -> c_int;

@@ -37,6 +37,7 @@ mod ffi {
         _private: [u8; 0],
     }
 
+    #[link(name = "rtlsdr")]
     extern "C" {
         pub fn rtlsdr_get_device_count() -> u32;
         pub fn rtlsdr_get_device_name(index: u32) -> *const c_char;
