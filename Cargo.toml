@@ -30,7 +30,7 @@ pkg-config = "0.3"
 image = "0.25"
 axum = "0.8"
 tower = "0.5"
-tower-http = "0.6"
+tower-http = "0.7"
 tokio-tungstenite = "0.24"
 reqwest = { version = "0.12", default-features = false }
 ez-proto = { path = "ez-proto" }
