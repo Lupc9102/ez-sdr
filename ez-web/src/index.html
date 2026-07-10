@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ez-sdr</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <h1>ez-sdr</h1>
+        <div id="error-banner" class="error-banner"></div>
+        <div id="conn-status" class="conn-status conn-status--down">connecting&hellip;</div>
+      </header>
+      <div class="layout">
+        <aside class="sidebar">
+          <section id="hardware-panel" class="panel"></section>
+          <section id="display-panel" class="panel"></section>
+          <section id="channel-list" class="panel"></section>
+          <section id="channel-controls" class="panel"></section>
+        </aside>
+        <main class="main">
+          <div id="spectrum-container" class="spectrum-container">
+            <canvas id="spectrum-canvas"></canvas>
+            <canvas id="spectrum-overlay"></canvas>
+          </div>
+          <section id="aircraft-panel" class="panel"></section>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
