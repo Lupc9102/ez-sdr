@@ -26,32 +26,58 @@ pub enum SourceConfig {
     /// Deterministic generated signal; always available, no hardware or files needed.
     Synthetic,
     /// Plays back a previously captured IQ file — see `crate::hardware::replay`.
-    Replay { path: String, format: ReplayFormat, looping: bool, speed: f32 },
+    Replay {
+        path: String,
+        format: ReplayFormat,
+        looping: bool,
+        speed: f32,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
     pub listen_addr: SocketAddr,
+    /// Address the web UI/API (`crate::web`) listens on — a separate socket from
+    /// `listen_addr` so the legacy TCP control/data path and the HTTP/WebSocket path can
+    /// each be bound, saturated, or shut down independently.
+    pub web_listen_addr: SocketAddr,
     pub initial_freq_hz: u64,
     pub initial_sample_rate_hz: u32,
     pub recording_dir: PathBuf,
+    /// Directory containing the compiled frontend's static assets (`index.html`, JS/CSS
+    /// bundles). Served at `/` by `crate::web::serve`; see that function's doc comment for
+    /// behavior when the directory doesn't exist.
+    pub web_static_dir: PathBuf,
     pub source: SourceConfig,
 }
 
 fn build_source(config: &SourceConfig, initial_sample_rate_hz: u32) -> Result<Box<dyn IqSource>> {
     let source: Box<dyn IqSource> = match config {
         SourceConfig::Synthetic => Box::new(SyntheticSource::default()),
-        SourceConfig::Replay { path, format, looping, speed } => {
-            Box::new(FileReplaySource::open(path, *format, initial_sample_rate_hz, *looping, *speed)?)
-        }
+        SourceConfig::Replay {
+            path,
+            format,
+            looping,
+            speed,
+        } => Box::new(FileReplaySource::open(
+            path,
+            *format,
+            initial_sample_rate_hz,
+            *looping,
+            *speed,
+        )?),
     };
     Ok(source)
 }
 
-/// Runs the daemon until `running` clears: binds the listener, wires hardware through to
-/// the TCP server, then blocks on [`server::serve`]. Returns once shutdown is complete —
-/// including the ingestion thread, whose blocking join is offloaded to a blocking-pool
-/// thread so a slow-to-stop hardware source can't stall the async runtime during shutdown.
+/// Runs the daemon until `running` clears: binds both the legacy TCP listener and the web
+/// UI/API listener, wires hardware through to both, then runs `server::serve` and
+/// `web::serve` concurrently on this same runtime until either returns (both observe the
+/// same `running` flag, so a clean shutdown stops both together; an early error from either
+/// still tears down the other via `running` clearing on drop of this future). Returns once
+/// shutdown is complete — including the ingestion thread, whose blocking join is offloaded
+/// to a blocking-pool thread so a slow-to-stop hardware source can't stall the async runtime
+/// during shutdown.
 pub async fn run(config: DaemonConfig, running: Arc<AtomicBool>) -> Result<()> {
     let mut source = build_source(&config.source, config.initial_sample_rate_hz)?;
     source.set_frequency(config.initial_freq_hz)?;
@@ -68,8 +94,25 @@ pub async fn run(config: DaemonConfig, running: Arc<AtomicBool>) -> Result<()> {
         config.recording_dir.clone(),
     ));
 
-    let listener = TcpListener::bind(config.listen_addr).await?;
-    let result = server::serve(listener, state, running).await;
+    let tcp_listener = TcpListener::bind(config.listen_addr).await?;
+    let web_listener = TcpListener::bind(config.web_listen_addr).await?;
+
+    let tcp_state = Arc::clone(&state);
+    let tcp_running = Arc::clone(&running);
+    let tcp_task = tokio::spawn(async move { server::serve(tcp_listener, tcp_state, tcp_running).await });
+
+    let web_state = Arc::clone(&state);
+    let web_running = Arc::clone(&running);
+    let web_static_dir = config.web_static_dir.clone();
+    let web_task = tokio::spawn(async move {
+        crate::web::serve(web_listener, web_state, web_running, web_static_dir).await
+    });
+
+    let (tcp_result, web_result) = tokio::join!(tcp_task, web_task);
+    let result = tcp_result
+        .map_err(anyhow::Error::from)
+        .and_then(|r| r)
+        .and(web_result.map_err(anyhow::Error::from).and_then(|r| r));
 
     let _ = tokio::task::spawn_blocking(move || ingest_thread.join()).await;
     result
@@ -90,7 +133,11 @@ mod tests {
     /// it, but for a listen-only (never-connected) socket on Linux this is not subject to
     /// `TIME_WAIT` and is a standard, effectively-reliable pattern for this kind of test.
     async fn free_addr() -> SocketAddr {
-        TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap()
+        TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap()
+            .local_addr()
+            .unwrap()
     }
 
     async fn connect_with_retry(addr: SocketAddr) -> TcpStream {
@@ -112,7 +159,10 @@ mod tests {
         let mut writer = FramedWrite::new(w, MessageCodec::<ClientCommand>::default());
         let mut reader = FramedRead::new(r, MessageCodec::<ServerEvent>::default());
         writer
-            .send(ClientCommand::Hello { client_name: client_name.to_string(), protocol_version: PROTOCOL_VERSION })
+            .send(ClientCommand::Hello {
+                client_name: client_name.to_string(),
+                protocol_version: PROTOCOL_VERSION,
+            })
             .await
             .unwrap();
         let welcome = reader.next().await.unwrap().unwrap();
@@ -122,12 +172,18 @@ mod tests {
     #[tokio::test]
     async fn runs_end_to_end_with_synthetic_source_and_shuts_down_on_signal() {
         let addr = free_addr().await;
-        let dir = std::env::temp_dir().join(format!("ez-daemon-app-tests-synthetic-{}", std::process::id()));
+        let web_addr = free_addr().await;
+        let dir = std::env::temp_dir().join(format!(
+            "ez-daemon-app-tests-synthetic-{}",
+            std::process::id()
+        ));
         let config = DaemonConfig {
             listen_addr: addr,
+            web_listen_addr: web_addr,
             initial_freq_hz: 100_000_000,
             initial_sample_rate_hz: 2_000_000,
             recording_dir: dir,
+            web_static_dir: std::env::temp_dir().join("ez-daemon-app-tests-nonexistent-static"),
             source: SourceConfig::Synthetic,
         };
         let running = Arc::new(AtomicBool::new(true));
@@ -146,7 +202,11 @@ mod tests {
     #[tokio::test]
     async fn runs_end_to_end_with_replay_source() {
         let addr = free_addr().await;
-        let fixture = std::env::temp_dir().join(format!("ez-daemon-app-replay-fixture-{}.cf32", std::process::id()));
+        let web_addr = free_addr().await;
+        let fixture = std::env::temp_dir().join(format!(
+            "ez-daemon-app-replay-fixture-{}.cf32",
+            std::process::id()
+        ));
         {
             use std::io::Write;
             let mut f = std::fs::File::create(&fixture).unwrap();
@@ -156,12 +216,15 @@ mod tests {
                 f.write_all(&iq.1.to_le_bytes()).unwrap();
             }
         }
-        let dir = std::env::temp_dir().join(format!("ez-daemon-app-tests-replay-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ez-daemon-app-tests-replay-{}", std::process::id()));
         let config = DaemonConfig {
             listen_addr: addr,
+            web_listen_addr: web_addr,
             initial_freq_hz: 100_000_000,
             initial_sample_rate_hz: 1_000_000,
             recording_dir: dir,
+            web_static_dir: std::env::temp_dir().join("ez-daemon-app-tests-nonexistent-static"),
             source: SourceConfig::Replay {
                 path: fixture.to_str().unwrap().to_string(),
                 format: ReplayFormat::Cf32Le,

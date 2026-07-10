@@ -26,7 +26,10 @@ pub fn module_card<R>(
     let mut result = None;
     egui::Frame::new()
         .fill(theme.surface.to_egui())
-        .stroke(egui::Stroke::new(1.0, theme.text_dim.with_alpha(60).to_egui()))
+        .stroke(egui::Stroke::new(
+            1.0,
+            theme.text_dim.with_alpha(60).to_egui(),
+        ))
         .corner_radius(egui::CornerRadius::same(
             theme.corner.panels.clamp(0.0, 255.0) as u8,
         ))

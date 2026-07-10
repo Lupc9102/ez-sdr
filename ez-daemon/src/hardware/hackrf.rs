@@ -240,7 +240,9 @@ impl IqSource for HackRfSource {
         self.frequency_hz = hz;
         if !self.dev.is_null() {
             // SAFETY: `self.dev` checked non-null above.
-            Self::check("hackrf_set_freq", unsafe { ffi::hackrf_set_freq(self.dev, hz) })?;
+            Self::check("hackrf_set_freq", unsafe {
+                ffi::hackrf_set_freq(self.dev, hz)
+            })?;
         }
         Ok(())
     }

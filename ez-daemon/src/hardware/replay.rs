@@ -169,7 +169,10 @@ mod tests {
     #[test]
     fn replays_cf32_file_and_loops_on_eof() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("ez_daemon_replay_test_{:x}.cf32", std::process::id()));
+        let path = dir.join(format!(
+            "ez_daemon_replay_test_{:x}.cf32",
+            std::process::id()
+        ));
         {
             let mut f = File::create(&path).unwrap();
             for i in 0..16 {
@@ -179,9 +182,14 @@ mod tests {
             }
         }
 
-        let mut src =
-            FileReplaySource::open(path.to_str().unwrap(), ReplayFormat::Cf32Le, 1_000_000, true, 1000.0)
-                .unwrap();
+        let mut src = FileReplaySource::open(
+            path.to_str().unwrap(),
+            ReplayFormat::Cf32Le,
+            1_000_000,
+            true,
+            1000.0,
+        )
+        .unwrap();
         src.start().unwrap();
         let mut buf = vec![Complex32::new(0.0, 0.0); 16];
         let n = src.read_iq(&mut buf).unwrap();
@@ -200,16 +208,24 @@ mod tests {
     #[test]
     fn non_looping_replay_reports_eof() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("ez_daemon_replay_eof_{:x}.cf32", std::process::id()));
+        let path = dir.join(format!(
+            "ez_daemon_replay_eof_{:x}.cf32",
+            std::process::id()
+        ));
         {
             let mut f = File::create(&path).unwrap();
             f.write_all(&0f32.to_le_bytes()).unwrap();
             f.write_all(&0f32.to_le_bytes()).unwrap();
         }
 
-        let mut src =
-            FileReplaySource::open(path.to_str().unwrap(), ReplayFormat::Cf32Le, 1_000_000, false, 1000.0)
-                .unwrap();
+        let mut src = FileReplaySource::open(
+            path.to_str().unwrap(),
+            ReplayFormat::Cf32Le,
+            1_000_000,
+            false,
+            1000.0,
+        )
+        .unwrap();
         src.start().unwrap();
         let mut buf = vec![Complex32::new(0.0, 0.0); 4];
         let n = src.read_iq(&mut buf).unwrap();

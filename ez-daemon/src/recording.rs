@@ -106,10 +106,16 @@ impl RecordingManager {
             return Err(anyhow!("channel {channel_id} is already recording"));
         }
 
-        std::fs::create_dir_all(&self.output_dir)
-            .with_context(|| format!("creating recording output dir {}", self.output_dir.display()))?;
+        std::fs::create_dir_all(&self.output_dir).with_context(|| {
+            format!(
+                "creating recording output dir {}",
+                self.output_dir.display()
+            )
+        })?;
 
-        let path = self.output_dir.join(recording_filename(channel_id, center_freq_hz, format));
+        let path = self
+            .output_dir
+            .join(recording_filename(channel_id, center_freq_hz, format));
         let file = File::create(&path)
             .with_context(|| format!("creating recording file {}", path.display()))?;
         let writer = BufWriter::with_capacity(1_048_576, file);
@@ -150,12 +156,17 @@ impl RecordingManager {
 
     #[must_use]
     pub fn status(&self, channel_id: ChannelId) -> Option<RecordingStatus> {
-        self.active.get(&channel_id).map(|r| r.status(channel_id, true))
+        self.active
+            .get(&channel_id)
+            .map(|r| r.status(channel_id, true))
     }
 
     #[must_use]
     pub fn statuses(&self) -> Vec<RecordingStatus> {
-        self.active.iter().map(|(id, r)| r.status(*id, true)).collect()
+        self.active
+            .iter()
+            .map(|(id, r)| r.status(*id, true))
+            .collect()
     }
 }
 
@@ -182,7 +193,11 @@ fn record_thread(
     let _ = writer.flush();
 }
 
-fn recording_filename(channel_id: ChannelId, center_freq_hz: u64, format: RecordingFormat) -> String {
+fn recording_filename(
+    channel_id: ChannelId,
+    center_freq_hz: u64,
+    format: RecordingFormat,
+) -> String {
     let ext = match format {
         RecordingFormat::Cf32 => "cf32",
         RecordingFormat::RawU8 => "iq",
@@ -271,8 +286,11 @@ mod tests {
         let h1 = bus.subscribe(4, OverflowPolicy::DropIncoming);
         let h2 = bus.subscribe(4, OverflowPolicy::DropIncoming);
 
-        mgr.start_recording(1, RecordingFormat::Cf32, 100_000_000, h1).unwrap();
-        let err = mgr.start_recording(1, RecordingFormat::Cf32, 100_000_000, h2).unwrap_err();
+        mgr.start_recording(1, RecordingFormat::Cf32, 100_000_000, h1)
+            .unwrap();
+        let err = mgr
+            .start_recording(1, RecordingFormat::Cf32, 100_000_000, h2)
+            .unwrap_err();
         assert!(err.to_string().contains("already recording"));
 
         mgr.stop_recording(1).unwrap();
@@ -297,14 +315,16 @@ mod tests {
         assert_eq!(mgr.active_count(), 0);
         assert!(mgr.status(1).is_none());
 
-        mgr.start_recording(1, RecordingFormat::Cf32, 100_000_000, handle).unwrap();
+        mgr.start_recording(1, RecordingFormat::Cf32, 100_000_000, handle)
+            .unwrap();
         assert_eq!(mgr.active_count(), 1);
 
         bus.publish(block(vec![Complex32::new(0.1, 0.2); 100]));
 
         // Give the writer thread a moment to drain the block and write it.
         let deadline = Instant::now() + Duration::from_secs(2);
-        while mgr.status(1).map(|s| s.bytes_written).unwrap_or(0) == 0 && Instant::now() < deadline {
+        while mgr.status(1).map(|s| s.bytes_written).unwrap_or(0) == 0 && Instant::now() < deadline
+        {
             std::thread::sleep(Duration::from_millis(20));
         }
 
@@ -326,11 +346,13 @@ mod tests {
         let bus = SampleBus::new();
         let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
 
-        mgr.start_recording(7, RecordingFormat::Cf32, 137_500_000, handle).unwrap();
+        mgr.start_recording(7, RecordingFormat::Cf32, 137_500_000, handle)
+            .unwrap();
         bus.publish(block(vec![Complex32::new(1.0, -1.0); 4]));
 
         let deadline = Instant::now() + Duration::from_secs(2);
-        while mgr.status(7).map(|s| s.bytes_written).unwrap_or(0) == 0 && Instant::now() < deadline {
+        while mgr.status(7).map(|s| s.bytes_written).unwrap_or(0) == 0 && Instant::now() < deadline
+        {
             std::thread::sleep(Duration::from_millis(20));
         }
 
@@ -351,7 +373,8 @@ mod tests {
         let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
         {
             let mut mgr = RecordingManager::new(&dir);
-            mgr.start_recording(1, RecordingFormat::RawU8, 100_000_000, handle).unwrap();
+            mgr.start_recording(1, RecordingFormat::RawU8, 100_000_000, handle)
+                .unwrap();
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

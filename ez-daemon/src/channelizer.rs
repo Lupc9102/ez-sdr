@@ -31,7 +31,8 @@ struct Nco {
 
 impl Nco {
     fn new(freq_offset_hz: f64, sample_rate_hz: f64) -> Self {
-        let phase_increment = (-2.0 * std::f64::consts::PI * freq_offset_hz / sample_rate_hz) as f32;
+        let phase_increment =
+            (-2.0 * std::f64::consts::PI * freq_offset_hz / sample_rate_hz) as f32;
         Self {
             phase: 0.0,
             phase_increment,
@@ -118,7 +119,11 @@ impl FirDecimator {
         let mut i = self.skip;
         while i < input.len() {
             let window = &extended[i..i + taps_len];
-            let acc: Complex32 = window.iter().zip(self.taps.iter()).map(|(s, t)| *s * *t).sum();
+            let acc: Complex32 = window
+                .iter()
+                .zip(self.taps.iter())
+                .map(|(s, t)| *s * *t)
+                .sum();
             output.push(acc);
             i += self.decimation;
         }
@@ -274,7 +279,10 @@ impl Channelizer {
     /// here rather than assuming their request was honored exactly.
     #[must_use]
     pub fn channel_output_rate_hz(&self, id: u64) -> Option<u32> {
-        self.channels.iter().find(|c| c.id == id).map(|c| c.output_rate_hz)
+        self.channels
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.output_rate_hz)
     }
 
     /// Re-centers the wideband capture (e.g. the hardware source retuned), recomputing every
@@ -338,7 +346,11 @@ impl Channelizer {
 mod tests {
     use super::*;
 
-    fn wideband_block(center_freq_hz: u64, sample_rate_hz: u32, samples: Vec<Complex32>) -> SampleBlock {
+    fn wideband_block(
+        center_freq_hz: u64,
+        sample_rate_hz: u32,
+        samples: Vec<Complex32>,
+    ) -> SampleBlock {
         SampleBlock {
             start_sample: 0,
             sample_rate_hz,
@@ -377,7 +389,11 @@ mod tests {
         let input = vec![Complex32::new(1.0, 0.0); 100_000];
         let mixed = nco.mix(&input);
         for s in mixed.iter().step_by(997) {
-            assert!((s.norm() - 1.0).abs() < 1e-4, "magnitude drifted: {}", s.norm());
+            assert!(
+                (s.norm() - 1.0).abs() < 1e-4,
+                "magnitude drifted: {}",
+                s.norm()
+            );
         }
     }
 
@@ -395,7 +411,11 @@ mod tests {
         let input = vec![Complex32::new(1.0, 0.0); 4_000];
         let out = dec.process(&input);
         // 4000 / 4 = 1000, +/-1 for warm-up/decimation-phase rounding at the boundary.
-        assert!((out.len() as i64 - 1000).abs() <= 1, "got {} outputs", out.len());
+        assert!(
+            (out.len() as i64 - 1000).abs() <= 1,
+            "got {} outputs",
+            out.len()
+        );
     }
 
     #[test]
@@ -437,7 +457,10 @@ mod tests {
         };
         let passed_rms = tail_rms(&passed);
         let rejected_rms = tail_rms(&rejected);
-        assert!(passed_rms > 0.7, "in-band tone over-attenuated: {passed_rms}");
+        assert!(
+            passed_rms > 0.7,
+            "in-band tone over-attenuated: {passed_rms}"
+        );
         assert!(
             rejected_rms < 0.1,
             "out-of-band tone insufficiently attenuated: {rejected_rms}"
@@ -452,7 +475,11 @@ mod tests {
         let out = ch.process(&block).expect("expected decimated output");
         assert_eq!(out.center_freq_hz, 100_050_000);
         assert_eq!(out.sample_rate_hz, 200_000);
-        assert!((out.samples.len() as i64 - 200).abs() <= 2, "got {}", out.samples.len());
+        assert!(
+            (out.samples.len() as i64 - 200).abs() <= 2,
+            "got {}",
+            out.samples.len()
+        );
     }
 
     #[test]
@@ -484,7 +511,11 @@ mod tests {
 
         let (_, out_handle) = chan.add_channel(100_000_000, 100_000).unwrap();
 
-        bus.publish(wideband_block(100_000_000, 2_000_000, tone(4_000, 0.0, 2_000_000.0)));
+        bus.publish(wideband_block(
+            100_000_000,
+            2_000_000,
+            tone(4_000, 0.0, 2_000_000.0),
+        ));
         let processed = chan.tick(Duration::from_millis(200));
         assert!(processed);
 
@@ -504,11 +535,19 @@ mod tests {
         let (_, b) = chan.add_channel(100_100_000, 50_000).unwrap();
         assert_eq!(chan.channel_count(), 2);
 
-        bus.publish(wideband_block(100_000_000, 2_000_000, tone(8_000, 0.0, 2_000_000.0)));
+        bus.publish(wideband_block(
+            100_000_000,
+            2_000_000,
+            tone(8_000, 0.0, 2_000_000.0),
+        ));
         assert!(chan.tick(Duration::from_millis(200)));
 
-        let out_a = a.recv_timeout(Duration::from_millis(200)).expect("channel a output");
-        let out_b = b.recv_timeout(Duration::from_millis(200)).expect("channel b output");
+        let out_a = a
+            .recv_timeout(Duration::from_millis(200))
+            .expect("channel a output");
+        let out_b = b
+            .recv_timeout(Duration::from_millis(200))
+            .expect("channel b output");
         assert_eq!(out_a.center_freq_hz, 99_900_000);
         assert_eq!(out_b.center_freq_hz, 100_100_000);
         assert_ne!(out_a.sample_rate_hz, out_b.sample_rate_hz);
@@ -535,11 +574,19 @@ mod tests {
 
         let second = chan.subscribe(id, 4).expect("channel is live");
 
-        bus.publish(wideband_block(100_000_000, 2_000_000, tone(8_000, 0.0, 2_000_000.0)));
+        bus.publish(wideband_block(
+            100_000_000,
+            2_000_000,
+            tone(8_000, 0.0, 2_000_000.0),
+        ));
         assert!(chan.tick(Duration::from_millis(200)));
 
-        let out_first = first.recv_timeout(Duration::from_millis(200)).expect("first subscriber output");
-        let out_second = second.recv_timeout(Duration::from_millis(200)).expect("second subscriber output");
+        let out_first = first
+            .recv_timeout(Duration::from_millis(200))
+            .expect("first subscriber output");
+        let out_second = second
+            .recv_timeout(Duration::from_millis(200))
+            .expect("second subscriber output");
         assert_eq!(out_first.center_freq_hz, out_second.center_freq_hz);
     }
 
@@ -609,14 +656,21 @@ mod tests {
         chan.retune(100_050_000);
         let _ = id;
 
-        bus.publish(wideband_block(100_050_000, 2_000_000, tone(4_000, 0.0, 2_000_000.0)));
+        bus.publish(wideband_block(
+            100_050_000,
+            2_000_000,
+            tone(4_000, 0.0, 2_000_000.0),
+        ));
         assert!(chan.tick(Duration::from_millis(200)));
         let out = out_handle
             .recv_timeout(Duration::from_millis(200))
             .expect("expected decimated output after retune");
         let tail = &out.samples[out.samples.len() / 2..];
         let rms = (tail.iter().map(|c| c.norm_sqr()).sum::<f32>() / tail.len() as f32).sqrt();
-        assert!(rms > 0.7, "expected near-undamped DC tone after retune, got rms {rms}");
+        assert!(
+            rms > 0.7,
+            "expected near-undamped DC tone after retune, got rms {rms}"
+        );
     }
 
     #[test]

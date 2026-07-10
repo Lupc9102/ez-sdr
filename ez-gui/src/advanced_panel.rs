@@ -32,11 +32,21 @@ pub fn color_from_str(s: &str) -> ColorMap {
 /// it in place and invoking `apply` when the user changes it. Returns `true`
 /// when the value changed. `eng` is borrowed only for the `apply` call — never
 /// simultaneously with `shared`, avoiding borrow conflicts in the panel.
-pub fn slider_f32<E, F>(ui: &mut egui::Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str, eng: &mut E, apply: F) -> bool
+pub fn slider_f32<E, F>(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    label: &str,
+    eng: &mut E,
+    apply: F,
+) -> bool
 where
     F: FnOnce(&mut E, f32),
 {
-    if ui.add(egui::Slider::new(value, range).text(label)).changed() {
+    if ui
+        .add(egui::Slider::new(value, range).text(label))
+        .changed()
+    {
         apply(eng, *value);
         true
     } else {
@@ -44,11 +54,21 @@ where
     }
 }
 
-pub fn slider_usize<E, F>(ui: &mut egui::Ui, value: &mut usize, range: std::ops::RangeInclusive<usize>, label: &str, eng: &mut E, apply: F) -> bool
+pub fn slider_usize<E, F>(
+    ui: &mut egui::Ui,
+    value: &mut usize,
+    range: std::ops::RangeInclusive<usize>,
+    label: &str,
+    eng: &mut E,
+    apply: F,
+) -> bool
 where
     F: FnOnce(&mut E, usize),
 {
-    if ui.add(egui::Slider::new(value, range).text(label)).changed() {
+    if ui
+        .add(egui::Slider::new(value, range).text(label))
+        .changed()
+    {
         apply(eng, *value);
         true
     } else {
@@ -56,11 +76,21 @@ where
     }
 }
 
-pub fn slider_u32<E, F>(ui: &mut egui::Ui, value: &mut u32, range: std::ops::RangeInclusive<u32>, label: &str, eng: &mut E, apply: F) -> bool
+pub fn slider_u32<E, F>(
+    ui: &mut egui::Ui,
+    value: &mut u32,
+    range: std::ops::RangeInclusive<u32>,
+    label: &str,
+    eng: &mut E,
+    apply: F,
+) -> bool
 where
     F: FnOnce(&mut E, u32),
 {
-    if ui.add(egui::Slider::new(value, range).text(label)).changed() {
+    if ui
+        .add(egui::Slider::new(value, range).text(label))
+        .changed()
+    {
         apply(eng, *value);
         true
     } else {
@@ -71,10 +101,7 @@ where
 /// Push every advanced setting from `shared.config` onto the live engines.
 /// Used at startup and by the panel's "reset" button so the running app
 /// matches the saved (or reset) profile.
-pub fn push_advanced(
-    demod: &mut crate::demod::Demodulator,
-    shared: &mut crate::app::SharedState,
-) {
+pub fn push_advanced(demod: &mut crate::demod::Demodulator, shared: &mut crate::app::SharedState) {
     let a = &shared.config.advanced;
     demod.set_agc_enabled(a.agc_enabled);
     demod.set_agc_target(a.agc_target);

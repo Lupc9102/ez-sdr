@@ -87,7 +87,7 @@ impl MapRenderer {
         painter.rect_filled(rect, 0.0, theme.bg.to_egui());
 
         // Grid lines (lat/lon)
-        self.draw_grid(&painter, rect, cx, cy, theme);
+        self.draw_grid(painter, rect, cx, cy, theme);
 
         // Trajectory polyline
         if !self.trajectory.is_empty() {
@@ -186,7 +186,11 @@ impl MapRenderer {
             // Pulsing halo while a pass is live — the eyecandy the user asked for.
             if self.in_pass_now {
                 let halo_alpha = (40.0 + pulse * 70.0) as u8;
-                painter.circle_filled(sat_abs, 14.0, theme.accent.with_alpha(halo_alpha / 3).to_egui());
+                painter.circle_filled(
+                    sat_abs,
+                    14.0,
+                    theme.accent.with_alpha(halo_alpha / 3).to_egui(),
+                );
                 painter.circle_filled(sat_abs, 10.0, theme.accent.with_alpha(halo_alpha).to_egui());
             }
             // Glow
@@ -248,7 +252,14 @@ impl MapRenderer {
         );
     }
 
-    fn draw_grid(&self, painter: &egui::Painter, rect: Rect, cx: f32, cy: f32, theme: &ThemeConfig) {
+    fn draw_grid(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        cx: f32,
+        cy: f32,
+        theme: &ThemeConfig,
+    ) {
         let grid_color = theme.spectrum_grid.to_egui();
         for lat in (-80..=80).step_by(20) {
             if (lat as f64 - self.center_lat).abs() > 80.0 {

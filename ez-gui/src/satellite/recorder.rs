@@ -134,6 +134,7 @@ impl Cf32StreamWriter {
         Ok(self.meta.clone())
     }
 
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.handle.is_some()
     }

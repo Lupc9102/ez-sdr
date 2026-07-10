@@ -230,7 +230,9 @@ impl IqSource for RtlSdrSource {
         if !self.dev.is_null() {
             // SAFETY: `self.dev` checked non-null above.
             if unsafe { ffi::rtlsdr_set_center_freq(self.dev, hz as u32) } < 0 {
-                return Err(RtlSdrError::OpenFailed("failed to set center frequency".into()).into());
+                return Err(
+                    RtlSdrError::OpenFailed("failed to set center frequency".into()).into(),
+                );
             }
         }
         Ok(())

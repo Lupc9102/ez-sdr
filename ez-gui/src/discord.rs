@@ -1087,7 +1087,10 @@ impl DiscordNotifier {
     }
 
     /// Send a test notification with a specific embed to Discord.
-    pub fn send_test_embed(&mut self, embed: DiscordEmbed) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn send_test_embed(
+        &mut self,
+        embed: DiscordEmbed,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.is_configured() {
             return Err("Not configured".into());
         }

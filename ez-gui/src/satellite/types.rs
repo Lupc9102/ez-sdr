@@ -11,6 +11,7 @@ pub struct SatPosition {
     pub distance_km: f64,
     pub lat: f64,
     pub lon: f64,
+    #[allow(dead_code)]
     pub timestamp: f64,
 }
 

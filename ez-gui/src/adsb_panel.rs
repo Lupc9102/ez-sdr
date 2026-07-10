@@ -783,7 +783,7 @@ impl AdsBPanel {
         let half_w = f64::from(rect.width() / 2.0);
         let half_h = f64::from(rect.height() / 2.0);
         for &z2 in &[zoom.wrapping_sub(1), zoom + 1] {
-            if z2 < 2 || z2 > 18 || z2 == zoom {
+            if !(2..=18).contains(&z2) || z2 == zoom {
                 continue;
             }
             let scale = 2.0_f64.powi(z2 as i32 - zoom as i32);
@@ -1377,69 +1377,77 @@ impl AdsBPanel {
             "✈ {active_count} aircraft  ({with_pos} w/pos)  {msg_rate:.0} msg/s"
         ));
 
-        module_card(ui, &theme, "planes.controls", "🎛", "Controls & Filters", true, |ui| {
-            ui.horizontal(|ui| {
-                if self.start_time.is_some() {
-                    if ui.button("■ Stop").clicked() {
-                        if let Ok(mut state) = self.shared.try_lock() {
-                            state.adsb_running = false;
+        module_card(
+            ui,
+            &theme,
+            "planes.controls",
+            "🎛",
+            "Controls & Filters",
+            true,
+            |ui| {
+                ui.horizontal(|ui| {
+                    if self.start_time.is_some() {
+                        if ui.button("■ Stop").clicked() {
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                state.adsb_running = false;
+                            }
+                            self.start_time = None;
                         }
-                        self.start_time = None;
+                    } else if ui.button("▶ Start ADS-B").clicked() {
+                        self.begin();
                     }
-                } else if ui.button("▶ Start ADS-B").clicked() {
-                    self.begin();
-                }
-                ui.checkbox(&mut self.alert_enabled, "🔔");
-                if self.alert_enabled {
-                    ui.add(
-                        egui::DragValue::new(&mut self.alert_range_km)
-                            .speed(5.0)
-                            .range(0..=1000)
-                            .suffix("km"),
-                    );
-                    ui.label("(0=any)");
-                }
-            });
+                    ui.checkbox(&mut self.alert_enabled, "🔔");
+                    if self.alert_enabled {
+                        ui.add(
+                            egui::DragValue::new(&mut self.alert_range_km)
+                                .speed(5.0)
+                                .range(0..=1000)
+                                .suffix("km"),
+                        );
+                        ui.label("(0=any)");
+                    }
+                });
 
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.altitude_filter_enabled, "Alt");
-                if self.altitude_filter_enabled {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.altitude_filter_enabled, "Alt");
+                    if self.altitude_filter_enabled {
+                        ui.add(
+                            egui::DragValue::new(&mut self.min_altitude_ft)
+                                .speed(500.0)
+                                .range(0..=60_000)
+                                .suffix("↑"),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut self.max_altitude_ft)
+                                .speed(500.0)
+                                .range(0..=100_000)
+                                .suffix("↑max"),
+                        );
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Age:");
                     ui.add(
-                        egui::DragValue::new(&mut self.min_altitude_ft)
-                            .speed(500.0)
-                            .range(0..=60_000)
-                            .suffix("↑"),
+                        egui::DragValue::new(&mut self.max_age_secs)
+                            .speed(5.0)
+                            .range(10..=600)
+                            .suffix("s"),
                     );
+                    ui.checkbox(&mut self.show_trails, "Trails");
+                });
+                ui.horizontal(|ui| {
                     ui.add(
-                        egui::DragValue::new(&mut self.max_altitude_ft)
-                            .speed(500.0)
-                            .range(0..=100_000)
-                            .suffix("↑max"),
+                        egui::TextEdit::singleline(&mut self.callsign_filter)
+                            .desired_width(100.0)
+                            .hint_text("search callsign/ICAO"),
                     );
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Age:");
-                ui.add(
-                    egui::DragValue::new(&mut self.max_age_secs)
-                        .speed(5.0)
-                        .range(10..=600)
-                        .suffix("s"),
-                );
-                ui.checkbox(&mut self.show_trails, "Trails");
-            });
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.callsign_filter)
-                        .desired_width(100.0)
-                        .hint_text("search callsign/ICAO"),
-                );
-                if !self.callsign_filter.is_empty() && ui.small_button("✕").clicked() {
-                    self.callsign_filter.clear();
-                }
-            });
-        });
+                    if !self.callsign_filter.is_empty() && ui.small_button("✕").clicked() {
+                        self.callsign_filter.clear();
+                    }
+                });
+            },
+        );
 
         // Selected aircraft detail
         if let Some(icao) = self.selected_icao {
@@ -1447,7 +1455,10 @@ impl AdsBPanel {
                 ui.separator();
                 egui::Frame::new()
                     .fill(theme.surface.to_egui())
-                    .stroke(egui::Stroke::new(1.0, theme.accent.with_alpha(120).to_egui()))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        theme.accent.with_alpha(120).to_egui(),
+                    ))
                     .corner_radius(4.0)
                     .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {

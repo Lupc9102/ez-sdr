@@ -3,8 +3,8 @@
 //! Pure DSP — no rendering, no `egui`, nothing GUI-specific lives here or anywhere in
 //! `ez-daemon`; a client turns a `SpectrumFrame`'s dB bins into pixels on its own.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use num_complex::Complex32;
@@ -129,7 +129,11 @@ impl SpectrumPipeline {
                 // center. Matches SpectrumFrame::bins' documented convention.
                 let dst = (i + n / 2) % n;
                 let mag = c.norm() * scale;
-                let db = if mag > 1e-10 { 20.0 * mag.log10() } else { -120.0 };
+                let db = if mag > 1e-10 {
+                    20.0 * mag.log10()
+                } else {
+                    -120.0
+                };
                 let prev = self.smoothed_db[dst];
                 self.smoothed_db[dst] = self.avg_alpha * db + (1.0 - self.avg_alpha) * prev;
             }
@@ -158,7 +162,8 @@ mod tests {
     fn tone_block(n: usize, freq_hz: f64, sample_rate_hz: u32, center_hz: u64) -> SampleBlock {
         let samples: Vec<Complex32> = (0..n)
             .map(|k| {
-                let phase = 2.0 * std::f64::consts::PI * freq_hz * (k as f64) / sample_rate_hz as f64;
+                let phase =
+                    2.0 * std::f64::consts::PI * freq_hz * (k as f64) / sample_rate_hz as f64;
                 Complex32::from_polar(1.0, phase as f32)
             })
             .collect();
@@ -224,7 +229,9 @@ mod tests {
         // The 4th block pushes total accumulated to 256 == fft_size: exactly one frame now.
         bus.publish(silence_block(64, 1_000_000, 100_000_000));
         sp.tick(Duration::from_millis(50));
-        let frame = out.try_recv().expect("expected a frame once fft_size samples accumulated");
+        let frame = out
+            .try_recv()
+            .expect("expected a frame once fft_size samples accumulated");
         assert_eq!(frame.bins.len(), 256);
     }
 
@@ -243,7 +250,10 @@ mod tests {
         while out.try_recv().is_some() {
             frames += 1;
         }
-        assert_eq!(frames, 3, "one 3x-oversized block should yield exactly 3 frames");
+        assert_eq!(
+            frames, 3,
+            "one 3x-oversized block should yield exactly 3 frames"
+        );
     }
 
     #[test]

@@ -195,11 +195,11 @@ impl FrequencyScanner {
             }
         }
         // Clamp current_freq_hz into the new range if scan is running
-        if self.enabled {
-            if self.current_freq_hz < self.start_hz || self.current_freq_hz > self.stop_hz {
-                self.current_freq_hz = self.start_hz;
-                self.tune_request_hz = Some(self.current_freq_hz);
-            }
+        if self.enabled
+            && (self.current_freq_hz < self.start_hz || self.current_freq_hz > self.stop_hz)
+        {
+            self.current_freq_hz = self.start_hz;
+            self.tune_request_hz = Some(self.current_freq_hz);
         }
         let applied_desc = format!(
             "{:.3}–{:.3} MHz, step {:.1} kHz, dwell {} ms, threshold {:.0} dB{}",
@@ -208,7 +208,11 @@ impl FrequencyScanner {
             self.step_hz as f64 / 1e3,
             self.dwell_ms,
             self.threshold_db,
-            if self.enabled { " (running)" } else { " (idle)" }
+            if self.enabled {
+                " (running)"
+            } else {
+                " (idle)"
+            }
         );
         self.status_text = if self.enabled {
             format!("AI: Scanning {}", applied_desc)
@@ -252,7 +256,7 @@ impl FrequencyScanner {
                 prev.0,
                 curr.0,
                 delta_hz as f64 / 1e3,
-                delta_hz as i64 / delta_cm.max(1.0) as i64
+                delta_hz / delta_cm.max(1.0) as i64
             ));
         }
 
@@ -307,10 +311,7 @@ impl FrequencyScanner {
     /// Call after the range is changed externally (spectrum click-drag, AI
     /// configure, web remote, etc.) so the next tune request stays in-bounds.
     pub fn ensure_current_in_range(&mut self) {
-        if self.current_freq_hz < self.start_hz {
-            self.current_freq_hz = self.start_hz;
-            self.tune_request_hz = Some(self.current_freq_hz);
-        } else if self.current_freq_hz > self.stop_hz {
+        if self.current_freq_hz < self.start_hz || self.current_freq_hz > self.stop_hz {
             self.current_freq_hz = self.start_hz;
             self.tune_request_hz = Some(self.current_freq_hz);
         }
@@ -1394,7 +1395,7 @@ impl FrequencyScanner {
                     let mut remove_freq: Option<u64> = None;
                     let mut exclude_freq = None;
                     let mut bookmark_freq: Option<u64> = None;
-                    for (_, hit) in hits_copy.iter().enumerate() {
+                    for hit in hits_copy.iter() {
                         let already_excluded = self.exclude_hz.contains(&hit.freq_hz);
                         ui.horizontal(|ui| {
                             ui.set_min_width(80.0);

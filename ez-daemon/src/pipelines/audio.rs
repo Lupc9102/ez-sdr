@@ -149,9 +149,11 @@ impl AudioPipeline {
             // sideband identically — USB vs. LSB is entirely a matter of which side of the
             // carrier the channel's center frequency was placed on, not a difference in
             // this formula. See the module tests for a worked demonstration.
-            DemodMode::Usb | DemodMode::Lsb => {
-                block.samples.iter().map(|s| (2.0 * s.re).clamp(-1.0, 1.0)).collect()
-            }
+            DemodMode::Usb | DemodMode::Lsb => block
+                .samples
+                .iter()
+                .map(|s| (2.0 * s.re).clamp(-1.0, 1.0))
+                .collect(),
         };
 
         // Squelch gates on the block's own mean input power so it reacts to the RF signal
@@ -159,13 +161,19 @@ impl AudioPipeline {
         // (e.g. FM's discriminator is meaningless on noise alone). Carried demod state
         // above has already advanced against the real input either way, so un-squelching
         // never reintroduces a discontinuity.
-        let mean_power: f32 =
-            block.samples.iter().map(|s| s.norm_sqr()).sum::<f32>() / block.samples.len().max(1) as f32;
-        let power_db = if mean_power > 1e-12 { 10.0 * mean_power.log10() } else { -240.0 };
+        let mean_power: f32 = block.samples.iter().map(|s| s.norm_sqr()).sum::<f32>()
+            / block.samples.len().max(1) as f32;
+        let power_db = if mean_power > 1e-12 {
+            10.0 * mean_power.log10()
+        } else {
+            -240.0
+        };
         if power_db < self.squelch_db {
             samples.iter_mut().for_each(|s| *s = 0.0);
         } else if self.volume != 1.0 {
-            samples.iter_mut().for_each(|s| *s = (*s * self.volume).clamp(-1.0, 1.0));
+            samples
+                .iter_mut()
+                .for_each(|s| *s = (*s * self.volume).clamp(-1.0, 1.0));
         }
 
         self.output.publish(AudioFrame {
@@ -188,7 +196,12 @@ impl AudioPipeline {
             .collect()
     }
 
-    fn demod_fm(&mut self, samples: &[Complex32], sample_rate_hz: u32, deviation_hz: f32) -> Vec<f32> {
+    fn demod_fm(
+        &mut self,
+        samples: &[Complex32],
+        sample_rate_hz: u32,
+        deviation_hz: f32,
+    ) -> Vec<f32> {
         let gain = sample_rate_hz as f32 / (2.0 * std::f32::consts::PI * deviation_hz);
         samples
             .iter()
@@ -243,7 +256,10 @@ mod tests {
         let (bus, mut ap) = pipeline_with(DemodMode::Raw);
         let out = ap.subscribe(4);
 
-        bus.publish(block_of(vec![Complex32::new(0.5, 0.25), Complex32::new(-0.3, 0.9)], 48_000));
+        bus.publish(block_of(
+            vec![Complex32::new(0.5, 0.25), Complex32::new(-0.3, 0.9)],
+            48_000,
+        ));
         ap.tick(Duration::from_millis(50));
 
         let frame = out.try_recv().expect("expected a frame");
@@ -269,7 +285,10 @@ mod tests {
             let tail = &frame.samples[frame.samples.len() - 200..];
             (tail.iter().map(|s| s * s).sum::<f32>() / tail.len() as f32).sqrt()
         };
-        assert!(tail_rms < 0.05, "constant envelope should settle near silence, got rms {tail_rms}");
+        assert!(
+            tail_rms < 0.05,
+            "constant envelope should settle near silence, got rms {tail_rms}"
+        );
     }
 
     #[test]
@@ -284,7 +303,10 @@ mod tests {
 
         let frame = out.try_recv().expect("expected a frame");
         let just_after_step = frame.samples[502];
-        assert!(just_after_step > 0.1, "expected a positive swing right after the envelope step, got {just_after_step}");
+        assert!(
+            just_after_step > 0.1,
+            "expected a positive swing right after the envelope step, got {just_after_step}"
+        );
     }
 
     #[test]
@@ -294,14 +316,20 @@ mod tests {
         let (bus, mut ap) = pipeline_with(DemodMode::Fm);
         let out = ap.subscribe(4);
 
-        bus.publish(block_of(tone(1_000, offset, sample_rate), sample_rate as u32));
+        bus.publish(block_of(
+            tone(1_000, offset, sample_rate),
+            sample_rate as u32,
+        ));
         ap.tick(Duration::from_millis(50));
         let frame = out.try_recv().expect("expected a frame");
 
         let expected = (offset / NFM_DEVIATION_HZ as f64) as f32;
         // Skip sample 0 (discriminator has no prior sample yet, carried state starts at 0).
         for &s in &frame.samples[1..] {
-            assert!((s - expected).abs() < 0.01, "sample {s} far from expected constant level {expected}");
+            assert!(
+                (s - expected).abs() < 0.01,
+                "sample {s} far from expected constant level {expected}"
+            );
         }
     }
 
@@ -326,7 +354,11 @@ mod tests {
         // allowed to be off (no prior sample yet); every other sample, including the first
         // of the second block, should reflect the same constant offset continuously.
         let expected = (offset / NFM_DEVIATION_HZ as f64) as f32;
-        assert!((second.samples[0] - expected).abs() < 0.01, "discontinuity at block boundary: {}", second.samples[0]);
+        assert!(
+            (second.samples[0] - expected).abs() < 0.01,
+            "discontinuity at block boundary: {}",
+            second.samples[0]
+        );
         assert!((first.samples[199] - expected).abs() < 0.01);
     }
 
@@ -338,7 +370,10 @@ mod tests {
         let (bus, mut ap) = pipeline_with(DemodMode::Fm);
         let out = ap.subscribe(4);
 
-        bus.publish(block_of(tone(200, 20_000.0, sample_rate), sample_rate as u32));
+        bus.publish(block_of(
+            tone(200, 20_000.0, sample_rate),
+            sample_rate as u32,
+        ));
         ap.tick(Duration::from_millis(50));
         let frame = out.try_recv().expect("expected a frame");
 
@@ -429,7 +464,10 @@ mod tests {
         ap.set_volume(2.0);
         let out = ap.subscribe(4);
 
-        bus.publish(block_of(vec![Complex32::new(0.5, 0.0), Complex32::new(-0.3, 0.0)], 48_000));
+        bus.publish(block_of(
+            vec![Complex32::new(0.5, 0.0), Complex32::new(-0.3, 0.0)],
+            48_000,
+        ));
         ap.tick(Duration::from_millis(50));
         let frame = out.try_recv().expect("expected a frame");
         // 0.5 * 2.0 == 1.0 exactly; -0.3 * 2.0 == -0.6 (no clamping needed).
@@ -444,7 +482,10 @@ mod tests {
         bus.publish(block_of(tone(100, 1_000.0, 48_000.0), 48_000));
         ap.tick(Duration::from_millis(50));
         let frame = out.try_recv().expect("expected a frame");
-        assert!(frame.samples.iter().any(|&s| s != 0.0), "default squelch should not silence a real signal");
+        assert!(
+            frame.samples.iter().any(|&s| s != 0.0),
+            "default squelch should not silence a real signal"
+        );
     }
 
     #[test]
@@ -456,8 +497,13 @@ mod tests {
 
         bus.publish(block_of(tone(100, 1_000.0, 48_000.0), 48_000));
         ap.tick(Duration::from_millis(50));
-        let frame = out.try_recv().expect("expected a frame even when squelched");
-        assert!(frame.samples.iter().all(|&s| s == 0.0), "squelch above signal power should silence output");
+        let frame = out
+            .try_recv()
+            .expect("expected a frame even when squelched");
+        assert!(
+            frame.samples.iter().all(|&s| s == 0.0),
+            "squelch above signal power should silence output"
+        );
     }
 
     #[test]

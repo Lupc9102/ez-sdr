@@ -17,13 +17,14 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 
 use ez_proto::{
-    AircraftTelemetry, AudioFrame, ChannelId, ChannelSpec, DemodMode, HardwareStatus,
-    PipelineKind, RecordingFormat, RecordingStatus, SpectrumFrame, TelemetryFrame,
+    AircraftTelemetry, AudioFrame, ChannelId, ChannelSpec, DemodMode, HardwareStatus, PipelineKind,
+    RecordingFormat, RecordingStatus, SpectrumFrame, TelemetryFrame,
 };
 
 use crate::broadcast::BroadcasterHandle;
@@ -70,6 +71,17 @@ pub enum ChannelSubscription {
     LrptTelemetry(BroadcasterHandle<TelemetryFrame>),
 }
 
+/// Read-only snapshot of one active channel for reporting to non-streaming observers (the
+/// web API's `GET /api/channels` — see `crate::web`). Distinct from [`ChannelSubscription`],
+/// which hands over a live receiving end rather than a point-in-time count.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelMetrics {
+    pub spec: ChannelSpec,
+    /// How many independent subscribers (any transport: TCP forwarder threads, web
+    /// WebSocket forwarders) are currently attached to this channel's pipeline output.
+    pub subscriber_count: usize,
+}
+
 pub struct DaemonState {
     wideband: SampleBus,
     hardware: IngestHandle,
@@ -78,6 +90,7 @@ pub struct DaemonState {
     channelizer_thread: Option<JoinHandle<()>>,
     channels: Mutex<HashMap<ChannelId, ActiveChannel>>,
     recordings: Mutex<RecordingManager>,
+    started_at: Instant,
 }
 
 impl DaemonState {
@@ -89,7 +102,8 @@ impl DaemonState {
         wideband_rate_hz: u32,
         recording_dir: impl Into<PathBuf>,
     ) -> Self {
-        let wideband_handle = wideband.subscribe(WIDEBAND_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest);
+        let wideband_handle =
+            wideband.subscribe(WIDEBAND_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest);
         let channelizer = Arc::new(Mutex::new(Channelizer::new(
             wideband_handle,
             wideband_center_hz,
@@ -106,6 +120,7 @@ impl DaemonState {
             channelizer_thread: Some(channelizer_thread),
             channels: Mutex::new(HashMap::new()),
             recordings: Mutex::new(RecordingManager::new(recording_dir)),
+            started_at: Instant::now(),
         }
     }
 
@@ -138,7 +153,40 @@ impl DaemonState {
 
     #[must_use]
     pub fn active_channels(&self) -> Vec<ChannelSpec> {
-        self.channels.lock().unwrap().values().map(|c| c.spec.clone()).collect()
+        self.channels
+            .lock()
+            .unwrap()
+            .values()
+            .map(|c| c.spec.clone())
+            .collect()
+    }
+
+    /// Seconds since this [`DaemonState`] was constructed, i.e. since the daemon finished
+    /// wiring hardware and became ready to accept connections. Used only for reporting
+    /// (`crate::web`'s `/api/status`), never for control decisions.
+    #[must_use]
+    pub fn uptime_sec(&self) -> f64 {
+        self.started_at.elapsed().as_secs_f64()
+    }
+
+    /// Read-only per-channel snapshot for reporting — see [`ChannelMetrics`]. Unlike
+    /// [`Self::subscribe`], this never creates a channel or hands back a live subscription.
+    #[must_use]
+    pub fn channel_metrics(&self) -> Vec<ChannelMetrics> {
+        self.channels
+            .lock()
+            .unwrap()
+            .values()
+            .map(|c| ChannelMetrics {
+                spec: c.spec.clone(),
+                subscriber_count: match &c.pipeline {
+                    ActivePipeline::Spectrum(p) => p.lock().unwrap().subscriber_count(),
+                    ActivePipeline::Audio(p) => p.lock().unwrap().subscriber_count(),
+                    ActivePipeline::AdsbPackets(p) => p.lock().unwrap().subscriber_count(),
+                    ActivePipeline::LrptTelemetry(p) => p.lock().unwrap().subscriber_count(),
+                },
+            })
+            .collect()
     }
 
     /// Ensures a channel exists for `spec.id` (creating its pipeline, and a channelizer
@@ -165,13 +213,48 @@ impl DaemonState {
         Ok(sub)
     }
 
+    /// Attaches to an already-created channel's output without the power to create one —
+    /// unlike [`Self::subscribe`], which will happily create `spec.id` on first use, this
+    /// errors if `channel_id` doesn't exist yet. Used by `crate::web`'s data-plane WebSocket
+    /// (`/ws/stream/{kind}/{id}`), which only ever knows an id and kind from the URL path,
+    /// never the bandwidth/offset/demod-mode a *creating* subscribe would need — channel
+    /// creation stays exclusively a REST `POST /api/channels` or TCP
+    /// `ClientCommand::Subscribe` responsibility, each of which has a real [`ChannelSpec`] in
+    /// hand.
+    pub fn subscribe_existing(
+        &self,
+        channel_id: ChannelId,
+        kind: PipelineKind,
+    ) -> Result<ChannelSubscription> {
+        let channels = self.channels.lock().unwrap();
+        let existing = channels
+            .get(&channel_id)
+            .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
+        if existing.spec.kind != kind {
+            return Err(anyhow!(
+                "channel {channel_id} is {:?}, not {:?}",
+                existing.spec.kind,
+                kind
+            ));
+        }
+        Ok(subscription_for(existing))
+    }
+
     fn create_channel(&self, spec: ChannelSpec) -> Result<ActiveChannel> {
         match spec.kind {
             PipelineKind::Spectrum => {
-                let input = self.wideband.subscribe(WIDEBAND_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest);
-                let pipeline = Arc::new(Mutex::new(SpectrumPipeline::new(input, SpectrumConfig::default())));
-                let (running, _thread) =
-                    spawn_locked_tick_thread("spectrum", Arc::clone(&pipeline), SpectrumPipeline::tick);
+                let input = self
+                    .wideband
+                    .subscribe(WIDEBAND_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest);
+                let pipeline = Arc::new(Mutex::new(SpectrumPipeline::new(
+                    input,
+                    SpectrumConfig::default(),
+                )));
+                let (running, _thread) = spawn_locked_tick_thread(
+                    "spectrum",
+                    Arc::clone(&pipeline),
+                    SpectrumPipeline::tick,
+                );
                 Ok(ActiveChannel {
                     spec,
                     internal_channel_id: None,
@@ -184,7 +267,10 @@ impl DaemonState {
                 let mode = spec.demod_mode.unwrap_or(DemodMode::Raw);
                 let pipeline = Arc::new(Mutex::new(AudioPipeline::new(
                     input,
-                    AudioConfig { channel_id: spec.id, mode },
+                    AudioConfig {
+                        channel_id: spec.id,
+                        mode,
+                    },
                 )));
                 let (running, _thread) =
                     spawn_locked_tick_thread("audio", Arc::clone(&pipeline), AudioPipeline::tick);
@@ -223,8 +309,11 @@ impl DaemonState {
                         symbol_rate_hz: LRPT_SYMBOL_RATE_HZ,
                     },
                 )));
-                let (running, _thread) =
-                    spawn_locked_tick_thread("telemetry", Arc::clone(&pipeline), TelemetryPipeline::tick);
+                let (running, _thread) = spawn_locked_tick_thread(
+                    "telemetry",
+                    Arc::clone(&pipeline),
+                    TelemetryPipeline::tick,
+                );
                 Ok(ActiveChannel {
                     spec,
                     internal_channel_id: Some(internal_id),
@@ -240,7 +329,8 @@ impl DaemonState {
     /// [`Channelizer::add_channel`] expects.
     fn add_virtual_channel(&self, spec: &ChannelSpec) -> Result<(u64, SampleBusHandle)> {
         let mut chan = self.channelizer.lock().unwrap();
-        let center_freq_hz = (chan.wideband_center_hz() as i64 + spec.center_offset_hz).max(0) as u64;
+        let center_freq_hz =
+            (chan.wideband_center_hz() as i64 + spec.center_offset_hz).max(0) as u64;
         chan.add_channel(center_freq_hz, spec.bandwidth_hz)
     }
 
@@ -256,7 +346,11 @@ impl DaemonState {
         self.with_audio_pipeline(channel_id, |p| p.set_squelch(db))
     }
 
-    fn with_audio_pipeline(&self, channel_id: ChannelId, f: impl FnOnce(&mut AudioPipeline)) -> Result<()> {
+    fn with_audio_pipeline(
+        &self,
+        channel_id: ChannelId,
+        f: impl FnOnce(&mut AudioPipeline),
+    ) -> Result<()> {
         let channels = self.channels.lock().unwrap();
         let active = channels
             .get(&channel_id)
@@ -273,7 +367,11 @@ impl DaemonState {
     /// Starts recording `channel_id`'s sample stream. Works for any channel kind, including
     /// `Spectrum` (which has no [`ActiveChannel::internal_channel_id`] of its own to
     /// subscribe to, so it records the raw wideband IQ it's itself fed from instead).
-    pub fn start_recording(&self, channel_id: ChannelId, format: RecordingFormat) -> Result<RecordingStatus> {
+    pub fn start_recording(
+        &self,
+        channel_id: ChannelId,
+        format: RecordingFormat,
+    ) -> Result<RecordingStatus> {
         let (input, center_freq_hz) = {
             let channels = self.channels.lock().unwrap();
             let active = channels
@@ -285,12 +383,14 @@ impl DaemonState {
                     let input = chan
                         .subscribe(internal_id, RECORDING_SUBSCRIBE_CAPACITY)
                         .ok_or_else(|| anyhow!("channel {channel_id} is no longer live"))?;
-                    let center_freq_hz =
-                        (chan.wideband_center_hz() as i64 + active.spec.center_offset_hz).max(0) as u64;
+                    let center_freq_hz = (chan.wideband_center_hz() as i64
+                        + active.spec.center_offset_hz)
+                        .max(0) as u64;
                     (input, center_freq_hz)
                 }
                 None => (
-                    self.wideband.subscribe(RECORDING_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest),
+                    self.wideband
+                        .subscribe(RECORDING_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest),
                     self.channelizer.lock().unwrap().wideband_center_hz(),
                 ),
             }
@@ -298,9 +398,9 @@ impl DaemonState {
 
         let mut recordings = self.recordings.lock().unwrap();
         recordings.start_recording(channel_id, format, center_freq_hz, input)?;
-        recordings
-            .status(channel_id)
-            .ok_or_else(|| anyhow!("internal error: recording status missing immediately after start"))
+        recordings.status(channel_id).ok_or_else(|| {
+            anyhow!("internal error: recording status missing immediately after start")
+        })
     }
 
     pub fn stop_recording(&self, channel_id: ChannelId) -> Result<RecordingStatus> {
@@ -344,13 +444,15 @@ fn subscription_for(active: &ActiveChannel) -> ChannelSubscription {
         ActivePipeline::Spectrum(p) => {
             ChannelSubscription::Spectrum(p.lock().unwrap().subscribe(DEFAULT_SUBSCRIBE_CAPACITY))
         }
-        ActivePipeline::Audio(p) => ChannelSubscription::Audio(p.lock().unwrap().subscribe(DEFAULT_SUBSCRIBE_CAPACITY)),
-        ActivePipeline::AdsbPackets(p) => {
-            ChannelSubscription::AdsbPackets(p.lock().unwrap().subscribe(DEFAULT_SUBSCRIBE_CAPACITY))
+        ActivePipeline::Audio(p) => {
+            ChannelSubscription::Audio(p.lock().unwrap().subscribe(DEFAULT_SUBSCRIBE_CAPACITY))
         }
-        ActivePipeline::LrptTelemetry(p) => {
-            ChannelSubscription::LrptTelemetry(p.lock().unwrap().subscribe(DEFAULT_SUBSCRIBE_CAPACITY))
-        }
+        ActivePipeline::AdsbPackets(p) => ChannelSubscription::AdsbPackets(
+            p.lock().unwrap().subscribe(DEFAULT_SUBSCRIBE_CAPACITY),
+        ),
+        ActivePipeline::LrptTelemetry(p) => ChannelSubscription::LrptTelemetry(
+            p.lock().unwrap().subscribe(DEFAULT_SUBSCRIBE_CAPACITY),
+        ),
     }
 }
 
@@ -398,7 +500,8 @@ mod tests {
             running,
         )
         .unwrap();
-        let dir = std::env::temp_dir().join(format!("ez-daemon-state-tests-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ez-daemon-state-tests-{}", std::process::id()));
         DaemonState::new(bus, hardware, 100_000_000, 2_000_000, dir)
     }
 
@@ -415,7 +518,9 @@ mod tests {
     #[test]
     fn subscribe_creates_a_channel_and_returns_a_working_subscription() {
         let state = test_state();
-        let sub = state.subscribe(audio_spec(1, 0)).expect("subscribe should succeed");
+        let sub = state
+            .subscribe(audio_spec(1, 0))
+            .expect("subscribe should succeed");
         assert!(matches!(sub, ChannelSubscription::Audio(_)));
         assert_eq!(state.active_channels().len(), 1);
     }
@@ -425,7 +530,11 @@ mod tests {
         let state = test_state();
         let _a = state.subscribe(audio_spec(1, 0)).unwrap();
         let _b = state.subscribe(audio_spec(1, 0)).unwrap();
-        assert_eq!(state.active_channels().len(), 1, "second subscribe must not duplicate the channel");
+        assert_eq!(
+            state.active_channels().len(),
+            1,
+            "second subscribe must not duplicate the channel"
+        );
     }
 
     #[test]
@@ -494,7 +603,9 @@ mod tests {
     fn start_and_stop_recording_on_an_audio_channel() {
         let state = test_state();
         let _sub = state.subscribe(audio_spec(2, 0)).unwrap();
-        let status = state.start_recording(2, RecordingFormat::Cf32).expect("recording should start");
+        let status = state
+            .start_recording(2, RecordingFormat::Cf32)
+            .expect("recording should start");
         assert!(status.active);
         let stopped = state.stop_recording(2).expect("recording should stop");
         assert!(!stopped.active);
@@ -503,7 +614,9 @@ mod tests {
     #[test]
     fn start_recording_on_unknown_channel_is_an_error() {
         let state = test_state();
-        let err = state.start_recording(123, RecordingFormat::Cf32).unwrap_err();
+        let err = state
+            .start_recording(123, RecordingFormat::Cf32)
+            .unwrap_err();
         assert!(err.to_string().contains("unknown channel"));
     }
 
@@ -511,7 +624,10 @@ mod tests {
     fn set_frequency_retunes_the_channelizer() {
         let state = test_state();
         state.set_frequency(105_000_000);
-        assert_eq!(state.channelizer.lock().unwrap().wideband_center_hz(), 105_000_000);
+        assert_eq!(
+            state.channelizer.lock().unwrap().wideband_center_hz(),
+            105_000_000
+        );
     }
 
     #[test]
@@ -523,7 +639,10 @@ mod tests {
             if status.connected && status.source_kind == "synthetic" {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "hardware never reported connected status");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "hardware never reported connected status"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
     }

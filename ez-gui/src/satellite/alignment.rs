@@ -12,6 +12,7 @@ pub enum DipoleType {
 }
 
 impl DipoleType {
+    #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
             Self::VDipole137 => "9A4QV V-Dipole (137 MHz)",
@@ -23,6 +24,7 @@ impl DipoleType {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // elevation_tilt/dipole_type consumed by the staged alignment_info_ui panel
 pub struct DipoleAlignment {
     pub compass_heading: f64,
     pub elevation_tilt: f64,
@@ -230,6 +232,7 @@ pub fn compass_rose_ui(
     );
 }
 
+#[allow(dead_code)] // staged alignment readout panel; not yet mounted in satellite_panel
 pub fn alignment_info_ui(ui: &mut egui::Ui, align: &DipoleAlignment, pos: &SatPosition) {
     ui.group(|ui| {
         ui.label(

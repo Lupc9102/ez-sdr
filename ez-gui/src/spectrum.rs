@@ -297,12 +297,10 @@ impl WindowType {
                     let size = len as f32;
                     let a0 = 0.21557895;
                     let a1 = 0.41663158;
-                    let a2 = 0.277263158;
+                    let a2 = 0.277_263_16;
                     let a3 = 0.083578947;
                     let a4 = 0.006947368;
-                    a0
-                        - a1 * (2.0 * PI * n / size).cos()
-                        + a2 * (4.0 * PI * n / size).cos()
+                    a0 - a1 * (2.0 * PI * n / size).cos() + a2 * (4.0 * PI * n / size).cos()
                         - a3 * (6.0 * PI * n / size).cos()
                         + a4 * (8.0 * PI * n / size).cos()
                 })
@@ -475,6 +473,7 @@ impl SpectrumAnalyzer {
     }
 
     /// Set the zoom factor directly (larger = more zoomed in).
+    #[allow(dead_code)]
     pub fn set_zoom_factor(&mut self, z: f32) {
         self.zoom_factor = z.clamp(1.0, 200.0);
     }
@@ -740,7 +739,87 @@ impl SpectrumAnalyzer {
             }
             if self.persistence > 0.0 {
                 let p = self.persistence;
-                self.persist_buf[dst] = p * self.persist_buf[dst] + (1.0 - p) * self.spectrum_dbs[dst];
+                self.persist_buf[dst] =
+                    p * self.persist_buf[dst] + (1.0 - p) * self.spectrum_dbs[dst];
+            }
+        }
+        self.cached_signal_level = sum / self.fft_size as f32;
+        self.cached_peak_level = peak;
+        // 25th percentile from histogram
+        let target = (self.fft_size as u32 * 25) / 100;
+        let mut accum = 0u32;
+        let mut floor = -120.0f32;
+        for (b, &count) in hist.iter().enumerate() {
+            accum += count;
+            if accum >= target {
+                floor = -120.0 + b as f32;
+                break;
+            }
+        }
+        self.cached_noise_floor = floor;
+
+        // Record peak dB to signal history (every 10th frame to avoid overwhelming)
+        if self.frame_counter.is_multiple_of(10) {
+            self.signal_history.push_back(peak);
+            if self.signal_history.len() > self.signal_history_max {
+                self.signal_history.pop_front();
+            }
+            // Update slow-tracking noise baseline (α=0.005 ≈ ~2000 frame time constant)
+            if self.noise_baseline <= -119.0 {
+                self.noise_baseline = floor;
+            } else {
+                self.noise_baseline = 0.995 * self.noise_baseline + 0.005 * floor;
+            }
+        }
+    }
+
+    /// Ingest a pre-computed spectrum frame received from the daemon. Bins
+    /// are already dB-scaled and fftshifted to ascending-frequency order
+    /// (bin 0 = center - fs/2), matching `spectrum_dbs`' own storage
+    /// convention, so no FFT or remapping is needed here.
+    ///
+    /// Independent of `push_iq_samples` rather than sharing a helper: that
+    /// method's wraparound indexing only partially touches the destination
+    /// buffer for short IQ chunks, so a shared helper would need to
+    /// replicate that quirk exactly to stay behaviorally equivalent.
+    ///
+    /// Skips processing when `self.frozen` is `true`.
+    pub fn push_spectrum_frame(&mut self, frame: &ez_proto::SpectrumFrame) {
+        if self.frozen || frame.bins.is_empty() {
+            return;
+        }
+        if frame.bins.len() != self.spectrum_dbs.len() {
+            self.set_fft_size(frame.bins.len());
+        }
+        self.center_freq = frame.center_hz;
+        self.sample_rate = frame.sample_rate_hz;
+
+        let mut sum = 0.0f32;
+        let mut peak = -120.0f32;
+        let mut hist = [0u32; 120];
+        for (dst, &db) in frame.bins.iter().enumerate() {
+            let prev = self.spectrum_dbs[dst];
+            let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * prev;
+            self.spectrum_dbs[dst] = smoothed;
+            sum += smoothed;
+            if smoothed > peak {
+                peak = smoothed;
+            }
+            let bin = ((smoothed + 120.0).clamp(0.0, 119.9) as usize).min(119);
+            hist[bin] += 1;
+            if db > self.peak_hold[dst] {
+                self.peak_hold[dst] = db;
+            } else {
+                // Decay rate derived from the user-configured hold time
+                // (frames ≈ hold_time * 60fps). Higher time → slower decay.
+                let frames = (self.peak_hold_time * 60.0).max(1.0);
+                let k = 1.0 / frames;
+                self.peak_hold[dst] = (1.0 - k) * self.peak_hold[dst] + k * db;
+            }
+            if self.persistence > 0.0 {
+                let p = self.persistence;
+                self.persist_buf[dst] =
+                    p * self.persist_buf[dst] + (1.0 - p) * self.spectrum_dbs[dst];
             }
         }
         self.cached_signal_level = sum / self.fft_size as f32;
@@ -1376,39 +1455,39 @@ impl SpectrumAnalyzer {
         // Vertical grid lines (frequency) with zoom support
         let n_grid = 8;
         if self.show_grid {
-        for i in 0..=n_grid {
-            let frac = i as f32 / n_grid as f32;
-            let x = spectrum_rect.left() + frac * spectrum_rect.width();
-            let offset_hz = left_hz + f64::from(frac) * zoom_span;
-            let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
-            painter.line_segment(
-                [
-                    egui::pos2(x, spectrum_rect.top()),
-                    egui::pos2(x, spectrum_rect.bottom()),
-                ],
-                egui::Stroke::new(
-                    0.5,
+            for i in 0..=n_grid {
+                let frac = i as f32 / n_grid as f32;
+                let x = spectrum_rect.left() + frac * spectrum_rect.width();
+                let offset_hz = left_hz + f64::from(frac) * zoom_span;
+                let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
+                painter.line_segment(
+                    [
+                        egui::pos2(x, spectrum_rect.top()),
+                        egui::pos2(x, spectrum_rect.bottom()),
+                    ],
+                    egui::Stroke::new(
+                        0.5,
+                        egui::Color32::from_rgba_unmultiplied(
+                            self.grid_color.r(),
+                            self.grid_color.g(),
+                            self.grid_color.b(),
+                            128,
+                        ),
+                    ),
+                );
+                painter.text(
+                    egui::pos2(x, spectrum_rect.bottom() + 2.0),
+                    egui::Align2::CENTER_TOP,
+                    format!("{freq_mhz:.2}"),
+                    egui::FontId::proportional(8.0),
                     egui::Color32::from_rgba_unmultiplied(
                         self.grid_color.r(),
                         self.grid_color.g(),
                         self.grid_color.b(),
-                        128,
+                        200,
                     ),
-                ),
-            );
-            painter.text(
-                egui::pos2(x, spectrum_rect.bottom() + 2.0),
-                egui::Align2::CENTER_TOP,
-                format!("{freq_mhz:.2}"),
-                egui::FontId::proportional(8.0),
-                egui::Color32::from_rgba_unmultiplied(
-                    self.grid_color.r(),
-                    self.grid_color.g(),
-                    self.grid_color.b(),
-                    200,
-                ),
-            );
-        }
+                );
+            }
         }
 
         // Band plan overlay

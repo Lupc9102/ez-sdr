@@ -105,8 +105,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/adsb_panel.rs": {
-    "mtime": 1783525927.535178,
-    "ast_hash": "d6a45ac9d87a2e4a7d53313a0f35d444",
+    "mtime": 1783616846.9908268,
+    "ast_hash": "f006bc8e43bad74251b05c93372128fe",
     "semantic_hash": ""
   },
   "ez-gui/src/ai_panel.rs": {
@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1783535833.3249695,
-    "ast_hash": "bc19fc2d69da06faee2a0632c861ba4b",
+    "mtime": 1783616847.084829,
+    "ast_hash": "8748cb4bc786536fb8a55e7d914e8702",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -130,13 +130,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/config.rs": {
-    "mtime": 1783538387.569757,
-    "ast_hash": "71be38ead1475ae7d7c207b4a98bd51b",
+    "mtime": 1783616847.1048295,
+    "ast_hash": "fdba14e1d3f530ed9c866f5e9f02ad46",
     "semantic_hash": ""
   },
   "ez-gui/src/demod.rs": {
-    "mtime": 1783451999.553379,
-    "ast_hash": "4d0fb2e3a65c45501525f5bcd1fc8111",
+    "mtime": 1783616847.1168299,
+    "ast_hash": "656a3fb4e1060d9720d82205a561f437",
     "semantic_hash": ""
   },
   "ez-gui/src/howto_panel.rs": {
@@ -145,8 +145,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/main.rs": {
-    "mtime": 1783516854.6444194,
-    "ast_hash": "1345761d0351483686dc148c3b902085",
+    "mtime": 1783608364.0430245,
+    "ast_hash": "ebd738ba3c1cabf13a0c624b65944afa",
     "semantic_hash": ""
   },
   "ez-gui/src/mqtt.rs": {
@@ -160,13 +160,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/satellite_panel.rs": {
-    "mtime": 1783524973.144107,
-    "ast_hash": "29992ecbee9ed93657789cd6daf07b6d",
+    "mtime": 1783616847.1838317,
+    "ast_hash": "644d69c164ad47ef4559f54ea8eaba84",
     "semantic_hash": ""
   },
   "ez-gui/src/scanner.rs": {
-    "mtime": 1783535733.0744953,
-    "ast_hash": "9d474479a74c134a2d43629451c68891",
+    "mtime": 1783616847.202832,
+    "ast_hash": "c3fe389a4117524dbef2cbcc56354f40",
     "semantic_hash": ""
   },
   "ez-gui/src/scheduler.rs": {
@@ -175,18 +175,18 @@
     "semantic_hash": ""
   },
   "ez-gui/src/sdr_panel.rs": {
-    "mtime": 1783523425.822888,
-    "ast_hash": "5db984843b108b510a3606aa7ce6c82b",
+    "mtime": 1783616847.2598336,
+    "ast_hash": "ef39032662e712a8127c87e333d2d4e3",
     "semantic_hash": ""
   },
   "ez-gui/src/source_manager.rs": {
-    "mtime": 1783451561.6027775,
-    "ast_hash": "645a42e7504b69a1005904032b73cc7a",
+    "mtime": 1783616847.2688336,
+    "ast_hash": "0d7bb65af0be5791c5d30d0827058f3e",
     "semantic_hash": ""
   },
   "ez-gui/src/spectrum.rs": {
-    "mtime": 1783520148.9549837,
-    "ast_hash": "94812f45594fede0837819df036b0b94",
+    "mtime": 1783616847.2998345,
+    "ast_hash": "c333becae8f18a33e9bea32dbff40a1b",
     "semantic_hash": ""
   },
   "ez-gui/src/theme.rs": {
@@ -225,13 +225,13 @@
     "semantic_hash": "3e825c3120dd5c0df0b6a5998baf63bc"
   },
   ".claude/settings.json": {
-    "mtime": 1783605087.6640024,
-    "ast_hash": "5df6a3638c999a888f4039e7bd482335",
+    "mtime": 1783624371.2472653,
+    "ast_hash": "bf3b52f3ecef0467ad24811de7a84615",
     "semantic_hash": ""
   },
   ".claude/settings.local.json": {
-    "mtime": 1783536111.2028275,
-    "ast_hash": "b116835be5af636f9bdf9c26e699d729",
+    "mtime": 1783616846.71482,
+    "ast_hash": "7dbb5a74b4e8a2ae5545ad949db1ffd4",
     "semantic_hash": ""
   },
   "ez-gui/ez_sdr_bookmarks.json": {
@@ -255,8 +255,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/discord.rs": {
-    "mtime": 1783535588.8099368,
-    "ast_hash": "f58f5c1e47fe9845bc28614cd188c8ce",
+    "mtime": 1783616847.12383,
+    "ast_hash": "815ea11edea9d13812475d33d4f7cba1",
     "semantic_hash": ""
   },
   "ez-gui/src/discord_panel.rs": {
@@ -265,8 +265,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/user_level.rs": {
-    "mtime": 1783257645.8626778,
-    "ast_hash": "007d14937f1efd358e74b2e4444c8b29",
+    "mtime": 1783612962.6912007,
+    "ast_hash": "30dce9c8597ec8685e5e3d3557424339",
     "semantic_hash": ""
   },
   "ez_sdr_bookmarks.json": {
@@ -420,8 +420,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/constellation.rs": {
-    "mtime": 1783524638.7350433,
-    "ast_hash": "99c7dbfdef3597365a6bab11001bbafa",
+    "mtime": 1783616847.1068296,
+    "ast_hash": "56698f660291457314a41be07fec5139",
     "semantic_hash": ""
   },
   "ez-gui/src/decoding_panel.rs": {
@@ -430,13 +430,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/satellite/alignment.rs": {
-    "mtime": 1783524792.246745,
-    "ast_hash": "cae55a8a72b535fa960b011208c37eef",
+    "mtime": 1783612881.1431117,
+    "ast_hash": "06ea5ceae7730177b75def707c5d48a6",
     "semantic_hash": ""
   },
   "ez-gui/src/satellite/map_renderer.rs": {
-    "mtime": 1783524741.4705207,
-    "ast_hash": "8408f12ebc76d3bf11c85f99ed36f6e4",
+    "mtime": 1783616847.1718314,
+    "ast_hash": "6e97b8f3387870102e22a47fb4d1d7c2",
     "semantic_hash": ""
   },
   "ez-gui/src/satellite/mod.rs": {
@@ -450,13 +450,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/satellite/recorder.rs": {
-    "mtime": 1783281736.586831,
-    "ast_hash": "e56f67770159b01defc92be7cee7eec0",
+    "mtime": 1783612891.2853708,
+    "ast_hash": "bfb5a6faa8c97c7c386574d8437b9273",
     "semantic_hash": ""
   },
   "ez-gui/src/satellite/types.rs": {
-    "mtime": 1783270232.1791127,
-    "ast_hash": "1fac54bea94a1854d05bd8e4ac05eef1",
+    "mtime": 1783612911.8078952,
+    "ast_hash": "feb05bbe162e51fcd9d8db8b325e0a8b",
     "semantic_hash": ""
   },
   ".opencode/plans/scanner-refactor.md": {
@@ -480,8 +480,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/advanced_panel.rs": {
-    "mtime": 1783508040.4799726,
-    "ast_hash": "6bcdba39772ef9be8b75be62bed38399",
+    "mtime": 1783616846.9918268,
+    "ast_hash": "3113eebabbaf1669120aee35b4d002cb",
     "semantic_hash": ""
   },
   "tile_cache/7/71/43.png": {
@@ -860,8 +860,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/ui_kit.rs": {
-    "mtime": 1783517117.8028107,
-    "ast_hash": "3eb24666d7863d1fa5860fe37b13b3e3",
+    "mtime": 1783616847.3088348,
+    "ast_hash": "e515d39d3de7e65d0e49cd786f4cdd95",
     "semantic_hash": ""
   },
   "dump1090/build.rs": {
@@ -875,13 +875,13 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/bus.rs": {
-    "mtime": 1783595504.0876222,
-    "ast_hash": "b9d392cf7cc0924a598aa2ab3af4c299",
+    "mtime": 1783616846.880824,
+    "ast_hash": "f27e487c11df0ec5a36c4ec0564c53bf",
     "semantic_hash": ""
   },
   "ez-daemon/src/hardware/hackrf.rs": {
-    "mtime": 1783590945.321777,
-    "ast_hash": "919531c9d91a8f5eb6717c0eedf5dde0",
+    "mtime": 1783616846.8858242,
+    "ast_hash": "bdafdb6ffda741cdaf4c87044aef7cb8",
     "semantic_hash": ""
   },
   "ez-daemon/src/hardware/mod.rs": {
@@ -890,13 +890,13 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/hardware/replay.rs": {
-    "mtime": 1783585496.9582884,
-    "ast_hash": "c3db55ab05e84a48d246fa3fe7bfbbd5",
+    "mtime": 1783616846.8868241,
+    "ast_hash": "37822d5d47f84223981f0d516d2427bd",
     "semantic_hash": ""
   },
   "ez-daemon/src/hardware/rtlsdr.rs": {
-    "mtime": 1783586536.7326996,
-    "ast_hash": "08738706383d1031716a33045a6c340a",
+    "mtime": 1783616846.8878243,
+    "ast_hash": "5f247629c036fc92a7804825a6b56e6e",
     "semantic_hash": ""
   },
   "ez-daemon/src/hardware/soapy.rs": {
@@ -905,18 +905,18 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/hardware/synthetic.rs": {
-    "mtime": 1783586132.4719841,
-    "ast_hash": "8ea5b97b8ddc2ac146b23dffcbaf20c6",
+    "mtime": 1783616846.8908243,
+    "ast_hash": "ead787c9a329d2718cb8a401a59d8507",
     "semantic_hash": ""
   },
   "ez-daemon/src/lib.rs": {
-    "mtime": 1783606284.8718169,
-    "ast_hash": "229fca5a4bfff6a09b0dace64cc791d2",
+    "mtime": 1783626702.3959277,
+    "ast_hash": "c47a6716581cd943b1972a097966a5e3",
     "semantic_hash": ""
   },
   "ez-daemon/src/main.rs": {
-    "mtime": 1783606355.3886092,
-    "ast_hash": "3abc84885a6b978923e25801a65747d4",
+    "mtime": 1783627681.0388544,
+    "ast_hash": "4526e65d5dff7084b00d91b2224c7e98",
     "semantic_hash": ""
   },
   "ez-proto/src/codec.rs": {
@@ -1660,8 +1660,8 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/channelizer.rs": {
-    "mtime": 1783604976.2443066,
-    "ast_hash": "9d8d9211095b08f04e6fc1a4470c4876",
+    "mtime": 1783616846.884824,
+    "ast_hash": "c88af65b81c5367b5c19c5fd9b25cdd6",
     "semantic_hash": ""
   },
   "ez-daemon/src/broadcast.rs": {
@@ -1675,18 +1675,18 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/spectrum.rs": {
-    "mtime": 1783595701.8020794,
-    "ast_hash": "e8eb0027554728896c4e1c204eb2a6df",
+    "mtime": 1783616846.8988245,
+    "ast_hash": "ac3657e0fd7440fcf88ff082dda8a287",
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/audio.rs": {
-    "mtime": 1783604353.1064537,
-    "ast_hash": "8499ea73e6e89b2b18c6851b0679ec67",
+    "mtime": 1783616846.8948245,
+    "ast_hash": "41bd17933644b6ab12f40bb1c7cb95a5",
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/packet.rs": {
-    "mtime": 1783601285.2303998,
-    "ast_hash": "ac6b91c8163c05be167de947fcefe7a0",
+    "mtime": 1783616846.8968244,
+    "ast_hash": "5fa23fa4a56b2479b566e32852679b97",
     "semantic_hash": ""
   },
   "ez-daemon/src/pipelines/telemetry.rs": {
@@ -1695,28 +1695,63 @@
     "semantic_hash": ""
   },
   "ez-daemon/src/recording.rs": {
-    "mtime": 1783602896.4664648,
-    "ast_hash": "de8a871b77ef6e1dd4ce238626aa4634",
+    "mtime": 1783616846.9008245,
+    "ast_hash": "508da9af760d879b2eea3eadffbe513b",
     "semantic_hash": ""
   },
   "ez-daemon/src/app.rs": {
-    "mtime": 1783606269.4114237,
-    "ast_hash": "da5979a597130c7683b2ecaa590975ea",
+    "mtime": 1783627473.2655804,
+    "ast_hash": "5f776ada0d89f0a9e26ea587b7c76c40",
     "semantic_hash": ""
   },
   "ez-daemon/src/ingest.rs": {
-    "mtime": 1783606142.7411761,
-    "ast_hash": "dc3877b815cce622415724ffdc62db9d",
+    "mtime": 1783616846.8928244,
+    "ast_hash": "666e4d1b4f94d9a24269c9d3e02ace83",
     "semantic_hash": ""
   },
   "ez-daemon/src/server.rs": {
-    "mtime": 1783606026.1961586,
-    "ast_hash": "2a149afc4d4aa22f35103c7f7fc3a787",
+    "mtime": 1783622556.6490808,
+    "ast_hash": "679fc590e16329919c9d4a08d3da13eb",
     "semantic_hash": ""
   },
   "ez-daemon/src/state.rs": {
-    "mtime": 1783605733.2965753,
-    "ast_hash": "43dbb19c4b7bb9acfb4ec96ed2a1e9c4",
+    "mtime": 1783627817.420316,
+    "ast_hash": "1de9eed4e2ef97ffbf8d39cd83113d0f",
+    "semantic_hash": ""
+  },
+  "ez-daemon/tests/resilience.rs": {
+    "mtime": 1783627587.8844898,
+    "ast_hash": "40b2279780e544c8707ad9fcc0f63223",
+    "semantic_hash": ""
+  },
+  "ez-gui/src/daemon_client.rs": {
+    "mtime": 1783627630.0815609,
+    "ast_hash": "967aa86e9aa711ea4e5bb3239b0c589f",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/web/api.rs": {
+    "mtime": 1783622879.9053314,
+    "ast_hash": "068e83290091d0ec6400fe974edc7617",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/web/wire.rs": {
+    "mtime": 1783622783.861888,
+    "ast_hash": "688078ac5a5aefc9eacbc954cad2a769",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/web/mod.rs": {
+    "mtime": 1783627279.5256627,
+    "ast_hash": "893781774ffddd272344d0a67285ac40",
+    "semantic_hash": ""
+  },
+  "ez-daemon/src/web/ws.rs": {
+    "mtime": 1783627990.2097056,
+    "ast_hash": "840e4e70caf0c4120527bf2136a5ec34",
+    "semantic_hash": ""
+  },
+  "ez-daemon/tests/web_resilience.rs": {
+    "mtime": 1783667058.8059995,
+    "ast_hash": "f0d75ae601b76f7f24a59c5f7699e8ca",
     "semantic_hash": ""
   }
 }

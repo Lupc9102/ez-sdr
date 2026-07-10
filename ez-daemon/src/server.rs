@@ -45,7 +45,11 @@ const EVENT_CHANNEL_CAPACITY: usize = 256;
 /// connection. Takes an already-bound [`TcpListener`] (rather than a [`SocketAddr`]) so
 /// callers — and tests — can observe the resolved local address (useful for `:0` ephemeral
 /// ports) before handing it off.
-pub async fn serve(listener: TcpListener, state: Arc<DaemonState>, running: Arc<AtomicBool>) -> Result<()> {
+pub async fn serve(
+    listener: TcpListener,
+    state: Arc<DaemonState>,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
     let local_addr = listener.local_addr().ok();
     tracing::info!(?local_addr, "ez-daemon listening");
 
@@ -95,7 +99,9 @@ async fn handle_connection(
             active_channels: state.active_channels(),
         })
         .await?;
-    writer.send(ServerEvent::Hardware(state.hardware_status())).await?;
+    writer
+        .send(ServerEvent::Hardware(state.hardware_status()))
+        .await?;
 
     let (event_tx, event_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
     let writer_task = tokio::spawn(run_writer(writer, event_rx));
@@ -122,7 +128,10 @@ async fn perform_handshake(
     writer: &mut FramedWrite<OwnedWriteHalf, MessageCodec<ServerEvent>>,
 ) -> Result<Option<String>> {
     match reader.next().await {
-        Some(Ok(ClientCommand::Hello { client_name, protocol_version })) => {
+        Some(Ok(ClientCommand::Hello {
+            client_name,
+            protocol_version,
+        })) => {
             if protocol_version != PROTOCOL_VERSION {
                 let _ = writer
                     .send(ServerEvent::Error {
@@ -137,7 +146,9 @@ async fn perform_handshake(
         }
         Some(Ok(_)) => {
             let _ = writer
-                .send(ServerEvent::Error { message: "first message must be Hello".to_string() })
+                .send(ServerEvent::Error {
+                    message: "first message must be Hello".to_string(),
+                })
                 .await;
             Ok(None)
         }
@@ -168,7 +179,10 @@ async fn command_loop(
     event_tx: &mpsc::Sender<ServerEvent>,
     forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
 ) -> Result<()> {
-    let mut hw_tick = tokio::time::interval_at(tokio::time::Instant::now() + CONNECTION_TICK, CONNECTION_TICK);
+    let mut hw_tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + CONNECTION_TICK,
+        CONNECTION_TICK,
+    );
 
     while daemon_running.load(Ordering::Relaxed) {
         tokio::select! {
@@ -195,7 +209,11 @@ async fn command_loop(
 
 /// Applies one command. Returns `false` only for `Detach`, signaling `command_loop` to end
 /// the connection.
-async fn apply_command(
+///
+/// `pub(crate)` so `crate::web`'s control WebSocket (JSON-over-WS instead of bincode-over-TCP)
+/// can drive the exact same command semantics rather than re-implementing this match — the
+/// two transports differ only in framing, never in what a given [`ClientCommand`] does.
+pub(crate) async fn apply_command(
     cmd: ClientCommand,
     state: &Arc<DaemonState>,
     event_tx: &mpsc::Sender<ServerEvent>,
@@ -235,12 +253,14 @@ async fn apply_command(
                 send_error(event_tx, e.to_string()).await;
             }
         }
-        ClientCommand::StartRecording { channel_id, format } => match state.start_recording(channel_id, format) {
-            Ok(status) => {
-                let _ = event_tx.send(ServerEvent::Recording(status)).await;
+        ClientCommand::StartRecording { channel_id, format } => {
+            match state.start_recording(channel_id, format) {
+                Ok(status) => {
+                    let _ = event_tx.send(ServerEvent::Recording(status)).await;
+                }
+                Err(e) => send_error(event_tx, e.to_string()).await,
             }
-            Err(e) => send_error(event_tx, e.to_string()).await,
-        },
+        }
         ClientCommand::StopRecording { channel_id } => match state.stop_recording(channel_id) {
             Ok(status) => {
                 let _ = event_tx.send(ServerEvent::Recording(status)).await;
@@ -263,7 +283,11 @@ async fn send_error(event_tx: &mpsc::Sender<ServerEvent>, message: String) {
 /// rather than leaking is what keeps a duplicate `Subscribe` for an id already active on
 /// this same connection safe: the previous thread is told to stop before the new one
 /// starts, instead of orphaning it with no reachable stop flag.
-fn spawn_forwarder(
+///
+/// `pub(crate)` so `crate::web`'s data-plane WebSocket handler can spin up the same kind of
+/// per-subscription forwarder thread against its own `mpsc::Sender<axum::extract::ws::Message>`
+/// instead of duplicating the `ChannelSubscription` match.
+pub(crate) fn spawn_forwarder(
     channel_id: ChannelId,
     sub: ChannelSubscription,
     event_tx: mpsc::Sender<ServerEvent>,
@@ -273,19 +297,31 @@ fn spawn_forwarder(
         previous.store(false, Ordering::Relaxed);
     }
     let keep_running = match sub {
-        ChannelSubscription::Spectrum(h) => spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Spectrum),
-        ChannelSubscription::Audio(h) => spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Audio),
-        ChannelSubscription::AdsbPackets(h) => spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Aircraft),
-        ChannelSubscription::LrptTelemetry(h) => spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Telemetry),
+        ChannelSubscription::Spectrum(h) => {
+            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Spectrum)
+        }
+        ChannelSubscription::Audio(h) => {
+            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Audio)
+        }
+        ChannelSubscription::AdsbPackets(h) => {
+            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Aircraft)
+        }
+        ChannelSubscription::LrptTelemetry(h) => {
+            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Telemetry)
+        }
     };
     forwarders.insert(channel_id, keep_running);
 }
 
-fn spawn_forward_thread<T: Send + 'static>(
+/// Generic over the outbound message type `M` (not just [`ServerEvent`]) so `crate::web`'s
+/// WebSocket data plane can reuse this exact spawn-and-bridge logic with
+/// `M = axum::extract::ws::Message` — the wrapping closure is the only thing that differs
+/// between "wrap for bincode-over-TCP" and "wrap for a WS frame".
+pub(crate) fn spawn_forward_thread<T: Send + 'static, M: Send + 'static>(
     channel_id: ChannelId,
     handle: BroadcasterHandle<T>,
-    tx: mpsc::Sender<ServerEvent>,
-    wrap: impl Fn(T) -> ServerEvent + Send + 'static,
+    tx: mpsc::Sender<M>,
+    wrap: impl Fn(T) -> M + Send + 'static,
 ) -> Arc<AtomicBool> {
     let keep_running = Arc::new(AtomicBool::new(true));
     let thread_running = Arc::clone(&keep_running);
@@ -296,12 +332,20 @@ fn spawn_forward_thread<T: Send + 'static>(
     keep_running
 }
 
-/// Bridges a blocking [`BroadcasterHandle`] pull to the connection's async event channel via
+/// Bridges a blocking [`BroadcasterHandle`] pull to an async `mpsc` channel via
 /// `blocking_send` — valid and intended here specifically because this runs on a plain OS
 /// thread (see [`spawn_forward_thread`]), never a tokio worker thread. Polls `running` every
 /// `FORWARD_POLL` rather than blocking on `recv` forever so `Unsubscribe`/disconnect is
 /// noticed promptly without needing a second wakeup channel.
-fn forward<T>(handle: BroadcasterHandle<T>, tx: mpsc::Sender<ServerEvent>, running: Arc<AtomicBool>, wrap: impl Fn(T) -> ServerEvent) {
+///
+/// Generic over `M` for the same reason as [`spawn_forward_thread`]: the TCP writer wants
+/// `ServerEvent`, the WS data plane wants a WS frame, and this loop doesn't need to know which.
+pub(crate) fn forward<T, M>(
+    handle: BroadcasterHandle<T>,
+    tx: mpsc::Sender<M>,
+    running: Arc<AtomicBool>,
+    wrap: impl Fn(T) -> M,
+) {
     while running.load(Ordering::Relaxed) {
         if let Some(item) = handle.recv_timeout(FORWARD_POLL) {
             if tx.blocking_send(wrap(item)).is_err() {
@@ -330,9 +374,19 @@ mod tests {
     async fn spawn_test_server() -> (SocketAddr, Arc<AtomicBool>) {
         let bus = SampleBus::new();
         let ingest_running = Arc::new(AtomicBool::new(true));
-        let (hardware, _ingest_thread) =
-            ingest::spawn(Box::new(SyntheticSource::default()), bus.clone(), ingest_running).unwrap();
-        let state = Arc::new(DaemonState::new(bus, hardware, 100_000_000, 2_000_000, unique_temp_dir("server")));
+        let (hardware, _ingest_thread) = ingest::spawn(
+            Box::new(SyntheticSource::default()),
+            bus.clone(),
+            ingest_running,
+        )
+        .unwrap();
+        let state = Arc::new(DaemonState::new(
+            bus,
+            hardware,
+            100_000_000,
+            2_000_000,
+            unique_temp_dir("server"),
+        ));
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -358,14 +412,22 @@ mod tests {
         )
     }
 
-    async fn hello(writer: &mut FramedWrite<OwnedWriteHalf, MessageCodec<ClientCommand>>, name: &str) {
+    async fn hello(
+        writer: &mut FramedWrite<OwnedWriteHalf, MessageCodec<ClientCommand>>,
+        name: &str,
+    ) {
         writer
-            .send(ClientCommand::Hello { client_name: name.to_string(), protocol_version: PROTOCOL_VERSION })
+            .send(ClientCommand::Hello {
+                client_name: name.to_string(),
+                protocol_version: PROTOCOL_VERSION,
+            })
             .await
             .unwrap();
     }
 
-    async fn wait_for_spectrum_frame(reader: &mut FramedRead<OwnedReadHalf, MessageCodec<ServerEvent>>) {
+    async fn wait_for_spectrum_frame(
+        reader: &mut FramedRead<OwnedReadHalf, MessageCodec<ServerEvent>>,
+    ) {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if let ServerEvent::Spectrum(_) = reader.next().await.unwrap().unwrap() {
@@ -378,7 +440,13 @@ mod tests {
     }
 
     fn spectrum_spec(id: ChannelId) -> ChannelSpec {
-        ChannelSpec { id, center_offset_hz: 0, bandwidth_hz: 2_000_000, kind: PipelineKind::Spectrum, demod_mode: None }
+        ChannelSpec {
+            id,
+            center_offset_hz: 0,
+            bandwidth_hz: 2_000_000,
+            kind: PipelineKind::Spectrum,
+            demod_mode: None,
+        }
     }
 
     #[tokio::test]
@@ -388,7 +456,9 @@ mod tests {
         hello(&mut writer, "test-client").await;
 
         let welcome = reader.next().await.unwrap().unwrap();
-        assert!(matches!(welcome, ServerEvent::Welcome { protocol_version, .. } if protocol_version == PROTOCOL_VERSION));
+        assert!(
+            matches!(welcome, ServerEvent::Welcome { protocol_version, .. } if protocol_version == PROTOCOL_VERSION)
+        );
 
         let hw = reader.next().await.unwrap().unwrap();
         assert!(matches!(hw, ServerEvent::Hardware(_)));
@@ -404,7 +474,10 @@ mod tests {
 
         let event = reader.next().await.unwrap().unwrap();
         assert!(matches!(event, ServerEvent::Error { .. }));
-        assert!(reader.next().await.is_none(), "connection should close after handshake failure");
+        assert!(
+            reader.next().await.is_none(),
+            "connection should close after handshake failure"
+        );
 
         running.store(false, Ordering::Relaxed);
     }
@@ -414,7 +487,10 @@ mod tests {
         let (addr, running) = spawn_test_server().await;
         let (mut writer, mut reader) = connect(addr).await;
         writer
-            .send(ClientCommand::Hello { client_name: "old".into(), protocol_version: PROTOCOL_VERSION + 1 })
+            .send(ClientCommand::Hello {
+                client_name: "old".into(),
+                protocol_version: PROTOCOL_VERSION + 1,
+            })
             .await
             .unwrap();
 
@@ -432,7 +508,12 @@ mod tests {
         let _ = reader.next().await;
         let _ = reader.next().await;
 
-        writer.send(ClientCommand::Subscribe { channel: spectrum_spec(1) }).await.unwrap();
+        writer
+            .send(ClientCommand::Subscribe {
+                channel: spectrum_spec(1),
+            })
+            .await
+            .unwrap();
         wait_for_spectrum_frame(&mut reader).await;
 
         running.store(false, Ordering::Relaxed);
@@ -469,11 +550,22 @@ mod tests {
         let _ = reader.next().await;
         let _ = reader.next().await;
 
-        writer.send(ClientCommand::Subscribe { channel: spectrum_spec(1) }).await.unwrap();
+        writer
+            .send(ClientCommand::Subscribe {
+                channel: spectrum_spec(1),
+            })
+            .await
+            .unwrap();
         wait_for_spectrum_frame(&mut reader).await;
 
-        writer.send(ClientCommand::Unsubscribe { channel_id: 1 }).await.unwrap();
-        writer.send(ClientCommand::Ping { nonce: 42 }).await.unwrap();
+        writer
+            .send(ClientCommand::Unsubscribe { channel_id: 1 })
+            .await
+            .unwrap();
+        writer
+            .send(ClientCommand::Ping { nonce: 42 })
+            .await
+            .unwrap();
 
         let pong = tokio::time::timeout(Duration::from_secs(2), async {
             loop {
@@ -497,20 +589,34 @@ mod tests {
         hello(&mut w1, "client-1").await;
         let _ = r1.next().await;
         let _ = r1.next().await;
-        w1.send(ClientCommand::Subscribe { channel: spectrum_spec(1) }).await.unwrap();
+        w1.send(ClientCommand::Subscribe {
+            channel: spectrum_spec(1),
+        })
+        .await
+        .unwrap();
         wait_for_spectrum_frame(&mut r1).await;
 
         let (mut w2, mut r2) = connect(addr).await;
         hello(&mut w2, "client-2").await;
         let welcome2 = r2.next().await.unwrap().unwrap();
         match welcome2 {
-            ServerEvent::Welcome { active_channels, .. } => {
-                assert_eq!(active_channels.len(), 1, "client 2 should see the channel client 1 already created");
+            ServerEvent::Welcome {
+                active_channels, ..
+            } => {
+                assert_eq!(
+                    active_channels.len(),
+                    1,
+                    "client 2 should see the channel client 1 already created"
+                );
             }
             other => panic!("expected Welcome, got {other:?}"),
         }
         let _ = r2.next().await;
-        w2.send(ClientCommand::Subscribe { channel: spectrum_spec(1) }).await.unwrap();
+        w2.send(ClientCommand::Subscribe {
+            channel: spectrum_spec(1),
+        })
+        .await
+        .unwrap();
 
         wait_for_spectrum_frame(&mut r1).await;
         wait_for_spectrum_frame(&mut r2).await;

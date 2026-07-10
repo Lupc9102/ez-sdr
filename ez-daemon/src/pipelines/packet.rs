@@ -164,10 +164,13 @@ impl PacketPipeline {
             return;
         };
 
-        let entry = self.aircraft.entry(decoded.icao).or_insert_with(|| AircraftTelemetry {
-            icao: decoded.icao,
-            ..Default::default()
-        });
+        let entry = self
+            .aircraft
+            .entry(decoded.icao)
+            .or_insert_with(|| AircraftTelemetry {
+                icao: decoded.icao,
+                ..Default::default()
+            });
 
         if let Some(callsign) = decoded.callsign {
             entry.callsign = Some(callsign);
@@ -187,7 +190,9 @@ impl PacketPipeline {
         if matches!(mm.msgtype, 17 | 18) && check_crc(&mm.msg) {
             let tc = mm.msg[4] >> 3;
             if (9..=18).contains(&tc) {
-                if let Some((lat, lon)) = self.cpr.submit(decoded.icao, extract_airborne_cpr(&mm.msg)) {
+                if let Some((lat, lon)) =
+                    self.cpr.submit(decoded.icao, extract_airborne_cpr(&mm.msg))
+                {
                     entry.lat = Some(lat);
                     entry.lon = Some(lon);
                 }
@@ -203,14 +208,15 @@ impl PacketPipeline {
         self.tracker.prune_older_than(cutoff_ms);
 
         let tracker = &self.tracker;
-        self.aircraft.retain(|icao, entry| match tracker.aircraft.get(icao) {
-            Some(state) => {
-                entry.msg_count = state.msg_count;
-                entry.last_seen_ms = state.last_seen_ms;
-                true
-            }
-            None => false,
-        });
+        self.aircraft
+            .retain(|icao, entry| match tracker.aircraft.get(icao) {
+                Some(state) => {
+                    entry.msg_count = state.msg_count;
+                    entry.last_seen_ms = state.last_seen_ms;
+                    true
+                }
+                None => false,
+            });
 
         let snapshot: Vec<AircraftTelemetry> = self.aircraft.values().cloned().collect();
         self.output.publish(snapshot);
@@ -233,7 +239,8 @@ fn now_ms() -> u64 {
 /// spanning the low bit of `msg[8]` and all of `msg[9]`/`msg[10]`.
 fn extract_airborne_cpr(msg: &[u8; 14]) -> CprFrame {
     let odd = (msg[6] & 0x04) != 0;
-    let lat = (u32::from(msg[6] & 0x03) << 15) | (u32::from(msg[7]) << 7) | (u32::from(msg[8]) >> 1);
+    let lat =
+        (u32::from(msg[6] & 0x03) << 15) | (u32::from(msg[7]) << 7) | (u32::from(msg[8]) >> 1);
     let lon = (u32::from(msg[8] & 0x01) << 16) | (u32::from(msg[9]) << 8) | u32::from(msg[10]);
     CprFrame {
         cpr_type: CprType::Airborne,
@@ -295,9 +302,7 @@ mod tests {
 
     #[test]
     fn extract_airborne_cpr_matches_known_bit_layout_odd() {
-        let msg = [
-            0u8, 0, 0, 0, 0, 0, 0x06, 0xCC, 0x6F, 0x55, 0xDA, 0, 0, 0,
-        ];
+        let msg = [0u8, 0, 0, 0, 0, 0, 0x06, 0xCC, 0x6F, 0x55, 0xDA, 0, 0, 0];
         let frame = extract_airborne_cpr(&msg);
         assert!(frame.odd);
         assert_eq!(frame.lat, 91703);
@@ -307,9 +312,7 @@ mod tests {
     #[test]
     fn extract_airborne_cpr_matches_known_bit_layout_even() {
         // Round-trip of dump1090::cpr's own vetted even-frame example (93000, 113609).
-        let msg = [
-            0u8, 0, 0, 0, 0, 0, 0x02, 0xD6, 0x91, 0xBB, 0xC9, 0, 0, 0,
-        ];
+        let msg = [0u8, 0, 0, 0, 0, 0, 0x02, 0xD6, 0x91, 0xBB, 0xC9, 0, 0, 0];
         let frame = extract_airborne_cpr(&msg);
         assert!(!frame.odd);
         assert_eq!(frame.lat, 93000);
@@ -395,8 +398,15 @@ mod tests {
             ..ModesMessage::default()
         };
         pipeline.merge_message(&mm);
-        assert!(pipeline.aircraft.is_empty(), "bad-CRC message must not produce a semantic entry");
-        assert_eq!(pipeline.tracked_count(), 1, "tracker still counts every framed message");
+        assert!(
+            pipeline.aircraft.is_empty(),
+            "bad-CRC message must not produce a semantic entry"
+        );
+        assert_eq!(
+            pipeline.tracked_count(),
+            1,
+            "tracker still counts every framed message"
+        );
     }
 
     #[test]
@@ -430,8 +440,14 @@ mod tests {
 
         pipeline.prune_and_publish();
 
-        assert!(!pipeline.aircraft.contains_key(&stale_icao), "stale aircraft should be pruned");
-        assert!(pipeline.aircraft.contains_key(&fresh_icao), "fresh aircraft should remain");
+        assert!(
+            !pipeline.aircraft.contains_key(&stale_icao),
+            "stale aircraft should be pruned"
+        );
+        assert!(
+            pipeline.aircraft.contains_key(&fresh_icao),
+            "fresh aircraft should remain"
+        );
         assert_eq!(pipeline.aircraft[&fresh_icao].msg_count, 1);
     }
 
@@ -465,7 +481,10 @@ mod tests {
             bus.publish(silence_block(256));
             pipeline.tick(Duration::from_millis(200));
         }
-        assert!(out.try_recv().is_some(), "expected a snapshot after N blocks");
+        assert!(
+            out.try_recv().is_some(),
+            "expected a snapshot after N blocks"
+        );
     }
 
     #[test]

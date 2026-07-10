@@ -1,8 +1,6 @@
 use crate::app::SharedState;
 use crate::decoding_panel::{satellite_to_preset, DecodeRequest};
-use crate::satellite::alignment::{
-    alignment_info_ui, compass_rose_ui, compute_dipole_alignment, dipole_tutorial_ui, DipoleType,
-};
+use crate::satellite::alignment::dipole_tutorial_ui;
 use crate::satellite::map_renderer::MapRenderer;
 use crate::satellite::picker::satellite_picker_ui;
 use crate::satellite::recorder::Cf32StreamWriter;
@@ -213,15 +211,23 @@ impl SatellitePanel {
             .unwrap_or_default();
         let catalog = self.satellite_catalog.clone();
         let selected_before = self.selected_sat_index;
-        module_card(ui, &theme, "satellites.picker", "🛰", "Satellites", true, |ui| {
-            satellite_picker_ui(
-                ui,
-                &catalog,
-                &mut self.selected_sat_index,
-                &mut self.picker_search,
-                |_idx| {},
-            );
-        });
+        module_card(
+            ui,
+            &theme,
+            "satellites.picker",
+            "🛰",
+            "Satellites",
+            true,
+            |ui| {
+                satellite_picker_ui(
+                    ui,
+                    &catalog,
+                    &mut self.selected_sat_index,
+                    &mut self.picker_search,
+                    |_idx| {},
+                );
+            },
+        );
 
         ui.add_space(6.0);
         if let Some(idx) = self.selected_sat_index {
@@ -322,66 +328,74 @@ impl SatellitePanel {
             .try_lock()
             .map(|s| s.config.theme_config.clone())
             .unwrap_or_default();
-        module_card(ui, &theme, "satellites.record", "⏺", "Recording", true, |ui| {
-            let is_rec = self.cf32_recording;
-            let label = if is_rec {
-                "■  STOP RECORDING"
-            } else {
-                "●  RECORD  (raw cf32 I/Q)"
-            };
-            // Pulse the REC button during recording
-            let pulse = if is_rec {
-                let t = ui.input(|i| i.time);
-                let phase = (t * 4.0).sin() * 0.3 + 0.7;
-                (phase * 60.0) as u8
-            } else {
-                0
-            };
-            let fill = if is_rec {
-                egui::Color32::from_rgb(200, 45 + pulse, 45)
-            } else {
-                egui::Color32::from_rgb(45, 175, 60)
-            };
-            let stroke_color = if is_rec {
-                egui::Color32::from_rgba_premultiplied(255, 0, 0, pulse.saturating_sub(20))
-            } else {
-                egui::Color32::TRANSPARENT
-            };
-            let btn = egui::Button::new(
-                egui::RichText::new(label)
-                    .size(20.0)
-                    .strong()
-                    .color(egui::Color32::WHITE),
-            )
-            .fill(fill)
-            .stroke(egui::Stroke::new(2.0, stroke_color))
-            .min_size(egui::vec2(ui.available_width(), 56.0));
-            if ui.add(btn).clicked() {
-                if is_rec {
-                    self.stop_cf32_recording();
+        module_card(
+            ui,
+            &theme,
+            "satellites.record",
+            "⏺",
+            "Recording",
+            true,
+            |ui| {
+                let is_rec = self.cf32_recording;
+                let label = if is_rec {
+                    "■  STOP RECORDING"
                 } else {
-                    self.start_cf32_recording();
+                    "●  RECORD  (raw cf32 I/Q)"
+                };
+                // Pulse the REC button during recording
+                let pulse = if is_rec {
+                    let t = ui.input(|i| i.time);
+                    let phase = (t * 4.0).sin() * 0.3 + 0.7;
+                    (phase * 60.0) as u8
+                } else {
+                    0
+                };
+                let fill = if is_rec {
+                    egui::Color32::from_rgb(200, 45 + pulse, 45)
+                } else {
+                    egui::Color32::from_rgb(45, 175, 60)
+                };
+                let stroke_color = if is_rec {
+                    egui::Color32::from_rgba_premultiplied(255, 0, 0, pulse.saturating_sub(20))
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
+                let btn = egui::Button::new(
+                    egui::RichText::new(label)
+                        .size(20.0)
+                        .strong()
+                        .color(egui::Color32::WHITE),
+                )
+                .fill(fill)
+                .stroke(egui::Stroke::new(2.0, stroke_color))
+                .min_size(egui::vec2(ui.available_width(), 56.0));
+                if ui.add(btn).clicked() {
+                    if is_rec {
+                        self.stop_cf32_recording();
+                    } else {
+                        self.start_cf32_recording();
+                    }
                 }
-            }
 
-            if is_rec {
-                if let Some(w) = &self.cf32_writer {
-                    let mb = w.bytes_written() as f64 / 1_048_576.0;
-                    let secs = w.elapsed_secs();
-                    let line = format!(
-                        "● REC  ·  {:.1} MB  ·  {:.0}s  ·  {:.1} MB/s",
-                        mb,
-                        secs,
-                        if secs > 0.0 { mb / secs } else { 0.0 }
-                    );
-                    ui.add_space(4.0);
-                    ui.colored_label(
-                        theme.status_recording.to_egui(),
-                        egui::RichText::new(line).size(13.0).strong(),
-                    );
+                if is_rec {
+                    if let Some(w) = &self.cf32_writer {
+                        let mb = w.bytes_written() as f64 / 1_048_576.0;
+                        let secs = w.elapsed_secs();
+                        let line = format!(
+                            "● REC  ·  {:.1} MB  ·  {:.0}s  ·  {:.1} MB/s",
+                            mb,
+                            secs,
+                            if secs > 0.0 { mb / secs } else { 0.0 }
+                        );
+                        ui.add_space(4.0);
+                        ui.colored_label(
+                            theme.status_recording.to_egui(),
+                            egui::RichText::new(line).size(13.0).strong(),
+                        );
+                    }
                 }
-            }
-        });
+            },
+        );
     }
 
     fn start_cf32_recording(&mut self) {
@@ -489,20 +503,30 @@ impl SatellitePanel {
             }
         }
 
-        module_card(ui, &theme, "satellites.observer", "📍", "Observer Location", false, |ui| {
-            let changed_lat = ui
-                .add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
-                .changed();
-            let changed_lon = ui
-                .add(egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"))
-                .changed();
-            if changed_lat || changed_lon {
-                if let Ok(mut state) = self.shared.try_lock() {
-                    state.tle.observer_lat = self.observer_lat;
-                    state.tle.observer_lon = self.observer_lon;
+        module_card(
+            ui,
+            &theme,
+            "satellites.observer",
+            "📍",
+            "Observer Location",
+            false,
+            |ui| {
+                let changed_lat = ui
+                    .add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
+                    .changed();
+                let changed_lon = ui
+                    .add(
+                        egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"),
+                    )
+                    .changed();
+                if changed_lat || changed_lon {
+                    if let Ok(mut state) = self.shared.try_lock() {
+                        state.tle.observer_lat = self.observer_lat;
+                        state.tle.observer_lon = self.observer_lon;
+                    }
                 }
-            }
-        });
+            },
+        );
     }
 }
 
@@ -754,7 +778,9 @@ mod tests {
             .expect("expected a pending decode request");
         assert_ne!(req.file_path, bare_filename);
         assert!(req.file_path.ends_with(&bare_filename));
-        assert!(req.file_path.contains(&tmp_dir.to_string_lossy().to_string()));
+        assert!(req
+            .file_path
+            .contains(&tmp_dir.to_string_lossy().to_string()));
         assert!(req.preset.is_none());
 
         let _ = std::fs::remove_dir_all(&tmp_dir);

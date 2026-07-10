@@ -14,6 +14,7 @@ readme = "../README.md"
 [dependencies]
 dump1090 = { path = "../dump1090" }
 lrpt-decode = { path = "../lrpt-decode" }
+ez-proto = { workspace = true }
 
 eframe = { version = "0.35", features = ["glow", "wayland", "x11"] }
 egui = "0.35"
@@ -30,6 +31,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "blo
 ureq = { version = "3", features = ["json"] }
 
 tokio = { version = "1", features = ["full"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures-util = { version = "0.3", features = ["sink"] }
 axum = { version = "0.8", features = ["ws"] }
 
 # Database
@@ -64,6 +67,9 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 chrono = "0.4"
 urlencoding = "2"
+
+[dev-dependencies]
+ez-daemon = { workspace = true }
 
 [features]
 default = ["audio"]

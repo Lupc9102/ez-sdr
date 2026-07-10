@@ -12,15 +12,17 @@ pub struct FreqMemEntry {
 
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
+use crate::advanced_panel::{
+    color_from_str, push_advanced, slider_f32, slider_u32, slider_usize, window_from_str,
+};
 use crate::ai_panel::AiPanel;
 use crate::audio_output::AudioOutput;
 use crate::bookmarks::BookmarkDb;
-use crate::config::AppConfig;
 use crate::config::AdvancedConfig;
+use crate::config::AppConfig;
 use crate::constellation::ConstellationDisplay;
 use crate::decoding_panel::DecodingPanel;
 use crate::demod::Demodulator;
-use crate::advanced_panel::{slider_f32, slider_usize, slider_u32, window_from_str, color_from_str, push_advanced};
 use crate::discord::DiscordNotifier;
 use crate::discord_panel::DiscordPanel;
 use crate::howto_panel::HowToPanel;
@@ -312,6 +314,7 @@ pub struct CentralApp {
     /// 🤖 Ask — ambient AI slide-over, openable from every mode's bar button.
     ai_ask_open: bool,
     /// ⚙ More — whether the tool-picker menu (deck of hidden tools) is showing.
+    #[allow(dead_code)]
     more_menu_open: bool,
     adsb_instructions_open: bool,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
@@ -579,49 +582,185 @@ impl CentralApp {
                 demod.set_agc_enabled(agc);
             }
             let nw = shared.config.advanced.notch_width_hz;
-            slider_f32(ui, &mut shared.config.advanced.agc_target, 0.01..=1.0, "AGC target", demod, |d, v| d.set_agc_target(v));
-            slider_f32(ui, &mut shared.config.advanced.agc_attack, 0.0001..=1.0, "AGC attack", demod, |d, v| d.set_agc_attack(v));
-            slider_f32(ui, &mut shared.config.advanced.agc_decay, 0.00001..=1.0, "AGC decay", demod, |d, v| d.set_agc_decay(v));
-            slider_f32(ui, &mut shared.config.advanced.audio_hpf_hz, 0.0..=20000.0, "High-pass (Hz)", demod, |d, v| d.set_audio_hpf(v));
-            slider_f32(ui, &mut shared.config.advanced.dc_blocker, 0.0..=1.0, "DC blocker", demod, |d, v| d.set_dc_blocker(v));
-            slider_f32(ui, &mut shared.config.advanced.deemph_tau_us, 20.0..=100.0, "FM de-emph t (us)", demod, |d, v| d.set_deemph_tau(v));
-            slider_f32(ui, &mut shared.config.advanced.audio_gain, 0.0..=10.0, "Audio gain", demod, |d, v| d.set_audio_gain(v));
-            slider_f32(ui, &mut shared.config.advanced.bass_db, -24.0..=24.0, "Bass (dB)", demod, |d, v| d.set_bass(v));
-            slider_f32(ui, &mut shared.config.advanced.treble_db, -24.0..=24.0, "Treble (dB)", demod, |d, v| d.set_treble(v));
-            slider_f32(ui, &mut shared.config.advanced.notch_hz, 0.0..=20000.0, "Notch (Hz)", demod, |d, v| d.set_notch(v, nw));
-            slider_f32(ui, &mut shared.config.advanced.notch_width_hz, 10.0..=5000.0, "Notch width (Hz)", demod, |d, v| d.set_notch(shared.config.advanced.notch_hz, v));
-            slider_f32(ui, &mut shared.config.advanced.noise_blanker, 0.0..=1.0, "Noise blanker", demod, |d, v| d.set_noise_blanker(v));
-            slider_f32(ui, &mut shared.config.advanced.pitch_octaves, -2.0..=2.0, "Pitch (octaves)", demod, |d, v| d.set_pitch(v));
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.agc_target,
+                0.01..=1.0,
+                "AGC target",
+                demod,
+                |d, v| d.set_agc_target(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.agc_attack,
+                0.0001..=1.0,
+                "AGC attack",
+                demod,
+                |d, v| d.set_agc_attack(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.agc_decay,
+                0.00001..=1.0,
+                "AGC decay",
+                demod,
+                |d, v| d.set_agc_decay(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.audio_hpf_hz,
+                0.0..=20000.0,
+                "High-pass (Hz)",
+                demod,
+                |d, v| d.set_audio_hpf(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.dc_blocker,
+                0.0..=1.0,
+                "DC blocker",
+                demod,
+                |d, v| d.set_dc_blocker(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.deemph_tau_us,
+                20.0..=100.0,
+                "FM de-emph t (us)",
+                demod,
+                |d, v| d.set_deemph_tau(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.audio_gain,
+                0.0..=10.0,
+                "Audio gain",
+                demod,
+                |d, v| d.set_audio_gain(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.bass_db,
+                -24.0..=24.0,
+                "Bass (dB)",
+                demod,
+                |d, v| d.set_bass(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.treble_db,
+                -24.0..=24.0,
+                "Treble (dB)",
+                demod,
+                |d, v| d.set_treble(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.notch_hz,
+                0.0..=20000.0,
+                "Notch (Hz)",
+                demod,
+                |d, v| d.set_notch(v, nw),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.notch_width_hz,
+                10.0..=5000.0,
+                "Notch width (Hz)",
+                demod,
+                |d, v| d.set_notch(shared.config.advanced.notch_hz, v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.noise_blanker,
+                0.0..=1.0,
+                "Noise blanker",
+                demod,
+                |d, v| d.set_noise_blanker(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.pitch_octaves,
+                -2.0..=2.0,
+                "Pitch (octaves)",
+                demod,
+                |d, v| d.set_pitch(v),
+            );
         });
 
         // ---------------- Display / Spectrum ----------------
         ui.collapsing("Display / Spectrum", |ui| {
             let dbmin = shared.config.advanced.db_min;
             let dbmax = shared.config.advanced.db_max;
-            slider_usize(ui, &mut shared.config.advanced.fft_size, 256..=8192, "FFT size", &mut shared.spectrum, |s, v| s.set_fft_size(v));
+            slider_usize(
+                ui,
+                &mut shared.config.advanced.fft_size,
+                256..=8192,
+                "FFT size",
+                &mut shared.spectrum,
+                |s, v| s.set_fft_size(v),
+            );
             ui.horizontal(|ui| {
                 ui.label("Window:");
                 egui::ComboBox::from_label("")
                     .selected_text(shared.config.advanced.window.clone())
                     .show_ui(ui, |ui| {
                         for w in ["Hann", "Hamming", "Blackman", "FlatTop"] {
-                            if ui.selectable_label(shared.config.advanced.window == w, w).clicked() {
+                            if ui
+                                .selectable_label(shared.config.advanced.window == w, w)
+                                .clicked()
+                            {
                                 shared.config.advanced.window = w.to_string();
                                 shared.spectrum.set_window(window_from_str(w));
                             }
                         }
                     });
             });
-            slider_u32(ui, &mut shared.config.advanced.wf_speed, 1..=16, "Waterfall speed", &mut shared.spectrum, |s, v| s.waterfall_every_n = v.max(1));
-            slider_usize(ui, &mut shared.config.advanced.wf_depth, 32..=1024, "Waterfall depth", &mut shared.spectrum, |s, v| s.set_waterfall_history(v));
+            slider_u32(
+                ui,
+                &mut shared.config.advanced.wf_speed,
+                1..=16,
+                "Waterfall speed",
+                &mut shared.spectrum,
+                |s, v| s.waterfall_every_n = v.max(1),
+            );
+            slider_usize(
+                ui,
+                &mut shared.config.advanced.wf_depth,
+                32..=1024,
+                "Waterfall depth",
+                &mut shared.spectrum,
+                |s, v| s.set_waterfall_history(v),
+            );
             let mut grid = shared.config.advanced.grid;
             if ui.checkbox(&mut grid, "Grid lines").changed() {
                 shared.config.advanced.grid = grid;
                 shared.spectrum.set_grid(grid);
             }
-            slider_f32(ui, &mut shared.config.advanced.peak_hold_time, 0.1..=60.0, "Peak-hold time (s)", &mut shared.spectrum, |s, v| s.set_peak_hold_time(v));
-            slider_f32(ui, &mut shared.config.advanced.avg_alpha, 0.0..=1.0, "Trace averaging", &mut shared.spectrum, |s, v| s.set_avg_alpha(v));
-            slider_f32(ui, &mut shared.config.advanced.persistence, 0.0..=0.98, "Persistence", &mut shared.spectrum, |s, v| s.set_persistence(v));
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.peak_hold_time,
+                0.1..=60.0,
+                "Peak-hold time (s)",
+                &mut shared.spectrum,
+                |s, v| s.set_peak_hold_time(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.avg_alpha,
+                0.0..=1.0,
+                "Trace averaging",
+                &mut shared.spectrum,
+                |s, v| s.set_avg_alpha(v),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.persistence,
+                0.0..=0.98,
+                "Persistence",
+                &mut shared.spectrum,
+                |s, v| s.set_persistence(v),
+            );
             let mut grad = shared.config.advanced.gradient_fill;
             if ui.checkbox(&mut grad, "Gradient fill").changed() {
                 shared.config.advanced.gradient_fill = grad;
@@ -632,16 +771,42 @@ impl CentralApp {
                 egui::ComboBox::from_label("")
                     .selected_text(shared.config.color_map.clone())
                     .show_ui(ui, |ui| {
-                        for c in ["Classic", "Viridis", "Plasma", "Magma", "Inferno", "Turbo", "Grayscale", "Hot"] {
-                            if ui.selectable_label(shared.config.color_map == c, c).clicked() {
+                        for c in [
+                            "Classic",
+                            "Viridis",
+                            "Plasma",
+                            "Magma",
+                            "Inferno",
+                            "Turbo",
+                            "Grayscale",
+                            "Hot",
+                        ] {
+                            if ui
+                                .selectable_label(shared.config.color_map == c, c)
+                                .clicked()
+                            {
                                 shared.config.color_map = c.to_string();
                                 shared.spectrum.set_color_map(color_from_str(c));
                             }
                         }
                     });
             });
-            slider_f32(ui, &mut shared.config.advanced.db_min, -140.0..=-20.0, "dB floor", &mut shared.spectrum, |s, v| s.set_display_range(v, dbmax));
-            slider_f32(ui, &mut shared.config.advanced.db_max, -40.0..=20.0, "dB ceiling", &mut shared.spectrum, |s, v| s.set_display_range(dbmin, v));
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.db_min,
+                -140.0..=-20.0,
+                "dB floor",
+                &mut shared.spectrum,
+                |s, v| s.set_display_range(v, dbmax),
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.db_max,
+                -40.0..=20.0,
+                "dB ceiling",
+                &mut shared.spectrum,
+                |s, v| s.set_display_range(dbmin, v),
+            );
         });
 
         // ---------------- RF / Source ----------------
@@ -657,7 +822,10 @@ impl CentralApp {
                 shared.source.rtl_agc = ragc;
             }
             let mut ds = shared.config.advanced.direct_sampling;
-            if ui.checkbox(&mut ds, "Direct sampling (next start)").changed() {
+            if ui
+                .checkbox(&mut ds, "Direct sampling (next start)")
+                .changed()
+            {
                 shared.config.advanced.direct_sampling = ds;
                 shared.source.direct_sampling = ds;
             }
@@ -681,8 +849,22 @@ impl CentralApp {
                 shared.config.advanced.rf_notch = rfnc;
                 demod.set_rf_notch(rfnc, shared.config.advanced.rf_notch_hz);
             }
-            slider_f32(ui, &mut shared.config.advanced.rf_notch_hz, 100.0..=500_000.0, "RF notch (Hz)", demod, |d, v| d.set_rf_notch(shared.config.advanced.rf_notch, v));
-            slider_u32(ui, &mut shared.config.advanced.rf_decim, 1..=8, "RF decimation", demod, |d, v| d.set_rf_decim(v));
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.rf_notch_hz,
+                100.0..=500_000.0,
+                "RF notch (Hz)",
+                demod,
+                |d, v| d.set_rf_notch(shared.config.advanced.rf_notch, v),
+            );
+            slider_u32(
+                ui,
+                &mut shared.config.advanced.rf_decim,
+                1..=8,
+                "RF decimation",
+                demod,
+                |d, v| d.set_rf_decim(v),
+            );
         });
 
         // ---------------- Scan / Record / AI / Satellite ----------------
@@ -693,7 +875,10 @@ impl CentralApp {
                     .selected_text(shared.config.advanced.scan_direction.clone())
                     .show_ui(ui, |ui| {
                         for d in ["up", "down"] {
-                            if ui.selectable_label(shared.config.advanced.scan_direction == d, d).clicked() {
+                            if ui
+                                .selectable_label(shared.config.advanced.scan_direction == d, d)
+                                .clicked()
+                            {
                                 shared.config.advanced.scan_direction = d.to_string();
                             }
                         }
@@ -705,18 +890,63 @@ impl CentralApp {
                     .selected_text(shared.config.advanced.record_format.clone())
                     .show_ui(ui, |ui| {
                         for f in ["wav", "raw"] {
-                            if ui.selectable_label(shared.config.advanced.record_format == f, f).clicked() {
+                            if ui
+                                .selectable_label(shared.config.advanced.record_format == f, f)
+                                .clicked()
+                            {
                                 shared.config.advanced.record_format = f.to_string();
                             }
                         }
                     });
             });
-            slider_u32(ui, &mut shared.config.advanced.record_split_mb, 0..=2000, "Record split (MB)", demod, |_, _| {});
-            slider_u32(ui, &mut shared.config.advanced.ai_context_window, 0..=128000, "AI context (tok)", demod, |_, _| {});
-            slider_f32(ui, &mut shared.config.advanced.sat_elevation_offset, -20.0..=20.0, "Sat elev offset (deg)", demod, |_, _| {});
-            slider_f32(ui, &mut shared.config.advanced.sat_azimuth_offset, -45.0..=45.0, "Sat az offset (deg)", demod, |_, _| {});
-            slider_f32(ui, &mut shared.config.advanced.map_zoom, 0.5..=4.0, "Map zoom", demod, |_, _| {});
-            slider_u32(ui, &mut shared.config.advanced.pass_lead_min, 1..=60, "Pass lead (min)", demod, |_, _| {});
+            slider_u32(
+                ui,
+                &mut shared.config.advanced.record_split_mb,
+                0..=2000,
+                "Record split (MB)",
+                demod,
+                |_, _| {},
+            );
+            slider_u32(
+                ui,
+                &mut shared.config.advanced.ai_context_window,
+                0..=128000,
+                "AI context (tok)",
+                demod,
+                |_, _| {},
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.sat_elevation_offset,
+                -20.0..=20.0,
+                "Sat elev offset (deg)",
+                demod,
+                |_, _| {},
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.sat_azimuth_offset,
+                -45.0..=45.0,
+                "Sat az offset (deg)",
+                demod,
+                |_, _| {},
+            );
+            slider_f32(
+                ui,
+                &mut shared.config.advanced.map_zoom,
+                0.5..=4.0,
+                "Map zoom",
+                demod,
+                |_, _| {},
+            );
+            slider_u32(
+                ui,
+                &mut shared.config.advanced.pass_lead_min,
+                1..=60,
+                "Pass lead (min)",
+                demod,
+                |_, _| {},
+            );
         });
 
         ui.separator();
@@ -725,10 +955,39 @@ impl CentralApp {
             push_advanced(demod, shared);
         }
     }
+
+    /// Drain queued daemon events (only produces events in `SourceMode::Daemon`)
+    /// and apply them: spectrum frames feed the analyser, errors surface as a
+    /// status flash. Hardware/audio/aircraft/telemetry/recording/pong events are
+    /// already applied inside `SourceManager::recv_daemon_event` (e.g. the
+    /// hardware shadow-field sync) and need no further handling here.
+    fn drain_daemon_events(&mut self) {
+        let Ok(mut state) = self.shared.try_lock() else {
+            return;
+        };
+        state.source.sync_daemon_controls();
+        for _ in 0..8 {
+            match state.source.recv_daemon_event() {
+                Some(ez_proto::ServerEvent::Spectrum(frame)) => {
+                    state.spectrum.push_spectrum_frame(&frame);
+                }
+                Some(ez_proto::ServerEvent::Error { message }) => {
+                    self.status_flash = Some((format!("⚠ {message}"), std::time::Instant::now()));
+                }
+                Some(_) => {}
+                None => break,
+            }
+        }
+    }
 }
 
 impl eframe::App for CentralApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // In SourceMode::Daemon the local worker threads are idle; spectrum, hardware and
+        // status all arrive over the network instead. Drain and apply those first (a no-op in
+        // every other mode) so the frame below renders on the freshest daemon state.
+        self.drain_daemon_events();
+
         // Drain samples from source — single lock, fast
         let mut sample_batch: Vec<Vec<u8>> = Vec::new();
         {
@@ -2388,8 +2647,11 @@ impl CentralApp {
                         chosen = Some(SecondaryTool::Customize);
                     }
                     if let Some(tool) = chosen {
-                        self.active_secondary_tool =
-                            if self.active_secondary_tool == Some(tool) { None } else { Some(tool) };
+                        self.active_secondary_tool = if self.active_secondary_tool == Some(tool) {
+                            None
+                        } else {
+                            Some(tool)
+                        };
                     }
                 });
 
@@ -2423,7 +2685,10 @@ impl CentralApp {
         };
         let freq_mhz = state.source.frequency_hz as f64 / 1e6;
         let mode = match state.demod_mode {
-            DemodMode::Auto => format!("Auto → {}", DemodMode::for_frequency(state.source.frequency_hz).label()),
+            DemodMode::Auto => format!(
+                "Auto → {}",
+                DemodMode::for_frequency(state.source.frequency_hz).label()
+            ),
             m => m.label().to_string(),
         };
         let level = state.spectrum.signal_level();
@@ -2437,7 +2702,10 @@ impl CentralApp {
             ("Silent", egui::Color32::from_rgb(120, 120, 130))
         };
         ui.horizontal(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(52, 152, 219), format!("● {freq_mhz:.3} MHz"));
+            ui.colored_label(
+                egui::Color32::from_rgb(52, 152, 219),
+                format!("● {freq_mhz:.3} MHz"),
+            );
             ui.label(mode);
             ui.colored_label(color, word);
             if state.recording {
@@ -2521,7 +2789,8 @@ impl CentralApp {
                             ui.label("Topic prefix:");
                             ui.text_edit_singleline(&mut state.config.mqtt_topic_prefix);
                         });
-                        let mut enabled = !state.config.mqtt_broker.is_empty() && state.mqtt_enabled;
+                        let mut enabled =
+                            !state.config.mqtt_broker.is_empty() && state.mqtt_enabled;
                         if ui.checkbox(&mut enabled, "Enable MQTT").clicked() {
                             state.mqtt_enabled = enabled;
                             if enabled && state.config.mqtt_broker.is_empty() {
@@ -2547,18 +2816,24 @@ impl CentralApp {
                     if let Ok(mut state) = self.shared.try_lock() {
                         ui.label(egui::RichText::new("Web Remote").strong());
                         ui.label("Control ez-sdr from a browser via the local web API.");
-                        let cb = ui.checkbox(&mut state.config.web_remote_enabled, "Enable web remote");
+                        let cb =
+                            ui.checkbox(&mut state.config.web_remote_enabled, "Enable web remote");
                         let sl = ui.add(
                             egui::Slider::new(&mut state.config.web_remote_port, 1024..=65535)
                                 .text("Port"),
                         );
                         if cb.changed() || sl.changed() {
-                            self.web_remote
-                                .set_enabled(state.config.web_remote_enabled, state.config.web_remote_port);
+                            self.web_remote.set_enabled(
+                                state.config.web_remote_enabled,
+                                state.config.web_remote_port,
+                            );
                         }
                         let status = if state.config.web_remote_enabled {
-                            egui::RichText::new(format!("● Listening on :{}", state.config.web_remote_port))
-                                .color(egui::Color32::GREEN)
+                            egui::RichText::new(format!(
+                                "● Listening on :{}",
+                                state.config.web_remote_port
+                            ))
+                            .color(egui::Color32::GREEN)
                         } else {
                             egui::RichText::new("○ Disabled").color(egui::Color32::GRAY)
                         };
@@ -2589,138 +2864,138 @@ impl CentralApp {
         // Scope the shared lock to the interactive header; the Adjust expander
         // below takes its own lock so the two never overlap.
         {
-        let Some(mut state) = self.shared.try_lock().ok() else {
-            return;
-        };
+            let Some(mut state) = self.shared.try_lock().ok() else {
+                return;
+            };
 
-        // ── Preset tiles: one tap tunes + sets mode + starts the source ──
-        let presets: &[(&str, u64)] = &[
-            ("📻 FM Radio", 98_500_000),
-            ("✈ Air Band", 128_000_000),
-            ("🌦 Weather", 162_400_000),
-            ("🚓 Public Safety", 155_000_000),
-            ("📡 Ham 2m", 145_500_000),
-            ("🚢 Marine", 156_800_000),
-        ];
-        ui.horizontal_wrapped(|ui| {
-            for (label, freq) in presets {
+            // ── Preset tiles: one tap tunes + sets mode + starts the source ──
+            let presets: &[(&str, u64)] = &[
+                ("📻 FM Radio", 98_500_000),
+                ("✈ Air Band", 128_000_000),
+                ("🌦 Weather", 162_400_000),
+                ("🚓 Public Safety", 155_000_000),
+                ("📡 Ham 2m", 145_500_000),
+                ("🚢 Marine", 156_800_000),
+            ];
+            ui.horizontal_wrapped(|ui| {
+                for (label, freq) in presets {
+                    if ui
+                        .button(*label)
+                        .on_hover_text(format!(
+                            "Tune {:.3} MHz · {} (Auto)",
+                            *freq as f64 / 1e6,
+                            DemodMode::for_frequency(*freq).label()
+                        ))
+                        .clicked()
+                    {
+                        state.source.frequency_hz = *freq;
+                        state.demod_mode = DemodMode::Auto;
+                        state.source.start();
+                        self.last_manual_tune_time = std::time::Instant::now();
+                    }
+                }
                 if ui
-                    .button(*label)
-                    .on_hover_text(format!(
-                        "Tune {:.3} MHz · {} (Auto)",
-                        *freq as f64 / 1e6,
-                        DemodMode::for_frequency(*freq).label()
-                    ))
+                    .button("⭐ Saved")
+                    .on_hover_text("Open your saved bookmarks")
                     .clicked()
                 {
-                    state.source.frequency_hz = *freq;
-                    state.demod_mode = DemodMode::Auto;
-                    state.source.start();
-                    self.last_manual_tune_time = std::time::Instant::now();
+                    self.active_secondary_tool = Some(SecondaryTool::Bookmarks);
                 }
-            }
-            if ui
-                .button("⭐ Saved")
-                .on_hover_text("Open your saved bookmarks")
-                .clicked()
-            {
-                self.active_secondary_tool = Some(SecondaryTool::Bookmarks);
-            }
-        });
+            });
 
-        // ── Smart-tune box + Auto chip ──
-        ui.horizontal(|ui| {
-            ui.label("Tune:");
-            let resp = ui.text_edit_singleline(&mut self.listen_tune_input);
-            if ui.button("Go").clicked()
-                || (resp.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-            {
-                let q = self.listen_tune_input.trim().to_lowercase();
-                if !q.is_empty() {
-                    // Numeric → MHz.
-                    if let Ok(mhz) = q.parse::<f64>() {
-                        state.source.frequency_hz = (mhz * 1e6) as u64;
-                    } else {
-                        let named = match q.as_str() {
-                            "weather" | "wx" | "noaa" => Some(162_400_000),
-                            "air" | "airband" | "aviation" => Some(128_000_000),
-                            "fm" | "radio" | "fm radio" => Some(98_500_000),
-                            "marine" | "vhf" | "ship" => Some(156_800_000),
-                            "ham" | "2m" | "ham 2m" => Some(145_500_000),
-                            "police" | "public" | "public safety" => Some(155_000_000),
-                            _ => None,
-                        };
-                        if let Some(hz) = named {
-                            state.source.frequency_hz = hz;
-                        } else if let Some(b) = state
-                            .bookmarks
-                            .bookmarks
-                            .iter()
-                            .find(|b| b.name.to_lowercase().contains(&q))
-                        {
-                            state.source.frequency_hz = b.frequency_hz;
+            // ── Smart-tune box + Auto chip ──
+            ui.horizontal(|ui| {
+                ui.label("Tune:");
+                let resp = ui.text_edit_singleline(&mut self.listen_tune_input);
+                if ui.button("Go").clicked()
+                    || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                {
+                    let q = self.listen_tune_input.trim().to_lowercase();
+                    if !q.is_empty() {
+                        // Numeric → MHz.
+                        if let Ok(mhz) = q.parse::<f64>() {
+                            state.source.frequency_hz = (mhz * 1e6) as u64;
+                        } else {
+                            let named = match q.as_str() {
+                                "weather" | "wx" | "noaa" => Some(162_400_000),
+                                "air" | "airband" | "aviation" => Some(128_000_000),
+                                "fm" | "radio" | "fm radio" => Some(98_500_000),
+                                "marine" | "vhf" | "ship" => Some(156_800_000),
+                                "ham" | "2m" | "ham 2m" => Some(145_500_000),
+                                "police" | "public" | "public safety" => Some(155_000_000),
+                                _ => None,
+                            };
+                            if let Some(hz) = named {
+                                state.source.frequency_hz = hz;
+                            } else if let Some(b) = state
+                                .bookmarks
+                                .bookmarks
+                                .iter()
+                                .find(|b| b.name.to_lowercase().contains(&q))
+                            {
+                                state.source.frequency_hz = b.frequency_hz;
+                            }
                         }
+                        state.demod_mode = DemodMode::Auto;
+                        state.source.start();
+                        self.last_manual_tune_time = std::time::Instant::now();
                     }
-                    state.demod_mode = DemodMode::Auto;
-                    state.source.start();
-                    self.last_manual_tune_time = std::time::Instant::now();
                 }
-            }
-            ui.add_space(8.0);
-            // Auto → concrete mode chip. Click to pin a specific mode.
-            let concrete = match state.demod_mode {
-                DemodMode::Auto => DemodMode::for_frequency(state.source.frequency_hz),
-                m => m,
-            };
-            let chip_label = if matches!(state.demod_mode, DemodMode::Auto) {
-                format!("Auto → {}", concrete.label())
-            } else {
-                state.demod_mode.label().to_string()
-            };
-            if ui
-                .button(egui::RichText::new(chip_label).strong())
-                .on_hover_text("Auto picks the mode from the frequency. Click to pin a specific mode.")
-                .clicked()
-            {
-                state.demod_mode = match state.demod_mode {
-                    DemodMode::Auto => DemodMode::Wfm,
-                    DemodMode::Wfm => DemodMode::Fm,
-                    DemodMode::Fm => DemodMode::Am,
-                    DemodMode::Am => DemodMode::Usb,
-                    DemodMode::Usb => DemodMode::Lsb,
-                    DemodMode::Lsb => DemodMode::Auto,
-                    _ => DemodMode::Auto,
+                ui.add_space(8.0);
+                // Auto → concrete mode chip. Click to pin a specific mode.
+                let concrete = match state.demod_mode {
+                    DemodMode::Auto => DemodMode::for_frequency(state.source.frequency_hz),
+                    m => m,
                 };
-            }
-        });
+                let chip_label = if matches!(state.demod_mode, DemodMode::Auto) {
+                    format!("Auto → {}", concrete.label())
+                } else {
+                    state.demod_mode.label().to_string()
+                };
+                if ui
+                    .button(egui::RichText::new(chip_label).strong())
+                    .on_hover_text(
+                        "Auto picks the mode from the frequency. Click to pin a specific mode.",
+                    )
+                    .clicked()
+                {
+                    state.demod_mode = match state.demod_mode {
+                        DemodMode::Auto => DemodMode::Wfm,
+                        DemodMode::Wfm => DemodMode::Fm,
+                        DemodMode::Fm => DemodMode::Am,
+                        DemodMode::Am => DemodMode::Usb,
+                        DemodMode::Usb => DemodMode::Lsb,
+                        DemodMode::Lsb => DemodMode::Auto,
+                        _ => DemodMode::Auto,
+                    };
+                }
+            });
 
-        // ── Plain-language signal meter ──
-        let level = state.spectrum.signal_level();
-        let (word, color) = if level > -30.0 {
-            ("Strong ✓", egui::Color32::from_rgb(60, 220, 100))
-        } else if level > -60.0 {
-            ("Weak", egui::Color32::from_rgb(230, 200, 60))
-        } else if level > -80.0 {
-            ("Quiet", egui::Color32::from_rgb(180, 180, 190))
-        } else {
-            ("Silent", egui::Color32::from_rgb(120, 120, 130))
-        };
-        ui.horizontal(|ui| {
-            ui.label("Signal:");
-            ui.colored_label(color, word);
-            ui.monospace(egui::RichText::new(format!("{level:>6.0} dB")).small());
-        });
+            // ── Plain-language signal meter ──
+            let level = state.spectrum.signal_level();
+            let (word, color) = if level > -30.0 {
+                ("Strong ✓", egui::Color32::from_rgb(60, 220, 100))
+            } else if level > -60.0 {
+                ("Weak", egui::Color32::from_rgb(230, 200, 60))
+            } else if level > -80.0 {
+                ("Quiet", egui::Color32::from_rgb(180, 180, 190))
+            } else {
+                ("Silent", egui::Color32::from_rgb(120, 120, 130))
+            };
+            ui.horizontal(|ui| {
+                ui.label("Signal:");
+                ui.colored_label(color, word);
+                ui.monospace(egui::RichText::new(format!("{level:>6.0} dB")).small());
+            });
         } // end shared-lock scope
 
         // ── Adjust ▾ expander (default-collapsed): advanced controls ──
         egui::CollapsingHeader::new("⚙ Adjust")
             .default_open(false)
             .show(ui, |ui| {
-                if let Some(mut state) = self.shared.try_lock().ok() {
+                if let Ok(mut state) = self.shared.try_lock() {
                     ui.add(
-                        egui::Slider::new(&mut state.source.gain_db, 0.0..=49.6)
-                            .text("Gain (dB)"),
+                        egui::Slider::new(&mut state.source.gain_db, 0.0..=49.6).text("Gain (dB)"),
                     );
                     ui.add(
                         egui::Slider::new(&mut state.squelch, -100.0..=0.0).text("Squelch (dB)"),

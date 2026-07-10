@@ -40,9 +40,18 @@ impl From<ReplayFormatArg> for ReplayFormat {
 #[derive(Debug, Parser)]
 #[command(name = "ez-daemon", version)]
 struct Args {
-    /// TCP address to accept client connections on.
+    /// TCP address to accept legacy bincode client connections on.
     #[arg(long, default_value = "127.0.0.1:7890")]
     listen: SocketAddr,
+
+    /// Address the web UI/API (HTTP + WebSocket) listens on.
+    #[arg(long, default_value = "127.0.0.1:7891")]
+    web_listen: SocketAddr,
+
+    /// Directory containing the compiled frontend's static assets. Served at `/`; if
+    /// missing, the daemon still serves `/api/*` and `/ws/*` with a warning logged.
+    #[arg(long, default_value = "./ez-web/dist")]
+    web_static_dir: PathBuf,
 
     /// Initial center frequency in Hz.
     #[arg(long, default_value_t = 433_000_000)]
@@ -92,9 +101,11 @@ impl Args {
         };
         Ok(DaemonConfig {
             listen_addr: self.listen,
+            web_listen_addr: self.web_listen,
             initial_freq_hz: self.freq,
             initial_sample_rate_hz: self.sample_rate,
             recording_dir: self.recording_dir,
+            web_static_dir: self.web_static_dir,
             source,
         })
     }
@@ -112,7 +123,9 @@ fn main() -> anyhow::Result<()> {
     let running = Arc::new(AtomicBool::new(true));
     let ctrlc_running = Arc::clone(&running);
 
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
     runtime.spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
             tracing::info!("ctrl-c received, shutting down");

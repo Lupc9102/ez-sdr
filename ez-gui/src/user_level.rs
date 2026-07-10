@@ -56,6 +56,7 @@ impl UserLevel {
         matches!(self, Self::Beginner | Self::Intermediate)
     }
 
+    #[allow(dead_code)]
     pub fn levels() -> &'static [UserLevel; 4] {
         &[
             Self::Beginner,

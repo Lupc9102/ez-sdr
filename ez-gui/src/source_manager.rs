@@ -51,6 +51,15 @@ pub struct SourceManager {
     pub replay_position: u64,
     /// Total size of the replay file (bytes).
     pub replay_size: u64,
+    /// `host:port` of the `ez-daemon` to connect to in `SourceMode::Daemon`.
+    pub daemon_addr: String,
+    daemon_client: Option<crate::daemon_client::DaemonClient>,
+    /// Last frequency/sample-rate/gain actually sent to the daemon (or last value received
+    /// FROM it) — lets `sync_daemon_controls` tell "user moved a slider" (send) apart from
+    /// "the daemon just told us its own state" (already in sync, don't echo it back).
+    daemon_last_freq_hz: u64,
+    daemon_last_sample_rate_hz: u32,
+    daemon_last_gain_db: f64,
     tx: Option<Sender<Vec<u8>>>,
     rx: Option<Receiver<Vec<u8>>>,
     running: Arc<AtomicBool>,
@@ -65,7 +74,15 @@ pub enum SourceMode {
     Simulated,
     /// Read IQ samples from a previously recorded file.
     Replay,
+    /// Attach to a running `ez-daemon` over TCP instead of owning hardware/synthesis
+    /// locally — see `crate::daemon_client::DaemonClient`.
+    Daemon,
 }
+
+/// Wideband spectrum channel id this manager subscribes with in `SourceMode::Daemon`. Fixed
+/// rather than user-configurable: exactly one spectrum view is wired up to daemon mode so far
+/// (see `CentralApp`'s daemon-event routing), so there's only ever one channel to name.
+const DAEMON_SPECTRUM_CHANNEL_ID: ez_proto::ChannelId = 1;
 
 /// The run-state of the SDR source.
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +118,11 @@ impl SourceManager {
             replay_speed: 1.0,
             replay_position: 0,
             replay_size: 0,
+            daemon_addr: "127.0.0.1:7890".to_string(),
+            daemon_client: None,
+            daemon_last_freq_hz: 109_000_000,
+            daemon_last_sample_rate_hz: 2_048_000,
+            daemon_last_gain_db: 40.0,
             tx: Some(tx),
             rx: Some(rx),
             running: Arc::new(AtomicBool::new(false)),
@@ -114,6 +136,10 @@ impl SourceManager {
     /// them through the internal channel. Switches status to `Running`.
     pub fn start(&mut self) {
         if self.status == SourceStatus::Running {
+            return;
+        }
+        if self.source_mode == SourceMode::Daemon {
+            self.start_daemon();
             return;
         }
         self.status = SourceStatus::Opening;
@@ -205,7 +231,9 @@ impl SourceManager {
                         // passes valid arguments to the wrapped C functions and
                         // initialises the device handle on success.
                         let dev = unsafe {
-                            rtl_sdr_open(freq, rate, _ppm, _bias, _gain, _tuner_agc, _rtl_agc, _direct)
+                            rtl_sdr_open(
+                                freq, rate, _ppm, _bias, _gain, _tuner_agc, _rtl_agc, _direct,
+                            )
                         };
                         if dev.is_null() {
                             let _ = tx.send(b"ERROR".to_vec());
@@ -313,6 +341,12 @@ impl SourceManager {
                         }
                     }
                 }
+                SourceMode::Daemon => {
+                    unreachable!(
+                        "start() branches to start_daemon() before ever spawning this worker \
+                         thread in Daemon mode"
+                    )
+                }
             }
         });
         self.worker_handle = Some(handle);
@@ -320,11 +354,98 @@ impl SourceManager {
         self.status = SourceStatus::Running;
     }
 
+    /// Starts `SourceMode::Daemon`: connects to `self.daemon_addr` in the background and
+    /// subscribes to the daemon's wideband spectrum pipeline. Unlike the local worker
+    /// threads above, no samples ever flow through `self.tx`/`self.rx` in this mode — events
+    /// arrive via [`Self::recv_daemon_event`] instead, polled from `CentralApp`'s own loop.
+    fn start_daemon(&mut self) {
+        self.status = SourceStatus::Opening;
+        let addr: std::net::SocketAddr = match self.daemon_addr.parse() {
+            Ok(a) => a,
+            Err(e) => {
+                self.status = SourceStatus::Error(format!(
+                    "invalid daemon address {:?}: {e}",
+                    self.daemon_addr
+                ));
+                return;
+            }
+        };
+        let client = crate::daemon_client::DaemonClient::connect(addr, "ez-gui".to_string());
+        client.send(ez_proto::ClientCommand::Subscribe {
+            channel: ez_proto::ChannelSpec {
+                id: DAEMON_SPECTRUM_CHANNEL_ID,
+                center_offset_hz: 0,
+                bandwidth_hz: self.sample_rate_hz,
+                kind: ez_proto::PipelineKind::Spectrum,
+                demod_mode: None,
+            },
+        });
+        self.daemon_client = Some(client);
+    }
+
+    /// Non-blocking pull of one event from the daemon connection (`SourceMode::Daemon` only;
+    /// always `None` in other modes). Reflects connection status and daemon-reported hardware
+    /// state into this manager's own `status`/`frequency_hz`/`sample_rate_hz`/`gain_db`
+    /// fields — the daemon is authoritative for these in this mode, the same way a local
+    /// worker thread is authoritative for them in the other modes.
+    #[must_use]
+    pub fn recv_daemon_event(&mut self) -> Option<ez_proto::ServerEvent> {
+        let (status, event) = {
+            let client = self.daemon_client.as_ref()?;
+            (client.status(), client.try_recv_event())
+        };
+        self.status = match status {
+            crate::daemon_client::ConnectionStatus::Connecting => SourceStatus::Opening,
+            crate::daemon_client::ConnectionStatus::Connected => SourceStatus::Running,
+            crate::daemon_client::ConnectionStatus::Disconnected => SourceStatus::Idle,
+            crate::daemon_client::ConnectionStatus::Error(e) => SourceStatus::Error(e),
+        };
+        let event = event?;
+        if let ez_proto::ServerEvent::Hardware(hw) = &event {
+            self.frequency_hz = hw.frequency_hz;
+            self.sample_rate_hz = hw.sample_rate_hz;
+            self.gain_db = hw.gain_db;
+            self.daemon_last_freq_hz = hw.frequency_hz;
+            self.daemon_last_sample_rate_hz = hw.sample_rate_hz;
+            self.daemon_last_gain_db = hw.gain_db;
+        }
+        Some(event)
+    }
+
+    /// Forwards local frequency/sample-rate/gain field changes to the daemon
+    /// (`SourceMode::Daemon` only; a no-op otherwise) — call once per UI frame, separately
+    /// from the per-event [`Self::recv_daemon_event`] drain loop, so a slider edit is sent
+    /// exactly once even if several events are drained in the same frame.
+    pub fn sync_daemon_controls(&mut self) {
+        let Some(client) = &self.daemon_client else {
+            return;
+        };
+        if self.frequency_hz != self.daemon_last_freq_hz {
+            client.send(ez_proto::ClientCommand::SetFrequency {
+                hz: self.frequency_hz,
+            });
+            self.daemon_last_freq_hz = self.frequency_hz;
+        }
+        if self.sample_rate_hz != self.daemon_last_sample_rate_hz {
+            client.send(ez_proto::ClientCommand::SetSampleRate {
+                hz: self.sample_rate_hz,
+            });
+            self.daemon_last_sample_rate_hz = self.sample_rate_hz;
+        }
+        if (self.gain_db - self.daemon_last_gain_db).abs() > f64::EPSILON {
+            client.send(ez_proto::ClientCommand::SetGain { db: self.gain_db });
+            self.daemon_last_gain_db = self.gain_db;
+        }
+    }
+
     /// Stop the SDR source.
     ///
     /// Signals the worker thread to exit and recreates the sample channel for
     /// the next `start()` call. Status returns to `Idle`.
     pub fn stop(&mut self) {
+        // Dropping tears the connection down (signals the worker, sends Detach, joins it).
+        // Safe to do unconditionally regardless of mode — `None` in every non-Daemon mode.
+        self.daemon_client = None;
         self.running.store(false, Ordering::SeqCst);
         // Join the worker instead of detaching it. The worker exits within one
         // buffer-sleep window after observing running=false (Replay) or on the
@@ -378,7 +499,26 @@ impl SourceManager {
             {
                 self.source_mode = SourceMode::Replay;
             }
+            if ui
+                .selectable_label(self.source_mode == SourceMode::Daemon, "Daemon")
+                .on_hover_text("Attach to a running ez-daemon over the network instead of owning hardware locally.")
+                .clicked()
+            {
+                self.source_mode = SourceMode::Daemon;
+            }
         });
+
+        if self.source_mode == SourceMode::Daemon {
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Daemon address:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.daemon_addr)
+                        .desired_width(160.0)
+                        .hint_text("127.0.0.1:7890"),
+                );
+            });
+        }
 
         if self.source_mode == SourceMode::Replay {
             ui.separator();
@@ -508,6 +648,11 @@ impl SourceManager {
                     }
                 });
             });
+        }
+        // Bias-tee/direct-sampling/PPM are RTL-SDR FFI-specific hardware knobs with no wire
+        // protocol representation (see `ez_proto::ClientCommand`) — showing them in Daemon
+        // mode would imply they do something there when they silently wouldn't.
+        if self.source_mode == SourceMode::Simulated {
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.bias_tee, "Bias Tee (4.5V)")
                     .on_hover_text("Sends 4.5V DC down the coax center pin to power a mast-mounted LNA or filtered LNA. RTL-SDR Blog V3 only. Do NOT enable with passive antennas — it can damage cheap dongles.");
@@ -665,6 +810,8 @@ mod tests {
         assert!((sm.replay_speed - 1.0).abs() < f32::EPSILON);
         assert_eq!(sm.replay_position, 0);
         assert_eq!(sm.replay_size, 0);
+        assert_eq!(sm.daemon_addr, "127.0.0.1:7890");
+        assert!(sm.daemon_client.is_none());
         assert!(sm.tx.is_some());
         assert!(sm.rx.is_some());
         assert!(!sm.running.load(Ordering::SeqCst));
@@ -730,6 +877,41 @@ mod tests {
         sm.start();
         sm.start(); // second start should be a no-op
         assert_eq!(sm.status, SourceStatus::Running);
+        sm.stop();
+    }
+
+    #[test]
+    fn daemon_mode_is_distinct_and_not_the_default() {
+        assert_ne!(SourceMode::Daemon, SourceMode::Simulated);
+        assert_ne!(SourceMode::Daemon, SourceMode::Replay);
+        assert_ne!(SourceMode::default(), SourceMode::Daemon);
+        assert_eq!(format!("{:?}", SourceMode::Daemon), "Daemon");
+    }
+
+    #[test]
+    fn recv_daemon_event_is_none_outside_daemon_mode() {
+        let mut sm = SourceManager::new();
+        assert!(sm.recv_daemon_event().is_none());
+    }
+
+    #[test]
+    fn sync_daemon_controls_is_a_no_op_outside_daemon_mode() {
+        let mut sm = SourceManager::new();
+        sm.frequency_hz = 200_000_000;
+        sm.sync_daemon_controls(); // must not panic with no daemon_client set
+    }
+
+    #[test]
+    fn start_daemon_with_invalid_address_reports_error_status() {
+        let mut sm = SourceManager::new();
+        sm.source_mode = SourceMode::Daemon;
+        sm.daemon_addr = "not-a-valid-address".to_string();
+        sm.start();
+        assert!(
+            matches!(sm.status, SourceStatus::Error(_)),
+            "expected Error status, got {:?}",
+            sm.status
+        );
         sm.stop();
     }
 

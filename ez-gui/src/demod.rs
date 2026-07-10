@@ -270,7 +270,13 @@ impl Demodulator {
         let alpha = w0.sin() / (2.0 * q);
         let cw = w0.cos();
         let a0 = 1.0 + alpha;
-        self.rf_notch_b = (1.0 / a0, (-2.0 * cw) / a0, 1.0 / a0, (-2.0 * cw) / a0, (1.0 - alpha) / a0);
+        self.rf_notch_b = (
+            1.0 / a0,
+            (-2.0 * cw) / a0,
+            1.0 / a0,
+            (-2.0 * cw) / a0,
+            (1.0 - alpha) / a0,
+        );
     }
 
     // ---------------- Setters (driven by the Advanced panel) ----------------
@@ -338,11 +344,7 @@ impl Demodulator {
     // ---------------- RF IQ pre-stage ----------------
 
     fn iq_preprocess(&mut self, iq: &[u8]) -> Vec<u8> {
-        if !self.rf_dc_remove
-            && !self.rf_noise_blanker
-            && !self.rf_notch
-            && self.rf_decim <= 1
-        {
+        if !self.rf_dc_remove && !self.rf_noise_blanker && !self.rf_notch && self.rf_decim <= 1 {
             return iq.to_vec();
         }
         let mut v: Vec<f32> = Vec::with_capacity(iq.len());
@@ -443,8 +445,7 @@ impl Demodulator {
         if self.hpf_alpha_computed > 0.0 {
             let mut out = Vec::with_capacity(samples.len());
             for s in samples {
-                let y = self.hpf_alpha_computed
-                    * (self.hpf_state + s - self.hpf_x_prev);
+                let y = self.hpf_alpha_computed * (self.hpf_state + s - self.hpf_x_prev);
                 self.hpf_x_prev = s;
                 self.hpf_state = y;
                 out.push(y);
@@ -554,8 +555,7 @@ impl Demodulator {
             let out = *s * self.agc_gain;
             let abs = out.abs();
             if abs > self.agc_target {
-                self.agc_gain *=
-                    1.0 - self.agc_attack * (abs / self.agc_target - 1.0).min(1.0);
+                self.agc_gain *= 1.0 - self.agc_attack * (abs / self.agc_target - 1.0).min(1.0);
             } else {
                 self.agc_gain *= 1.0 + self.agc_decay;
             }
@@ -665,11 +665,11 @@ impl Demodulator {
         // user-selectable (50 µs EU / 75 µs US). τ = 1/(2π·f_c).
         // Discrete IIR: alpha = dt/(τ + dt) where dt = 1/sample_rate
         let tau = (self.deemph_tau_us.max(1.0)) * 1e-6_f32;
-                               // The de-emphasis IIR advances once per input IQ pair, so dt must use
-                               // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
-                               // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
-                               // ≈1.6e-5, effectively disabling the 50 µs pole and leaving WFM audio
-                               // harsh with no bass restoration.
+        // The de-emphasis IIR advances once per input IQ pair, so dt must use
+        // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
+        // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
+        // ≈1.6e-5, effectively disabling the 50 µs pole and leaving WFM audio
+        // harsh with no bass restoration.
         let dt = 1.0 / self.input_rate as f32;
         let alpha = dt / (tau + dt);
         let mut out = Vec::with_capacity(iq.len() / 2 / self.decimation.max(1));

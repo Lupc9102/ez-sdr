@@ -21,5 +21,6 @@ pub mod pipelines;
 pub mod recording;
 pub mod server;
 pub mod state;
+pub mod web;
 
 pub use app::{run, DaemonConfig, SourceConfig};

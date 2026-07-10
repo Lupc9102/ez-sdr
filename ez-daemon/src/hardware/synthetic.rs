@@ -17,9 +17,7 @@ struct Xorshift64 {
 
 impl Xorshift64 {
     fn new(seed: u64) -> Self {
-        Self {
-            state: seed.max(1),
-        }
+        Self { state: seed.max(1) }
     }
 
     fn next_u64(&mut self) -> u64 {
@@ -94,8 +92,7 @@ pub fn generate_block(
         let mut acc = Complex32::new(0.0, 0.0);
         for tone in &config.tones {
             let inst_freq = if tone.fm_deviation_hz > 0.0 {
-                tone.offset_hz
-                    + tone.fm_deviation_hz * (2.0 * PI * tone.fm_rate_hz * t).sin()
+                tone.offset_hz + tone.fm_deviation_hz * (2.0 * PI * tone.fm_rate_hz * t).sin()
             } else {
                 tone.offset_hz
             };

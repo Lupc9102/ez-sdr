@@ -24,6 +24,7 @@ impl ConstellationDisplay {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_cap(&mut self, new_cap: usize) {
         self.cap = new_cap.clamp(512, 65536);
         while self.buf.len() > self.cap {
@@ -67,8 +68,10 @@ impl ConstellationDisplay {
         if self.buf.is_empty() {
             return 0.0;
         }
-        let mean_i: f64 = self.buf.iter().map(|(i, _)| *i as f64).sum::<f64>() / self.buf.len() as f64;
-        let mean_q: f64 = self.buf.iter().map(|(_, q)| *q as f64).sum::<f64>() / self.buf.len() as f64;
+        let mean_i: f64 =
+            self.buf.iter().map(|(i, _)| *i as f64).sum::<f64>() / self.buf.len() as f64;
+        let mean_q: f64 =
+            self.buf.iter().map(|(_, q)| *q as f64).sum::<f64>() / self.buf.len() as f64;
         let ideal_power = mean_i * mean_i + mean_q * mean_q;
         if ideal_power < 1e-12 {
             return 0.0;
@@ -89,8 +92,10 @@ impl ConstellationDisplay {
         if self.buf.is_empty() {
             return 0.0;
         }
-        let mean_i: f64 = self.buf.iter().map(|(i, _)| *i as f64).sum::<f64>() / self.buf.len() as f64;
-        let mean_q: f64 = self.buf.iter().map(|(_, q)| *q as f64).sum::<f64>() / self.buf.len() as f64;
+        let mean_i: f64 =
+            self.buf.iter().map(|(i, _)| *i as f64).sum::<f64>() / self.buf.len() as f64;
+        let mean_q: f64 =
+            self.buf.iter().map(|(_, q)| *q as f64).sum::<f64>() / self.buf.len() as f64;
         let mean_phase = mean_q.atan2(mean_i);
         let err_sum: f64 = self
             .buf
@@ -106,7 +111,11 @@ impl ConstellationDisplay {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, theme: &ThemeConfig) {
         ui.horizontal(|ui| {
-            let freeze_label = if self.paused { "▶ Resume" } else { "⏸ Freeze" };
+            let freeze_label = if self.paused {
+                "▶ Resume"
+            } else {
+                "⏸ Freeze"
+            };
             if ui.small_button(freeze_label).clicked() {
                 self.paused = !self.paused;
             }

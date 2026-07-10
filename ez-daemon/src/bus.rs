@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use num_complex::Complex32;
 
-use crate::broadcast::{Broadcaster, BroadcasterHandle};
 pub use crate::broadcast::OverflowPolicy;
+use crate::broadcast::{Broadcaster, BroadcasterHandle};
 
 /// A block of consecutive wideband IQ samples, tagged with enough metadata for a
 /// subscriber to reconstruct absolute time/frequency without consulting the daemon state.

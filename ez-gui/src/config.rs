@@ -521,7 +521,12 @@ impl AppConfig {
         // is normalized to the new mode set, preserving the
         // "keep plumbing + migration pattern" contract.
         let valid_tab_ids = ["listen", "planes", "satellites"];
-        if !cfg.layout.main_tabs.iter().all(|i| valid_tab_ids.contains(&i.id.as_str())) {
+        if !cfg
+            .layout
+            .main_tabs
+            .iter()
+            .all(|i| valid_tab_ids.contains(&i.id.as_str()))
+        {
             cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
         }
         cfg
@@ -969,14 +974,31 @@ mod tests {
         std::env::set_current_dir(&dir).expect("test should cd into temp dir");
 
         // Simulate a config saved under the old 6-tab layout.
-        let mut old_layout = LayoutConfig::default();
-        old_layout.main_tabs = vec![
-            LayoutItem { id: "sdr".into(), visible: true },
-            LayoutItem { id: "adsb".into(), visible: true },
-            LayoutItem { id: "satellite".into(), visible: true },
-            LayoutItem { id: "ai".into(), visible: true },
-            LayoutItem { id: "decoding".into(), visible: true },
-        ];
+        let old_layout = LayoutConfig {
+            main_tabs: vec![
+                LayoutItem {
+                    id: "sdr".into(),
+                    visible: true,
+                },
+                LayoutItem {
+                    id: "adsb".into(),
+                    visible: true,
+                },
+                LayoutItem {
+                    id: "satellite".into(),
+                    visible: true,
+                },
+                LayoutItem {
+                    id: "ai".into(),
+                    visible: true,
+                },
+                LayoutItem {
+                    id: "decoding".into(),
+                    visible: true,
+                },
+            ],
+            ..Default::default()
+        };
         let old_cfg = AppConfig {
             layout: old_layout,
             ..Default::default()

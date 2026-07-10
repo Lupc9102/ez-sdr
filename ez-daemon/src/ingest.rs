@@ -67,7 +67,11 @@ pub fn spawn(
 ) -> anyhow::Result<(IngestHandle, JoinHandle<()>)> {
     let (tx, rx) = unbounded();
     source.start()?;
-    let status = Arc::new(ArcSwap::from_pointee(status_snapshot(source.as_ref(), true, None)));
+    let status = Arc::new(ArcSwap::from_pointee(status_snapshot(
+        source.as_ref(),
+        true,
+        None,
+    )));
     let handle = IngestHandle {
         commands: tx,
         status: Arc::clone(&status),
@@ -128,7 +132,11 @@ fn run(
             }
             Err(e) => {
                 tracing::error!(error = %e, "ingestion source read failed");
-                status.store(Arc::new(status_snapshot(source, false, Some(e.to_string()))));
+                status.store(Arc::new(status_snapshot(
+                    source,
+                    false,
+                    Some(e.to_string()),
+                )));
                 break;
             }
         }
@@ -136,7 +144,11 @@ fn run(
     source.stop();
 }
 
-fn status_snapshot(source: &dyn IqSource, connected: bool, error: Option<String>) -> HardwareStatus {
+fn status_snapshot(
+    source: &dyn IqSource,
+    connected: bool,
+    error: Option<String>,
+) -> HardwareStatus {
     HardwareStatus {
         connected,
         source_kind: source.kind().to_string(),
@@ -160,7 +172,12 @@ mod tests {
         let sub = bus.subscribe(8, OverflowPolicy::DropOldest);
         let running = Arc::new(AtomicBool::new(true));
 
-        let (handle, thread) = spawn(Box::new(SyntheticSource::default()), bus, Arc::clone(&running)).unwrap();
+        let (handle, thread) = spawn(
+            Box::new(SyntheticSource::default()),
+            bus,
+            Arc::clone(&running),
+        )
+        .unwrap();
 
         let block = sub
             .recv_timeout(Duration::from_secs(2))
@@ -181,7 +198,12 @@ mod tests {
         let _sub = bus.subscribe(8, OverflowPolicy::DropOldest);
         let running = Arc::new(AtomicBool::new(true));
 
-        let (handle, thread) = spawn(Box::new(SyntheticSource::default()), bus, Arc::clone(&running)).unwrap();
+        let (handle, thread) = spawn(
+            Box::new(SyntheticSource::default()),
+            bus,
+            Arc::clone(&running),
+        )
+        .unwrap();
 
         handle.set_frequency(101_000_000);
 
@@ -190,7 +212,10 @@ mod tests {
             if handle.status().frequency_hz == 101_000_000 {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "frequency change never observed");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "frequency change never observed"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
 
@@ -204,8 +229,15 @@ mod tests {
         let _sub = bus.subscribe(8, OverflowPolicy::DropOldest);
         let running = Arc::new(AtomicBool::new(true));
 
-        let (_handle, thread) = spawn(Box::new(SyntheticSource::default()), bus, Arc::clone(&running)).unwrap();
+        let (_handle, thread) = spawn(
+            Box::new(SyntheticSource::default()),
+            bus,
+            Arc::clone(&running),
+        )
+        .unwrap();
         running.store(false, Ordering::Relaxed);
-        thread.join().expect("ingestion thread should join promptly");
+        thread
+            .join()
+            .expect("ingestion thread should join promptly");
     }
 }

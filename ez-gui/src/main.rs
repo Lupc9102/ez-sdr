@@ -14,6 +14,7 @@ mod bookmarks;
 mod config;
 mod constellation;
 mod customize_panel;
+mod daemon_client;
 mod decoding_panel;
 mod demod;
 mod discord;
