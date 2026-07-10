@@ -1334,7 +1334,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "pkg-config",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1646,7 +1646,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "tokio-util",
@@ -1682,7 +1682,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "ureq",
@@ -1697,7 +1697,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
 ]
@@ -2793,7 +2793,7 @@ dependencies = [
  "reed-solomon",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
