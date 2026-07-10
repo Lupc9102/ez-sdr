@@ -258,6 +258,49 @@ impl Channelizer {
         self.channels.retain(|c| c.id != id);
     }
 
+    /// Re-tunes an already-registered virtual channel in place: recomputes its NCO offset and
+    /// rebuilds its FIR/decimation for the new `center_freq_hz`/`min_output_rate_hz` **while
+    /// keeping the same `SampleBus`** the channel was originally created with. Preserving the
+    /// bus means every consumer that already holds a subscription (a pipeline's input tap, a
+    /// recording handle) keeps receiving output uninterrupted — this is exactly what makes a
+    /// live `Retune` possible without tearing down and re-spawning the channel's pipeline.
+    ///
+    /// The decimator's filter history is reset (a fresh FIR for the new bandwidth); a brief
+    /// transient at the instant of retune is expected and physically matches a hardware retune.
+    pub fn retune_channel(
+        &mut self,
+        id: u64,
+        center_freq_hz: u64,
+        min_output_rate_hz: u32,
+    ) -> Result<()> {
+        if min_output_rate_hz == 0 {
+            return Err(anyhow!("virtual channel output rate must be non-zero"));
+        }
+        let offset_hz = center_freq_hz as f64 - self.wideband_center_hz as f64;
+        let nyquist_hz = self.wideband_rate_hz as f64 / 2.0;
+        if offset_hz.abs() > nyquist_hz {
+            return Err(anyhow!(
+                "requested channel {center_freq_hz} Hz is outside the wideband capture's {:.0}-{:.0} Hz span",
+                self.wideband_center_hz as f64 - nyquist_hz,
+                self.wideband_center_hz as f64 + nyquist_hz,
+            ));
+        }
+        let decimation = (self.wideband_rate_hz / min_output_rate_hz).max(1) as usize;
+        let cutoff = (CUTOFF_GUARD / decimation as f32).clamp(0.01, 0.99);
+        let taps = design_lowpass(FIR_TAPS, cutoff);
+        let decimator = FirDecimator::new(taps, decimation);
+
+        let Some(channel) = self.channels.iter_mut().find(|c| c.id == id) else {
+            return Err(anyhow!("unknown virtual channel {id}"));
+        };
+        channel.center_freq_hz = center_freq_hz;
+        channel.output_rate_hz = (self.wideband_rate_hz as usize / decimation) as u32;
+        channel.nco = Nco::new(offset_hz, self.wideband_rate_hz as f64);
+        channel.decimator = decimator;
+        channel.output_sample_counter = 0;
+        Ok(())
+    }
+
     #[must_use]
     pub fn channel_count(&self) -> usize {
         self.channels.len()
@@ -563,6 +606,41 @@ mod tests {
         assert_eq!(chan.channel_count(), 1);
         chan.remove_channel(id);
         assert_eq!(chan.channel_count(), 0);
+    }
+
+    #[test]
+    fn retune_channel_recenters_while_preserving_the_same_bus_subscribers() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+
+        // Subscribe BEFORE retune so we prove the existing bus handle survives the retune.
+        let (id, out_handle) = chan.add_channel(100_000_000, 200_000).unwrap();
+        let second = chan.subscribe(id, 4).expect("channel is live");
+
+        chan.retune_channel(id, 100_050_000, 100_000).unwrap();
+        assert_eq!(chan.channel_output_rate_hz(id), Some(100_000));
+        // The second handle taken before retune must still receive output afterwards.
+        let _ = second;
+
+        bus.publish(wideband_block(
+            100_000_000,
+            2_000_000,
+            tone(8_000, 0.0, 2_000_000.0),
+        ));
+        assert!(chan.tick(Duration::from_millis(200)));
+        let out = out_handle
+            .recv_timeout(Duration::from_millis(200))
+            .expect("subscriber on the retained bus still gets output after retune");
+        assert_eq!(out.center_freq_hz, 100_050_000);
+    }
+
+    #[test]
+    fn retune_channel_rejects_unknown_id() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let mut chan = Channelizer::new(handle, 100_000_000, 2_000_000);
+        assert!(chan.retune_channel(99, 100_000_000, 100_000).is_err());
     }
 
     #[test]

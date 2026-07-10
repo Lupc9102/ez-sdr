@@ -253,6 +253,20 @@ pub(crate) async fn apply_command(
                 send_error(event_tx, e.to_string()).await;
             }
         }
+        ClientCommand::Retune {
+            channel_id,
+            center_offset_hz,
+            bandwidth_hz,
+        } => {
+            if let Err(e) = state.retune(channel_id, center_offset_hz, bandwidth_hz) {
+                send_error(event_tx, e.to_string()).await;
+            }
+        }
+        ClientCommand::RemoveChannel { channel_id } => {
+            if let Err(e) = state.remove_channel(channel_id) {
+                send_error(event_tx, e.to_string()).await;
+            }
+        }
         ClientCommand::StartRecording { channel_id, format } => {
             match state.start_recording(channel_id, format) {
                 Ok(status) => {

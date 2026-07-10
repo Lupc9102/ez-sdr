@@ -195,21 +195,36 @@ impl DaemonState {
     /// another subscription to the same running pipeline — see the module doc comment on
     /// why channels are daemon-global rather than per-client.
     pub fn subscribe(&self, spec: ChannelSpec) -> Result<ChannelSubscription> {
-        let mut channels = self.channels.lock().unwrap();
-        if let Some(existing) = channels.get(&spec.id) {
-            if existing.spec.kind != spec.kind {
-                return Err(anyhow!(
-                    "channel {} already exists as {:?}, cannot resubscribe as {:?}",
-                    spec.id,
-                    existing.spec.kind,
-                    spec.kind
-                ));
+        let id = spec.id;
+        // Fast path: channel already exists — just return a fresh output subscription.
+        {
+            let channels = self.channels.lock().unwrap();
+            if let Some(existing) = channels.get(&id) {
+                if existing.spec.kind != spec.kind {
+                    return Err(anyhow!(
+                        "channel {} already exists as {:?}, cannot resubscribe as {:?}",
+                        id,
+                        existing.spec.kind,
+                        spec.kind
+                    ));
+                }
+                return Ok(subscription_for(existing));
             }
-            return Ok(subscription_for(existing));
         }
+        // Create the channel *without* holding the channels lock. This avoids a
+        // lock-ordering hazard: create_channel → add_virtual_channel blocks on the
+        // channelizer Mutex (held during tick's recv_timeout), and holding channels
+        // during that wait would starve every other channels-lock consumer (list,
+        // retune, remove, …) for the entire tick duration.
         let active = self.create_channel(spec)?;
         let sub = subscription_for(&active);
-        channels.insert(active.spec.id, active);
+        let mut channels = self.channels.lock().unwrap();
+        // If another thread raced us and already inserted the same id, tear down
+        // the duplicate we just built — its pipeline thread stops within one
+        // PIPELINE_POLL tick.
+        if let Some(old) = channels.insert(id, active) {
+            old.running.store(false, Ordering::Relaxed);
+        }
         Ok(sub)
     }
 
@@ -335,7 +350,71 @@ impl DaemonState {
     }
 
     pub fn set_demod_mode(&self, channel_id: ChannelId, mode: DemodMode) -> Result<()> {
-        self.with_audio_pipeline(channel_id, |p| p.set_mode(mode))
+        self.with_audio_pipeline(channel_id, |p| p.set_mode(mode))?;
+        // Keep the ChannelSpec mirror in sync so `GET /api/channels` (and the control-plane
+        // `Welcome`/`active_channels`) reports the mode that's actually running, not the
+        // creation-time value. The mode is applied to the live pipeline above; this only
+        // fixes the read-side snapshot.
+        let mut channels = self.channels.lock().unwrap();
+        if let Some(active) = channels.get_mut(&channel_id) {
+            active.spec.demod_mode = Some(mode);
+        }
+        Ok(())
+    }
+
+    /// Re-tunes an existing channel in place — changes its center offset and/or bandwidth
+    /// without recreating the pipeline. Virtual-channel kinds (Audio/AdsbPackets/
+    /// LrptTelemetry) re-center the channelizer DDC while preserving its output bus, so any
+    /// live subscriber keeps receiving samples; the `Spectrum` wideband tap has no virtual
+    /// channel and just records the new spec.
+    pub fn retune(
+        &self,
+        channel_id: ChannelId,
+        center_offset_hz: i64,
+        bandwidth_hz: u32,
+    ) -> Result<()> {
+        let internal_id = {
+            let channels = self.channels.lock().unwrap();
+            let active = channels
+                .get(&channel_id)
+                .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
+            active.internal_channel_id
+        };
+        if let Some(internal_id) = internal_id {
+            let mut chan = self.channelizer.lock().unwrap();
+            let center_freq_hz =
+                (chan.wideband_center_hz() as i64 + center_offset_hz).max(0) as u64;
+            chan.retune_channel(internal_id, center_freq_hz, bandwidth_hz)?;
+        }
+        let mut channels = self.channels.lock().unwrap();
+        if let Some(active) = channels.get_mut(&channel_id) {
+            active.spec.center_offset_hz = center_offset_hz;
+            active.spec.bandwidth_hz = bandwidth_hz;
+        }
+        Ok(())
+    }
+
+    /// Permanently tears down a channel: stops its pipeline tick thread, removes its
+    /// channelizer virtual tap (if any), and drops it from the channel table so it no longer
+    /// appears in `active_channels()`/`GET /api/channels`. Unlike `Unsubscribe` (which only
+    /// detaches one connection's forwarder), this destroys the shared channel for everyone.
+    ///
+    /// Note: subscribers that already hold a forwarder to the pipeline's broadcaster keep
+    /// their handle (it just stops publishing new frames) and are expected to notice the
+    /// channel is gone via a subsequent `GET /api/channels` refresh rather than an explicit
+    /// disconnect event.
+    pub fn remove_channel(&self, channel_id: ChannelId) -> Result<()> {
+        let active = {
+            let mut channels = self.channels.lock().unwrap();
+            channels
+                .remove(&channel_id)
+                .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?
+        };
+        active.running.store(false, Ordering::Relaxed);
+        if let Some(internal_id) = active.internal_channel_id {
+            self.channelizer.lock().unwrap().remove_channel(internal_id);
+        }
+        Ok(())
     }
 
     pub fn set_volume(&self, channel_id: ChannelId, level: f32) -> Result<()> {
@@ -351,17 +430,18 @@ impl DaemonState {
         channel_id: ChannelId,
         f: impl FnOnce(&mut AudioPipeline),
     ) -> Result<()> {
-        let channels = self.channels.lock().unwrap();
-        let active = channels
-            .get(&channel_id)
-            .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
-        match &active.pipeline {
-            ActivePipeline::Audio(p) => {
-                f(&mut p.lock().unwrap());
-                Ok(())
+        let pipeline = {
+            let channels = self.channels.lock().unwrap();
+            let active = channels
+                .get(&channel_id)
+                .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
+            match &active.pipeline {
+                ActivePipeline::Audio(p) => Arc::clone(p),
+                _ => return Err(anyhow!("channel {channel_id} is not an audio channel")),
             }
-            _ => Err(anyhow!("channel {channel_id} is not an audio channel")),
-        }
+        };
+        f(&mut pipeline.lock().unwrap());
+        Ok(())
     }
 
     /// Starts recording `channel_id`'s sample stream. Works for any channel kind, including
@@ -372,28 +452,28 @@ impl DaemonState {
         channel_id: ChannelId,
         format: RecordingFormat,
     ) -> Result<RecordingStatus> {
-        let (input, center_freq_hz) = {
+        let (internal_id, center_offset_hz) = {
             let channels = self.channels.lock().unwrap();
             let active = channels
                 .get(&channel_id)
                 .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
-            match active.internal_channel_id {
-                Some(internal_id) => {
-                    let chan = self.channelizer.lock().unwrap();
-                    let input = chan
-                        .subscribe(internal_id, RECORDING_SUBSCRIBE_CAPACITY)
-                        .ok_or_else(|| anyhow!("channel {channel_id} is no longer live"))?;
-                    let center_freq_hz = (chan.wideband_center_hz() as i64
-                        + active.spec.center_offset_hz)
-                        .max(0) as u64;
-                    (input, center_freq_hz)
-                }
-                None => (
-                    self.wideband
-                        .subscribe(RECORDING_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest),
-                    self.channelizer.lock().unwrap().wideband_center_hz(),
-                ),
+            (active.internal_channel_id, active.spec.center_offset_hz)
+        };
+        let (input, center_freq_hz) = match internal_id {
+            Some(internal_id) => {
+                let chan = self.channelizer.lock().unwrap();
+                let input = chan
+                    .subscribe(internal_id, RECORDING_SUBSCRIBE_CAPACITY)
+                    .ok_or_else(|| anyhow!("channel {channel_id} is no longer live"))?;
+                let center_freq_hz = (chan.wideband_center_hz() as i64 + center_offset_hz)
+                    .max(0) as u64;
+                (input, center_freq_hz)
             }
+            None => (
+                self.wideband
+                    .subscribe(RECORDING_SUBSCRIBE_CAPACITY, OverflowPolicy::DropOldest),
+                self.channelizer.lock().unwrap().wideband_center_hz(),
+            ),
         };
 
         let mut recordings = self.recordings.lock().unwrap();
@@ -477,7 +557,10 @@ where
         .name(format!("ez-daemon-{name}"))
         .spawn(move || {
             while thread_running.load(Ordering::Relaxed) {
-                tick(&mut state.lock().unwrap(), PIPELINE_POLL);
+                let mut guard = state.lock().unwrap();
+                tick(&mut guard, PIPELINE_POLL);
+                drop(guard);
+                std::thread::yield_now();
             }
         })
         .expect("spawning pipeline thread");
@@ -628,6 +711,54 @@ mod tests {
             state.channelizer.lock().unwrap().wideband_center_hz(),
             105_000_000
         );
+    }
+
+    #[test]
+    fn set_demod_mode_updates_the_channel_spec_mirror() {
+        let state = test_state();
+        let _sub = state.subscribe(audio_spec(1, 0)).unwrap();
+        state.set_demod_mode(1, DemodMode::Am).unwrap();
+        let spec = state
+            .active_channels()
+            .into_iter()
+            .find(|s| s.id == 1)
+            .expect("channel present");
+        assert_eq!(spec.demod_mode, Some(DemodMode::Am));
+    }
+
+    #[test]
+    fn retune_moves_an_audio_channel_center_and_bandwidth() {
+        let state = test_state();
+        let _sub = state.subscribe(audio_spec(1, 0)).unwrap();
+        state.retune(1, 500_000, 100_000).unwrap();
+        let spec = state
+            .active_channels()
+            .into_iter()
+            .find(|s| s.id == 1)
+            .expect("channel present");
+        assert_eq!(spec.center_offset_hz, 500_000);
+        assert_eq!(spec.bandwidth_hz, 100_000);
+    }
+
+    #[test]
+    fn retune_of_unknown_channel_is_an_error() {
+        let state = test_state();
+        assert!(state.retune(123, 0, 200_000).is_err());
+    }
+
+    #[test]
+    fn remove_channel_drops_it_from_the_active_set() {
+        let state = test_state();
+        let _sub = state.subscribe(audio_spec(3, 0)).unwrap();
+        assert_eq!(state.active_channels().len(), 1);
+        state.remove_channel(3).unwrap();
+        assert_eq!(state.active_channels().len(), 0);
+    }
+
+    #[test]
+    fn remove_channel_of_unknown_channel_is_an_error() {
+        let state = test_state();
+        assert!(state.remove_channel(321).is_err());
     }
 
     #[test]

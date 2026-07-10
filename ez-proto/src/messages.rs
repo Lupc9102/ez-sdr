@@ -91,6 +91,21 @@ pub enum ClientCommand {
         channel_id: ChannelId,
         db: f32,
     },
+    /// Re-tunes an already-created channel in place: changes its center offset and/or
+    /// bandwidth without tearing down and recreating the pipeline. For virtual-channel
+    /// kinds (Audio/AdsbPackets/LrptTelemetry) this re-centers the channelizer DDC while
+    /// keeping the same output bus, so any live subscriber keeps receiving samples.
+    Retune {
+        channel_id: ChannelId,
+        center_offset_hz: i64,
+        bandwidth_hz: u32,
+    },
+    /// Permanent, daemon-global teardown of a channel created earlier via `Subscribe`.
+    /// Unlike `Unsubscribe` (which is connection-local), this removes the channel's
+    /// pipeline and, for virtual-channel kinds, its channelizer tap for everyone.
+    RemoveChannel {
+        channel_id: ChannelId,
+    },
     StartRecording {
         channel_id: ChannelId,
         format: RecordingFormat,

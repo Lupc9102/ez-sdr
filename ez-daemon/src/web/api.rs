@@ -53,6 +53,11 @@ pub fn router() -> Router<Arc<DaemonState>> {
             "/api/channels/{id}/recording/stop",
             axum::routing::post(stop_recording),
         )
+        .route(
+            "/api/channels/{id}/retune",
+            axum::routing::post(retune_channel),
+        )
+        .route("/api/channels/{id}", axum::routing::delete(delete_channel))
         .route("/api/recordings", get(list_recordings))
 }
 
@@ -114,6 +119,12 @@ struct SquelchRequest {
 #[derive(Debug, Deserialize)]
 struct RecordingRequest {
     format: RecordingFormat,
+}
+
+#[derive(Debug, Deserialize)]
+struct RetuneRequest {
+    center_offset_hz: i64,
+    bandwidth_hz: u32,
 }
 
 async fn get_status(State(state): State<Arc<DaemonState>>) -> Json<StatusResponse> {
@@ -225,6 +236,23 @@ async fn get_recording(
 
 async fn list_recordings(State(state): State<Arc<DaemonState>>) -> Json<Vec<RecordingStatus>> {
     Json(state.recording_statuses())
+}
+
+async fn retune_channel(
+    State(state): State<Arc<DaemonState>>,
+    Path(id): Path<ChannelId>,
+    Json(body): Json<RetuneRequest>,
+) -> Result<StatusCode, ApiError> {
+    state.retune(id, body.center_offset_hz, body.bandwidth_hz)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_channel(
+    State(state): State<Arc<DaemonState>>,
+    Path(id): Path<ChannelId>,
+) -> Result<StatusCode, ApiError> {
+    state.remove_channel(id)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(test)]
@@ -405,5 +433,74 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn retune_moves_an_existing_channel() {
+        let base = spawn_test_api().await;
+        let client = reqwest::Client::new();
+        client
+            .post(format!("{base}/api/channels"))
+            .json(&audio_spec(2))
+            .send()
+            .await
+            .unwrap();
+
+        let resp = client
+            .post(format!("{base}/api/channels/2/retune"))
+            .json(&serde_json::json!({ "center_offset_hz": 300_000, "bandwidth_hz": 100_000 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 204);
+
+        let listed: Vec<ChannelMetrics> = reqwest::get(format!("{base}/api/channels"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let spec = listed.iter().find(|c| c.spec.id == 2).expect("channel present");
+        assert_eq!(spec.spec.center_offset_hz, 300_000);
+        assert_eq!(spec.spec.bandwidth_hz, 100_000);
+    }
+
+    #[tokio::test]
+    async fn delete_channel_removes_it_from_the_list() {
+        let base = spawn_test_api().await;
+        let client = reqwest::Client::new();
+        client
+            .post(format!("{base}/api/channels"))
+            .json(&audio_spec(3))
+            .send()
+            .await
+            .unwrap();
+
+        let resp = client
+            .delete(format!("{base}/api/channels/3"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 204);
+
+        let listed: Vec<ChannelMetrics> = reqwest::get(format!("{base}/api/channels"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(!listed.iter().any(|c| c.spec.id == 3));
+    }
+
+    #[tokio::test]
+    async fn delete_unknown_channel_returns_bad_request() {
+        let base = spawn_test_api().await;
+        let client = reqwest::Client::new();
+        let resp = client
+            .delete(format!("{base}/api/channels/999"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400);
     }
 }
