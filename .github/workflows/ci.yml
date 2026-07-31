@@ -76,7 +76,7 @@ jobs:
       - name: Test
         run: cargo test --workspace
       - name: Audit
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-audit
       - run: cargo audit
@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-deny
       - run: cargo deny check
