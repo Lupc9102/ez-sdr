@@ -1,0 +1,1844 @@
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use crate::app::SharedState;
+
+#[derive(Debug, Clone)]
+pub struct SignalHit {
+    pub freq_hz: u64,
+    pub strength_db: f32,
+    pub timestamp: Instant,
+    pub hit_count: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SignalHitRecord {
+    pub freq_hz: u64,
+    #[serde(default = "default_hit_strength")]
+    pub strength_db: f32,
+    #[serde(default = "default_hit_count")]
+    pub hit_count: u32,
+    #[serde(default)]
+    pub timestamp: Option<String>,
+}
+
+fn default_hit_strength() -> f32 {
+    -60.0
+}
+fn default_hit_count() -> u32 {
+    1
+}
+
+pub struct FrequencyScanner {
+    shared: Arc<Mutex<SharedState>>,
+    export_status_rx: Option<crossbeam_channel::Receiver<String>>,
+    load_hits_rx: Option<crossbeam_channel::Receiver<Result<(String, String), String>>>,
+    pub enabled: bool,
+    pub paused: bool,
+    pub reset_on_start: bool,
+    pub start_hz: u64,
+    pub stop_hz: u64,
+    pub step_hz: u64,
+    pub dwell_ms: u64,
+    pub threshold_db: f32,
+    pub current_freq_hz: u64,
+    last_step_time: Option<Instant>,
+    pub hits: Vec<SignalHit>,
+    pub max_hits: usize,
+    pub status_text: String,
+    pub progress: f32,
+    pub last_peak_db: f32,
+    pub tune_request_hz: Option<u64>,
+    pub mode_request: Option<String>,
+    pub auto_tune_on_hit: bool,
+    pub last_export_msg: String,
+    scan_start_time: Option<Instant>,
+    total_hits_logged: u64,
+    pub hit_flash: u32,
+    show_histogram: bool,
+    pub hold_on_active: bool,
+    pub hold_resume_delay_ms: u64,
+    holding: bool,
+    hold_last_active: Option<Instant>,
+    pub spectrum_visible_range: Option<(u64, u64)>,
+    // Memory scan mode
+    pub memory_scan: bool,
+    memory_freqs: Vec<(u64, String)>,
+    memory_idx: usize,
+    pub memory_category_filter: String,
+    // Exclude list
+    pub exclude_hz: Vec<u64>,
+    exclude_input: String,
+    pub pending_ai_prompt: Option<String>,
+    // Hits sort mode
+    hits_sort: HitsSort,
+    // Antenna calibration
+    pub calibration_active: bool,
+    calibration_phase: CalibrationPhase,
+    calibration_step: usize,
+    calibration_element_length_cm: f64,
+    calibration_measurements: Vec<CalibrationMeasurement>,
+    calibration_msg: String,
+    calibration_freqs_at_lengths: Vec<(f64, u64)>,
+    calibration_delta_log: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CalibrationPhase {
+    Idle,
+    WaitingForInitialMeasurement,
+    WaitingForExtension,
+    Complete,
+}
+
+#[derive(Debug, Clone)]
+struct CalibrationMeasurement {
+    element_length_cm: f64,
+    freq_hz: u64,
+    strength_db: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum HitsSort {
+    Discovery,
+    Frequency,
+    Strength,
+    HitCount,
+    Recent,
+}
+
+impl FrequencyScanner {
+    pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
+        Self {
+            shared,
+            export_status_rx: None,
+            load_hits_rx: None,
+            enabled: false,
+            paused: false,
+            reset_on_start: true,
+            start_hz: 88_000_000,
+            stop_hz: 108_000_000,
+            step_hz: 100_000,
+            dwell_ms: 500,
+            threshold_db: -60.0,
+            current_freq_hz: 100_000_000,
+            last_step_time: None,
+            hits: Vec::new(),
+            max_hits: 200,
+            status_text: "Idle".into(),
+            progress: 0.0,
+            last_peak_db: -120.0,
+            tune_request_hz: None,
+            mode_request: None,
+            auto_tune_on_hit: false,
+            last_export_msg: String::new(),
+            scan_start_time: None,
+            total_hits_logged: 0,
+            hit_flash: 0,
+            show_histogram: true,
+            hold_on_active: false,
+            hold_resume_delay_ms: 1500,
+            holding: false,
+            hold_last_active: None,
+            spectrum_visible_range: None,
+            memory_scan: false,
+            memory_freqs: Vec::new(),
+            memory_idx: 0,
+            memory_category_filter: String::new(),
+            exclude_hz: Vec::new(),
+            exclude_input: String::new(),
+            pending_ai_prompt: None,
+            hits_sort: HitsSort::Discovery,
+            calibration_active: false,
+            calibration_phase: CalibrationPhase::Idle,
+            calibration_step: 0,
+            calibration_element_length_cm: 10.0,
+            calibration_measurements: Vec::new(),
+            calibration_msg: String::new(),
+            calibration_freqs_at_lengths: Vec::new(),
+            calibration_delta_log: Vec::new(),
+        }
+    }
+
+    pub fn start_memory_scan(&mut self, freqs: Vec<(u64, String)>) {
+        if freqs.is_empty() {
+            self.status_text = "No bookmarks to scan.".into();
+            return;
+        }
+        self.memory_scan = true;
+        self.memory_freqs = freqs;
+        self.memory_idx = 0;
+        self.enabled = true;
+        self.paused = false;
+        self.holding = false;
+        self.hold_last_active = None;
+        self.last_step_time = Some(Instant::now());
+        let (f, m) = &self.memory_freqs[0];
+        self.tune_request_hz = Some(*f);
+        self.mode_request = Some(m.clone());
+        self.current_freq_hz = *f;
+        self.status_text = format!(
+            "Memory scan: {:.3} MHz (1/{})",
+            *f as f64 / 1e6,
+            self.memory_freqs.len()
+        );
+    }
+
+    pub fn stop_memory_scan(&mut self) {
+        self.memory_scan = false;
+        self.enabled = false;
+        self.status_text = format!("Memory scan stopped ({} hits)", self.hits.len());
+    }
+
+    pub fn apply_command(&mut self, cmd: &crate::app::ScannerCommand) {
+        if let Some(hz) = cmd.start_hz {
+            self.start_hz = hz;
+        }
+        if let Some(hz) = cmd.stop_hz {
+            self.stop_hz = hz;
+        }
+        if let Some(hz) = cmd.step_hz {
+            self.step_hz = hz;
+        }
+        if let Some(ms) = cmd.dwell_ms {
+            self.dwell_ms = ms;
+        }
+        if let Some(db) = cmd.threshold_db {
+            self.threshold_db = db;
+        }
+        if let Some(run) = cmd.run {
+            if run {
+                if !self.enabled {
+                    self.start();
+                }
+            } else {
+                self.stop();
+            }
+        }
+        // Clamp current_freq_hz into the new range if scan is running
+        if self.enabled
+            && (self.current_freq_hz < self.start_hz || self.current_freq_hz > self.stop_hz)
+        {
+            self.current_freq_hz = self.start_hz;
+            self.tune_request_hz = Some(self.current_freq_hz);
+        }
+        let applied_desc = format!(
+            "{:.3}–{:.3} MHz, step {:.1} kHz, dwell {} ms, threshold {:.0} dB{}",
+            self.start_hz as f64 / 1e6,
+            self.stop_hz as f64 / 1e6,
+            self.step_hz as f64 / 1e3,
+            self.dwell_ms,
+            self.threshold_db,
+            if self.enabled {
+                " (running)"
+            } else {
+                " (idle)"
+            }
+        );
+        self.status_text = if self.enabled {
+            format!("AI: Scanning {}", applied_desc)
+        } else {
+            format!("AI: {}", applied_desc)
+        };
+    }
+
+    pub fn start_calibration(&mut self) {
+        self.calibration_active = true;
+        self.calibration_phase = CalibrationPhase::WaitingForInitialMeasurement;
+        self.calibration_step = 0;
+        self.calibration_element_length_cm = 10.0;
+        self.calibration_measurements.clear();
+        self.calibration_freqs_at_lengths.clear();
+        self.calibration_delta_log.clear();
+        self.calibration_msg = format!(
+            "Step 1/3: Construct a 180° dipole with each element at {:.0} cm. \
+             Tune to the strongest signal and press 'Log Measurement'.",
+            self.calibration_element_length_cm
+        );
+    }
+
+    pub fn log_calibration_measurement(&mut self, peak_freq_hz: u64, peak_db: f32) {
+        self.calibration_measurements.push(CalibrationMeasurement {
+            element_length_cm: self.calibration_element_length_cm,
+            freq_hz: peak_freq_hz,
+            strength_db: peak_db,
+        });
+        self.calibration_freqs_at_lengths
+            .push((self.calibration_element_length_cm, peak_freq_hz));
+
+        if self.calibration_freqs_at_lengths.len() >= 2 {
+            let prev =
+                self.calibration_freqs_at_lengths[self.calibration_freqs_at_lengths.len() - 2];
+            let curr = *self
+                .calibration_freqs_at_lengths
+                .last()
+                .expect("calibration_freqs_at_lengths non-empty after push on line 246");
+            let delta_hz = curr.1 as i64 - prev.1 as i64;
+            let delta_cm = curr.0 - prev.0;
+            self.calibration_delta_log.push(format!(
+                "{:.0}cm → {:.0}cm: {:+.3} kHz ({:+} Hz/cm)",
+                prev.0,
+                curr.0,
+                delta_hz as f64 / 1e3,
+                delta_hz / delta_cm.max(1.0) as i64
+            ));
+        }
+
+        self.calibration_step += 1;
+        self.calibration_element_length_cm += 10.0;
+
+        if self.calibration_measurements.len() >= 3 {
+            self.calibration_phase = CalibrationPhase::Complete;
+            self.calibration_active = false;
+
+            // Generate summary report
+            if let (Some(first), Some(last)) = (
+                self.calibration_measurements.first(),
+                self.calibration_measurements.last(),
+            ) {
+                let mut summary = String::from("=== Antenna Calibration Complete ===\n");
+                for m in &self.calibration_measurements {
+                    summary.push_str(&format!(
+                        "  {:.0} cm → {:.3} MHz ({:.1} dB)\n",
+                        m.element_length_cm,
+                        m.freq_hz as f64 / 1e6,
+                        m.strength_db
+                    ));
+                }
+                summary.push_str("\nDeltas:\n");
+                for d in &self.calibration_delta_log {
+                    summary.push_str(&format!("  {d}\n"));
+                }
+                if self.calibration_measurements.len() >= 2 {
+                    let total_shift = last.freq_hz as i64 - first.freq_hz as i64;
+                    summary.push_str(&format!(
+                        "\nTotal shift: {:+.3} kHz over {:.0} cm",
+                        total_shift as f64 / 1e3,
+                        last.element_length_cm - first.element_length_cm
+                    ));
+                }
+                self.calibration_msg = summary;
+            } else {
+                // Should never happen: len >= 3 checked above
+                self.calibration_msg = "Calibration complete (no measurements)".to_string();
+            }
+        } else {
+            self.calibration_phase = CalibrationPhase::WaitingForExtension;
+            self.calibration_msg = format!(
+                "Step {}/3: Extend each element by +10 cm (now {:.0} cm total). \
+                 Tune to the strongest signal and press 'Log Measurement'.",
+                self.calibration_measurements.len() + 1,
+                self.calibration_element_length_cm
+            );
+        }
+    }
+
+    pub fn stop_calibration(&mut self) {
+        self.calibration_active = false;
+        self.calibration_phase = CalibrationPhase::Idle;
+        self.calibration_msg.clear();
+    }
+
+    /// Clamp `current_freq_hz` into the current `start_hz..stop_hz` range.
+    /// Call after the range is changed externally (spectrum click-drag, AI
+    /// configure, web remote, etc.) so the next tune request stays in-bounds.
+    pub fn ensure_current_in_range(&mut self) {
+        if self.current_freq_hz < self.start_hz || self.current_freq_hz > self.stop_hz {
+            self.current_freq_hz = self.start_hz;
+            self.tune_request_hz = Some(self.current_freq_hz);
+        }
+    }
+
+    pub fn build_hits_csv(&self) -> String {
+        let mut grouped: std::collections::BTreeMap<u64, (f32, u32)> =
+            std::collections::BTreeMap::new();
+        for hit in &self.hits {
+            let entry = grouped.entry(hit.freq_hz).or_insert((-200.0, 0));
+            if hit.strength_db > entry.0 {
+                entry.0 = hit.strength_db;
+            }
+            if hit.hit_count > entry.1 {
+                entry.1 = hit.hit_count;
+            }
+        }
+
+        let mut csv = String::from("Frequency_Hz,Frequency_MHz,Max_Strength_dB,Hit_Count\n");
+        for (freq_hz, (max_db, count)) in &grouped {
+            csv.push_str(&format!(
+                "{},{:.4},{:.1},{}\n",
+                freq_hz,
+                *freq_hz as f64 / 1e6,
+                max_db,
+                count
+            ));
+        }
+        csv
+    }
+
+    pub fn build_hits_json(&self) -> String {
+        let records: Vec<SignalHitRecord> = self
+            .hits
+            .iter()
+            .map(|hit| {
+                let elapsed_s = hit.timestamp.elapsed().as_secs();
+                let ts = chrono::Local::now() - chrono::Duration::seconds(elapsed_s as i64);
+                SignalHitRecord {
+                    freq_hz: hit.freq_hz,
+                    strength_db: hit.strength_db,
+                    hit_count: hit.hit_count,
+                    timestamp: Some(ts.format("%Y-%m-%dT%H:%M:%S").to_string()),
+                }
+            })
+            .collect();
+        serde_json::to_string_pretty(&records).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    pub fn parse_hits_json(&mut self, content: &str) -> usize {
+        let existing: std::collections::HashSet<u64> =
+            self.hits.iter().map(|h| h.freq_hz).collect();
+        let mut added = 0;
+
+        if let Ok(records) = serde_json::from_str::<Vec<SignalHitRecord>>(content) {
+            for rec in records {
+                if !existing.contains(&rec.freq_hz) {
+                    self.hits.push(SignalHit {
+                        freq_hz: rec.freq_hz,
+                        strength_db: rec.strength_db,
+                        timestamp: Instant::now(),
+                        hit_count: rec.hit_count,
+                    });
+                    added += 1;
+                }
+            }
+            return added;
+        }
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(rec) = serde_json::from_str::<SignalHitRecord>(line) {
+                if !existing.contains(&rec.freq_hz) {
+                    self.hits.push(SignalHit {
+                        freq_hz: rec.freq_hz,
+                        strength_db: rec.strength_db,
+                        timestamp: Instant::now(),
+                        hit_count: rec.hit_count,
+                    });
+                    added += 1;
+                }
+            }
+        }
+        added
+    }
+
+    pub fn poll_file_dialogs(&mut self) {
+        if let Some(rx) = &self.export_status_rx {
+            if let Ok(msg) = rx.try_recv() {
+                self.last_export_msg = msg;
+            }
+        }
+        if let Some(rx) = &self.load_hits_rx {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok((content, fname)) => {
+                        let added = self.parse_hits_json(&content);
+                        self.last_export_msg = format!("Loaded {added} new hits from {fname}");
+                    }
+                    Err(e) => {
+                        self.last_export_msg = e;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn export_hits_csv(&mut self) {
+        if self.hits.is_empty() {
+            self.last_export_msg = "No hits to export.".to_string();
+            return;
+        }
+        let default_name = format!(
+            "scanner_hits_{}.csv",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        );
+        let csv = self.build_hits_csv();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.export_status_rx = Some(rx);
+        self.last_export_msg = "Opening export dialog...".to_string();
+        std::thread::spawn(move || {
+            let path = rfd::FileDialog::new()
+                .set_file_name(&default_name)
+                .add_filter("CSV", &["csv"])
+                .save_file();
+            if let Some(p) = path {
+                match std::fs::write(&p, csv) {
+                    Ok(()) => {
+                        let _ = tx.send(format!("Exported hits to {}", p.display()));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(format!("Export failed: {e}"));
+                    }
+                }
+            } else {
+                let _ = tx.send("Export cancelled.".to_string());
+            }
+        });
+    }
+
+    pub fn save_hits_json(&mut self) {
+        if self.hits.is_empty() {
+            self.last_export_msg = "No hits to save.".to_string();
+            return;
+        }
+        let default_name = format!(
+            "scanner_hits_{}.json",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        );
+        let json = self.build_hits_json();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.export_status_rx = Some(rx);
+        self.last_export_msg = "Opening save dialog...".to_string();
+        std::thread::spawn(move || {
+            let path = rfd::FileDialog::new()
+                .set_file_name(&default_name)
+                .add_filter("JSON", &["json"])
+                .save_file();
+            if let Some(p) = path {
+                match crate::bookmarks::atomic_write_file(&p, json.as_bytes()) {
+                    Ok(()) => {
+                        let _ = tx.send(format!("Saved hits to {}", p.display()));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(format!("Save failed: {e}"));
+                    }
+                }
+            } else {
+                let _ = tx.send("Save cancelled.".to_string());
+            }
+        });
+    }
+
+    pub fn load_hits_json(&mut self) {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.load_hits_rx = Some(rx);
+        self.last_export_msg = "Opening load dialog...".to_string();
+        std::thread::spawn(move || {
+            let path = rfd::FileDialog::new()
+                .add_filter("JSON", &["json"])
+                .pick_file();
+            if let Some(p) = path {
+                match std::fs::read_to_string(&p) {
+                    Ok(c) => {
+                        let fname = p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let _ = tx.send(Ok((c, fname)));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("Read failed: {e}")));
+                    }
+                }
+            } else {
+                let _ = tx.send(Err("Load cancelled.".to_string()));
+            }
+        });
+    }
+
+    pub fn start(&mut self) {
+        self.enabled = true;
+        self.paused = false;
+        if self.reset_on_start {
+            self.hits.clear();
+            self.total_hits_logged = 0;
+        }
+        self.scan_start_time = Some(Instant::now());
+        self.current_freq_hz = self.start_hz;
+        self.last_step_time = Some(Instant::now());
+        self.tune_request_hz = Some(self.current_freq_hz);
+        self.status_text = format!(
+            "Scanning {:.3}–{:.3} MHz",
+            self.start_hz as f64 / 1e6,
+            self.stop_hz as f64 / 1e6
+        );
+    }
+
+    pub fn stop(&mut self) {
+        self.enabled = false;
+        self.status_text = format!("Stopped ({} signals)", self.hits.len());
+    }
+
+    pub fn pause(&mut self) {
+        self.paused = true;
+        self.status_text = format!(
+            "Paused at {:.3} MHz ({} signals)",
+            self.current_freq_hz as f64 / 1e6,
+            self.hits.len()
+        );
+    }
+
+    pub fn resume(&mut self) {
+        self.paused = false;
+        self.status_text = format!(
+            "Scanning {:.3}–{:.3} MHz",
+            self.start_hz as f64 / 1e6,
+            self.stop_hz as f64 / 1e6
+        );
+    }
+
+    pub fn tick(&mut self, spectrum_peak_db: f32) {
+        self.last_peak_db = spectrum_peak_db;
+        if !self.enabled || self.paused {
+            return;
+        }
+        if self.memory_scan {
+            self.tick_memory(spectrum_peak_db);
+        } else {
+            self.tick_range(spectrum_peak_db);
+        }
+    }
+
+    fn tick_memory(&mut self, spectrum_peak_db: f32) {
+        if self.memory_freqs.is_empty() {
+            return;
+        }
+        let now = Instant::now();
+        let dwell = Duration::from_millis(self.dwell_ms);
+        let elapsed = self.last_step_time.map_or(dwell, |t| now.duration_since(t));
+        if elapsed < dwell {
+            return;
+        }
+
+        let signal_active = spectrum_peak_db > self.threshold_db;
+        if signal_active {
+            let existing = self
+                .hits
+                .iter_mut()
+                .find(|h| h.freq_hz == self.current_freq_hz);
+            if let Some(hit) = existing {
+                hit.hit_count += 1;
+                if spectrum_peak_db > hit.strength_db {
+                    hit.strength_db = spectrum_peak_db;
+                    hit.timestamp = now;
+                }
+            } else {
+                self.hits.push(SignalHit {
+                    freq_hz: self.current_freq_hz,
+                    strength_db: spectrum_peak_db,
+                    timestamp: now,
+                    hit_count: 1,
+                });
+                self.total_hits_logged += 1;
+                self.hit_flash = 45;
+            }
+            if self.hold_on_active {
+                self.hold_last_active = Some(now);
+                self.holding = true;
+                self.last_step_time = Some(now);
+                self.status_text = format!(
+                    "⏸ Holding {:.3} MHz ({:.0} dB)",
+                    self.current_freq_hz as f64 / 1e6,
+                    spectrum_peak_db
+                );
+                return;
+            }
+        }
+        if self.holding {
+            let since = self
+                .hold_last_active
+                .map_or(Duration::from_millis(self.hold_resume_delay_ms), |t| {
+                    now.duration_since(t)
+                });
+            if since < Duration::from_millis(self.hold_resume_delay_ms) {
+                self.last_step_time = Some(now);
+                return;
+            }
+            self.holding = false;
+            self.hold_last_active = None;
+        }
+
+        self.memory_idx = (self.memory_idx + 1) % self.memory_freqs.len();
+        let (f, m) = &self.memory_freqs[self.memory_idx];
+        self.current_freq_hz = *f;
+        self.tune_request_hz = Some(*f);
+        self.mode_request = Some(m.clone());
+        self.progress = self.memory_idx as f32 / self.memory_freqs.len().max(1) as f32;
+        self.status_text = format!(
+            "Memory: {:.3} MHz ({}/{})",
+            *f as f64 / 1e6,
+            self.memory_idx + 1,
+            self.memory_freqs.len()
+        );
+        self.last_step_time = Some(now);
+    }
+
+    fn tick_range(&mut self, spectrum_peak_db: f32) {
+        if self.step_hz == 0 {
+            return;
+        }
+        let now = Instant::now();
+        let dwell = Duration::from_millis(self.dwell_ms);
+        let elapsed = self.last_step_time.map_or(dwell, |t| now.duration_since(t));
+        if elapsed < dwell {
+            return;
+        }
+
+        // Skip excluded frequencies
+        let is_excluded = self.exclude_hz.iter().any(|&ex| {
+            let diff = self.current_freq_hz.abs_diff(ex);
+            diff <= self.step_hz / 2
+        });
+        if is_excluded {
+            let next = self.current_freq_hz.saturating_add(self.step_hz);
+            self.current_freq_hz = if next > self.stop_hz {
+                self.start_hz
+            } else {
+                next
+            };
+            self.tune_request_hz = Some(self.current_freq_hz);
+            self.last_step_time = Some(now);
+            return;
+        }
+
+        let signal_active = spectrum_peak_db > self.threshold_db
+            && self.current_freq_hz >= self.start_hz
+            && self.current_freq_hz <= self.stop_hz;
+
+        if signal_active {
+            // Log the hit (dedup within ±step_hz)
+            let half_step = self.step_hz / 2;
+            let existing = self.hits.iter_mut().find(|h| {
+                let diff = h.freq_hz.abs_diff(self.current_freq_hz);
+                diff <= half_step
+            });
+            if let Some(hit) = existing {
+                hit.hit_count += 1;
+                if spectrum_peak_db > hit.strength_db {
+                    hit.strength_db = spectrum_peak_db;
+                    hit.freq_hz = self.current_freq_hz;
+                    hit.timestamp = now;
+                }
+            } else {
+                let hit = SignalHit {
+                    freq_hz: self.current_freq_hz,
+                    strength_db: spectrum_peak_db,
+                    timestamp: now,
+                    hit_count: 1,
+                };
+                if self.auto_tune_on_hit {
+                    self.tune_request_hz = Some(self.current_freq_hz);
+                }
+                self.hits.push(hit);
+                self.total_hits_logged += 1;
+                self.hit_flash = 45;
+                if self.hits.len() > self.max_hits {
+                    self.hits.remove(0);
+                }
+            }
+
+            // Hold: stay on this frequency while signal is active
+            if self.hold_on_active {
+                self.hold_last_active = Some(now);
+                self.holding = true;
+                self.last_step_time = Some(now); // keep dwell timer alive
+                self.status_text = format!(
+                    "⏸ Holding {:.3} MHz ({:.0} dB)",
+                    self.current_freq_hz as f64 / 1e6,
+                    spectrum_peak_db
+                );
+                return;
+            }
+        }
+
+        // Resume delay after signal drops
+        if self.holding {
+            let resume_delay = Duration::from_millis(self.hold_resume_delay_ms);
+            let since_signal = self
+                .hold_last_active
+                .map_or(resume_delay, |t| now.duration_since(t));
+            if since_signal < resume_delay {
+                self.last_step_time = Some(now);
+                return;
+            }
+            self.holding = false;
+            self.hold_last_active = None;
+            self.status_text = format!(
+                "Scanning {:.3}–{:.3} MHz",
+                self.start_hz as f64 / 1e6,
+                self.stop_hz as f64 / 1e6
+            );
+        }
+
+        let next = self.current_freq_hz.saturating_add(self.step_hz);
+        if next > self.stop_hz {
+            self.current_freq_hz = self.start_hz;
+        } else {
+            self.current_freq_hz = next;
+        }
+        self.tune_request_hz = Some(self.current_freq_hz);
+
+        let span = self.stop_hz.saturating_sub(self.start_hz).max(1) as f32;
+        let pos = self.current_freq_hz.saturating_sub(self.start_hz) as f32;
+        self.progress = (pos / span).clamp(0.0, 1.0);
+        self.last_step_time = Some(now);
+    }
+
+    pub fn sort_hits_by_strength(&mut self) {
+        self.hits.sort_by(|a, b| {
+            b.strength_db
+                .partial_cmp(&a.strength_db)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.poll_file_dialogs();
+        ui.heading("Frequency Scanner");
+
+        // User level check for adaptive UI
+        let user_level = self
+            .shared
+            .try_lock()
+            .map(|s| crate::user_level::UserLevel::from_name(&s.config.user_level))
+            .unwrap_or(crate::user_level::UserLevel::Beginner);
+        if user_level.simplify_layout() {
+            ui.add_space(4.0);
+            if ui.add(egui::Button::new(egui::RichText::new("🤖 Ask AI to configure scanning").size(14.0))
+                .min_size(egui::vec2(240.0, 28.0))
+                .fill(egui::Color32::from_rgb(40, 60, 120)))
+                .on_hover_text("Let the AI assistant set up frequency scanning for you. Tell it what bands you want to scan.")
+                .clicked()
+            {
+                self.pending_ai_prompt = Some("Help me set up the frequency scanner. What frequencies should I scan and how do I configure it?".to_string());
+            }
+            ui.add_space(4.0);
+        }
+
+        // Row 1: Transport + sort
+        ui.horizontal_wrapped(|ui| {
+            if self.enabled {
+                if ui.button("⏹ Stop").on_hover_text("Stop the scan and keep hits.").clicked() {
+                    self.stop();
+                }
+                if self.paused {
+                    if ui.button("▶ Resume").on_hover_text("Continue scanning from where it paused.").clicked() {
+                        self.resume();
+                    }
+                } else if ui.button("⏸ Pause").on_hover_text("Pause the sweep at the current frequency without clearing hits.").clicked() {
+                    self.pause();
+                }
+            } else if ui.button("▶ Start Scan").on_hover_text("Begin sweeping the configured frequency range.").clicked() {
+                self.start();
+            }
+            if ui.button("Sort by strength").on_hover_text("Sort the hit list by signal strength, strongest first.").clicked() {
+                self.sort_hits_by_strength();
+            }
+            if ui.button("Sort by hits").on_hover_text("Sort by detection count — most frequently detected frequencies first.").clicked() {
+                self.hits.sort_by_key(|b| std::cmp::Reverse(b.hit_count));
+            }
+            // Tune to most active frequency
+            if !self.hits.is_empty() {
+                let most_active = self.hits.iter().max_by_key(|h| h.hit_count);
+                if let Some(best) = most_active {
+                    let freq_mhz = best.freq_hz as f64 / 1e6;
+                    if ui.button(format!("🎯 Top: {:.3} MHz (×{})", freq_mhz, best.hit_count))
+                        .on_hover_text(format!("Tune to the most-detected frequency: {:.3} MHz (hit {} times, peak {:.1} dB)", freq_mhz, best.hit_count, best.strength_db))
+                        .clicked()
+                    {
+                        self.tune_request_hz = Some(best.freq_hz);
+                    }
+                }
+            }
+        });
+        // Row 2: Manage hits
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Clear hits").on_hover_text("Remove all logged signal hits.").clicked() {
+                self.hits.clear();
+            }
+            if ui.button("Export CSV").on_hover_text("Save all hits to a CSV file in the current directory.").clicked() {
+                self.export_hits_csv();
+            }
+            if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("💾 Save Hits"))
+                .on_hover_text("Save the current hit list to a JSON file so you can reload it in a future session.")
+                .clicked()
+            {
+                self.save_hits_json();
+            }
+            if ui.button("📂 Load Hits").on_hover_text("Load a previously saved hit list from a JSON file (merges with current hits).").clicked() {
+                self.load_hits_json();
+            }
+            if let Some((vis_start, vis_stop)) = self.spectrum_visible_range {
+                if ui.button("🔭 Scan visible").on_hover_text(
+                    format!("Set scan range to the currently visible spectrum view ({:.3}–{:.3} MHz), then start.", vis_start as f64 / 1e6, vis_stop as f64 / 1e6)
+                ).clicked() {
+                    self.start_hz = vis_start;
+                    self.stop_hz = vis_stop;
+                    if !self.enabled { self.start(); }
+                }
+            }
+            if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("🤖 Ask AI"))
+                .on_hover_text("Send all scan hits to the AI Agent for signal identification")
+                .clicked()
+            {
+                let mut lines = String::from(
+                    "I just ran a frequency scan. Here are the signals found (frequency, strength, hit count):\n"
+                );
+                let mut sorted_hits: Vec<&SignalHit> = self.hits.iter().collect();
+                sorted_hits.sort_by_key(|a| a.freq_hz);
+                for hit in sorted_hits.iter().take(30) {
+                    lines.push_str(&format!(
+                        "  {:.4} MHz  {:.1} dB  ({} hits)\n",
+                        hit.freq_hz as f64 / 1e6,
+                        hit.strength_db,
+                        hit.hit_count,
+                    ));
+                }
+                if self.hits.len() > 30 {
+                    lines.push_str(&format!("  ... and {} more\n", self.hits.len() - 30));
+                }
+                lines.push_str("\nPlease identify each signal: likely service, country/region if relevant, recommended demod mode, and any tips for receiving it better.");
+                self.pending_ai_prompt = Some(lines);
+            }
+            if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("📌 Bookmark all"))
+                .on_hover_text("Add all scanner hits as bookmarks in the 'Scanner' category. Skips frequencies already bookmarked.")
+                .clicked()
+            {
+                if let Ok(mut state) = self.shared.lock() {
+                    let existing: std::collections::HashSet<u64> = state.bookmarks.bookmarks.iter().map(|b| b.frequency_hz).collect();
+                    let mut added = 0u32;
+                    for hit in &self.hits {
+                        if !existing.contains(&hit.freq_hz) {
+                            state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                                name: format!("{:.3} MHz", hit.freq_hz as f64 / 1e6),
+                                frequency_hz: hit.freq_hz,
+                                mode: "NFM".to_string(),
+                                bandwidth_hz: self.step_hz.max(12_500) as u32,
+                                category: "Scanner".to_string(),
+                                notes: format!("{:.1} dB", hit.strength_db),
+                            starred: false,
+                        });
+                        state.bookmarks_modified = true;
+                        state.spectrum.bookmark_freqs_dirty = true;
+                        added += 1;
+                        }
+                    }
+                    self.last_export_msg = format!("Added {added} to Bookmarks/Scanner.");
+                }
+            }
+        });
+        // Row 3: Options + status
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.hold_on_active, "Hold on activity")
+                .on_hover_text("Pause the sweep whenever a signal is detected above the threshold. Resumes scanning after signal drops and the resume delay expires.");
+            if self.hold_on_active {
+                ui.add(egui::Slider::new(&mut self.hold_resume_delay_ms, 200u64..=5000u64)
+                    .step_by(100.0)
+                    .text("Resume delay (ms)")
+                    .custom_formatter(|v, _| format!("{v:.0} ms")))
+                    .on_hover_text("How long to wait after signal drops before resuming the sweep. Longer values prevent premature resume on intermittent signals.");
+            }
+            let color = if self.enabled { egui::Color32::GREEN } else { egui::Color32::GRAY };
+            ui.colored_label(color, &self.status_text);
+            if !self.last_export_msg.is_empty() {
+                ui.label(egui::RichText::new(&self.last_export_msg).color(egui::Color32::from_rgb(100, 220, 100)).small());
+            }
+        });
+
+        // Exclude list
+        ui.collapsing("🚫 Exclude frequencies", |ui| {
+            ui.label("Frequencies in this list are skipped during range scan. Useful to ignore known interferers or vacant channels.");
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.exclude_input)
+                    .desired_width(120.0)
+                    .hint_text("MHz to exclude"));
+                if ui.small_button("Add").clicked() {
+                    let s = self.exclude_input.trim().to_lowercase();
+                    if let Ok(mhz) = s.trim_end_matches("mhz").trim().parse::<f64>() {
+                        let hz = (mhz * 1e6) as u64;
+                        if !self.exclude_hz.contains(&hz) {
+                            self.exclude_hz.push(hz);
+                        }
+                    }
+                    self.exclude_input.clear();
+                }
+                if !self.exclude_hz.is_empty() && ui.small_button("Clear all").clicked() {
+                    self.exclude_hz.clear();
+                }
+            });
+            let mut to_remove = None;
+            for (i, &f) in self.exclude_hz.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{:.3} MHz", f as f64 / 1e6));
+                    if ui.small_button("✕").clicked() { to_remove = Some(i); }
+                });
+            }
+            if let Some(i) = to_remove { self.exclude_hz.remove(i); }
+        });
+        ui.separator();
+
+        // Band presets
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Presets:")
+                .on_hover_text("Quick-fill start/stop/step for common band plans.");
+            const BAND_PRESETS: &[(&str, u64, u64, u64, &str)] = &[
+                (
+                    "FM Broadcast",
+                    88_000_000,
+                    108_000_000,
+                    100_000,
+                    "88–108 MHz WFM broadcast",
+                ),
+                (
+                    "Airband",
+                    118_000_000,
+                    137_000_000,
+                    25_000,
+                    "118–137 MHz AM aviation voice",
+                ),
+                (
+                    "Marine VHF",
+                    156_000_000,
+                    174_000_000,
+                    25_000,
+                    "156–174 MHz NFM marine",
+                ),
+                (
+                    "Ham 2m",
+                    144_000_000,
+                    146_000_000,
+                    12_500,
+                    "144–146 MHz NFM amateur",
+                ),
+                (
+                    "Ham 70cm",
+                    430_000_000,
+                    440_000_000,
+                    12_500,
+                    "430–440 MHz NFM amateur",
+                ),
+                (
+                    "PMR446",
+                    446_006_250,
+                    446_193_750,
+                    6_250,
+                    "PMR446 licence-free 8-channel",
+                ),
+                (
+                    "Weather NOAA",
+                    162_400_000,
+                    162_550_000,
+                    25_000,
+                    "162.4–162.55 MHz NOAA WX",
+                ),
+                (
+                    "ISM 433",
+                    433_050_000,
+                    434_790_000,
+                    25_000,
+                    "433 MHz ISM/remote controls",
+                ),
+                (
+                    "POCSAG 153",
+                    153_000_000,
+                    154_000_000,
+                    25_000,
+                    "153 MHz pager band",
+                ),
+                (
+                    "Ham 23cm",
+                    1_240_000_000,
+                    1_300_000_000,
+                    25_000,
+                    "1.24–1.3 GHz amateur",
+                ),
+            ];
+            for &(name, start, stop, step, tip) in BAND_PRESETS {
+                if ui.small_button(name).on_hover_text(tip).clicked() {
+                    self.start_hz = start;
+                    self.stop_hz = stop;
+                    self.step_hz = step;
+                    self.current_freq_hz = start;
+                    self.tune_request_hz = Some(start);
+                    self.progress = 0.0;
+                    self.hits.clear();
+                    self.status_text = format!(
+                        "Preset loaded: {} — {:.3}–{:.3} MHz",
+                        name,
+                        start as f64 / 1e6,
+                        stop as f64 / 1e6
+                    );
+                    if self.enabled {
+                        self.last_step_time = Some(Instant::now());
+                    }
+                }
+            }
+        });
+        // Memory scan section
+        ui.collapsing("📻 Memory Scan (cycle bookmarks)", |ui| {
+            ui.label("Cycle through all bookmarks (or a specific category), dwelling at each for the configured dwell time. Pauses on active signals when 'Hold on activity' is enabled.");
+            ui.horizontal(|ui| {
+                ui.label("Category filter:");
+                ui.text_edit_singleline(&mut self.memory_category_filter)
+                    .on_hover_text("Leave empty to scan ALL bookmarks. Type a category name (e.g. 'Aviation', 'Scanner') to scan only that category.");
+                if self.memory_scan && self.enabled {
+                    if ui.button("⏹ Stop Memory Scan").on_hover_text("Stop memory scan.").clicked() {
+                        self.stop_memory_scan();
+                    }
+                } else if ui.button("▶ Start Memory Scan").on_hover_text("Cycle through all bookmarks in order, dwelling at each frequency.").clicked() {
+                    let freqs: Vec<(u64, String)> = {
+                        let filter = self.memory_category_filter.trim().to_lowercase();
+                        if let Ok(state) = self.shared.try_lock() {
+                            state.bookmarks.bookmarks.iter()
+                                .filter(|b| filter.is_empty() || b.category.to_lowercase() == filter)
+                                .map(|b| (b.frequency_hz, b.mode.clone()))
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    };
+                    self.start_memory_scan(freqs);
+                }
+            });
+            if self.memory_scan && self.enabled {
+                let n = self.memory_freqs.len();
+                let i = self.memory_idx + 1;
+                ui.colored_label(egui::Color32::from_rgb(100, 220, 100),
+                    format!("Scanning channel {}/{} — {:.3} MHz", i, n, self.current_freq_hz as f64 / 1e6));
+                ui.add(egui::ProgressBar::new(self.progress).desired_width(200.0));
+            }
+        });
+        // Antenna Calibration
+        ui.collapsing("📐 Antenna Calibration (dipole tuning)", |ui| {
+            ui.label("Interactive loop for physical antenna tuning. Follow the prompts to measure how antenna element length affects resonant frequency.");
+            ui.add_space(4.0);
+
+            if !self.calibration_active && self.calibration_phase == CalibrationPhase::Idle {
+                ui.horizontal(|ui| {
+                    if ui.button("▶ Start Calibration").on_hover_text(
+                        "Begin a 3-step dipole calibration: 10cm → 20cm → 30cm elements"
+                    ).clicked() {
+                        self.start_calibration();
+                    }
+                });
+            }
+
+            if self.calibration_active {
+                ui.colored_label(egui::Color32::from_rgb(255, 200, 50), &self.calibration_msg);
+                ui.add_space(4.0);
+                ui.label("Make sure the scanner is running and tuned to the strongest signal before logging.");
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(self.enabled, egui::Button::new("📌 Log Measurement"))
+                        .on_hover_text(
+                            "Record the current peak frequency as the resonant point for this antenna length. Scanner must be running."
+                        ).clicked() {
+                        let freq = self.current_freq_hz;
+                        let db = self.last_peak_db;
+                        self.log_calibration_measurement(freq, db);
+                    }
+                    if ui.button("⏹ Cancel").clicked() {
+                        self.stop_calibration();
+                    }
+                });
+                let progress = self.calibration_measurements.len() as f32 / 3.0;
+                ui.add(egui::ProgressBar::new(progress).desired_width(200.0)
+                    .text(format!("{}/3 measurements", self.calibration_measurements.len())));
+            }
+
+            if self.calibration_phase == CalibrationPhase::Complete && !self.calibration_msg.is_empty() {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("Results").strong());
+                    ui.label(&self.calibration_msg);
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("🔄 Restart").clicked() {
+                        self.start_calibration();
+                    }
+                    if ui.button("✕ Dismiss").clicked() {
+                        self.calibration_phase = CalibrationPhase::Idle;
+                        self.calibration_msg.clear();
+                    }
+                });
+            }
+        });
+        ui.separator();
+
+        egui::Grid::new("scanner_controls").num_columns(2).show(ui, |ui| {
+            ui.label("Start (MHz):").on_hover_text("Lowest frequency to scan. The sweep begins here.");
+            let mut start = self.start_hz as f64 / 1e6;
+            if ui.add(egui::DragValue::new(&mut start).speed(0.01).range(0.5..=1770.0).suffix(" MHz"))
+                .on_hover_text("Drag or type to set the scan start frequency in MHz.")
+                .changed()
+            {
+                self.start_hz = (start * 1e6) as u64;
+                if self.start_hz > self.stop_hz { self.stop_hz = self.start_hz; }
+            }
+            ui.end_row();
+
+            ui.label("Stop (MHz):").on_hover_text("Highest frequency to scan. The sweep ends here and wraps back to start.");
+            let mut stop = self.stop_hz as f64 / 1e6;
+            if ui.add(egui::DragValue::new(&mut stop).speed(0.01).range(0.5..=1770.0).suffix(" MHz"))
+                .on_hover_text("Drag or type to set the scan stop frequency in MHz.")
+                .changed()
+            {
+                self.stop_hz = (stop * 1e6) as u64;
+                if self.stop_hz < self.start_hz { self.start_hz = self.stop_hz; }
+            }
+            ui.end_row();
+
+            ui.label("Step:").on_hover_text("How much to advance per dwell. Match to signal bandwidth: 100 kHz for FM broadcast, 12.5 kHz for NFM voice, 25 kHz for aviation.");
+            ui.horizontal(|ui| {
+                let presets = [1_000u64, 10_000, 100_000, 250_000, 1_000_000];
+                for p in presets {
+                    let label = match p {
+                        1_000   => "1k",
+                        10_000  => "10k",
+                        100_000 => "100k",
+                        250_000 => "250k",
+                        _       => "1M",
+                    };
+                    if ui.selectable_label(self.step_hz == p, label).clicked() {
+                        self.step_hz = p;
+                    }
+                }
+            });
+            ui.end_row();
+
+            ui.label("Step (Hz):").on_hover_text("Fine-tune the step size in Hz. 12500 = standard NFM channel spacing. 25000 = aviation. 200000 = FM broadcast.");
+            ui.add(egui::DragValue::new(&mut self.step_hz).speed(1000.0).range(100..=10_000_000))
+                .on_hover_text("Current step size in Hz.");
+            ui.end_row();
+
+            ui.label("Dwell (ms):").on_hover_text("Time to listen at each frequency before stepping. 200–500 ms is typical. Too short misses bursty signals (digital voice, packets).");
+            ui.add(egui::Slider::new(&mut self.dwell_ms, 50..=5000))
+                .on_hover_text("Dwell time per step in milliseconds.");
+            ui.end_row();
+
+            ui.label("Threshold (dB):").on_hover_text("Minimum signal level to log as a 'hit'. Start at -60 dB and adjust based on your local noise floor. Anything above threshold is logged.");
+            ui.add(egui::Slider::new(&mut self.threshold_db, -120.0..=0.0))
+                .on_hover_text("Signal strength threshold in dB. Only signals above this level are recorded as hits.");
+            ui.end_row();
+
+            ui.label("Progress:").on_hover_text("How far through the current sweep the scanner is. Resets at the start frequency after each full sweep.");
+            ui.add(egui::ProgressBar::new(self.progress).show_percentage().desired_width(200.0));
+            ui.end_row();
+
+            ui.label("Cycle time:").on_hover_text("Estimated time for one complete sweep (start → stop → back to start). = number of steps × dwell time.");
+            {
+                let span = self.stop_hz.saturating_sub(self.start_hz);
+                let steps = span.checked_div(self.step_hz).map_or(1, |s| s + 1);
+                let total_ms = steps * self.dwell_ms;
+                let cycle_str = if total_ms < 1000 {
+                    format!("{total_ms} ms")
+                } else if total_ms < 60_000 {
+                    format!("{:.1} s ({} steps)", total_ms as f64 / 1000.0, steps)
+                } else {
+                    format!("{:.1} min ({} steps)", total_ms as f64 / 60_000.0, steps)
+                };
+                ui.label(cycle_str).on_hover_text("One full sweep takes this long. Reduce dwell time or widen the step to scan faster at the cost of missing short transmissions.");
+            }
+            ui.end_row();
+
+            ui.label("Current:").on_hover_text("Signal level measured at the current step frequency. Green = above threshold (hit logged), grey = below threshold.");
+            ui.colored_label(
+                if self.last_peak_db > self.threshold_db { egui::Color32::GREEN } else { egui::Color32::GRAY },
+                format!("{:.1} dB", self.last_peak_db)
+            );
+            ui.end_row();
+        });
+
+        ui.checkbox(&mut self.reset_on_start, "Reset hits on start")
+            .on_hover_text("If checked, the hits list is cleared each time you press Start Scan. Uncheck to accumulate across multiple sweeps.");
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            // Flash badge on new hit
+            if self.hit_flash > 0 {
+                let alpha = ((self.hit_flash as f32 / 45.0) * 220.0) as u8;
+                ui.colored_label(
+                    egui::Color32::from_rgba_premultiplied(46, 204, 113, alpha),
+                    "● HIT!",
+                ).on_hover_text("A new signal was just detected above the threshold!");
+                self.hit_flash = self.hit_flash.saturating_sub(1);
+                ui.separator();
+            }
+            ui.label(format!("Signals: {}", self.hits.len()))
+                .on_hover_text("Total unique signal hits currently in the table (limited to max_hits).");
+            if let Some(start) = self.scan_start_time {
+                let elapsed_secs = start.elapsed().as_secs_f64().max(1.0);
+                let rate = self.total_hits_logged as f64 / (elapsed_secs / 60.0);
+                ui.separator();
+                ui.label(format!("Rate: {rate:.1}/min"))
+                    .on_hover_text("Number of new signal hits detected per minute since the scan started. High rate = active or noisy band; low rate = quiet band.");
+            }
+            ui.separator();
+            ui.toggle_value(&mut self.show_histogram, "📊 Histogram")
+                .on_hover_text("Show a bar chart of signal hits distributed across the scan range.");
+        });
+
+        // Hits strength histogram
+        if self.show_histogram && !self.hits.is_empty() {
+            let hist_h = 50.0;
+            let (hist_rect, _) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), hist_h),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter();
+            painter.rect_filled(hist_rect, 2.0, egui::Color32::from_rgb(8, 8, 16));
+
+            let span = self.stop_hz.saturating_sub(self.start_hz).max(1) as f64;
+            let n_buckets = 60usize;
+            let mut buckets = vec![-120.0f32; n_buckets];
+            for hit in &self.hits {
+                let pos = hit.freq_hz.saturating_sub(self.start_hz) as f64;
+                let bucket = ((pos / span) * n_buckets as f64) as usize;
+                let bucket = bucket.min(n_buckets - 1);
+                if hit.strength_db > buckets[bucket] {
+                    buckets[bucket] = hit.strength_db;
+                }
+            }
+            let min_db_h = self.threshold_db - 10.0;
+            let max_db_h = (self
+                .hits
+                .iter()
+                .map(|h| h.strength_db)
+                .fold(-120.0f32, f32::max)
+                + 5.0)
+                .max(min_db_h + 10.0);
+            let db_range = (max_db_h - min_db_h).max(1.0);
+            let bar_w = hist_rect.width() / n_buckets as f32;
+            for (i, &db) in buckets.iter().enumerate() {
+                if db <= min_db_h {
+                    continue;
+                }
+                let norm = ((db - min_db_h) / db_range).clamp(0.0, 1.0);
+                let bar_h = norm * hist_h;
+                let x = hist_rect.left() + i as f32 * bar_w;
+                let bar_rect = egui::Rect::from_min_size(
+                    egui::pos2(x + 0.5, hist_rect.bottom() - bar_h),
+                    egui::vec2(bar_w - 1.0, bar_h),
+                );
+                let col = if db > -20.0 {
+                    egui::Color32::from_rgb(46, 204, 113)
+                } else if db > -40.0 {
+                    egui::Color32::from_rgb(241, 196, 15)
+                } else {
+                    egui::Color32::from_rgb(200, 120, 50)
+                };
+                painter.rect_filled(bar_rect, 0.0, col);
+            }
+            // Threshold line
+            let thresh_norm = ((self.threshold_db - min_db_h) / db_range).clamp(0.0, 1.0);
+            let thresh_y = hist_rect.bottom() - thresh_norm * hist_h;
+            painter.line_segment(
+                [
+                    egui::pos2(hist_rect.left(), thresh_y),
+                    egui::pos2(hist_rect.right(), thresh_y),
+                ],
+                egui::Stroke::new(
+                    0.6,
+                    egui::Color32::from_rgba_premultiplied(231, 76, 60, 150),
+                ),
+            );
+            painter.text(
+                egui::pos2(hist_rect.right() - 2.0, thresh_y - 2.0),
+                egui::Align2::RIGHT_BOTTOM,
+                format!("thr {:.0}", self.threshold_db),
+                egui::FontId::proportional(7.5),
+                egui::Color32::from_rgba_premultiplied(231, 76, 60, 180),
+            );
+            // Labels
+            painter.text(
+                egui::pos2(hist_rect.left() + 2.0, hist_rect.top() + 2.0),
+                egui::Align2::LEFT_TOP,
+                format!(
+                    "Signal strength histogram  {:.3}–{:.3} MHz",
+                    self.start_hz as f64 / 1e6,
+                    self.stop_hz as f64 / 1e6
+                ),
+                egui::FontId::proportional(7.5),
+                egui::Color32::DARK_GRAY,
+            );
+        }
+
+        let hit_color = |db: f32| -> egui::Color32 {
+            if db > -20.0 {
+                egui::Color32::GREEN
+            } else if db > -40.0 {
+                egui::Color32::YELLOW
+            } else if db > -60.0 {
+                egui::Color32::from_rgb(200, 150, 50)
+            } else {
+                egui::Color32::GRAY
+            }
+        };
+
+        // Sort controls
+        if !self.hits.is_empty() {
+            ui.horizontal(|ui| {
+                ui.small("Sort:");
+                for (label, sort_mode, tip) in [
+                    (
+                        "Discovery",
+                        HitsSort::Discovery,
+                        "Sort by discovery order (oldest first)",
+                    ),
+                    (
+                        "Freq↑",
+                        HitsSort::Frequency,
+                        "Sort by frequency (lowest first)",
+                    ),
+                    (
+                        "Signal↓",
+                        HitsSort::Strength,
+                        "Sort by signal strength (strongest first)",
+                    ),
+                    (
+                        "Hits↓",
+                        HitsSort::HitCount,
+                        "Sort by hit count (most active first)",
+                    ),
+                    ("Recent", HitsSort::Recent, "Sort by most recently seen"),
+                ] {
+                    let active = self.hits_sort == sort_mode;
+                    let btn = ui
+                        .add(
+                            egui::Button::new(egui::RichText::new(label).small().color(
+                                if active {
+                                    egui::Color32::BLACK
+                                } else {
+                                    egui::Color32::from_rgb(180, 200, 240)
+                                },
+                            ))
+                            .fill(if active {
+                                egui::Color32::from_rgb(80, 160, 255)
+                            } else {
+                                egui::Color32::from_rgba_premultiplied(40, 60, 100, 80)
+                            })
+                            .small(),
+                        )
+                        .on_hover_text(tip);
+                    if btn.clicked() {
+                        self.hits_sort = sort_mode;
+                    }
+                }
+                ui.separator();
+                ui.small(format!("{} hits", self.hits.len()));
+            });
+        }
+
+        egui::ScrollArea::vertical().max_height(400.0).auto_shrink(false).show(ui, |ui| {
+            egui::Grid::new("hits_grid")
+                .num_columns(9)
+                .striped(true)
+                .min_col_width(30.0)
+                .show(ui, |ui| {
+                    ui.strong("Freq");
+                    ui.strong("Band / Service");
+                    ui.strong("Strength");
+                    ui.strong("Level");
+                    ui.strong("Hits").on_hover_text("Number of times this frequency was detected above threshold during this scan session.");
+                    ui.strong("Time Ago");
+                    ui.strong("Tune");
+                    ui.strong("🔖").on_hover_text("Bookmark this hit");
+                    ui.strong("Del");
+                    ui.strong("Skip");
+                    ui.end_row();
+
+                    let mut hits_copy = self.hits.clone();
+                    match self.hits_sort {
+                        HitsSort::Discovery => {}
+                        HitsSort::Frequency => hits_copy.sort_by_key(|h| h.freq_hz),
+                        HitsSort::Strength => hits_copy.sort_by(|a, b| b.strength_db.partial_cmp(&a.strength_db).unwrap_or(std::cmp::Ordering::Equal)),
+                        HitsSort::HitCount => hits_copy.sort_by_key(|b| std::cmp::Reverse(b.hit_count)),
+                        HitsSort::Recent => hits_copy.sort_by_key(|b| std::cmp::Reverse(b.timestamp)),
+                    }
+                    let mut remove_freq: Option<u64> = None;
+                    let mut exclude_freq = None;
+                    let mut bookmark_freq: Option<u64> = None;
+                    for hit in hits_copy.iter() {
+                        let already_excluded = self.exclude_hz.contains(&hit.freq_hz);
+                        ui.horizontal(|ui| {
+                            ui.set_min_width(80.0);
+                            if already_excluded {
+                                ui.monospace(egui::RichText::new(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6)).strikethrough().color(egui::Color32::GRAY));
+                            } else {
+                                ui.monospace(format!("{:.3} MHz", hit.freq_hz as f64 / 1e6));
+                            }
+                            if ui.small_button("📋").on_hover_text("Copy frequency to clipboard").clicked() {
+                                ui.ctx().copy_text(format!("{:.6}", hit.freq_hz as f64 / 1e6));
+                            }
+                        });
+                        // Band / service identification
+                        {
+                            let band_label = if let Some(info) = crate::sdr_panel::identify_frequency(hit.freq_hz) {
+                                let short = if info.short_desc.len() > 35 {
+                                    format!("{}…", &info.short_desc[..33])
+                                } else {
+                                    info.short_desc.to_string()
+                                };
+                                let tip = format!("{} — {}\n{}{}", info.band, info.short_desc, info.tips,
+                                    if info.what_to_hear.is_empty() { String::new() } else { format!("\n🔊 Expect: {}", info.what_to_hear) });
+                                (short, tip)
+                            } else {
+                                ("—".to_string(), "No band plan entry for this frequency.".to_string())
+                            };
+                            ui.small(egui::RichText::new(&band_label.0).color(egui::Color32::from_rgb(180, 220, 255)))
+                                .on_hover_text(band_label.1);
+                        }
+                        ui.colored_label(hit_color(hit.strength_db), format!("{:.1} dB", hit.strength_db));
+                        // Mini strength bar
+                        let norm = ((hit.strength_db + 120.0) / 120.0).clamp(0.0, 1.0);
+                        let bar_w = 60.0;
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, 10.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 1.0, egui::Color32::from_rgb(20, 20, 30));
+                        let fill_color = hit_color(hit.strength_db);
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(rect.min, egui::vec2(norm * bar_w, rect.height())),
+                            1.0, fill_color,
+                        );
+                        // Hit count with heat coloring
+                        let count_color = if hit.hit_count >= 10 { egui::Color32::from_rgb(255, 120, 60) }
+                            else if hit.hit_count >= 5 { egui::Color32::from_rgb(255, 200, 60) }
+                            else { egui::Color32::from_rgb(160, 200, 160) };
+                        ui.colored_label(count_color, format!("×{}", hit.hit_count))
+                            .on_hover_text(format!("Detected {} time(s) this session", hit.hit_count));
+                        let ago = hit.timestamp.elapsed().as_secs();
+                        ui.label(if ago < 60 { format!("{ago}s") } else { format!("{}m", ago / 60) });
+                        if ui.small_button("📡").on_hover_text("Tune SDR to this frequency.").clicked() {
+                            self.tune_request_hz = Some(hit.freq_hz);
+                        }
+                        if ui.small_button("🔖").on_hover_text("Save as bookmark in Scanner category.").clicked() {
+                            bookmark_freq = Some(hit.freq_hz);
+                        }
+                        if ui.small_button("✕").on_hover_text("Remove this hit from the list.").clicked() {
+                            remove_freq = Some(hit.freq_hz);
+                        }
+                        let skip_btn = if already_excluded {
+                            ui.small_button(egui::RichText::new("🚫").color(egui::Color32::from_rgb(255, 80, 80)))
+                                .on_hover_text("Already in exclude list. Clicks to remove.")
+                        } else {
+                            ui.small_button("🚫").on_hover_text("Add to exclude list — scanner will skip this frequency.")
+                        };
+                        if skip_btn.clicked() {
+                            if already_excluded {
+                                self.exclude_hz.retain(|&f| f != hit.freq_hz);
+                            } else {
+                                exclude_freq = Some(hit.freq_hz);
+                            }
+                        }
+                        ui.end_row();
+                    }
+                    if let Some(f) = remove_freq {
+                        self.hits.retain(|h| h.freq_hz != f);
+                    }
+                    if let Some(f) = exclude_freq {
+                        if !self.exclude_hz.contains(&f) {
+                            self.exclude_hz.push(f);
+                        }
+                    }
+                    if let Some(f) = bookmark_freq {
+                        if let Ok(mut state) = self.shared.try_lock() {
+                            let already = state.bookmarks.bookmarks.iter().any(|b| b.frequency_hz == f);
+                            if !already {
+                                state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                                    name: format!("Scanner {:.3} MHz", f as f64 / 1e6),
+                                    frequency_hz: f,
+                                    mode: "NFM".to_string(),
+                                    bandwidth_hz: 12_500,
+                                    category: "Scanner".to_string(),
+                                    notes: "Saved from scanner hit".to_string(),
+                                    starred: false,
+                                });
+                                state.bookmarks_modified = true;
+                                state.spectrum.bookmark_freqs_dirty = true;
+                            }
+                        }
+                    }
+                });
+        });
+
+        ui.add_space(12.0);
+        ui.separator();
+        // ── Scanner Guide ─────────────────────────────────────────────────
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("📡 Scanner Guide").size(16.0).strong());
+        ui.add_space(4.0);
+
+        ui.collapsing("What to scan — recommended frequency ranges", |ui| {
+            ui.add_space(4.0);
+            egui::Grid::new("scan_ranges").num_columns(3).striped(true).show(ui, |ui| {
+                ui.label(egui::RichText::new("Band").strong());
+                ui.label(egui::RichText::new("Range").strong());
+                ui.label(egui::RichText::new("What you'll hear").strong());
+                ui.end_row();
+                ui.label("Land Mobile (VHF)");
+                ui.label("150–174 MHz");
+                ui.label("Police, fire, EMS, business radio, utilities (NFM)");
+                ui.end_row();
+                ui.label("Land Mobile (UHF)");
+                ui.label("450–512 MHz");
+                ui.label("UHF business, security, schools, transport (NFM)");
+                ui.end_row();
+                ui.label("Marine VHF");
+                ui.label("156–162 MHz");
+                ui.label("Coast guard, ship traffic, marina channels (NFM)");
+                ui.end_row();
+                ui.label("Marine AIS");
+                ui.label("161.975–162.025 MHz");
+                ui.label("Ship position data bursts — use RAW mode");
+                ui.end_row();
+                ui.label("Amateur 2m");
+                ui.label("144–148 MHz");
+                ui.label("HAM repeaters, simplex, APRS (NFM)");
+                ui.end_row();
+                ui.label("Amateur 70cm");
+                ui.label("430–450 MHz");
+                ui.label("HAM UHF repeaters, satellite downlinks (NFM)");
+                ui.end_row();
+                ui.label("FM Broadcast");
+                ui.label("88–108 MHz");
+                ui.label("Commercial radio stations (WFM)");
+                ui.end_row();
+                ui.label("Airband");
+                ui.label("118–137 MHz");
+                ui.label("Towers, approach, ground, ATIS (AM)");
+                ui.end_row();
+                ui.label("Rail / POCSAG");
+                ui.label("153–160 MHz");
+                ui.label("Rail communications, pager bursts (NFM)");
+                ui.end_row();
+            });
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "TIP");
+                ui.separator();
+                ui.label("Start with a wide range (150–174 MHz) to discover active channels in your area. As you identify interesting frequencies, narrow the scan range to focus on them.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Antenna for scanning", |ui| {
+            ui.add_space(4.0);
+            ui.label("The best antenna for general scanning is a discone (Tram 1411 or Diamond D130J) mounted outdoors. It covers VHF and UHF without any tuning.");
+            ui.add_space(2.0);
+            ui.label("If you don't have a discone, a quarter-wave vertical cut for the middle of your target band works well. For VHF scanning (150 MHz), use a ~50 cm vertical whip with a ground plane.");
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "AVOID");
+                ui.separator();
+                ui.label("Don't expect good results scanning UHF (450+ MHz) with an antenna tuned for VHF. The mismatch loss can make you miss signals entirely.");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Interpreting hits", |ui| {
+            ui.add_space(4.0);
+            ui.label("Each hit shows the frequency, signal strength (dB), and timestamp of the strongest signal detected at that step:");
+            ui.add_space(4.0);
+            ui.label("  •  Strength above threshold = signal present. Higher = closer or stronger transmitter.");
+            ui.label("  •  Multiple hits at the same frequency = active channel (repeat transmissions).");
+            ui.label("  •  Single hit = brief transmission or false positive (noise spike).");
+            ui.label("  •  Hit at exactly every step = noise/overload, not real signals — increase threshold.");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
+                ui.separator();
+                ui.label("Public safety and military frequencies may be encrypted. If you hear digital noise/garbling, it might be encrypted or a digital mode (P25, DMR, NXDN).");
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.collapsing("Export options", |ui| {
+            ui.add_space(4.0);
+            ui.label("Use the Export CSV button to save hits as a spreadsheet. Import into a frequency database for further analysis.");
+            ui.add_space(2.0);
+            ui.label("Use 'Save Hits' / 'Load Hits' to persist scan results between sessions. Data is saved as JSON.");
+            ui.add_space(2.0);
+            ui.label("The 🚫 (exclude) button lets you skip known-noise frequencies during subsequent scans.");
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parse_json_value<T: std::str::FromStr>(line: &str, key: &str) -> Option<T> {
+        let pattern = format!("\"{}\":", key);
+        let idx = line.find(&pattern)? + pattern.len();
+        let rest = line[idx..].trim_start();
+        let end = rest.find([',', '}', ' ']).unwrap_or(rest.len());
+        rest[..end].trim().parse::<T>().ok()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parse_json_u64(line: &str, key: &str) -> Option<u64> {
+        Self::parse_json_value(line, key)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parse_json_f32(line: &str, key: &str) -> Option<f32> {
+        Self::parse_json_value(line, key)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parse_json_u32(line: &str, key: &str) -> Option<u32> {
+        Self::parse_json_value(line, key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_json_value_valid_u64() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(
+                r#"  {"freq_hz":12345,"strength":-60.5}"#,
+                "freq_hz"
+            ),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_value_valid_i32() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<i32>(r#"  {"val":-42}"#, "val"),
+            Some(-42)
+        );
+    }
+
+    #[test]
+    fn parse_json_value_valid_f32() {
+        let result =
+            FrequencyScanner::parse_json_value::<f32>(r#"  {"strength_db":-60.5}"#, "strength_db");
+        assert!(result.is_some());
+        assert!(
+            (result.expect("parse_json_value should return Some for valid input") - (-60.5)).abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn parse_json_value_missing_key() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(r#"  {"freq_hz":12345}"#, "missing"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_value_malformed() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(r#"  {"freq_hz":abc}"#, "freq_hz"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_value_empty_line() {
+        assert_eq!(FrequencyScanner::parse_json_value::<u64>("", "key"), None);
+    }
+
+    #[test]
+    fn parse_json_value_key_at_end() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(r#"  {"freq_hz":12345}"#, "freq_hz"),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_value_key_in_middle() {
+        assert_eq!(
+            FrequencyScanner::parse_json_value::<u64>(
+                r#"  {"freq_hz":12345,"other":99}"#,
+                "freq_hz"
+            ),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_u64_valid() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u64(
+                r#"  {"freq_hz":12345,"strength_db":-60.5}"#,
+                "freq_hz"
+            ),
+            Some(12345)
+        );
+    }
+
+    #[test]
+    fn parse_json_u64_missing() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u64(r#"  {"strength_db":-60.5}"#, "freq_hz"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_f32_valid() {
+        let result = FrequencyScanner::parse_json_f32(
+            r#"  {"strength_db":-60.5,"freq_hz":12345}"#,
+            "strength_db",
+        );
+        assert!(result.is_some());
+        assert!(
+            (result.expect("parse_json_f32 should return Some for valid input") - (-60.5)).abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn parse_json_f32_missing() {
+        assert_eq!(
+            FrequencyScanner::parse_json_f32(r#"  {"freq_hz":12345}"#, "strength_db"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_json_u32_valid() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u32(r#"  {"hit_count":42}"#, "hit_count"),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn parse_json_u32_missing() {
+        assert_eq!(
+            FrequencyScanner::parse_json_u32(r#"  {"freq_hz":12345}"#, "hit_count"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_hits_json_array_and_minified() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut scanner = FrequencyScanner::new(shared);
+
+        // Minified array JSON with multiple items on one line
+        let minified = r#"[{"freq_hz":100100000,"strength_db":-45.2,"hit_count":3},{"freq_hz":100200000,"strength_db":-55.0,"hit_count":1}]"#;
+        let added = scanner.parse_hits_json(minified);
+        assert_eq!(added, 2);
+        assert_eq!(scanner.hits.len(), 2);
+
+        // Repeated load filters duplicates
+        let added_dup = scanner.parse_hits_json(minified);
+        assert_eq!(added_dup, 0);
+        assert_eq!(scanner.hits.len(), 2);
+
+        // Pretty-printed array JSON round-trip
+        let exported = scanner.build_hits_json();
+        assert!(exported.contains("100100000"));
+        assert!(exported.contains("100200000"));
+
+        let mut scanner2 = FrequencyScanner::new(scanner.shared.clone());
+        let added2 = scanner2.parse_hits_json(&exported);
+        assert_eq!(added2, 2);
+    }
+}

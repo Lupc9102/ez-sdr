@@ -1,0 +1,65 @@
+[package]
+name = "ez-daemon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "Headless background service: hardware ingestion, wideband channelization, and multi-tenant DSP pipeline routing for ez-sdr"
+license = "MIT OR Apache-2.0"
+authors = ["Lupc9102"]
+
+[lib]
+name = "ez_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ez-daemon"
+path = "src/main.rs"
+
+[dependencies]
+ez-proto = { workspace = true }
+dump1090 = { workspace = true }
+lrpt-decode = { workspace = true }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+num-complex = { workspace = true }
+rustfft = { workspace = true }
+crossbeam-channel = { workspace = true }
+arc-swap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+clap = { workspace = true, features = ["derive"] }
+
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "sync", "signal", "macros", "time", "fs"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures-util = { version = "0.3", features = ["sink"] }
+
+# Web API + UI hosting (`crate::web`): axum mounts the JSON/REST control surface and the
+# WebSocket data plane on the same async runtime as the existing TCP server; tower-http
+# serves the compiled frontend's static assets alongside it.
+axum = { workspace = true, features = ["ws"] }
+tower-http = { workspace = true, features = ["fs", "trace"] }
+
+[dev-dependencies]
+# Integration tests (tests/resilience.rs, tests/web_resilience.rs) drive the daemon over
+# real TCP/HTTP/WebSocket sockets. They reuse the crate's own tokio/tokio-util/futures-util/
+# ez-proto/axum (available via [dependencies]); dev-only additions are the multi-threaded
+# test runtime, test-util, and clients for the web layer's own wire formats.
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+image = { workspace = true }
+tokio-tungstenite = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+
+[build-dependencies]
+pkg-config = { workspace = true }
+
+[features]
+default = []
+rtlsdr = []
+hackrf = []
+soapy = []
+
+[lints]
+workspace = true

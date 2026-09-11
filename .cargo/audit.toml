@@ -1,0 +1,20 @@
+[advisories]
+ignore = [
+    # Transitive quick-xml via wayland-scanner/zbus_xml - no upgrade available
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # Transitive rustls-webpki via rumqttc - no upgrade available
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+    # Unmaintained transitive deps - no replacement available.
+    # Kept in sync with deny.toml so `make audit` (cargo audit) and
+    # `cargo deny check advisories` agree by construction.
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2025-0134",
+    "RUSTSEC-2026-0192",
+    # Unmaintained direct dep, CVE-free; wire migration tracked as follow-up
+    # (see deny.toml rationale).
+    "RUSTSEC-2025-0141",
+]

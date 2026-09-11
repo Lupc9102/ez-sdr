@@ -1,0 +1,41 @@
+[package]
+name = "dump1090"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "ADS-B Mode S decoder and SDR data processing library"
+keywords = ["ads-b", "mode-s", "sdr", "decoder", "aviation"]
+categories = ["science::radio", "aerospace", "encoding"]
+license = "MIT OR Apache-2.0"
+authors = ["Lupc9102"]
+repository = "https://github.com/Lupc9102/ez-sdr"
+readme = "../README.md"
+
+[lib]
+name = "dump1090"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dump1090"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+ctrlc = "3"
+
+[build-dependencies]
+pkg-config = { workspace = true }
+
+[features]
+default = []
+# RTL-SDR backend (requires librtlsdr)
+rtlsdr = []
+# HackRF backend (requires libhackrf)
+hackrf = []
+# SoapySDR backend (requires SoapySDR)
+soapy = []
+
+[lints.rust]
+unsafe_code = "allow"

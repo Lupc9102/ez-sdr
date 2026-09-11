@@ -1,0 +1,555 @@
+use serde::{Deserialize, Serialize};
+
+/// A collection of radio frequency bookmarks stored in memory
+/// and persisted to `ez_sdr_bookmarks.json`.
+pub struct BookmarkDb {
+    pub bookmarks: Vec<Bookmark>,
+}
+
+/// A single bookmarked frequency with metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bookmark {
+    /// Human-readable label (e.g. "NOAA 15 APT")
+    pub name: String,
+    /// Frequency in Hertz
+    pub frequency_hz: u64,
+    /// Demodulation mode (e.g. "WFM", "NFM", "AM", "RAW")
+    pub mode: String,
+    /// Receiver bandwidth in Hertz
+    pub bandwidth_hz: u32,
+    /// Grouping category (e.g. "Weather", "Aviation", "Ham")
+    pub category: String,
+    /// Optional user notes
+    pub notes: String,
+    /// Whether this bookmark is starred/favourited
+    #[serde(default)]
+    pub starred: bool,
+}
+
+impl Default for BookmarkDb {
+    fn default() -> Self {
+        Self {
+            bookmarks: vec![
+                Bookmark {
+                    name: "NOAA 15 APT".into(),
+                    frequency_hz: 137_620_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 34_000,
+                    category: "Weather".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "NOAA 18 APT".into(),
+                    frequency_hz: 137_912_500,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 34_000,
+                    category: "Weather".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "NOAA 19 APT".into(),
+                    frequency_hz: 137_100_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 34_000,
+                    category: "Weather".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Meteor-M2 LRPT".into(),
+                    frequency_hz: 137_900_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 140_000,
+                    category: "Weather".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Meteor-M2-2 LRPT".into(),
+                    frequency_hz: 137_100_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 140_000,
+                    category: "Weather".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "GOES-16 HRIT".into(),
+                    frequency_hz: 1_694_100_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 600_000,
+                    category: "Weather".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "GOES-17 HRIT".into(),
+                    frequency_hz: 1_694_100_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 600_000,
+                    category: "Weather".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "ADS-B 1090".into(),
+                    frequency_hz: 1_090_000_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 2_000_000,
+                    category: "Aviation".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Airband VHF".into(),
+                    frequency_hz: 118_000_000,
+                    mode: "AM".into(),
+                    bandwidth_hz: 8_000,
+                    category: "Aviation".into(),
+                    notes: "118-136 MHz".into(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Marine VHF Ch16".into(),
+                    frequency_hz: 156_800_000,
+                    mode: "NFM".into(),
+                    bandwidth_hz: 12_500,
+                    category: "Marine".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Pager 2m".into(),
+                    frequency_hz: 153_000_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 25_000,
+                    category: "Pager".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "FM Radio".into(),
+                    frequency_hz: 100_000_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 200_000,
+                    category: "Broadcast".into(),
+                    notes: "87.5-108 MHz".into(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "DAB Band III".into(),
+                    frequency_hz: 220_000_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 1_500_000,
+                    category: "Broadcast".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Ham 2m".into(),
+                    frequency_hz: 145_500_000,
+                    mode: "NFM".into(),
+                    bandwidth_hz: 12_500,
+                    category: "Ham".into(),
+                    notes: "144-146 MHz".into(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Ham 70cm".into(),
+                    frequency_hz: 435_000_000,
+                    mode: "NFM".into(),
+                    bandwidth_hz: 12_500,
+                    category: "Ham".into(),
+                    notes: "430-440 MHz".into(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "ISS Voice".into(),
+                    frequency_hz: 145_800_000,
+                    mode: "NFM".into(),
+                    bandwidth_hz: 12_500,
+                    category: "Space".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "ISS SSTV".into(),
+                    frequency_hz: 145_800_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 34_000,
+                    category: "Space".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Inmarsat Aero".into(),
+                    frequency_hz: 1_541_500_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 600_000,
+                    category: "Satellite".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Iridium".into(),
+                    frequency_hz: 1_626_000_000,
+                    mode: "WFM".into(),
+                    bandwidth_hz: 41_000,
+                    category: "Satellite".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "GPS L1".into(),
+                    frequency_hz: 1_575_420_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 2_000_000,
+                    category: "Navigation".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "Galileo E1".into(),
+                    frequency_hz: 1_575_420_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 2_000_000,
+                    category: "Navigation".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "GSM 900 UL".into(),
+                    frequency_hz: 890_000_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 200_000,
+                    category: "Cellular".into(),
+                    notes: "Uplink".into(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "GSM 900 DL".into(),
+                    frequency_hz: 935_000_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 200_000,
+                    category: "Cellular".into(),
+                    notes: "Downlink".into(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "LoRa 868".into(),
+                    frequency_hz: 868_100_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 125_000,
+                    category: "IoT".into(),
+                    notes: "EU ISM band".into(),
+                    starred: false,
+                },
+                Bookmark {
+                    name: "ISM 433".into(),
+                    frequency_hz: 433_920_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 300_000,
+                    category: "IoT".into(),
+                    notes: String::new(),
+                    starred: false,
+                },
+            ],
+        }
+    }
+}
+
+pub fn atomic_write_file(path: impl AsRef<std::path::Path>, content: &[u8]) -> std::io::Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp_path, content)?;
+    std::fs::rename(&tmp_path, path)
+}
+
+const BOOKMARKS_FILE: &str = "ez_sdr_bookmarks.json";
+
+impl BookmarkDb {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Persist all bookmarks atomically to `ez_sdr_bookmarks.json`. Silently ignores I/O errors.
+    pub fn save(&self) {
+        if let Ok(json) = serde_json::to_string_pretty(&self.bookmarks) {
+            let _ = atomic_write_file(BOOKMARKS_FILE, json.as_bytes());
+        }
+    }
+
+    /// Load bookmarks from `ez_sdr_bookmarks.json`. Returns `None` if the file
+    /// doesn't exist or is malformed.
+    #[must_use]
+    pub fn load_saved() -> Option<Vec<Bookmark>> {
+        let s = std::fs::read_to_string(BOOKMARKS_FILE).ok()?;
+        serde_json::from_str(&s).ok()
+    }
+
+    /// Load saved bookmarks, falling back to the built-in default list if no
+    /// saved file exists.
+    pub fn load_or_default() -> Self {
+        let bookmarks = Self::load_saved().unwrap_or_else(|| Self::default().bookmarks);
+        Self { bookmarks }
+    }
+}
+
+impl BookmarkDb {
+    /// Import bookmarks from a CSV file (columns: `name,frequency_hz,mode,category,notes` or `bandwidth_hz`).
+    /// Skips rows with frequency already in the list. Header row auto-detected.
+    /// Returns (imported count, error message)
+    pub fn import_csv(&mut self, path: &str) -> (usize, String) {
+        let content = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => return (0, format!("Read error: {e}")),
+        };
+        let existing_freqs: std::collections::HashSet<u64> =
+            self.bookmarks.iter().map(|b| b.frequency_hz).collect();
+        let mut count = 0;
+        let mut header: Option<Vec<String>> = None;
+        for line in content.lines() {
+            let trim = line.trim();
+            if trim.is_empty() {
+                continue;
+            }
+            let parts: Vec<String> = trim
+                .split(',')
+                .map(|s| s.trim().trim_matches('"').to_string())
+                .collect();
+            if parts.is_empty() {
+                continue;
+            }
+
+            // Detect header row
+            if header.is_none() {
+                if parts[0].eq_ignore_ascii_case("name")
+                    || parts[0].eq_ignore_ascii_case("frequency_hz")
+                {
+                    header = Some(parts.iter().map(|s| s.to_lowercase()).collect());
+                    continue;
+                }
+                // No header — use positional: name,frequency_hz,mode,category,notes
+                header = Some(vec![
+                    "name".into(),
+                    "frequency_hz".into(),
+                    "mode".into(),
+                    "category".into(),
+                    "notes".into(),
+                ]);
+            }
+
+            let col = |name: &str| -> Option<&str> {
+                header
+                    .as_ref()?
+                    .iter()
+                    .position(|h| h == name)
+                    .and_then(|i| parts.get(i))
+                    .map(std::string::String::as_str)
+                    .filter(|s| !s.is_empty())
+            };
+
+            let freq_str = col("frequency_hz").unwrap_or("");
+            let freq_hz: u64 = if let Ok(v) = freq_str.parse::<u64>() {
+                v
+            } else if let Ok(v) = freq_str.parse::<f64>() {
+                if v < 10_000.0 {
+                    (v * 1_000_000.0) as u64
+                } else {
+                    v as u64
+                }
+            } else {
+                continue;
+            };
+
+            if existing_freqs.contains(&freq_hz) {
+                continue;
+            }
+
+            let name = col("name").unwrap_or("Imported").to_string();
+            let mode = col("mode").unwrap_or("NFM").to_string();
+            let category = col("category").unwrap_or("Imported").to_string();
+            let notes = col("notes").unwrap_or("").to_string();
+            let bandwidth_hz: u32 = col("bandwidth_hz")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(12_500);
+
+            self.bookmarks.push(Bookmark {
+                name,
+                frequency_hz: freq_hz,
+                mode,
+                bandwidth_hz,
+                category,
+                notes,
+                starred: false,
+            });
+            count += 1;
+        }
+        (count, String::new())
+    }
+
+    /// Export bookmarks to CSV. Returns (path, error)
+    pub fn export_csv(&self) -> (String, String) {
+        let default_name = format!(
+            "ez_sdr_bookmarks_{}.csv",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        );
+        let path = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("CSV", &["csv"])
+            .save_file();
+        let path = match path {
+            Some(p) => p,
+            None => return (String::new(), String::new()),
+        };
+        let mut csv = String::from("name,frequency_hz,frequency_mhz,mode,category,notes\n");
+        for bm in &self.bookmarks {
+            csv.push_str(&format!(
+                "{},{},{:.6},{},{},{}\n",
+                bm.name.replace(',', ";"),
+                bm.frequency_hz,
+                bm.frequency_hz as f64 / 1e6,
+                bm.mode,
+                bm.category.replace(',', ";"),
+                bm.notes.replace(',', ";")
+            ));
+        }
+        let path_str = path.to_string_lossy().to_string();
+        match std::fs::write(&path, &csv) {
+            Ok(()) => (path_str, String::new()),
+            Err(e) => (String::new(), format!("Export failed: {e}")),
+        }
+    }
+}
+
+impl Bookmark {
+    /// Format the frequency for display, automatically selecting GHz / MHz / kHz.
+    pub fn freq_display(&self) -> String {
+        if self.frequency_hz >= 1_000_000_000 {
+            format!("{:.3} GHz", self.frequency_hz as f64 / 1e9)
+        } else if self.frequency_hz >= 1_000_000 {
+            format!("{:.3} MHz", self.frequency_hz as f64 / 1e6)
+        } else {
+            format!("{:.1} kHz", self.frequency_hz as f64 / 1e3)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_has_all_bookmarks() {
+        let db = BookmarkDb::default();
+        assert_eq!(db.bookmarks.len(), 25);
+    }
+
+    #[test]
+    fn default_bookmarks_have_categories() {
+        let db = BookmarkDb::default();
+        let categories: std::collections::BTreeSet<&str> =
+            db.bookmarks.iter().map(|b| b.category.as_str()).collect();
+        assert!(categories.contains("Weather"));
+        assert!(categories.contains("Aviation"));
+        assert!(categories.contains("Space"));
+        assert!(categories.contains("Ham"));
+        assert!(categories.contains("Broadcast"));
+    }
+
+    #[test]
+    fn freq_display_ghz() {
+        let bm = Bookmark {
+            frequency_hz: 1_575_420_000,
+            mode: String::new(),
+            name: String::new(),
+            bandwidth_hz: 0,
+            category: String::new(),
+            notes: String::new(),
+            starred: false,
+        };
+        assert_eq!(bm.freq_display(), "1.575 GHz");
+    }
+
+    #[test]
+    fn freq_display_mhz() {
+        let bm = Bookmark {
+            frequency_hz: 137_620_000,
+            mode: String::new(),
+            name: String::new(),
+            bandwidth_hz: 0,
+            category: String::new(),
+            notes: String::new(),
+            starred: false,
+        };
+        assert_eq!(bm.freq_display(), "137.620 MHz");
+    }
+
+    #[test]
+    fn freq_display_khz() {
+        let bm = Bookmark {
+            frequency_hz: 50_000,
+            mode: String::new(),
+            name: String::new(),
+            bandwidth_hz: 0,
+            category: String::new(),
+            notes: String::new(),
+            starred: false,
+        };
+        assert_eq!(bm.freq_display(), "50.0 kHz");
+    }
+
+    #[test]
+    fn default_is_stable_without_file() {
+        // load_or_default should not panic when no saved file exists
+        let db = BookmarkDb::load_or_default();
+        assert!(!db.bookmarks.is_empty());
+    }
+
+    #[test]
+    fn import_csv_adds_bookmarks() {
+        let mut db = BookmarkDb::default();
+        let initial = db.bookmarks.len();
+
+        // Write a temp CSV then import it
+        let csv_path = "/tmp/test_import_bookmarks.csv";
+        std::fs::write(
+            csv_path,
+            "name,frequency_hz,mode,category,notes\nTestFM,98500000,WFM,Broadcast,test\n",
+        )
+        .expect("failed to write test CSV");
+        let (count, err) = db.import_csv(csv_path);
+        let _ = std::fs::remove_file(csv_path);
+
+        assert!(err.is_empty());
+        assert_eq!(count, 1);
+        assert_eq!(db.bookmarks.len(), initial + 1);
+        assert!(db.bookmarks.iter().any(|b| b.name == "TestFM"));
+    }
+
+    #[test]
+    fn import_csv_dedup_by_frequency() {
+        let mut db = BookmarkDb::default();
+        // Import a frequency that already exists in defaults
+        let csv_path = "/tmp/test_dedup_bookmarks.csv";
+        std::fs::write(
+            csv_path,
+            "name,frequency_hz,mode,category,notes\nDupNOAA,137620000,WFM,Weather,dup\n",
+        )
+        .expect("failed to write dedup test CSV");
+        let (count, _err) = db.import_csv(csv_path);
+        let _ = std::fs::remove_file(csv_path);
+
+        assert_eq!(count, 0, "should not import duplicate frequency");
+    }
+}

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EZ-SDR Remote</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'Courier New',monospace;background:#0a0a1a;color:#e0e0e0;padding:12px;max-width:720px;margin:auto;}
+  h1{color:#3498db;margin-bottom:12px;font-size:18px;display:flex;align-items:center;gap:8px;}
+  .badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:bold;}
+  .badge.conn{background:#1a5c2e;color:#2ecc71;}
+  .badge.disc{background:#5c1a1a;color:#e74c3c;}
+  .badge.rec{background:#5c1a1a;color:#e74c3c;animation:blink 1s step-end infinite;}
+  @keyframes blink{50%{opacity:0}}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+  .card{background:#1a1a2e;border:1px solid #2a2a4e;border-radius:8px;padding:12px;}
+  .card h2{color:#3498db;font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;}
+  .stat-row{display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px;}
+  .lbl{color:#888;}
+  .val{color:#3498db;font-weight:bold;}
+  .val.green{color:#2ecc71;}
+  .val.yellow{color:#f1c40f;}
+  .val.red{color:#e74c3c;}
+  input[type=number],input[type=text]{background:#0e0e1e;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:5px 8px;font-family:monospace;width:100%;}
+  input[type=range]{width:100%;accent-color:#3498db;}
+  button{background:#1f4f7a;color:#e0e0e0;border:1px solid #2980b9;border-radius:4px;padding:6px 12px;cursor:pointer;font-family:monospace;font-size:12px;transition:background .15s;}
+  button:hover{background:#2980b9;}
+  button.danger{background:#5c1a1a;border-color:#c0392b;}
+  button.danger:hover{background:#c0392b;}
+  button.active{background:#1a5c2e;border-color:#2ecc71;color:#2ecc71;}
+  .btn-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
+  .tune-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:6px 0;}
+  .demod-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;}
+  .demod-btn{padding:5px 2px;text-align:center;}
+  label{font-size:12px;color:#888;display:block;margin-bottom:3px;}
+  #log{background:#0e0e1e;border:1px solid #333;border-radius:4px;padding:8px;height:110px;overflow-y:auto;font-size:10px;color:#aaa;}
+  #snrBar{height:6px;background:#1a1a2e;border-radius:3px;margin-top:4px;}
+  #snrFill{height:100%;border-radius:3px;background:#2ecc71;transition:width .5s;}
+  .sep{border:0;border-top:1px solid #2a2a4e;margin:8px 0;}
+  @media(max-width:480px){.grid2{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<h1>EZ-SDR Remote <span id="connBadge" class="badge disc">Disconnected</span> <span id="recBadge" class="badge" style="display:none">● REC</span></h1>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Status</h2>
+    <div class="stat-row"><span class="lbl">Frequency</span><span id="freqDisplay" class="val">—</span></div>
+    <div class="stat-row"><span class="lbl">Gain</span><span id="gainDisplay" class="val">—</span></div>
+    <div class="stat-row"><span class="lbl">Demod</span><span id="demodDisplay" class="val">—</span></div>
+    <div class="stat-row"><span class="lbl">SNR</span><span id="snrDisplay" class="val">—</span></div>
+    <div id="snrBar"><div id="snrFill" style="width:0%"></div></div>
+    <hr class="sep">
+    <div class="stat-row"><span class="lbl">Aircraft</span><span id="aircraftDisplay" class="val">0</span></div>
+    <div class="stat-row"><span class="lbl">Scanner</span><span id="scannerDisplay" class="val">—</span></div>
+  </div>
+  <div class="card">
+    <h2>Frequency</h2>
+    <label>Tune to (Hz)</label>
+    <input type="number" id="freqInput" value="100000000" min="500000" max="1770000000" step="100000">
+    <div class="btn-row" style="margin-top:6px;">
+      <button onclick="tuneFreq()">Tune</button>
+    </div>
+    <div class="tune-grid">
+      <button onclick="tune(-10000000)">-10M</button>
+      <button onclick="tune(-1000000)">-1M</button>
+      <button onclick="tune(-100000)">-100k</button>
+      <button onclick="tune(100000)">+100k</button>
+      <button onclick="tune(1000000)">+1M</button>
+      <button onclick="tune(10000000)">+10M</button>
+    </div>
+    <h2 style="margin-top:8px;">Quick</h2>
+    <div class="btn-row">
+      <button onclick="quickTune(100000000)">FM Radio</button>
+      <button onclick="quickTune(1090000000)">ADS-B</button>
+      <button onclick="quickTune(137620000)">NOAA 15</button>
+      <button onclick="quickTune(137100000)">NOAA 19</button>
+      <button onclick="quickTune(145800000)">ISS</button>
+      <button onclick="quickTune(156800000)">Marine 16</button>
+    </div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Demodulation</h2>
+    <div class="demod-grid">
+      <button class="demod-btn" id="dm_RAW" onclick="setDemod('RAW')">RAW</button>
+      <button class="demod-btn" id="dm_NFM" onclick="setDemod('NFM')">NFM</button>
+      <button class="demod-btn" id="dm_WFM" onclick="setDemod('WFM')">WFM</button>
+      <button class="demod-btn" id="dm_AM"  onclick="setDemod('AM')">AM</button>
+      <button class="demod-btn" id="dm_USB" onclick="setDemod('USB')">USB</button>
+      <button class="demod-btn" id="dm_LSB" onclick="setDemod('LSB')">LSB</button>
+    </div>
+    <hr class="sep">
+    <label>Squelch: <span id="squelchVal">-60.0 dB</span></label>
+    <input type="range" id="squelchSlider" min="-120" max="0" step="0.5" value="-60" oninput="setSquelch(this.value)">
+    <label style="margin-top:6px;">Volume: <span id="volVal">80%</span></label>
+    <input type="range" id="volSlider" min="0" max="1" step="0.01" value="0.8" oninput="setVolume(this.value)">
+  </div>
+  <div class="card">
+    <h2>Gain</h2>
+    <label>RF Gain: <span id="gainVal">40.0 dB</span></label>
+    <input type="range" id="gainSlider" min="0" max="49.6" step="0.1" value="40" oninput="setGain(this.value)">
+    <div class="btn-row" style="margin-top:6px;">
+      <button onclick="quickGain(0)">Auto</button>
+      <button onclick="quickGain(15)">Low</button>
+      <button onclick="quickGain(30)">Med</button>
+      <button onclick="quickGain(40)">High</button>
+      <button onclick="quickGain(49.6)">Max</button>
+    </div>
+    <hr class="sep">
+    <h2>Recording</h2>
+    <div class="btn-row">
+      <button onclick="send({action:'start_record'})">● Record</button>
+      <button class="danger" onclick="send({action:'stop_record'})">■ Stop</button>
+    </div>
+    <hr class="sep">
+    <h2>Scanner</h2>
+    <div class="btn-row">
+      <button onclick="send({action:'start_scan'})">▶ Start</button>
+      <button class="danger" onclick="send({action:'stop_scan'})">⏹ Stop</button>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:8px;">
+  <h2>Upcoming Satellite Passes</h2>
+  <div id="passes" style="font-size:12px;color:#888;">No passes loaded.</div>
+</div>
+
+<div class="card">
+  <h2>Log</h2>
+  <div id="log"></div>
+</div>
+
+<script>
+let ws, currentFreq=100000000, currentDemod='NFM';
+function connect(){
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen=()=>{
+    setBadge(true);
+    log('Connected to EZ-SDR');
+  };
+  ws.onmessage=(e)=>{
+    try{
+      const s=JSON.parse(e.data);
+      currentFreq=s.frequency_hz;
+      document.getElementById('freqDisplay').textContent=(s.frequency_hz/1e6).toFixed(4)+' MHz';
+      document.getElementById('gainDisplay').textContent=parseFloat(s.gain_db).toFixed(1)+' dB';
+      document.getElementById('demodDisplay').textContent=s.demod_mode;
+      document.getElementById('aircraftDisplay').textContent=s.aircraft_count;
+      document.getElementById('freqInput').value=s.frequency_hz;
+      // SNR
+      const snr=parseFloat(s.snr_db)||0;
+      document.getElementById('snrDisplay').textContent=snr.toFixed(1)+' dB';
+      document.getElementById('snrFill').style.width=Math.min(100,Math.max(0,(snr+10)*2))+'%';
+      document.getElementById('snrFill').style.background=snr>20?'#2ecc71':snr>10?'#f1c40f':'#e74c3c';
+      // Demod buttons highlight
+      if(s.demod_mode!==currentDemod){
+        ['RAW','NFM','WFM','AM','USB','LSB'].forEach(m=>{
+          document.getElementById('dm_'+m).classList.toggle('active',m===s.demod_mode);
+        });
+        currentDemod=s.demod_mode;
+      }
+      // Gain slider sync
+      document.getElementById('gainSlider').value=s.gain_db;
+      document.getElementById('gainVal').textContent=parseFloat(s.gain_db).toFixed(1)+' dB';
+      // Squelch
+      document.getElementById('squelchSlider').value=s.squelch_db;
+      document.getElementById('squelchVal').textContent=parseFloat(s.squelch_db).toFixed(1)+' dB';
+      // Volume
+      document.getElementById('volSlider').value=s.volume;
+      document.getElementById('volVal').textContent=Math.round(s.volume*100)+'%';
+      // Recording badge
+      const recBadge=document.getElementById('recBadge');
+      recBadge.style.display=s.recording?'inline':'none';
+      recBadge.className='badge rec';
+      // Scanner
+      document.getElementById('scannerDisplay').textContent=s.scanner_active?'Scanning':'Idle';
+      document.getElementById('scannerDisplay').className='val '+(s.scanner_active?'green':'');
+      // Passes
+      if(s.upcoming_passes&&s.upcoming_passes.length>0){
+        document.getElementById('passes').innerHTML=s.upcoming_passes.slice(0,5).map(p=>`
+          <div style="margin-bottom:4px;"><span style="color:#3498db">${p.satellite}</span>
+          AOS ${new Date(p.aos*1000).toLocaleTimeString()} · LOS ${new Date(p.los*1000).toLocaleTimeString()}
+          · El ${p.max_elevation.toFixed(0)}°</div>`).join('');
+      }
+    }catch(err){}
+  };
+  ws.onclose=()=>{setBadge(false);setTimeout(connect,2000);};
+}
+function setBadge(on){
+  const b=document.getElementById('connBadge');
+  b.textContent=on?'Connected':'Disconnected';
+  b.className='badge '+(on?'conn':'disc');
+}
+function send(obj){if(ws&&ws.readyState===1)ws.send(JSON.stringify(obj));}
+function tune(hz){currentFreq=Math.max(500000,Math.min(1770000000,currentFreq+hz));document.getElementById('freqInput').value=currentFreq;send({action:'tune',hz:currentFreq});}
+function tuneFreq(){currentFreq=parseInt(document.getElementById('freqInput').value);send({action:'tune',hz:currentFreq});}
+function quickTune(hz){currentFreq=hz;document.getElementById('freqInput').value=hz;send({action:'tune',hz:hz});}
+function setGain(db){document.getElementById('gainVal').textContent=parseFloat(db).toFixed(1)+' dB';send({action:'set_gain',db:parseFloat(db)});}
+function quickGain(db){document.getElementById('gainSlider').value=db;setGain(db);}
+function setDemod(m){send({action:'set_demod',mode:m});}
+function setSquelch(db){document.getElementById('squelchVal').textContent=parseFloat(db).toFixed(1)+' dB';send({action:'set_squelch',db:parseFloat(db)});}
+function setVolume(v){document.getElementById('volVal').textContent=Math.round(v*100)+'%';send({action:'set_volume',level:parseFloat(v)});}
+function log(msg){const el=document.getElementById('log');el.innerHTML+=`<div>${new Date().toLocaleTimeString()} ${msg}</div>`;el.scrollTop=el.scrollHeight;}
+connect();
+</script>
+</body>
+</html>

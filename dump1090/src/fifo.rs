@@ -1,0 +1,239 @@
+//! Simple bounded ring buffer for `Vec<u8>` items.
+
+use std::collections::VecDeque;
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+struct Inner {
+    queue: VecDeque<Vec<u8>>,
+    capacity: usize,
+    halted: bool,
+}
+
+/// Bounded FIFO queue for `Vec<u8>` items with blocking push/pop and thread-safe
+/// signalling via condition variables. Translated from `fifo.c`.
+pub struct Fifo {
+    inner: Mutex<Inner>,
+    not_empty: Condvar,
+    not_full: Condvar,
+}
+
+impl Fifo {
+    #[must_use]
+    pub fn new(capacity: usize) -> Self {
+        Fifo {
+            inner: Mutex::new(Inner {
+                queue: VecDeque::with_capacity(capacity),
+                capacity,
+                halted: false,
+            }),
+            not_empty: Condvar::new(),
+            not_full: Condvar::new(),
+        }
+    }
+
+    /// Push an item. If the queue is full, blocks up to `timeout_ms`.
+    /// `timeout_ms=0` is non-blocking: returns `Some(item)` immediately if full.
+    /// Returns `Some(item)` if it could not be pushed (timeout or halted).
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
+    #[must_use]
+    pub fn push(&self, item: Vec<u8>, timeout_ms: u32) -> Option<Vec<u8>> {
+        let mut inner = self.inner.lock().expect("fifo mutex poisoned");
+        let deadline = if timeout_ms > 0 {
+            Some(Instant::now() + Duration::from_millis(u64::from(timeout_ms)))
+        } else {
+            None
+        };
+
+        while inner.queue.len() >= inner.capacity && !inner.halted {
+            match deadline {
+                Some(d) => {
+                    let dur = d.saturating_duration_since(Instant::now());
+                    if dur.is_zero() {
+                        return Some(item);
+                    }
+                    let (guard, timed_out) = self
+                        .not_full
+                        .wait_timeout(inner, dur)
+                        .expect("fifo mutex poisoned");
+                    inner = guard;
+                    if timed_out.timed_out() {
+                        return Some(item);
+                    }
+                }
+                None => {
+                    // timeout_ms=0: non-blocking, queue is full
+                    return Some(item);
+                }
+            }
+        }
+
+        if inner.halted {
+            return Some(item);
+        }
+
+        inner.queue.push_back(item);
+        self.not_empty.notify_one();
+        None
+    }
+
+    /// Pop an item. Blocks up to `timeout_ms` waiting.
+    /// `timeout_ms=0` is non-blocking: returns `None` immediately if empty.
+    /// Returns `None` if the queue is empty, halted, or timed out.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
+    pub fn pop(&self, timeout_ms: u32) -> Option<Vec<u8>> {
+        let mut inner = self.inner.lock().expect("fifo mutex poisoned");
+        let deadline = if timeout_ms > 0 {
+            Some(Instant::now() + Duration::from_millis(u64::from(timeout_ms)))
+        } else {
+            None
+        };
+
+        while inner.queue.is_empty() && !inner.halted {
+            let d = deadline?;
+            let dur = d.saturating_duration_since(Instant::now());
+            if dur.is_zero() {
+                return None;
+            }
+            let (guard, timed_out) = self
+                .not_empty
+                .wait_timeout(inner, dur)
+                .expect("fifo mutex poisoned");
+            inner = guard;
+            if timed_out.timed_out() {
+                return None;
+            }
+        }
+
+        if inner.halted {
+            return None;
+        }
+
+        let item = inner.queue.pop_front()?;
+        self.not_full.notify_one();
+        Some(item)
+    }
+
+    /// Halt the FIFO. Wake all waiters.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
+    pub fn halt(&self) {
+        let mut inner = self.inner.lock().expect("fifo mutex poisoned");
+        inner.halted = true;
+        inner.queue.clear();
+        self.not_empty.notify_all();
+        self.not_full.notify_all();
+    }
+
+    /// Current number of items in the queue.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
+    pub fn len(&self) -> usize {
+        self.inner.lock().expect("fifo mutex poisoned").queue.len()
+    }
+
+    /// Returns `true` if the queue contains no items.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns `true` if the queue has been halted.
+    ///
+    /// # Panics
+    /// Panics if the internal mutex is poisoned.
+    pub fn is_halted(&self) -> bool {
+        self.inner.lock().expect("fifo mutex poisoned").halted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn new_creates_empty_fifo() {
+        let fifo = Fifo::new(10);
+        assert!(fifo.is_empty());
+        assert_eq!(fifo.len(), 0);
+        assert!(!fifo.is_halted());
+    }
+
+    #[test]
+    fn push_then_pop_returns_item() {
+        let fifo = Fifo::new(10);
+        let item = vec![1u8, 2, 3];
+        assert!(fifo.push(item.clone(), 100).is_none());
+        assert_eq!(fifo.pop(100), Some(item));
+    }
+
+    #[test]
+    fn pop_blocks_until_item_available() {
+        let fifo = Arc::new(Fifo::new(10));
+        let fifo2 = Arc::clone(&fifo);
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            let _ = fifo2.push(vec![42u8], 100);
+        });
+        let popped = fifo.pop(1000);
+        assert_eq!(popped, Some(vec![42u8]));
+    }
+
+    #[test]
+    fn multiple_items_in_sequence() {
+        let fifo = Fifo::new(10);
+        for i in 0..5 {
+            assert!(fifo.push(vec![i], 100).is_none());
+        }
+        for i in 0..5 {
+            assert_eq!(fifo.pop(100), Some(vec![i]));
+        }
+        assert!(fifo.is_empty());
+    }
+
+    #[test]
+    fn fifo_ordering() {
+        let fifo = Fifo::new(10);
+        let items: Vec<Vec<u8>> = (0..10).map(|i| vec![i as u8; i + 1]).collect();
+        for item in &items {
+            assert!(fifo.push(item.clone(), 100).is_none());
+        }
+        for expected in &items {
+            assert_eq!(fifo.pop(100).as_ref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn capacity_exceeded_returns_item() {
+        let fifo = Fifo::new(2);
+        assert!(fifo.push(vec![1], 100).is_none());
+        assert!(fifo.push(vec![2], 100).is_none());
+        let returned = fifo.push(vec![3], 0);
+        assert_eq!(returned, Some(vec![3]));
+    }
+
+    #[test]
+    fn pop_empty_nonblocking_returns_none() {
+        let fifo = Fifo::new(10);
+        assert_eq!(fifo.pop(0), None);
+    }
+
+    #[test]
+    fn halt_wakes_waiters_and_clears_queue() {
+        let fifo = Fifo::new(10);
+        assert!(fifo.push(vec![1], 100).is_none());
+        assert!(fifo.push(vec![2], 100).is_none());
+        fifo.halt();
+        assert!(fifo.is_halted());
+        assert!(fifo.is_empty());
+        assert_eq!(fifo.pop(100), None);
+    }
+}

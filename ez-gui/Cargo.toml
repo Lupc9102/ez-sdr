@@ -1,0 +1,92 @@
+[package]
+name = "ez-gui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "Software-defined radio ADS-B and general SDR receiver with egui GUI"
+keywords = ["sdr", "ads-b", "radio", "gui", "dsp"]
+categories = ["science::radio", "gui"]
+license = "MIT OR Apache-2.0"
+authors = ["Lupc9102"]
+repository = "https://github.com/Lupc9102/ez-sdr"
+readme = "../README.md"
+
+[lib]
+name = "ez_gui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ez-gui"
+path = "src/main.rs"
+
+[dependencies]
+dump1090 = { path = "../dump1090" }
+lrpt-decode = { path = "../lrpt-decode" }
+ez-proto = { workspace = true }
+
+eframe = { version = "0.35", features = ["glow", "wayland", "x11"] }
+egui = "0.35"
+
+# RTL-SDR
+rtlsdr_sys = { version = "1.1", optional = true }
+
+# DSP / math
+num-complex = { workspace = true }
+rustfft = "6"
+
+# Networking
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls", "multipart"] }
+ureq = { version = "3", features = ["json"] }
+
+tokio = { version = "1", features = ["full"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures-util = { version = "0.3", features = ["sink"] }
+axum = { version = "0.8", features = ["ws"] }
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Async runtime / channels
+crossbeam-channel = { workspace = true }
+
+# WAV/audio recording
+hound = "3.5"
+cpal = { version = "0.18", optional = true }
+
+# Image handling for maps and decoded images
+image = "0.25"
+
+# MQTT
+rumqttc = "0.25"
+
+# Patch transitive deps with vulnerabilities
+# quick-xml = ">=0.41.0"
+# rustls-webpki = ">=0.103.13"
+
+# File picker
+rfd = "0.17"
+
+# Misc
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = "0.4"
+urlencoding = "2"
+
+[dev-dependencies]
+ez-daemon = { workspace = true }
+
+[features]
+default = ["audio"]
+# Audio output support (WAV playback)
+audio = ["dep:cpal"]
+# Exposes the `test_helpers` module to integration tests/benches.
+test-helpers = []
+# RTL-SDR device support
+rtlsdr = ["dep:rtlsdr_sys"]
+
+[lints.rust]
+unsafe_code = "allow"
