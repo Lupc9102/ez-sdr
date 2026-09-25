@@ -549,6 +549,12 @@ pub struct Demodulator {
     rf_bandwidth_hz: f32,
     cw_tone_hz: f32,
     cw_osc_phase: f64,
+    dsb_sideband: DsbSideband,
+    cw_offset_hz: f32,
+    cw_volume: f32,
+    cw_squelch_enabled: bool,
+    cw_squelch_level_db: f32,
+    cw_squelch_envelope: f64,
     resampler: AudioResampler,
     stereo: Option<StereoFmDecoder>,
     stereo_right: Option<Box<Demodulator>>,
@@ -657,6 +663,12 @@ impl Demodulator {
             rf_bandwidth_hz: 0.0,
             cw_tone_hz: 700.0,
             cw_osc_phase: 0.0,
+            dsb_sideband: DsbSideband::Both,
+            cw_offset_hz: 0.0,
+            cw_volume: 1.0,
+            cw_squelch_enabled: false,
+            cw_squelch_level_db: -60.0,
+            cw_squelch_envelope: 0.0,
             resampler: AudioResampler::default(),
             stereo: None,
             stereo_right: None,
@@ -753,6 +765,33 @@ impl Demodulator {
         if tone_hz.is_finite() {
             self.cw_tone_hz = tone_hz.clamp(100.0, 2_000.0);
         }
+    }
+
+    /// DSB sideband selection: Both (raw I), Upper (USB), or Lower (LSB).
+    pub fn set_dsb_sideband(&mut self, sideband: DsbSideband) {
+        if self.dsb_sideband != sideband {
+            self.ssb_osc_phase = 0.0;
+        }
+        self.dsb_sideband = sideband;
+    }
+
+    /// CW beat frequency offset in Hz (added to the base tone).
+    pub fn set_cw_offset(&mut self, offset: f32) {
+        if offset.is_finite() {
+            self.cw_offset_hz = offset.clamp(-2_000.0, 2_000.0);
+        }
+    }
+
+    /// CW output volume scaling (0.0 to 1.0).
+    pub fn set_cw_volume(&mut self, vol: f32) {
+        self.cw_volume = vol.clamp(0.0, 1.0);
+    }
+
+    /// CW squelch: mute output when signal power drops below `level_db`.
+    pub fn set_cw_squelch(&mut self, enabled: bool, level_db: f32) {
+        self.cw_squelch_enabled = enabled;
+        self.cw_squelch_level_db = level_db.clamp(-120.0, 0.0);
+        self.cw_squelch_envelope = 0.0;
     }
 
     fn rf_bandwidth(&self, mode: DemodMode) -> f32 {
@@ -1700,11 +1739,17 @@ impl Demodulator {
     }
 
     fn demod_product(&mut self, iq: &[Complex32], cw: bool) -> Vec<f32> {
+        // DSB with a sideband selection delegates to the SSB demodulator.
+        if !cw && self.dsb_sideband != DsbSideband::Both {
+            let usb = self.dsb_sideband == DsbSideband::Upper;
+            return self.demod_ssb(iq, usb);
+        }
         let mode = if cw { DemodMode::Cw } else { DemodMode::Dsb };
         let cutoff = self.rf_bandwidth(mode) / 2.0;
         let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
-        let beat_step = std::f64::consts::TAU * f64::from(self.cw_tone_hz)
-            / f64::from(self.effective_output_rate);
+        let beat = self.cw_tone_hz + self.cw_offset_hz;
+        let beat_step =
+            std::f64::consts::TAU * f64::from(beat) / f64::from(self.effective_output_rate);
         for sample in iq.iter() {
             let i = sample.re;
             let q = sample.im;
@@ -1717,7 +1762,7 @@ impl Demodulator {
                 continue;
             }
             self.decim_counter = 0;
-            let sample = if cw {
+            let mut sample = if cw {
                 let (sin, cos) = self.cw_osc_phase.sin_cos();
                 self.cw_osc_phase =
                     (self.cw_osc_phase + beat_step).rem_euclid(std::f64::consts::TAU);
@@ -1727,9 +1772,21 @@ impl Demodulator {
                 // taking its magnitude would rectify it and double tone pitch.
                 i
             };
-            let audio = sample - self.am_dc_prev_x + 0.995 * self.am_dc_prev_y;
+            if cw && self.cw_volume != 1.0 {
+                sample *= self.cw_volume;
+            }
+            let mut audio = sample - self.am_dc_prev_x + 0.995 * self.am_dc_prev_y;
             self.am_dc_prev_x = sample;
             self.am_dc_prev_y = audio;
+            if cw && self.cw_squelch_enabled {
+                let power = f64::from(audio * audio);
+                let alpha = 1.0 - (-std::f64::consts::TAU * 5.0 / self.effective_output_rate).exp();
+                self.cw_squelch_envelope += alpha * (power - self.cw_squelch_envelope);
+                let threshold = 10.0_f64.powf(f64::from(self.cw_squelch_level_db) / 10.0);
+                if self.cw_squelch_envelope < threshold {
+                    audio = 0.0;
+                }
+            }
             out.push(audio);
         }
         out
@@ -1744,6 +1801,7 @@ impl Demodulator {
         self.wfm_deemph_state = 0.0;
         self.ssb_osc_phase = 0.0;
         self.cw_osc_phase = 0.0;
+        self.cw_squelch_envelope = 0.0;
         self.resampler = AudioResampler::default();
         self.nfm_subaudible_resampler = AudioResampler::default();
         self.nfm_subaudible_audio.clear();
@@ -3120,5 +3178,180 @@ mod tests {
                 assert!(s.is_finite());
             }
         }
+    }
+
+    // --- New demod feature tests ---
+
+    #[test]
+    fn dsb_sideband_both_recovers_signed_modulation() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |time| {
+            (0.6 * (std::f64::consts::TAU * 1_000.0 * time).cos(), 0.0)
+        });
+        let mut demod = configured_demod(rate, 8_000.0);
+        demod.set_dsb_sideband(DsbSideband::Both);
+        let audio = demod.demodulate(&iq, DemodMode::Dsb);
+        let settled = &audio[2_400..];
+        let fundamental = tone_amplitude(settled, 1_000.0, 48_000);
+        let harmonic = tone_amplitude(settled, 2_000.0, 48_000);
+        assert!(
+            fundamental > 0.5,
+            "DSB Both lost signed modulation: {fundamental}"
+        );
+        assert!(
+            harmonic < fundamental * 0.01,
+            "DSB Both rectified the signal: {harmonic}"
+        );
+        assert!(settled.iter().any(|sample| *sample < -0.4));
+        assert!(settled.iter().any(|sample| *sample > 0.4));
+    }
+
+    #[test]
+    fn dsb_sideband_upper_selects_upper_sideband() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |time| {
+            let wanted = std::f64::consts::TAU * 900.0 * time;
+            let unwanted = -std::f64::consts::TAU * 1_800.0 * time;
+            (
+                0.4 * wanted.cos() + 0.4 * unwanted.cos(),
+                0.4 * wanted.sin() + 0.4 * unwanted.sin(),
+            )
+        });
+        let mut demod = configured_demod(rate, 2_400.0);
+        demod.set_dsb_sideband(DsbSideband::Upper);
+        let audio = demod.demodulate(&iq, DemodMode::Dsb);
+        let wanted = tone_amplitude(&audio[2_400..], 900.0, 48_000);
+        let unwanted = tone_amplitude(&audio[2_400..], 1_800.0, 48_000);
+        assert!(wanted > 0.35, "DSB Upper changed desired pitch: {wanted}");
+        assert!(
+            unwanted < wanted * 0.02,
+            "DSB Upper passed opposite sideband: {unwanted}"
+        );
+    }
+
+    #[test]
+    fn dsb_sideband_lower_selects_lower_sideband() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |time| {
+            let wanted = -std::f64::consts::TAU * 900.0 * time;
+            let unwanted = std::f64::consts::TAU * 1_800.0 * time;
+            (
+                0.4 * wanted.cos() + 0.4 * unwanted.cos(),
+                0.4 * wanted.sin() + 0.4 * unwanted.sin(),
+            )
+        });
+        let mut demod = configured_demod(rate, 2_400.0);
+        demod.set_dsb_sideband(DsbSideband::Lower);
+        let audio = demod.demodulate(&iq, DemodMode::Dsb);
+        let wanted = tone_amplitude(&audio[2_400..], 900.0, 48_000);
+        let unwanted = tone_amplitude(&audio[2_400..], 1_800.0, 48_000);
+        assert!(wanted > 0.35, "DSB Lower changed desired pitch: {wanted}");
+        assert!(
+            unwanted < wanted * 0.02,
+            "DSB Lower passed opposite sideband: {unwanted}"
+        );
+    }
+
+    #[test]
+    fn cw_offset_zero_produces_tone_at_cw_tone_hz() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |_| (0.6, 0.0));
+        let mut demod = configured_demod(rate, 500.0);
+        demod.set_cw_tone(700.0);
+        demod.set_cw_offset(0.0);
+        let audio = demod.demodulate(&iq, DemodMode::Cw);
+        let tone = tone_amplitude(&audio[2_400..], 700.0, 48_000);
+        assert!(tone > 0.5, "CW offset=0 tone missing at 700 Hz: {tone}");
+    }
+
+    #[test]
+    fn cw_offset_200_produces_tone_at_cw_tone_hz_plus_200() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |_| (0.6, 0.0));
+        let mut demod = configured_demod(rate, 500.0);
+        demod.set_cw_tone(700.0);
+        demod.set_cw_offset(200.0);
+        let audio = demod.demodulate(&iq, DemodMode::Cw);
+        let tone = tone_amplitude(&audio[2_400..], 900.0, 48_000);
+        assert!(tone > 0.5, "CW offset=200 tone missing at 900 Hz: {tone}");
+    }
+
+    #[test]
+    fn cw_volume_full_produces_reference_amplitude() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |_| (0.6, 0.0));
+        let mut demod = configured_demod(rate, 500.0);
+        demod.set_cw_tone(700.0);
+        demod.set_cw_volume(1.0);
+        let audio = demod.demodulate(&iq, DemodMode::Cw);
+        let reference = tone_amplitude(&audio[2_400..], 700.0, 48_000);
+        assert!(
+            reference > 0.5,
+            "CW volume=1.0 baseline too low: {reference}"
+        );
+    }
+
+    #[test]
+    fn cw_volume_half_produces_half_amplitude() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |_| (0.6, 0.0));
+        let mut demod = configured_demod(rate, 500.0);
+        demod.set_cw_tone(700.0);
+        demod.set_cw_volume(0.5);
+        let audio = demod.demodulate(&iq, DemodMode::Cw);
+        let amplitude = tone_amplitude(&audio[2_400..], 700.0, 48_000);
+        // Half volume should produce roughly half the amplitude of full volume.
+        // Use a loose bound to account for filter settling.
+        assert!(
+            amplitude > 0.15 && amplitude < 0.55,
+            "CW volume=0.5 amplitude out of expected range: {amplitude}"
+        );
+    }
+
+    #[test]
+    fn cw_volume_zero_produces_silence() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |_| (0.6, 0.0));
+        let mut demod = configured_demod(rate, 500.0);
+        demod.set_cw_tone(700.0);
+        demod.set_cw_volume(0.0);
+        let audio = demod.demodulate(&iq, DemodMode::Cw);
+        let peak = audio
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            peak < 0.01,
+            "CW volume=0.0 should be silent, got peak {peak}"
+        );
+    }
+
+    #[test]
+    fn cw_squelch_strong_signal_passes_audio() {
+        let rate = 192_000;
+        // Strong carrier well above the squelch threshold.
+        let iq = synth_iq(rate, rate as usize / 4, |_| (0.6, 0.0));
+        let mut demod = configured_demod(rate, 500.0);
+        demod.set_cw_tone(700.0);
+        demod.set_cw_squelch(true, -60.0);
+        let audio = demod.demodulate(&iq, DemodMode::Cw);
+        let tone = tone_amplitude(&audio[2_400..], 700.0, 48_000);
+        assert!(tone > 0.3, "CW squelch blocked strong signal: {tone}");
+    }
+
+    #[test]
+    fn cw_squelch_weak_signal_gates_to_silence() {
+        let rate = 192_000;
+        // Very weak carrier below the squelch threshold.
+        let iq = synth_iq(rate, rate as usize / 4, |_| (0.001, 0.0));
+        let mut demod = configured_demod(rate, 500.0);
+        demod.set_cw_tone(700.0);
+        demod.set_cw_squelch(true, -30.0);
+        let audio = demod.demodulate(&iq, DemodMode::Cw);
+        let peak = audio
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0_f32, f32::max);
+        assert!(peak < 0.01, "CW squelch passed weak signal: peak {peak}");
     }
 }

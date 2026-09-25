@@ -391,11 +391,7 @@ impl CwPowerSquelch {
     /// envelope holds above threshold, ramping on attack and release, and
     /// exactly `0.0` while closed. Non-finite input counts as silence.
     pub fn process(&mut self, sample: f32) -> f32 {
-        let input = if sample.is_finite() {
-            sample
-        } else {
-            0.0
-        };
+        let input = if sample.is_finite() { sample } else { 0.0 };
         let magnitude = f64::from(input).abs();
         let speed = if magnitude > self.envelope {
             self.attack_rate
@@ -777,7 +773,10 @@ mod tests {
     }
 
     fn gated(squelch: &mut CwPowerSquelch, samples: &[f32]) -> Vec<f32> {
-        samples.iter().map(|&sample| squelch.process(sample)).collect()
+        samples
+            .iter()
+            .map(|&sample| squelch.process(sample))
+            .collect()
     }
 
     #[test]
@@ -817,11 +816,7 @@ mod tests {
         squelch.set_cw_squelch_level(-80.0);
         let output = gated(&mut squelch, &weak);
         assert_eq!(squelch.gain(), 1.0);
-        assert!(output
-            .iter()
-            .rev()
-            .take(1_000)
-            .all(|sample| *sample != 0.0));
+        assert!(output.iter().rev().take(1_000).all(|sample| *sample != 0.0));
     }
 
     #[test]
@@ -857,16 +852,9 @@ mod tests {
         assert_eq!(*gains.last().unwrap(), 0.0);
         assert_eq!(squelch.gain(), 0.0);
         // The envelope re-opens promptly on a fresh carrier.
-        let reopened: Vec<f32> = tone
-            .iter()
-            .map(|&sample| squelch.process(sample))
-            .collect();
+        let reopened: Vec<f32> = tone.iter().map(|&sample| squelch.process(sample)).collect();
         assert_eq!(squelch.gain(), 1.0);
-        assert!(reopened
-            .iter()
-            .rev()
-            .take(100)
-            .all(|sample| *sample != 0.0));
+        assert!(reopened.iter().rev().take(100).all(|sample| *sample != 0.0));
     }
 
     #[test]
