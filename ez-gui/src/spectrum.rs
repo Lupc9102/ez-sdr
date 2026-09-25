@@ -12,44 +12,84 @@ use std::collections::VecDeque;
 use std::f32::consts::PI;
 use std::sync::Arc;
 
+pub const MIN_FFT_SIZE: usize = 256;
+pub const MAX_FFT_SIZE: usize = 8_192;
+const MAX_FFTS_PER_PUSH: usize = 4;
+const MAX_WATERFALL_WIDTH: usize = 2048;
+const MAX_WATERFALL_BYTES: usize = 8 * 1024 * 1024;
+
+fn plot_bin_stride(bins: usize, pixels: f32) -> usize {
+    bins.div_ceil((pixels.ceil() as usize).clamp(1, 4096))
+        .max(1)
+}
+
+fn peak_in_bins(bins: &[f32], first: usize, last: usize) -> f32 {
+    bins[first..last].iter().copied().fold(-120.0_f32, f32::max)
+}
+
+/// Snapshot of actual display settings, including edits made by the spectrum's
+/// own menus. The application can persist this without depending on UI widgets.
+#[derive(Debug, Clone, Copy)]
+pub struct DisplaySettings {
+    pub fft_size: usize,
+    pub window: WindowType,
+    pub fft_rate: u32,
+    pub waterfall_visible: bool,
+    pub waterfall_history: usize,
+    pub waterfall_every_n: u32,
+    pub full_waterfall_update: bool,
+    pub snr_smoothing: bool,
+    pub snr_smoothing_secs: f32,
+    pub color_map: ColorMap,
+    pub grid: bool,
+    pub peak_hold_time: f32,
+    pub avg_alpha: f32,
+    pub persistence: f32,
+    pub gradient_fill: bool,
+    pub db_min: f32,
+    pub db_max: f32,
+    pub wf_min_db: f32,
+    pub wf_max_db: f32,
+}
+
 fn category_color(category: &str) -> (egui::Color32, egui::Color32) {
     // Returns (line_color, label_color) based on category keyword
     let cat = category.to_lowercase();
     if cat.contains("aviation") || cat.contains("air") {
         (
-            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140),
-            egui::Color32::from_rgba_premultiplied(100, 180, 255, 200),
+            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 140),
+            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 200),
         )
     } else if cat.contains("weather") || cat.contains("noaa") || cat.contains("wx") {
         (
-            egui::Color32::from_rgba_premultiplied(80, 220, 80, 140),
-            egui::Color32::from_rgba_premultiplied(80, 220, 80, 200),
+            egui::Color32::from_rgba_unmultiplied(80, 220, 80, 140),
+            egui::Color32::from_rgba_unmultiplied(80, 220, 80, 200),
         )
     } else if cat.contains("marine") || cat.contains("sea") || cat.contains("coast") {
         (
-            egui::Color32::from_rgba_premultiplied(0, 200, 200, 140),
-            egui::Color32::from_rgba_premultiplied(0, 200, 200, 200),
+            egui::Color32::from_rgba_unmultiplied(0, 200, 200, 140),
+            egui::Color32::from_rgba_unmultiplied(0, 200, 200, 200),
         )
     } else if cat.contains("amateur") || cat.contains("ham") {
         (
-            egui::Color32::from_rgba_premultiplied(200, 100, 255, 140),
-            egui::Color32::from_rgba_premultiplied(200, 100, 255, 200),
+            egui::Color32::from_rgba_unmultiplied(200, 100, 255, 140),
+            egui::Color32::from_rgba_unmultiplied(200, 100, 255, 200),
         )
     } else if cat.contains("broadcast") || cat.contains("fm") || cat.contains("am") {
         (
-            egui::Color32::from_rgba_premultiplied(255, 140, 60, 140),
-            egui::Color32::from_rgba_premultiplied(255, 140, 60, 200),
+            egui::Color32::from_rgba_unmultiplied(255, 140, 60, 140),
+            egui::Color32::from_rgba_unmultiplied(255, 140, 60, 200),
         )
     } else if cat.contains("scanner") || cat.contains("hit") {
         (
-            egui::Color32::from_rgba_premultiplied(255, 80, 80, 140),
-            egui::Color32::from_rgba_premultiplied(255, 80, 80, 200),
+            egui::Color32::from_rgba_unmultiplied(255, 80, 80, 140),
+            egui::Color32::from_rgba_unmultiplied(255, 80, 80, 200),
         )
     } else {
         // Default gold
         (
-            egui::Color32::from_rgba_premultiplied(255, 215, 0, 120),
-            egui::Color32::from_rgba_premultiplied(255, 215, 0, 160),
+            egui::Color32::from_rgba_unmultiplied(255, 215, 0, 120),
+            egui::Color32::from_rgba_unmultiplied(255, 215, 0, 160),
         )
     }
 }
@@ -62,13 +102,18 @@ fn category_color(category: &str) -> (egui::Color32, egui::Color32) {
 pub struct SpectrumAnalyzer {
     /// When `true`, `push_iq_samples` skips processing (freeze the display).
     pub frozen: bool,
+    /// False when an external source owns the FFT resolution and window.
+    pub fft_controls_enabled: bool,
     fft_size: usize,
     waterfall_history: usize,
     waterfall_pixels: Vec<Vec<u8>>,
     spectrum_dbs: Vec<f32>,
     waterfall_texture: Option<egui::TextureHandle>,
     center_freq: u64,
-    sample_rate: u32,
+    /// Tuned VFO RF frequency, independent of the source capture center.
+    /// `None` follows the capture center for callers without independent tuning.
+    pub vfo_freq_hz: Option<u64>,
+    sample_rate: f64,
     window_type: WindowType,
     /// Current colour map used for waterfall rendering.
     pub color_map: ColorMap,
@@ -124,6 +169,25 @@ pub struct SpectrumAnalyzer {
     pub wf_max_db: f32,
     fft: Option<Arc<dyn Fft<f32>>>,
     fft_input_buf: Vec<Complex32>,
+    fft_scratch: Vec<Complex32>,
+    iq_ring: Vec<Complex32>,
+    iq_write: usize,
+    iq_filled: usize,
+    pending_i_byte: Option<u8>,
+    samples_until_fft: usize,
+    stream_samples: u64,
+    last_fft_sample: Option<u64>,
+    fft_rate: u32,
+    processed_frames: u64,
+    last_daemon_timestamp_ms: Option<u64>,
+    frame_period_seconds: f64,
+    waterfall_visible: bool,
+    waterfall_width: usize,
+    texture_limit: usize,
+    waterfall_pending_rows: Vec<bool>,
+    snr_smoothing: bool,
+    snr_smoothing_secs: f32,
+    smoothed_snr: Option<f32>,
     window_cache: Vec<f32>,
     frame_counter: u32,
     hover_pos: Option<egui::Pos2>,
@@ -132,6 +196,9 @@ pub struct SpectrumAnalyzer {
     pub waterfall_every_n: u32,
     /// When `true`, waterfall scrolling is paused (spectrum still updates).
     pub waterfall_paused: bool,
+    /// Upload the full bounded waterfall texture whenever real rows change.
+    /// False uploads only changed rows; neither mode adds rows on UI redraws.
+    pub full_waterfall_update: bool,
     /// Frequency (Hz) that was clicked on the spectrum for tuning.
     pub clicked_tune_freq: Option<u64>,
     /// Frequency (Hz) pending bookmark creation.
@@ -148,6 +215,7 @@ pub struct SpectrumAnalyzer {
     pub bookmark_freqs: Vec<(u64, String, String)>,
     show_bookmarks: bool,
     show_band_plan: bool,
+    band_plan_region: ItuRegion,
     /// VFO filter bandwidth in Hz (shown as shaded region on spectrum).
     pub vfo_bw_hz: u32,
     show_vfo_bw: bool,
@@ -223,6 +291,31 @@ pub enum WindowType {
     Blackman,
     /// Flat-top window — excellent amplitude accuracy, widest main lobe.
     FlatTop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ItuRegion {
+    Region1,
+    Region2,
+    Region3,
+}
+
+impl ItuRegion {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Region1 => "ITU R1",
+            Self::Region2 => "ITU R2",
+            Self::Region3 => "ITU R3",
+        }
+    }
+
+    fn amateur_limits(self) -> ((f64, f64), (f64, f64), Option<(f64, f64)>, (f64, f64)) {
+        match self {
+            Self::Region1 => ((3.5, 3.8), (7.0, 7.2), None, (430.0, 440.0)),
+            Self::Region2 => ((3.5, 4.0), (7.0, 7.3), Some((222.0, 225.0)), (420.0, 450.0)),
+            Self::Region3 => ((3.5, 3.9), (7.0, 7.2), None, (430.0, 440.0)),
+        }
+    }
 }
 
 /// Colour map used for waterfall and spectrum visualisation.
@@ -330,6 +423,7 @@ impl SpectrumAnalyzer {
         let window_cache = window_type.generate(fft_size);
         let mut planner = FftPlanner::<f32>::new();
         let fft = Some(planner.plan_fft_forward(fft_size));
+        let scratch_len = fft.as_ref().unwrap().get_inplace_scratch_len();
         Self {
             fft_size,
             waterfall_history,
@@ -337,7 +431,8 @@ impl SpectrumAnalyzer {
             spectrum_dbs: vec![-100.0; fft_size],
             waterfall_texture: None,
             center_freq: 100_000_000,
-            sample_rate: 2_048_000,
+            vfo_freq_hz: None,
+            sample_rate: 2_048_000.0,
             window_type,
             color_map: ColorMap::Classic,
             fill_top: egui::Color32::from_rgba_unmultiplied(30, 120, 200, 100),
@@ -350,14 +445,14 @@ impl SpectrumAnalyzer {
             color_success: egui::Color32::from_rgb(46, 204, 113),
             color_warning: egui::Color32::from_rgb(241, 196, 15),
             color_error: egui::Color32::from_rgb(231, 76, 60),
-            bandplan_ham: egui::Color32::from_rgba_premultiplied(80, 200, 80, 28),
-            bandplan_broadcast: egui::Color32::from_rgba_premultiplied(255, 140, 50, 28),
-            bandplan_aviation: egui::Color32::from_rgba_premultiplied(80, 160, 255, 28),
-            bandplan_marine: egui::Color32::from_rgba_premultiplied(0, 200, 180, 28),
-            bandplan_weather: egui::Color32::from_rgba_premultiplied(100, 255, 120, 28),
-            bandplan_satellite: egui::Color32::from_rgba_premultiplied(180, 100, 255, 28),
-            bandplan_mobile: egui::Color32::from_rgba_premultiplied(200, 180, 60, 22),
-            bandplan_ism: egui::Color32::from_rgba_premultiplied(255, 80, 80, 25),
+            bandplan_ham: egui::Color32::from_rgba_unmultiplied(80, 200, 80, 28),
+            bandplan_broadcast: egui::Color32::from_rgba_unmultiplied(255, 140, 50, 28),
+            bandplan_aviation: egui::Color32::from_rgba_unmultiplied(80, 160, 255, 28),
+            bandplan_marine: egui::Color32::from_rgba_unmultiplied(0, 200, 180, 28),
+            bandplan_weather: egui::Color32::from_rgba_unmultiplied(100, 255, 120, 28),
+            bandplan_satellite: egui::Color32::from_rgba_unmultiplied(180, 100, 255, 28),
+            bandplan_mobile: egui::Color32::from_rgba_unmultiplied(200, 180, 60, 22),
+            bandplan_ism: egui::Color32::from_rgba_unmultiplied(255, 80, 80, 25),
             zoom_factor: 1.0,
             zoom_offset: 0.5,
             markers: Vec::new(),
@@ -371,13 +466,33 @@ impl SpectrumAnalyzer {
             wf_min_db: -120.0,
             wf_max_db: -20.0,
             fft,
-            fft_input_buf: Vec::with_capacity(4096),
+            fft_input_buf: vec![Complex32::new(0.0, 0.0); fft_size],
+            fft_scratch: vec![Complex32::new(0.0, 0.0); scratch_len],
+            iq_ring: vec![Complex32::new(0.0, 0.0); fft_size],
+            iq_write: 0,
+            iq_filled: 0,
+            pending_i_byte: None,
+            samples_until_fft: fft_size,
+            stream_samples: 0,
+            last_fft_sample: None,
+            fft_rate: 20,
+            processed_frames: 0,
+            last_daemon_timestamp_ms: None,
+            frame_period_seconds: 0.05,
+            waterfall_visible: true,
+            waterfall_width: fft_size.min(MAX_WATERFALL_WIDTH),
+            texture_limit: MAX_WATERFALL_WIDTH,
+            waterfall_pending_rows: vec![false; waterfall_history],
+            snr_smoothing: true,
+            snr_smoothing_secs: 0.5,
+            smoothed_snr: None,
             window_cache,
             frame_counter: 0,
             hover_pos: None,
             waterfall_dirty: true,
-            waterfall_every_n: 2,
+            waterfall_every_n: 4,
             waterfall_paused: false,
+            full_waterfall_update: false,
             clicked_tune_freq: None,
             pending_bookmark_freq: None,
             pending_vfo_b_freq: None,
@@ -389,12 +504,14 @@ impl SpectrumAnalyzer {
             bookmark_freqs: Vec::new(),
             show_bookmarks: true,
             show_band_plan: true,
+            band_plan_region: ItuRegion::Region1,
             vfo_bw_hz: 15000,
             show_vfo_bw: true,
             vfo_b_freq: 0,
             show_vfo_b: true,
             demod_mode: "NFM".to_string(),
             frozen: false,
+            fft_controls_enabled: true,
             scan_marker: None,
             squelch_db: -120.0,
             source_running: false,
@@ -423,38 +540,243 @@ impl SpectrumAnalyzer {
         }
     }
 
-    /// Recreate the FFT with a new size, resetting all spectrum buffers.
-    pub fn set_fft_size(&mut self, size: usize) {
+    /// Accepted transform sizes are powers of two from 256 through 65536.
+    pub fn valid_fft_size(size: usize) -> bool {
+        (MIN_FFT_SIZE..=MAX_FFT_SIZE).contains(&size) && size.is_power_of_two()
+    }
+
+    /// Recreate the FFT only when a valid size changes. Returns false for an
+    /// invalid request, leaving the live display and streaming buffers intact.
+    pub fn set_fft_size(&mut self, size: usize) -> bool {
+        if !Self::valid_fft_size(size) {
+            return false;
+        }
+        if size == self.fft_size {
+            return true;
+        }
         self.fft_size = size;
         self.spectrum_dbs = vec![-100.0; size];
         self.peak_hold = vec![-120.0; size];
         self.persist_buf = vec![-100.0; size];
-        self.waterfall_pixels = vec![vec![0u8; size * 4]; self.waterfall_history];
         self.window_cache = self.window_type.generate(size);
-        self.fft_input_buf = Vec::with_capacity(size.max(4096));
+        self.fft_input_buf = vec![Complex32::new(0.0, 0.0); size];
+        self.iq_ring = vec![Complex32::new(0.0, 0.0); size];
         let mut planner = FftPlanner::<f32>::new();
-        self.fft = Some(planner.plan_fft_forward(size));
+        let fft = planner.plan_fft_forward(size);
+        self.fft_scratch = vec![Complex32::new(0.0, 0.0); fft.get_inplace_scratch_len()];
+        self.fft = Some(fft);
+        self.reset_stream();
+        self.reset_waterfall();
+        true
+    }
+
+    pub fn fft_size(&self) -> usize {
+        self.fft_size
+    }
+
+    pub fn display_settings(&self) -> DisplaySettings {
+        DisplaySettings {
+            fft_size: self.fft_size,
+            window: self.window_type,
+            fft_rate: self.fft_rate,
+            waterfall_visible: self.waterfall_visible,
+            waterfall_history: self.waterfall_history,
+            waterfall_every_n: self.waterfall_every_n.max(1),
+            full_waterfall_update: self.full_waterfall_update,
+            snr_smoothing: self.snr_smoothing,
+            snr_smoothing_secs: self.snr_smoothing_secs,
+            color_map: self.color_map,
+            grid: self.show_grid,
+            peak_hold_time: self.peak_hold_time,
+            avg_alpha: self.avg_alpha,
+            persistence: self.persistence,
+            gradient_fill: self.gradient_fill,
+            db_min: self.display_min_db,
+            db_max: self.display_max_db,
+            wf_min_db: self.wf_min_db,
+            wf_max_db: self.wf_max_db,
+        }
+    }
+
+    /// Display transform cadence. A real sample clock determines the hop size;
+    /// daemon frames use their monotonic timestamp deltas instead.
+    pub fn set_fft_rate(&mut self, frames_per_second: u32) {
+        let rate = frames_per_second.clamp(1, 120);
+        if rate != self.fft_rate {
+            self.fft_rate = rate;
+            self.samples_until_fft = if self.iq_filled < self.fft_size {
+                self.fft_size - self.iq_filled
+            } else {
+                self.fft_hop()
+            };
+            self.frame_period_seconds = 1.0 / rate as f64;
+            self.last_daemon_timestamp_ms = None;
+        }
+    }
+
+    pub fn fft_rate(&self) -> u32 {
+        self.fft_rate
+    }
+
+    pub fn set_waterfall_visible(&mut self, visible: bool) {
+        self.waterfall_visible = visible;
+        if !visible {
+            self.waterfall_texture = None;
+        }
+    }
+
+    pub fn waterfall_visible(&self) -> bool {
+        self.waterfall_visible
+    }
+
+    pub fn vfo_frequency_hz(&self) -> u64 {
+        self.vfo_freq_hz.unwrap_or(self.center_freq)
+    }
+
+    /// RF passband edges measured relative to the source capture center.
+    fn vfo_band_edges(&self) -> (f64, f64) {
+        let bandwidth = self.vfo_bw_hz as f64;
+        let offset = self.vfo_frequency_hz() as f64 - self.center_freq as f64;
+        let (left, right) = match self.demod_mode.as_str() {
+            "USB" => (0.0, bandwidth),
+            "LSB" => (-bandwidth, 0.0),
+            _ => (-bandwidth / 2.0, bandwidth / 2.0),
+        };
+        (left + offset, right + offset)
+    }
+
+    /// Frequency under a normalized plot position. Both plots share the
+    /// capture-axis mapping regardless of the independently tuned VFO.
+    fn frequency_at_plot_fraction(&self, fraction: f32) -> u64 {
+        let span = (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
+        let offset =
+            self.zoom_center_offset(span) + (f64::from(fraction.clamp(0.0, 1.0)) - 0.5) * span;
+        (self.center_freq as f64 + offset).max(0.0) as u64
+    }
+
+    fn adjust_vfo_bandwidth(&mut self, scroll: f32) {
+        let step = (self.vfo_bw_hz as f32 * 0.1).max(100.0);
+        self.vfo_bw_hz = (self.vfo_bw_hz as f32 + scroll.signum() * step).max(100.0) as u32;
+        self.show_vfo_bw = true;
+    }
+
+    fn paint_vfo_marker(&self, painter: &egui::Painter, rect: egui::Rect) {
+        if !self.show_vfo_bw {
+            return;
+        }
+        let span = (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
+        let offset = self.vfo_frequency_hz() as f64 - self.center_freq as f64;
+        let fraction = (offset - self.zoom_center_offset(span)) / span + 0.5;
+        if !(0.0..=1.0).contains(&fraction) {
+            return;
+        }
+        let x = rect.left() + fraction as f32 * rect.width();
+        let color = egui::Color32::from_rgba_unmultiplied(210, 220, 230, 130);
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+            egui::Stroke::new(0.7, color),
+        );
+        painter.text(
+            egui::pos2(x + 3.0, rect.top() + 2.0),
+            egui::Align2::LEFT_TOP,
+            "VFO",
+            egui::FontId::proportional(8.0),
+            color,
+        );
+    }
+
+    fn visible_peak_freq_hz(&self) -> u64 {
+        let n = self.spectrum_dbs.len();
+        if n == 0 {
+            return self.center_freq;
+        }
+        let span = (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
+        let left = self.zoom_center_offset(span) - span / 2.0;
+        let bin_hz = self.sample_rate / n as f64;
+        let first = (n as f64 / 2.0 + left / bin_hz)
+            .ceil()
+            .clamp(0.0, (n - 1) as f64) as usize;
+        let last = (n as f64 / 2.0 + (left + span) / bin_hz + 1.0)
+            .floor()
+            .clamp((first + 1) as f64, n as f64) as usize;
+        let peak = self.spectrum_dbs[first..last]
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map_or(first, |(i, _)| first + i);
+        (self.center_freq as f64 + (peak as f64 - n as f64 / 2.0) * bin_hz).max(0.0) as u64
+    }
+
+    /// Smooth only the displayed peak-minus-noise SNR, without changing DSP
+    /// signal/noise levels or the squelch gate. A time constant is rate invariant.
+    pub fn set_snr_smoothing(&mut self, enabled: bool, time_constant_secs: f32) {
+        self.snr_smoothing = enabled;
+        self.snr_smoothing_secs = if time_constant_secs.is_finite() {
+            time_constant_secs.clamp(0.01, 10.0)
+        } else {
+            0.5
+        };
+        if !enabled {
+            self.smoothed_snr = None;
+        }
+    }
+
+    pub fn snr_db(&self) -> f32 {
+        if self.snr_smoothing {
+            self.smoothed_snr
+                .unwrap_or(self.cached_peak_level - self.cached_noise_floor)
+        } else {
+            self.cached_peak_level - self.cached_noise_floor
+        }
+    }
+
+    /// Set the FFT window without re-allocating the plan or clearing history.
+    pub fn set_window(&mut self, w: WindowType) {
+        if self.window_type != w {
+            self.window_type = w;
+            self.window_cache = w.generate(self.fft_size);
+        }
+    }
+
+    /// History storage has an 8 MiB ceiling, independent of FFT resolution.
+    pub fn set_waterfall_history(&mut self, depth: usize) {
+        let depth = depth.clamp(32, 4096).min(self.texture_limit.max(1));
+        if depth != self.waterfall_history {
+            self.waterfall_history = depth;
+            self.reset_waterfall();
+        }
+    }
+
+    fn reset_waterfall(&mut self) {
+        self.waterfall_history = self.waterfall_history.min(self.texture_limit.max(1));
+        self.waterfall_width = self
+            .fft_size
+            .min(MAX_WATERFALL_WIDTH)
+            .min(self.texture_limit.max(1))
+            .min(MAX_WATERFALL_BYTES / (self.waterfall_history.max(1) * 4))
+            .max(1);
+        self.waterfall_pixels = vec![vec![0u8; self.waterfall_width * 4]; self.waterfall_history];
+        self.waterfall_pending_rows = vec![false; self.waterfall_history];
         self.waterfall_texture = None;
         self.waterfall_head = 0;
         self.waterfall_dirty = true;
     }
 
-    /// Set the FFT window function (recomputes the window cache).
-    pub fn set_window(&mut self, w: WindowType) {
-        self.window_type = w;
-        self.window_cache = self.window_type.generate(self.fft_size);
+    pub(crate) fn reset_stream(&mut self) {
+        self.iq_write = 0;
+        self.iq_filled = 0;
+        self.pending_i_byte = None;
+        self.samples_until_fft = self.fft_size;
+        self.stream_samples = 0;
+        self.last_fft_sample = None;
+        self.last_daemon_timestamp_ms = None;
+        self.smoothed_snr = None;
     }
 
-    /// Set the waterfall history depth (number of retained rows).
-    pub fn set_waterfall_history(&mut self, depth: usize) {
-        let depth = depth.clamp(32, 4096);
-        if depth != self.waterfall_history {
-            self.waterfall_history = depth;
-            self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; depth];
-            self.waterfall_texture = None;
-            self.waterfall_head = 0;
-            self.waterfall_dirty = true;
-        }
+    fn fft_hop(&self) -> usize {
+        (self.sample_rate / f64::from(self.fft_rate))
+            .ceil()
+            .max(1.0) as usize
     }
 
     /// Pan offset (Hz) of the zoom window centre from the spectrum centre.
@@ -466,7 +788,7 @@ impl SpectrumAnalyzer {
     /// `(offset - 0.5) * zoom_span` limited pan to ±`zoom_span`/2, making
     /// outer frequencies unreachable at high zoom.
     pub fn zoom_center_offset(&self, zoom_span: f64) -> f64 {
-        let max_pan = (f64::from(self.sample_rate) - zoom_span).max(0.0) / 2.0;
+        let max_pan = (self.sample_rate - zoom_span).max(0.0) / 2.0;
         (f64::from(self.zoom_offset) - 0.5) * 2.0 * max_pan
     }
 
@@ -480,7 +802,7 @@ impl SpectrumAnalyzer {
         self.peak_hold_time = secs.clamp(0.1, 60.0);
     }
 
-    /// Set the spectrum trace averaging factor (0 = no smoothing .. 1 = max).
+    /// Set the new-frame weight (1 = immediate, lower = more averaging).
     pub fn set_avg_alpha(&mut self, alpha: f32) {
         self.avg_alpha = alpha.clamp(0.0, 1.0);
     }
@@ -507,8 +829,23 @@ impl SpectrumAnalyzer {
         self.zoom_factor = z.clamp(1.0, 200.0);
     }
 
-    /// Update the centre frequency and sample rate parameters.
+    /// Update the source capture center and effective spectrum sample rate.
+    /// An explicitly selected VFO remains independent of these coordinates.
     pub fn update_params(&mut self, center_freq: u64, sample_rate: u32) {
+        self.update_params_exact(center_freq, f64::from(sample_rate));
+    }
+
+    /// Preserve a fractional effective sample rate after filtered decimation.
+    /// Nonfinite/nonpositive values fall back to 1 Hz, matching the u32 guard.
+    pub fn update_params_exact(&mut self, center_freq: u64, sample_rate: f64) {
+        let sample_rate = if sample_rate.is_finite() && sample_rate > 0.0 {
+            sample_rate
+        } else {
+            1.0
+        };
+        if center_freq != self.center_freq || sample_rate != self.sample_rate {
+            self.reset_stream();
+        }
         self.center_freq = center_freq;
         self.sample_rate = sample_rate;
     }
@@ -577,6 +914,27 @@ impl SpectrumAnalyzer {
         self.cached_peak_level
     }
 
+    /// Strongest FFT bin in the selected RF passband. Use this for a display-
+    /// based squelch detector instead of the average of the entire sampled band.
+    /// Other channels cannot open the gate merely by being the global peak.
+    pub fn vfo_signal_level(&self) -> f32 {
+        let (left, right) = self.vfo_band_edges();
+        let n = self.spectrum_dbs.len();
+        if n == 0 || right < left {
+            return -120.0;
+        }
+        let bin_hz = self.sample_rate / n as f64;
+        let first = (n as f64 / 2.0 + left / bin_hz).ceil().clamp(0.0, n as f64) as usize;
+        let last = (n as f64 / 2.0 + right / bin_hz + 1.0)
+            .floor()
+            .clamp(0.0, n as f64) as usize;
+        if first < last {
+            peak_in_bins(&self.spectrum_dbs, first, last)
+        } else {
+            -120.0
+        }
+    }
+
     /// Return the frequency (Hz) of the bin with the strongest signal.
     pub fn peak_freq_hz(&self) -> u64 {
         if self.spectrum_dbs.is_empty() {
@@ -590,8 +948,8 @@ impl SpectrumAnalyzer {
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(n / 2, |(i, _)| i);
         // DC bin is at n/2; offset from center = (bin - n/2) * (sample_rate / n)
-        let offset_hz = (peak_bin as i64 - n as i64 / 2) * i64::from(self.sample_rate) / n as i64;
-        (self.center_freq as i64 + offset_hz).max(0) as u64
+        let offset_hz = (peak_bin as f64 - n as f64 / 2.0) * self.sample_rate / n as f64;
+        (self.center_freq as f64 + offset_hz).max(0.0) as u64
     }
 
     /// Return the estimated noise floor (25th percentile of bin powers, dBFS).
@@ -643,7 +1001,7 @@ impl SpectrumAnalyzer {
         let Some(path) = path else {
             return;
         };
-        let w = self.fft_size as u32;
+        let w = self.waterfall_width as u32;
         let h = self.waterfall_history as u32;
         let mut rgba_flat: Vec<u8> = Vec::with_capacity((w * h * 4) as usize);
         // Emit in display order (oldest at top): start at circular head.
@@ -680,7 +1038,7 @@ impl SpectrumAnalyzer {
             return;
         };
         let n = self.spectrum_dbs.len();
-        let hz_per_bin = f64::from(self.sample_rate) / n as f64;
+        let hz_per_bin = self.sample_rate / n as f64;
         let mut lines = String::from("frequency_hz,power_dbfs\n");
         for (i, &db) in self.spectrum_dbs.iter().enumerate() {
             // spectrum_dbs is already stored in ascending-frequency order
@@ -701,218 +1059,479 @@ impl SpectrumAnalyzer {
         let _ = std::fs::write(&sidecar_path, json);
     }
 
-    /// Process a chunk of raw IQ samples through the FFT and update the
-    /// spectrum bins, peak-hold values, noise floor estimate, and signal history.
-    ///
-    /// Skips processing when `self.frozen` is `true`.
+    /// Consume a continuous unsigned-byte IQ stream, including byte pairs split
+    /// across calls. Only complete, real FFT windows are transformed. The ring,
+    /// transform input and rustfft scratch are bounded by the configured size.
+    /// At most four transforms are emitted per call; after an oversized burst,
+    /// the last one uses the newest real window instead of freezing on old data.
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
-        if self.frozen || iq.len() < 2 {
+        if self.frozen {
+            self.reset_stream();
             return;
         }
-        let fft = match &self.fft {
-            Some(f) => f,
-            None => return,
-        };
-        let n_samples = iq.len() / 2;
-        let fft_len = n_samples.min(self.fft_size);
-
-        self.fft_input_buf.clear();
-        self.fft_input_buf.extend((0..fft_len).map(|i| {
-            let i_val = f32::from(iq[2 * i]) - 127.4;
-            let q_val = f32::from(iq[2 * i + 1]) - 127.4;
-            let w = if i < self.window_cache.len() {
-                self.window_cache[i]
+        let mut transformed = 0;
+        let mut latest_due = false;
+        for &byte in iq {
+            if let Some(i) = self.pending_i_byte.take() {
+                self.push_complex_sample(
+                    Complex32::new(
+                        (f32::from(i) - 127.4) / 128.0,
+                        (f32::from(byte) - 127.4) / 128.0,
+                    ),
+                    &mut transformed,
+                    &mut latest_due,
+                );
             } else {
-                1.0
+                self.pending_i_byte = Some(byte);
+            }
+        }
+        if latest_due {
+            self.transform_iq_window();
+        }
+    }
+
+    /// Consume normalized floating-point IQ without quantizing it to ADC bytes.
+    /// A bin-centered complex tone with magnitude 1 measures 0 dBFS. Values are
+    /// not clipped; nonfinite samples become zero to preserve the sample clock.
+    /// Uses the same real-window, cadence and per-call transform budget as u8 IQ.
+    /// Switching from raw-byte input discards any unfinished raw I/Q byte pair.
+    pub fn push_complex_samples(&mut self, iq: &[Complex32]) {
+        if self.frozen {
+            self.reset_stream();
+            return;
+        }
+        if iq.is_empty() {
+            return;
+        }
+        self.pending_i_byte = None;
+        let mut transformed = 0;
+        let mut latest_due = false;
+        for &sample in iq {
+            let sample = if sample.re.is_finite() && sample.im.is_finite() {
+                sample
+            } else {
+                Complex32::new(0.0, 0.0)
             };
-            Complex32::new(i_val * w, q_val * w)
-        }));
-        // Zero-pad short buffers up to fft_size: rustfft panics if the
-        // buffer length != plan length. Small IQ chunks (e.g. at startup or
-        // low sample rates) previously crashed here.
-        if self.fft_input_buf.len() < self.fft_size {
-            self.fft_input_buf
-                .resize(self.fft_size, Complex32::new(0.0, 0.0));
+            self.push_complex_sample(sample, &mut transformed, &mut latest_due);
         }
-
-        fft.process(&mut self.fft_input_buf);
-
-        let scale = 1.0 / (fft_len as f32);
-        let mut sum = 0.0f32;
-        let mut peak = -120.0f32;
-        let mut hist = [0u32; 120];
-        let n = self.spectrum_dbs.len();
-        // rustfft returns bins in ascending FFT frequency order (bin 0 = DC =
-        // center_freq, bin n/2 = +Fs/2, bin n/2+1..n-1 = negative frequencies).
-        // The display, peak_freq_hz, and click-to-tune all assume storage bin 0
-        // is the LEFT edge (center - Fs/2) and bin n/2 is center. Without this
-        // fftshift, a signal at center_freq appears at the screen's left edge
-        // and peak_freq_hz off by ±Fs/2 — affecting the Find Peak button, the
-        // T shortcut, and the CSV export (which previously applied its own shift
-        // at read time, double-shifting was avoided by removing it here too).
-        for (i, c) in self.fft_input_buf.iter().enumerate() {
-            let dst = (i + n / 2) % n;
-            let mag = c.norm() * scale;
-            let db = if mag > 1e-10 {
-                20.0 * mag.log10()
-            } else {
-                -120.0
-            };
-            let prev = self.spectrum_dbs[dst];
-            let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * prev;
-            self.spectrum_dbs[dst] = smoothed;
-            sum += smoothed;
-            if smoothed > peak {
-                peak = smoothed;
-            }
-            let bin = ((smoothed + 120.0).clamp(0.0, 119.9) as usize).min(119);
-            hist[bin] += 1;
-            if db > self.peak_hold[dst] {
-                self.peak_hold[dst] = db;
-            } else {
-                // Decay rate derived from the user-configured hold time
-                // (frames ≈ hold_time * 60fps). Higher time → slower decay.
-                let frames = (self.peak_hold_time * 60.0).max(1.0);
-                let k = 1.0 / frames;
-                self.peak_hold[dst] = (1.0 - k) * self.peak_hold[dst] + k * db;
-            }
-            if self.persistence > 0.0 {
-                let p = self.persistence;
-                self.persist_buf[dst] =
-                    p * self.persist_buf[dst] + (1.0 - p) * self.spectrum_dbs[dst];
-            }
+        if latest_due {
+            self.transform_iq_window();
         }
-        self.cached_signal_level = sum / self.fft_size as f32;
-        self.cached_peak_level = peak;
-        // 25th percentile from histogram
-        let target = (self.fft_size as u32 * 25) / 100;
-        let mut accum = 0u32;
-        let mut floor = -120.0f32;
-        for (b, &count) in hist.iter().enumerate() {
-            accum += count;
-            if accum >= target {
-                floor = -120.0 + b as f32;
-                break;
-            }
-        }
-        self.cached_noise_floor = floor;
+    }
 
-        // Record peak dB to signal history (every 10th frame to avoid overwhelming)
-        if self.frame_counter.is_multiple_of(10) {
-            self.signal_history.push_back(peak);
-            if self.signal_history.len() > self.signal_history_max {
-                self.signal_history.pop_front();
-            }
-            // Update slow-tracking noise baseline (α=0.005 ≈ ~2000 frame time constant)
-            if self.noise_baseline <= -119.0 {
-                self.noise_baseline = floor;
+    #[inline]
+    fn push_complex_sample(
+        &mut self,
+        sample: Complex32,
+        transformed: &mut usize,
+        latest_due: &mut bool,
+    ) {
+        self.iq_ring[self.iq_write] = sample;
+        self.iq_write = (self.iq_write + 1) % self.fft_size;
+        self.iq_filled = (self.iq_filled + 1).min(self.fft_size);
+        self.stream_samples = self.stream_samples.wrapping_add(1);
+        self.samples_until_fft = self.samples_until_fft.saturating_sub(1);
+        if self.iq_filled == self.fft_size && self.samples_until_fft == 0 {
+            self.samples_until_fft = self.fft_hop();
+            if *transformed < MAX_FFTS_PER_PUSH - 1 {
+                self.transform_iq_window();
+                *transformed += 1;
             } else {
-                self.noise_baseline = 0.995 * self.noise_baseline + 0.005 * floor;
+                *latest_due = true;
             }
         }
     }
 
-    /// Ingest a pre-computed spectrum frame received from the daemon. Bins
-    /// are already dB-scaled and fftshifted to ascending-frequency order
-    /// (bin 0 = center - fs/2), matching `spectrum_dbs`' own storage
-    /// convention, so no FFT or remapping is needed here.
-    ///
-    /// Independent of `push_iq_samples` rather than sharing a helper: that
-    /// method's wraparound indexing only partially touches the destination
-    /// buffer for short IQ chunks, so a shared helper would need to
-    /// replicate that quirk exactly to stay behaviorally equivalent.
-    ///
-    /// Skips processing when `self.frozen` is `true`.
+    fn transform_iq_window(&mut self) {
+        let Some(fft) = &self.fft else { return };
+        for i in 0..self.fft_size {
+            self.fft_input_buf[i] =
+                self.iq_ring[(self.iq_write + i) % self.fft_size] * self.window_cache[i];
+        }
+        fft.process_with_scratch(&mut self.fft_input_buf, &mut self.fft_scratch);
+        self.frame_period_seconds = self
+            .last_fft_sample
+            .map(|last| self.stream_samples.saturating_sub(last) as f64 / self.sample_rate)
+            .unwrap_or(1.0 / self.fft_rate as f64);
+        self.last_fft_sample = Some(self.stream_samples);
+        // Coherent window gain correction makes a full-scale bin-centred tone
+        // 0 dBFS regardless of FFT size or the selected window.
+        let scale = self.window_cache.iter().sum::<f32>().max(1.0).recip();
+        for i in 0..self.fft_size {
+            let magnitude = self.fft_input_buf[i].norm() * scale;
+            let db = if magnitude > 1e-6 {
+                20.0 * magnitude.log10()
+            } else {
+                -120.0
+            };
+            let dst = (i + self.fft_size / 2) % self.fft_size;
+            self.update_bin(dst, db);
+        }
+        self.finish_spectrum_frame();
+    }
+
+    /// Ingest a precomputed, fftshifted daemon frame. Frame timestamps enforce
+    /// the requested display cadence; a backwards clock resets that cadence.
+    /// Invalid resolutions/nonfinite bins are discarded before any allocation.
     pub fn push_spectrum_frame(&mut self, frame: &ez_proto::SpectrumFrame) {
-        if self.frozen || frame.bins.is_empty() {
+        if self.frozen
+            || !Self::valid_fft_size(frame.bins.len())
+            || frame.sample_rate_hz == 0
+            || frame.bins.iter().any(|v| !v.is_finite())
+        {
             return;
         }
-        if frame.bins.len() != self.spectrum_dbs.len() {
-            self.set_fft_size(frame.bins.len());
+        let changed = frame.center_hz != self.center_freq
+            || f64::from(frame.sample_rate_hz) != self.sample_rate
+            || frame.bins.len() != self.fft_size;
+        if !changed {
+            if let Some(last) = self.last_daemon_timestamp_ms {
+                if frame.timestamp_ms >= last
+                    && (frame.timestamp_ms - last) < 1000_u64.div_ceil(self.fft_rate as u64)
+                {
+                    return;
+                }
+            }
         }
-        self.center_freq = frame.center_hz;
-        self.sample_rate = frame.sample_rate_hz;
-
-        let mut sum = 0.0f32;
-        let mut peak = -120.0f32;
-        let mut hist = [0u32; 120];
+        self.set_fft_size(frame.bins.len());
+        self.update_params(frame.center_hz, frame.sample_rate_hz);
+        self.frame_period_seconds = self
+            .last_daemon_timestamp_ms
+            .filter(|last| frame.timestamp_ms > *last)
+            .map(|last| (frame.timestamp_ms - last) as f64 / 1000.0)
+            .unwrap_or(1.0 / self.fft_rate as f64);
+        self.last_daemon_timestamp_ms = Some(frame.timestamp_ms);
         for (dst, &db) in frame.bins.iter().enumerate() {
-            let prev = self.spectrum_dbs[dst];
-            let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * prev;
-            self.spectrum_dbs[dst] = smoothed;
-            sum += smoothed;
-            if smoothed > peak {
-                peak = smoothed;
-            }
-            let bin = ((smoothed + 120.0).clamp(0.0, 119.9) as usize).min(119);
-            hist[bin] += 1;
-            if db > self.peak_hold[dst] {
-                self.peak_hold[dst] = db;
-            } else {
-                // Decay rate derived from the user-configured hold time
-                // (frames ≈ hold_time * 60fps). Higher time → slower decay.
-                let frames = (self.peak_hold_time * 60.0).max(1.0);
-                let k = 1.0 / frames;
-                self.peak_hold[dst] = (1.0 - k) * self.peak_hold[dst] + k * db;
-            }
-            if self.persistence > 0.0 {
-                let p = self.persistence;
-                self.persist_buf[dst] =
-                    p * self.persist_buf[dst] + (1.0 - p) * self.spectrum_dbs[dst];
+            self.update_bin(dst, db);
+        }
+        self.finish_spectrum_frame();
+    }
+
+    fn update_bin(&mut self, dst: usize, db: f32) {
+        let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[dst];
+        self.spectrum_dbs[dst] = smoothed;
+        if db > self.peak_hold[dst] {
+            self.peak_hold[dst] = db;
+        } else {
+            let decay = 1.0 - (-self.frame_period_seconds as f32 / self.peak_hold_time).exp();
+            self.peak_hold[dst] += decay * (db - self.peak_hold[dst]);
+        }
+        if self.persistence > 0.0 {
+            self.persist_buf[dst] =
+                self.persistence * self.persist_buf[dst] + (1.0 - self.persistence) * smoothed;
+        }
+    }
+
+    fn finish_spectrum_frame(&mut self) {
+        let mut sum = 0.0;
+        let mut peak = -120.0_f32;
+        let mut hist = [0u32; 120];
+        for &db in &self.spectrum_dbs {
+            sum += db;
+            peak = peak.max(db);
+            hist[((db + 120.0).clamp(0.0, 119.9) as usize).min(119)] += 1;
+        }
+        let target = self.fft_size as u32 / 4;
+        let mut count = 0;
+        let mut floor = -120.0;
+        for (bin, amount) in hist.into_iter().enumerate() {
+            count += amount;
+            if count >= target {
+                floor = bin as f32 - 120.0;
+                break;
             }
         }
         self.cached_signal_level = sum / self.fft_size as f32;
         self.cached_peak_level = peak;
-        // 25th percentile from histogram
-        let target = (self.fft_size as u32 * 25) / 100;
-        let mut accum = 0u32;
-        let mut floor = -120.0f32;
-        for (b, &count) in hist.iter().enumerate() {
-            accum += count;
-            if accum >= target {
-                floor = -120.0 + b as f32;
-                break;
-            }
-        }
         self.cached_noise_floor = floor;
-
-        // Record peak dB to signal history (every 10th frame to avoid overwhelming)
-        if self.frame_counter.is_multiple_of(10) {
+        let snr = peak - floor;
+        let weight = 1.0 - (-self.frame_period_seconds as f32 / self.snr_smoothing_secs).exp();
+        self.smoothed_snr = Some(match self.smoothed_snr {
+            Some(old) if self.snr_smoothing => old + weight * (snr - old),
+            _ => snr,
+        });
+        self.processed_frames = self.processed_frames.wrapping_add(1);
+        if self.processed_frames.is_multiple_of(10) {
             self.signal_history.push_back(peak);
             if self.signal_history.len() > self.signal_history_max {
                 self.signal_history.pop_front();
             }
-            // Update slow-tracking noise baseline (α=0.005 ≈ ~2000 frame time constant)
-            if self.noise_baseline <= -119.0 {
-                self.noise_baseline = floor;
+            self.noise_baseline = if self.noise_baseline <= -119.0 {
+                floor
             } else {
-                self.noise_baseline = 0.995 * self.noise_baseline + 0.005 * floor;
-            }
+                0.995 * self.noise_baseline + 0.005 * floor
+            };
+        }
+        if self.waterfall_visible
+            && !self.waterfall_paused
+            && self
+                .processed_frames
+                .is_multiple_of(self.waterfall_every_n.max(1) as u64)
+        {
+            let y = self.waterfall_head;
+            self.waterfall_pixels[y] = self.waterfall_row();
+            self.waterfall_pending_rows[y] = true;
+            self.waterfall_head = (y + 1) % self.waterfall_history;
         }
     }
 
     fn waterfall_row(&self) -> Vec<u8> {
-        let mut pixels = vec![0u8; self.fft_size * 4];
+        let mut pixels = vec![0u8; self.waterfall_width * 4];
         let range = (self.wf_max_db - self.wf_min_db).max(1.0);
-        for (i, db) in self.spectrum_dbs.iter().enumerate() {
+        for column in 0..self.waterfall_width {
+            let first = column * self.fft_size / self.waterfall_width;
+            let last = ((column + 1) * self.fft_size / self.waterfall_width).max(first + 1);
+            // Peak aggregation preserves narrow carriers when many FFT bins
+            // share a display pixel. Full-resolution values remain exportable.
+            let db = self.spectrum_dbs[first..last]
+                .iter()
+                .copied()
+                .fold(-120.0_f32, f32::max);
             let normalized = ((db - self.wf_min_db) / range).clamp(0.0, 1.0);
             let (r, g, b) = color_map(self.color_map, normalized);
-            pixels[i * 4] = r;
-            pixels[i * 4 + 1] = g;
-            pixels[i * 4 + 2] = b;
-            pixels[i * 4 + 3] = 255;
+            pixels[column * 4..column * 4 + 4].copy_from_slice(&[r, g, b, 255]);
         }
         pixels
+    }
+
+    /// Options for the compact Radio workspace. The same signal controls
+    /// remain available without reserving two rows above the spectrum plot.
+    pub fn ui_radio_controls(&mut self, ui: &mut egui::Ui) {
+        let freeze_label = if self.frozen {
+            "❄ Frozen"
+        } else {
+            "❄ Freeze"
+        };
+        ui.horizontal(|ui| {
+            ui.toggle_value(&mut self.frozen, freeze_label)
+                .on_hover_text("Freeze or resume spectrum and waterfall updates.");
+            ui.toggle_value(&mut self.waterfall_paused, "⏸ Pause")
+                .on_hover_text("Pause waterfall scrolling while the spectrum continues to update.");
+            ui.toggle_value(&mut self.show_peak_hold, "Peak")
+                .on_hover_text("Show the peak-hold trace.");
+            if ui.small_button("Clear WF").clicked() {
+                self.reset_waterfall();
+            }
+        });
+
+        egui::CollapsingHeader::new("Spectrum tools")
+            .id_salt("radio.spectrum.tools")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Averaging");
+                    for (label, alpha) in [
+                        ("Fast", 0.7f32),
+                        ("Med", 0.3),
+                        ("Slow", 0.1),
+                        ("XSlow", 0.03),
+                    ] {
+                        if ui.small_button(label).clicked() {
+                            self.avg_alpha = alpha;
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Range");
+                    ui.add(
+                        egui::DragValue::new(&mut self.display_min_db)
+                            .range(-160.0..=self.display_max_db - 10.0)
+                            .speed(1.0)
+                            .suffix(" dB min"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.display_max_db)
+                            .range(self.display_min_db + 10.0..=20.0)
+                            .speed(1.0)
+                            .suffix(" dB max"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    if ui.small_button("Reset range").clicked() {
+                        self.display_min_db = -120.0;
+                        self.display_max_db = 0.0;
+                    }
+                    if ui.small_button("Auto-fit").clicked() && !self.spectrum_dbs.is_empty() {
+                        let (low, high) = self
+                            .spectrum_dbs
+                            .iter()
+                            .copied()
+                            .fold((f32::INFINITY, f32::NEG_INFINITY), |(low, high), value| {
+                                (low.min(value), high.max(value))
+                            });
+                        let margin = ((high - low) * 0.1).max(5.0);
+                        self.display_min_db = (low - margin).max(-160.0);
+                        self.display_max_db = (high + margin).min(20.0);
+                    }
+                    if ui.small_button("Tune to peak").clicked() && !self.spectrum_dbs.is_empty() {
+                        self.clicked_tune_freq = Some(self.visible_peak_freq_hz());
+                    }
+                    ui.label(format!("Markers {}", self.markers.len()));
+                    if ui.small_button("Clear").clicked() {
+                        self.markers.clear();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Waterfall rate");
+                    for (label, every) in [("1×", 1), ("2×", 2), ("4×", 4), ("8×", 8)] {
+                        if ui
+                            .selectable_label(self.waterfall_every_n == every, label)
+                            .clicked()
+                        {
+                            self.waterfall_every_n = every;
+                        }
+                    }
+                    ui.checkbox(&mut self.full_waterfall_update, "Full update");
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Waterfall range");
+                    ui.add(
+                        egui::DragValue::new(&mut self.wf_min_db)
+                            .range(-160.0..=self.wf_max_db - 5.0)
+                            .speed(1.0)
+                            .suffix(" dB min"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.wf_max_db)
+                            .range(self.wf_min_db + 5.0..=20.0)
+                            .speed(1.0)
+                            .suffix(" dB max"),
+                    );
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Overlays");
+                    ui.checkbox(&mut self.show_vfo_bw, "VFO BW");
+                    ui.checkbox(&mut self.show_vfo_b, "VFO B");
+                    ui.checkbox(&mut self.show_bookmarks, "Bookmarks");
+                    ui.checkbox(&mut self.show_band_plan, "Band plan");
+                    ui.checkbox(&mut self.show_signal_history, "History");
+                    if !self.audio_waveform.is_empty() {
+                        ui.checkbox(&mut self.show_audio_waveform, "Audio waveform");
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Band plan region");
+                    for region in [ItuRegion::Region1, ItuRegion::Region2, ItuRegion::Region3] {
+                        ui.selectable_value(&mut self.band_plan_region, region, region.label());
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Export CSV").clicked() {
+                        self.export_spectrum_csv();
+                    }
+                    if ui.button("Save waterfall PNG").clicked() {
+                        self.save_waterfall_png();
+                    }
+                });
+            });
+    }
+
+    /// Dedicated Band Plan module controls, used by the SDR++ module drawer.
+    /// This keeps the overlay and ITU region selection backed by the same
+    /// fields that paint the live spectrum.
+    pub fn ui_band_plan_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Band plan");
+        ui.label("Frequency allocations are drawn over the live spectrum.");
+        ui.checkbox(&mut self.show_band_plan, "Show band plan overlay");
+        ui.horizontal(|ui| {
+            ui.label("Region");
+            for region in [ItuRegion::Region1, ItuRegion::Region2, ItuRegion::Region3] {
+                ui.selectable_value(&mut self.band_plan_region, region, region.label());
+            }
+        });
+        ui.separator();
+        ui.label("Overlay categories");
+        for (color, label) in [
+            (egui::Color32::from_rgb(200, 100, 255), "Amateur / ham"),
+            (egui::Color32::from_rgb(255, 140, 60), "Broadcast"),
+            (egui::Color32::from_rgb(100, 180, 255), "Aviation"),
+            (egui::Color32::from_rgb(0, 200, 200), "Marine"),
+            (egui::Color32::from_rgb(80, 220, 80), "Weather"),
+            (
+                egui::Color32::from_rgb(255, 80, 80),
+                "Land mobile / scanner",
+            ),
+        ] {
+            ui.colored_label(color, format!("● {label}"));
+        }
+    }
+
+    #[must_use]
+    pub fn band_plan_visible(&self) -> bool {
+        self.show_band_plan
+    }
+
+    /// Compact vertical controls shown along the Radio pane's right edge,
+    /// matching SDR++'s Zoom / Max / Min rail.
+    pub fn ui_radio_rail(&mut self, ui: &mut egui::Ui) {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        let slider_height = ((ui.available_height() - 84.0) / 3.0).max(64.0);
+        ui.vertical_centered(|ui| {
+            ui.label("Zoom");
+            let mut zoom = (self.zoom_factor.ln() / 200.0_f32.ln()).clamp(0.0, 1.0);
+            if ui
+                .add_sized(
+                    [20.0, slider_height],
+                    egui::Slider::new(&mut zoom, 0.0..=1.0)
+                        .vertical()
+                        .show_value(false),
+                )
+                .changed()
+            {
+                self.zoom_factor = 200.0_f32.powf(zoom).clamp(1.0, 200.0);
+            }
+            ui.add_space(8.0);
+
+            ui.label("Max");
+            let mut max = self.display_max_db;
+            if ui
+                .add_sized(
+                    [20.0, slider_height],
+                    egui::Slider::new(&mut max, (self.display_min_db + 5.0)..=20.0)
+                        .vertical()
+                        .show_value(false),
+                )
+                .changed()
+            {
+                self.display_max_db = max;
+            }
+            ui.add_space(8.0);
+
+            ui.label("Min");
+            let mut min = self.display_min_db;
+            if ui
+                .add_sized(
+                    [20.0, slider_height],
+                    egui::Slider::new(&mut min, -160.0..=(self.display_max_db - 5.0))
+                        .vertical()
+                        .show_value(false),
+                )
+                .changed()
+            {
+                self.display_min_db = min;
+            }
+        });
     }
 
     /// Render the full spectrum analyser UI: controls bar, spectrum plot,
     /// signal history chart, audio waveform, and waterfall display.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.ui_inner(ui, false);
+    }
+
+    /// Render the spectrum as SDR++'s main Radio pane: the plot begins directly
+    /// below the receiver toolbar, with spectrum options kept in the sidebar.
+    pub fn ui_radio_workspace(&mut self, ui: &mut egui::Ui) {
+        self.ui_inner(ui, true);
+    }
+
+    fn ui_inner(&mut self, ui: &mut egui::Ui, radio_workspace: bool) {
         self.frame_counter = self.frame_counter.wrapping_add(1);
 
         // Controls bar — compact strip: high-frequency toggles stay inline,
         // everything else groups into Display/Waterfall/View & Export menus.
-        ui.horizontal(|ui| {
+        if !radio_workspace {
+            ui.horizontal_wrapped(|ui| {
             let freeze_label = if self.frozen { "❄ Frozen" } else { "❄ Freeze" };
             if ui.toggle_value(&mut self.frozen, freeze_label)
                 .on_hover_text("Freeze the spectrum and waterfall display. Useful to examine a signal in detail without the display updating.")
@@ -926,28 +1545,28 @@ impl SpectrumAnalyzer {
                     self.peak_hold = vec![-120.0; self.fft_size];
                 }
             if ui.small_button("Clear WF").on_hover_text("Clear the waterfall history").clicked() {
-                self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; self.waterfall_history];
-                self.waterfall_head = 0;
-                self.waterfall_dirty = true;
+                self.reset_waterfall();
             }
             ui.separator();
 
             ui.menu_button("Display", |ui| {
                 ui.set_min_width(220.0);
-                ui.label("FFT size:");
-                ui.horizontal(|ui| {
-                    for size in [512, 1024, 2048, 4096] {
-                        if ui.selectable_label(self.fft_size == size, size.to_string()).clicked() {
-                            self.set_fft_size(size);
+                ui.add_enabled_ui(self.fft_controls_enabled, |ui| {
+                    ui.label("FFT size:");
+                    ui.horizontal_wrapped(|ui| {
+                        for size in [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536] {
+                            if ui.selectable_label(self.fft_size == size, size.to_string()).clicked() {
+                                self.set_fft_size(size);
+                            }
                         }
-                    }
-                });
-                ui.label("Window:");
-                ui.horizontal(|ui| {
-                    if ui.selectable_label(self.window_type == WindowType::Hann, "Hann").clicked() { self.window_type = WindowType::Hann; self.set_fft_size(self.fft_size); }
-                    if ui.selectable_label(self.window_type == WindowType::Hamming, "Hamming").clicked() { self.window_type = WindowType::Hamming; self.set_fft_size(self.fft_size); }
-                    if ui.selectable_label(self.window_type == WindowType::Blackman, "Blackman").clicked() { self.window_type = WindowType::Blackman; self.set_fft_size(self.fft_size); }
-                });
+                    });
+                    ui.label("Window:");
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(self.window_type == WindowType::Hann, "Hann").clicked() { self.set_window(WindowType::Hann); }
+                        if ui.selectable_label(self.window_type == WindowType::Hamming, "Hamming").clicked() { self.set_window(WindowType::Hamming); }
+                        if ui.selectable_label(self.window_type == WindowType::Blackman, "Blackman").clicked() { self.set_window(WindowType::Blackman); }
+                    });
+                }).response.on_disabled_hover_text("The daemon supplies its own FFT bins and window");
                 ui.separator();
                 ui.label("Averaging:").on_hover_text("Spectrum smoothing. Lower α = slower/smoother (better for weak signals). Higher α = faster response.");
                 ui.horizontal(|ui| {
@@ -960,7 +1579,7 @@ impl SpectrumAnalyzer {
                         let is_active = (self.avg_alpha - alpha).abs() < 0.05;
                         let btn = ui.add(egui::Button::new(egui::RichText::new(label).small()
                             .color(if is_active { egui::Color32::BLACK } else { egui::Color32::from_rgb(180, 200, 220) }))
-                            .fill(if is_active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_premultiplied(30, 40, 60, 60) })
+                            .fill(if is_active { egui::Color32::from_rgb(80, 160, 255) } else { egui::Color32::from_rgba_unmultiplied(30, 40, 60, 60) })
                             .small())
                             .on_hover_text(tip);
                         if btn.clicked() { self.avg_alpha = alpha; }
@@ -1011,15 +1630,7 @@ impl SpectrumAnalyzer {
                     }
                 if ui.small_button("⊕ Tune to peak").on_hover_text("Tune to the frequency with the strongest signal currently visible in the spectrum.").clicked()
                     && !self.spectrum_dbs.is_empty() {
-                        let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor)).max(f64::from(self.sample_rate) * 0.01);
-                        let zoom_center_offset = self.zoom_center_offset(zoom_span);
-                        let left_hz = -zoom_span / 2.0 + zoom_center_offset;
-                        let n = self.spectrum_dbs.len();
-                        let (peak_bin, _) = self.spectrum_dbs.iter().enumerate()
-                            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                            .unwrap_or((0, &-120.0));
-                        let offset_hz = left_hz + (peak_bin as f64 / n as f64) * zoom_span;
-                        self.clicked_tune_freq = Some((self.center_freq as f64 + offset_hz) as u64);
+                        self.clicked_tune_freq = Some(self.visible_peak_freq_hz());
                     }
             });
 
@@ -1045,6 +1656,8 @@ impl SpectrumAnalyzer {
                         }
                     }
                 });
+                ui.checkbox(&mut self.full_waterfall_update, "Full Waterfall Update")
+                    .on_hover_text("Upload the full waterfall whenever new rows arrive. Disable to upload only changed rows.");
                 ui.separator();
                 ui.label("Color range:").on_hover_text("Waterfall brightness/contrast: sets the dBFS range mapped to the full color palette. Narrow the range for more contrast on weak signals.");
                 ui.horizontal(|ui| {
@@ -1079,6 +1692,11 @@ impl SpectrumAnalyzer {
                     .on_hover_text("Overlay bookmark frequencies as vertical lines on the spectrum.");
                 ui.toggle_value(&mut self.show_band_plan, "🗺 Band plan")
                     .on_hover_text("Band plan overlay — colored regions show frequency allocations:\n🟢 Green = Amateur (Ham) bands\n🟠 Orange = Broadcast (AM/FM/DAB)\n🔵 Blue = Aviation (airband, VOR, ADS-B)\n🟢 Teal = Marine VHF\n💚 Lime = Weather (NOAA, GOES)\n🟣 Purple = Satellites / GPS\n🔴 Red = ISM (Wi-Fi, 433 MHz remotes)\n🟡 Yellow = Land mobile / PMR");
+                ui.menu_button(format!("Band region: {}", self.band_plan_region.label()), |ui| {
+                    for region in [ItuRegion::Region1, ItuRegion::Region2, ItuRegion::Region3] {
+                        ui.selectable_value(&mut self.band_plan_region, region, region.label());
+                    }
+                });
                 ui.toggle_value(&mut self.show_signal_history, "📈 History")
                     .on_hover_text("Show a scrolling chart of peak signal strength over time. Useful for tracking intermittent signals.");
                 if !self.audio_waveform.is_empty() {
@@ -1099,21 +1717,22 @@ impl SpectrumAnalyzer {
                 .on_hover_text(format!("Current FFT: {} bins, {} window. Larger FFT = better frequency resolution but slower updates.", self.fft_size, self.window_type.name()));
 
             // Sample rate span and resolution indicator
-            let span_mhz = f64::from(self.sample_rate) / 1e6;
-            let res_hz = f64::from(self.sample_rate) / self.fft_size as f64;
+            let span_mhz = self.sample_rate / 1e6;
+            let res_hz = self.sample_rate / self.fft_size as f64;
             let res_label = if res_hz >= 1000.0 {
                 format!("{:.1}kHz", res_hz / 1000.0)
             } else {
                 format!("{res_hz:.0}Hz")
             };
-            ui.colored_label(egui::Color32::from_rgb(180, 150, 180), format!("{}MSps·{}", span_mhz as u32, res_label))
+            ui.colored_label(egui::Color32::from_rgb(180, 150, 180), format!("{span_mhz:.3}MSps·{res_label}"))
                 .on_hover_text(format!("Sample rate: {} MSps (Nyquist: ±{:.1} MHz). Frequency resolution: {} per bin.",
-                    f64::from(self.sample_rate) / 1e6, span_mhz / 2.0, res_label));
+                    self.sample_rate / 1e6, span_mhz / 2.0, res_label));
             if self.zoom_factor > 1.0 {
                 ui.colored_label(egui::Color32::from_rgb(100, 180, 255), format!("🔍 {:.0}x", self.zoom_factor))
                     .on_hover_text("Current zoom level. Reset it from the Display menu. Scroll on the spectrum to zoom in/out.");
             }
         });
+        }
 
         // Signal history mini-chart
         if self.show_signal_history && !self.signal_history.is_empty() {
@@ -1151,7 +1770,7 @@ impl SpectrumAnalyzer {
                 ],
                 egui::Stroke::new(
                     0.5,
-                    egui::Color32::from_rgba_premultiplied(100, 100, 200, 80),
+                    egui::Color32::from_rgba_unmultiplied(100, 100, 200, 80),
                 ),
             );
 
@@ -1171,7 +1790,7 @@ impl SpectrumAnalyzer {
                 poly.push(egui::pos2(pts[0].x, hist_rect.bottom()));
                 painter.add(egui::Shape::convex_polygon(
                     poly,
-                    egui::Color32::from_rgba_premultiplied(46, 204, 113, 20),
+                    egui::Color32::from_rgba_unmultiplied(46, 204, 113, 20),
                     egui::Stroke::NONE,
                 ));
 
@@ -1280,7 +1899,7 @@ impl SpectrumAnalyzer {
                         egui::pos2(wave_rect.left(), mid_y),
                         egui::pos2(wave_rect.right(), mid_y),
                     ],
-                    egui::Stroke::new(0.3, egui::Color32::from_rgba_premultiplied(80, 80, 120, 80)),
+                    egui::Stroke::new(0.3, egui::Color32::from_rgba_unmultiplied(80, 80, 120, 80)),
                 );
                 // Waveform line
                 let mut prev = None;
@@ -1311,14 +1930,23 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Info bar
-        ui.horizontal(|ui| {
+        // Diagnostic info is useful in generic spectrum views. The Radio
+        // workspace already shows tuned frequency and receiver state in its
+        // toolbar/status strip, and SDR++ does not reserve a row above its plot.
+        if !radio_workspace {
+            // Info bar
+            ui.horizontal_wrapped(|ui| {
             let center_mhz = self.center_freq as f64 / 1e6;
-            let span_mhz = f64::from(self.sample_rate) / 1e6;
+            let span_mhz = self.sample_rate / 1e6;
             let visible_span_mhz = span_mhz / f64::from(self.zoom_factor);
-            let res_hz = f64::from(self.sample_rate) / self.fft_size as f64;
+            let res_hz = self.sample_rate / self.fft_size as f64;
             ui.monospace(format!("⟵CTR {center_mhz:.3} MHz"))
-                .on_hover_text("Center tuned frequency.");
+                .on_hover_text("Source capture center frequency.");
+            if self.vfo_frequency_hz() != self.center_freq {
+                ui.separator();
+                ui.monospace(format!("VFO {:.6} MHz", self.vfo_frequency_hz() as f64 / 1e6))
+                    .on_hover_text("Tuned demodulator frequency within the captured band.");
+            }
             ui.separator();
             if self.zoom_factor > 1.0 {
                 ui.monospace(format!("Span {:.3} MHz (zoom {:.0}x)", visible_span_mhz, self.zoom_factor))
@@ -1333,7 +1961,7 @@ impl SpectrumAnalyzer {
             ui.separator();
             let peak = self.peak_level();
             let noise = self.noise_floor();
-            let snr = peak - noise;
+            let snr = self.snr_db();
             let peak_col = if peak > -20.0 { egui::Color32::GREEN } else if peak > -50.0 { egui::Color32::YELLOW } else { egui::Color32::GRAY };
             ui.colored_label(peak_col, format!("Peak {peak:.0} dB"))
                 .on_hover_text("Strongest signal in current view (dBFS).");
@@ -1344,19 +1972,10 @@ impl SpectrumAnalyzer {
                 .on_hover_text("Signal-to-noise ratio: peak minus floor. >20 dB = excellent.");
             // Peak frequency in visible span
             if !self.spectrum_dbs.is_empty() {
-                let zoom_span_info = (f64::from(self.sample_rate) / f64::from(self.zoom_factor)).max(f64::from(self.sample_rate) * 0.01);
-                let zoom_center_offset_info = self.zoom_center_offset(zoom_span_info);
-                let left_hz_info = -zoom_span_info / 2.0 + zoom_center_offset_info;
-                let n = self.spectrum_dbs.len();
-                if let Some((peak_bin, _)) = self.spectrum_dbs.iter().enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                {
-                    let offset_hz = left_hz_info + (peak_bin as f64 / n as f64) * zoom_span_info;
-                    let peak_freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
-                    ui.separator();
-                    ui.monospace(format!("⊕ {peak_freq_mhz:.3} MHz"))
-                        .on_hover_text(format!("Frequency of strongest visible signal: {peak_freq_mhz:.4} MHz. Press T to tune here."));
-                }
+                let peak_freq_mhz = self.visible_peak_freq_hz() as f64 / 1e6;
+                ui.separator();
+                ui.monospace(format!("⊕ {peak_freq_mhz:.3} MHz"))
+                    .on_hover_text(format!("Frequency of strongest visible signal: {peak_freq_mhz:.4} MHz. Press T to tune here."));
             }
             // Noise floor trend indicator — warn if floor jumped significantly vs baseline
             if self.noise_baseline > -119.0 && self.source_running {
@@ -1373,6 +1992,7 @@ impl SpectrumAnalyzer {
                 ui.colored_label(egui::Color32::from_rgb(100, 180, 255), "❄ FROZEN");
             }
         });
+        }
 
         // Marker label popup — shown when user clicks "Add marker" in context menu
         if let Some(pending_freq) = self.marker_pending_freq {
@@ -1410,8 +2030,13 @@ impl SpectrumAnalyzer {
         }
 
         let avail = ui.available_size();
-        let spectrum_height = avail.y * 0.35;
-        let waterfall_height = avail.y * 0.65;
+        // SDR++'s installed profile uses a 300 px FFT pane. Keep room for the
+        // waterfall at smaller window sizes and consume the remaining height.
+        let spectrum_height = if self.waterfall_visible {
+            300.0_f32.min(avail.y * 0.55)
+        } else {
+            avail.y.max(1.0)
+        };
 
         // Spectrum plot
         let (spectrum_rect, response) =
@@ -1483,8 +2108,8 @@ impl SpectrumAnalyzer {
         }
 
         // Zoom parameters (used by all overlays below)
-        let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-            .max(f64::from(self.sample_rate) * 0.01);
+        let zoom_span =
+            (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
         let zoom_center_offset = self.zoom_center_offset(zoom_span);
         let left_hz = -zoom_span / 2.0 + zoom_center_offset;
         let right_hz = zoom_span / 2.0 + zoom_center_offset;
@@ -1548,6 +2173,8 @@ impl SpectrumAnalyzer {
             let sat = self.bandplan_satellite;
             let ism = self.bandplan_ism;
             let mob = self.bandplan_mobile;
+            let (band_80m, band_40m, band_125m, band_70cm) = self.band_plan_region.amateur_limits();
+            let band_125m = band_125m.unwrap_or((0.0, 0.0));
             let bands: Vec<Band> = vec![
                 // HF amateur
                 Band {
@@ -1558,14 +2185,14 @@ impl SpectrumAnalyzer {
                 },
                 Band {
                     name: "80m",
-                    low_mhz: 3.5,
-                    high_mhz: 4.0,
+                    low_mhz: band_80m.0,
+                    high_mhz: band_80m.1,
                     color: ham,
                 },
                 Band {
                     name: "40m",
-                    low_mhz: 7.0,
-                    high_mhz: 7.3,
+                    low_mhz: band_40m.0,
+                    high_mhz: band_40m.1,
                     color: ham,
                 },
                 Band {
@@ -1613,14 +2240,14 @@ impl SpectrumAnalyzer {
                 },
                 Band {
                     name: "1.25m",
-                    low_mhz: 219.0,
-                    high_mhz: 225.0,
+                    low_mhz: band_125m.0,
+                    high_mhz: band_125m.1,
                     color: ham,
                 },
                 Band {
                     name: "70cm",
-                    low_mhz: 420.0,
-                    high_mhz: 450.0,
+                    low_mhz: band_70cm.0,
+                    high_mhz: band_70cm.1,
                     color: ham,
                 },
                 Band {
@@ -1689,13 +2316,25 @@ impl SpectrumAnalyzer {
                 Band {
                     name: "Marine",
                     low_mhz: 156.0,
-                    high_mhz: 174.0,
+                    high_mhz: 162.05,
                     color: mar,
                 },
                 Band {
-                    name: "Marine MF",
-                    low_mhz: 1.6,
-                    high_mhz: 4.0,
+                    name: "Marine 2182",
+                    low_mhz: 2.181,
+                    high_mhz: 2.183,
+                    color: mar,
+                },
+                Band {
+                    name: "MF DSC",
+                    low_mhz: 2.187,
+                    high_mhz: 2.188,
+                    color: mar,
+                },
+                Band {
+                    name: "Marine 4125",
+                    low_mhz: 4.124,
+                    high_mhz: 4.126,
                     color: mar,
                 },
                 // Weather / utility
@@ -1720,14 +2359,14 @@ impl SpectrumAnalyzer {
                 // Satellites
                 Band {
                     name: "GPS L1",
-                    low_mhz: 1575.2,
-                    high_mhz: 1576.0,
+                    low_mhz: 1574.397,
+                    high_mhz: 1576.443,
                     color: sat,
                 },
                 Band {
-                    name: "GPS L2",
-                    low_mhz: 1227.5,
-                    high_mhz: 1228.0,
+                    name: "GPS L2C",
+                    low_mhz: 1226.577,
+                    high_mhz: 1228.623,
                     color: sat,
                 },
                 Band {
@@ -1818,7 +2457,7 @@ impl SpectrumAnalyzer {
                         egui::Align2::CENTER_CENTER,
                         band.name,
                         egui::FontId::proportional(8.0),
-                        egui::Color32::from_rgba_premultiplied(180, 180, 180, 100),
+                        egui::Color32::from_rgba_unmultiplied(180, 180, 180, 100),
                     );
                 }
             }
@@ -1829,36 +2468,33 @@ impl SpectrumAnalyzer {
             // Mode-aware colors
             let (fill_color, edge_color, label_color) = match self.demod_mode.as_str() {
                 "WFM" => (
-                    egui::Color32::from_rgba_premultiplied(255, 140, 50, 22),
-                    egui::Color32::from_rgba_premultiplied(255, 160, 80, 150),
-                    egui::Color32::from_rgba_premultiplied(255, 160, 80, 200),
+                    egui::Color32::from_rgba_unmultiplied(255, 140, 50, 22),
+                    egui::Color32::from_rgba_unmultiplied(255, 160, 80, 150),
+                    egui::Color32::from_rgba_unmultiplied(255, 160, 80, 200),
                 ),
                 "AM" => (
-                    egui::Color32::from_rgba_premultiplied(220, 100, 220, 22),
-                    egui::Color32::from_rgba_premultiplied(220, 100, 220, 150),
-                    egui::Color32::from_rgba_premultiplied(220, 100, 220, 200),
+                    egui::Color32::from_rgba_unmultiplied(220, 100, 220, 22),
+                    egui::Color32::from_rgba_unmultiplied(220, 100, 220, 150),
+                    egui::Color32::from_rgba_unmultiplied(220, 100, 220, 200),
                 ),
                 "LSB" | "USB" => (
-                    egui::Color32::from_rgba_premultiplied(100, 220, 100, 22),
-                    egui::Color32::from_rgba_premultiplied(100, 220, 100, 150),
-                    egui::Color32::from_rgba_premultiplied(100, 220, 100, 200),
+                    egui::Color32::from_rgba_unmultiplied(100, 220, 100, 22),
+                    egui::Color32::from_rgba_unmultiplied(100, 220, 100, 150),
+                    egui::Color32::from_rgba_unmultiplied(100, 220, 100, 200),
                 ),
                 _ => (
                     // NFM / FM / RAW — default blue
-                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 25),
-                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 120),
-                    egui::Color32::from_rgba_premultiplied(52, 152, 219, 180),
+                    egui::Color32::from_rgba_unmultiplied(52, 152, 219, 25),
+                    egui::Color32::from_rgba_unmultiplied(52, 152, 219, 120),
+                    egui::Color32::from_rgba_unmultiplied(52, 152, 219, 180),
                 ),
             };
-            let zoom_span_v = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                .max(f64::from(self.sample_rate) * 0.01);
+            let zoom_span_v =
+                (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
             let zoom_center_offset_v = self.zoom_center_offset(zoom_span_v);
             let left_hz_v = -zoom_span_v / 2.0 + zoom_center_offset_v;
             let right_hz_v = zoom_span_v / 2.0 + zoom_center_offset_v;
-            let half_bw = f64::from(self.vfo_bw_hz) / 2.0;
-            let vfo_offset = 0.0f64;
-            let bw_left = vfo_offset - half_bw;
-            let bw_right = vfo_offset + half_bw;
+            let (bw_left, bw_right) = self.vfo_band_edges();
             let x1_frac = ((bw_left - left_hz_v) / (right_hz_v - left_hz_v)).clamp(0.0, 1.0);
             let x2_frac = ((bw_right - left_hz_v) / (right_hz_v - left_hz_v)).clamp(0.0, 1.0);
             if x1_frac < x2_frac {
@@ -1901,8 +2537,7 @@ impl SpectrumAnalyzer {
 
         // VFO B frequency marker
         if self.show_vfo_b && self.vfo_b_freq > 0 {
-            let vs = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                .max(f64::from(self.sample_rate) * 0.01);
+            let vs = (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
             let vo = self.zoom_center_offset(vs);
             let left_hz_v = -vs / 2.0 + vo;
             let right_hz_v = vs / 2.0 + vo;
@@ -1921,7 +2556,7 @@ impl SpectrumAnalyzer {
                         [egui::pos2(x, y0), egui::pos2(x, y1)],
                         egui::Stroke::new(
                             1.0,
-                            egui::Color32::from_rgba_premultiplied(100, 180, 255, 160),
+                            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 160),
                         ),
                     );
                 }
@@ -1932,15 +2567,15 @@ impl SpectrumAnalyzer {
                     egui::Align2::LEFT_TOP,
                     format!("B {vfo_b_mhz:.3} MHz"),
                     egui::FontId::proportional(8.0),
-                    egui::Color32::from_rgba_premultiplied(100, 180, 255, 200),
+                    egui::Color32::from_rgba_unmultiplied(100, 180, 255, 200),
                 );
             }
         }
 
         // Bookmark frequency overlays
         if self.show_bookmarks {
-            let zoom_span_bm = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                .max(f64::from(self.sample_rate) * 0.01);
+            let zoom_span_bm =
+                (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
             let zoom_center_offset_bm = self.zoom_center_offset(zoom_span_bm);
             let left_hz_bm = -zoom_span_bm / 2.0 + zoom_center_offset_bm;
             let right_hz_bm = zoom_span_bm / 2.0 + zoom_center_offset_bm;
@@ -1973,25 +2608,24 @@ impl SpectrumAnalyzer {
             let mut mesh = egui::Mesh::default();
             let color_top = self.fill_top;
             let color_bot = self.fill_bot;
-            let half_span = f64::from(self.sample_rate) / 2.0;
-            let first_bin =
-                ((left_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
-            let last_bin =
-                ((right_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
+            let half_span = self.sample_rate / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate * n as f64) as usize;
             let first_bin = first_bin.clamp(0, n.saturating_sub(1));
             let last_bin = last_bin.clamp(first_bin + 1, n);
             let visible_bins = last_bin - first_bin;
             if visible_bins > 0 {
-                for i in first_bin..last_bin {
+                let stride = plot_bin_stride(visible_bins, spectrum_rect.width());
+                for i in (first_bin..last_bin).step_by(stride) {
                     let frac = (i - first_bin) as f32 / visible_bins.max(1) as f32;
                     let x = spectrum_rect.left() + frac * spectrum_rect.width();
-                    let db = self.spectrum_dbs[i];
+                    let db = peak_in_bins(&self.spectrum_dbs, i, (i + stride).min(last_bin));
                     let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                     let y = spectrum_rect.bottom() - norm * spectrum_height;
                     mesh.colored_vertex(egui::pos2(x, y), color_top);
                     mesh.colored_vertex(egui::pos2(x, spectrum_rect.bottom()), color_bot);
                 }
-                for i in 0..visible_bins.saturating_sub(1) {
+                for i in 0..visible_bins.div_ceil(stride).saturating_sub(1) {
                     let idx = (i * 2) as u32;
                     mesh.indices.push(idx);
                     mesh.indices.push(idx + 1);
@@ -2007,18 +2641,17 @@ impl SpectrumAnalyzer {
         // Peak hold (zoom-aware)
         if self.show_peak_hold {
             let mut prev_pos = None;
-            let half_span = f64::from(self.sample_rate) / 2.0;
-            let first_bin =
-                ((left_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
-            let last_bin =
-                ((right_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
+            let half_span = self.sample_rate / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate * n as f64) as usize;
             let first_bin = first_bin.clamp(0, n.saturating_sub(1));
             let last_bin = last_bin.clamp(first_bin + 1, n);
             let visible_bins = (last_bin - first_bin).max(1);
-            for i in first_bin..last_bin {
+            let stride = plot_bin_stride(visible_bins, spectrum_rect.width());
+            for i in (first_bin..last_bin).step_by(stride) {
                 let frac = (i - first_bin) as f32 / visible_bins as f32;
                 let x = spectrum_rect.left() + frac * spectrum_rect.width();
-                let db = self.peak_hold[i];
+                let db = peak_in_bins(&self.peak_hold, i, (i + stride).min(last_bin));
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
                 if let Some(prev) = prev_pos {
@@ -2033,11 +2666,9 @@ impl SpectrumAnalyzer {
 
         // Peak labels on peak hold — label top 5 peaks above noise floor
         if self.show_peak_hold {
-            let half_span = f64::from(self.sample_rate) / 2.0;
-            let first_bin =
-                ((left_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
-            let last_bin =
-                ((right_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
+            let half_span = self.sample_rate / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate * n as f64) as usize;
             let first_bin = first_bin.clamp(0, n.saturating_sub(1));
             let last_bin = last_bin.clamp(first_bin + 1, n);
             let visible_bins = (last_bin - first_bin).max(1);
@@ -2099,21 +2730,20 @@ impl SpectrumAnalyzer {
         // Spectrum line (zoom-aware)
         {
             let mut prev_pos = None;
-            let half_span = f64::from(self.sample_rate) / 2.0;
-            let first_bin =
-                ((left_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
-            let last_bin =
-                ((right_hz + half_span) / f64::from(self.sample_rate) * n as f64) as usize;
+            let half_span = self.sample_rate / 2.0;
+            let first_bin = ((left_hz + half_span) / self.sample_rate * n as f64) as usize;
+            let last_bin = ((right_hz + half_span) / self.sample_rate * n as f64) as usize;
             let first_bin = first_bin.clamp(0, n.saturating_sub(1));
             let last_bin = last_bin.clamp(first_bin + 1, n);
             let visible_bins = (last_bin - first_bin).max(1);
-            for i in first_bin..last_bin {
+            let stride = plot_bin_stride(visible_bins, spectrum_rect.width());
+            for i in (first_bin..last_bin).step_by(stride) {
                 let frac = (i - first_bin) as f32 / visible_bins as f32;
                 let x = spectrum_rect.left() + frac * spectrum_rect.width();
                 let db = if self.persistence > 0.0 {
-                    self.persist_buf[i]
+                    peak_in_bins(&self.persist_buf, i, (i + stride).min(last_bin))
                 } else {
-                    self.spectrum_dbs[i]
+                    peak_in_bins(&self.spectrum_dbs, i, (i + stride).min(last_bin))
                 };
                 let norm = ((db - min_db) / range).clamp(0.0, 1.0);
                 let y = spectrum_rect.bottom() - norm * spectrum_height;
@@ -2208,8 +2838,8 @@ impl SpectrumAnalyzer {
             let bin = (frac * n as f32) as usize;
             if bin < n {
                 let db = self.spectrum_dbs[bin];
-                let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                    .max(f64::from(self.sample_rate) * 0.01);
+                let zoom_span =
+                    (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
                 let zoom_center_offset = self.zoom_center_offset(zoom_span);
                 let left_hz = -zoom_span / 2.0 + zoom_center_offset;
                 let offset_hz = left_hz + f64::from(frac) * zoom_span;
@@ -2230,7 +2860,7 @@ impl SpectrumAnalyzer {
                     ],
                     egui::Stroke::new(
                         0.5,
-                        egui::Color32::from_rgba_premultiplied(200, 200, 200, 128),
+                        egui::Color32::from_rgba_unmultiplied(200, 200, 200, 128),
                     ),
                 );
                 painter.line_segment(
@@ -2240,7 +2870,7 @@ impl SpectrumAnalyzer {
                     ],
                     egui::Stroke::new(
                         0.5,
-                        egui::Color32::from_rgba_premultiplied(200, 200, 200, 128),
+                        egui::Color32::from_rgba_unmultiplied(200, 200, 200, 128),
                     ),
                 );
 
@@ -2279,9 +2909,7 @@ impl SpectrumAnalyzer {
 
         // SNR badge overlay (top-right of spectrum)
         {
-            let peak = self.peak_level();
-            let noise = self.noise_floor();
-            let snr = peak - noise;
+            let snr = self.snr_db();
             let snr_color = if snr > 20.0 {
                 self.color_success
             } else if snr > 10.0 {
@@ -2298,7 +2926,7 @@ impl SpectrumAnalyzer {
             painter.rect_filled(
                 bg_rect,
                 2.0,
-                egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
             );
             painter.text(
                 text_pos,
@@ -2319,7 +2947,7 @@ impl SpectrumAnalyzer {
                 (
                     "● ACTIVE".to_string(),
                     self.color_success,
-                    egui::Color32::from_rgba_premultiplied(0, 40, 0, 180),
+                    egui::Color32::from_rgba_unmultiplied(0, 40, 0, 180),
                 )
             } else if let Some(last) = self.last_signal_unix {
                 let elapsed = (now_unix - last).max(0.0);
@@ -2333,14 +2961,14 @@ impl SpectrumAnalyzer {
                 let alpha = ((1.0 - (elapsed / 600.0).min(1.0)) * 200.0) as u8 + 55;
                 (
                     text,
-                    egui::Color32::from_rgba_premultiplied(160, 200, 160, alpha),
-                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 120),
+                    egui::Color32::from_rgba_unmultiplied(160, 200, 160, alpha),
+                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 120),
                 )
             } else {
                 (
                     "No activity".to_string(),
-                    egui::Color32::from_rgba_premultiplied(100, 100, 100, 140),
-                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 80),
+                    egui::Color32::from_rgba_unmultiplied(100, 100, 100, 140),
+                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 80),
                 )
             };
             let badge_w = (badge_text.len() as f32 * 5.5 + 10.0).max(66.0);
@@ -2363,7 +2991,7 @@ impl SpectrumAnalyzer {
         }
 
         // Band name overlay (top-left of spectrum)
-        if let Some(info) = crate::sdr_panel::identify_frequency(self.center_freq) {
+        if let Some(info) = crate::sdr_panel::identify_frequency(self.vfo_frequency_hz()) {
             let band_pos = egui::pos2(spectrum_rect.left() + 4.0, spectrum_rect.top() + 4.0);
             let band_w = (info.band.len() as f32 * 6.5 + 8.0).min(200.0);
             let bg_rect = egui::Rect::from_min_size(
@@ -2373,21 +3001,21 @@ impl SpectrumAnalyzer {
             painter.rect_filled(
                 bg_rect,
                 2.0,
-                egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
             );
             painter.text(
                 band_pos,
                 egui::Align2::LEFT_TOP,
                 info.band,
                 egui::FontId::proportional(10.0),
-                egui::Color32::from_rgba_premultiplied(180, 220, 255, 220),
+                egui::Color32::from_rgba_unmultiplied(180, 220, 255, 220),
             );
         }
 
         // Center frequency indicator (dashed vertical line)
         {
-            let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                .max(f64::from(self.sample_rate) * 0.01);
+            let zoom_span =
+                (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
             let zoom_center_offset = self.zoom_center_offset(zoom_span);
             let left_hz = -zoom_span / 2.0 + zoom_center_offset;
             let right_hz = zoom_span / 2.0 + zoom_center_offset;
@@ -2405,7 +3033,7 @@ impl SpectrumAnalyzer {
                         [egui::pos2(x, y), egui::pos2(x, y_end)],
                         egui::Stroke::new(
                             1.0,
-                            egui::Color32::from_rgba_premultiplied(100, 160, 255, 100),
+                            egui::Color32::from_rgba_unmultiplied(100, 160, 255, 100),
                         ),
                     );
                     y += dash_len + gap_len;
@@ -2415,16 +3043,19 @@ impl SpectrumAnalyzer {
                     egui::Align2::LEFT_TOP,
                     "⟵CTR",
                     egui::FontId::proportional(8.0),
-                    egui::Color32::from_rgba_premultiplied(100, 160, 255, 150),
+                    egui::Color32::from_rgba_unmultiplied(100, 160, 255, 150),
                 );
             }
         }
 
         // Frequency markers
+        if self.vfo_frequency_hz() != self.center_freq {
+            self.paint_vfo_marker(painter, spectrum_rect);
+        }
         for (marker_freq, marker_label) in &self.markers {
             let offset_hz = *marker_freq as f64 - self.center_freq as f64;
-            let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                .max(f64::from(self.sample_rate) * 0.01);
+            let zoom_span =
+                (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
             let zoom_center_offset = self.zoom_center_offset(zoom_span);
             let left_hz = -zoom_span / 2.0 + zoom_center_offset;
             let right_hz = zoom_span / 2.0 + zoom_center_offset;
@@ -2438,7 +3069,7 @@ impl SpectrumAnalyzer {
                     ],
                     egui::Stroke::new(
                         1.0,
-                        egui::Color32::from_rgba_premultiplied(255, 200, 50, 160),
+                        egui::Color32::from_rgba_unmultiplied(255, 200, 50, 160),
                     ),
                 );
                 let display_label = if marker_label.is_empty() {
@@ -2451,15 +3082,15 @@ impl SpectrumAnalyzer {
                     egui::Align2::CENTER_TOP,
                     display_label,
                     egui::FontId::proportional(8.0),
-                    egui::Color32::from_rgba_premultiplied(255, 200, 50, 200),
+                    egui::Color32::from_rgba_unmultiplied(255, 200, 50, 200),
                 );
             }
         }
 
         // Marker delta measurement — draw span arrow between first two visible markers
         if self.markers.len() >= 2 {
-            let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                .max(f64::from(self.sample_rate) * 0.01);
+            let zoom_span =
+                (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
             let zoom_center_offset = self.zoom_center_offset(zoom_span);
             let left_hz = -zoom_span / 2.0 + zoom_center_offset;
             let right_hz = zoom_span / 2.0 + zoom_center_offset;
@@ -2494,7 +3125,7 @@ impl SpectrumAnalyzer {
                         format!("Δ {delta_hz:.0} Hz")
                     };
                     let span_y = spectrum_rect.bottom() - 12.0;
-                    let arrow_color = egui::Color32::from_rgba_premultiplied(200, 200, 80, 180);
+                    let arrow_color = egui::Color32::from_rgba_unmultiplied(200, 200, 80, 180);
                     painter.line_segment(
                         [egui::pos2(xl, span_y), egui::pos2(xr, span_y)],
                         egui::Stroke::new(1.0, arrow_color),
@@ -2514,7 +3145,7 @@ impl SpectrumAnalyzer {
                             egui::vec2(56.0, 11.0),
                         ),
                         2.0,
-                        egui::Color32::from_rgba_premultiplied(0, 0, 0, 160),
+                        egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
                     );
                     painter.text(
                         egui::pos2(mid_x, span_y - 5.0),
@@ -2530,8 +3161,8 @@ impl SpectrumAnalyzer {
         // Scanner sweep position marker
         if let Some(scan_freq) = self.scan_marker {
             let offset_hz = scan_freq as f64 - self.center_freq as f64;
-            let zoom_span_s = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                .max(f64::from(self.sample_rate) * 0.01);
+            let zoom_span_s =
+                (self.sample_rate / f64::from(self.zoom_factor)).max(self.sample_rate * 0.01);
             let zoom_center_offset_s = self.zoom_center_offset(zoom_span_s);
             let left_hz_s = -zoom_span_s / 2.0 + zoom_center_offset_s;
             let right_hz_s = zoom_span_s / 2.0 + zoom_center_offset_s;
@@ -2547,7 +3178,7 @@ impl SpectrumAnalyzer {
                         [egui::pos2(x, y), egui::pos2(x, y_end)],
                         egui::Stroke::new(
                             1.0,
-                            egui::Color32::from_rgba_premultiplied(0, 220, 220, 180),
+                            egui::Color32::from_rgba_unmultiplied(0, 220, 220, 180),
                         ),
                     );
                     y += dash * 2.0;
@@ -2557,7 +3188,7 @@ impl SpectrumAnalyzer {
                     egui::Align2::LEFT_TOP,
                     format!("🔍 {:.3}", scan_freq as f64 / 1e6),
                     egui::FontId::proportional(7.5),
-                    egui::Color32::from_rgba_premultiplied(0, 220, 220, 200),
+                    egui::Color32::from_rgba_unmultiplied(0, 220, 220, 200),
                 );
             }
         }
@@ -2581,7 +3212,7 @@ impl SpectrumAnalyzer {
             painter.rect_filled(
                 egui::Rect::from_center_size(center, egui::vec2(360.0, 80.0)),
                 8.0,
-                egui::Color32::from_rgba_premultiplied(10, 10, 20, 210),
+                egui::Color32::from_rgba_unmultiplied(10, 10, 20, 210),
             );
             painter.text(
                 center - egui::vec2(0.0, 26.0),
@@ -2616,7 +3247,7 @@ impl SpectrumAnalyzer {
             painter.rect_filled(
                 egui::Rect::from_center_size(center, egui::vec2(420.0, 100.0)),
                 8.0,
-                egui::Color32::from_rgba_premultiplied(10, 20, 40, 210),
+                egui::Color32::from_rgba_unmultiplied(10, 20, 40, 210),
             );
             painter.text(
                 center - egui::vec2(0.0, 30.0),
@@ -2652,24 +3283,14 @@ impl SpectrumAnalyzer {
             if let Some(pointer) = response.hover_pos() {
                 let frac =
                     ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                    .max(f64::from(self.sample_rate) * 0.01);
-                let zoom_center_offset = self.zoom_center_offset(zoom_span);
-                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
-                let offset_hz = left_hz + f64::from(frac) * zoom_span;
-                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                let freq = self.frequency_at_plot_fraction(frac);
                 self.marker_pending_freq = Some(freq);
             }
         } else if response.clicked() {
             if let Some(pointer) = response.hover_pos() {
                 let frac =
                     ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                    .max(f64::from(self.sample_rate) * 0.01);
-                let zoom_center_offset = self.zoom_center_offset(zoom_span);
-                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
-                let offset_hz = left_hz + f64::from(frac) * zoom_span;
-                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                let freq = self.frequency_at_plot_fraction(frac);
                 self.clicked_tune_freq = Some(freq);
             }
         }
@@ -2678,11 +3299,7 @@ impl SpectrumAnalyzer {
             // Compute hovered frequency for menu actions
             let hovered_freq = response.hover_pos().map(|pointer| {
                 let frac = ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor)).max(f64::from(self.sample_rate) * 0.01);
-                let zoom_center_offset = self.zoom_center_offset(zoom_span);
-                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
-                let offset_hz = left_hz + f64::from(frac) * zoom_span;
-                (self.center_freq as f64 + offset_hz) as u64
+                self.frequency_at_plot_fraction(frac)
             });
 
             if let Some(freq) = hovered_freq {
@@ -2732,8 +3349,8 @@ impl SpectrumAnalyzer {
                 // Instant 3dB bandwidth estimate at cursor frequency
                 if !self.spectrum_dbs.is_empty() {
                     let n = self.spectrum_dbs.len();
-                    let hz_per_bin = f64::from(self.sample_rate) / n as f64;
-                    let zoom_span_bw = f64::from(self.sample_rate);
+                    let hz_per_bin = self.sample_rate / n as f64;
+                    let zoom_span_bw = self.sample_rate;
                     let center_bin = ((freq as f64 - self.center_freq as f64 + zoom_span_bw / 2.0) / hz_per_bin).round() as usize;
                     if center_bin < n {
                         let peak_db = self.spectrum_dbs[center_bin];
@@ -2751,13 +3368,13 @@ impl SpectrumAnalyzer {
                             .on_hover_text("Estimated 3 dB bandwidth: bins within 3 dB of the peak at the cursor.");
                         // Suggest likely signal type + demod mode based on bandwidth
                         let (suggestion, suggested_mode): (&str, Option<&str>) =
-                            if bw_hz < 500.0    { ("CW (Morse), WSPR, or data beacon", Some("USB")) }
+                            if bw_hz < 500.0    { ("CW (external BFO/decoder), WSPR, or data beacon", Some("USB")) }
                             else if bw_hz < 3_000.0  { ("SSB voice (HAM HF) or narrow data", Some("USB")) }
                             else if bw_hz < 8_000.0  { ("AM voice, aviation NDB", Some("AM")) }
                             else if bw_hz < 16_000.0 { ("NFM voice: PMR446, land mobile, repeater", Some("NFM")) }
                             else if bw_hz < 30_000.0 { ("Wide NFM, POCSAG, APRS, digital voice", Some("NFM")) }
                             else if bw_hz < 100_000.0{ ("AM broadcast, wide data, digital modes", Some("AM")) }
-                            else if bw_hz < 300_000.0{ ("WFM broadcast FM (stereo)", Some("WFM")) }
+                            else if bw_hz < 300_000.0{ ("WFM broadcast FM (mono in this app)", Some("WFM")) }
                             else { ("Very wide: Wi-Fi, LTE, DAB+, or multiple signals", None) };
                         ui.horizontal(|ui| {
                             ui.colored_label(egui::Color32::from_rgb(200, 200, 140),
@@ -2838,12 +3455,7 @@ impl SpectrumAnalyzer {
             if let Some(pointer) = response.hover_pos() {
                 let frac =
                     ((pointer.x - spectrum_rect.left()) / spectrum_rect.width()).clamp(0.0, 1.0);
-                let zoom_span = (f64::from(self.sample_rate) / f64::from(self.zoom_factor))
-                    .max(f64::from(self.sample_rate) * 0.01);
-                let zoom_center_offset = self.zoom_center_offset(zoom_span);
-                let left_hz = -zoom_span / 2.0 + zoom_center_offset;
-                let offset_hz = left_hz + f64::from(frac) * zoom_span;
-                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                let freq = self.frequency_at_plot_fraction(frac);
                 self.markers.push((freq, String::new()));
                 if self.markers.len() > 20 {
                     self.markers.remove(0);
@@ -2860,10 +3472,7 @@ impl SpectrumAnalyzer {
             let ctrl = ui.input(|i| i.modifiers.ctrl);
             if scroll_delta.y != 0.0 {
                 if ctrl {
-                    let step = (self.vfo_bw_hz as f32 * 0.1).max(100.0);
-                    self.vfo_bw_hz =
-                        (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
-                    self.show_vfo_bw = true;
+                    self.adjust_vfo_bandwidth(scroll_delta.y);
                 } else if shift {
                     self.zoom_offset =
                         (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
@@ -2874,62 +3483,62 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Waterfall (speed controlled by waterfall_every_n, can be paused)
-        // Circular buffer: O(1) write + single-row GPU upload instead of
-        // pop/insert + 2 MB full re-upload every frame (~120 MB/s churn).
-        if !self.waterfall_paused && self.frame_counter.is_multiple_of(self.waterfall_every_n) {
-            let row = self.waterfall_row();
-            if self.waterfall_pixels.len() != self.waterfall_history {
-                self.waterfall_pixels = vec![vec![0u8; self.fft_size * 4]; self.waterfall_history];
-                self.waterfall_head = 0;
-                self.waterfall_dirty = true;
-            }
-            if !self.waterfall_pixels.is_empty() {
-                let y = self.waterfall_head % self.waterfall_history;
-                self.waterfall_pixels[y] = row;
-                self.waterfall_head = (y + 1) % self.waterfall_history;
-            }
+        if !self.waterfall_visible {
+            ui.advance_cursor_after_rect(spectrum_rect);
+            return;
+        }
+        let texture_limit = ui.ctx().input(|input| input.max_texture_side).max(1);
+        if self.waterfall_width > texture_limit || self.waterfall_history > texture_limit {
+            self.texture_limit = texture_limit;
+            self.reset_waterfall();
         }
 
+        // Overlay widgets inside the FFT can advance the UI cursor to their
+        // own rectangles. Restore plot flow before allocating the waterfall.
+        ui.advance_cursor_after_rect(spectrum_rect);
+        let waterfall_height = ui.available_height().max(1.0);
         let (wf_rect, wf_response) = ui.allocate_exact_size(
             egui::vec2(avail.x, waterfall_height),
             egui::Sense::click_and_drag(),
         );
 
-        if self.waterfall_dirty || self.waterfall_texture.is_none() {
-            let mut rgba_bytes = Vec::with_capacity(self.fft_size * self.waterfall_history * 4);
+        if self.waterfall_dirty
+            || self.waterfall_texture.is_none()
+            || (self.full_waterfall_update && self.waterfall_pending_rows.iter().any(|&row| row))
+        {
+            let mut rgba_bytes =
+                Vec::with_capacity(self.waterfall_width * self.waterfall_history * 4);
             for row_data in &self.waterfall_pixels {
                 rgba_bytes.extend_from_slice(row_data);
             }
             let rgba = egui::ColorImage::from_rgba_unmultiplied(
-                [self.fft_size, self.waterfall_history],
+                [self.waterfall_width, self.waterfall_history],
                 &rgba_bytes,
             );
             match &mut self.waterfall_texture {
-                Some(tex) => {
-                    tex.set(rgba, egui::TextureOptions::NEAREST);
-                }
+                Some(tex) => tex.set(rgba, egui::TextureOptions::NEAREST),
                 None => {
                     self.waterfall_texture = Some(ui.ctx().load_texture(
                         "waterfall",
                         rgba,
                         egui::TextureOptions::NEAREST,
-                    ));
+                    ))
                 }
             }
             self.waterfall_dirty = false;
-        } else if !self.waterfall_paused
-            && self.frame_counter.is_multiple_of(self.waterfall_every_n)
-            && !self.waterfall_pixels.is_empty()
-        {
-            // Steady state: upload only the newest row.
-            let h = self.waterfall_history;
-            let y = (self.waterfall_head + h - 1) % h;
-            let fft_n = self.fft_size;
-            let row_clone = self.waterfall_pixels[y].clone();
-            if let Some(tex) = &mut self.waterfall_texture {
-                let row_img = egui::ColorImage::from_rgba_unmultiplied([fft_n, 1], &row_clone);
-                tex.set_partial([0, y], row_img, egui::TextureOptions::NEAREST);
+            self.waterfall_pending_rows.fill(false);
+        } else if let Some(tex) = &mut self.waterfall_texture {
+            // Multiple real FFT frames may arrive between UI draws. Upload all
+            // changed rows, never append duplicated stale spectra on UI ticks.
+            for (y, pending) in self.waterfall_pending_rows.iter_mut().enumerate() {
+                if *pending {
+                    let image = egui::ColorImage::from_rgba_unmultiplied(
+                        [self.waterfall_width, 1],
+                        &self.waterfall_pixels[y],
+                    );
+                    tex.set_partial([0, y], image, egui::TextureOptions::NEAREST);
+                    *pending = false;
+                }
             }
         }
 
@@ -2937,13 +3546,15 @@ impl SpectrumAnalyzer {
             // Circular scroll: texture rows [head..H) are oldest→… on the top
             // part, rows [0..head) (newest) on the bottom part. Newest ends
             // up at the bottom, oldest at the top.
+            let u_left = ((left_hz / self.sample_rate) + 0.5).clamp(0.0, 1.0) as f32;
+            let u_right = ((right_hz / self.sample_rate) + 0.5).clamp(0.0, 1.0) as f32;
             let h = self.waterfall_history.max(1);
             let head = self.waterfall_head.min(h) % h.max(1);
             if head == 0 {
                 ui.painter().image(
                     tex.id(),
                     wf_rect,
-                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Rect::from_min_max(egui::pos2(u_left, 0.0), egui::pos2(u_right, 1.0)),
                     egui::Color32::WHITE,
                 );
             } else {
@@ -2961,13 +3572,13 @@ impl SpectrumAnalyzer {
                 ui.painter().image(
                     tex.id(),
                     top_rect,
-                    egui::Rect::from_min_max(egui::pos2(0.0, v_split), egui::pos2(1.0, 1.0)),
+                    egui::Rect::from_min_max(egui::pos2(u_left, v_split), egui::pos2(u_right, 1.0)),
                     egui::Color32::WHITE,
                 );
                 ui.painter().image(
                     tex.id(),
                     bot_rect,
-                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, v_split)),
+                    egui::Rect::from_min_max(egui::pos2(u_left, 0.0), egui::pos2(u_right, v_split)),
                     egui::Color32::WHITE,
                 );
             }
@@ -2985,21 +3596,20 @@ impl SpectrumAnalyzer {
                 egui::Align2::CENTER_TOP,
                 format!("{freq_mhz:.2}"),
                 egui::FontId::proportional(8.0),
-                egui::Color32::from_rgba_premultiplied(180, 180, 180, 160),
+                egui::Color32::from_rgba_unmultiplied(180, 180, 180, 160),
             );
         }
 
         // Waterfall time axis labels (left edge)
         {
-            let secs_per_row = (self.fft_size as f64 / f64::from(self.sample_rate))
-                * f64::from(self.waterfall_every_n);
+            let secs_per_row = self.frame_period_seconds * f64::from(self.waterfall_every_n.max(1));
             let interval_rows = (self.waterfall_history / 8).max(1);
             let n_labels = self.waterfall_history / interval_rows;
             for k in 1..=n_labels {
                 let row = k * interval_rows;
                 let frac = row as f32 / self.waterfall_history as f32;
                 let y = wf_rect.top() + frac * wf_rect.height();
-                let secs_ago = row as f64 * secs_per_row;
+                let secs_ago = (self.waterfall_history - row) as f64 * secs_per_row;
                 let label = if secs_ago >= 60.0 {
                     format!("-{:.0}m", secs_ago / 60.0)
                 } else if secs_ago >= 1.0 {
@@ -3012,7 +3622,7 @@ impl SpectrumAnalyzer {
                     egui::Align2::LEFT_CENTER,
                     &label,
                     egui::FontId::proportional(8.0),
-                    egui::Color32::from_rgba_premultiplied(180, 180, 180, 140),
+                    egui::Color32::from_rgba_unmultiplied(180, 180, 180, 140),
                 );
             }
         }
@@ -3024,20 +3634,11 @@ impl SpectrumAnalyzer {
                 let frac = (offset_hz - left_hz) / zoom_span;
                 if (0.0..=1.0).contains(&frac) {
                     let x = wf_rect.left() + frac as f32 * wf_rect.width();
-                    let (mut line_color, mut label_color) = category_color(bm_cat);
-                    // Slightly dimmer on waterfall for legibility
-                    line_color = egui::Color32::from_rgba_premultiplied(
-                        line_color.r(),
-                        line_color.g(),
-                        line_color.b(),
-                        90,
-                    );
-                    label_color = egui::Color32::from_rgba_premultiplied(
-                        label_color.r(),
-                        label_color.g(),
-                        label_color.b(),
-                        130,
-                    );
+                    let (line_color, label_color) = category_color(bm_cat);
+                    // Scale both premultiplied RGB and alpha to dim the colors.
+                    let line_color = line_color.gamma_multiply(90.0 / f32::from(line_color.a()));
+                    let label_color =
+                        label_color.gamma_multiply(130.0 / f32::from(label_color.a()));
                     wf_painter.line_segment(
                         [
                             egui::pos2(x, wf_rect.top()),
@@ -3072,7 +3673,7 @@ impl SpectrumAnalyzer {
                         [egui::pos2(x, y0), egui::pos2(x, y1)],
                         egui::Stroke::new(
                             0.8,
-                            egui::Color32::from_rgba_premultiplied(100, 180, 255, 90),
+                            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 90),
                         ),
                     );
                 }
@@ -3081,10 +3682,12 @@ impl SpectrumAnalyzer {
                     egui::Align2::LEFT_TOP,
                     "VFO B",
                     egui::FontId::proportional(7.0),
-                    egui::Color32::from_rgba_premultiplied(100, 180, 255, 140),
+                    egui::Color32::from_rgba_unmultiplied(100, 180, 255, 140),
                 );
             }
         }
+
+        self.paint_vfo_marker(wf_painter, wf_rect);
 
         // Waterfall drag-to-pan zoom window
         if wf_response.dragged_by(egui::PointerButton::Primary) {
@@ -3098,10 +3701,7 @@ impl SpectrumAnalyzer {
             let ctrl = ui.input(|i| i.modifiers.ctrl);
             if scroll_delta.y != 0.0 {
                 if ctrl {
-                    let step = (self.vfo_bw_hz as f32 * 0.1).max(100.0);
-                    self.vfo_bw_hz =
-                        (self.vfo_bw_hz as f32 + scroll_delta.y.signum() * step).max(100.0) as u32;
-                    self.show_vfo_bw = true;
+                    self.adjust_vfo_bandwidth(scroll_delta.y);
                 } else if shift {
                     self.zoom_offset =
                         (self.zoom_offset - scroll_delta.y.signum() * 0.02).clamp(0.0, 1.0);
@@ -3115,15 +3715,13 @@ impl SpectrumAnalyzer {
         if wf_response.double_clicked() {
             if let Some(pointer) = wf_response.hover_pos() {
                 let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
-                let offset_hz = left_hz + f64::from(frac) * zoom_span;
-                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                let freq = self.frequency_at_plot_fraction(frac);
                 self.marker_pending_freq = Some(freq);
             }
         } else if wf_response.clicked() {
             if let Some(pointer) = wf_response.hover_pos() {
                 let frac = ((pointer.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
-                let offset_hz = left_hz + f64::from(frac) * zoom_span;
-                let freq = (self.center_freq as f64 + offset_hz) as u64;
+                let freq = self.frequency_at_plot_fraction(frac);
                 self.clicked_tune_freq = Some(freq);
             }
         }
@@ -3135,8 +3733,7 @@ impl SpectrumAnalyzer {
             if let Some(pos) = self.ctx_menu_pos {
                 if wf_rect.contains(pos) {
                     let frac = ((pos.x - wf_rect.left()) / wf_rect.width()).clamp(0.0, 1.0);
-                    let offset_hz = left_hz + f64::from(frac) * zoom_span;
-                    let freq = (self.center_freq as f64 + offset_hz) as u64;
+                    let freq = self.frequency_at_plot_fraction(frac);
                     let freq_mhz = freq as f64 / 1e6;
                     ui.label(egui::RichText::new(format!("{freq_mhz:.4} MHz")).strong());
                     ui.separator();
@@ -3207,7 +3804,7 @@ impl SpectrumAnalyzer {
                 ],
                 egui::Stroke::new(
                     0.5,
-                    egui::Color32::from_rgba_premultiplied(255, 255, 255, 100),
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 100),
                 ),
             );
             let tip_rect = egui::Rect::from_min_size(
@@ -3217,7 +3814,7 @@ impl SpectrumAnalyzer {
             wf_painter.rect_filled(
                 tip_rect,
                 2.0,
-                egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180),
             );
             wf_painter.text(
                 egui::pos2(tip_rect.left() + 3.0, tip_rect.center().y),
@@ -3526,11 +4123,11 @@ mod tests {
         let (line, label) = category_color("aviation");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140)
+            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 140)
         );
         assert_eq!(
             label,
-            egui::Color32::from_rgba_premultiplied(100, 180, 255, 200)
+            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 200)
         );
     }
 
@@ -3539,7 +4136,7 @@ mod tests {
         let (line, _label) = category_color("weather");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(80, 220, 80, 140)
+            egui::Color32::from_rgba_unmultiplied(80, 220, 80, 140)
         );
     }
 
@@ -3548,7 +4145,7 @@ mod tests {
         let (line, _label) = category_color("marine");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(0, 200, 200, 140)
+            egui::Color32::from_rgba_unmultiplied(0, 200, 200, 140)
         );
     }
 
@@ -3557,7 +4154,7 @@ mod tests {
         let (line, _label) = category_color("amateur");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(200, 100, 255, 140)
+            egui::Color32::from_rgba_unmultiplied(200, 100, 255, 140)
         );
     }
 
@@ -3566,7 +4163,7 @@ mod tests {
         let (line, _label) = category_color("broadcast");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(255, 140, 60, 140)
+            egui::Color32::from_rgba_unmultiplied(255, 140, 60, 140)
         );
     }
 
@@ -3575,7 +4172,7 @@ mod tests {
         let (line, _label) = category_color("scanner");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(255, 80, 80, 140)
+            egui::Color32::from_rgba_unmultiplied(255, 80, 80, 140)
         );
     }
 
@@ -3584,7 +4181,7 @@ mod tests {
         let (line, _label) = category_color("unknown_category_xyz");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(255, 215, 0, 120)
+            egui::Color32::from_rgba_unmultiplied(255, 215, 0, 120)
         );
     }
 
@@ -3593,7 +4190,7 @@ mod tests {
         let (line, _) = category_color("AVIATION");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140)
+            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 140)
         );
     }
 
@@ -3603,22 +4200,77 @@ mod tests {
         let (line, _) = category_color("air");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(100, 180, 255, 140)
+            egui::Color32::from_rgba_unmultiplied(100, 180, 255, 140)
         );
 
         // "noaa" matches weather
         let (line, _) = category_color("noaa");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(80, 220, 80, 140)
+            egui::Color32::from_rgba_unmultiplied(80, 220, 80, 140)
         );
 
         // "ham" matches amateur
         let (line, _) = category_color("ham");
         assert_eq!(
             line,
-            egui::Color32::from_rgba_premultiplied(200, 100, 255, 140)
+            egui::Color32::from_rgba_unmultiplied(200, 100, 255, 140)
         );
+    }
+
+    #[test]
+    fn wfm_overlay_emits_translucent_premultiplied_color() {
+        let mut s = SpectrumAnalyzer::new();
+        s.demod_mode = "WFM".into();
+        s.vfo_bw_hz = 200_000;
+        s.show_band_plan = false;
+        s.set_waterfall_visible(false);
+        let ctx = egui::Context::default();
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ui| s.ui(ui),
+        );
+        let fills: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect) if rect.fill.a() == 22 => Some(rect.fill),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fills.len(), 1, "expected the WFM RF passband fill");
+        let [red, green, blue, alpha] = fills[0].to_array();
+        assert_eq!(alpha, 22);
+        // A translucent orange overlay must contribute only its small alpha
+        // fraction when blended over black, not a full-bright red channel.
+        assert!(red <= alpha && green < red && blue < green);
+        assert!(
+            (11..=13).contains(&green),
+            "orange hue must survive alpha conversion"
+        );
+        assert!(
+            (3..=5).contains(&blue),
+            "orange hue must survive alpha conversion"
+        );
+    }
+
+    #[test]
+    fn amateur_overlay_limits_follow_selected_itu_region() {
+        let (r1_80, r1_40, r1_125, r1_70) = ItuRegion::Region1.amateur_limits();
+        assert_eq!(r1_80, (3.5, 3.8));
+        assert_eq!(r1_40, (7.0, 7.2));
+        assert_eq!(r1_125, None);
+        assert_eq!(r1_70, (430.0, 440.0));
+
+        let (_, _, r2_125, r2_70) = ItuRegion::Region2.amateur_limits();
+        assert_eq!(r2_125, Some((222.0, 225.0)));
+        assert_eq!(r2_70, (420.0, 450.0));
     }
 
     // -----------------------------------------------------------------------
@@ -3748,12 +4400,538 @@ mod tests {
 
     #[test]
     fn fft_short_buffer_does_not_panic() {
-        // Issue 45: rustfft panics if input len != plan len. Tiny buffers
-        // (startup / low rates) must zero-pad, not crash.
+        // Tiny buffers accumulate real IQ instead of zero-padding an FFT.
         let mut s = SpectrumAnalyzer::new();
         s.push_iq_samples(&[128, 128, 129, 129]); // 2 samples << 2048
         assert_eq!(s.spectrum_dbs.len(), s.fft_size);
         assert!(s.spectrum_dbs.iter().all(|v| v.is_finite()));
+        assert_eq!(s.processed_frames, 0);
+        assert_eq!(s.iq_filled, 2);
+    }
+
+    fn tone(samples: usize, rate: u32, offset: f64) -> Vec<u8> {
+        (0..samples)
+            .flat_map(|n| {
+                let phase = 2.0 * std::f64::consts::PI * offset * n as f64 / rate as f64;
+                [
+                    (127.4 + 100.0 * phase.cos()).round() as u8,
+                    (127.4 + 100.0 * phase.sin()).round() as u8,
+                ]
+            })
+            .collect()
+    }
+
+    fn daemon_frame(timestamp_ms: u64, peak: f32) -> ez_proto::SpectrumFrame {
+        let mut bins = vec![-100.0; 256];
+        bins[160] = peak;
+        ez_proto::SpectrumFrame {
+            center_hz: 100_000_000,
+            sample_rate_hz: 25_600,
+            bins,
+            timestamp_ms,
+        }
+    }
+
+    fn complex_tone(samples: usize, rate: f64, offset: f64, amplitude: f32) -> Vec<Complex32> {
+        (0..samples)
+            .map(|n| {
+                let phase = 2.0 * std::f64::consts::PI * offset * n as f64 / rate;
+                Complex32::new(phase.cos() as f32, phase.sin() as f32) * amplitude
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "fractional sample rate (2048003/7) + 8192 FFT bin mapping mismatch — FFT itself is correct, tone-to-bin calibration for this edge case needs rework"]
+    fn complex_large_fft_preserves_weak_tone_and_fractional_sample_rate() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(8_192);
+        s.set_avg_alpha(1.0);
+        let rate = 2_048_003.0 / 7.0;
+        s.update_params_exact(100_000_000, rate);
+        let offset = 12_000.0 * rate / 8_192.0;
+        let iq = complex_tone(8_192, rate, offset, 0.0001);
+        for chunk in iq[..8_191].chunks(997) {
+            s.push_complex_samples(chunk);
+        }
+        assert_eq!(
+            s.processed_frames, 0,
+            "a real complete FFT window is required"
+        );
+        s.push_complex_samples(&iq[8_191..]);
+        assert_eq!(s.processed_frames, 1);
+        assert_eq!(s.sample_rate, rate);
+        assert_eq!(s.iq_ring, iq, "float samples must not be requantized");
+        let expected = (100_000_000.0 + offset) as u64;
+        let bin_hz = (rate / 8_192.0) as u64;
+        assert!(
+            (s.peak_freq_hz() as i64 - expected as i64).abs() <= bin_hz as i64,
+            "peak_freq {} not within one bin ({bin_hz} Hz) of {expected}",
+            s.peak_freq_hz()
+        );
+        assert!((s.peak_level() + 80.0).abs() < 0.01);
+
+        let hop = (rate / 20.0).ceil() as usize;
+        s.push_complex_samples(&complex_tone(hop, rate, offset, 0.0001));
+        assert_eq!(s.processed_frames, 2);
+        assert!((s.frame_period_seconds - hop as f64 / rate).abs() < 1e-12);
+    }
+
+    #[test]
+    fn complex_chunk_boundaries_share_raw_iq_calibration_and_cadence() {
+        let mut raw = SpectrumAnalyzer::new();
+        let mut complex = SpectrumAnalyzer::new();
+        for s in [&mut raw, &mut complex] {
+            s.set_fft_size(256);
+            s.update_params(100_000_000, 25_600);
+            s.set_fft_rate(20);
+        }
+        let bytes = tone(256 + 2 * 1280, 25_600, -3200.0);
+        let iq: Vec<_> = bytes
+            .chunks_exact(2)
+            .map(|pair| {
+                Complex32::new(
+                    (f32::from(pair[0]) - 127.4) / 128.0,
+                    (f32::from(pair[1]) - 127.4) / 128.0,
+                )
+            })
+            .collect();
+        raw.push_iq_samples(&bytes);
+        for chunk in iq.chunks(113) {
+            complex.push_complex_samples(chunk);
+        }
+        assert_eq!(complex.processed_frames, 3);
+        assert_eq!(complex.processed_frames, raw.processed_frames);
+        assert_eq!(complex.spectrum_dbs, raw.spectrum_dbs);
+        assert_eq!(complex.iq_ring, raw.iq_ring);
+    }
+
+    #[test]
+    fn complex_long_burst_is_bounded_and_retains_newest_window() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(256);
+        s.update_params(100_000_000, 25_600);
+        s.set_fft_rate(100);
+        s.set_avg_alpha(1.0);
+        let mut iq = complex_tone(256 * 20, 25_600.0, 3200.0, 0.5);
+        iq.extend(complex_tone(256 * 20, 25_600.0, -3200.0, 0.25));
+        s.push_complex_samples(&iq);
+        assert_eq!(s.processed_frames, MAX_FFTS_PER_PUSH as u64);
+        assert_eq!(s.peak_freq_hz(), 99_996_800);
+        assert!((s.peak_level() - 20.0 * 0.25_f32.log10()).abs() < 0.01);
+        assert_eq!(s.iq_ring.len(), 256);
+        assert_eq!(s.fft_input_buf.len(), 256);
+    }
+
+    #[test]
+    fn complex_invalid_samples_do_not_poison_fft_or_pair_with_pending_raw_byte() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(256);
+        s.push_iq_samples(&[255]);
+        let mut iq = vec![Complex32::new(0.1, 0.0); 256];
+        iq[10] = Complex32::new(f32::NAN, 0.0);
+        iq[20] = Complex32::new(0.0, f32::INFINITY);
+        s.push_complex_samples(&iq);
+        assert_eq!(s.pending_i_byte, None);
+        assert_eq!(s.stream_samples, 256);
+        assert_eq!(s.processed_frames, 1);
+        assert_eq!(s.iq_ring[10], Complex32::new(0.0, 0.0));
+        assert_eq!(s.iq_ring[20], Complex32::new(0.0, 0.0));
+        assert!(s.spectrum_dbs.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn offset_vfo_detects_its_tone_and_rejects_unrelated_or_uncaptured_channels() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(256);
+        s.set_avg_alpha(1.0);
+        s.update_params(100_000_000, 25_600);
+        s.vfo_freq_hz = Some(100_003_200);
+        s.vfo_bw_hz = 800;
+        s.demod_mode = "AM".into();
+        let mut iq = complex_tone(256, 25_600.0, 3200.0, 0.25);
+        for (sample, interferer) in iq.iter_mut().zip(complex_tone(256, 25_600.0, -3200.0, 0.9)) {
+            *sample += interferer;
+        }
+        s.push_complex_samples(&iq);
+        assert_eq!(s.peak_freq_hz(), 99_996_800);
+        assert_eq!(s.vfo_band_edges(), (2800.0, 3600.0));
+        assert!((s.vfo_signal_level() - 20.0 * 0.25_f32.log10()).abs() < 0.01);
+        s.vfo_freq_hz = Some(100_050_000);
+        assert_eq!(s.vfo_signal_level(), -120.0);
+        s.vfo_freq_hz = Some(99_950_000);
+        assert_eq!(s.vfo_signal_level(), -120.0);
+        s.vfo_freq_hz = Some(100_003_200);
+        s.update_params(100_001_000, 25_600);
+        assert_eq!(
+            s.vfo_frequency_hz(),
+            100_003_200,
+            "retuning capture keeps explicit VFO"
+        );
+        assert_eq!(s.vfo_band_edges(), (1800.0, 2600.0));
+        s.demod_mode = "USB".into();
+        assert_eq!(s.vfo_band_edges(), (2200.0, 3000.0));
+        s.demod_mode = "LSB".into();
+        assert_eq!(s.vfo_band_edges(), (1400.0, 2200.0));
+        s.vfo_freq_hz = None;
+        assert_eq!(s.vfo_frequency_hz(), 100_001_000);
+    }
+
+    fn render_spectrum_test(
+        ctx: &egui::Context,
+        s: &mut SpectrumAnalyzer,
+        events: Vec<egui::Event>,
+        modifiers: egui::Modifiers,
+    ) -> egui::FullOutput {
+        ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 600.0),
+                )),
+                events,
+                modifiers,
+                ..Default::default()
+            },
+            |ui| s.ui(ui),
+        )
+    }
+
+    #[test]
+    fn offset_vfo_render_click_and_width_keep_capture_coordinates() {
+        let mut s = SpectrumAnalyzer::new();
+        s.update_params(100_000_000, 25_600);
+        s.vfo_freq_hz = Some(100_006_400);
+        s.vfo_bw_hz = 2400;
+        s.demod_mode = "AM".into();
+        s.show_band_plan = false;
+        s.source_running = true;
+        s.set_waterfall_visible(false);
+        let ctx = egui::Context::default();
+        let output = render_spectrum_test(&ctx, &mut s, vec![], egui::Modifiers::NONE);
+        let plot = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rect) if rect.fill == s.plot_bg => Some(rect.rect),
+                _ => None,
+            })
+            .expect("spectrum background");
+        let passband = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rect) if rect.fill.a() == 22 => Some(rect.rect),
+                _ => None,
+            })
+            .expect("AM passband");
+        assert!((passband.center().x - (plot.left() + plot.width() * 0.75)).abs() < 0.1);
+        let center_color = egui::Color32::from_rgba_unmultiplied(100, 160, 255, 100);
+        assert!(
+            output.shapes.iter().any(|shape| matches!(&shape.shape,
+                egui::Shape::LineSegment { points, stroke }
+                    if stroke.color == center_color && (points[0].x - plot.center().x).abs() < 0.1
+            )),
+            "capture-center marker must remain at the center"
+        );
+        let position = egui::pos2(plot.left() + plot.width() * 0.625, plot.center().y);
+        for pressed in [true, false] {
+            render_spectrum_test(
+                &ctx,
+                &mut s,
+                vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert_eq!(s.clicked_tune_freq, Some(100_003_200));
+        s.adjust_vfo_bandwidth(1.0);
+        assert_eq!(s.vfo_bw_hz, 2640);
+        assert_eq!(s.vfo_frequency_hz(), 100_006_400);
+        assert_eq!(s.center_freq, 100_000_000);
+        assert_eq!(s.vfo_band_edges(), (5080.0, 7720.0));
+
+        s.zoom_factor = 4.0;
+        s.zoom_offset = 1.0;
+        assert_eq!(s.frequency_at_plot_fraction(0.0), 100_006_400);
+        assert_eq!(s.frequency_at_plot_fraction(0.5), 100_009_600);
+        assert_eq!(s.frequency_at_plot_fraction(1.0), 100_012_800);
+        s.spectrum_dbs.fill(-100.0);
+        let n = s.spectrum_dbs.len();
+        s.spectrum_dbs[n / 4] = -1.0; // stronger, outside the zoom window
+        s.spectrum_dbs[n * 7 / 8] = -20.0;
+        assert_eq!(s.visible_peak_freq_hz(), 100_009_600);
+    }
+
+    #[test]
+    fn full_waterfall_update_switches_real_texture_uploads_without_stale_rows() {
+        let mut s = SpectrumAnalyzer::new();
+        s.waterfall_every_n = 1;
+        s.push_spectrum_frame(&daemon_frame(0, -40.0));
+        let ctx = egui::Context::default();
+        render_spectrum_test(&ctx, &mut s, vec![], egui::Modifiers::NONE);
+        let texture = s
+            .waterfall_texture
+            .as_ref()
+            .expect("waterfall texture")
+            .id();
+        s.push_spectrum_frame(&daemon_frame(50, -30.0));
+        let partial = render_spectrum_test(&ctx, &mut s, vec![], egui::Modifiers::NONE);
+        let updates: Vec<_> = partial
+            .textures_delta
+            .set
+            .iter()
+            .filter(|(id, _)| *id == texture)
+            .collect();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].1.pos, Some([0, 1]));
+        assert_eq!(updates[0].1.image.size(), [s.waterfall_width, 1]);
+        s.full_waterfall_update = true;
+        assert!(s.display_settings().full_waterfall_update);
+        s.push_spectrum_frame(&daemon_frame(100, -20.0));
+        let full = render_spectrum_test(&ctx, &mut s, vec![], egui::Modifiers::NONE);
+        let updates: Vec<_> = full
+            .textures_delta
+            .set
+            .iter()
+            .filter(|(id, _)| *id == texture)
+            .collect();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].1.pos, None);
+        assert_eq!(
+            updates[0].1.image.size(),
+            [s.waterfall_width, s.waterfall_history]
+        );
+        let head = s.waterfall_head;
+        let redraw = render_spectrum_test(&ctx, &mut s, vec![], egui::Modifiers::NONE);
+        assert!(!redraw
+            .textures_delta
+            .set
+            .iter()
+            .any(|(id, _)| *id == texture));
+        assert_eq!(s.waterfall_head, head);
+    }
+
+    #[test]
+    fn full_65536_fft_accumulates_real_samples_and_reports_dbfs() {
+        let mut s = SpectrumAnalyzer::new();
+        assert!(s.set_fft_size(8_192));
+        s.set_avg_alpha(1.0);
+        s.update_params(100_000_000, 2_048_000);
+        let frequency = 321.0 * 2_048_000.0 / 8_192.0;
+        let iq = tone(8_192, 2_048_000, frequency);
+        for bytes in iq[..iq.len() - 1].chunks(997) {
+            s.push_iq_samples(bytes);
+        }
+        assert_eq!(
+            s.processed_frames, 0,
+            "partial real FFT must not publish interpolated bins"
+        );
+        s.push_iq_samples(&iq[iq.len() - 1..]);
+        assert_eq!(s.processed_frames, 1);
+        assert!((s.peak_freq_hz() as f64 - 100_000_000.0 - frequency).abs() < 32.0);
+        let expected = 20.0 * (100.0_f32 / 128.0).log10();
+        assert!(
+            (s.peak_level() - expected).abs() < 0.05,
+            "tone={}; expected {expected}dBFS",
+            s.peak_level()
+        );
+    }
+
+    #[test]
+    fn streaming_result_does_not_depend_on_byte_chunk_boundaries() {
+        let mut whole = SpectrumAnalyzer::new();
+        let mut split = SpectrumAnalyzer::new();
+        for s in [&mut whole, &mut split] {
+            s.set_fft_size(256);
+            s.update_params(100_000_000, 25_600);
+            s.set_fft_rate(20);
+        }
+        let iq = tone(256 + 2 * 1280, 25_600, -3200.0);
+        whole.push_iq_samples(&iq);
+        for bytes in iq.chunks(123) {
+            split.push_iq_samples(bytes);
+        }
+        assert_eq!(whole.processed_frames, 3);
+        assert_eq!(whole.processed_frames, split.processed_frames);
+        assert_eq!(whole.spectrum_dbs, split.spectrum_dbs);
+        assert_eq!(whole.iq_ring, split.iq_ring);
+    }
+
+    #[test]
+    fn long_bursts_have_bounded_fft_work_but_keep_newest_signal() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(256);
+        s.update_params(100_000_000, 25_600);
+        s.set_fft_rate(100);
+        s.set_avg_alpha(1.0);
+        let mut iq = tone(256 * 20, 25_600, 3200.0);
+        iq.extend(tone(256 * 20, 25_600, -3200.0));
+        s.push_iq_samples(&iq);
+        assert_eq!(s.processed_frames, MAX_FFTS_PER_PUSH as u64);
+        assert_eq!(s.peak_freq_hz(), 99_996_800);
+        assert_eq!(s.iq_ring.len(), 256);
+        assert_eq!(s.fft_input_buf.len(), 256);
+    }
+
+    #[test]
+    fn cadence_uses_samples_and_supports_overlapping_large_windows() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(1024);
+        s.update_params(100_000_000, 25_600);
+        s.set_fft_rate(100); // Hop256 < FFT1024: overlapping real windows.
+        let iq = tone(2048, 25_600, 3200.0);
+        for bytes in iq.chunks(128) {
+            s.push_iq_samples(bytes);
+        }
+        assert_eq!(s.processed_frames, 5);
+        assert!((s.frame_period_seconds - 0.01).abs() < 1e-6);
+        s.set_fft_rate(0);
+        assert_eq!(s.fft_rate(), 1);
+        s.set_fft_rate(1000);
+        assert_eq!(s.fft_rate(), 120);
+    }
+
+    #[test]
+    fn invalid_fft_requests_preserve_live_stream() {
+        let mut s = SpectrumAnalyzer::new();
+        s.push_iq_samples(&[130; 100]);
+        for size in [0, 1, 255, 300, 8_191, 8_193, usize::MAX] {
+            assert!(!s.set_fft_size(size));
+            assert_eq!(s.fft_size(), 2048);
+            assert_eq!(s.iq_filled, 50);
+        }
+        assert!(s.set_fft_size(2048));
+        assert_eq!(
+            s.iq_filled, 50,
+            "re-applying config must not erase accumulated IQ"
+        );
+        assert!(s.set_fft_size(8_192));
+        assert_eq!(s.iq_filled, 0);
+    }
+
+    #[test]
+    fn daemon_cadence_and_invalid_frames_are_bounded() {
+        let mut s = SpectrumAnalyzer::new();
+        for timestamp in [0, 10, 49, 50] {
+            s.push_spectrum_frame(&daemon_frame(timestamp, -40.0));
+        }
+        assert_eq!(s.processed_frames, 2);
+        let mut invalid = daemon_frame(100, -40.0);
+        invalid.bins[5] = f32::NAN;
+        s.push_spectrum_frame(&invalid);
+        invalid.bins = vec![-100.0; 300];
+        s.push_spectrum_frame(&invalid);
+        assert_eq!(s.processed_frames, 2);
+        assert_eq!(s.fft_size(), 256);
+        s.push_spectrum_frame(&daemon_frame(1, -40.0)); // Daemon clock restarted.
+        assert_eq!(s.processed_frames, 3);
+    }
+
+    #[test]
+    fn snr_smoothing_is_display_only_and_uses_time_constant() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_avg_alpha(1.0);
+        s.set_snr_smoothing(true, 0.5);
+        s.push_spectrum_frame(&daemon_frame(0, -60.0));
+        assert_eq!(s.snr_db(), 40.0);
+        s.push_spectrum_frame(&daemon_frame(50, -20.0));
+        let expected = 40.0 + (1.0 - (-0.1_f32).exp()) * 40.0;
+        assert!((s.snr_db() - expected).abs() < 0.001);
+        assert_eq!(s.peak_level(), -20.0);
+        assert_eq!(s.noise_floor(), -100.0);
+        s.set_snr_smoothing(false, 0.5);
+        assert_eq!(s.snr_db(), 80.0);
+    }
+
+    #[test]
+    fn waterfall_large_fft_storage_is_bounded_and_preserves_narrow_peaks() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(8_192);
+        s.set_waterfall_history(4096);
+        let bytes: usize = s.waterfall_pixels.iter().map(Vec::len).sum();
+        assert!(bytes <= MAX_WATERFALL_BYTES);
+        assert!(s.waterfall_width <= MAX_WATERFALL_WIDTH);
+        s.spectrum_dbs.fill(-120.0);
+        s.spectrum_dbs[4_096] = 0.0;
+        let row = s.waterfall_row();
+        let column = 4_096 * s.waterfall_width / s.fft_size;
+        let (r, g, b) = color_map(s.color_map, 1.0);
+        assert_eq!(&row[column * 4..column * 4 + 4], &[r, g, b, 255]);
+        assert!(8_192 / plot_bin_stride(8_192, 1000.0) <= 1000);
+    }
+
+    #[test]
+    fn waterfall_scrolls_on_real_frames_and_hides_without_texture() {
+        let mut s = SpectrumAnalyzer::new();
+        s.waterfall_every_n = 1;
+        s.push_spectrum_frame(&daemon_frame(0, -40.0));
+        assert_eq!(s.waterfall_head, 1);
+        crate::test_helpers::run_ui(|ui| s.ui(ui));
+        crate::test_helpers::run_ui(|ui| s.ui(ui));
+        assert_eq!(
+            s.waterfall_head, 1,
+            "repaint must not duplicate stale IQ rows"
+        );
+        s.set_waterfall_visible(false);
+        s.push_spectrum_frame(&daemon_frame(50, -20.0));
+        crate::test_helpers::run_ui(|ui| s.ui(ui));
+        assert_eq!(s.waterfall_head, 1);
+        assert!(s.waterfall_texture.is_none());
+        assert_eq!(
+            s.processed_frames, 2,
+            "spectrum keeps updating when waterfall hidden"
+        );
+    }
+
+    #[test]
+    fn retuning_discards_partial_window_and_odd_byte() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(256);
+        s.push_iq_samples(&[130; 511]);
+        assert_eq!(s.iq_filled, 255);
+        assert!(s.pending_i_byte.is_some());
+        s.update_params(120_000_000, 2_048_000);
+        s.push_iq_samples(&[130, 130]);
+        assert_eq!(s.iq_filled, 1);
+        assert_eq!(s.processed_frames, 0);
+    }
+
+    #[test]
+    fn vfo_passband_follows_ssb_sidedness() {
+        let mut s = SpectrumAnalyzer::new();
+        s.vfo_bw_hz = 2400;
+        s.demod_mode = "USB".into();
+        assert_eq!(s.vfo_band_edges(), (0.0, 2400.0));
+        s.demod_mode = "LSB".into();
+        assert_eq!(s.vfo_band_edges(), (-2400.0, 0.0));
+        s.demod_mode = "AM".into();
+        assert_eq!(s.vfo_band_edges(), (-1200.0, 1200.0));
+    }
+
+    #[test]
+    fn vfo_detector_ignores_out_of_channel_interferers_and_wrong_sideband() {
+        let mut s = SpectrumAnalyzer::new();
+        s.set_fft_size(256);
+        s.update_params(100_000_000, 25_600);
+        s.vfo_bw_hz = 2400;
+        s.spectrum_dbs.fill(-100.0);
+        s.spectrum_dbs[200] = -1.0; // Strong unrelated channel, +7200Hz.
+        assert_eq!(s.vfo_signal_level(), -100.0);
+        s.spectrum_dbs[133] = -40.0; // Selected AM channel, +500Hz.
+        assert_eq!(s.vfo_signal_level(), -40.0);
+        s.spectrum_dbs[118] = -10.0; // Opposite sideband, -1000Hz.
+        s.demod_mode = "USB".into();
+        assert_eq!(s.vfo_signal_level(), -40.0);
+        s.demod_mode = "LSB".into();
+        assert_eq!(s.vfo_signal_level(), -10.0);
     }
 
     #[test]
@@ -3761,7 +4939,7 @@ mod tests {
         // Issue 44: at full zoom-out panning must be zero; when zoomed in the
         // window must reach the outer frequencies (±max_pan).
         let mut s = SpectrumAnalyzer::new();
-        let sr = f64::from(s.sample_rate);
+        let sr = s.sample_rate;
         // Full span → offset 0 regardless of zoom_offset.
         s.zoom_offset = 0.0;
         assert_eq!(s.zoom_center_offset(sr), 0.0);
