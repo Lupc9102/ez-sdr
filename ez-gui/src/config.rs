@@ -19,6 +19,48 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdvancedConfig {
     // ---------- Audio / DSP ----------
+    /// RF channel width in Hz. Zero chooses the selected mode's default.
+    #[serde(default)]
+    pub radio_bandwidth_hz: f32,
+    /// Zero chooses a tuning step appropriate to the selected demodulator.
+    #[serde(default)]
+    pub radio_snap_hz: u64,
+    /// Audio low-pass cutoff in Hz. Zero chooses the selected mode's default.
+    #[serde(default)]
+    pub audio_cutoff_hz: f32,
+    /// CW beat-frequency oscillator tone in Hz.
+    #[serde(default = "default_cw_tone")]
+    pub cw_tone_hz: f32,
+    #[serde(default)]
+    pub audio_output: crate::audio_output::AudioOutputSelection,
+    #[serde(default)]
+    pub wfm_stereo: bool,
+    #[serde(default)]
+    pub rds_enabled: bool,
+    #[serde(default = "default_enabled")]
+    pub rds_incremental: bool,
+    #[serde(default)]
+    pub rds_info: bool,
+    #[serde(default)]
+    pub rds_region: crate::radio_rds::RdsRegion,
+    #[serde(default = "default_enabled")]
+    pub fm_lowpass: bool,
+    #[serde(default)]
+    pub carrier_agc: bool,
+    #[serde(default = "default_agc_attack_rate")]
+    pub agc_attack_rate: f32,
+    #[serde(default = "default_agc_decay_rate")]
+    pub agc_decay_rate: f32,
+    #[serde(default)]
+    pub fm_if_nr: bool,
+    #[serde(default)]
+    pub fm_if_preset: crate::demod::FmIfPreset,
+    #[serde(default)]
+    pub squelch_mode: crate::radio_squelch::SquelchMode,
+    #[serde(default = "default_squelch_level")]
+    pub squelch_level_db: f32,
+    #[serde(default)]
+    pub ctcss_tone_hz: Option<f32>,
     /// Audio high-pass cutoff (Hz). 0 = disabled.
     #[serde(default)]
     pub audio_hpf_hz: f32,
@@ -61,11 +103,34 @@ pub struct AdvancedConfig {
     /// Extra audio gain multiplier (1.0 = unity).
     #[serde(default)]
     pub audio_gain: f32,
+    /// DSB demodulator sideband selection.
+    #[serde(default)]
+    pub dsb_sideband: crate::demod::DsbSideband,
+    /// CW BFO offset in Hz (added to the CW tone frequency).
+    #[serde(default)]
+    pub cw_offset_hz: f32,
+    /// CW output volume multiplier (0.0 = mute, 1.0 = unity).
+    #[serde(default = "default_cw_volume")]
+    pub cw_volume: f32,
+    /// CW squelch enabled (mutes audio when carrier drops below threshold).
+    #[serde(default)]
+    pub cw_squelch_enabled: bool,
+    /// CW squelch threshold in dB (audio muted below this level).
+    #[serde(default = "default_cw_squelch_level")]
+    pub cw_squelch_level_db: f32,
 
     // ---------- Display / Spectrum ----------
-    /// FFT size (power of two, 256..8192).
+    /// FFT size (power of two, 256..65536).
     #[serde(default)]
     pub fft_size: usize,
+    #[serde(default = "default_fft_rate")]
+    pub fft_rate: u32,
+    #[serde(default = "default_enabled")]
+    pub waterfall_visible: bool,
+    #[serde(default = "default_enabled")]
+    pub snr_smoothing: bool,
+    #[serde(default = "default_snr_smoothing_secs")]
+    pub snr_smoothing_secs: f32,
     /// FFT window name: "Hann" | "Hamming" | "Blackman" | "FlatTop".
     #[serde(default)]
     pub window: String,
@@ -81,7 +146,7 @@ pub struct AdvancedConfig {
     /// Peak-hold decay time (seconds). Larger = peaks linger longer.
     #[serde(default)]
     pub peak_hold_time: f32,
-    /// Spectrum trace averaging alpha (0..1, higher = smoother).
+    /// Spectrum trace new-sample weight (0..1, lower = smoother).
     #[serde(default)]
     pub avg_alpha: f32,
     /// Spectrum persistence / afterglow 0..1 (0 = off).
@@ -107,18 +172,30 @@ pub struct AdvancedConfig {
     /// Direct sampling (RTL-SDR zero-IF mode).
     #[serde(default)]
     pub direct_sampling: bool,
+    #[serde(default)]
+    pub direct_sampling_branch: crate::source_manager::DirectSamplingBranch,
+    #[serde(default)]
+    pub rtl_device: crate::source_manager::RtlDeviceSelection,
+    #[serde(default)]
+    pub offset_tuning: bool,
     /// RF IQ decimation factor (1 = off, 2/4/8 downsample before demod).
     #[serde(default)]
     pub rf_decim: u32,
     /// Remove DC offset from raw IQ.
     #[serde(default)]
     pub rf_dc_remove: bool,
+    #[serde(default)]
+    pub invert_iq: bool,
+    #[serde(default)]
+    pub full_waterfall_update: bool,
     /// RF band-reject notch (software).
     #[serde(default)]
     pub rf_notch: bool,
     /// RF impulse noise blanker (software).
     #[serde(default)]
     pub rf_noise_blanker: bool,
+    #[serde(default = "default_blanker_level")]
+    pub rf_noise_blanker_level: f32,
     /// Bias-T enabled.
     #[serde(default)]
     pub bias_tee: bool,
@@ -153,9 +230,59 @@ pub struct AdvancedConfig {
     pub pass_lead_min: u32,
 }
 
+fn default_cw_tone() -> f32 {
+    800.0
+}
+fn default_fft_rate() -> u32 {
+    20
+}
+fn default_enabled() -> bool {
+    true
+}
+fn default_squelch_level() -> f32 {
+    -100.0
+}
+fn default_agc_attack_rate() -> f32 {
+    50.0
+}
+fn default_agc_decay_rate() -> f32 {
+    5.0
+}
+fn default_blanker_level() -> f32 {
+    1.0
+}
+fn default_snr_smoothing_secs() -> f32 {
+    0.5
+}
+fn default_cw_volume() -> f32 {
+    1.0
+}
+fn default_cw_squelch_level() -> f32 {
+    -60.0
+}
+
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
+            radio_bandwidth_hz: 0.0,
+            radio_snap_hz: 0,
+            audio_cutoff_hz: 0.0,
+            cw_tone_hz: default_cw_tone(),
+            audio_output: crate::audio_output::AudioOutputSelection::default(),
+            wfm_stereo: false,
+            rds_enabled: false,
+            rds_incremental: true,
+            rds_info: false,
+            rds_region: crate::radio_rds::RdsRegion::Europe,
+            fm_lowpass: true,
+            carrier_agc: false,
+            agc_attack_rate: default_agc_attack_rate(),
+            agc_decay_rate: default_agc_decay_rate(),
+            fm_if_nr: false,
+            fm_if_preset: crate::demod::FmIfPreset::Voice,
+            squelch_mode: crate::radio_squelch::SquelchMode::Off,
+            squelch_level_db: default_squelch_level(),
+            ctcss_tone_hz: None,
             audio_hpf_hz: 0.0,
             dc_blocker: 0.0,
             agc_enabled: true,
@@ -170,8 +297,17 @@ impl Default for AdvancedConfig {
             noise_blanker: 0.0,
             pitch_octaves: 0.0,
             audio_gain: 1.0,
+            dsb_sideband: crate::demod::DsbSideband::Both,
+            cw_offset_hz: 0.0,
+            cw_volume: default_cw_volume(),
+            cw_squelch_enabled: false,
+            cw_squelch_level_db: default_cw_squelch_level(),
 
             fft_size: 2048,
+            fft_rate: default_fft_rate(),
+            waterfall_visible: true,
+            snr_smoothing: true,
+            snr_smoothing_secs: default_snr_smoothing_secs(),
             window: "Hann".to_string(),
             wf_speed: 2,
             wf_depth: 256,
@@ -186,10 +322,16 @@ impl Default for AdvancedConfig {
             tuner_agc: false,
             rtl_agc: false,
             direct_sampling: false,
+            direct_sampling_branch: crate::source_manager::DirectSamplingBranch::default(),
+            rtl_device: crate::source_manager::RtlDeviceSelection::default(),
+            offset_tuning: false,
             rf_decim: 1,
             rf_dc_remove: false,
+            invert_iq: false,
+            full_waterfall_update: false,
             rf_notch: false,
             rf_noise_blanker: false,
+            rf_noise_blanker_level: default_blanker_level(),
             bias_tee: false,
             rf_notch_hz: 10_000.0,
 
@@ -232,7 +374,7 @@ impl Default for LayoutConfig {
                 .collect()
         }
         Self {
-            main_tabs: items(&["listen", "planes", "satellites"]),
+            main_tabs: items(&["listen", "planes", "meteor"]),
             secondary_tools: items(&[
                 "bookmarks",
                 "scanner",
@@ -317,147 +459,221 @@ pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
     },
 ];
 
+// Keep the subset copied for a mode switch explicit. Source, output-device,
+// display and recording settings stay global and never enter a mode profile.
+macro_rules! radio_mode_profile {
+    ($($field:ident: $ty:ty),+ $(,)?) => {
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        #[serde(default)]
+        pub struct RadioModeProfile { $(pub $field: $ty),+ }
+
+        impl Default for RadioModeProfile {
+            fn default() -> Self { Self::capture(&AdvancedConfig::default()) }
+        }
+        impl RadioModeProfile {
+            pub fn capture(settings: &AdvancedConfig) -> Self {
+                Self { $($field: settings.$field.clone()),+ }
+            }
+            pub fn apply(&self, settings: &mut AdvancedConfig) {
+                $(settings.$field = self.$field.clone();)+
+            }
+        }
+    };
+}
+radio_mode_profile! {
+    radio_bandwidth_hz: f32,
+    radio_snap_hz: u64,
+    audio_cutoff_hz: f32,
+    cw_tone_hz: f32,
+    wfm_stereo: bool,
+    rds_enabled: bool,
+    rds_incremental: bool,
+    rds_info: bool,
+    rds_region: crate::radio_rds::RdsRegion,
+    fm_lowpass: bool,
+    carrier_agc: bool,
+    agc_enabled: bool,
+    agc_target: f32,
+    agc_attack_rate: f32,
+    agc_decay_rate: f32,
+    fm_if_nr: bool,
+    fm_if_preset: crate::demod::FmIfPreset,
+    squelch_mode: crate::radio_squelch::SquelchMode,
+    squelch_level_db: f32,
+    ctcss_tone_hz: Option<f32>,
+    deemph_tau_us: f32,
+    audio_hpf_hz: f32,
+    rf_noise_blanker: bool,
+    rf_noise_blanker_level: f32,
+}
+
+/// Connection and replay choices are restored without starting a receiver.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SourcePreferences {
+    pub mode: String,
+    pub daemon_address: String,
+    pub replay_file: Option<String>,
+    pub replay_loop: bool,
+    pub replay_speed: f32,
+}
+
+impl Default for SourcePreferences {
+    fn default() -> Self {
+        Self {
+            mode: "demo".into(),
+            daemon_address: "127.0.0.1:7890".into(),
+            replay_file: None,
+            replay_loop: false,
+            replay_speed: 1.0,
+        }
+    }
+}
+
+impl SourcePreferences {
+    pub fn capture(source: &crate::source_manager::SourceManager) -> Self {
+        use crate::source_manager::SourceMode;
+        Self {
+            mode: match source.source_mode {
+                SourceMode::Simulated => "demo",
+                SourceMode::Hardware => "rtl-sdr",
+                SourceMode::Replay => "file",
+                SourceMode::Daemon => "daemon",
+            }
+            .into(),
+            daemon_address: source.daemon_addr.clone(),
+            replay_file: source.replay_file.clone(),
+            replay_loop: source.replay_loop,
+            replay_speed: source.replay_speed,
+        }
+    }
+
+    pub fn restore(&self, source: &mut crate::source_manager::SourceManager) {
+        use crate::source_manager::SourceMode;
+        source.source_mode = match self.mode.as_str() {
+            "rtl-sdr" => SourceMode::Hardware,
+            "file" => SourceMode::Replay,
+            "daemon" => SourceMode::Daemon,
+            _ => SourceMode::Simulated,
+        };
+        source.daemon_addr = self.daemon_address.clone();
+        source.replay_file = self.replay_file.clone();
+        source.replay_loop = self.replay_loop;
+        source.replay_speed = if self.replay_speed.is_finite() && self.replay_speed > 0.0 {
+            self.replay_speed
+        } else {
+            1.0
+        };
+    }
+}
+
 /// Top-level application configuration persisted to `ez_sdr_config.json`.
 ///
 /// Contains all SDR, UI, theme, AI, MQTT, web remote, satellite, and Discord
 /// settings. Serialised/deserialised with serde.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     /// Schema version string.
-    #[serde(default)]
     pub version: String,
     /// Default centre frequency (Hz) on startup.
-    #[serde(default)]
     pub default_freq_hz: u64,
     /// Default sample rate (samples/second).
-    #[serde(default)]
     pub default_sample_rate: u32,
     /// Default RF gain (dB).
-    #[serde(default)]
     pub default_gain: f64,
     /// Directory for saving recorded I/Q and audio files.
-    #[serde(default)]
     pub output_directory: String,
     /// UI theme name ("dark" / "light").
-    #[serde(default)]
     pub theme: String,
     /// AI provider API key.
-    #[serde(default)]
     pub ai_api_key: String,
     /// AI provider API endpoint URL.
-    #[serde(default)]
     pub ai_endpoint: String,
     /// AI model identifier.
-    #[serde(default)]
     pub ai_model: String,
     /// Maximum tokens per AI response.
-    #[serde(default)]
     pub ai_max_tokens: u32,
     /// AI temperature (0.0 – 2.0).
-    #[serde(default)]
     pub ai_temperature: f64,
     /// Custom system prompt for the AI agent.
-    #[serde(default)]
     pub ai_system_prompt: String,
     /// AI provider name (matches a [`ProviderPreset`] entry).
-    #[serde(default)]
     pub ai_provider: String,
     /// Reasoning effort level ("off", "low", "medium", "high").
-    #[serde(default)]
     pub ai_reasoning_effort: String,
     /// Whether the AI agent has web-search capability enabled.
-    #[serde(default)]
     pub ai_web_search: bool,
     /// MQTT broker address (host:port).
-    #[serde(default)]
     pub mqtt_broker: String,
     /// MQTT topic prefix for all published messages.
-    #[serde(default)]
     pub mqtt_topic_prefix: String,
     /// Whether the web remote control server is enabled.
-    #[serde(default)]
     pub web_remote_enabled: bool,
     /// TCP port for the web remote server.
-    #[serde(default)]
     pub web_remote_port: u16,
+    /// Whether the loopback Hamlib/rigctld-compatible server is enabled.
+    pub rigctl_enabled: bool,
+    /// TCP port for the loopback rigctl server.
+    pub rigctl_port: u16,
     /// Observer latitude (decimal degrees, north positive).
-    #[serde(default)]
     pub observer_lat: f64,
     /// Observer longitude (decimal degrees, east positive).
-    #[serde(default)]
     pub observer_lon: f64,
     /// UI font scale multiplier.
-    #[serde(default)]
     pub font_scale: f64,
     /// Flag indicating settings have changed and need to be applied.
-    #[serde(default)]
     pub needs_apply: bool,
     /// Recently tuned frequencies (for quick-access menu).
-    #[serde(default)]
     pub recent_frequencies: Vec<u64>,
     /// Spectrum display minimum (dBFS).
-    #[serde(default)]
     pub spectrum_min_db: f32,
     /// Spectrum display maximum (dBFS).
-    #[serde(default)]
     pub spectrum_max_db: f32,
     /// Frequency correction in parts-per-million.
-    #[serde(default)]
     pub ppm_correction: i32,
     /// VFO B frequency (Hz).
-    #[serde(default)]
     pub vfo_b_hz: u64,
     /// Waterfall colour range minimum (dBFS).
-    #[serde(default)]
     pub wf_min_db: f32,
     /// Waterfall colour range maximum (dBFS).
-    #[serde(default)]
     pub wf_max_db: f32,
     /// Local oscillator offset (Hz) for upconverter / downconverter.
-    #[serde(default)]
     pub lo_offset_hz: i64,
+    /// Keep the tuned VFO at the capture center; false enables digital tuning.
+    pub center_tuning: bool,
+    pub last_session_center_hz: Option<u64>,
     /// Last-used frequency from previous session.
-    #[serde(default)]
     pub last_session_freq_hz: u64,
     /// Last-used gain from previous session.
-    #[serde(default)]
     pub last_session_gain_db: f64,
     /// Last-used demodulation mode from previous session.
-    #[serde(default)]
     pub last_session_demod: String,
+    pub source_preferences: SourcePreferences,
     /// Waterfall colour map name.
-    #[serde(default)]
     pub color_map: String,
     /// Frequency memory slot values (Hz).
-    #[serde(default)]
     pub freq_memory_hz: Vec<u64>,
     /// Frequency memory slot labels.
-    #[serde(default)]
     pub freq_memory_labels: Vec<String>,
     /// Theme configuration (colours, presets).
-    #[serde(default)]
     pub theme_config: ThemeConfig,
     /// Discord notification settings.
-    #[serde(default)]
     pub discord: DiscordSettings,
     /// Whether to skip the antenna-setup checklist on startup.
-    #[serde(default)]
     pub skip_antenna_checklists: bool,
     /// User experience level string (e.g. "beginner", "advanced").
-    #[serde(default)]
     pub user_level: String,
     /// User-saved named themes (the Customize tab's theme gallery), distinct
     /// from the built-in presets in [`ThemeConfig::all_presets`].
-    #[serde(default)]
     pub custom_themes: Vec<NamedTheme>,
     /// Sidebar tab/tool visibility and ordering.
-    #[serde(default)]
     pub layout: LayoutConfig,
     /// Advanced / experimental tunables (⚙ More → Advanced drawer).
-    #[serde(default)]
     pub advanced: AdvancedConfig,
+    /// Each demodulator keeps its own radio module controls, like SDR++.
+    pub radio_profiles: std::collections::BTreeMap<String, RadioModeProfile>,
     /// Whether the initial quick start wizard has been completed.
-    #[serde(default)]
     pub quick_start_completed: bool,
 }
 
@@ -483,6 +699,8 @@ impl Default for AppConfig {
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
             web_remote_port: 5259,
+            rigctl_enabled: false,
+            rigctl_port: 4532,
             observer_lat: 51.5,
             observer_lon: -0.1,
             font_scale: 1.0,
@@ -495,9 +713,12 @@ impl Default for AppConfig {
             wf_min_db: -120.0,
             wf_max_db: -20.0,
             lo_offset_hz: 0,
+            center_tuning: false,
+            last_session_center_hz: None,
             last_session_freq_hz: 0,
             last_session_gain_db: -1.0,
             last_session_demod: String::new(),
+            source_preferences: SourcePreferences::default(),
             color_map: "Classic".to_string(),
             freq_memory_hz: Vec::new(),
             freq_memory_labels: Vec::new(),
@@ -508,6 +729,7 @@ impl Default for AppConfig {
             custom_themes: Vec::new(),
             layout: LayoutConfig::default(),
             advanced: AdvancedConfig::default(),
+            radio_profiles: std::collections::BTreeMap::new(),
             quick_start_completed: false,
         }
     }
@@ -520,11 +742,58 @@ impl AppConfig {
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
             .unwrap_or_default();
+        cfg.normalize();
+        cfg
+    }
+
+    /// Normalize settings from older files before they reach UI or hardware APIs.
+    pub fn normalize(&mut self) {
+        let defaults = Self::default();
+        if !self.font_scale.is_finite() || self.font_scale <= 0.0 {
+            self.font_scale = defaults.font_scale;
+        }
+        self.font_scale = self.font_scale.clamp(0.5, 3.0);
+        if self.default_sample_rate == 0 {
+            self.default_sample_rate = defaults.default_sample_rate;
+        }
+        if !self.default_gain.is_finite() {
+            self.default_gain = defaults.default_gain;
+        }
+        self.default_gain = self.default_gain.clamp(0.0, 49.6);
+        if !self.last_session_gain_db.is_finite() {
+            self.last_session_gain_db = -1.0;
+        }
+        if !self.observer_lat.is_finite() || !self.observer_lon.is_finite() {
+            self.observer_lat = defaults.observer_lat;
+            self.observer_lon = defaults.observer_lon;
+        }
+        self.observer_lat = self.observer_lat.clamp(-90.0, 90.0);
+        self.observer_lon = self.observer_lon.clamp(-180.0, 180.0);
+        let cfg = self;
         // Migration: the old 6-tab layout (sdr/adsb/satellite/ai/decoding/…)
-        // collapses to the three task modes. Any config with invalid tab IDs
+        // collapses to the current task tabs. Any config with invalid tab IDs
         // is normalized to the new mode set, preserving the
         // "keep plumbing + migration pattern" contract.
-        let valid_tab_ids = ["listen", "planes", "satellites"];
+        let valid_tab_ids = ["listen", "planes", "satellites", "meteor"];
+        if cfg
+            .layout
+            .main_tabs
+            .iter()
+            .all(|i| valid_tab_ids.contains(&i.id.as_str()))
+            && !cfg.layout.main_tabs.iter().any(|i| i.id == "meteor")
+        {
+            let meteor = LayoutItem {
+                id: "meteor".to_string(),
+                visible: true,
+            };
+            let index = cfg
+                .layout
+                .main_tabs
+                .iter()
+                .position(|item| item.id == "satellites")
+                .unwrap_or(cfg.layout.main_tabs.len());
+            cfg.layout.main_tabs.insert(index, meteor);
+        }
         if !cfg
             .layout
             .main_tabs
@@ -533,7 +802,6 @@ impl AppConfig {
         {
             cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
         }
-        cfg
     }
 
     /// Serialise and write the configuration atomically to `ez_sdr_config.json`.
@@ -548,10 +816,73 @@ impl AppConfig {
     }
 }
 
+#[derive(Clone)]
+struct ConfigFileJob(
+    std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>,
+);
+
+fn begin_config_file_job(
+    ctx: &egui::Context,
+    work: impl FnOnce() -> Result<Option<AppConfig>, String> + Send + 'static,
+) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let id = egui::Id::new("config.file_job");
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            id,
+            ConfigFileJob(std::sync::Arc::new(std::sync::Mutex::new(rx))),
+        )
+    });
+    let repaint = ctx.clone();
+    std::thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+            .unwrap_or_else(|_| Err("File dialog stopped unexpectedly".into()));
+        let _ = tx.send(result);
+        repaint.request_repaint();
+    });
+}
+
 impl AppConfig {
     /// Render the egui-based settings panel UI.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Settings");
+        let job_id = egui::Id::new("config.file_job");
+        let message_id = egui::Id::new("config.file_message");
+        let job = ui
+            .ctx()
+            .data_mut(|data| data.get_temp::<ConfigFileJob>(job_id));
+        if let Some(job) = &job {
+            let result = job.0.lock().unwrap_or_else(|e| e.into_inner()).try_recv();
+            let message = match result {
+                Ok(Ok(Some(mut loaded))) => {
+                    loaded.normalize();
+                    *self = loaded;
+                    self.needs_apply = true;
+                    Some("Settings imported".to_string())
+                }
+                Ok(Ok(None)) => Some("File action finished".to_string()),
+                Ok(Err(error)) => Some(error),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some("File action stopped unexpectedly".into())
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            };
+            if let Some(message) = message {
+                ui.ctx().data_mut(|data| {
+                    data.remove::<ConfigFileJob>(job_id);
+                    data.insert_temp(message_id, message);
+                });
+            } else {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
+        if let Some(message) = ui
+            .ctx()
+            .data_mut(|data| data.get_temp::<String>(message_id))
+        {
+            ui.label(message);
+        }
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.collapsing("Source", |ui| {
@@ -715,7 +1046,7 @@ impl AppConfig {
                 // Web search toggle
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.ai_web_search, " Enable web search")
-                        .on_hover_text("Allow the AI to search the web for external information (current events, specs, frequency databases, etc.). Uses DuckDuckGo — no API key needed.");
+                        .on_hover_text("Ask the selected AI provider to use its native web-search tool when supported. Search terms are sent to that provider; EZ-SDR does not scrape search-engine HTML.");
                 });
 
                 ui.add(egui::Slider::new(&mut self.ai_max_tokens, 256u32..=16384u32)
@@ -745,6 +1076,13 @@ impl AppConfig {
                     .on_hover_text("Starts a local HTTP server so you can control the SDR from a browser on your LAN.");
                 ui.add(egui::Slider::new(&mut self.web_remote_port, 1024..=65535).text("Port"))
                     .on_hover_text("TCP port for the web remote. Default 5259. Open http://localhost:5259 in a browser.");
+            });
+
+            ui.collapsing("Rigctl Server", |ui| {
+                ui.checkbox(&mut self.rigctl_enabled, "Enable loopback rigctl")
+                    .on_hover_text("Expose the Hamlib/rigctld-compatible control socket on localhost only.");
+                ui.add(egui::Slider::new(&mut self.rigctl_port, 1024..=65535).text("Port"))
+                    .on_hover_text("TCP port for rigctld clients. Default 4532.");
             });
 
             ui.colored_label(
@@ -789,31 +1127,29 @@ impl AppConfig {
                     *self = Self::default();
                     self.needs_apply = true;
                 }
-                if ui.button("📤 Export…").on_hover_text("Export config to a custom file path via file dialog.").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_file_name("ez_sdr_config_backup.json")
-                        .add_filter("JSON", &["json"])
-                        .save_file()
-                    {
-                        if let Ok(json) = serde_json::to_string_pretty(self) {
-                            if let Err(e) = std::fs::write(&path, json) {
-                                eprintln!("[config] failed to export config to {}: {}", path.display(), e);
-                            }
-                        }
-                    }
+                if ui.add_enabled(job.is_none(), egui::Button::new("📤 Export…")).on_hover_text("Export config to a custom file path via file dialog.").clicked() {
+                    let config = self.clone();
+                    begin_config_file_job(ui.ctx(), move || {
+                        let Some(path) = rfd::FileDialog::new()
+                            .set_file_name("ez_sdr_config_backup.json")
+                            .add_filter("JSON", &["json"])
+                            .save_file() else { return Ok(None); };
+                        let json = serde_json::to_vec_pretty(&config).map_err(|e| format!("Cannot export settings: {e}"))?;
+                        crate::bookmarks::atomic_write_file(&path, &json)
+                            .map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+                        Ok(None)
+                    });
                 }
-                if ui.button("📥 Import…").on_hover_text("Load config from a previously exported JSON file.").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("JSON", &["json"])
-                        .pick_file()
-                    {
-                        if let Ok(data) = std::fs::read_to_string(&path) {
-                            if let Ok(loaded) = serde_json::from_str::<AppConfig>(&data) {
-                                *self = loaded;
-                                self.needs_apply = true;
-                            }
-                        }
-                    }
+                if ui.add_enabled(job.is_none(), egui::Button::new("📥 Import…")).on_hover_text("Load config from a previously exported JSON file.").clicked() {
+                    begin_config_file_job(ui.ctx(), || {
+                        let Some(path) = rfd::FileDialog::new()
+                            .add_filter("JSON", &["json"])
+                            .pick_file() else { return Ok(None); };
+                        let data = std::fs::read_to_string(&path)
+                            .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+                        serde_json::from_str::<AppConfig>(&data).map(Some)
+                            .map_err(|e| format!("Invalid settings in {}: {e}", path.display()))
+                    });
                 }
             });
             ui.colored_label(
@@ -827,6 +1163,57 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_zero_scale_and_sample_rate_are_repaired_before_apply() {
+        let mut config: AppConfig = serde_json::from_str(
+            r#"{"font_scale":0,"default_sample_rate":0,"observer_lat":300,"observer_lon":-400}"#,
+        )
+        .unwrap();
+        config.normalize();
+        assert_eq!(config.font_scale, 1.0);
+        assert_eq!(config.default_sample_rate, 2_048_000);
+        assert_eq!(config.observer_lat, 90.0);
+        assert_eq!(config.observer_lon, -180.0);
+        assert!(config.layout.main_tabs.iter().any(|tab| tab.id == "meteor"));
+    }
+
+    #[test]
+    fn receiver_parity_settings_upgrade_and_roundtrip() {
+        let old: AdvancedConfig = serde_json::from_str(r#"{"fft_size":4096}"#).unwrap();
+        assert_eq!(old.fft_rate, 20);
+        assert!(old.waterfall_visible);
+        assert!(old.snr_smoothing);
+        assert_eq!(old.snr_smoothing_secs, 0.5);
+        assert_eq!(old.cw_tone_hz, 800.0);
+        assert!(old.fm_lowpass && old.rds_incremental);
+        assert!(!old.rds_enabled && !old.fm_if_nr && !old.carrier_agc);
+        assert_eq!(old.squelch_mode, crate::radio_squelch::SquelchMode::Off);
+        assert_eq!(old.radio_bandwidth_hz, 0.0);
+        let configured = AdvancedConfig {
+            fft_size: 65_536,
+            fft_rate: 30,
+            waterfall_visible: false,
+            radio_bandwidth_hz: 800.0,
+            audio_cutoff_hz: 2_000.0,
+            cw_tone_hz: 850.0,
+            audio_output: crate::audio_output::AudioOutputSelection {
+                device_id: Some("alsa:device-test".into()),
+                sample_rate: 44_100,
+            },
+            rtl_device: crate::source_manager::RtlDeviceSelection {
+                index: 2,
+                serial: Some("RECEIVER-B".into()),
+            },
+            offset_tuning: true,
+            ..Default::default()
+        };
+        let saved = serde_json::to_string(&configured).unwrap();
+        assert_eq!(
+            serde_json::from_str::<AdvancedConfig>(&saved).unwrap(),
+            configured
+        );
+    }
 
     // `std::env::current_dir`/`set_current_dir` are process-global, so any test
     // that changes cwd must serialize with other cwd-changing tests or they'll
@@ -865,6 +1252,8 @@ mod tests {
         assert_eq!(cfg.theme_config.preset, "dark");
         // discord should default to disabled
         assert!(!cfg.discord.enabled);
+        assert!(!cfg.rigctl_enabled);
+        assert_eq!(cfg.rigctl_port, 4532);
     }
 
     #[test]
@@ -875,6 +1264,8 @@ mod tests {
         assert_eq!(deserialized.default_freq_hz, cfg.default_freq_hz);
         assert_eq!(deserialized.theme, cfg.theme);
         assert_eq!(deserialized.ai_model, cfg.ai_model);
+        assert_eq!(deserialized.rigctl_enabled, cfg.rigctl_enabled);
+        assert_eq!(deserialized.rigctl_port, cfg.rigctl_port);
     }
 
     #[test]
@@ -928,9 +1319,10 @@ mod tests {
         let json = r#"{"default_freq_hz": 144000000}"#;
         let cfg: AppConfig = serde_json::from_str(json).expect("partial deserialize");
         assert_eq!(cfg.default_freq_hz, 144_000_000);
-        // Fields not in JSON get Default::default() for their type
-        assert_eq!(cfg.theme, "");
-        assert_eq!(cfg.default_sample_rate, 0u32);
+        // Omitted settings use usable application defaults, including UI scale.
+        assert_eq!(cfg.theme, "dark");
+        assert_eq!(cfg.default_sample_rate, 2_048_000);
+        assert_eq!(cfg.font_scale, 1.0);
         assert!(!cfg.discord.enabled);
     }
 
@@ -943,7 +1335,7 @@ mod tests {
                 .iter()
                 .map(|i| i.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["listen", "planes", "satellites"]
+            vec!["listen", "planes", "meteor"]
         );
         assert_eq!(
             layout
@@ -972,7 +1364,7 @@ mod tests {
     }
 
     #[test]
-    fn layout_migration_maps_legacy_tabs_to_three_modes() {
+    fn layout_migration_maps_legacy_tabs_to_current_modes() {
         let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("ez_sdr_test_migrate_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -1018,7 +1410,7 @@ mod tests {
             .iter()
             .map(|i| i.id.as_str())
             .collect();
-        assert_eq!(ids, vec!["listen", "planes", "satellites"]);
+        assert_eq!(ids, vec!["listen", "planes", "meteor"]);
         assert!(
             loaded
                 .layout
@@ -1064,7 +1456,7 @@ mod tests {
             .expect("config partial JSON should deserialize with defaults");
         assert_eq!(cfg.theme, "light");
         assert!(cfg.discord.enabled);
-        assert_eq!(cfg.default_freq_hz, 0);
+        assert_eq!(cfg.default_freq_hz, 100_000_000);
     }
 
     #[test]
