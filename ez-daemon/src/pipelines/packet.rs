@@ -48,6 +48,10 @@ pub struct PacketPipeline {
     tracker: Tracker,
     cpr: CprDecoder,
     mag_buf: Vec<u16>,
+    /// Tail copied from the previous block so Mode S messages spanning a
+    /// channelizer block boundary remain decodable.
+    overlap_tail: Vec<u16>,
+    last_block_end_sample: Option<u64>,
     aircraft: HashMap<u32, AircraftTelemetry>,
     blocks_since_publish: u32,
     output: Broadcaster<Vec<AircraftTelemetry>>,
@@ -55,7 +59,13 @@ pub struct PacketPipeline {
 
 impl PacketPipeline {
     #[must_use]
-    pub fn new(input: SampleBusHandle) -> Self {
+    pub fn new(input: SampleBusHandle, sample_rate_hz: u32) -> Self {
+        if sample_rate_hz != 2_400_000 {
+            tracing::error!(
+                "PacketPipeline expects 2.4 MHz input, got {} Hz",
+                sample_rate_hz
+            );
+        }
         Self {
             input,
             demod: Demod2400::new(),
@@ -63,6 +73,8 @@ impl PacketPipeline {
             tracker: Tracker::new(),
             cpr: CprDecoder::new(),
             mag_buf: Vec::new(),
+            overlap_tail: Vec::new(),
+            last_block_end_sample: None,
             aircraft: HashMap::new(),
             blocks_since_publish: 0,
             output: Broadcaster::new(),
@@ -113,9 +125,18 @@ impl PacketPipeline {
         let mut sum_power = 0.0_f64;
         let mut data = std::mem::take(&mut self.mag_buf);
         data.clear();
-        data.reserve(block.samples.len());
+        let contiguous = self.last_block_end_sample == Some(block.start_sample);
+        if !contiguous {
+            self.overlap_tail.clear();
+        }
+        let overlap = self.overlap_tail.len();
+        data.reserve(overlap + block.samples.len());
+        data.extend_from_slice(&self.overlap_tail);
         for sample in block.samples.iter() {
-            let norm = f64::from(sample.norm());
+            // `RtlSdrSource` and `TcpIqSource` expose Uc8-derived Complex32
+            // values in approximately [-127.4, 127.6].  Convert back to the
+            // same 0..1 envelope used by dump1090's `convert_uc8_to_mag`.
+            let norm = (f64::from(sample.norm()) / 128.0).min(1.0);
             sum_level += norm;
             sum_power += norm * norm;
             data.push((norm * 65535.0).min(65535.0) as u16);
@@ -124,12 +145,12 @@ impl PacketPipeline {
 
         let mut mag = MagBuf {
             data,
-            total_length: block.samples.len(),
-            valid_length: block.samples.len(),
-            overlap: 0,
-            sample_timestamp: block.start_sample,
+            total_length: overlap + block.samples.len(),
+            valid_length: overlap + block.samples.len(),
+            overlap,
+            sample_timestamp: block.start_sample.saturating_sub(overlap as u64) * 5,
             sys_timestamp: now_ms(),
-            flags: MagBufFlags(MAGBUF_DISCONTINUOUS),
+            flags: MagBufFlags(if contiguous { 0 } else { MAGBUF_DISCONTINUOUS }),
             mean_level: sum_level / n,
             mean_power: sum_power / n,
             dropped: 0,
@@ -141,6 +162,13 @@ impl PacketPipeline {
         let mut messages: Vec<ModesMessage> = Vec::new();
         self.demod
             .demodulate(&mag, &mut self.stats, &mut |mm| messages.push(mm.clone()));
+
+        const OVERLAP_SAMPLES: usize = 320;
+        let keep = mag.data.len().min(OVERLAP_SAMPLES);
+        self.overlap_tail.clear();
+        self.overlap_tail
+            .extend_from_slice(&mag.data[mag.data.len() - keep..]);
+        self.last_block_end_sample = Some(block.start_sample + block.samples.len() as u64);
 
         self.mag_buf = std::mem::take(&mut mag.data);
 
@@ -164,6 +192,32 @@ impl PacketPipeline {
             return;
         };
 
+        let prior_position = self
+            .aircraft
+            .get(&decoded.icao)
+            .and_then(|entry| entry.lat.zip(entry.lon));
+
+        let cpr_position = if matches!(mm.msgtype, 17 | 18) && check_crc(&mm.msg) {
+            let tc = mm.msg[4] >> 3;
+            if (9..=18).contains(&tc) {
+                self.cpr.submit(decoded.icao, extract_airborne_cpr(&mm.msg))
+            } else if (5..=8).contains(&tc) {
+                prior_position.and_then(|(lat, lon)| {
+                    self.cpr.submit_surface_with_reference(
+                        decoded.icao,
+                        extract_surface_cpr(&mm.msg),
+                        lat,
+                        lon,
+                        std::time::Instant::now(),
+                    )
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let entry = self
             .aircraft
             .entry(decoded.icao)
@@ -182,25 +236,18 @@ impl PacketPipeline {
             entry.ground_speed_kt = Some(speed_kt);
             entry.track_deg = Some(heading);
         }
+        if let Some(vertical_rate) = decoded.vertical_rate {
+            entry.vertical_rate_fpm = Some(vertical_rate);
+        }
 
         // decode_mode_s_message already CRC-gates its own field extraction, but CPR
         // extraction is a separate code path this pipeline owns independently — feeding a
         // corrupted frame into the decoder risks poisoning a legitimate even/odd pairing
         // for this ICAO, so it gets its own explicit CRC guard.
-        if matches!(mm.msgtype, 17 | 18) && check_crc(&mm.msg) {
-            let tc = mm.msg[4] >> 3;
-            if (9..=18).contains(&tc) {
-                if let Some((lat, lon)) =
-                    self.cpr.submit(decoded.icao, extract_airborne_cpr(&mm.msg))
-                {
-                    entry.lat = Some(lat);
-                    entry.lon = Some(lon);
-                }
-            }
+        if let Some((lat, lon)) = cpr_position {
+            entry.lat = Some(lat);
+            entry.lon = Some(lon);
         }
-
-        // Real ADS-B vertical rate lives in a TC19 subfield this dump1090 port doesn't
-        // decode; left `None` rather than fabricated.
     }
 
     fn prune_and_publish(&mut self) {
@@ -250,16 +297,32 @@ fn extract_airborne_cpr(msg: &[u8; 14]) -> CprFrame {
     }
 }
 
+fn extract_surface_cpr(msg: &[u8; 14]) -> CprFrame {
+    let odd = (msg[6] & 0x04) != 0;
+    let lat =
+        (u32::from(msg[6] & 0x03) << 15) | (u32::from(msg[7]) << 7) | (u32::from(msg[8]) >> 1);
+    let lon = (u32::from(msg[8] & 0x01) << 16) | (u32::from(msg[9]) << 8) | u32::from(msg[10]);
+    CprFrame {
+        cpr_type: CprType::Surface,
+        odd,
+        lat,
+        lon,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bus::SampleBus;
+    use crate::channelizer::Channelizer;
+    use crate::hardware::adsb::AdsbEmulatorSource;
+    use crate::hardware::IqSource;
     use num_complex::Complex32;
 
     fn test_pipeline() -> (SampleBus, PacketPipeline) {
         let bus = SampleBus::new();
         let handle = bus.subscribe(8, OverflowPolicy::DropIncoming);
-        (bus, PacketPipeline::new(handle))
+        (bus, PacketPipeline::new(handle, 2_400_000))
     }
 
     fn silence_block(len: usize) -> SampleBlock {
@@ -269,6 +332,52 @@ mod tests {
             center_freq_hz: 1_090_000_000,
             samples: std::sync::Arc::from(vec![Complex32::new(0.0, 0.0); len]),
         }
+    }
+
+    #[test]
+    fn rtl_sdr_style_adsb_iq_reaches_packet_pipeline() {
+        let (bus, mut pipeline) = test_pipeline();
+        let mut source = AdsbEmulatorSource::example(false);
+        source.start().unwrap();
+        let mut samples = vec![Complex32::new(0.0, 0.0); 600];
+        let n = source.read_iq(&mut samples).unwrap();
+        assert!(n > 300);
+        samples.truncate(n);
+        bus.publish(SampleBlock {
+            start_sample: 0,
+            sample_rate_hz: 2_400_000,
+            center_freq_hz: 1_090_000_000,
+            samples: std::sync::Arc::from(samples),
+        });
+        assert!(pipeline.tick(Duration::from_millis(10)));
+        assert_eq!(pipeline.tracked_count(), 1);
+    }
+
+    #[test]
+    fn rtl_sdr_style_adsb_iq_survives_the_wideband_channelizer() {
+        let wideband = SampleBus::new();
+        let input = wideband.subscribe(8, OverflowPolicy::DropIncoming);
+        let mut channelizer = Channelizer::new(input, 1_090_000_000, 2_400_000);
+        let (_, packet_input) = channelizer
+            .add_channel(1_090_000_000, 2_400_000)
+            .expect("ADS-B channel should fit the 2.4 MSPS capture");
+        let mut pipeline = PacketPipeline::new(packet_input, 2_400_000);
+
+        let mut source = AdsbEmulatorSource::example(false);
+        source.start().unwrap();
+        let mut samples = vec![Complex32::new(0.0, 0.0); 600];
+        let n = source.read_iq(&mut samples).unwrap();
+        samples.truncate(n);
+        wideband.publish(SampleBlock {
+            start_sample: 0,
+            sample_rate_hz: 2_400_000,
+            center_freq_hz: 1_090_000_000,
+            samples: std::sync::Arc::from(samples),
+        });
+
+        assert!(channelizer.tick(Duration::from_millis(10)));
+        assert!(pipeline.tick(Duration::from_millis(10)));
+        assert_eq!(pipeline.tracked_count(), 1);
     }
 
     /// Builds a synthetic, CRC-valid DF17 message from a 7-byte ME field
@@ -361,6 +470,16 @@ mod tests {
         let track = entry.track_deg.expect("heading set");
         assert!((track - 63.4).abs() < 0.5, "heading wrong: {track}");
         assert!((0.0..360.0).contains(&track));
+    }
+
+    #[test]
+    fn merge_message_extracts_vertical_rate() {
+        let (_bus, mut pipeline) = test_pipeline();
+        let icao = 0x454545;
+        // TC19, vertical-rate raw value 11 => 640 ft/min descent (sign bit set).
+        let mm = synthetic_df17(icao, [(19 << 3) | 1, 0x01, 0x91, 0x19, 0x28, 11 << 2, 0x00]);
+        pipeline.merge_message(&mm);
+        assert_eq!(pipeline.aircraft[&icao].vertical_rate_fpm, Some(-640));
     }
 
     #[test]

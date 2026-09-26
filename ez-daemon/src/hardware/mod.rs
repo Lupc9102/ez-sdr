@@ -3,8 +3,10 @@
 //! ingestion thread (`crate::ingest`) is generic over `Box<dyn IqSource>`, so swapping
 //! hardware never touches downstream code (bus, channelizer, pipelines).
 
+pub mod adsb;
 pub mod replay;
 pub mod synthetic;
+pub mod tcp_iq;
 
 #[cfg(feature = "rtlsdr")]
 pub mod rtlsdr;

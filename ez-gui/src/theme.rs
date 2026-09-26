@@ -858,7 +858,8 @@ impl ThemeConfig {
         w.noninteractive.bg_stroke = egui::Stroke::new(1.0, self.text_dim.with_alpha(80).to_egui());
         w.noninteractive.corner_radius = cr;
 
-        w.inactive.bg_fill = self.surface.to_egui();
+        // Slider rails use inactive.bg_fill; keep them distinct from the panel.
+        w.inactive.bg_fill = mix_color(&self.surface, &self.text_normal, 0.10).to_egui();
         w.inactive.weak_bg_fill = self.bg.to_egui();
         w.inactive.fg_stroke = egui::Stroke::new(1.0, self.text_normal.to_egui());
         w.inactive.bg_stroke = egui::Stroke::new(1.0, self.text_dim.with_alpha(100).to_egui());

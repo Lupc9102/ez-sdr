@@ -141,6 +141,17 @@ impl FirDecimator {
     }
 }
 
+fn make_decimator(decimation: usize) -> FirDecimator {
+    if decimation == 1 {
+        // A full-bandwidth virtual channel must preserve every input sample.
+        // Applying the guarded anti-alias filter here attenuates the high-frequency
+        // energy that Mode S pulse-position modulation needs at 2.4 MSPS.
+        return FirDecimator::new(vec![1.0], 1);
+    }
+    let cutoff = (CUTOFF_GUARD / decimation as f32).clamp(0.01, 0.99);
+    FirDecimator::new(design_lowpass(FIR_TAPS, cutoff), decimation)
+}
+
 /// One tuned narrowband tap on the wideband stream: an independent DDC chain plus the
 /// [`SampleBus`] its decimated output is published to.
 struct VirtualChannel {
@@ -163,9 +174,7 @@ impl VirtualChannel {
     ) -> Self {
         let offset_hz = center_freq_hz as f64 - wideband_center_hz as f64;
         let nco = Nco::new(offset_hz, wideband_rate_hz as f64);
-        let cutoff = (CUTOFF_GUARD / decimation as f32).clamp(0.01, 0.99);
-        let taps = design_lowpass(FIR_TAPS, cutoff);
-        let decimator = FirDecimator::new(taps, decimation);
+        let decimator = make_decimator(decimation);
         Self {
             id,
             center_freq_hz,
@@ -291,9 +300,7 @@ impl Channelizer {
             ));
         }
         let decimation = (self.wideband_rate_hz / min_output_rate_hz).max(1) as usize;
-        let cutoff = (CUTOFF_GUARD / decimation as f32).clamp(0.01, 0.99);
-        let taps = design_lowpass(FIR_TAPS, cutoff);
-        let decimator = FirDecimator::new(taps, decimation);
+        let decimator = make_decimator(decimation);
 
         let Some(channel) = self.channels.iter_mut().find(|c| c.id == id) else {
             return Err(anyhow!("unknown virtual channel {id}"));
@@ -324,6 +331,23 @@ impl Channelizer {
     /// requests (bandwidth/offset must fit inside the wideband).
     pub fn wideband_rate_hz(&self) -> u32 {
         self.wideband_rate_hz
+    }
+
+    /// Updates the capture rate used for future virtual channels. Existing channels cannot
+    /// be migrated safely because their NCO, FIR, and decimator state all depend on the old
+    /// rate, so callers must remove them first. A wideband-only spectrum pipeline is not a
+    /// channelizer channel and therefore does not prevent this update.
+    pub fn set_wideband_rate_hz(&mut self, hz: u32) -> Result<()> {
+        if hz == 0 {
+            return Err(anyhow!("wideband sample rate must be non-zero"));
+        }
+        if !self.channels.is_empty() {
+            return Err(anyhow!(
+                "cannot change wideband sample rate while virtual channels are active"
+            ));
+        }
+        self.wideband_rate_hz = hz;
+        Ok(())
     }
 
     /// The actual decimated output sample rate of a live channel, or `None` if `id` doesn't

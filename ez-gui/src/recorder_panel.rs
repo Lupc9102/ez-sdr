@@ -24,6 +24,7 @@ pub struct RecorderPanel {
     iq_tx: Option<crossbeam_channel::Sender<Vec<u8>>>,
     iq_worker: Option<std::thread::JoinHandle<Result<u64, String>>>,
     iq_dropped_chunks: u64,
+    audio_sample_rate: u32,
     pub last_filename: String,
     pub last_error: String,
     disk_cache: (std::time::Instant, f64, String),
@@ -49,6 +50,7 @@ pub struct RecorderPanel {
     // Peak audio level monitoring
     pub peak_level_dbfs: f32,
     peak_hold_time: Option<std::time::Instant>,
+    daemon_recording: Option<ez_proto::RecordingStatus>,
 }
 
 #[derive(Clone)]
@@ -73,6 +75,7 @@ impl RecorderPanel {
             iq_tx: None,
             iq_worker: None,
             iq_dropped_chunks: 0,
+            audio_sample_rate: 48_000,
             last_filename: String::new(),
             last_error: String::new(),
             disk_cache: (std::time::Instant::now(), 99.9, "GB".to_string()),
@@ -93,6 +96,77 @@ impl RecorderPanel {
             quick_duration_secs: 0,
             peak_level_dbfs: -120.0,
             peak_hold_time: None,
+            daemon_recording: None,
+        }
+    }
+
+    pub fn handle_daemon_recording(&mut self, status: ez_proto::RecordingStatus) {
+        let was_active = self
+            .daemon_recording
+            .as_ref()
+            .is_some_and(|previous| previous.active);
+        self.recording = status.active;
+        if status.active && !was_active {
+            self.start_time = Some(std::time::Instant::now());
+        } else if !status.active {
+            self.start_time = None;
+        }
+        self.bytes_written = status.bytes_written;
+        if let Some(path) = &status.path {
+            self.last_filename = path.clone();
+        }
+        self.daemon_recording = Some(status);
+        self.last_error.clear();
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.recording = self.recording;
+        }
+    }
+
+    fn daemon_mode(&self) -> bool {
+        self.shared.try_lock().is_ok_and(|state| {
+            state.source.source_mode == crate::source_manager::SourceMode::Daemon
+        })
+    }
+
+    pub fn start(&mut self) {
+        if !self.daemon_mode() {
+            self.start_recording();
+            return;
+        }
+        self.last_error.clear();
+        if self.record_audio {
+            self.last_error = "Daemon mode records IQ on the daemon host; audio WAV recording is not available yet.".to_string();
+            return;
+        }
+        if !self.record_iq {
+            self.last_error = "Select Record IQ before starting a daemon recording.".to_string();
+            return;
+        }
+        let format = ez_proto::RecordingFormat::Cf32;
+        let result = self
+            .shared
+            .try_lock()
+            .map_err(|_| "source state is busy; try again".to_string())
+            .and_then(|mut state| state.source.start_daemon_recording(format));
+        match result {
+            Ok(()) => self.last_error = "Starting daemon recording…".to_string(),
+            Err(error) => self.last_error = error,
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if !self.daemon_mode() {
+            self.stop_recording();
+            return;
+        }
+        let result = self
+            .shared
+            .try_lock()
+            .map_err(|_| "source state is busy; try again".to_string())
+            .and_then(|mut state| state.source.stop_daemon_recording());
+        match result {
+            Ok(()) => self.last_error = "Stopping daemon recording…".to_string(),
+            Err(error) => self.last_error = error,
         }
     }
 
@@ -152,7 +226,7 @@ impl RecorderPanel {
         if signal_active {
             self.squelch_record_last_active = Some(now);
             if !self.recording {
-                self.start_recording();
+                self.start();
                 self.squelch_record_count += 1;
             }
         } else if self.recording {
@@ -161,7 +235,7 @@ impl RecorderPanel {
                 .squelch_record_last_active
                 .map_or(tail, |t| now.duration_since(t));
             if since >= tail {
-                self.stop_recording();
+                self.stop();
             }
         }
     }
@@ -214,12 +288,44 @@ impl RecorderPanel {
         self.file_list = files;
     }
 
+    /// Keep the WAV clock equal to the actual demodulated/device audio clock.
+    /// A rate transition finalizes the current session before accepting new audio.
+    pub fn set_audio_sample_rate(&mut self, sample_rate: u32) {
+        if sample_rate == 0 || self.audio_sample_rate == sample_rate {
+            return;
+        }
+        if self.wav_writer.is_some() {
+            self.stop_recording();
+            let finalization_message = std::mem::take(&mut self.last_error);
+            self.last_error = format!(
+                "Recording stopped because the audio sample rate changed from {} to {sample_rate} Hz.",
+                self.audio_sample_rate
+            );
+            if !finalization_message.is_empty() {
+                self.last_error.push(' ');
+                self.last_error.push_str(&finalization_message);
+            }
+        }
+        self.audio_sample_rate = sample_rate;
+    }
+
     pub fn start_recording(&mut self) {
         if self.recording {
             return;
         }
         let output_dir = self.output_dir.clone();
         self.last_error.clear();
+        let adv_format = if let Ok(s) = self.shared.try_lock() {
+            s.config.advanced.record_format.clone()
+        } else {
+            "wav".to_string()
+        };
+        let record_audio = self.record_audio && adv_format != "raw";
+        if !self.record_iq && !record_audio {
+            self.last_error =
+                "Select an available IQ or audio recording format before starting.".into();
+            return;
+        }
         if let Err(e) = std::fs::create_dir_all(&output_dir) {
             self.last_error = format!("Failed to create directory: {e}");
             return;
@@ -249,17 +355,19 @@ impl RecorderPanel {
         let ts_str = now.format("%Y%m%d_%H%M%S").to_string();
         let timestamp_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-        let (freq_hz, sample_rate_hz, gain_db, ppm_correction, demod_label) =
+        let (freq_hz, tuned_hz, offset_hz, sample_rate_hz, gain_db, ppm_correction, demod_label) =
             if let Ok(state) = self.shared.try_lock() {
                 (
+                    state.source.capture_center_frequency_hz(),
                     state.source.frequency_hz,
+                    state.source.frequency_offset_hz,
                     state.source.sample_rate_hz,
                     state.source.gain_db,
                     state.source.ppm_correction,
                     state.demod_mode.label().to_string(),
                 )
             } else {
-                (0, 2_048_000, 0.0, 0, "NFM".to_string())
+                (0, 0, 0, 2_048_000, 0.0, 0, "NFM".to_string())
             };
         let freq_mhz = freq_hz as f64 / 1e6;
 
@@ -267,12 +375,49 @@ impl RecorderPanel {
         let mut wav_filename = String::new();
 
         let template = self.filename_template.clone();
-        let base_name = self.apply_filename_template(&template, &ts_str, freq_mhz, &demod_label);
+        let requested_name =
+            self.apply_filename_template(&template, &ts_str, freq_mhz, &demod_label);
+        if requested_name.is_empty()
+            || requested_name == "."
+            || requested_name == ".."
+            || requested_name.contains(['/', '\\'])
+        {
+            self.last_error =
+                "Recording filename must be a nonempty name without path separators.".into();
+            return;
+        }
+        let base_name = (0..10_000)
+            .map(|suffix| {
+                if suffix == 0 {
+                    requested_name.clone()
+                } else {
+                    format!("{requested_name}_{suffix:03}")
+                }
+            })
+            .find(|name| {
+                [
+                    format!("{name}.iq"),
+                    format!("{name}_audio.wav"),
+                    format!("{name}.json"),
+                ]
+                .iter()
+                .all(|file| !dir.join(file).exists())
+            });
+        let Some(base_name) = base_name else {
+            self.last_error =
+                "No unused recording filename is available; choose another template.".into();
+            return;
+        };
+        self.last_filename.clear();
 
         if self.record_iq {
             let filename = format!("{base_name}.iq");
             let path = dir.join(&filename);
-            match std::fs::File::create(&path) {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
                 Ok(file) => {
                     // Hand the file to a worker thread; the UI thread only
                     // pushes chunks into a bounded channel (never blocks).
@@ -309,21 +454,22 @@ impl RecorderPanel {
             }
         }
         // "raw" advanced format writes IQ only (no WAV sidecar).
-        let adv_format = if let Ok(s) = self.shared.try_lock() {
-            s.config.advanced.record_format.clone()
-        } else {
-            "wav".to_string()
-        };
-        if self.record_audio && adv_format != "raw" {
+        if record_audio {
             let wf = format!("{base_name}_audio.wav");
             let wav_path = dir.join(&wf);
             let spec = hound::WavSpec {
                 channels: 1,
-                sample_rate: 48000,
+                sample_rate: self.audio_sample_rate,
                 bits_per_sample: 16,
                 sample_format: hound::SampleFormat::Int,
             };
-            match hound::WavWriter::create(&wav_path, spec) {
+            let wav = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&wav_path)
+                .map_err(hound::Error::IoError)
+                .and_then(|file| hound::WavWriter::new(std::io::BufWriter::new(file), spec));
+            match wav {
                 Ok(w) => {
                     self.wav_writer = Some(w);
                     if self.last_filename.is_empty() {
@@ -352,21 +498,39 @@ impl RecorderPanel {
         // Write sidecar JSON with recording metadata
         let sidecar_name = format!("{base_name}.json");
         let sidecar_path = dir.join(&sidecar_name);
-        let mut files_json = String::from("[");
+        let mut files = Vec::new();
         if !iq_filename.is_empty() {
-            files_json.push_str(&format!("\"{iq_filename}\""));
+            files.push(iq_filename);
         }
         if !wav_filename.is_empty() {
-            if !iq_filename.is_empty() {
-                files_json.push(',');
-            }
-            files_json.push_str(&format!("\"{wav_filename}\""));
+            files.push(wav_filename);
         }
-        files_json.push(']');
-        let json = format!(
-            "{{\n  \"frequency_hz\": {freq_hz},\n  \"frequency_mhz\": {freq_mhz:.6},\n  \"sample_rate_hz\": {sample_rate_hz},\n  \"demod_mode\": \"{demod_label}\",\n  \"gain_db\": {gain_db:.1},\n  \"ppm_correction\": {ppm_correction},\n  \"timestamp_utc\": \"{timestamp_utc}\",\n  \"files\": {files_json}\n}}\n"
-        );
-        let _ = std::fs::write(&sidecar_path, json);
+        let json = serde_json::json!({
+            "frequency_hz": freq_hz,
+            "frequency_mhz": freq_mhz,
+            "tuned_frequency_hz": tuned_hz,
+            "hardware_offset_hz": offset_hz,
+            "sample_rate_hz": sample_rate_hz,
+            "audio_sample_rate_hz": self.audio_sample_rate,
+            "demod_mode": demod_label,
+            "gain_db": gain_db,
+            "ppm_correction": ppm_correction,
+            "timestamp_utc": timestamp_utc,
+            "files": files,
+        });
+        let sidecar = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&sidecar_path)
+            .map_err(|error| error.to_string())
+            .and_then(|file| {
+                serde_json::to_writer_pretty(file, &json).map_err(|error| error.to_string())
+            });
+        if let Err(error) = sidecar {
+            self.stop_recording();
+            self.last_error = format!("Failed to save recording metadata: {error}");
+            return;
+        }
 
         self.recording = true;
         self.start_time = Some(std::time::Instant::now());
@@ -468,14 +632,19 @@ impl RecorderPanel {
                 }
             }
             if let Some(writer) = &mut self.wav_writer {
+                let mut error = None;
                 for &s in audio {
                     let sample = (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
                     if let Err(e) = writer.write_sample(sample) {
-                        self.last_error = format!("WAV write error: {e}");
+                        error = Some(format!("WAV write error: {e}"));
                         break;
                     }
+                    self.bytes_written = self.bytes_written.saturating_add(2);
                 }
-                self.bytes_written = self.bytes_written.saturating_add(audio.len() as u64 * 2);
+                if let Some(error) = error {
+                    self.stop_recording();
+                    self.last_error = error;
+                }
             }
         }
     }
@@ -484,22 +653,42 @@ impl RecorderPanel {
         self.scan_recordings();
         ui.heading("Recorder");
 
+        let daemon_mode = self.daemon_mode();
+        if daemon_mode {
+            ui.colored_label(
+                egui::Color32::from_rgb(120, 190, 255),
+                "Daemon mode: recordings are written on the daemon host.",
+            );
+            if let Some(status) = &self.daemon_recording {
+                ui.label(format!(
+                    "{} — {:.1} MiB — {:.0}s",
+                    status.path.as_deref().unwrap_or("waiting for path"),
+                    status.bytes_written as f64 / 1_048_576.0,
+                    status.duration_sec
+                ));
+            }
+        }
+
         if let Ok(state) = self.shared.try_lock() {
             ui.label(format!(
                 "Source: {:.3} MHz — {}",
-                state.source.frequency_hz as f64 / 1e6,
+                state.source.capture_center_frequency_hz() as f64 / 1e6,
                 if self.recording { "RECORDING" } else { "idle" }
             ));
         }
 
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.record_iq, "Record IQ");
-            ui.checkbox(&mut self.record_audio, "Record audio (WAV)");
+        ui.add_enabled_ui(!daemon_mode, |ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.record_iq, "Record IQ");
+                ui.checkbox(&mut self.record_audio, "Record audio (WAV)");
+            })
         });
 
-        ui.horizontal(|ui| {
-            ui.label("Output dir:");
-            ui.add(egui::TextEdit::singleline(&mut self.output_dir).desired_width(200.0));
+        ui.add_enabled_ui(!daemon_mode, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Output dir:");
+                ui.add(egui::TextEdit::singleline(&mut self.output_dir).desired_width(200.0));
+            })
         });
 
         ui.horizontal(|ui| {
@@ -514,7 +703,7 @@ impl RecorderPanel {
         {
             let preview_ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
             let freq_mhz_preview = if let Ok(state) = self.shared.try_lock() {
-                state.source.frequency_hz as f64 / 1e6
+                state.source.capture_center_frequency_hz() as f64 / 1e6
             } else {
                 145.5
             };
@@ -561,7 +750,7 @@ impl RecorderPanel {
                 if ui.toggle_value(&mut self.squelch_record, vox_label)
                     .on_hover_text("When enabled, recording starts automatically when signal exceeds squelch, and stops after the tail delay.")
                     .changed() && self.squelch_record && self.recording {
-                    self.stop_recording();
+                    self.stop();
                 }
                 ui.add(egui::Slider::new(&mut self.squelch_record_tail_ms, 200u64..=10_000)
                     .step_by(200.0)
@@ -659,7 +848,7 @@ impl RecorderPanel {
                     0
                 };
                 if limit_secs > 0 && elapsed >= limit_secs {
-                    self.stop_recording();
+                    self.stop();
                     self.quick_duration_secs = 0;
                     self.last_error.clear();
                 } else {
@@ -750,14 +939,14 @@ impl RecorderPanel {
                         }
                     }
                     if ui.button("■ Stop").clicked() {
-                        self.stop_recording();
+                        self.stop();
                     }
                 }
             }
         } else {
             ui.horizontal(|ui| {
                 if ui.button("● Start Recording").clicked() {
-                    self.start_recording();
+                    self.start();
                 }
                 ui.label("Stop after:").on_hover_text(
                     "Auto-stop recording after this duration. 0 = record until manually stopped.",
@@ -782,7 +971,7 @@ impl RecorderPanel {
                     });
             });
             // Quick-start preset buttons
-            if !self.recording {
+            if !self.recording && !daemon_mode {
                 ui.horizontal(|ui| {
                     ui.label("Quick:").on_hover_text("Start recording immediately with a preset duration — no need to press Start separately.");
                     for (label, mins, secs) in [("30s", 0u32, 30u64), ("1m", 1, 60), ("5m", 5, 300), ("10m", 10, 600)] {
@@ -818,11 +1007,11 @@ impl RecorderPanel {
                     if ui.add(egui::Button::new(egui::RichText::new("⏺  Record a 30-second sample").size(13.0))
                             .min_size(egui::vec2(240.0, 30.0)))
                         .on_hover_text("Starts a 30-second timed WAV recording of whatever you're currently listening to. Great first recording!")
-                        .clicked() && !self.recording
+                        .clicked() && !self.recording && !daemon_mode
                     {
                         self.quick_duration_secs = 30;
                         self.record_audio = true;
-                        self.start_recording();
+                        self.start();
                     }
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("Recordings are saved to the output directory above.").small().color(egui::Color32::GRAY));
@@ -929,17 +1118,17 @@ impl RecorderPanel {
             ui.label("3.  Recording stops 1 minute after LOS");
             ui.label("4.  Find the WAV file in the output directory");
             ui.label("5.  Open in SatDump (File → Open Baseband → select your .wav)");
-            ui.label("6.  Select the correct satellite (NOAA 15/18/19) and click Decode");
+            ui.label("6.  Select the correct Meteor satellite and click Decode");
             ui.add_space(4.0);
             ui.label(egui::RichText::new("Alternative manual workflow:").strong());
-            ui.label("  1. Tune to satellite frequency, set mode to WFM, bandwidth 34–40 kHz");
+            ui.label("  1. Tune to the current Meteor LRPT frequency and record RAW CF32 IQ");
             ui.label("  2. Click 'Start Recording' 2 minutes before the pass");
             ui.label("  3. Stop after the pass, then decode the .wav file offline");
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 ui.colored_label(egui::Color32::from_rgb(255, 180, 0), "NOTE");
                 ui.separator();
-                ui.label("WAV recordings are standard PCM files — any audio editor (Audacity, SoX) can open them. This is useful for inspecting the raw APT signal visually.");
+                ui.label("The built-in Meteor decoder consumes CF32 IQ recordings. WAV audio remains useful for ordinary demodulated-audio inspection.");
             });
         });
 
@@ -980,6 +1169,13 @@ impl RecorderPanel {
         }
 
         (cached_gb, cached_unit.clone())
+    }
+}
+
+impl Drop for RecorderPanel {
+    fn drop(&mut self) {
+        // Finish queued IQ and the WAV header before the process can exit.
+        self.stop_recording();
     }
 }
 
@@ -1068,6 +1264,153 @@ mod tests {
             bookmarks_modified: true,
             scanner_command: None,
         }))
+    }
+
+    fn recording_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "ezsdr-runtime-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn dropping_recorder_flushes_all_queued_iq_before_returning() {
+        let dir = recording_dir("drop-flush");
+        let shared = make_shared_state();
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.output_dir = dir.display().to_string();
+        panel.filename_template = "shutdown".into();
+        panel.start_recording();
+        assert!(panel.recording, "{}", panel.last_error);
+        let block = vec![17; 65_536];
+        for _ in 0..32 {
+            panel.write_samples(&block);
+        }
+        assert_eq!(panel.iq_dropped_chunks, 0);
+        drop(panel);
+        assert!(!shared.lock().unwrap().recording);
+        assert_eq!(
+            std::fs::read(dir.join("shutdown.iq")).unwrap(),
+            block.repeat(32)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn repeated_template_preserves_prior_recordings_and_escapes_metadata() {
+        let dir = recording_dir("collision");
+        let mut panel = RecorderPanel::new(make_shared_state());
+        panel.output_dir = dir.display().to_string();
+        panel.filename_template = "quoted\"station".into();
+        for bytes in [b"first".as_slice(), b"second".as_slice()] {
+            panel.start_recording();
+            assert!(panel.recording, "{}", panel.last_error);
+            panel.write_samples(bytes);
+            panel.stop_recording();
+        }
+        assert_eq!(
+            std::fs::read(dir.join("quoted\"station.iq")).unwrap(),
+            b"first"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("quoted\"station_001.iq")).unwrap(),
+            b"second"
+        );
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("quoted\"station_001.json")).unwrap())
+                .unwrap();
+        assert_eq!(metadata["files"][0], "quoted\"station_001.iq");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn wav_uses_real_audio_rate_and_finalizes_on_a_rate_change() {
+        let dir = recording_dir("wav-rate");
+        let mut panel = RecorderPanel::new(make_shared_state());
+        panel.output_dir = dir.display().to_string();
+        panel.filename_template = "audio".into();
+        panel.record_iq = false;
+        panel.record_audio = true;
+        panel.set_audio_sample_rate(44_100);
+        panel.start_recording();
+        assert!(panel.recording, "{}", panel.last_error);
+        panel.write_audio_samples(&vec![0.25; 44_100]);
+        panel.set_audio_sample_rate(48_000);
+        assert!(!panel.recording);
+        assert!(panel.last_error.contains("44100 to 48000"));
+        let wav = hound::WavReader::open(dir.join("audio_audio.wav")).unwrap();
+        assert_eq!(wav.spec().sample_rate, 44_100);
+        assert_eq!(wav.duration(), 44_100);
+        drop(wav);
+        panel.start_recording();
+        assert!(panel.recording, "{}", panel.last_error);
+        panel.stop_recording();
+        assert_eq!(
+            hound::WavReader::open(dir.join("audio_001_audio.wav"))
+                .unwrap()
+                .spec()
+                .sample_rate,
+            48_000
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_recording_configuration_and_save_path_do_not_start() {
+        let dir = recording_dir("invalid");
+        let mut panel = RecorderPanel::new(make_shared_state());
+        panel.output_dir = dir.display().to_string();
+        panel.record_iq = false;
+        panel.record_audio = false;
+        panel.start_recording();
+        assert!(!panel.recording);
+        assert!(panel.last_error.contains("format"));
+        panel.record_iq = true;
+        panel.filename_template = "../escape".into();
+        panel.start_recording();
+        assert!(!panel.recording);
+        assert!(panel.last_error.contains("path separators"));
+        let file = dir.join("regular-file");
+        std::fs::write(&file, b"preserved").unwrap();
+        panel.output_dir = file.display().to_string();
+        panel.start_recording();
+        assert!(!panel.recording);
+        assert!(panel.last_error.contains("directory"));
+        assert_eq!(std::fs::read(file).unwrap(), b"preserved");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn wav_write_failure_stops_recording_and_does_not_count_unwritten_tail() {
+        let dir = recording_dir("write-error");
+        let path = dir.join("read-only-handle");
+        std::fs::write(&path, b"unchanged").unwrap();
+        let mut panel = RecorderPanel::new(make_shared_state());
+        panel.wav_writer = Some(
+            hound::WavWriter::new(
+                std::io::BufWriter::new(std::fs::File::open(&path).unwrap()),
+                hound::WavSpec {
+                    channels: 1,
+                    sample_rate: 48_000,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap(),
+        );
+        panel.recording = true;
+        panel.write_audio_samples(&vec![0.25; 10_000]);
+        assert!(!panel.recording);
+        assert!(panel.last_error.contains("WAV write error"));
+        assert!(panel.bytes_written < 20_000);
+        assert_eq!(std::fs::read(path).unwrap(), b"unchanged");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1231,7 +1574,15 @@ mod tests {
                 .unwrap_or(0)
         ));
         std::fs::create_dir_all(&dir).expect("temp dir");
-        let mut panel = RecorderPanel::new(make_shared_state());
+        let shared = make_shared_state();
+        {
+            let mut state = shared.lock().unwrap();
+            state.source.center_frequency_hz = Some(118_000_000);
+            state.source.frequency_hz = 118_500_000;
+            state.source.sample_rate_hz = 2_400_000;
+            state.config.advanced.rf_decim = 8;
+        }
+        let mut panel = RecorderPanel::new(shared);
         panel.output_dir = dir.to_string_lossy().to_string();
         panel.record_iq = true;
         panel.record_audio = false;
@@ -1245,6 +1596,12 @@ mod tests {
         assert!(!fname.is_empty());
         let content = std::fs::read(dir.join(&fname)).expect("recorded IQ file should exist");
         assert_eq!(content, b"hello-iqmore-bytes");
+        let sidecar = dir.join(std::path::Path::new(&fname).with_extension("json"));
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(sidecar).unwrap()).unwrap();
+        assert_eq!(metadata["frequency_hz"], 118_000_000);
+        assert_eq!(metadata["tuned_frequency_hz"], 118_500_000);
+        assert_eq!(metadata["sample_rate_hz"], 2_400_000);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

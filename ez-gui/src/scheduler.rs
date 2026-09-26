@@ -67,6 +67,19 @@ impl Scheduler {
             .find(|j| now_unix >= j.aos_dt && now_unix <= j.los_dt)
     }
 
+    /// Desktop Meteor work is offline; it must not retune a live radio. Search
+    /// eligible jobs first so a concurrent Meteor pass cannot hide another job.
+    pub fn active_radio_job(&self, now_unix: f64) -> Option<&ScheduledJob> {
+        if !self.auto_tune_enabled {
+            return None;
+        }
+        self.jobs.iter().find(|j| {
+            !j.satellite.to_ascii_lowercase().contains("meteor")
+                && now_unix >= j.aos_dt
+                && now_unix <= j.los_dt
+        })
+    }
+
     /// Check if any custom task should fire now. Returns frequency if fired.
     #[must_use]
     pub fn poll_custom_tasks(&mut self, now_unix: f64) -> Option<(String, u64)> {
@@ -537,6 +550,24 @@ mod tests {
         assert!(s.active_job(250.0).is_none());
         assert!(s.active_job(100.0).is_some());
         assert!(s.active_job(200.0).is_some());
+    }
+
+    #[test]
+    fn desktop_radio_jobs_skip_meteor_without_hiding_concurrent_passes() {
+        let mut scheduler = make_scheduler();
+        scheduler.jobs[0].satellite = "Meteor-M2-3".into();
+        assert!(scheduler.active_radio_job(150.0).is_none());
+        scheduler.jobs.push(ScheduledJob {
+            satellite: "ISS".into(),
+            frequency_hz: 145_800_000,
+            aos: String::new(),
+            los: String::new(),
+            aos_dt: 100.0,
+            los_dt: 200.0,
+        });
+        assert_eq!(scheduler.active_radio_job(150.0).unwrap().satellite, "ISS");
+        scheduler.auto_tune_enabled = false;
+        assert!(scheduler.active_radio_job(150.0).is_none());
     }
 
     #[test]

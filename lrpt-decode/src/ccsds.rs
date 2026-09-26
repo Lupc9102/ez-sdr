@@ -11,8 +11,9 @@
 //! - bytes 2..5 (3 bytes, 24 bits): VCDU frame counter
 //! - byte 5: VCDU frame counter cycle / replay flag byte (treated as
 //!   reserved/spare here since only the counter value is used downstream)
+//! - bytes 6..7: mission-specific VCDU insert zone (Meteor uses 2 bytes)
 //!
-//! M-PDU header (2 bytes) immediately follows the VCDU header:
+//! M-PDU header (2 bytes) follows the insert zone:
 //! - top bit: spare
 //! - remaining 11 bits: first header pointer (byte offset within the
 //!   M-PDU payload where a new Space Packet primary header begins; a
@@ -22,8 +23,12 @@ use std::collections::BTreeMap;
 
 /// VCDU header length in bytes.
 pub const VCDU_HEADER_LEN: usize = 6;
+/// Meteor AOS VCDUs carry a two-byte insert zone before the M-PDU header.
+pub const VCDU_INSERT_ZONE_LEN: usize = 2;
 /// M-PDU header length in bytes.
 pub const MPDU_HEADER_LEN: usize = 2;
+/// Offset of the M-PDU header within an RS-corrected VCDU payload.
+pub const MPDU_HEADER_OFFSET: usize = VCDU_HEADER_LEN + VCDU_INSERT_ZONE_LEN;
 /// Sentinel value in the M-PDU first-header-pointer field meaning "no new
 /// packet header starts in this VCDU payload".
 pub const NO_PACKET_START: u16 = 0x7FF;
@@ -185,13 +190,19 @@ struct ApidBuffer {
     expected_len: Option<usize>,
 }
 
+#[derive(Debug, Default)]
+struct VcidContext {
+    expected_frame_counter: Option<u32>,
+    active_apid: Option<u16>,
+}
+
 /// Reassembles CCSDS Space Packets from a stream of M-PDU payloads (the
 /// VCDU payload minus VCDU+M-PDU headers), tracking partial packets
 /// per-APID across many VCDUs.
 #[derive(Debug, Default)]
 pub struct PacketReassembler {
     apid_buffers: BTreeMap<u16, ApidBuffer>,
-    active_apid: Option<u16>,
+    vcid_contexts: BTreeMap<u8, VcidContext>,
     /// Fully reassembled packets ready to be drained by the caller.
     completed: Vec<SpacePacket>,
 }
@@ -223,32 +234,63 @@ impl PacketReassembler {
     /// progress" per virtual channel at any time, so continuation bytes
     /// append to whichever packet was last opened on this same virtual
     /// channel.
-    pub fn push_mpdu_payload(&mut self, payload: &[u8], first_header_pointer: u16) {
+    pub fn push_mpdu_payload(
+        &mut self,
+        payload: &[u8],
+        first_header_pointer: u16,
+        vcid: u8,
+        frame_counter: u32,
+    ) {
+        let vcid_ctx = self.vcid_contexts.entry(vcid).or_default();
+        if let Some(expected) = vcid_ctx.expected_frame_counter {
+            if expected != frame_counter {
+                eprintln!(
+                    "WARNING: Frame gap on VCID {}: expected {}, got {}",
+                    vcid, expected, frame_counter
+                );
+                if let Some(apid) = vcid_ctx.active_apid {
+                    // discard in-progress partial packet
+                    if let Some(entry) = self.apid_buffers.get_mut(&apid) {
+                        entry.buf.clear();
+                        entry.expected_len = None;
+                    }
+                    vcid_ctx.active_apid = None;
+                }
+            }
+        }
+        vcid_ctx.expected_frame_counter = Some((frame_counter + 1) & 0xFFFFFF);
+
         let mut cursor = 0usize;
-        let current_apid: Option<u16> = self.last_open_apid();
+        let mut current_apid: Option<u16> = vcid_ctx.active_apid;
+
+        // Ensure the active apid actually has an open buffer
+        if let Some(apid) = current_apid {
+            if let Some(b) = self.apid_buffers.get(&apid) {
+                if !matches!(b.expected_len, Some(len) if b.buf.len() < len) {
+                    current_apid = None;
+                }
+            } else {
+                current_apid = None;
+            }
+        }
 
         if first_header_pointer == NO_PACKET_START {
             // Entire payload continues whatever packet is open.
             if let Some(apid) = current_apid {
-                self.append_and_try_complete(apid, payload);
+                self.append_and_try_complete(apid, vcid, payload);
             }
             return;
         }
 
         let pointer = usize::from(first_header_pointer);
         if pointer > payload.len() {
-            // Corrupt first-header pointer (not the 0x7FF idle marker, yet
-            // past the end — e.g. bit-error 0x7FE): nothing here can be
-            // trusted as a packet start. The old code fell through with
-            // cursor = 0 and parsed continuation bytes as fresh headers,
-            // fabricating garbage scanlines. Drop the payload instead.
             return;
         }
         if pointer > 0 {
             // Bytes before the pointer are continuation of the previously
             // open packet.
             if let Some(apid) = current_apid {
-                self.append_and_try_complete(apid, &payload[..pointer]);
+                self.append_and_try_complete(apid, vcid, &payload[..pointer]);
             }
             cursor = pointer;
         }
@@ -263,12 +305,12 @@ impl PacketReassembler {
             let remaining = &payload[cursor..];
             let take = remaining.len().min(header.total_len());
             if self.buffer_for(apid).is_some() {
-                self.active_apid = Some(apid);
+                self.vcid_contexts.get_mut(&vcid).unwrap().active_apid = Some(apid);
                 let entry = self.apid_buffers.get_mut(&apid).unwrap();
                 entry.buf.clear();
                 entry.expected_len = Some(header.total_len());
                 entry.buf.extend_from_slice(&remaining[..take]);
-                self.try_complete(apid);
+                self.try_complete(apid, vcid);
             }
             cursor += take;
         }
@@ -284,31 +326,15 @@ impl PacketReassembler {
         Some(self.apid_buffers.entry(apid).or_default())
     }
 
-    fn last_open_apid(&self) -> Option<u16> {
-        // Return active APID if it still has an open/incomplete packet buffer
-        if let Some(apid) = self.active_apid {
-            if let Some(b) = self.apid_buffers.get(&apid) {
-                if matches!(b.expected_len, Some(len) if b.buf.len() < len) {
-                    return Some(apid);
-                }
-            }
-        }
-        // Fallback: search deterministic BTreeMap order for an open packet
-        self.apid_buffers
-            .iter()
-            .find(|(_, b)| matches!(b.expected_len, Some(len) if b.buf.len() < len))
-            .map(|(&apid, _)| apid)
-    }
-
-    fn append_and_try_complete(&mut self, apid: u16, bytes: &[u8]) {
+    fn append_and_try_complete(&mut self, apid: u16, vcid: u8, bytes: &[u8]) {
         let Some(entry) = self.buffer_for(apid) else {
             return;
         };
         entry.buf.extend_from_slice(bytes);
-        self.try_complete(apid);
+        self.try_complete(apid, vcid);
     }
 
-    fn try_complete(&mut self, apid: u16) {
+    fn try_complete(&mut self, apid: u16, vcid: u8) {
         let is_complete = self
             .apid_buffers
             .get(&apid)
@@ -320,8 +346,10 @@ impl PacketReassembler {
             let len = entry.expected_len.unwrap();
             let packet_bytes: Vec<u8> = entry.buf.drain(0..len).collect();
             entry.expected_len = None;
-            if self.active_apid == Some(apid) {
-                self.active_apid = None;
+            if let Some(ctx) = self.vcid_contexts.get_mut(&vcid) {
+                if ctx.active_apid == Some(apid) {
+                    ctx.active_apid = None;
+                }
             }
             if let Some(header) = parse_space_packet_header(&packet_bytes) {
                 let data = packet_bytes[SPACE_PACKET_HEADER_LEN..].to_vec();
@@ -404,12 +432,46 @@ mod tests {
     }
 
     #[test]
+    fn meteor_vcdu_layout_places_mpdu_after_two_byte_insert_zone() {
+        let packet_data = b"realistic Meteor packet layout";
+        let packet = build_space_packet(64, 7, packet_data);
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[
+            0x2A, 0x83, 0x00, 0x01, 0x02, 0x00, // VCDU header, bytes 0..=5
+        ]);
+        payload.extend_from_slice(&[0x55, 0xAA]); // insert zone, bytes 6..=7
+        payload.extend_from_slice(&[0x00, 0x00]); // M-PDU header, bytes 8..=9
+        payload.extend_from_slice(&packet); // first Space Packet starts at byte 10
+
+        assert_eq!(VCDU_HEADER_LEN, 6);
+        assert_eq!(VCDU_INSERT_ZONE_LEN, 2);
+        assert_eq!(MPDU_HEADER_OFFSET, 8);
+        let vcdu = parse_vcdu_header(&payload[..VCDU_HEADER_LEN]).unwrap();
+        let mpdu =
+            parse_mpdu_header(&payload[MPDU_HEADER_OFFSET..MPDU_HEADER_OFFSET + MPDU_HEADER_LEN])
+                .unwrap();
+        assert_eq!(mpdu.first_header_pointer, 0);
+        assert_eq!(parse_space_packet_header(&payload[10..]).unwrap().apid, 64);
+
+        let mut reassembler = PacketReassembler::new();
+        reassembler.push_mpdu_payload(
+            &payload[MPDU_HEADER_OFFSET + MPDU_HEADER_LEN..],
+            mpdu.first_header_pointer,
+            vcdu.virtual_channel_id,
+            vcdu.frame_counter,
+        );
+        let completed = reassembler.drain_completed();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].data, packet_data);
+    }
+
+    #[test]
     fn reassembles_single_packet_within_one_vcdu() {
         let data = vec![0xAAu8; 20];
         let packet = build_space_packet(200, 1, &data);
         let mut reassembler = PacketReassembler::new();
         // first_header_pointer = 0: packet header starts at byte 0.
-        reassembler.push_mpdu_payload(&packet, 0);
+        reassembler.push_mpdu_payload(&packet, 0, 0, 0);
         let completed = reassembler.drain_completed();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].apid, 200);
@@ -424,11 +486,11 @@ mod tests {
         let (first_half, second_half) = packet.split_at(mid);
 
         let mut reassembler = PacketReassembler::new();
-        reassembler.push_mpdu_payload(first_half, 0);
+        reassembler.push_mpdu_payload(first_half, 0, 0, 0);
         assert!(reassembler.drain_completed().is_empty());
 
         // Second VCDU: no new packet starts, it's all continuation.
-        reassembler.push_mpdu_payload(second_half, NO_PACKET_START);
+        reassembler.push_mpdu_payload(second_half, NO_PACKET_START, 0, 1);
         let completed = reassembler.drain_completed();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].apid, 300);
@@ -445,7 +507,7 @@ mod tests {
         combined.extend_from_slice(&packet_b);
 
         let mut reassembler = PacketReassembler::new();
-        reassembler.push_mpdu_payload(&combined, 0);
+        reassembler.push_mpdu_payload(&combined, 0, 0, 0);
         let completed = reassembler.drain_completed();
         assert_eq!(completed.len(), 2);
         assert_eq!(completed[0].apid, 10);
@@ -461,9 +523,12 @@ mod tests {
         // headers and fabricate garbage scanlines.
         let mut reassembler = PacketReassembler::new();
         let garbage = vec![0xFFu8; 64];
-        reassembler.push_mpdu_payload(&garbage, 0x7FE);
+        reassembler.push_mpdu_payload(&garbage, 0x7FE, 0, 0);
         assert!(reassembler.drain_completed().is_empty());
-        assert!(reassembler.active_apid.is_none());
+        assert!(reassembler
+            .vcid_contexts
+            .get(&0)
+            .map_or(true, |c| c.active_apid.is_none()));
     }
 
     #[test]
@@ -473,7 +538,7 @@ mod tests {
         let mut reassembler = PacketReassembler::new();
         for apid in 0..200u16 {
             let packet = build_space_packet(apid, 1, &[0xAAu8; 4]);
-            reassembler.push_mpdu_payload(&packet, 0);
+            reassembler.push_mpdu_payload(&packet, 0, 0, apid as u32);
         }
         assert!(reassembler.apid_buffers.len() <= MAX_TRACKED_APIDS);
         let _ = reassembler.drain_completed();
@@ -488,16 +553,19 @@ mod tests {
         let (p1_a, p1_b) = p1.split_at(15);
 
         // First VCDU opens APID 64
-        reassembler.push_mpdu_payload(p1_a, 0);
-        assert_eq!(reassembler.active_apid, Some(64));
+        reassembler.push_mpdu_payload(p1_a, 0, 0, 0);
+        assert_eq!(
+            reassembler.vcid_contexts.get(&0).unwrap().active_apid,
+            Some(64)
+        );
         assert!(reassembler.drain_completed().is_empty());
 
         // Second VCDU continues APID 64
-        reassembler.push_mpdu_payload(p1_b, NO_PACKET_START);
+        reassembler.push_mpdu_payload(p1_b, NO_PACKET_START, 0, 1);
         let completed = reassembler.drain_completed();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].apid, 64);
         assert_eq!(completed[0].data, data1);
-        assert_eq!(reassembler.active_apid, None);
+        assert_eq!(reassembler.vcid_contexts.get(&0).unwrap().active_apid, None);
     }
 }

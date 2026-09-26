@@ -15,6 +15,17 @@ enum SourceKind {
     Synthetic,
     #[value(name = "replay")]
     Replay,
+    #[value(name = "tcp-iq")]
+    TcpIq,
+    #[cfg(feature = "rtlsdr")]
+    #[value(name = "rtlsdr")]
+    RtlSdr,
+    #[cfg(feature = "hackrf")]
+    #[value(name = "hackrf")]
+    HackRf,
+    #[cfg(feature = "soapy")]
+    #[value(name = "soapy")]
+    Soapy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -40,13 +51,17 @@ impl From<ReplayFormatArg> for ReplayFormat {
 #[derive(Debug, Parser)]
 #[command(name = "ez-daemon", version)]
 struct Args {
-    /// TCP address to accept legacy bincode client connections on.
-    #[arg(long, default_value = "127.0.0.1:7890")]
-    listen: SocketAddr,
+    /// IP address to bind both the legacy TCP server and web UI/API to.
+    #[arg(long, default_value = "127.0.0.1")]
+    bind: std::net::IpAddr,
 
-    /// Address the web UI/API (HTTP + WebSocket) listens on.
-    #[arg(long, default_value = "127.0.0.1:7891")]
-    web_listen: SocketAddr,
+    /// TCP port to accept legacy bincode client connections on.
+    #[arg(long, default_value_t = 7890)]
+    listen_port: u16,
+
+    /// Port the web UI/API (HTTP + WebSocket) listens on.
+    #[arg(long, default_value_t = 7891)]
+    web_listen_port: u16,
 
     /// Directory containing the compiled frontend's static assets. Served at `/`; if
     /// missing, the daemon still serves `/api/*` and `/ws/*` with a warning logged.
@@ -84,6 +99,18 @@ struct Args {
     /// Playback speed multiplier (1.0 = real time).
     #[arg(long, default_value_t = 1.0)]
     replay_speed: f32,
+
+    /// Optional RTL-SDR serial/name or SoapySDR driver argument string.
+    #[arg(long)]
+    device: Option<String>,
+
+    /// Address of a raw Uc8 IQ or rtl_tcp-compatible network source.
+    #[arg(long, default_value = "127.0.0.1:12345")]
+    iq_address: SocketAddr,
+
+    /// Consume the 12-byte rtl_tcp `RTL0` greeting before IQ data.
+    #[arg(long, default_value_t = true)]
+    rtl_tcp_header: bool,
 }
 
 impl Args {
@@ -98,10 +125,24 @@ impl Args {
                 looping: self.replay_loop,
                 speed: self.replay_speed,
             },
+            SourceKind::TcpIq => SourceConfig::TcpIq {
+                address: self.iq_address,
+                rtl_tcp_header: self.rtl_tcp_header,
+            },
+            #[cfg(feature = "rtlsdr")]
+            SourceKind::RtlSdr => SourceConfig::RtlSdr {
+                device: self.device,
+            },
+            #[cfg(feature = "hackrf")]
+            SourceKind::HackRf => SourceConfig::HackRf,
+            #[cfg(feature = "soapy")]
+            SourceKind::Soapy => SourceConfig::Soapy {
+                device: self.device,
+            },
         };
         Ok(DaemonConfig {
-            listen_addr: self.listen,
-            web_listen_addr: self.web_listen,
+            listen_addr: SocketAddr::new(self.bind, self.listen_port),
+            web_listen_addr: SocketAddr::new(self.bind, self.web_listen_port),
             initial_freq_hz: self.freq,
             initial_sample_rate_hz: self.sample_rate,
             recording_dir: self.recording_dir,

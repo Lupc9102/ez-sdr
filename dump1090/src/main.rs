@@ -39,7 +39,11 @@ struct Args {
     gain: Option<f64>,
     #[arg(long, default_value = "1090000000", help = "Center frequency in Hz")]
     freq: u64,
-    #[arg(long, default_value = "2000000", help = "Sample rate in Hz")]
+    #[arg(
+        long,
+        default_value = "2400000",
+        help = "Sample rate in Hz (Demod2400 requires 2400000)"
+    )]
     sample_rate: u32,
     #[arg(long, help = "Read from file instead of SDR")]
     ifile: Option<String>,

@@ -42,7 +42,7 @@ pub const TRANSPORT_FRAME_LEN: usize = CADU_LEN_BYTES - 4;
 /// Maximum Hamming distance (bit errors) tolerated when matching the sync
 /// marker; a real signal at reasonable SNR should hit near-zero errors,
 /// but some slack handles residual noise.
-const MAX_MARKER_ERRORS: u32 = 4;
+const MAX_MARKER_ERRORS: u32 = 2;
 
 /// Compute the 4 bit-rotations of the 32-bit sync marker. Rotating the
 /// marker pattern covers the case where the recovered bitstream is offset
@@ -137,6 +137,7 @@ impl FrameSync {
         Self::default()
     }
 
+    #[cfg(test)]
     #[must_use]
     pub fn is_locked(&self) -> bool {
         self.locked
@@ -148,13 +149,6 @@ impl FrameSync {
     /// followed by the `TRANSPORT_FRAME_LEN`-byte transport frame.
     pub fn push_bits(&mut self, bits: &[u8]) -> Vec<Vec<u8>> {
         self.bit_buffer.extend_from_slice(bits);
-        if !self.locked && self.bit_buffer.len() > MAX_UNLOCKED_BITS {
-            // Noise-only input never locks: retain only the newest window so
-            // memory stays flat and the rescan stays cheap. A real marker is
-            // 32 bits; anything older than 4 CADUs is irrelevant to sync.
-            let drop = self.bit_buffer.len() - MAX_UNLOCKED_BITS;
-            self.bit_buffer.drain(0..drop);
-        }
         let mut frames = Vec::new();
 
         loop {
@@ -197,6 +191,12 @@ impl FrameSync {
             frames.push(frame_bytes);
         }
 
+        if !self.locked && self.bit_buffer.len() > MAX_UNLOCKED_BITS {
+            // Bound retained noise only after searching this input. Trimming
+            // before scanning discards valid early CADUs in large read blocks.
+            let drop = self.bit_buffer.len() - MAX_UNLOCKED_BITS;
+            self.bit_buffer.drain(0..drop);
+        }
         frames
     }
 }

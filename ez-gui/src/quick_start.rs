@@ -31,8 +31,8 @@ pub enum Workflow {
     FmRadio,
     /// Track aircraft with ADS-B.
     Aircraft,
-    /// Receive weather satellite images (NOAA).
-    WeatherSatellites,
+    /// Decode existing Meteor LRPT recordings offline.
+    MeteorLrpt,
     /// Monitor amateur radio bands.
     HamRadio,
     /// Custom/advanced configuration.
@@ -44,7 +44,7 @@ impl Workflow {
         match self {
             Workflow::FmRadio => "📻",
             Workflow::Aircraft => "✈️",
-            Workflow::WeatherSatellites => "🛰️",
+            Workflow::MeteorLrpt => "🛰️",
             Workflow::HamRadio => "📡",
             Workflow::Custom => "⚙️",
         }
@@ -54,7 +54,7 @@ impl Workflow {
         match self {
             Workflow::FmRadio => "FM Radio",
             Workflow::Aircraft => "Track Aircraft",
-            Workflow::WeatherSatellites => "Weather Satellites",
+            Workflow::MeteorLrpt => "Meteor Offline Decoder",
             Workflow::HamRadio => "Ham Radio",
             Workflow::Custom => "Custom Setup",
         }
@@ -63,16 +63,46 @@ impl Workflow {
     fn description(&self) -> &'static str {
         match self {
             Workflow::FmRadio => "Listen to local FM radio stations (88-108 MHz)",
-            Workflow::Aircraft => "Track nearby aircraft using ADS-B (1090 MHz)",
-            Workflow::WeatherSatellites => "Receive NOAA weather satellite images (137 MHz)",
+            Workflow::Aircraft => {
+                "Track nearby aircraft using 1090ES ADS-B (978 MHz UAT requires external dump978-fa)"
+            }
+            Workflow::MeteorLrpt => "Decode an existing Meteor LRPT recording (.cs8 or .cf32)",
             Workflow::HamRadio => "Monitor amateur radio bands (HF/VHF/UHF)",
             Workflow::Custom => "I'll configure it myself",
         }
     }
 
-    /// Auto-configure the SDR for this workflow.
+    /// Configure a workflow and persist completion. Meteor leaves the source alone.
     pub fn apply(&self, shared: &Arc<Mutex<SharedState>>) -> Result<(), String> {
+        self.apply_with_source(shared, None)
+    }
+
+    fn apply_with_source(
+        &self,
+        shared: &Arc<Mutex<SharedState>>,
+        selected_source: Option<crate::source_manager::SourceMode>,
+    ) -> Result<(), String> {
         let mut state = shared.lock().map_err(|_| "Failed to lock state")?;
+        self.configure_state(&mut state, selected_source);
+        state.config.save();
+        Ok(())
+    }
+
+    /// Apply in-memory setup separately from persistence so the offline contract
+    /// can be tested without modifying the user's saved configuration.
+    fn configure_state(
+        &self,
+        state: &mut SharedState,
+        selected_source: Option<crate::source_manager::SourceMode>,
+    ) {
+        state.config.quick_start_completed = true;
+        if *self == Workflow::MeteorLrpt {
+            state.selected_satellite = None;
+            return;
+        }
+        if let Some(source_mode) = selected_source {
+            state.source.source_mode = source_mode;
+        }
 
         match self {
             Workflow::FmRadio => {
@@ -83,7 +113,7 @@ impl Workflow {
                 state.demod_mode = crate::sdr_panel::DemodMode::Wfm;
                 state.config.advanced.fft_size = 4096;
                 state.volume = 0.5;
-                state.squelch = -50.0;
+                crate::radio_ui::set_power_squelch_level(state, -50.0);
             }
             Workflow::Aircraft => {
                 // Configure for ADS-B (1090 MHz)
@@ -93,14 +123,7 @@ impl Workflow {
                 state.demod_mode = crate::sdr_panel::DemodMode::Raw;
                 state.config.advanced.fft_size = 2048;
             }
-            Workflow::WeatherSatellites => {
-                // Configure for NOAA APT satellites (137.x MHz)
-                state.config.default_freq_hz = 137_620_000; // NOAA 18
-                state.config.default_sample_rate = 2_048_000;
-                state.config.default_gain = 40.0;
-                state.demod_mode = crate::sdr_panel::DemodMode::Wfm;
-                state.config.advanced.fft_size = 4096;
-            }
+            Workflow::MeteorLrpt => unreachable!("offline Meteor returns before SDR setup"),
             Workflow::HamRadio => {
                 // Configure for 2m band (144-148 MHz)
                 state.config.default_freq_hz = 146_520_000; // 2m calling frequency
@@ -109,24 +132,28 @@ impl Workflow {
                 state.demod_mode = crate::sdr_panel::DemodMode::Fm;
                 state.config.advanced.fft_size = 4096;
                 state.volume = 0.5;
-                state.squelch = -40.0;
+                crate::radio_ui::set_power_squelch_level(state, -40.0);
             }
             Workflow::Custom => {
                 // Leave defaults, user will configure manually
             }
         }
 
-        // Save config
-        state.config.quick_start_completed = true;
-        state.config.save();
-        Ok(())
+        let should_start = state.source.status == crate::source_manager::SourceStatus::Running;
+        state.source.stop();
+        state.source.frequency_hz = state.config.default_freq_hz;
+        state.source.center_frequency_hz = Some(state.source.frequency_hz);
+        state.source.sample_rate_hz = state.config.default_sample_rate;
+        state.source.gain_db = state.config.default_gain;
+        if should_start {
+            state.source.start();
+        }
     }
 }
 
 pub struct QuickStartWizard {
     pub state: QuickStartState,
-    detected_devices: Vec<String>,
-    selected_device: Option<usize>,
+    selected_source: Option<crate::source_manager::SourceMode>,
     selected_workflow: Option<Workflow>,
 }
 
@@ -134,8 +161,7 @@ impl Default for QuickStartWizard {
     fn default() -> Self {
         Self {
             state: QuickStartState::Inactive,
-            detected_devices: Vec::new(),
-            selected_device: None,
+            selected_source: None,
             selected_workflow: None,
         }
     }
@@ -191,14 +217,14 @@ impl QuickStartWizard {
         ui.heading("Welcome to EZ-SDR!");
         ui.add_space(20.0);
 
-        ui.label("EZ-SDR is an all-in-one software-defined radio application.");
+        ui.label("EZ-SDR brings radio listening, aircraft tracking, and Meteor LRPT decoding into one application.");
         ui.add_space(10.0);
         ui.label("Let's get you started in just a few steps:");
         ui.add_space(20.0);
 
         ui.horizontal(|ui| {
             ui.label("1️⃣");
-            ui.label("Detect your SDR device");
+            ui.label("Choose a signal source");
         });
         ui.horizontal(|ui| {
             ui.label("2️⃣");
@@ -206,7 +232,7 @@ impl QuickStartWizard {
         });
         ui.horizontal(|ui| {
             ui.label("3️⃣");
-            ui.label("Start listening!");
+            ui.label("Listen, track aircraft, or decode a recording");
         });
 
         ui.add_space(40.0);
@@ -216,6 +242,13 @@ impl QuickStartWizard {
                 self.state = QuickStartState::DeviceSelection;
             }
             ui.add_space(20.0);
+            if ui.button("Decode Meteor recording…").clicked() {
+                self.selected_workflow = Some(Workflow::MeteorLrpt);
+                self.state = QuickStartState::WorkflowConfiguration(Workflow::MeteorLrpt);
+            }
+        });
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
             if ui.button("Skip - I know what I'm doing").clicked() {
                 self.dismiss();
             }
@@ -223,30 +256,30 @@ impl QuickStartWizard {
     }
 
     fn ui_device_selection(&mut self, ui: &mut egui::Ui, _shared: &Arc<Mutex<SharedState>>) {
-        ui.heading("Select Your SDR Device");
+        ui.heading("Choose Your Signal Source");
         ui.add_space(20.0);
 
-        // Detect devices on first render
-        if self.detected_devices.is_empty() {
-            // Try to enumerate SoapySDR devices
-            self.detected_devices = vec![
-                "RTL-SDR (auto-detect)".to_string(),
-                "HackRF One".to_string(),
-                "Airspy".to_string(),
-                "File / Replay".to_string(),
-            ];
-        }
-
-        ui.label("Select your SDR device from the list:");
+        ui.label("Demo works without hardware. RTL-SDR appears only in builds that include it.");
         ui.add_space(10.0);
 
-        for (idx, device) in self.detected_devices.iter().enumerate() {
-            if ui
-                .selectable_label(self.selected_device == Some(idx), device)
+        if ui
+            .selectable_label(
+                self.selected_source == Some(crate::source_manager::SourceMode::Simulated),
+                "Demo signals (no SDR required)",
+            )
+            .clicked()
+        {
+            self.selected_source = Some(crate::source_manager::SourceMode::Simulated);
+        }
+        if cfg!(feature = "rtlsdr")
+            && ui
+                .selectable_label(
+                    self.selected_source == Some(crate::source_manager::SourceMode::Hardware),
+                    "RTL-SDR (first connected device)",
+                )
                 .clicked()
-            {
-                self.selected_device = Some(idx);
-            }
+        {
+            self.selected_source = Some(crate::source_manager::SourceMode::Hardware);
         }
 
         ui.add_space(30.0);
@@ -257,7 +290,7 @@ impl QuickStartWizard {
             }
             ui.add_space(20.0);
             if ui
-                .add_enabled(self.selected_device.is_some(), egui::Button::new("Next →"))
+                .add_enabled(self.selected_source.is_some(), egui::Button::new("Next →"))
                 .clicked()
             {
                 self.state = QuickStartState::WorkflowSelection;
@@ -269,13 +302,13 @@ impl QuickStartWizard {
         ui.heading("What would you like to do?");
         ui.add_space(20.0);
 
-        ui.label("Choose a workflow to auto-configure your SDR:");
+        ui.label("Choose live reception or offline recording decoding:");
         ui.add_space(20.0);
 
         let workflows = [
             Workflow::FmRadio,
             Workflow::Aircraft,
-            Workflow::WeatherSatellites,
+            Workflow::MeteorLrpt,
             Workflow::HamRadio,
             Workflow::Custom,
         ];
@@ -344,7 +377,14 @@ impl QuickStartWizard {
 
         // Show what will be configured
         ui.group(|ui| {
-            ui.label(egui::RichText::new("Auto-configuration:").strong());
+            ui.label(
+                egui::RichText::new(if workflow == Workflow::MeteorLrpt {
+                    "Offline decoding:"
+                } else {
+                    "Auto-configuration:"
+                })
+                .strong(),
+            );
             ui.add_space(5.0);
 
             match workflow {
@@ -355,16 +395,17 @@ impl QuickStartWizard {
                     ui.label("• Gain: 40 dB");
                 }
                 Workflow::Aircraft => {
-                    ui.label("• Frequency: 1090 MHz (ADS-B)");
+                    ui.label("• Frequency: 1090 MHz (1090ES ADS-B; 978 MHz UAT uses external dump978-fa)");
                     ui.label("• Sample rate: 2.4 MSps");
                     ui.label("• Mode: RAW (for Mode-S decoding)");
                     ui.label("• Gain: 49 dB (max)");
                 }
-                Workflow::WeatherSatellites => {
-                    ui.label("• Frequency: 137.620 MHz (NOAA 18)");
-                    ui.label("• Sample rate: 2.048 MSps");
-                    ui.label("• Mode: Wide FM (WFM)");
-                    ui.label("• Gain: 40 dB");
+                Workflow::MeteorLrpt => {
+                    ui.label("• Open an existing .cs8 or .cf32 IQ file in the Meteor tab");
+                    ui.label("• Use the sample rate stored with your recording");
+                    ui.label("• Choose the matching Meteor preset and decode the images");
+                    ui.label("• Export decoded image channels as PNG files");
+                    ui.label("• No SDR connection or antenna is needed");
                 }
                 Workflow::HamRadio => {
                     ui.label("• Frequency: 146.520 MHz (2m calling)");
@@ -386,9 +427,13 @@ impl QuickStartWizard {
                 self.state = QuickStartState::WorkflowSelection;
             }
             ui.add_space(20.0);
-            if ui.button("Apply Configuration →").clicked() {
-                // Apply the configuration
-                if let Err(e) = workflow.apply(shared) {
+            let apply_label = if workflow == Workflow::MeteorLrpt {
+                "Finish Offline Setup →"
+            } else {
+                "Apply Configuration →"
+            };
+            if ui.button(apply_label).clicked() {
+                if let Err(e) = workflow.apply_with_source(shared, self.selected_source.clone()) {
                     eprintln!("Failed to apply workflow config: {}", e);
                 }
                 self.state = QuickStartState::Complete;
@@ -400,15 +445,26 @@ impl QuickStartWizard {
         ui.heading("🎉 All Set!");
         ui.add_space(20.0);
 
-        ui.label("Your SDR has been configured and is ready to use.");
+        let offline_meteor = self.selected_workflow == Some(Workflow::MeteorLrpt);
+        ui.label(if offline_meteor {
+            "Meteor is ready to decode your existing recordings."
+        } else {
+            "Your source and workflow defaults have been configured."
+        });
         ui.add_space(20.0);
 
         ui.label("Next steps:");
         ui.add_space(10.0);
-        ui.label("• Click 'Start' to begin receiving");
-        ui.label("• Adjust the frequency if needed");
-        ui.label("• Check the '?' How To tab for detailed guides");
-        ui.label("• Explore the spectrum waterfall");
+        if offline_meteor {
+            ui.label("• Open the Meteor tab and choose an existing .cs8 or .cf32 file");
+            ui.label("• Set the recording's sample rate and matching Meteor preset");
+            ui.label("• Decode, inspect the channel images, and export PNG files");
+        } else {
+            ui.label("• Click 'Start' if the source was not already running");
+            ui.label("• Adjust the frequency if needed");
+            ui.label("• Check the '?' How To tab for detailed guides");
+            ui.label("• Explore the spectrum waterfall");
+        }
 
         ui.add_space(40.0);
 
@@ -423,11 +479,76 @@ mod tests {
     use super::*;
 
     #[test]
+    fn meteor_setup_leaves_idle_running_and_daemon_sources_unchanged() {
+        use crate::source_manager::{SourceMode, SourceStatus};
+
+        for (mode, running) in [
+            (SourceMode::Simulated, false),
+            (SourceMode::Simulated, true),
+            (SourceMode::Daemon, false),
+            (SourceMode::Replay, false),
+        ] {
+            let shared = crate::test_helpers::make_shared_state();
+            let mut state = shared.lock().unwrap();
+            state.source.source_mode = mode.clone();
+            state.source.frequency_hz = 118_500_000;
+            state.source.center_frequency_hz = Some(118_000_000);
+            state.source.sample_rate_hz = 192_000;
+            state.source.gain_db = 22.0;
+            state.source.frequency_offset_hz = -1_000_000;
+            if running {
+                state.source.start();
+            } else if mode == SourceMode::Daemon {
+                // Model an existing pending daemon connection without a socket.
+                state.source.status = SourceStatus::Opening;
+            }
+            state.selected_satellite = Some("Meteor-M2-3".into());
+            state.recording = true;
+            state.audio_running = true;
+            let status = state.source.status.clone();
+            let generation = state.source.stream_generation();
+            let defaults = (
+                state.config.default_freq_hz,
+                state.config.default_sample_rate,
+                state.config.default_gain,
+                state.demod_mode,
+            );
+
+            // The wizard may have selected Hardware earlier. Offline setup must
+            // ignore it, with no config-file writes from this in-memory helper.
+            Workflow::MeteorLrpt.configure_state(&mut state, Some(SourceMode::Hardware));
+
+            assert_eq!(state.source.source_mode, mode);
+            assert_eq!(state.source.status, status);
+            assert_eq!(state.source.stream_generation(), generation);
+            assert_eq!(state.source.frequency_hz, 118_500_000);
+            assert_eq!(state.source.center_frequency_hz, Some(118_000_000));
+            assert_eq!(state.source.sample_rate_hz, 192_000);
+            assert_eq!(state.source.gain_db, 22.0);
+            assert_eq!(state.source.frequency_offset_hz, -1_000_000);
+            assert_eq!(
+                (
+                    state.config.default_freq_hz,
+                    state.config.default_sample_rate,
+                    state.config.default_gain,
+                    state.demod_mode,
+                ),
+                defaults
+            );
+            assert!(state.selected_satellite.is_none());
+            assert!(state.recording, "ordinary Radio recording must continue");
+            assert!(state.audio_running);
+            assert!(state.config.quick_start_completed);
+            state.source.stop();
+        }
+    }
+
+    #[test]
     fn workflow_labels_exist() {
         let workflows = [
             Workflow::FmRadio,
             Workflow::Aircraft,
-            Workflow::WeatherSatellites,
+            Workflow::MeteorLrpt,
             Workflow::HamRadio,
             Workflow::Custom,
         ];

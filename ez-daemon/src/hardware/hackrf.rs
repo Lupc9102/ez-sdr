@@ -13,7 +13,9 @@
 
 use std::ffi::{c_int, c_void};
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -22,7 +24,25 @@ use num_complex::Complex32;
 use super::IqSource;
 
 const HACKRF_TRUE: c_int = 1;
-const DEFAULT_LNA_GAIN: u32 = 16;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HackRfGainPlan {
+    amp_enabled: bool,
+    lna_db: u32,
+    vga_db: u32,
+}
+
+fn gain_plan(requested_db: f64) -> HackRfGainPlan {
+    let requested = requested_db.clamp(0.0, 116.0).round() as u32;
+    let amp_enabled = requested > 40;
+    let remaining = requested.saturating_sub(if amp_enabled { 14 } else { 0 });
+    let lna_db = ((remaining.min(40) / 8) * 8).min(40);
+    let vga_db = (((remaining.saturating_sub(lna_db)).min(62) / 2) * 2).min(62);
+    HackRfGainPlan {
+        amp_enabled,
+        lna_db,
+        vga_db,
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum HackRfError {
@@ -42,13 +62,17 @@ mod ffi {
     }
 
     #[repr(C)]
+    #[repr(C)]
     pub struct hackrf_transfer {
         pub device: *mut hackrf_device,
         pub buffer: *mut u8,
         pub buffer_length: c_int,
         pub valid_length: c_int,
         pub ctx: *mut c_void,
+        pub tx_ctx: *mut c_void,
     }
+
+    pub type HackrfTransfer = hackrf_transfer;
 
     pub type SampleBlockCb = Option<unsafe extern "C" fn(*mut hackrf_transfer) -> c_int>;
 
@@ -73,37 +97,57 @@ mod ffi {
     }
 }
 
+pub use ffi::HackrfTransfer;
+
 struct RxCtx {
     tx: SyncSender<Vec<u8>>,
+    active: AtomicBool,
 }
 
 // SAFETY: this is an `extern "C"` callback registered with `hackrf_start_rx`; the
 // `hackrf_transfer` pointer and its `buffer`/`valid_length`/`ctx` fields are supplied by
-// libhackrf and valid for the duration of the call, per the library's API contract.
+// libhackrf. All pointers are validated for non-null before dereferencing, and the body
+// is wrapped in `catch_unwind` to prevent panics across the FFI boundary.
 unsafe extern "C" fn rx_callback(transfer: *mut ffi::hackrf_transfer) -> c_int {
-    // SAFETY: `transfer` is non-null and valid per the libhackrf callback contract.
-    let valid_length = unsafe { (*transfer).valid_length };
-    if valid_length <= 0 {
-        return 0;
-    }
-    // SAFETY: `ctx` was set to a `Box::into_raw(Box::new(RxCtx))` pointer in `start` and
-    // stays alive until `stop` runs `hackrf_stop_rx` first, so no callback can still be in
-    // flight when the `Box` is reclaimed.
-    let ctx = unsafe { &*((*transfer).ctx as *const RxCtx) };
-    // SAFETY: `buffer` is valid for `valid_length` bytes for the duration of this callback,
-    // per the libhackrf API contract.
-    let bytes = unsafe { std::slice::from_raw_parts((*transfer).buffer, valid_length as usize) };
-    let mut data = bytes.to_vec();
-    for b in &mut data {
-        *b ^= 0x80;
-    }
-    let _ = ctx.tx.try_send(data);
-    0
+    std::panic::catch_unwind(|| {
+        if transfer.is_null() {
+            return -1;
+        }
+        // SAFETY: `transfer` was checked non-null above.
+        let (ctx_ptr, buf_ptr, valid_length) = unsafe {
+            (
+                (*transfer).ctx,
+                (*transfer).buffer,
+                (*transfer).valid_length,
+            )
+        };
+        if ctx_ptr.is_null() || buf_ptr.is_null() {
+            return -1;
+        }
+        if valid_length <= 0 {
+            return 0;
+        }
+        // SAFETY: `ctx_ptr` points to an `RxCtx` managed via `Arc<RxCtx>` in `HackRfSource`.
+        let ctx = unsafe { &*(ctx_ptr as *const RxCtx) };
+        if !ctx.active.load(Ordering::Acquire) {
+            return -1;
+        }
+        // SAFETY: `buf_ptr` is checked non-null and valid for `valid_length` bytes for the
+        // duration of this callback, per the libhackrf API contract.
+        let bytes = unsafe { std::slice::from_raw_parts(buf_ptr, valid_length as usize) };
+        let mut data = bytes.to_vec();
+        for b in &mut data {
+            *b ^= 0x80;
+        }
+        let _ = ctx.tx.try_send(data);
+        0
+    })
+    .unwrap_or(-1)
 }
 
 pub struct HackRfSource {
     dev: *mut ffi::hackrf_device,
-    ctx: *mut RxCtx,
+    ctx: Option<Arc<RxCtx>>,
     rx: Option<Receiver<Vec<u8>>>,
     frequency_hz: u64,
     sample_rate_hz: u32,
@@ -123,7 +167,7 @@ impl HackRfSource {
     pub fn new() -> Self {
         Self {
             dev: ptr::null_mut(),
-            ctx: ptr::null_mut(),
+            ctx: None,
             rx: None,
             frequency_hz: 1_090_000_000,
             sample_rate_hz: 2_400_000,
@@ -140,15 +184,24 @@ impl HackRfSource {
         }
     }
 
-    fn apply_gain(&mut self) {
+    fn apply_gain(&mut self) -> Result<()> {
         if self.dev.is_null() {
-            return;
+            return Ok(());
         }
-        let vga = (((self.gain_db.clamp(0.0, 62.0) / 2.0).round() as u32) * 2).min(62);
+        let plan = gain_plan(self.gain_db);
         // SAFETY: `self.dev` checked non-null above.
-        unsafe { ffi::hackrf_set_lna_gain(self.dev, DEFAULT_LNA_GAIN) };
+        Self::check("hackrf_set_amp_enable", unsafe {
+            ffi::hackrf_set_amp_enable(self.dev, u8::from(plan.amp_enabled))
+        })?;
         // SAFETY: `self.dev` checked non-null above.
-        unsafe { ffi::hackrf_set_vga_gain(self.dev, vga) };
+        Self::check("hackrf_set_lna_gain", unsafe {
+            ffi::hackrf_set_lna_gain(self.dev, plan.lna_db)
+        })?;
+        // SAFETY: `self.dev` checked non-null above.
+        Self::check("hackrf_set_vga_gain", unsafe {
+            ffi::hackrf_set_vga_gain(self.dev, plan.vga_db)
+        })?;
+        Ok(())
     }
 }
 
@@ -191,21 +244,26 @@ impl IqSource for HackRfSource {
             self.stop();
             return Err(e.into());
         }
-        // SAFETY: `dev` is a valid, just-opened device handle.
-        unsafe { ffi::hackrf_set_amp_enable(dev, 0) };
-        self.apply_gain();
+        if let Err(error) = self.apply_gain() {
+            self.stop();
+            return Err(error);
+        }
 
         let (tx, rx) = sync_channel(64);
         self.rx = Some(rx);
-        let ctx = Box::into_raw(Box::new(RxCtx { tx }));
-        self.ctx = ctx;
+        let ctx = Arc::new(RxCtx {
+            tx,
+            active: AtomicBool::new(true),
+        });
+        let raw_ctx = Arc::into_raw(Arc::clone(&ctx)) as *mut c_void;
+        self.ctx = Some(ctx);
 
         // SAFETY: `dev` is valid and just configured above; `rx_callback` is a valid
-        // `extern "C"` function pointer with the signature libhackrf expects; `ctx` is a
-        // live `Box::into_raw` allocation that outlives the stream (reclaimed in `stop`,
-        // which always calls `hackrf_stop_rx` before freeing it).
+        // `extern "C"` function pointer with the signature libhackrf expects; `raw_ctx`
+        // is an Arc clone that stays alive until `stop` reclaims it after calling
+        // `hackrf_stop_rx`.
         if let Err(e) = Self::check("hackrf_start_rx", unsafe {
-            ffi::hackrf_start_rx(dev, Some(rx_callback), ctx as *mut c_void)
+            ffi::hackrf_start_rx(dev, Some(rx_callback), raw_ctx)
         }) {
             self.stop();
             return Err(e.into());
@@ -215,6 +273,9 @@ impl IqSource for HackRfSource {
     }
 
     fn stop(&mut self) {
+        if let Some(ctx) = self.ctx.as_ref() {
+            ctx.active.store(false, Ordering::Release);
+        }
         if !self.dev.is_null() {
             // SAFETY: `self.dev` is non-null and was returned by a successful
             // `hackrf_open`; this is libhackrf's documented shutdown sequence, stopping RX
@@ -224,16 +285,18 @@ impl IqSource for HackRfSource {
             unsafe { ffi::hackrf_exit() };
             self.dev = ptr::null_mut();
         }
-        if !self.ctx.is_null() {
-            // SAFETY: `self.ctx` was allocated with `Box::into_raw` in `start`; by this
-            // point `hackrf_stop_rx` above has returned, so libhackrf's callback thread can
-            // no longer invoke `rx_callback`, making it safe to reclaim.
+        if let Some(ctx) = self.ctx.take() {
+            // SAFETY: `raw` was created via `Arc::into_raw(Arc::clone(&ctx))` in `start`.
+            // Reclaiming it with `Arc::from_raw` drops that strong reference. Because `ctx`
+            // is still in scope, `RxCtx` cannot be deallocated until `ctx` is dropped,
+            // preventing any UAF race with any in-flight USB transfer callback.
+            let raw = Arc::as_ptr(&ctx) as *mut RxCtx;
             unsafe {
-                drop(Box::from_raw(self.ctx));
+                drop(Arc::from_raw(raw));
             }
-            self.ctx = ptr::null_mut();
         }
         self.rx = None;
+        self.byte_buf.clear();
     }
 
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
@@ -259,8 +322,12 @@ impl IqSource for HackRfSource {
     }
 
     fn set_gain(&mut self, db: f64) -> Result<()> {
-        self.gain_db = db;
-        self.apply_gain();
+        let previous = self.gain_db;
+        self.gain_db = db.clamp(0.0, 116.0);
+        if let Err(error) = self.apply_gain() {
+            self.gain_db = previous;
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -269,7 +336,6 @@ impl IqSource for HackRfSource {
             return Ok(0);
         };
         let want_bytes = buf.len() * 2;
-        self.byte_buf.clear();
 
         while self.byte_buf.len() < want_bytes {
             match rx.recv_timeout(Duration::from_millis(200)) {
@@ -288,9 +354,12 @@ impl IqSource for HackRfSource {
             return Ok(0);
         }
 
-        let complex = lrpt_decode::iq_bytes_to_complex(&self.byte_buf);
-        let n = complex.len().min(buf.len());
+        let samples_available = self.byte_buf.len() / 2;
+        let n = samples_available.min(buf.len());
+        let bytes_consumed = n * 2;
+        let complex = lrpt_decode::iq_bytes_to_complex(&self.byte_buf[..bytes_consumed]);
         buf[..n].copy_from_slice(&complex[..n]);
+        self.byte_buf.drain(..bytes_consumed);
         Ok(n)
     }
 
@@ -347,5 +416,74 @@ mod tests {
     fn is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<HackRfSource>();
+    }
+
+    #[test]
+    fn total_gain_control_uses_all_hackrf_front_end_stages() {
+        assert_eq!(
+            gain_plan(20.0),
+            HackRfGainPlan {
+                amp_enabled: false,
+                lna_db: 16,
+                vga_db: 4,
+            }
+        );
+        assert_eq!(
+            gain_plan(54.0),
+            HackRfGainPlan {
+                amp_enabled: true,
+                lna_db: 40,
+                vga_db: 0,
+            }
+        );
+        assert_eq!(gain_plan(116.0).vga_db, 62);
+    }
+
+    #[test]
+    fn hackrf_transfer_abi_size_is_40_bytes() {
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(std::mem::size_of::<ffi::hackrf_transfer>(), 40);
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(std::mem::size_of::<ffi::hackrf_transfer>(), 24);
+    }
+
+    #[test]
+    fn rx_callback_null_and_inactivity_safety() {
+        // Null transfer pointer: returns -1
+        assert_eq!(unsafe { rx_callback(ptr::null_mut()) }, -1);
+
+        // Null buffer pointer: returns -1
+        let (tx, rx) = sync_channel(16);
+        let ctx = RxCtx {
+            tx,
+            active: AtomicBool::new(true),
+        };
+        let mut transfer = ffi::hackrf_transfer {
+            device: ptr::null_mut(),
+            buffer: ptr::null_mut(),
+            buffer_length: 1024,
+            valid_length: 1024,
+            ctx: &ctx as *const RxCtx as *mut c_void,
+            tx_ctx: ptr::null_mut(),
+        };
+        assert_eq!(unsafe { rx_callback(&mut transfer) }, -1);
+
+        // Null ctx pointer: returns -1
+        let mut dummy_buf = vec![0x80u8; 64];
+        transfer.buffer = dummy_buf.as_mut_ptr();
+        transfer.ctx = ptr::null_mut();
+        assert_eq!(unsafe { rx_callback(&mut transfer) }, -1);
+
+        // Valid transfer: returns 0 and transmits inverted uc8 data
+        transfer.ctx = &ctx as *const RxCtx as *mut c_void;
+        transfer.valid_length = 64;
+        assert_eq!(unsafe { rx_callback(&mut transfer) }, 0);
+        let received = rx.try_recv().expect("data sent to channel");
+        assert_eq!(received.len(), 64);
+        assert_eq!(received[0], 0x00); // 0x80 ^ 0x80 = 0
+
+        // Inactive ctx (e.g. during stop teardown): returns -1
+        ctx.active.store(false, Ordering::Release);
+        assert_eq!(unsafe { rx_callback(&mut transfer) }, -1);
     }
 }

@@ -218,11 +218,13 @@ impl Stats {
             self.strong_signal_count += 1;
         }
 
-        let dbfs = 10.0 * power.log10();
-        let bin = ((dbfs - SIGNAL_HISTOGRAM_MIN_DB) / SIGNAL_HISTOGRAM_STEP_DB)
-            .floor()
-            .clamp(0.0, (SIGNAL_HISTOGRAM_BINS - 1) as f64) as usize;
-        self.signal_histogram[bin] += 1;
+        if power > 0.0 && power.is_finite() {
+            let dbfs = 10.0 * power.log10();
+            let bin = ((dbfs - SIGNAL_HISTOGRAM_MIN_DB) / SIGNAL_HISTOGRAM_STEP_DB)
+                .floor()
+                .clamp(0.0, (SIGNAL_HISTOGRAM_BINS - 1) as f64) as usize;
+            self.signal_histogram[bin] += 1;
+        }
     }
 
     /// Record noise power (linear fraction of full scale).
@@ -466,21 +468,31 @@ impl fmt::Display for Stats {
             )?;
         }
 
-        if self.noise_power_count > 0 {
-            let dbfs = 10.0 * (self.noise_power_sum / self.noise_power_count as f64).log10();
-            writeln!(f, "  {dbfs:>5.1} dBFS noise power")?;
+        if self.noise_power_count > 0 && self.noise_power_sum > 0.0 {
+            let mean_noise = self.noise_power_sum / self.noise_power_count as f64;
+            if mean_noise > 0.0 && mean_noise.is_finite() {
+                let dbfs = 10.0 * mean_noise.log10();
+                writeln!(f, "  {dbfs:>5.1} dBFS noise power")?;
+            } else {
+                writeln!(f, "  ----- dBFS noise power")?;
+            }
         } else {
             writeln!(f, "  ----- dBFS noise power")?;
         }
 
-        if self.signal_power_count > 0 {
-            let dbfs = 10.0 * (self.signal_power_sum / self.signal_power_count as f64).log10();
-            writeln!(f, "  {dbfs:>5.1} dBFS mean signal power")?;
+        if self.signal_power_count > 0 && self.signal_power_sum > 0.0 {
+            let mean_signal = self.signal_power_sum / self.signal_power_count as f64;
+            if mean_signal > 0.0 && mean_signal.is_finite() {
+                let dbfs = 10.0 * mean_signal.log10();
+                writeln!(f, "  {dbfs:>5.1} dBFS mean signal power")?;
+            } else {
+                writeln!(f, "  ----- dBFS mean signal power")?;
+            }
         } else {
             writeln!(f, "  ----- dBFS mean signal power")?;
         }
 
-        if self.peak_signal_power > 0.0 {
+        if self.peak_signal_power > 0.0 && self.peak_signal_power.is_finite() {
             let dbfs = 10.0 * self.peak_signal_power.log10();
             writeln!(f, "  {dbfs:>5.1} dBFS peak signal power")?;
         } else {

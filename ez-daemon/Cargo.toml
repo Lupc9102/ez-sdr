@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "ez-daemon"
 path = "src/main.rs"
 
+[[bin]]
+name = "adsb-emulator"
+path = "src/bin/adsb_emulator.rs"
+
 [dependencies]
 ez-proto = { workspace = true }
 dump1090 = { workspace = true }

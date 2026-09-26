@@ -27,6 +27,16 @@ pub fn iq_bytes_to_complex(bytes: &[u8]) -> Vec<Complex32> {
     out
 }
 
+/// Convert interleaved signed 8-bit I/Q samples (`.cs8`) to complex samples.
+/// Unlike RTL-SDR `.cu8`, signed recordings are already centered around zero.
+#[must_use]
+pub fn cs8_bytes_to_complex(bytes: &[u8]) -> Vec<Complex32> {
+    let n = bytes.len() / 2;
+    (0..n)
+        .map(|i| Complex32::new(bytes[i * 2] as i8 as f32, bytes[i * 2 + 1] as i8 as f32))
+        .collect()
+}
+
 /// Convert LE-float32-interleaved I/Q bytes (current `.cf32` recorder format
 /// — see `ez-gui/src/satellite/recorder.rs::raw_iq_bytes_to_cf32_le`) to
 /// `Complex32`. 8 bytes per sample pair (4-byte LE f32 I, 4-byte LE f32 Q).
@@ -68,6 +78,15 @@ mod tests {
     fn odd_trailing_byte_is_ignored() {
         let out = iq_bytes_to_complex(&[10, 20, 30]);
         assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn cs8_samples_are_signed_and_centered() {
+        let out = cs8_bytes_to_complex(&[0x80, 0x7f, 0xff, 0x00]);
+        assert_eq!(
+            out,
+            vec![Complex32::new(-128.0, 127.0), Complex32::new(-1.0, 0.0)]
+        );
     }
 
     #[test]

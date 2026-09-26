@@ -132,7 +132,10 @@ impl RecordingManager {
         let path = self
             .output_dir
             .join(recording_filename(channel_id, center_freq_hz, format));
-        let file = File::create(&path)
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
             .with_context(|| format!("creating recording file {}", path.display()))?;
         let writer = BufWriter::with_capacity(1_048_576, file);
 
@@ -179,6 +182,12 @@ impl RecordingManager {
             .remove(&channel_id)
             .ok_or_else(|| anyhow!("channel {channel_id} is not recording"))?;
         recording.join();
+        if let Some(error) = recording.error.lock().ok().and_then(|error| error.clone()) {
+            return Err(anyhow!(
+                "recording {} failed: {error}",
+                recording.path.display()
+            ));
+        }
         Ok(recording.status(channel_id, false))
     }
 
@@ -222,7 +231,13 @@ fn record_thread(
         }
         bytes_written.fetch_add(bytes.len() as u64, Ordering::Relaxed);
     }
-    let _ = writer.flush();
+    if let Err(failure) = writer.flush() {
+        if let Ok(mut message) = error.lock() {
+            if message.is_none() {
+                *message = Some(format!("flush failed: {failure}"));
+            }
+        }
+    }
 }
 
 fn recording_filename(
@@ -310,6 +325,55 @@ mod tests {
         assert_eq!(component_to_uc8(1000.0), 255);
         assert_eq!(component_to_uc8(-1000.0), 0);
         assert_eq!(component_to_uc8(0.0), 128);
+    }
+
+    #[test]
+    fn flush_failure_is_retained_and_reported_when_recording_stops() {
+        let dir = temp_dir("flush-error");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("read-only-handle");
+        std::fs::write(&path, b"preserved").unwrap();
+        let mut writer = BufWriter::new(File::open(&path).unwrap());
+        writer.write_all(b"pending samples").unwrap();
+        let bus = SampleBus::new();
+        let input = bus.subscribe(1, OverflowPolicy::DropOldest);
+        let stop = Arc::new(AtomicBool::new(true));
+        let bytes_written = Arc::new(AtomicU64::new(0));
+        let error = Arc::new(Mutex::new(None));
+        record_thread(
+            &input,
+            writer,
+            RecordingFormat::RawU8,
+            &stop,
+            &bytes_written,
+            &error,
+        );
+        assert!(error
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .contains("flush failed"));
+        let mut manager = RecordingManager::new(&dir);
+        manager.active.insert(
+            42,
+            ActiveRecording {
+                handle: None,
+                stop,
+                path: path.clone(),
+                start_time: Instant::now(),
+                bytes_written,
+                error,
+            },
+        );
+        assert!(manager
+            .stop_recording(42)
+            .unwrap_err()
+            .to_string()
+            .contains("flush failed"));
+        assert_eq!(std::fs::read(path).unwrap(), b"preserved");
+        assert!(manager.status(42).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

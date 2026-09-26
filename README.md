@@ -1,174 +1,146 @@
-# EZ-SDR Unified
+# ez-sdr
 
-A cross-platform SDR application combining a real-time spectrum analyser/waterfall, multiple demodulation modes, satellite tracking, ADS‑B decoding, and audio recording — all in a single GPU‑accelerated GUI powered by `egui`/`eframe`.
+A native Rust SDR desktop with three workspaces: **Radio**, **ADS-B**, and **Meteor**.
+The UI uses egui with a single OpenGL renderer, compact controls, a dark theme, and
+background file decoding. It covers the requested SDR++-style radio workflows while
+keeping the layout lightweight; exact SDR++ plugin ordering is not required for use.
 
-## Features
+## Run
 
-- **Source agnostic** — works with any SoapySDR‑compatible device (RTL‑SDR, HackRF, Airspy, LimeSDR, …) and file/network IQ inputs
-- **Spectrum analyser** — pan/zoom FFT with configurable FFT size (256‑32768), window type (Blackman‑Harris Nuttall, Hamming, Hann, Kaiser, …), and averaging (exponential moving average α slider)
-- **Waterfall** — scrolling spectrogram with adjustable speed (1×/2×/4×/8×) and per‑pixel interpolation
-- **Band plan overlay** — amateur radio band edges (160m‑70cm) displayed as coloured vertical strips on the spectrum
-- **Click‑to‑tune** — left‑click the spectrum plot to set the VFO frequency instantly
-- **Demodulators** — RAW, AM, FM/NFM, WFM, LSB, USB; stereo audio via CPAL
-- **Satellite tracking** — TLE‑based orbital prediction with pass list, elevation/azimuth plot, and auto‑tune to satellite downlink frequency at AOS
-- **ADS‑B decoder** — real‑time aircraft tracking from Mode‑S replies (requires an RTL‑SDR or other wide‑band source)
-- **Bookmarks** — named frequencies with category and mode tags; search/filter bar
-- **Scheduler** — events with triggered actions (set frequency, toggle recording, switch mode, …)
-- **Audio recording** — WAV capture of demodulated audio
-- **AI assistant panel** — LLM integration for voice/text queries (configurable endpoint)
-- **Web remote** — embedded HTTP server with a mobile‑friendly control page
-- **MQTT** — publish frequency/status telemetry to an MQTT broker
-- **Persistence** — settings, bookmarks, and scheduler events saved to JSON files (`ez_sdr_config.json`, `ez_sdr_bookmarks.json`)
+```bash
+cargo run -p ez-gui --release
 
-## Build
-
-### Dependencies
-
-- **Rust** 1.75+ (edition 2021)
-- **SoapySDR** development libraries (soapysdr, libsoapysdr-dev, or equivalent)
-- **ALSA / PulseAudio / JACK** development headers (optional, for audio playback)
-
-On Ubuntu/Debian:
-
-```
-sudo apt install build-essential libsoapysdr-dev
-# Optional: audio support
-sudo apt install libasound2-dev
+# Live RTL-SDR reception (requires librtlsdr):
+cargo run -p ez-gui --release --features rtlsdr
 ```
 
-On Fedora:
+The app opens with the receiver stopped. Select **Demo**, **RTL-SDR**, **File replay**,
+or **Daemon** in the Source section, then press Play. Demo produces generated signals;
+it does not receive local stations. Without the `rtlsdr` feature, use a hardware-enabled
+`ez-daemon` or a recording to receive real signals.
 
-```
-sudo dnf install gcc-c++ SoapySDR-devel
-# Optional: audio support
-sudo dnf install alsa-lib-devel
-```
+On Debian/Ubuntu, the default audio build needs `build-essential libasound2-dev`.
+Add `librtlsdr-dev` for the RTL-SDR feature. Rust 1.92 or newer is required. To build
+without speaker playback, use `--no-default-features`.
 
-### Build & Run
+## Radio
 
-```
-cargo run --release
-```
+- Play/stop, per-digit frequency tuning, direct frequency entry, mute and volume are
+  in the top receiver bar. Scroll a digit or click its upper/lower half; double-click
+  the readout to type a frequency with a unit such as `118.1 MHz`.
+- The sidebar exposes source selection, sample rate, gain, hardware options, modulation,
+  bandwidth, squelch, audio processing, and spectrum/waterfall display controls.
+- RTL-SDR device discovery runs in the background. Use **Refresh** after plugging in a
+  receiver; a unique USB serial keeps the selected receiver stable across index changes.
+  **Offset Tuning** is available when the tuner supports it.
+- Use **AM** for aviation voice (typically 118–137 MHz), **WFM** for broadcast FM,
+  **NFM** for narrow FM voice, and **USB/LSB** for sideband signals. Choose a local,
+  published frequency and an antenna suitable for that band.
+- **DSB** uses product detection; **CW** adds a configurable beat tone after its narrow
+  RF channel filter. **Bandwidth** controls RF selection independently of **Audio cutoff**.
+  WFM **Stereo** decodes the pilot/multiplex and falls back to mono without a usable pilot;
+  optional **RDS** decoding exposes station text and metadata.
+- Choose the output device and sample rate under **Audio**. An unavailable saved device
+  produces an error; it is not silently replaced by another device.
+- Display controls support streaming FFT sizes through 65,536, FFT rate, waterfall
+  visibility and SNR smoothing. The waterfall and drawn traces remain bounded in size.
+- Click the spectrum to tune. Frequency changes retune an active local source; changing
+  a frequency while stopped does not start reception.
+- The collapsed **SDR++ Modules** section exposes Recorder, Sinks, Frequency Manager,
+  Band Plan, and the loopback **Rigctl Server**. Rigctl accepts Hamlib-style `f/F`,
+  `m/M`, `v/V`, and `q` commands on localhost (default port `4532`).
+- General recording, bookmarks, settings and other utilities are under **Tools**.
 
-**Note:** The `audio` feature is enabled by default. To build without audio support (e.g., in containerized environments without ALSA):
+DSB/CW and stereo decoding apply to local RTL-SDR, replay and Demo sources; the current
+daemon audio protocol lacks DSB/CW and supplies mono audio. Native reception and audible
+output still require hardware validation, and exact SDR++ plugin spacing is an optional
+follow-up; see `UI_FINAL_SESSION_SUMMARY.md`.
 
-```
-cargo run --release --no-default-features
-```
+## ADS-B
 
-The first build compiles `dump1090` (the Rust ADS‑B decoder library) and `ez-gui` (the main application). Release builds are strongly recommended — debug builds are noticeably slower for spectrum rendering.
+The map shows heading-rotated SVG aircraft, trails, an aircraft list and OpenStreetMap
+attribution. Set your observer position in Settings to center reception coverage. Map
+image tiles are downloaded as needed and cached locally; uncached areas need internet.
 
-### Install from source
+### 1090 MHz — Mode S / 1090ES
 
-To install the binary system-wide via `cargo install`:
+Select a working SDR source, then open **ADS-B** and choose **1090 MHz**. The local
+receiver uses 2.4 MSPS. A daemon source can deliver decoded aircraft instead. The Demo
+source does not simulate real local aircraft. Reception requires a suitable 1090 MHz
+antenna and line of sight.
 
-```
-cargo install --path ez-gui --bin ez-gui
-```
+### 978 MHz — UAT (United States)
 
-(Install `dump1090` the same way with `--bin dump1090`.)
+978 MHz receives decoded reports from **dump978-fa** over its direct JSON TCP feed.
+The external decoder owns the SDR; selecting 978 stops EZ-SDR's local source so both
+programs do not compete for one device.
 
-## Quick Start
+Install/build [dump978-fa](https://github.com/flightaware/dump978) with SoapySDR and the
+appropriate device driver, then run it separately:
 
-1. **Connect your SDR device** (RTL‑SDR, Airspy, HackRF, etc.)
-2. **Run the application:** `cargo run --release` (or `ez-gui` if installed)
-3. **Select your source** in the Source Manager panel (USB device, file, or network)
-4. **Adjust frequency and gain**, pick a demodulation mode, and listen
-
-For a faster first build (skip ADS‑B decoder), set `--no-default-features`. Re-enable with the `audio` feature flag or the `rtlsdr`/`soapy`/`hackrf` device backends as described in the `dump1090/` crate features.
-
-## Testing
-
-```
-# Run the full test suite (both crates)
-cargo test --workspace
-
-# Run tests with all features
-cargo test --workspace --all-features
-
-# Lint check
-cargo clippy --workspace --all-targets
-```
-
-[![CI](https://github.com/Lupc9102/ez-sdr/actions/workflows/ci.yml/badge.svg)](https://github.com/Lupc9102/ez-sdr/actions/workflows/ci.yml)
-
-> **Security auditing:** Run `cargo audit` periodically to check for vulnerable dependencies (`cargo install cargo-audit` first).
-
-## Development
-
-Common commands are available via the `Makefile`:
-
-| Command         | Action                        |
-|-----------------|-------------------------------|
-| `make check`    | `cargo check --workspace`     |
-| `make test`     | `cargo test --workspace`      |
-| `make clippy`   | `cargo clippy --workspace -- -D warnings` |
-| `make fmt`      | `cargo fmt --check`           |
-| `make fix`      | `cargo fmt`                   |
-| `make clean`    | `cargo clean`                 |
-| `make audit`    | `cargo audit`                 |
-
-## Controls
-
-| Control | Action |
-|---|---|
-| **Frequency** | Keyboard‑editable DragValue in the SDR panel (MHz) |
-| **± step** | 10 kHz, 100 kHz, 1 MHz buttons |
-| **Bandwidth / Sample rate** | Drop‑down of common SDR sample rates |
-| **Gain** | 0–100 slider |
-| **Mode** | RAW / AM / FM / WFM / LSB / USB |
-| **FFT size / Window** | Drop‑downs above spectrum |
-| **Averaging (α)** | Slider — 0.0 (instant) to 0.99 (heavily smoothed) |
-| **Waterfall speed** | 1× / 2× / 4× / 8× |
-| **Click‑to‑tune** | Left‑click anywhere on the spectrum plot |
-| **Band plan** | Toggle (check box) — amateur bands from 160m to 70cm |
-
-## Project Structure
-
-```
-ez-gui/      Main application (egui/eframe GUI)
-  src/
-    app.rs             Central application state and logic loop
-    spectrum.rs        FFT, waterfall, spectrum plot
-    source_manager.rs  SDR source configuration
-    sdr_panel.rs       Left‑hand panel (frequency, gain, mode, …)
-    satellite_panel.rs TLE engine + satellite list + pass table
-    adsb_panel.rs      ADS‑B decoder UI
-    adsb_decoder.rs    Wrapper around dump1090 decoder
-    demod.rs           Demodulation modes
-    audio_output.rs    Audio playback (CPAL)
-    recorder_panel.rs  Audio recording to WAV
-    scheduler.rs       Event scheduler
-    bookmarks.rs       Frequency bookmarks with SQLite persistence
-    database.rs        SQLite helper layer
-    config.rs          Persistent settings
-    web_remote.rs      Embedded HTTP server + WebSocket
-    web_remote.html    Mobile web UI
-    mqtt.rs            MQTT telemetry publisher
-    tle_engine.rs      TLE download / orbital propagation
-    ai_panel.rs        LLM assistant integration
-
-dump1090/    Rust port of dump1090 Mode‑S/ADS‑B decoder (library)
-  src/
-    lib.rs             Public API
-    demod.rs           Mode‑S demodulation (2400 baud)
-    mode_s.rs          Mode‑S frame decoding
-    mode_ac.rs         Mode‑A/C decoding
-    cpr.rs             Compact Position Reporting
-    track.rs           Aircraft track state
-    net_io.rs          Network I/O (JSON output)
-    sdr/               SDR device backends (RTLSDR, SoapySDR, file, …)
+```bash
+dump978-fa --sdr driver=rtlsdr --json-port 127.0.0.1:30979
 ```
 
-## Licence
+Choose **978 MHz** in ADS-B, use `127.0.0.1:30979` (or another numeric IP and port), and
+connect. Connection errors are displayed and the worker retries without blocking the UI.
+Anonymous/non-ICAO addresses remain separate from ICAO aircraft. The Rust app does not
+itself demodulate UAT I/Q. The external decoder is a runtime dependency for this band.
 
-MIT OR Apache-2.0, matching the `license` fields in each crate's `Cargo.toml`.
+## Meteor — imported recordings only
 
-> **Owner action needed:** `dump1090/` is a port of GPL-2.0-licensed reference
-> code (`dump1090`/`dump1090-fa` `mode_s.c`, `mode_ac.c`, `cpr.c`,
-> `demod_2400.c`). A translation can be a derivative work, in which case the
-> GPL would require the port to carry the GPL too — contradicting the MIT/Apache
-> manifests. Previous revisions of this README claimed "GPL-2.0 or later — see
-> the `COPYING` file", but no `COPYING` file exists. Resolve with counsel and
-> then either relicense `dump1090` to GPL-2.0-or-later (adding `COPYING` +
-> per-file attribution headers) or document why MIT/Apache stands.
+1. Open **Meteor** and browse for an existing `.cs8` or `.cf32` recording.
+2. Set the recording's actual sample rate and symbol rate. CS8 means signed interleaved
+   8-bit I/Q; CF32 means little-endian float32 I/Q. These formats are not interchangeable.
+3. Choose a Meteor preset or Custom, then Decode. Progress and reconstructed channels
+   appear while a background worker reads the file in bounded blocks.
+4. Cancel a running decode or export the decoded channels as PNGs. Repeated exports
+   get unique filenames rather than overwriting an earlier pass.
+
+Meteor has independent decode state and no source/recording controls. No SDR, observer
+location or TLE is needed to decode an existing recording. The decoder targets
+Meteor-M2-3/M2-4 LRPT OQPSK at 80 or 72 ksym/s. NOAA APT, HRPT and GOES are not implemented.
+Synthetic end-to-end and protocol tests are available; independent off-air recordings
+are still needed for field validation.
+
+## Optional daemon
+
+The Rust daemon owns source/DSP pipelines and exposes the desktop's binary protocol
+at `127.0.0.1:7890`, plus HTTP/WebSocket APIs on `127.0.0.1:7891`.
+The previous `ez-web` frontend is not included in this worktree.
+
+```bash
+cargo run -p ez-daemon --bin ez-daemon --release
+cargo run -p ez-daemon --bin ez-daemon --release --features rtlsdr -- --source rtlsdr
+cargo run -p ez-daemon --bin ez-daemon --release --features soapy -- \
+  --source soapy --device 'driver=airspy'
+```
+
+Choose **Daemon** in the desktop Source section and connect to its binary endpoint.
+HackRF and SoapySDR backends require their corresponding feature and system libraries.
+Use `cargo run -p ez-daemon --bin ez-daemon -- --help` for source and bind options.
+
+## Development and verification
+
+```bash
+cargo test --workspace --no-default-features
+cargo check -p ez-gui --features rtlsdr
+
+# Render actual egui widgets without a window server:
+EZ_SDR_PREVIEW_DIR=/tmp/ez-sdr-previews cargo test -p ez-gui --no-default-features \
+  app_ui_tests::render_workspaces -- --ignored --nocapture
+```
+
+Network integration tests need permission to bind loopback sockets. The CPU preview
+renderer checks egui layout and textures; native window/input/audio validation remains
+separate. No physical SDR is covered by the automated tests.
+
+Current task/evidence: [UI_FINAL_SESSION_SUMMARY.md](UI_FINAL_SESSION_SUMMARY.md) and
+[UI_BUILD_TASK.md](UI_BUILD_TASK.md).
+Earlier reports are historical and may describe interfaces that have since changed.
+
+## License
+
+Workspace manifests declare `MIT OR Apache-2.0`. The existing `dump1090` Rust port has an
+unresolved licensing review against its GPL reference implementations; resolve attribution
+and licensing before distribution. `dump978-fa` remains a separately installed program.

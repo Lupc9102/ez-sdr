@@ -33,7 +33,7 @@ pub struct SoapySDRRange {
     pub step: f64,
 }
 
-pub const SOAPY_SDR_RX: i32 = 2;
+pub const SOAPY_SDR_RX: i32 = 1;
 pub const SOAPY_SDR_CS16: *const c_char = c"CS16".as_ptr();
 
 #[allow(dead_code)]
@@ -563,7 +563,12 @@ impl SdrSource for SoapySdr {
             )
         };
 
-        if samples_read <= 0 {
+        if samples_read < 0 {
+            return Err(anyhow::anyhow!(
+                "soapy: readStream failed with code {}",
+                samples_read
+            ));
+        } else if samples_read == 0 {
             return Ok(0);
         }
 

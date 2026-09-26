@@ -113,7 +113,7 @@ mod tests {
         let config = TelemetryConfig {
             channel_id: 7,
             sample_rate_hz: 288_000,
-            symbol_rate_hz: 72_000,
+            symbol_rate_hz: 80_000,
         };
         (bus, TelemetryPipeline::new(handle, config))
     }

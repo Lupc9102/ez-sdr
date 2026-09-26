@@ -98,30 +98,20 @@ where
 }
 
 /// Push every advanced setting from `shared.config` onto the live engines.
-/// Used at startup and by the panel's "reset" button so the running app
-/// matches the saved (or reset) profile.
-pub fn push_advanced(demod: &mut crate::demod::Demodulator, shared: &mut crate::app::SharedState) {
+/// Used by the panel's "reset" button so the running app matches the saved
+/// (or reset) profile.
+pub fn push_advanced(demod: &mut crate::demod::DemodWorker, shared: &mut crate::app::SharedState) {
+    let mode = shared.demod_mode.resolve(shared.source.frequency_hz);
+    demod.configure_advanced(&shared.config.advanced, mode);
     let a = &shared.config.advanced;
-    demod.set_agc_enabled(a.agc_enabled);
-    demod.set_agc_target(a.agc_target);
-    demod.set_agc_attack(a.agc_attack);
-    demod.set_agc_decay(a.agc_decay);
-    demod.set_audio_hpf(a.audio_hpf_hz);
-    demod.set_dc_blocker(a.dc_blocker);
-    demod.set_deemph_tau(a.deemph_tau_us);
-    demod.set_audio_gain(a.audio_gain);
-    demod.set_notch(a.notch_hz, a.notch_width_hz);
-    demod.set_bass(a.bass_db);
-    demod.set_treble(a.treble_db);
-    demod.set_noise_blanker(a.noise_blanker);
-    demod.set_pitch(a.pitch_octaves);
-    demod.set_rf_dc_remove(a.rf_dc_remove);
-    demod.set_rf_noise_blanker(a.rf_noise_blanker);
-    demod.set_rf_notch(a.rf_notch, a.rf_notch_hz);
-    demod.set_rf_decim(a.rf_decim);
-
     let s = &mut shared.spectrum;
-    s.set_fft_size(a.fft_size);
+    if !s.set_fft_size(a.fft_size) {
+        s.set_fft_size(2048);
+    }
+    s.set_fft_rate(a.fft_rate);
+    s.set_waterfall_visible(a.waterfall_visible);
+    s.full_waterfall_update = a.full_waterfall_update;
+    s.set_snr_smoothing(a.snr_smoothing, a.snr_smoothing_secs);
     s.set_window(window_from_str(&a.window));
     s.set_waterfall_history(a.wf_depth);
     s.waterfall_every_n = a.wf_speed.max(1);
@@ -136,14 +126,24 @@ pub fn push_advanced(demod: &mut crate::demod::Demodulator, shared: &mut crate::
     shared.source.tuner_agc = a.tuner_agc;
     shared.source.rtl_agc = a.rtl_agc;
     shared.source.direct_sampling = a.direct_sampling;
+    shared.source.direct_sampling_branch = a.direct_sampling_branch;
+    shared.source.frequency_offset_hz = shared.config.lo_offset_hz;
     shared.source.bias_tee = a.bias_tee;
+    shared.source.rtl_device = a.rtl_device.clone();
+    shared.source.offset_tuning = a.offset_tuning;
+    shared.config.advanced.fft_size = shared.spectrum.fft_size();
+    shared.config.advanced.fft_rate = shared.spectrum.fft_rate();
 }
 
 /// Render the `⚙ More → Advanced` drawer body.
+///
+/// Interactive widgets only update `shared.config.advanced` in place; the
+/// running [`crate::demod::DemodWorker`] is re-synced from the whole config
+/// once at the end of the panel (see [`crate::demod::DemodWorker::configure_advanced`]).
 pub fn render_advanced(
     ui: &mut egui::Ui,
     shared: &mut crate::app::SharedState,
-    demod: &mut crate::demod::Demodulator,
+    demod: &mut crate::demod::DemodWorker,
 ) {
     ui.heading("Advanced / Experimental");
     ui.label(
@@ -154,35 +154,41 @@ pub fn render_advanced(
 
     // ---------------- Audio / DSP ----------------
     ui.collapsing("Audio DSP", |ui| {
+        let mut cutoff = shared.lpf_cutoff;
+        if ui
+            .add(egui::Slider::new(&mut cutoff, 100.0..=20_000.0).text("Audio cutoff (Hz)"))
+            .changed()
+        {
+            shared.lpf_cutoff = cutoff;
+            shared.config.advanced.audio_cutoff_hz = cutoff;
+        }
         let mut agc = shared.config.advanced.agc_enabled;
         if ui.checkbox(&mut agc, "Audio AGC").changed() {
             shared.config.advanced.agc_enabled = agc;
-            demod.set_agc_enabled(agc);
         }
-        let nw = shared.config.advanced.notch_width_hz;
         slider_f32(
             ui,
             &mut shared.config.advanced.agc_target,
             0.01..=1.0,
             "AGC target",
             demod,
-            |d, v| d.set_agc_target(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
-            &mut shared.config.advanced.agc_attack,
-            0.0001..=1.0,
+            &mut shared.config.advanced.agc_attack_rate,
+            1.0..=200.0,
             "AGC attack",
             demod,
-            |d, v| d.set_agc_attack(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
-            &mut shared.config.advanced.agc_decay,
-            0.00001..=1.0,
+            &mut shared.config.advanced.agc_decay_rate,
+            1.0..=20.0,
             "AGC decay",
             demod,
-            |d, v| d.set_agc_decay(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -190,7 +196,7 @@ pub fn render_advanced(
             0.0..=20000.0,
             "High-pass (Hz)",
             demod,
-            |d, v| d.set_audio_hpf(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -198,15 +204,15 @@ pub fn render_advanced(
             0.0..=1.0,
             "DC blocker",
             demod,
-            |d, v| d.set_dc_blocker(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
             &mut shared.config.advanced.deemph_tau_us,
-            20.0..=100.0,
+            0.0..=100.0,
             "FM de-emph t (us)",
             demod,
-            |d, v| d.set_deemph_tau(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -214,7 +220,7 @@ pub fn render_advanced(
             0.0..=10.0,
             "Audio gain",
             demod,
-            |d, v| d.set_audio_gain(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -222,7 +228,7 @@ pub fn render_advanced(
             -24.0..=24.0,
             "Bass (dB)",
             demod,
-            |d, v| d.set_bass(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -230,7 +236,7 @@ pub fn render_advanced(
             -24.0..=24.0,
             "Treble (dB)",
             demod,
-            |d, v| d.set_treble(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -238,7 +244,7 @@ pub fn render_advanced(
             0.0..=20000.0,
             "Notch (Hz)",
             demod,
-            |d, v| d.set_notch(v, nw),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -246,7 +252,7 @@ pub fn render_advanced(
             10.0..=5000.0,
             "Notch width (Hz)",
             demod,
-            |d, v| d.set_notch(shared.config.advanced.notch_hz, v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -254,7 +260,7 @@ pub fn render_advanced(
             0.0..=1.0,
             "Noise blanker",
             demod,
-            |d, v| d.set_noise_blanker(v),
+            |_, _| {},
         );
         slider_f32(
             ui,
@@ -262,7 +268,7 @@ pub fn render_advanced(
             -2.0..=2.0,
             "Pitch (octaves)",
             demod,
-            |d, v| d.set_pitch(v),
+            |_, _| {},
         );
     });
 
@@ -270,14 +276,25 @@ pub fn render_advanced(
     ui.collapsing("Display / Spectrum", |ui| {
         let dbmin = shared.config.advanced.db_min;
         let dbmax = shared.config.advanced.db_max;
-        slider_usize(
-            ui,
-            &mut shared.config.advanced.fft_size,
-            256..=8192,
-            "FFT size",
-            &mut shared.spectrum,
-            |s, v| s.set_fft_size(v),
-        );
+        ui.horizontal(|ui| {
+            ui.label("FFT size");
+            egui::ComboBox::from_id_salt("advanced.fft_size")
+                .selected_text(shared.config.advanced.fft_size.to_string())
+                .show_ui(ui, |ui| {
+                    for size in [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536] {
+                        if ui
+                            .selectable_value(
+                                &mut shared.config.advanced.fft_size,
+                                size,
+                                size.to_string(),
+                            )
+                            .changed()
+                        {
+                            shared.spectrum.set_fft_size(size);
+                        }
+                    }
+                });
+        });
         ui.horizontal(|ui| {
             ui.label("Window:");
             egui::ComboBox::from_label("")
@@ -326,8 +343,8 @@ pub fn render_advanced(
         slider_f32(
             ui,
             &mut shared.config.advanced.avg_alpha,
-            0.0..=1.0,
-            "Trace averaging",
+            0.02..=1.0,
+            "Trace new-sample weight",
             &mut shared.spectrum,
             |s, v| s.set_avg_alpha(v),
         );
@@ -415,17 +432,14 @@ pub fn render_advanced(
         let mut rfd = shared.config.advanced.rf_dc_remove;
         if ui.checkbox(&mut rfd, "RF DC removal").changed() {
             shared.config.advanced.rf_dc_remove = rfd;
-            demod.set_rf_dc_remove(rfd);
         }
         let mut rfn = shared.config.advanced.rf_noise_blanker;
         if ui.checkbox(&mut rfn, "RF noise blanker").changed() {
             shared.config.advanced.rf_noise_blanker = rfn;
-            demod.set_rf_noise_blanker(rfn);
         }
         let mut rfnc = shared.config.advanced.rf_notch;
         if ui.checkbox(&mut rfnc, "RF notch").changed() {
             shared.config.advanced.rf_notch = rfnc;
-            demod.set_rf_notch(rfnc, shared.config.advanced.rf_notch_hz);
         }
         slider_f32(
             ui,
@@ -433,15 +447,11 @@ pub fn render_advanced(
             100.0..=500_000.0,
             "RF notch (Hz)",
             demod,
-            |d, v| d.set_rf_notch(shared.config.advanced.rf_notch, v),
+            |_, _| {},
         );
-        slider_u32(
-            ui,
-            &mut shared.config.advanced.rf_decim,
-            1..=8,
-            "RF decimation",
-            demod,
-            |d, v| d.set_rf_decim(v),
+        ui.add(
+            egui::Slider::new(&mut shared.config.advanced.rf_decim, 1..=8)
+                .text("Radio IQ decimation (rounded down to a power of two)"),
         );
     });
 
@@ -532,4 +542,9 @@ pub fn render_advanced(
         shared.config.advanced = AdvancedConfig::default();
         push_advanced(demod, shared);
     }
+
+    // Sync the demod worker with the whole advanced config so every widget
+    // edit above (and any config applied elsewhere) reaches the DSP thread.
+    let mode = shared.demod_mode.resolve(shared.source.frequency_hz);
+    demod.configure_advanced(&shared.config.advanced, mode);
 }

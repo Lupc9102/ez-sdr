@@ -151,15 +151,21 @@ pub struct QpskConfig {
     pub rrc_beta: f32,
     /// Costas loop bandwidth (normalized), controls lock speed vs jitter.
     pub costas_bandwidth: f32,
+    /// Recombine the half-symbol-staggered I and Q branches used by
+    /// Meteor-M2-3/M2-4 OQPSK before carrier slicing.
+    pub oqpsk: bool,
 }
 
 impl Default for QpskConfig {
     fn default() -> Self {
         Self {
             sample_rate: 2_048_000.0,
-            symbol_rate: 72_000.0,
+            // Current Meteor-M2-3/M2-4 LRPT downlinks are commonly operated
+            // at 80 kbaud. Callers may still pass 72 kbaud for older captures.
+            symbol_rate: 80_000.0,
             rrc_beta: 0.5,
             costas_bandwidth: 0.02,
+            oqpsk: false,
         }
     }
 }
@@ -312,7 +318,12 @@ impl QpskDemod {
             // rate slack cleanly).
             loop {
                 let latest = self.write_count as i64 - 1;
-                if self.tau > latest as f64 {
+                let oqpsk_lookahead = if self.config.oqpsk {
+                    f64::from(self.sps) / 2.0
+                } else {
+                    0.0
+                };
+                if self.tau + oqpsk_lookahead > latest as f64 {
                     break;
                 }
 
@@ -325,7 +336,11 @@ impl QpskDemod {
                 // between consecutive symbol-spaced samples. Zero when
                 // timing is correctly aligned.
                 let diff = current - one_symbol_ago;
-                let timing_error = half_symbol_ago.re * diff.re + half_symbol_ago.im * diff.im;
+                let timing_error = if self.config.oqpsk {
+                    half_symbol_ago.re * diff.re
+                } else {
+                    half_symbol_ago.re * diff.re + half_symbol_ago.im * diff.im
+                };
                 let timing_error = timing_error.clamp(-1.0, 1.0);
                 let step =
                     (f64::from(self.sps) - f64::from(self.timing_gain * timing_error)).max(0.5);
@@ -342,7 +357,16 @@ impl QpskDemod {
                 // before handing it to the quadrant/differential-decode
                 // stage so it lines up with the diagonal convention that
                 // `diff_decode::symbol_to_quadrant` expects.
-                let loop_corrected = current * Complex32::from_polar(1.0, -self.costas_phase);
+                let decision = if self.config.oqpsk {
+                    Complex32::new(
+                        current.re,
+                        self.interpolate_at(self.tau - step + f64::from(self.sps) / 2.0)
+                            .im,
+                    )
+                } else {
+                    current
+                };
+                let loop_corrected = decision * Complex32::from_polar(1.0, -self.costas_phase);
                 let phase_error = costas_phase_error(loop_corrected);
 
                 self.costas_freq += self.costas_beta * phase_error;
@@ -481,6 +505,7 @@ mod tests {
             symbol_rate: 1000.0,
             rrc_beta: 0.5,
             costas_bandwidth: 0.02,
+            oqpsk: false,
         };
         let sps_in = (config.sample_rate / config.symbol_rate) as usize; // 8
         let points = [
@@ -513,6 +538,7 @@ mod tests {
             symbol_rate: 1000.0,
             rrc_beta: 0.5,
             costas_bandwidth: 0.02,
+            oqpsk: false,
         };
         let samples: Vec<Complex32> = (0..2000)
             .map(|i| Complex32::from_polar(50.0, (i as f32) * 0.01))
@@ -538,6 +564,7 @@ mod tests {
             symbol_rate: 4000.0, // sps = 2.0
             rrc_beta: 0.5,
             costas_bandwidth: 0.02,
+            oqpsk: false,
         };
         let mut demod = QpskDemod::new(config);
         // Feed sudden extreme transitions that maximize timing error

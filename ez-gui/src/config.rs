@@ -152,6 +152,18 @@ pub struct AdvancedConfig {
     /// Spectrum persistence / afterglow 0..1 (0 = off).
     #[serde(default)]
     pub persistence: f32,
+    /// FFT peak-hold decay time in seconds (0 = off).
+    #[serde(default = "default_fft_hold")]
+    pub fft_hold: f32,
+    /// Explicit smoothing on/off (mirrors avg_alpha but independently toggleable).
+    #[serde(default = "default_smoothing_enabled")]
+    pub smoothing_enabled: bool,
+    /// Smoothing speed 0..1 (higher = faster response).
+    #[serde(default = "default_smoothing_speed")]
+    pub smoothing_speed: f32,
+    /// Fast FFT: skip overlap windows for lower latency.
+    #[serde(default)]
+    pub fast_fft: bool,
     /// Gradient fill under the spectrum line.
     #[serde(default)]
     pub gradient_fill: bool,
@@ -260,6 +272,15 @@ fn default_cw_volume() -> f32 {
 fn default_cw_squelch_level() -> f32 {
     -60.0
 }
+fn default_fft_hold() -> f32 {
+    0.5
+}
+fn default_smoothing_enabled() -> bool {
+    true
+}
+fn default_smoothing_speed() -> f32 {
+    0.3
+}
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
@@ -315,6 +336,10 @@ impl Default for AdvancedConfig {
             peak_hold_time: 1.0,
             avg_alpha: 0.3,
             persistence: 0.0,
+            fft_hold: default_fft_hold(),
+            smoothing_enabled: default_smoothing_enabled(),
+            smoothing_speed: default_smoothing_speed(),
+            fast_fft: false,
             gradient_fill: true,
             db_min: -120.0,
             db_max: 0.0,

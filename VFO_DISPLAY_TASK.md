@@ -1,0 +1,25 @@
+# Independent VFO and complex spectrum input
+
+## Target
+Separate the tuned VFO RF frequency from the source capture center in `ez-gui/src/spectrum.rs`; update passband overlays/detection and interactions using their proper coordinate systems. Add normalized complex input without requantization through the same bounded real-sample FFT path. Add a functional Full Waterfall Update option and include it in the display settings snapshot. Preserve calibrated FFT/cadence, bounded storage, alpha rendering, and existing tests. Continuation ownership also includes `ez-gui/tests/radio_performance.rs`: exercise the entire RadioIqProcessor → complex spectrum → VfoMixer → complex Demodulator pipeline, add a nonignored offcenter AM selection test, and measure one second of input for decimation 1/8 in AM/WFM/CW/stereo. Root owns integration/config/UI; other agents own source and DSP.
+
+## Tasklist
+- [x] Read continuation/reference reports and propose exact integration APIs — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Implement independent VFO state and capture-correct mapping/overlays/detector, including exact fractional effective rates — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Add complex IQ ingestion through the shared bounded FFT path — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Add functional full waterfall texture updates and settings snapshot/menu — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Validate offset VFO/passband/click mapping, complex chunk/calibration behavior, texture updates, and all spectrum regressions (57 passed, 0 failed) — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Write scoped summary and hand stable APIs/results to root — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Update integrated one-second throughput test for nonzero VFO offsets and source decimation 1/8 — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Add a nonignored offcenter AM channel-selection signal regression through the complete float pipeline — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+- [x] Run focused signal/performance verification and report measured results to root (AM selection passed; eight release throughput cases passed, each 47,999 audio frames) — native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed)
+
+## Tips
+- Complete-path release throughput passed at source2,400,003Hz and decimation1/8: AM84/73ms, WFM122/79ms, CW84/71ms, WFM stereo182/109ms per one-second fixture. Every case emits47,999frames (allowed48,000±1); both stereo cases acquire pilot lock. Normal AM integration also passes. Test-only changes formatted; scoped diff-check passes.
+- Throughput continuation pickup: native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed). Own radio_performance.rs for test-only changes. Root is running the full suite; Cargo may serialize at the lock. Require 48,000 output frames ±1 for one source second and preserve exact effective sample rates. No native GUI/USB/audio claims.
+- Final verification: 57 spectrum tests passed (50 prior + 7 new). Actual egui pointer click/overlay positions and texture-delta upload modes are covered. rustfmt and scoped git diff --check pass. Root owns final screenshots, integration and release; no native/hardware evidence claimed here.
+- Additional API requested by root: `update_params_exact(capture_center_hz: u64, sample_rate: f64)` keeps fractional decimated rates internally; existing u32 update_params forwards to it. VFO remains independent when center/rate changes.
+- Pickup 2026-09-23: native Codex session subagent `/root/radio_rebuild` / inherited GPT-6-family route (exact provider identifier not exposed). Read TUNING_PARITY_TASK.md and RADIO_PARITY_SESSION_SUMMARY.md. Only built-in session agents; no Morph/agy or native/hardware claims.
+- Root API proposal: `pub vfo_freq_hz: Option<u64>` (None follows capture center), getter `vfo_frequency_hz()`, `push_complex_samples(&[Complex32])`, `pub full_waterfall_update: bool` and matching DisplaySettings field. update_params remains capture center/effective sample rate.
+- Capture-axis math already drives click/bookmark/peak frequencies correctly; do not rebase it to the VFO. CTR stays on capture center while VFO passband moves. Existing Ctrl-scroll edits width, not capture/VFO center.
+- Preserve all prior 50 spectrum tests, including actual WFM overlay alpha regression; no palette rewrite.

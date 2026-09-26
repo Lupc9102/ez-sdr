@@ -52,18 +52,27 @@ pub async fn serve(
 ) -> Result<()> {
     let local_addr = listener.local_addr().ok();
     tracing::info!(?local_addr, "ez-daemon listening");
+    let sem = Arc::new(tokio::sync::Semaphore::new(64));
 
     while running.load(Ordering::Relaxed) {
         tokio::select! {
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, peer)) => {
+                        let permit = match sem.clone().try_acquire_owned() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                tracing::warn!(%peer, "connection limit reached, dropping connection");
+                                continue;
+                            }
+                        };
                         let state = Arc::clone(&state);
                         let conn_running = Arc::clone(&running);
                         tokio::spawn(async move {
                             if let Err(e) = handle_connection(stream, peer, state, conn_running).await {
                                 tracing::warn!(%peer, error = %e, "connection ended with error");
                             }
+                            drop(permit);
                         });
                     }
                     Err(e) => tracing::warn!(error = %e, "accept failed"),
@@ -87,9 +96,16 @@ async fn handle_connection(
     let mut reader = FramedRead::new(read_half, MessageCodec::<ClientCommand>::for_commands());
     let mut writer = FramedWrite::new(write_half, MessageCodec::<ServerEvent>::for_data());
 
-    let client_name = match perform_handshake(&mut reader, &mut writer).await? {
-        Some(name) => name,
-        None => return Ok(()),
+    let client_name = match tokio::time::timeout(
+        Duration::from_secs(5),
+        perform_handshake(&mut reader, &mut writer),
+    )
+    .await
+    {
+        Ok(Ok(Some(name))) => name,
+        Ok(Ok(None)) => return Ok(()),
+        Ok(Err(e)) => return Err(e),
+        Err(_) => anyhow::bail!("handshake timed out"),
     };
     tracing::info!(%peer, client_name, "client attached");
 
@@ -201,6 +217,11 @@ async fn command_loop(
                 if event_tx.send(ServerEvent::Hardware(state.hardware_status())).await.is_err() {
                     return Ok(());
                 }
+                for status in state.recording_statuses() {
+                    if event_tx.send(ServerEvent::Recording(status)).await.is_err() {
+                        return Ok(());
+                    }
+                }
             }
         }
     }
@@ -223,21 +244,34 @@ pub(crate) async fn apply_command(
         ClientCommand::Hello { .. } => {
             send_error(event_tx, "unexpected Hello after handshake".to_string()).await;
         }
-        ClientCommand::SetFrequency { hz } => state.set_frequency(hz),
+        ClientCommand::SetFrequency { hz } => {
+            let state = Arc::clone(state);
+            match tokio::task::spawn_blocking(move || state.set_frequency(hz)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => send_error(event_tx, error.to_string()).await,
+                Err(error) => send_error(event_tx, format!("hardware task failed: {error}")).await,
+            }
+        }
         ClientCommand::SetSampleRate { hz } => {
-            if let Err(e) = state.set_sample_rate(hz) {
-                send_error(event_tx, e.to_string()).await;
+            let state = Arc::clone(state);
+            match tokio::task::spawn_blocking(move || state.set_sample_rate(hz)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => send_error(event_tx, error.to_string()).await,
+                Err(error) => send_error(event_tx, format!("hardware task failed: {error}")).await,
             }
         }
         ClientCommand::SetGain { db } => {
-            if let Err(e) = state.set_gain(db) {
-                send_error(event_tx, e.to_string()).await;
+            let state = Arc::clone(state);
+            match tokio::task::spawn_blocking(move || state.set_gain(db)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => send_error(event_tx, error.to_string()).await,
+                Err(error) => send_error(event_tx, format!("hardware task failed: {error}")).await,
             }
         }
         ClientCommand::Subscribe { channel } => {
             let channel_id = channel.id;
             match state.subscribe(channel) {
-                Ok(sub) => spawn_forwarder(channel_id, sub, event_tx.clone(), forwarders),
+                Ok((sub, _)) => spawn_forwarder(channel_id, sub, event_tx.clone(), forwarders),
                 Err(e) => send_error(event_tx, e.to_string()).await,
             }
         }
@@ -396,11 +430,47 @@ mod tests {
     use super::*;
     use crate::bus::SampleBus;
     use crate::hardware::synthetic::SyntheticSource;
+    use crate::hardware::IqSource;
     use crate::ingest;
     use ez_proto::{ChannelSpec, PipelineKind};
     use std::sync::atomic::AtomicU64;
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct RejectFrequencySource(SyntheticSource);
+
+    impl IqSource for RejectFrequencySource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            self.0.start()
+        }
+        fn stop(&mut self) {
+            self.0.stop();
+        }
+        fn set_frequency(&mut self, _hz: u64) -> anyhow::Result<()> {
+            anyhow::bail!("frequency rejected by TCP test source")
+        }
+        fn set_sample_rate(&mut self, hz: u32) -> anyhow::Result<()> {
+            self.0.set_sample_rate(hz)
+        }
+        fn set_gain(&mut self, db: f64) -> anyhow::Result<()> {
+            self.0.set_gain(db)
+        }
+        fn read_iq(&mut self, buf: &mut [num_complex::Complex32]) -> anyhow::Result<usize> {
+            self.0.read_iq(buf)
+        }
+        fn frequency_hz(&self) -> u64 {
+            self.0.frequency_hz()
+        }
+        fn sample_rate_hz(&self) -> u32 {
+            self.0.sample_rate_hz()
+        }
+        fn gain_db(&self) -> f64 {
+            self.0.gain_db()
+        }
+        fn kind(&self) -> &'static str {
+            "reject-frequency-test"
+        }
+    }
 
     fn unique_temp_dir(label: &str) -> std::path::PathBuf {
         let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -424,6 +494,32 @@ mod tests {
             unique_temp_dir("server"),
         ));
 
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        tokio::spawn(async move {
+            let _ = serve(listener, state, server_running).await;
+        });
+        (addr, running)
+    }
+
+    async fn spawn_rejecting_test_server() -> (SocketAddr, Arc<AtomicBool>) {
+        let bus = SampleBus::new();
+        let ingest_running = Arc::new(AtomicBool::new(true));
+        let (hardware, _ingest_thread) = ingest::spawn(
+            Box::new(RejectFrequencySource(SyntheticSource::default())),
+            bus.clone(),
+            ingest_running,
+        )
+        .unwrap();
+        let state = Arc::new(DaemonState::new(
+            bus,
+            hardware,
+            100_000_000,
+            2_000_000,
+            unique_temp_dir("server-reject"),
+        ));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let running = Arc::new(AtomicBool::new(true));
@@ -499,6 +595,31 @@ mod tests {
         let hw = reader.next().await.unwrap().unwrap();
         assert!(matches!(hw, ServerEvent::Hardware(_)));
 
+        running.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn rejected_hardware_frequency_is_reported_to_tcp_client() {
+        let (addr, running) = spawn_rejecting_test_server().await;
+        let (mut writer, mut reader) = connect(addr).await;
+        hello(&mut writer, "hardware-error-client").await;
+        let _ = reader.next().await;
+        let _ = reader.next().await;
+
+        writer
+            .send(ClientCommand::SetFrequency { hz: 105_000_000 })
+            .await
+            .unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let ServerEvent::Error { message } = reader.next().await.unwrap().unwrap() {
+                    return message;
+                }
+            }
+        })
+        .await
+        .expect("expected backend rejection over TCP");
+        assert!(error.contains("frequency rejected by TCP test source"));
         running.store(false, Ordering::Relaxed);
     }
 

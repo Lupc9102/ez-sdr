@@ -32,6 +32,7 @@ use crate::state::{ChannelSubscription, DaemonState};
 use crate::web::wire;
 
 const CONTROL_EVENT_CHANNEL_CAPACITY: usize = 256;
+const CONTROL_COMMAND_CHANNEL_CAPACITY: usize = 256;
 const CONTROL_HW_TICK: Duration = Duration::from_millis(250);
 const DATA_CHANNEL_CAPACITY: usize = 64;
 
@@ -168,7 +169,40 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
         }
     });
 
-    let mut forwarders: HashMap<ChannelId, Arc<AtomicBool>> = HashMap::new();
+    let (command_tx, mut command_rx) =
+        mpsc::channel::<ClientCommand>(CONTROL_COMMAND_CHANNEL_CAPACITY);
+    let command_state = Arc::clone(&state);
+    let command_events = event_tx.clone();
+    let command_worker = tokio::spawn(async move {
+        let mut forwarders: HashMap<ChannelId, Arc<AtomicBool>> = HashMap::new();
+        let mut deferred = None;
+
+        loop {
+            let mut command = match deferred.take() {
+                Some(command) => command,
+                None => match command_rx.recv().await {
+                    Some(command) => command,
+                    None => break,
+                },
+            };
+
+            while let Ok(next) = command_rx.try_recv() {
+                if let Some(next) = coalesce_hardware_command(&mut command, next) {
+                    deferred = Some(next);
+                    break;
+                }
+            }
+
+            if !apply_command(command, &command_state, &command_events, &mut forwarders).await {
+                break;
+            }
+        }
+
+        for stop in forwarders.values() {
+            stop.store(false, Ordering::Relaxed);
+        }
+    });
+
     let mut hw_tick = tokio::time::interval_at(
         tokio::time::Instant::now() + CONTROL_HW_TICK,
         CONTROL_HW_TICK,
@@ -180,9 +214,23 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         match serde_json::from_str::<ClientCommand>(text.as_str()) {
-                            Ok(cmd) => {
-                                if !apply_command(cmd, &state, &event_tx, &mut forwarders).await {
+                            Ok(ClientCommand::Ping { nonce }) => {
+                                if event_tx.send(ServerEvent::Pong { nonce }).await.is_err() {
                                     break;
+                                }
+                            }
+                            Ok(ClientCommand::Detach) => break,
+                            Ok(cmd) => {
+                                if let Err(error) = command_tx.try_send(cmd) {
+                                    let message = match error {
+                                        mpsc::error::TrySendError::Full(_) => {
+                                            "control command queue is full; try again".to_string()
+                                        }
+                                        mpsc::error::TrySendError::Closed(_) => break,
+                                    };
+                                    if event_tx.send(ServerEvent::Error { message }).await.is_err() {
+                                        break;
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -203,15 +251,46 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
                 if event_tx.send(ServerEvent::Hardware(state.hardware_status())).await.is_err() {
                     break;
                 }
+                let mut disconnected = false;
+                for status in state.recording_statuses() {
+                    if event_tx.send(ServerEvent::Recording(status)).await.is_err() {
+                        disconnected = true;
+                        break;
+                    }
+                }
+                if disconnected {
+                    break;
+                }
             }
         }
     }
 
-    for stop in forwarders.values() {
-        stop.store(false, Ordering::Relaxed);
-    }
+    drop(command_tx);
+    let _ = command_worker.await;
     drop(event_tx);
     let _ = writer.await;
+}
+
+fn coalesce_hardware_command(
+    current: &mut ClientCommand,
+    next: ClientCommand,
+) -> Option<ClientCommand> {
+    let same_control = matches!(
+        (&*current, &next),
+        (
+            ClientCommand::SetFrequency { .. },
+            ClientCommand::SetFrequency { .. }
+        ) | (
+            ClientCommand::SetSampleRate { .. },
+            ClientCommand::SetSampleRate { .. }
+        ) | (ClientCommand::SetGain { .. }, ClientCommand::SetGain { .. })
+    );
+    if same_control {
+        *current = next;
+        None
+    } else {
+        Some(next)
+    }
 }
 
 #[cfg(test)]
@@ -260,6 +339,26 @@ mod tests {
                 .unwrap();
         });
         (format!("ws://{addr}"), state)
+    }
+
+    #[test]
+    fn hardware_command_coalescing_keeps_latest_matching_value() {
+        let mut current = ClientCommand::SetFrequency { hz: 100_000_000 };
+        assert!(coalesce_hardware_command(
+            &mut current,
+            ClientCommand::SetFrequency { hz: 101_000_000 }
+        )
+        .is_none());
+        assert!(matches!(
+            current,
+            ClientCommand::SetFrequency { hz: 101_000_000 }
+        ));
+
+        let deferred = coalesce_hardware_command(&mut current, ClientCommand::SetGain { db: 12.0 });
+        assert!(matches!(
+            deferred,
+            Some(ClientCommand::SetGain { db: 12.0 })
+        ));
     }
 
     #[tokio::test]

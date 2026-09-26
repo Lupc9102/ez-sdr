@@ -186,7 +186,7 @@ impl FrequencyScanner {
 
     pub fn stop_memory_scan(&mut self) {
         self.memory_scan = false;
-        self.enabled = false;
+        self.stop();
         self.status_text = format!("Memory scan stopped ({} hits)", self.hits.len());
     }
 
@@ -549,6 +549,16 @@ impl FrequencyScanner {
     }
 
     pub fn start(&mut self) {
+        if self.step_hz == 0 || self.start_hz > self.stop_hz {
+            self.stop();
+            self.status_text = "Choose an ordered frequency range and a nonzero scan step.".into();
+            return;
+        }
+        self.memory_scan = false;
+        self.holding = false;
+        self.hold_last_active = None;
+        self.mode_request = None;
+        self.progress = 0.0;
         self.enabled = true;
         self.paused = false;
         if self.reset_on_start {
@@ -568,6 +578,12 @@ impl FrequencyScanner {
 
     pub fn stop(&mut self) {
         self.enabled = false;
+        self.paused = false;
+        self.holding = false;
+        self.hold_last_active = None;
+        self.tune_request_hz = None;
+        self.mode_request = None;
+        self.last_step_time = None;
         self.status_text = format!("Stopped ({} signals)", self.hits.len());
     }
 
@@ -582,6 +598,7 @@ impl FrequencyScanner {
 
     pub fn resume(&mut self) {
         self.paused = false;
+        self.last_step_time = Some(Instant::now());
         self.status_text = format!(
             "Scanning {:.3}–{:.3} MHz",
             self.start_hz as f64 / 1e6,
@@ -1001,9 +1018,9 @@ impl FrequencyScanner {
                 (
                     "Marine VHF",
                     156_000_000,
-                    174_000_000,
+                    162_050_000,
                     25_000,
-                    "156–174 MHz NFM marine",
+                    "156–162.05 MHz NFM marine",
                 ),
                 (
                     "Ham 2m",

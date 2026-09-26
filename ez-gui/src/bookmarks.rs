@@ -9,7 +9,7 @@ pub struct BookmarkDb {
 /// A single bookmarked frequency with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bookmark {
-    /// Human-readable label (e.g. "NOAA 15 APT")
+    /// Human-readable label (e.g. "Meteor-M2-3 LRPT")
     pub name: String,
     /// Frequency in Hertz
     pub frequency_hz: u64,
@@ -31,48 +31,21 @@ impl Default for BookmarkDb {
         Self {
             bookmarks: vec![
                 Bookmark {
-                    name: "NOAA 15 APT".into(),
-                    frequency_hz: 137_620_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 34_000,
-                    category: "Weather".into(),
-                    notes: String::new(),
-                    starred: false,
-                },
-                Bookmark {
-                    name: "NOAA 18 APT".into(),
-                    frequency_hz: 137_912_500,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 34_000,
-                    category: "Weather".into(),
-                    notes: String::new(),
-                    starred: false,
-                },
-                Bookmark {
-                    name: "NOAA 19 APT".into(),
-                    frequency_hz: 137_100_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 34_000,
-                    category: "Weather".into(),
-                    notes: String::new(),
-                    starred: false,
-                },
-                Bookmark {
-                    name: "Meteor-M2 LRPT".into(),
+                    name: "Meteor-M2-3 LRPT".into(),
                     frequency_hz: 137_900_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 140_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 288_000,
                     category: "Weather".into(),
-                    notes: String::new(),
+                    notes: "Verify current transmitter status before a pass".into(),
                     starred: false,
                 },
                 Bookmark {
-                    name: "Meteor-M2-2 LRPT".into(),
+                    name: "Meteor-M2-4 LRPT".into(),
                     frequency_hz: 137_100_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 140_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 288_000,
                     category: "Weather".into(),
-                    notes: String::new(),
+                    notes: "Verify current transmitter status before a pass".into(),
                     starred: false,
                 },
                 Bookmark {
@@ -452,7 +425,7 @@ mod tests {
     #[test]
     fn default_has_all_bookmarks() {
         let db = BookmarkDb::default();
-        assert_eq!(db.bookmarks.len(), 25);
+        assert_eq!(db.bookmarks.len(), 22);
     }
 
     #[test]
@@ -544,7 +517,7 @@ mod tests {
         let csv_path = "/tmp/test_dedup_bookmarks.csv";
         std::fs::write(
             csv_path,
-            "name,frequency_hz,mode,category,notes\nDupNOAA,137620000,WFM,Weather,dup\n",
+            "name,frequency_hz,mode,category,notes\nDupNOAA,137900000,RAW,Weather,dup\n",
         )
         .expect("failed to write dedup test CSV");
         let (count, _err) = db.import_csv(csv_path);

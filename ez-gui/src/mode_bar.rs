@@ -1,4 +1,4 @@
-//! Mode bar: top navigation bar containing task modes (Listen, Planes, Satellites),
+//! Mode bar: top navigation bar containing the three primary workspaces.
 //! progressive disclosure deck (⚙ More), and ambient AI toggle (🤖 Ask).
 
 use crate::adsb_panel::AdsBPanel;
@@ -11,6 +11,7 @@ pub enum AppTab {
     Listen,
     Planes,
     Satellites,
+    Meteor,
 }
 
 pub const MAIN_TABS: &[(&str, AppTab, &str, &str, &str)] = &[
@@ -18,22 +19,22 @@ pub const MAIN_TABS: &[(&str, AppTab, &str, &str, &str)] = &[
         "listen",
         AppTab::Listen,
         "🎧",
-        "Listen",
-        "Listen — Spectrum, tuning, radio",
+        "Radio",
+        "Radio — Spectrum, tuning and audio",
     ),
     (
         "planes",
         AppTab::Planes,
         "✈",
-        "Planes",
-        "Planes — Live aircraft tracking (ADS-B)",
+        "ADS-B",
+        "ADS-B — Live aircraft tracking",
     ),
     (
-        "satellites",
-        AppTab::Satellites,
-        "🛰",
-        "Satellites",
-        "Satellites — Passes, Doppler, image decode",
+        "meteor",
+        AppTab::Meteor,
+        "🌦",
+        "Meteor",
+        "Meteor — Decode recorded .cs8 LRPT files",
     ),
 ];
 
@@ -42,15 +43,22 @@ pub enum SecondaryTool {
     Bookmarks,
     Scanner,
     Recorder,
+    Sinks,
+    BandPlan,
     Scheduler,
     Settings,
     HowTo,
     Discord,
     Mqtt,
     WebRemote,
+    Rigctl,
     Layout,
     Customize,
     Advanced,
+    FrequencyManager,
+    VfoColor,
+    Theme,
+    ModuleManager,
 }
 
 impl SecondaryTool {
@@ -59,15 +67,22 @@ impl SecondaryTool {
             SecondaryTool::Bookmarks => "⭐",
             SecondaryTool::Scanner => "🔍",
             SecondaryTool::Recorder => "⏺",
+            SecondaryTool::Sinks => "🔊",
+            SecondaryTool::BandPlan => "🗺",
             SecondaryTool::Scheduler => "🗓",
             SecondaryTool::Settings => "⚙",
             SecondaryTool::HowTo => "❓",
             SecondaryTool::Discord => "💬",
             SecondaryTool::Mqtt => "📡",
             SecondaryTool::WebRemote => "🌐",
+            SecondaryTool::Rigctl => "📻",
             SecondaryTool::Layout => "🧩",
             SecondaryTool::Customize => "🎨",
             SecondaryTool::Advanced => "🧪",
+            SecondaryTool::FrequencyManager => "📋",
+            SecondaryTool::VfoColor => "🎨",
+            SecondaryTool::Theme => "🎭",
+            SecondaryTool::ModuleManager => "📦",
         }
     }
 
@@ -76,15 +91,22 @@ impl SecondaryTool {
             SecondaryTool::Bookmarks => "Bookmarks",
             SecondaryTool::Scanner => "Scanner",
             SecondaryTool::Recorder => "Recorder",
+            SecondaryTool::Sinks => "Sinks",
+            SecondaryTool::BandPlan => "Band Plan",
             SecondaryTool::Scheduler => "Scheduler",
             SecondaryTool::Settings => "Settings",
             SecondaryTool::HowTo => "How To",
             SecondaryTool::Discord => "Discord",
             SecondaryTool::Mqtt => "MQTT",
             SecondaryTool::WebRemote => "Web Remote",
+            SecondaryTool::Rigctl => "Rigctl Server",
             SecondaryTool::Layout => "Layout",
             SecondaryTool::Customize => "Customize",
             SecondaryTool::Advanced => "Advanced",
+            SecondaryTool::FrequencyManager => "Frequency Manager",
+            SecondaryTool::VfoColor => "VFO Color",
+            SecondaryTool::Theme => "Theme",
+            SecondaryTool::ModuleManager => "Module Manager",
         }
     }
 
@@ -93,15 +115,22 @@ impl SecondaryTool {
             SecondaryTool::Bookmarks => "bookmarks",
             SecondaryTool::Scanner => "scanner",
             SecondaryTool::Recorder => "recorder",
+            SecondaryTool::Sinks => "sinks",
+            SecondaryTool::BandPlan => "band_plan",
             SecondaryTool::Scheduler => "scheduler",
             SecondaryTool::Settings => "settings",
             SecondaryTool::HowTo => "howto",
             SecondaryTool::Discord => "discord",
             SecondaryTool::Mqtt => "mqtt",
             SecondaryTool::WebRemote => "webremote",
+            SecondaryTool::Rigctl => "rigctl",
             SecondaryTool::Layout => "layout",
             SecondaryTool::Customize => "customize",
             SecondaryTool::Advanced => "advanced",
+            SecondaryTool::FrequencyManager => "frequency_manager",
+            SecondaryTool::VfoColor => "vfo_color",
+            SecondaryTool::Theme => "theme",
+            SecondaryTool::ModuleManager => "module_manager",
         }
     }
 
@@ -117,13 +146,20 @@ impl SecondaryTool {
             // Power tools.
             SecondaryTool::Scanner
             | SecondaryTool::Recorder
+            | SecondaryTool::Sinks
+            | SecondaryTool::BandPlan
             | SecondaryTool::Scheduler
             | SecondaryTool::Advanced => Advanced,
             // Expert integrations.
             SecondaryTool::Discord
             | SecondaryTool::Mqtt
             | SecondaryTool::WebRemote
+            | SecondaryTool::Rigctl
             | SecondaryTool::Layout => ClerkMaxwell,
+            SecondaryTool::FrequencyManager
+            | SecondaryTool::VfoColor
+            | SecondaryTool::Theme
+            | SecondaryTool::ModuleManager => Advanced,
         }
     }
 
@@ -139,14 +175,21 @@ pub const ALL_SECONDARY_TOOLS: &[SecondaryTool] = &[
     SecondaryTool::Bookmarks,
     SecondaryTool::Scanner,
     SecondaryTool::Recorder,
+    SecondaryTool::Sinks,
+    SecondaryTool::BandPlan,
     SecondaryTool::Scheduler,
     SecondaryTool::Discord,
     SecondaryTool::Mqtt,
     SecondaryTool::WebRemote,
+    SecondaryTool::Rigctl,
     SecondaryTool::Layout,
     SecondaryTool::Settings,
     SecondaryTool::HowTo,
     SecondaryTool::Advanced,
+    SecondaryTool::FrequencyManager,
+    SecondaryTool::VfoColor,
+    SecondaryTool::Theme,
+    SecondaryTool::ModuleManager,
 ];
 
 /// Immediate-mode render function: one `&mut` per panel/widget by design.
@@ -162,152 +205,79 @@ pub fn render_mode_bar(
     show_keyboard_help: &mut bool,
     ai_ask_open: &mut bool,
 ) {
-    ui.painter()
-        .rect_filled(ui.max_rect(), 0.0, egui::Color32::from_rgb(10, 13, 18));
-
-    let glow = shared
+    let colors = shared
         .try_lock()
-        .map(|state| state.config.theme_config.glow)
+        .map(|state| state.config.theme_config.clone())
         .unwrap_or_default();
-
+    let radio_workspace = *current_tab == AppTab::Listen;
+    ui.spacing_mut().item_spacing = if radio_workspace {
+        egui::vec2(4.0, 2.0)
+    } else {
+        egui::vec2(6.0, 2.0)
+    };
     ui.horizontal_centered(|ui| {
-        ui.add_space(6.0);
-        // ── Task modes ──────────────────────────────────────────────
-        // Read from layout config; fall back to MAIN_TABS order for missing entries.
-        let mut tabs_to_render = Vec::new();
-        let mut rendered_ids = std::collections::HashSet::new();
-        if let Ok(state) = shared.try_lock() {
-            for item in &state.config.layout.main_tabs {
-                if item.visible {
-                    for (id, tab, icon, label, tip) in MAIN_TABS.iter().copied() {
-                        if id == item.id {
-                            tabs_to_render.push((tab, icon, label, tip));
-                            rendered_ids.insert(id);
-                            break;
-                        }
-                    }
-                }
-            }
+        if !radio_workspace {
+            ui.label(
+                egui::RichText::new("ez-sdr")
+                    .strong()
+                    .color(colors.text_dim.to_egui()),
+            );
         }
-        // Fallback: append any tabs not in layout config.
-        for (id, tab, icon, label, tip) in MAIN_TABS.iter().copied() {
-            if !rendered_ids.contains(id) {
-                tabs_to_render.push((tab, icon, label, tip));
+        ui.separator();
+        for (_, tab, _, label, tip) in MAIN_TABS.iter().copied() {
+            let active = *current_tab == tab;
+            let response = ui
+                .add(
+                    egui::Button::new(egui::RichText::new(label).size(13.0).color(if active {
+                        colors.text_heading.to_egui()
+                    } else {
+                        colors.text_dim.to_egui()
+                    }))
+                    .selected(active)
+                    .min_size(egui::vec2(74.0, 23.0)),
+                )
+                .on_hover_text(tip);
+            if active {
+                ui.painter().hline(
+                    response.rect.x_range(),
+                    response.rect.bottom(),
+                    egui::Stroke::new(2.0, colors.accent.to_egui()),
+                );
             }
-        }
-
-        for (tab, icon, label, tip) in tabs_to_render {
-            let is_active = *current_tab == tab && active_secondary_tool.is_none();
-            let fg = if is_active {
-                egui::Color32::from_rgb(0, 168, 255)
-            } else {
-                egui::Color32::from_rgb(160, 170, 180)
-            };
-            let bg = if is_active {
-                egui::Color32::from_rgb(20, 26, 34)
-            } else {
-                egui::Color32::TRANSPARENT
-            };
-            let btn = egui::Button::new(
-                egui::RichText::new(format!("{icon}  {label}"))
-                    .color(fg)
-                    .size(16.0),
-            )
-            .fill(bg)
-            .min_size(egui::vec2(0.0, 34.0));
-            let resp = ui.add(btn);
-            if is_active {
-                crate::fx::paint_glow(ui.painter(), resp.rect, 4.0, &glow);
-            }
-            if resp.on_hover_text(tip).clicked() {
+            if response.clicked() {
                 *current_tab = tab;
                 *active_secondary_tool = None;
                 if tab == AppTab::Planes {
                     adsb_panel.begin();
                 }
             }
-            ui.add_space(2.0);
         }
-
-        // ── Ambient tools, pushed to the right edge ─────────────────
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // ⚙ More — deck of hidden tools, gated by user level.
-            let level = shared
-                .try_lock()
-                .map(|s| crate::user_level::UserLevel::from_name(&s.config.user_level))
-                .unwrap_or(crate::user_level::UserLevel::Beginner);
-            ui.menu_button(egui::RichText::new("⚙ More").size(15.0), |ui| {
-                ui.set_min_width(180.0);
-                let mut chosen: Option<SecondaryTool> = None;
-
-                // Build tools list from layout config; fall back to ALL_SECONDARY_TOOLS order.
-                let mut tools_to_show = Vec::new();
-                let mut rendered_tool_ids = std::collections::HashSet::new();
-                if let Ok(state) = shared.try_lock() {
-                    for item in &state.config.layout.secondary_tools {
-                        if item.visible {
-                            for tool in ALL_SECONDARY_TOOLS.iter().copied() {
-                                if tool.id() == item.id {
-                                    if tool.available_at(level) {
-                                        tools_to_show.push(tool);
-                                        rendered_tool_ids.insert(item.id.clone());
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                // Fallback: append any tools not in layout config.
+            ui.menu_button("Tools", |ui| {
                 for tool in ALL_SECONDARY_TOOLS.iter().copied() {
-                    if !rendered_tool_ids.contains(tool.id()) && tool.available_at(level) {
-                        tools_to_show.push(tool);
-                    }
-                }
-
-                for tool in tools_to_show {
-                    if ui
-                        .button(format!("{}  {}", tool.icon(), tool.label()))
-                        .clicked()
-                    {
-                        chosen = Some(tool);
+                    if ui.button(tool.label()).clicked() {
+                        *active_secondary_tool = Some(tool);
+                        ui.close();
                     }
                 }
                 ui.separator();
-                if ui.button("🎨  Customize").clicked() {
-                    chosen = Some(SecondaryTool::Customize);
+                if ui.button("Appearance").clicked() {
+                    *active_secondary_tool = Some(SecondaryTool::Customize);
+                    ui.close();
                 }
-                if ui.button("🚀  Quick Start Wizard").clicked() {
+                if ui.button("AI assistant").clicked() {
+                    *ai_ask_open = !*ai_ask_open;
+                    ui.close();
+                }
+                if ui.button("Setup guide").clicked() {
                     quick_start.start();
+                    ui.close();
                 }
-                if ui.button("⌨  Keyboard Shortcuts (?)").clicked() {
-                    *show_keyboard_help = !*show_keyboard_help;
-                }
-                if let Some(tool) = chosen {
-                    *active_secondary_tool = if *active_secondary_tool == Some(tool) {
-                        None
-                    } else {
-                        Some(tool)
-                    };
+                if ui.button("Keyboard shortcuts").clicked() {
+                    *show_keyboard_help = true;
+                    ui.close();
                 }
             });
-
-            // 🤖 Ask — ambient AI slide-over toggle.
-            let ask_fg = if *ai_ask_open {
-                egui::Color32::from_rgb(0, 168, 255)
-            } else {
-                egui::Color32::from_rgb(160, 170, 180)
-            };
-            if ui
-                .add(
-                    egui::Button::new(egui::RichText::new("🤖 Ask").color(ask_fg).size(15.0))
-                        .fill(egui::Color32::TRANSPARENT),
-                )
-                .on_hover_text("Ask the AI assistant (available in every mode)")
-                .clicked()
-            {
-                *ai_ask_open = !*ai_ask_open;
-            }
         });
     });
 }

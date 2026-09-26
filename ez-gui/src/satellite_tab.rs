@@ -57,6 +57,10 @@ pub fn render_satellite_tab(
     egui::Panel::bottom("sat_status")
         .exact_size(48.0)
         .show(ui, |ui| {
+            if *satellite_subtab == SatelliteSubTab::Decode {
+                ui.label("Meteor · offline .cs8 / .cf32 decoding");
+                return;
+            }
             ui.horizontal(|ui| {
                 let doppler = satellite_panel.doppler_hz;
                 let dop_color = if doppler.abs() > 5000.0 {
@@ -96,7 +100,10 @@ pub fn render_satellite_tab(
 
                 // Live signal-quality constellation — phase/amplitude view
                 // (SatDump-style) while a pass is active or recording.
-                if satellite_panel.cf32_recording || satellite_panel.map_renderer.in_pass_now {
+                if *satellite_subtab != SatelliteSubTab::Decode
+                    && !satellite_panel.is_meteor_selected()
+                    && (satellite_panel.cf32_recording || satellite_panel.map_renderer.in_pass_now)
+                {
                     ui.add_space(8.0);
                     ui.separator();
                     ui.label(egui::RichText::new("📶 Signal Quality").strong());
@@ -119,7 +126,7 @@ pub fn render_satellite_tab(
         }
         SatelliteSubTab::Decode => {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                decoding_panel.ui(ui);
+                decoding_panel.ui_offline(ui);
             });
         }
     });

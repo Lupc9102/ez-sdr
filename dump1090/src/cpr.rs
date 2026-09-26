@@ -274,12 +274,13 @@ pub fn decode_cpr_relative(
     let air_dlon = cpr_dlon_function(rlat, fflag, surface);
     let m = (reflon / air_dlon).floor()
         + (0.5 + cpr_mod_double(reflon, air_dlon) / air_dlon - fractional_lon).floor();
-    let mut rlon = air_dlon * (m + fractional_lon);
-    if rlon > 180.0 {
-        rlon -= 360.0;
-    }
-
-    if (rlon - reflon).abs() > air_dlon / 2.0 {
+    let rlon = air_dlon * (m + fractional_lon);
+    // Normalize both antimeridian directions. Comparing raw longitudes would
+    // reject a valid pair when the reference is +179° and the decoded point
+    // is -179° (or vice versa), so compare the shortest wrapped delta.
+    let rlon = rlon - ((rlon + 180.0) / 360.0).floor() * 360.0;
+    let delta_lon = (rlon - reflon + 180.0).rem_euclid(360.0) - 180.0;
+    if delta_lon.abs() > air_dlon / 2.0 {
         return None;
     }
 
@@ -302,6 +303,33 @@ struct CprCacheEntry {
     even: Option<TimedCprFrame>,
     odd: Option<TimedCprFrame>,
     last_seen: Option<std::time::Instant>,
+    last_position: Option<(f64, f64)>,
+    last_position_time: Option<std::time::Instant>,
+}
+
+impl CprCacheEntry {
+    fn prepare(&mut self, frame: CprFrame, now: std::time::Instant) {
+        if self
+            .even
+            .or(self.odd)
+            .is_some_and(|cached| cached.frame.cpr_type != frame.cpr_type)
+        {
+            // Airborne uses a 360-degree grid; surface uses a 90-degree grid.
+            // Frames either side of landing/takeoff cannot form a global pair.
+            self.even = None;
+            self.odd = None;
+            self.last_position = None;
+            self.last_position_time = None;
+        }
+        if !self.last_position_time.is_some_and(|seen| {
+            now.checked_duration_since(seen)
+                .is_some_and(|age| age.as_secs() <= 60)
+        }) {
+            self.last_position = None;
+            self.last_position_time = None;
+        }
+        self.last_seen = Some(now);
+    }
 }
 
 /// Stateful CPR decoder that caches recent frames per ICAO address.
@@ -322,10 +350,36 @@ impl CprDecoder {
     pub fn prune_older_than(&mut self, max_age: std::time::Duration) {
         let now = std::time::Instant::now();
         self.cache.retain(|_, entry| {
-            entry
-                .last_seen
-                .is_some_and(|t| now.duration_since(t) <= max_age)
+            entry.last_seen.is_some_and(|t| {
+                let dt = if now >= t {
+                    now.duration_since(t)
+                } else {
+                    t.duration_since(now)
+                };
+                dt <= max_age
+            })
         });
+    }
+
+    /// Evict oldest entries if cache is at or exceeds capacity.
+    fn evict_oldest_if_full(&mut self, icao: u32) {
+        if self.cache.len() >= MAX_CPR_CACHE_ENTRIES {
+            self.prune_older_than(std::time::Duration::from_secs(60));
+            let max_allowed = if self.cache.contains_key(&icao) {
+                MAX_CPR_CACHE_ENTRIES
+            } else {
+                MAX_CPR_CACHE_ENTRIES.saturating_sub(1)
+            };
+            while self.cache.len() > max_allowed {
+                if let Some((&oldest_icao, _)) =
+                    self.cache.iter().min_by_key(|(_, entry)| entry.last_seen)
+                {
+                    self.cache.remove(&oldest_icao);
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
     /// Submit a new CPR frame with an explicit timestamp (useful for testing).
@@ -336,36 +390,70 @@ impl CprDecoder {
         frame: CprFrame,
         now: std::time::Instant,
     ) -> Option<(f64, f64)> {
-        // Automatic cap enforcement to prevent unbounded memory growth
-        if self.cache.len() >= MAX_CPR_CACHE_ENTRIES {
-            self.prune_older_than(std::time::Duration::from_secs(60));
-            if self.cache.len() >= MAX_CPR_CACHE_ENTRIES {
-                self.cache.clear();
-            }
+        if frame.lat >= 131072 || frame.lon >= 131072 {
+            return None;
         }
+        // Automatic cap enforcement: evict oldest entry rather than clearing entire cache
+        self.evict_oldest_if_full(icao);
 
         let entry = self.cache.entry(icao).or_default();
-        entry.last_seen = Some(now);
+        entry.prepare(frame, now);
 
         let timed = TimedCprFrame { frame, time: now };
 
         match frame.cpr_type {
             CprType::Airborne => {
-                if frame.odd {
+                let global = if frame.odd {
                     entry.odd = Some(timed);
-                    let even = entry.even?;
-                    if now.duration_since(even.time).as_secs_f64() > CPR_PAIR_TIMEOUT_SECS {
-                        return None;
-                    }
-                    decode_cpr_airborne(even.frame.lat, even.frame.lon, frame.lat, frame.lon, true)
+                    entry.even.and_then(|even| {
+                        let dt = if now >= even.time {
+                            now.duration_since(even.time)
+                        } else {
+                            even.time.duration_since(now)
+                        };
+                        (dt.as_secs_f64() <= CPR_PAIR_TIMEOUT_SECS)
+                            .then(|| {
+                                decode_cpr_airborne(
+                                    even.frame.lat,
+                                    even.frame.lon,
+                                    frame.lat,
+                                    frame.lon,
+                                    true,
+                                )
+                            })
+                            .flatten()
+                    })
                 } else {
                     entry.even = Some(timed);
-                    let odd = entry.odd?;
-                    if now.duration_since(odd.time).as_secs_f64() > CPR_PAIR_TIMEOUT_SECS {
-                        return None;
-                    }
-                    decode_cpr_airborne(frame.lat, frame.lon, odd.frame.lat, odd.frame.lon, false)
+                    entry.odd.and_then(|odd| {
+                        let dt = if now >= odd.time {
+                            now.duration_since(odd.time)
+                        } else {
+                            odd.time.duration_since(now)
+                        };
+                        (dt.as_secs_f64() <= CPR_PAIR_TIMEOUT_SECS)
+                            .then(|| {
+                                decode_cpr_airborne(
+                                    frame.lat,
+                                    frame.lon,
+                                    odd.frame.lat,
+                                    odd.frame.lon,
+                                    false,
+                                )
+                            })
+                            .flatten()
+                    })
+                };
+                let decoded = global.or_else(|| {
+                    entry.last_position.and_then(|(lat, lon)| {
+                        decode_cpr_relative(lat, lon, frame.lat, frame.lon, frame.odd, false)
+                    })
+                });
+                if let Some(position) = decoded {
+                    entry.last_position = Some(position);
+                    entry.last_position_time = Some(now);
                 }
+                decoded
             }
             CprType::Surface => {
                 if frame.odd {
@@ -386,6 +474,84 @@ impl CprDecoder {
         }
     }
 
+    /// Submit a surface CPR frame when a previously known aircraft position is
+    /// available to resolve the 90-degree surface grid ambiguity.
+    #[must_use]
+    pub fn submit_surface_with_reference(
+        &mut self,
+        icao: u32,
+        frame: CprFrame,
+        reflat: f64,
+        reflon: f64,
+        now: std::time::Instant,
+    ) -> Option<(f64, f64)> {
+        if frame.cpr_type != CprType::Surface
+            || frame.lat >= 131072
+            || frame.lon >= 131072
+            || !reflat.is_finite()
+            || !reflon.is_finite()
+            || !(-90.0..=90.0).contains(&reflat)
+            || !(-180.0..=180.0).contains(&reflon)
+        {
+            return None;
+        }
+        self.evict_oldest_if_full(icao);
+
+        let entry = self.cache.entry(icao).or_default();
+        entry.prepare(frame, now);
+        let timed = TimedCprFrame { frame, time: now };
+
+        let result = if frame.odd {
+            entry.odd = Some(timed);
+            let even = entry.even?;
+            let dt = if now >= even.time {
+                now.duration_since(even.time)
+            } else {
+                even.time.duration_since(now)
+            };
+            if dt.as_secs_f64() > CPR_PAIR_TIMEOUT_SECS {
+                None
+            } else {
+                decode_cpr_surface(
+                    reflat,
+                    reflon,
+                    even.frame.lat,
+                    even.frame.lon,
+                    frame.lat,
+                    frame.lon,
+                    true,
+                )
+            }
+        } else {
+            entry.even = Some(timed);
+            let odd = entry.odd?;
+            let dt = if now >= odd.time {
+                now.duration_since(odd.time)
+            } else {
+                odd.time.duration_since(now)
+            };
+            if dt.as_secs_f64() > CPR_PAIR_TIMEOUT_SECS {
+                None
+            } else {
+                decode_cpr_surface(
+                    reflat,
+                    reflon,
+                    frame.lat,
+                    frame.lon,
+                    odd.frame.lat,
+                    odd.frame.lon,
+                    false,
+                )
+            }
+        };
+
+        if let Some(position) = result {
+            entry.last_position = Some(position);
+            entry.last_position_time = Some(now);
+        }
+        result
+    }
+
     /// Submit a new CPR frame for an aircraft using current time.
     ///
     /// Returns a decoded `(lat, lon)` if a matching even/odd pair within 10s is available.
@@ -403,7 +569,18 @@ impl CprDecoder {
         reflon: f64,
     ) -> Option<(f64, f64)> {
         let entry = self.cache.get(&icao)?;
-        let timed = entry.even.or(entry.odd)?;
+        let timed = match (entry.even, entry.odd) {
+            (Some(even), Some(odd)) => {
+                if even.time >= odd.time {
+                    even
+                } else {
+                    odd
+                }
+            }
+            (Some(even), None) => even,
+            (None, Some(odd)) => odd,
+            (None, None) => return None,
+        };
         decode_cpr_relative(
             reflat,
             reflon,
@@ -437,6 +614,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cpr_reference_expires_and_surface_airborne_frames_never_pair() {
+        let mut decoder = CprDecoder::new();
+        let now = std::time::Instant::now();
+        let even = CprFrame {
+            cpr_type: CprType::Airborne,
+            odd: false,
+            lat: 93000,
+            lon: 113609,
+        };
+        let odd = CprFrame {
+            cpr_type: CprType::Airborne,
+            odd: true,
+            lat: 74158,
+            lon: 108994,
+        };
+        assert!(decoder.submit_with_time(1, even, now).is_none());
+        assert!(decoder.submit_with_time(1, odd, now).is_some());
+        assert!(decoder
+            .submit_with_time(1, even, now + std::time::Duration::from_secs(61))
+            .is_none());
+        decoder.clear();
+        let surface_even = CprFrame {
+            cpr_type: CprType::Surface,
+            ..even
+        };
+        assert!(decoder.submit_with_time(1, surface_even, now).is_none());
+        assert!(decoder.submit_with_time(1, odd, now).is_none());
+        assert!(decoder.submit_with_time(1, even, now).is_some());
+        decoder.clear();
+        assert!(decoder.submit_with_time(1, even, now).is_none());
+        assert!(decoder
+            .submit_surface_with_reference(
+                1,
+                CprFrame {
+                    cpr_type: CprType::Surface,
+                    ..odd
+                },
+                52.0,
+                8.0,
+                now
+            )
+            .is_none());
+    }
+
+    #[test]
+    fn cpr_invalid_fields_and_reference_do_not_poison_cache() {
+        let mut decoder = CprDecoder::new();
+        let now = std::time::Instant::now();
+        let invalid = CprFrame {
+            cpr_type: CprType::Airborne,
+            odd: false,
+            lat: 131072,
+            lon: 0,
+        };
+        assert!(decoder.submit_with_time(1, invalid, now).is_none());
+        assert_eq!(decoder.len(), 0);
+        let surface = CprFrame {
+            cpr_type: CprType::Surface,
+            lat: 1,
+            ..invalid
+        };
+        assert!(decoder
+            .submit_surface_with_reference(1, surface, f64::NAN, 0.0, now)
+            .is_none());
+        assert_eq!(decoder.len(), 0);
+    }
+
+    #[test]
     fn cpr_surface_southern_hemisphere() {
         // Observer in southern hemisphere: reflat = -77.0, reflon = 166.0 (Antarctica)
         // With quadrant ambiguity resolved properly relative to reflat, latitude must be negative.
@@ -449,6 +694,42 @@ mod tests {
         assert!(
             (lat - -76.935).abs() < 0.1,
             "Decoded lat {lat} should be near reference latitude"
+        );
+    }
+
+    #[test]
+    fn surface_decoder_uses_known_receiver_reference() {
+        let mut decoder = CprDecoder::new();
+        let now = std::time::Instant::now();
+        let odd = CprFrame {
+            cpr_type: CprType::Surface,
+            odd: true,
+            lat: 74158,
+            lon: 108994,
+        };
+        let even = CprFrame {
+            cpr_type: CprType::Surface,
+            odd: false,
+            lat: 93000,
+            lon: 113609,
+        };
+        assert!(decoder
+            .submit_surface_with_reference(0x123456, odd, -77.0, 166.0, now)
+            .is_none());
+        let (lat, lon) = decoder
+            .submit_surface_with_reference(
+                0x123456,
+                even,
+                -77.0,
+                166.0,
+                now + std::time::Duration::from_secs(1),
+            )
+            .expect("surface pair should resolve against the known receiver position");
+        assert!((lat + 76.935).abs() < 0.1);
+        let wrapped_delta = (lon - 166.0 + 180.0).rem_euclid(360.0) - 180.0;
+        assert!(
+            wrapped_delta.abs() <= 45.0,
+            "surface longitude {lon} was not resolved to the receiver's 90-degree quadrant"
         );
     }
 
@@ -517,6 +798,48 @@ mod tests {
         // dump1090 CPR algorithm; both lat and lon match to well within tolerance.
         assert!((lat - 52.2572).abs() < 0.001);
         assert!((lon - 8.6676).abs() < 0.001);
+    }
+
+    #[test]
+    fn established_airborne_track_updates_from_a_single_local_frame() {
+        let mut decoder = CprDecoder::new();
+        let now = std::time::Instant::now();
+        let even = CprFrame {
+            cpr_type: CprType::Airborne,
+            odd: false,
+            lat: 93000,
+            lon: 113609,
+        };
+        let odd = CprFrame {
+            cpr_type: CprType::Airborne,
+            odd: true,
+            lat: 74158,
+            lon: 108994,
+        };
+        assert!(decoder.submit_with_time(0xABCDEF, odd, now).is_none());
+        let established = decoder
+            .submit_with_time(0xABCDEF, even, now + std::time::Duration::from_secs(1))
+            .expect("global pair establishes the track");
+
+        // The old odd frame is now outside the global-pair window. The new even frame must
+        // still update using local CPR relative to the established aircraft position.
+        let local = decoder
+            .submit_with_time(0xABCDEF, even, now + std::time::Duration::from_secs(20))
+            .expect("single-frame local CPR update");
+        assert!((local.0 - established.0).abs() < 0.1);
+        assert!((local.1 - established.1).abs() < 0.1);
+    }
+
+    #[test]
+    fn relative_cpr_wraps_across_the_antimeridian() {
+        // A reference just west of +180 must accept the equivalent decoded longitude just
+        // east of -180 instead of treating it as a 359-degree jump.
+        let encoded_lon = ((-179.9_f64).rem_euclid(360.0) / 6.0).fract() * 131072.0;
+        let result = decode_cpr_relative(0.0, 179.9, 0, encoded_lon as u32, false, false)
+            .expect("antimeridian-relative position should decode");
+        assert!((-180.0..180.0).contains(&result.1));
+        let wrapped_delta = (result.1 - 179.9 + 180.0).rem_euclid(360.0) - 180.0;
+        assert!(wrapped_delta.abs() < 3.1);
     }
 
     #[test]

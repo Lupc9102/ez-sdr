@@ -15,7 +15,7 @@ use num_complex::Complex32;
 
 use super::IqSource;
 
-const SOAPY_SDR_RX: i32 = 2;
+const SOAPY_SDR_RX: i32 = 1;
 const SOAPY_SDR_CS16: &CStr = c"CS16";
 
 #[derive(Debug, thiserror::Error)]
@@ -350,9 +350,6 @@ impl IqSource for SoapySource {
         }
         let want_samples = buf.len();
         self.byte_buf.resize(want_samples * 4, 0);
-        let mut buf_ptr = self.byte_buf.as_mut_ptr().cast::<c_void>();
-        let mut flags: c_int = 0;
-        let mut time_ns: i64 = 0;
 
         // A zero return is a receive timeout (quiet band), not end-of-stream —
         // and any negative return is a driver error, not EOF. Returning Ok(0)

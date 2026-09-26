@@ -24,8 +24,9 @@ dump1090 = { path = "../dump1090" }
 lrpt-decode = { path = "../lrpt-decode" }
 ez-proto = { workspace = true }
 
-eframe = { version = "0.35", features = ["glow", "wayland", "x11"] }
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.35"
+egui_extras = { version = "0.35", default-features = false, features = ["svg"] }
 
 # RTL-SDR
 rtlsdr_sys = { version = "1.1", optional = true }
@@ -55,10 +56,11 @@ crossbeam-channel = { workspace = true }
 
 # WAV/audio recording
 hound = "3.5"
-cpal = { version = "0.18", optional = true }
+cpal = { version = "0.18", optional = true, features = ["pulseaudio"] }
+futures = "0.3"
 
 # Image handling for maps and decoded images
-image = "0.25"
+image = { workspace = true }
 
 # MQTT
 rumqttc = "0.25"
@@ -74,7 +76,7 @@ rfd = "0.17"
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 chrono = "0.4"
-urlencoding = "2"
+sgp4 = "2.4"
 
 [dev-dependencies]
 ez-daemon = { workspace = true }

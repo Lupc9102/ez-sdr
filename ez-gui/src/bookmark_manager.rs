@@ -175,6 +175,7 @@ impl BookmarkManager {
 
 /// Interactive bookmark management panel extracted from CentralApp.
 pub struct BookmarkPanel {
+    file_task: Option<crossbeam_channel::Receiver<Result<BookmarkFileResult, String>>>,
     pub filter: String,
     pub show_starred_only: bool,
     pub bm_import_msg: String,
@@ -193,6 +194,12 @@ pub struct BookmarkPanel {
     pub edit_bm_notes: String,
 }
 
+enum BookmarkFileResult {
+    Imported(Vec<crate::bookmarks::Bookmark>),
+    Exported(String),
+    Cancelled,
+}
+
 impl Default for BookmarkPanel {
     fn default() -> Self {
         Self::new()
@@ -202,6 +209,7 @@ impl Default for BookmarkPanel {
 impl BookmarkPanel {
     pub fn new() -> Self {
         Self {
+            file_task: None,
             filter: String::new(),
             show_starred_only: false,
             bm_import_msg: String::new(),
@@ -221,6 +229,83 @@ impl BookmarkPanel {
         }
     }
 
+    fn start_file_task(
+        &mut self,
+        context: egui::Context,
+        task: impl FnOnce() -> Result<BookmarkFileResult, String> + Send + 'static,
+    ) {
+        if self.file_task.is_some() {
+            return;
+        }
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.file_task = Some(rx);
+        self.bm_import_msg = "File operation in progress…".into();
+        std::thread::spawn(move || {
+            let _ = tx.send(task());
+            context.request_repaint();
+        });
+    }
+
+    fn poll_file_task(&mut self, shared: &Arc<Mutex<crate::app::SharedState>>) {
+        let Some(receiver) = &self.file_task else {
+            return;
+        };
+        // Leave completed work queued if state is busy; never discard an import.
+        let Ok(mut state) = shared.try_lock() else {
+            return;
+        };
+        let result = match receiver.try_recv() {
+            Ok(result) => result,
+            Err(crossbeam_channel::TryRecvError::Empty) => return,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                Err("Bookmark file worker stopped unexpectedly.".into())
+            }
+        };
+        self.file_task = None;
+        match result {
+            Ok(BookmarkFileResult::Imported(bookmarks)) => {
+                let mut frequencies: std::collections::HashSet<_> = state
+                    .bookmarks
+                    .bookmarks
+                    .iter()
+                    .map(|bookmark| bookmark.frequency_hz)
+                    .collect();
+                let mut count = 0;
+                for bookmark in bookmarks {
+                    if frequencies.insert(bookmark.frequency_hz) {
+                        state.bookmarks.bookmarks.push(bookmark);
+                        count += 1;
+                    }
+                }
+                state.bookmarks_modified |= count > 0;
+                state.spectrum.bookmark_freqs_dirty |= count > 0;
+                self.bm_import_msg = format!("Imported {count} bookmarks.");
+            }
+            Ok(BookmarkFileResult::Exported(path)) => {
+                self.bm_import_msg = format!("Exported to {path}")
+            }
+            Ok(BookmarkFileResult::Cancelled) => {
+                self.bm_import_msg = "File operation cancelled.".into()
+            }
+            Err(error) => self.bm_import_msg = error,
+        }
+    }
+
+    fn read_csv_file(path: &std::path::Path) -> Result<BookmarkFileResult, String> {
+        let path = path
+            .to_str()
+            .ok_or_else(|| "The CSV path is not valid UTF-8.".to_string())?;
+        let mut imported = BookmarkDb {
+            bookmarks: Vec::new(),
+        };
+        let (_, error) = imported.import_csv(path);
+        if error.is_empty() {
+            Ok(BookmarkFileResult::Imported(imported.bookmarks))
+        } else {
+            Err(error)
+        }
+    }
+
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -229,6 +314,7 @@ impl BookmarkPanel {
         ai_panel_input: &mut String,
         status_bar: &mut crate::status_bar::StatusBar,
     ) {
+        self.poll_file_task(shared);
         let bm_count = if let Ok(state) = shared.try_lock() {
             state.bookmarks.bookmarks.len()
         } else {
@@ -253,30 +339,23 @@ impl BookmarkPanel {
                     }
                 }
             }
-            if ui.button("📥 Import CSV").on_hover_text("Import bookmarks from a CSV file (columns: name,frequency_hz,mode,category). Appends to current list.").clicked() {
-                if let Some(path) = rfd::FileDialog::new().add_filter("CSV", &["csv"]).pick_file() {
-                    if let Some(path_str) = path.to_str() {
-                        if let Ok(mut state) = shared.try_lock() {
-                            let (count, err) = state.bookmarks.import_csv(path_str);
-                            if err.is_empty() {
-                                self.bm_import_msg = format!("Imported {count} bookmarks.");
-                                state.bookmarks_modified = true;
-                                state.spectrum.bookmark_freqs_dirty = true;
-                            } else {
-                                self.bm_import_msg = err;
-                            }
-                        }
+            if ui.add_enabled(self.file_task.is_none(), egui::Button::new("📥 Import CSV")).on_hover_text("Import bookmarks from a CSV file (columns: name,frequency_hz,mode,category). Appends to current list.").clicked() {
+                self.start_file_task(ui.ctx().clone(), || {
+                    match rfd::FileDialog::new().add_filter("CSV", &["csv"]).pick_file() {
+                        Some(path) => Self::read_csv_file(&path),
+                        None => Ok(BookmarkFileResult::Cancelled),
                     }
-                }
+                });
             }
-            if ui.button("📤 Export CSV").on_hover_text("Export all bookmarks to a timestamped CSV file in the current directory.").clicked() {
+            if ui.add_enabled(self.file_task.is_none(), egui::Button::new("📤 Export CSV")).on_hover_text("Export all bookmarks to a CSV file.").clicked() {
                 if let Ok(state) = shared.try_lock() {
-                    let (path, err) = state.bookmarks.export_csv();
-                    if err.is_empty() {
-                        self.bm_import_msg = format!("Exported to {path}");
-                    } else {
-                        self.bm_import_msg = err;
-                    }
+                    let snapshot = BookmarkDb { bookmarks: state.bookmarks.bookmarks.clone() };
+                    self.start_file_task(ui.ctx().clone(), move || {
+                        let (path, error) = snapshot.export_csv();
+                        if !error.is_empty() { Err(error) }
+                        else if path.is_empty() { Ok(BookmarkFileResult::Cancelled) }
+                        else { Ok(BookmarkFileResult::Exported(path)) }
+                    });
                 }
             }
             if ui.small_button("A→Z").on_hover_text("Sort all bookmarks alphabetically by name within each category.").clicked() {

@@ -20,59 +20,58 @@ use crate::hardware::IqSource;
 /// Samples pulled per `read_iq` call. Not a hard limit — sources may return fewer.
 const READ_CHUNK: usize = 8_192;
 
-/// Control-channel capacity. Only the latest frequency/rate/gain matters, so a
-/// flood of stale commands is coalesced (oldest dropped) instead of growing
-/// without bound — an unauthenticated client could otherwise OOM the daemon
-/// faster than the blocking `read_iq` loop drains.
-const COMMAND_CAPACITY: usize = 64;
-
 enum HardwareCommand {
-    Frequency(u64),
-    SampleRate(u32),
-    Gain(f64),
+    Frequency {
+        hz: u64,
+        reply: Sender<anyhow::Result<()>>,
+    },
+    SampleRate {
+        hz: u32,
+        reply: Sender<anyhow::Result<()>>,
+    },
+    Gain {
+        db: f64,
+        reply: Sender<anyhow::Result<()>>,
+    },
 }
 
-/// Cheap-to-clone handle for sending rare control commands to the ingestion thread and
-/// reading its latest published [`HardwareStatus`] snapshot, without ever touching the
-/// source itself (only the ingestion thread ever does that).
+const COMMAND_CAPACITY: usize = 64;
+const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Cheap-to-clone handle for sending rare, acknowledged control commands to the ingestion
+/// thread and reading its latest published [`HardwareStatus`] snapshot, without ever touching
+/// the source itself (only the ingestion thread ever does that).
 #[derive(Clone)]
 pub struct IngestHandle {
     commands: Sender<HardwareCommand>,
-    // A second handle on the same queue, used only to drop the oldest queued
-    // command when a flood fills it (see `send_coalescing`). The ingestion
-    // thread's own receiver is unaffected — both receivers share one queue.
-    drain: Receiver<HardwareCommand>,
     status: Arc<ArcSwap<HardwareStatus>>,
 }
 
 impl IngestHandle {
-    /// Requests a frequency change. Fire-and-forget: applied on the ingestion thread's next
-    /// loop iteration, reflected shortly after in [`Self::status`].
-    pub fn set_frequency(&self, hz: u64) {
-        self.send_coalescing(HardwareCommand::Frequency(hz));
+    /// Requests a frequency change and waits until the source accepts or rejects it.
+    pub fn set_frequency(&self, hz: u64) -> anyhow::Result<()> {
+        self.request(|reply| HardwareCommand::Frequency { hz, reply })
     }
 
-    pub fn set_sample_rate(&self, hz: u32) {
-        self.send_coalescing(HardwareCommand::SampleRate(hz));
+    pub fn set_sample_rate(&self, hz: u32) -> anyhow::Result<()> {
+        self.request(|reply| HardwareCommand::SampleRate { hz, reply })
     }
 
-    pub fn set_gain(&self, db: f64) {
-        self.send_coalescing(HardwareCommand::Gain(db));
+    pub fn set_gain(&self, db: f64) -> anyhow::Result<()> {
+        self.request(|reply| HardwareCommand::Gain { db, reply })
     }
 
-    /// Enqueue a command, dropping the oldest queued command when full. Control
-    /// state is last-writer-wins (only the latest frequency/rate/gain matters),
-    /// so coalescing is semantically lossless while bounding memory.
-    fn send_coalescing(&self, cmd: HardwareCommand) {
-        use crossbeam_channel::TrySendError;
-        match self.commands.try_send(cmd) {
-            Ok(()) => {}
-            Err(TrySendError::Full(cmd)) => {
-                let _ = self.drain.try_recv();
-                let _ = self.commands.try_send(cmd);
-            }
-            Err(TrySendError::Disconnected(_)) => {}
-        }
+    fn request(
+        &self,
+        make_command: impl FnOnce(Sender<anyhow::Result<()>>) -> HardwareCommand,
+    ) -> anyhow::Result<()> {
+        let (reply_tx, reply_rx) = bounded(1);
+        self.commands
+            .send_timeout(make_command(reply_tx), COMMAND_TIMEOUT)
+            .map_err(|error| anyhow::anyhow!("hardware command queue unavailable: {error}"))?;
+        reply_rx
+            .recv_timeout(COMMAND_TIMEOUT)
+            .map_err(|error| anyhow::anyhow!("hardware command timed out: {error}"))?
     }
 
     #[must_use]
@@ -90,7 +89,7 @@ pub fn spawn(
     bus: SampleBus,
     running: Arc<AtomicBool>,
 ) -> anyhow::Result<(IngestHandle, JoinHandle<()>)> {
-    let (tx, rx) = bounded(COMMAND_CAPACITY);
+    let (commands, command_rx) = bounded(COMMAND_CAPACITY);
     source.start()?;
     let status = Arc::new(ArcSwap::from_pointee(status_snapshot(
         source.as_ref(),
@@ -98,14 +97,13 @@ pub fn spawn(
         None,
     )));
     let handle = IngestHandle {
-        commands: tx,
-        drain: rx.clone(),
+        commands,
         status: Arc::clone(&status),
     };
 
     let thread = std::thread::Builder::new()
         .name("ez-daemon-ingest".to_string())
-        .spawn(move || run(source.as_mut(), &bus, &rx, &running, &status))?;
+        .spawn(move || run(source.as_mut(), &bus, &command_rx, &running, &status))?;
 
     Ok((handle, thread))
 }
@@ -121,21 +119,28 @@ fn run(
     let mut sample_counter: u64 = 0;
 
     while running.load(Ordering::Relaxed) {
-        let mut applied_command = false;
-        while let Ok(cmd) = commands.try_recv() {
-            applied_command = true;
-            let result = match cmd {
-                HardwareCommand::Frequency(hz) => source.set_frequency(hz),
-                HardwareCommand::SampleRate(hz) => source.set_sample_rate(hz),
-                HardwareCommand::Gain(db) => source.set_gain(db),
+        while let Ok(command) = commands.try_recv() {
+            let (result, reply) = match command {
+                HardwareCommand::Frequency { hz, reply } => (source.set_frequency(hz), reply),
+                HardwareCommand::SampleRate { hz, reply } => (source.set_sample_rate(hz), reply),
+                HardwareCommand::Gain { db, reply } => (source.set_gain(db), reply),
             };
-            if let Err(e) = result {
-                tracing::warn!(error = %e, "hardware command failed");
-                status.store(Arc::new(status_snapshot(source, true, Some(e.to_string()))));
+            match result {
+                Ok(()) => {
+                    status.store(Arc::new(status_snapshot(source, true, None)));
+                    let _ = reply.send(Ok(()));
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    tracing::warn!(error = %message, "hardware command failed");
+                    status.store(Arc::new(status_snapshot(
+                        source,
+                        true,
+                        Some(message.clone()),
+                    )));
+                    let _ = reply.send(Err(anyhow::anyhow!(message)));
+                }
             }
-        }
-        if applied_command {
-            status.store(Arc::new(status_snapshot(source, true, None)));
         }
 
         match source.read_iq(&mut buf) {
@@ -168,6 +173,9 @@ fn run(
         }
     }
     source.stop();
+    // A deliberate shutdown is terminal too; retain an existing read failure.
+    let error = status.load().error.clone();
+    status.store(Arc::new(status_snapshot(source, false, error)));
 }
 
 fn status_snapshot(
@@ -191,6 +199,60 @@ mod tests {
     use crate::bus::OverflowPolicy;
     use crate::hardware::synthetic::SyntheticSource;
     use std::time::Duration;
+
+    struct RejectingSource {
+        inner: SyntheticSource,
+    }
+
+    impl RejectingSource {
+        fn new() -> Self {
+            Self {
+                inner: SyntheticSource::default(),
+            }
+        }
+    }
+
+    impl IqSource for RejectingSource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            self.inner.start()
+        }
+
+        fn stop(&mut self) {
+            self.inner.stop();
+        }
+
+        fn set_frequency(&mut self, _hz: u64) -> anyhow::Result<()> {
+            anyhow::bail!("frequency rejected by test source")
+        }
+
+        fn set_sample_rate(&mut self, _hz: u32) -> anyhow::Result<()> {
+            anyhow::bail!("sample rate rejected by test source")
+        }
+
+        fn set_gain(&mut self, _db: f64) -> anyhow::Result<()> {
+            anyhow::bail!("gain rejected by test source")
+        }
+
+        fn read_iq(&mut self, buf: &mut [num_complex::Complex32]) -> anyhow::Result<usize> {
+            self.inner.read_iq(buf)
+        }
+
+        fn frequency_hz(&self) -> u64 {
+            self.inner.frequency_hz()
+        }
+
+        fn sample_rate_hz(&self) -> u32 {
+            self.inner.sample_rate_hz()
+        }
+
+        fn gain_db(&self) -> f64 {
+            self.inner.gain_db()
+        }
+
+        fn kind(&self) -> &'static str {
+            "rejecting-test-source"
+        }
+    }
 
     #[test]
     fn spawn_publishes_blocks_and_reports_connected_status() {
@@ -231,7 +293,7 @@ mod tests {
         )
         .unwrap();
 
-        handle.set_frequency(101_000_000);
+        handle.set_frequency(101_000_000).unwrap();
 
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         loop {
@@ -250,10 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn command_flood_is_coalesced_not_unbounded() {
-        // A client flooding SetFrequency faster than the blocking read_iq
-        // loop drains must not grow the queue without bound: only the
-        // latest command matters, so the queue stays at capacity.
+    fn command_requests_are_acknowledged_without_growing_unbounded() {
         let bus = SampleBus::new();
         let running = Arc::new(AtomicBool::new(true));
         let (handle, thread) = spawn(
@@ -262,14 +321,46 @@ mod tests {
             Arc::clone(&running),
         )
         .unwrap();
-        for hz in 0..10_000u64 {
-            handle.set_frequency(100_000_000 + hz);
+        for hz in 0..100u64 {
+            handle.set_frequency(100_000_000 + hz).unwrap();
         }
-        assert!(
-            handle.commands.len() <= COMMAND_CAPACITY,
-            "queue must stay bounded, len = {}",
-            handle.commands.len()
-        );
+        running.store(false, Ordering::Relaxed);
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn rejected_hardware_commands_return_backend_errors_and_preserve_status() {
+        let bus = SampleBus::new();
+        let running = Arc::new(AtomicBool::new(true));
+        let (handle, thread) =
+            spawn(Box::new(RejectingSource::new()), bus, Arc::clone(&running)).unwrap();
+        let initial = handle.status();
+
+        assert!(handle
+            .set_frequency(initial.frequency_hz + 1)
+            .unwrap_err()
+            .to_string()
+            .contains("frequency rejected"));
+        assert!(handle
+            .set_sample_rate(initial.sample_rate_hz + 1)
+            .unwrap_err()
+            .to_string()
+            .contains("sample rate rejected"));
+        assert!(handle
+            .set_gain(initial.gain_db + 1.0)
+            .unwrap_err()
+            .to_string()
+            .contains("gain rejected"));
+
+        let status = handle.status();
+        assert_eq!(status.frequency_hz, initial.frequency_hz);
+        assert_eq!(status.sample_rate_hz, initial.sample_rate_hz);
+        assert_eq!(status.gain_db, initial.gain_db);
+        assert!(status
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("gain rejected")));
+
         running.store(false, Ordering::Relaxed);
         thread.join().unwrap();
     }
@@ -280,7 +371,7 @@ mod tests {
         let _sub = bus.subscribe(8, OverflowPolicy::DropOldest);
         let running = Arc::new(AtomicBool::new(true));
 
-        let (_handle, thread) = spawn(
+        let (handle, thread) = spawn(
             Box::new(SyntheticSource::default()),
             bus,
             Arc::clone(&running),
@@ -290,5 +381,9 @@ mod tests {
         thread
             .join()
             .expect("ingestion thread should join promptly");
+        assert!(
+            !handle.status().connected,
+            "stopped hardware still reported connected"
+        );
     }
 }

@@ -32,6 +32,31 @@ const MAX_VOLUME: f32 = 4.0;
 /// effectively disabled until a client raises it, matching [`SpectrumPipeline`]'s own
 /// noise-floor convention for "quiet" (`crate::pipelines::spectrum`).
 const DEFAULT_SQUELCH_DB: f32 = -120.0;
+const SSB_SHIFT_HZ: f32 = 1_650.0;
+const SSB_LOWPASS_HZ: f32 = 1_450.0;
+const SSB_FIR_TAPS: usize = 257;
+
+fn design_ssb_lowpass(sample_rate_hz: u32) -> Vec<f32> {
+    let fs = sample_rate_hz.max(1) as f32;
+    let normalized = 2.0 * SSB_LOWPASS_HZ / fs;
+    let midpoint = (SSB_FIR_TAPS - 1) as f32 / 2.0;
+    let mut taps: Vec<f32> = (0..SSB_FIR_TAPS)
+        .map(|n| {
+            let x = n as f32 - midpoint;
+            let sinc = if x.abs() < f32::EPSILON {
+                normalized
+            } else {
+                (std::f32::consts::PI * normalized * x).sin() / (std::f32::consts::PI * x)
+            };
+            let window = 0.54
+                - 0.46 * (2.0 * std::f32::consts::PI * n as f32 / (SSB_FIR_TAPS - 1) as f32).cos();
+            sinc * window
+        })
+        .collect();
+    let sum: f32 = taps.iter().sum();
+    taps.iter_mut().for_each(|tap| *tap /= sum);
+    taps
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct AudioConfig {
@@ -52,6 +77,11 @@ pub struct AudioPipeline {
     dc_prev_y: f32,
     prev_sample: Complex32,
     deemph_prev: f32,
+    ssb_phase: f32,
+    ssb_history: Vec<Complex32>,
+    ssb_history_index: usize,
+    ssb_filter_rate_hz: u32,
+    ssb_filter_taps: Vec<f32>,
     volume: f32,
     squelch_db: f32,
     output: Broadcaster<AudioFrame>,
@@ -68,6 +98,11 @@ impl AudioPipeline {
             dc_prev_y: 0.0,
             prev_sample: Complex32::new(0.0, 0.0),
             deemph_prev: 0.0,
+            ssb_phase: 0.0,
+            ssb_history: vec![Complex32::new(0.0, 0.0); SSB_FIR_TAPS],
+            ssb_history_index: 0,
+            ssb_filter_rate_hz: 0,
+            ssb_filter_taps: Vec::new(),
             volume: 1.0,
             squelch_db: DEFAULT_SQUELCH_DB,
             output: Broadcaster::new(),
@@ -83,6 +118,9 @@ impl AudioPipeline {
             self.dc_prev_y = 0.0;
             self.prev_sample = Complex32::new(0.0, 0.0);
             self.deemph_prev = 0.0;
+            self.ssb_phase = 0.0;
+            self.ssb_history.fill(Complex32::new(0.0, 0.0));
+            self.ssb_history_index = 0;
         }
     }
 
@@ -153,16 +191,8 @@ impl AudioPipeline {
                 self.apply_deemphasis(&mut raw, block.sample_rate_hz);
                 raw
             }
-            // Product detection: once the channelizer has quadrature-downconverted the
-            // tuned sideband to baseband, Re{2*sample} recovers the audio for EITHER
-            // sideband identically — USB vs. LSB is entirely a matter of which side of the
-            // carrier the channel's center frequency was placed on, not a difference in
-            // this formula. See the module tests for a worked demonstration.
-            DemodMode::Usb | DemodMode::Lsb => block
-                .samples
-                .iter()
-                .map(|s| (2.0 * s.re).clamp(-1.0, 1.0))
-                .collect(),
+            DemodMode::Usb => self.demod_ssb(&block.samples, block.sample_rate_hz, true),
+            DemodMode::Lsb => self.demod_ssb(&block.samples, block.sample_rate_hz, false),
         };
 
         // Squelch gates on the block's own mean input power so it reacts to the RF signal
@@ -232,6 +262,33 @@ impl AudioPipeline {
             self.deemph_prev += alpha * (*s - self.deemph_prev);
             *s = self.deemph_prev.clamp(-1.0, 1.0);
         }
+    }
+
+    fn demod_ssb(&mut self, samples: &[Complex32], sample_rate_hz: u32, usb: bool) -> Vec<f32> {
+        if self.ssb_filter_rate_hz != sample_rate_hz {
+            self.ssb_filter_taps = design_ssb_lowpass(sample_rate_hz);
+            self.ssb_filter_rate_hz = sample_rate_hz;
+            self.ssb_history.fill(Complex32::new(0.0, 0.0));
+            self.ssb_history_index = 0;
+        }
+        let phase_step = 2.0 * std::f32::consts::PI * SSB_SHIFT_HZ / sample_rate_hz.max(1) as f32;
+        let mixer_sign = if usb { -1.0 } else { 1.0 };
+        let mut output = Vec::with_capacity(samples.len());
+        for &sample in samples {
+            let oscillator = Complex32::from_polar(1.0, mixer_sign * self.ssb_phase);
+            let mixed = sample * oscillator;
+            self.ssb_phase = (self.ssb_phase + phase_step).rem_euclid(2.0 * std::f32::consts::PI);
+
+            self.ssb_history[self.ssb_history_index] = mixed;
+            let mut filtered = Complex32::new(0.0, 0.0);
+            for (lag, &tap) in self.ssb_filter_taps.iter().enumerate() {
+                let index = (self.ssb_history_index + SSB_FIR_TAPS - lag) % SSB_FIR_TAPS;
+                filtered += self.ssb_history[index] * tap;
+            }
+            self.ssb_history_index = (self.ssb_history_index + 1) % SSB_FIR_TAPS;
+            output.push((2.0 * filtered.re).clamp(-1.0, 1.0));
+        }
+        output
     }
 }
 
@@ -402,22 +459,34 @@ mod tests {
     }
 
     #[test]
-    fn usb_and_lsb_apply_the_identical_product_detector() {
-        let samples = tone(500, 300.0, 48_000.0);
+    fn usb_and_lsb_reject_the_opposite_sideband() {
+        fn output_rms(mode: DemodMode, tone_hz: f64) -> f32 {
+            let samples: Vec<_> = tone(8_000, tone_hz, 48_000.0)
+                .into_iter()
+                .map(|sample| sample * 0.3)
+                .collect();
+            let (bus, mut pipeline) = pipeline_with(mode);
+            let output = pipeline.subscribe(4);
+            bus.publish(block_of(samples, 48_000));
+            pipeline.tick(Duration::from_millis(50));
+            let frame = output.try_recv().expect("SSB frame");
+            let settled = &frame.samples[1_000..];
+            (settled.iter().map(|sample| sample * sample).sum::<f32>() / settled.len() as f32)
+                .sqrt()
+        }
 
-        let (bus_u, mut usb) = pipeline_with(DemodMode::Usb);
-        let out_u = usb.subscribe(4);
-        bus_u.publish(block_of(samples.clone(), 48_000));
-        usb.tick(Duration::from_millis(50));
-        let frame_u = out_u.try_recv().expect("usb frame");
-
-        let (bus_l, mut lsb) = pipeline_with(DemodMode::Lsb);
-        let out_l = lsb.subscribe(4);
-        bus_l.publish(block_of(samples, 48_000));
-        lsb.tick(Duration::from_millis(50));
-        let frame_l = out_l.try_recv().expect("lsb frame");
-
-        assert_eq!(frame_u.samples, frame_l.samples);
+        let usb_wanted = output_rms(DemodMode::Usb, 1_000.0);
+        let usb_rejected = output_rms(DemodMode::Usb, -1_000.0);
+        let lsb_wanted = output_rms(DemodMode::Lsb, -1_000.0);
+        let lsb_rejected = output_rms(DemodMode::Lsb, 1_000.0);
+        assert!(
+            usb_rejected < usb_wanted * 0.1,
+            "USB rejection: wanted={usb_wanted}, opposite={usb_rejected}"
+        );
+        assert!(
+            lsb_rejected < lsb_wanted * 0.1,
+            "LSB rejection: wanted={lsb_wanted}, opposite={lsb_rejected}"
+        );
     }
 
     #[test]

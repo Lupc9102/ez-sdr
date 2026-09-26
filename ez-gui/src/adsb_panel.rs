@@ -1,4 +1,5 @@
 use crate::app::SharedState;
+use crate::uat_receiver::{address_label, TimedReport, UatReceiver, UatStatus};
 use crate::ui_kit::module_card;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
@@ -34,8 +35,11 @@ pub struct AdsBPanel {
     checklist: crate::antenna_checklist::AntennaChecklist,
     tile_cache: std::collections::HashMap<(u32, u32, u32), egui::TextureHandle>,
     tile_pending: std::collections::HashSet<(u32, u32, u32)>,
-    tile_download_tx: std::sync::mpsc::Sender<((u32, u32, u32), Vec<u8>)>,
-    tile_download_rx: std::sync::mpsc::Receiver<((u32, u32, u32), Vec<u8>)>,
+    tile_download_tx: std::sync::mpsc::Sender<((u32, u32, u32), Result<egui::ColorImage, String>)>,
+    tile_download_rx:
+        std::sync::mpsc::Receiver<((u32, u32, u32), Result<egui::ColorImage, String>)>,
+    tile_failures: std::collections::HashMap<(u32, u32, u32), (std::time::Instant, u32)>,
+    tile_last_error: Option<String>,
     tile_zoom: u32,
     tile_cx: f64,
     tile_cy: f64,
@@ -45,6 +49,42 @@ pub struct AdsBPanel {
     tile_inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     last_zoom_change: std::time::Instant,
     geo_rx: Option<std::sync::mpsc::Receiver<(f64, f64)>>,
+    plane_texture: Option<egui::TextureHandle>,
+    pub region: AdsbRegion,
+    pub uat_address: String,
+    uat_receiver: UatReceiver,
+    uat_position_seen: std::collections::HashMap<u32, std::time::Instant>,
+}
+
+/// Mode S is decoded locally; UAT reports come from dump978-fa's JSON TCP feed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdsbRegion {
+    ModeS1090,
+    Uat978,
+}
+
+impl AdsbRegion {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ModeS1090 => "1090 MHz · Mode S",
+            Self::Uat978 => "978 MHz · UAT",
+        }
+    }
+
+    pub fn frequency_hz(self) -> u64 {
+        match self {
+            Self::ModeS1090 => 1_090_000_000,
+            Self::Uat978 => 978_000_000,
+        }
+    }
+
+    pub fn sample_rate_hz(self) -> u32 {
+        match self {
+            Self::ModeS1090 => 2_400_000,
+            // FlightAware dump978's receive rate (external decoder owns tuning).
+            Self::Uat978 => 2_083_333,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -302,10 +342,12 @@ impl AdsBPanel {
     pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
         let (info_tx, info_rx) = std::sync::mpsc::channel();
         let (tile_download_tx, tile_download_rx) = std::sync::mpsc::channel();
-        let n = (1u64 << 8) as f64;
-        let init_cx = (-0.1 + 180.0) / 360.0 * n;
-        let init_cy =
-            (1.0 - (51.5_f64.to_radians().tan().asinh() / std::f64::consts::PI)) / 2.0 * n;
+        let (observer_lat, observer_lon) = shared
+            .try_lock()
+            .map(|state| (state.config.observer_lat, state.config.observer_lon))
+            .unwrap_or((51.5, -0.1));
+        let init_cx = Self::lon_to_tile_x(observer_lon, 8);
+        let init_cy = Self::lat_to_tile_y(observer_lat, 8);
         Self {
             shared: shared.clone(),
             aircraft: vec![],
@@ -324,8 +366,8 @@ impl AdsBPanel {
             show_trails: true,
             aircraft_trails: std::collections::HashMap::new(),
             pending_ai_prompt: None,
-            observer_lat: 51.5,
-            observer_lon: -0.1,
+            observer_lat,
+            observer_lon,
             alert_enabled: true,
             alert_range_km: 0.0,
             desktop_notifications: false,
@@ -338,6 +380,8 @@ impl AdsBPanel {
             tile_pending: std::collections::HashSet::new(),
             tile_download_tx,
             tile_download_rx,
+            tile_failures: std::collections::HashMap::new(),
+            tile_last_error: None,
             tile_zoom: 8,
             tile_cx: init_cx,
             tile_cy: init_cy,
@@ -347,6 +391,11 @@ impl AdsBPanel {
             tile_frame_counter: 0,
             tile_inflight: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             geo_rx: None,
+            plane_texture: None,
+            region: AdsbRegion::ModeS1090,
+            uat_address: crate::uat_receiver::DEFAULT_ADDRESS.into(),
+            uat_receiver: UatReceiver::default(),
+            uat_position_seen: std::collections::HashMap::new(),
         }
     }
 
@@ -354,22 +403,273 @@ impl AdsBPanel {
     /// receiver is already running it does nothing (so re-entering the Planes
     /// mode doesn't reset stats). Called on entry to the Planes mode.
     pub fn begin(&mut self) {
-        {
-            if let Ok(state) = self.shared.try_lock() {
-                if state.adsb_running {
-                    return;
-                }
+        if self.region == AdsbRegion::Uat978 {
+            if !self.uat_receiver.is_active() {
+                self.connect_uat();
             }
+            return;
         }
-        if let Ok(mut state) = self.shared.try_lock() {
-            state.source.frequency_hz = 1_090_000_000;
-            state.source.sample_rate_hz = 2_048_000;
-            if state.source.status != crate::source_manager::SourceStatus::Running {
+        let shared = self.shared.clone();
+        let Ok(mut state) = shared.try_lock() else {
+            self.pending_status_flash = Some("Receiver busy; try Start again".into());
+            return;
+        };
+        if state.adsb_running {
+            return;
+        }
+        state.audio_running = false;
+        state
+            .source
+            .tune_and_restart(self.region.frequency_hz(), self.region.sample_rate_hz());
+        if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+            state.source.start();
+        }
+        state.adsb_running = true;
+        self.start_time = Some(std::time::Instant::now());
+    }
+
+    /// Change source ownership before receiving: dump978-fa needs exclusive SDR
+    /// access for 978 MHz; returning to 1090 restores the normal local source.
+    pub fn set_region(&mut self, region: AdsbRegion) {
+        if self.region == region {
+            return;
+        }
+        let shared = self.shared.clone();
+        let Ok(mut state) = shared.try_lock() else {
+            self.pending_status_flash = Some("Receiver busy; try the band switch again".into());
+            return;
+        };
+        self.stop_uat();
+        self.region = region;
+        self.clear_tracks();
+        state.audio_running = false;
+        if region == AdsbRegion::Uat978 {
+            state.adsb_running = false;
+            state.source.stop();
+        } else {
+            state
+                .source
+                .tune_and_restart(region.frequency_hz(), region.sample_rate_hz());
+            if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
                 state.source.start();
             }
             state.adsb_running = true;
         }
+        drop(state);
+        if region == AdsbRegion::Uat978 {
+            self.start_uat_connection();
+            return;
+        }
         self.start_time = Some(std::time::Instant::now());
+    }
+
+    pub(crate) fn clear_tracks(&mut self) {
+        self.aircraft.clear();
+        self.aircraft_trails.clear();
+        self.uat_position_seen.clear();
+        self.aircraft_info.clear();
+        self.known_icao.clear();
+        self.selected_icao = None;
+        self.total_messages = 0;
+        self.decode_stats = (0, 0, 0);
+        self.notifications.clear();
+        self.pending_ai_prompt = None;
+        self.pending_status_flash = None;
+        // In-flight enrichment belongs to the previous capture. Retire its
+        // channel so late replies cannot repopulate the freshly cleared UI.
+        (self.info_tx, self.info_rx) = std::sync::mpsc::channel();
+    }
+
+    fn connect_uat(&mut self) {
+        let Ok(mut state) = self.shared.try_lock() else {
+            self.pending_status_flash = Some("Receiver busy; try UAT Connect again".into());
+            return;
+        };
+        state.audio_running = false;
+        state.adsb_running = false;
+        state.source.stop();
+        drop(state);
+        self.clear_tracks();
+        self.start_uat_connection();
+    }
+
+    fn start_uat_connection(&mut self) {
+        match self.uat_receiver.start(&self.uat_address) {
+            Ok(()) => self.start_time = Some(std::time::Instant::now()),
+            Err(message) => {
+                self.pending_status_flash = Some(message);
+                self.start_time = None;
+            }
+        }
+    }
+
+    pub fn stop_uat(&mut self) {
+        self.uat_receiver.stop();
+        if self.region == AdsbRegion::Uat978 {
+            self.start_time = None;
+        }
+    }
+
+    fn stop_receiving(&mut self) {
+        let shared = self.shared.clone();
+        let Ok(mut state) = shared.try_lock() else {
+            self.pending_status_flash = Some("Receiver busy; try Stop again".into());
+            return;
+        };
+        state.adsb_running = false;
+        state.source.stop();
+        drop(state);
+        self.stop_uat();
+        self.start_time = None;
+    }
+
+    pub fn receiver_status(&self) -> String {
+        if self.region == AdsbRegion::ModeS1090 {
+            return "Mode S · local decoder".into();
+        }
+        match self.uat_receiver.status() {
+            UatStatus::Stopped => "UAT · disconnected".into(),
+            UatStatus::Connecting => "UAT · connecting to dump978-fa".into(),
+            UatStatus::Connected => {
+                format!("UAT · connected · {} reports", self.uat_receiver.counts().0)
+            }
+            UatStatus::Reconnecting(_) => "UAT · reconnecting in 2 s".into(),
+            UatStatus::Error(_) => "UAT · connection error".into(),
+        }
+    }
+
+    /// Drain bounded report batches without blocking egui. Partial messages
+    /// merge into the same track; missing positions never invent map markers.
+    pub fn poll_uat(&mut self) {
+        if self.region != AdsbRegion::Uat978 {
+            return;
+        }
+        for _ in 0..512 {
+            let Some(report) = self.uat_receiver.try_recv() else {
+                break;
+            };
+            self.ingest_uat_report(report);
+        }
+        let now = std::time::Instant::now();
+        let retention_secs = self.max_age_secs.max(120);
+        self.aircraft
+            .retain(|ac| now.duration_since(ac.seen).as_secs() <= retention_secs);
+        let live: std::collections::HashSet<u32> = self.aircraft.iter().map(|ac| ac.icao).collect();
+        self.uat_position_seen.retain(|key, seen| {
+            live.contains(key) && now.duration_since(*seen).as_secs() <= self.max_age_secs
+        });
+        self.aircraft_trails
+            .retain(|key, _| self.uat_position_seen.contains_key(key));
+        self.aircraft_info.retain(|key, _| live.contains(key));
+        self.known_icao.retain(|key| live.contains(key));
+        let (received, rejected, dropped) = self.uat_receiver.counts();
+        self.total_messages = received;
+        self.decode_stats = (received + rejected, received, rejected + dropped);
+    }
+
+    fn ingest_uat_report(&mut self, timed: TimedReport) {
+        let report = timed.report;
+        let index = if let Some(index) = self.aircraft.iter().position(|ac| ac.icao == report.key) {
+            index
+        } else {
+            // Even a hostile or misconfigured feed cannot grow tracking forever.
+            if self.aircraft.len() >= 4096 {
+                let oldest = self
+                    .aircraft
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, ac)| ac.seen)
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                let removed = self.aircraft.swap_remove(oldest).icao;
+                self.uat_position_seen.remove(&removed);
+                self.aircraft_trails.remove(&removed);
+                self.aircraft_info.remove(&removed);
+            }
+            self.aircraft.push(AircraftEntry {
+                icao: report.key,
+                seen: timed.received,
+                ..Default::default()
+            });
+            self.aircraft.len() - 1
+        };
+        let aircraft = &mut self.aircraft[index];
+        aircraft.seen = timed.received;
+        if let Some(callsign) = report.callsign {
+            aircraft.callsign = callsign;
+        }
+        if let Some((lat, lon)) = report.position {
+            aircraft.lat = lat;
+            aircraft.lon = lon;
+            self.uat_position_seen.insert(report.key, timed.received);
+        }
+        if let Some(altitude) = report.altitude_ft {
+            aircraft.altitude = altitude.max(0) as u32;
+        }
+        if let Some(speed) = report.ground_speed_kt {
+            aircraft.speed = speed.round() as u32;
+        }
+        if let Some(heading) = report.heading_deg {
+            aircraft.heading = heading.round() as u32 % 360;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_uat_fixture(&mut self, report: crate::uat_receiver::UatReport) {
+        self.ingest_uat_report(TimedReport {
+            report,
+            received: std::time::Instant::now(),
+        });
+    }
+
+    fn has_position(&self, aircraft: &AircraftEntry) -> bool {
+        if !aircraft.lat.is_finite()
+            || !aircraft.lon.is_finite()
+            || !(-90.0..=90.0).contains(&aircraft.lat)
+            || !(-180.0..=180.0).contains(&aircraft.lon)
+        {
+            return false;
+        }
+        if self.region == AdsbRegion::Uat978 {
+            self.uat_position_seen
+                .get(&aircraft.icao)
+                .is_some_and(|seen| seen.elapsed().as_secs() <= self.max_age_secs)
+        } else {
+            aircraft.lat.is_finite()
+                && aircraft.lon.is_finite()
+                && (aircraft.lat != 0.0 || aircraft.lon != 0.0)
+        }
+    }
+
+    fn matches_filters(&self, aircraft: &AircraftEntry) -> bool {
+        if aircraft.seen.elapsed().as_secs() > self.max_age_secs
+            || (self.altitude_filter_enabled
+                && (aircraft.altitude < self.min_altitude_ft
+                    || aircraft.altitude > self.max_altitude_ft))
+        {
+            return false;
+        }
+        let query = self.callsign_filter.trim().to_ascii_lowercase();
+        query.is_empty()
+            || aircraft.callsign.to_ascii_lowercase().contains(&query)
+            || format!("{:06x}", aircraft.icao & 0x00ff_ffff).contains(&query)
+    }
+
+    /// Compact band selector shared by both real receive paths.
+    pub fn ui_region_picker(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut selected = self.region;
+        let mut changed = false;
+        for region in [AdsbRegion::ModeS1090, AdsbRegion::Uat978] {
+            if ui
+                .selectable_value(&mut selected, region, region.label())
+                .clicked()
+            {
+                let before = self.region;
+                self.set_region(region);
+                changed = before != self.region;
+            }
+        }
+        changed
     }
 
     /// Passive ADS-B: scan the current aircraft list for newcomers and fire a
@@ -391,7 +691,7 @@ impl AdsBPanel {
             }
         };
 
-        if !adsb_running {
+        if !adsb_running && !(self.region == AdsbRegion::Uat978 && self.uat_receiver.is_active()) {
             // Reset tracking so the next start is fresh.
             self.known_icao.clear();
             return;
@@ -409,7 +709,7 @@ impl AdsBPanel {
                 continue;
             }
 
-            let has_pos = ac.lat != 0.0 || ac.lon != 0.0;
+            let has_pos = self.has_position(ac);
             let (dist, bearing) = if has_pos {
                 let d =
                     self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
@@ -430,7 +730,7 @@ impl AdsBPanel {
             }
 
             let callsign = if ac.callsign.is_empty() {
-                format!("{:06X}", ac.icao)
+                address_label(ac.icao)
             } else {
                 ac.callsign.clone()
             };
@@ -543,13 +843,16 @@ impl AdsBPanel {
                     }
                 })
                 .show(ctx, |ui| {
-                    let hover = if n.lat != 0.0 || n.lon != 0.0 {
+                    let hover = if n.distance_km.is_some() {
                         format!(
-                            "ICAO {:06X} · {:.4}, {:.4} · {} kt",
-                            n.icao, n.lat, n.lon, n.speed
+                            "Address {} · {:.4}, {:.4} · {} kt",
+                            address_label(n.icao),
+                            n.lat,
+                            n.lon,
+                            n.speed
                         )
                     } else {
-                        format!("ICAO {:06X} · {} kt", n.icao, n.speed)
+                        format!("Address {} · {} kt", address_label(n.icao), n.speed)
                     };
                     ui.horizontal(|ui| {
                         ui.label(
@@ -609,6 +912,10 @@ impl AdsBPanel {
     }
 
     fn fetch_aircraft_info(&mut self, icao: u32) {
+        // UAT anonymous/trackfile/ground addresses are not ICAO registrations.
+        if icao > 0x00ff_ffff {
+            return;
+        }
         if self.aircraft_info.contains_key(&icao) {
             return;
         }
@@ -636,15 +943,15 @@ impl AdsBPanel {
             let (model, operator, registration) = match ureq::get(&url).call() {
                 Ok(resp) => match resp.into_body().read_json::<serde_json::Value>() {
                     Ok(json) => (
-                        json["aircraft"]["model"]
+                        json["photos"][0]["plane"]["model"]
                             .as_str()
                             .unwrap_or("Unknown")
                             .to_string(),
-                        json["aircraft"]["operator"]
+                        json["photos"][0]["airline"]["name"]
                             .as_str()
                             .unwrap_or("Unknown")
                             .to_string(),
-                        json["aircraft"]["registration"]
+                        json["photos"][0]["registration"]
                             .as_str()
                             .unwrap_or("Unknown")
                             .to_string(),
@@ -699,6 +1006,7 @@ impl AdsBPanel {
     const ZOOM_DEBOUNCE_MS: u64 = 300;
     const MAX_CACHED_TILES: usize = 400;
     const MAX_CONCURRENT_TILE_DOWNLOADS: usize = 8;
+    const MAX_TILE_BYTES: usize = 1024 * 1024;
 
     fn lon_to_tile_x(lon: f64, zoom: u32) -> f64 {
         let n = (1u64 << zoom) as f64;
@@ -707,41 +1015,123 @@ impl AdsBPanel {
 
     fn lat_to_tile_y(lat: f64, zoom: u32) -> f64 {
         let n = (1u64 << zoom) as f64;
-        let lat_rad = lat.to_radians();
+        let lat_rad = lat.clamp(-85.051_128_78, 85.051_128_78).to_radians();
         (1.0 - (lat_rad.tan().asinh() / std::f64::consts::PI)) / 2.0 * n
+    }
+
+    fn tile_x_delta(&self, x: f64) -> f64 {
+        let width = (1_u64 << self.tile_zoom) as f64;
+        (x - self.tile_cx + width / 2.0).rem_euclid(width) - width / 2.0
+    }
+
+    fn clamp_map_center(&mut self) {
+        let width = (1_u64 << self.tile_zoom) as f64;
+        self.tile_cx = self.tile_cx.rem_euclid(width);
+        // Web Mercator wraps only horizontally. Beyond the poles is blank.
+        self.tile_cy = self.tile_cy.clamp(0.0, width);
+    }
+
+    fn plane_texture(&mut self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
+        if self.plane_texture.is_none() {
+            if let Ok(image) = egui_extras::image::load_svg_bytes(
+                include_bytes!("../assets/plane.svg"),
+                &Default::default(),
+            ) {
+                self.plane_texture =
+                    Some(ctx.load_texture("adsb-plane-svg", image, egui::TextureOptions::LINEAR));
+            }
+        }
+        self.plane_texture.clone()
+    }
+
+    fn recenter_on_observer(&mut self) {
+        self.tile_cx = Self::lon_to_tile_x(self.observer_lon, self.tile_zoom);
+        self.tile_cy = Self::lat_to_tile_y(self.observer_lat, self.tile_zoom);
+        self.zoom_accum = 0.0;
     }
 
     fn tile_disk_path(z: u32, x: u32, y: u32) -> std::path::PathBuf {
         std::path::PathBuf::from(format!("tile_cache/{z}/{x}/{y}.png"))
     }
 
-    fn load_or_fetch_tile(z: u32, x: u32, y: u32) -> Vec<u8> {
-        let path = Self::tile_disk_path(z, x, y);
-        if let Ok(cached) = std::fs::read(&path) {
-            return cached;
+    fn read_tile_bytes(reader: &mut impl Read) -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        reader
+            .take(Self::MAX_TILE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > Self::MAX_TILE_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Map tile exceeds 1 MiB",
+            ));
         }
-        let url = format!("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
-        let fetched = match ureq::get(&url).header("User-Agent", "ez-sdr/0.1").call() {
-            Ok(resp) => {
-                let mut buf = Vec::new();
-                match resp.into_body().into_reader().read_to_end(&mut buf) {
-                    Ok(_) => buf,
-                    Err(_) => Vec::new(),
+        Ok(bytes)
+    }
+
+    fn decode_tile(bytes: &[u8]) -> Result<egui::ColorImage, String> {
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(256);
+        limits.max_image_height = Some(256);
+        limits.max_alloc = Some(4 * 1024 * 1024);
+        let mut reader =
+            image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png);
+        reader.limits(limits);
+        let img = reader
+            .decode()
+            .map_err(|e| format!("Invalid map tile: {e}"))?;
+        if img.width() != 256 || img.height() != 256 {
+            return Err("Map tile has unexpected dimensions".into());
+        }
+        Ok(egui::ColorImage::from_rgba_unmultiplied(
+            [256, 256],
+            img.to_rgba8().as_raw(),
+        ))
+    }
+
+    fn load_or_fetch_tile(z: u32, x: u32, y: u32) -> Result<egui::ColorImage, String> {
+        let path = Self::tile_disk_path(z, x, y);
+        if let Ok(mut file) = std::fs::File::open(&path) {
+            if let Ok(cached) = Self::read_tile_bytes(&mut file) {
+                if let Ok(image) = Self::decode_tile(&cached) {
+                    return Ok(image);
                 }
             }
-            Err(_) => Vec::new(),
-        };
-        if !fetched.is_empty() {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(&path, &fetched);
         }
-        fetched
+        let url = format!("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
+        let response = ureq::get(&url)
+            .header(
+                "User-Agent",
+                "ez-sdr/0.1 (+https://github.com/Lupc9102/ez-sdr)",
+            )
+            .config()
+            .timeout_global(Some(std::time::Duration::from_secs(8)))
+            .build()
+            .call()
+            .map_err(|e| format!("Map download failed: {e}"))?;
+        let bytes = Self::read_tile_bytes(&mut response.into_body().into_reader())
+            .map_err(|e| e.to_string())?;
+        // Validate before caching; truncated/error responses must not poison the cache.
+        let image = Self::decode_tile(&bytes)?;
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, &bytes);
+        Ok(image)
+    }
+
+    fn tile_retry_delay(attempt: u32) -> std::time::Duration {
+        std::time::Duration::from_secs((5_u64 << attempt.saturating_sub(1).min(4)).min(60))
     }
 
     fn request_tile(&mut self, z: u32, x: u32, y: u32) {
         if self.tile_pending.contains(&(z, x, y)) {
+            return;
+        }
+        if self
+            .tile_failures
+            .get(&(z, x, y))
+            .is_some_and(|(retry_at, _)| *retry_at > std::time::Instant::now())
+        {
             return;
         }
         if self
@@ -757,22 +1147,48 @@ impl AdsBPanel {
         let tx = self.tile_download_tx.clone();
         let inflight = std::sync::Arc::clone(&self.tile_inflight);
         std::thread::spawn(move || {
-            let bytes = Self::load_or_fetch_tile(z, x, y);
-            let _ = tx.send(((z, x, y), bytes));
+            let image = Self::load_or_fetch_tile(z, x, y);
+            let _ = tx.send(((z, x, y), image));
             inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         });
     }
 
     fn process_tile_downloads(&mut self, ctx: &egui::Context) {
-        while let Ok(((z, x, y), bytes)) = self.tile_download_rx.try_recv() {
+        while let Ok(((z, x, y), result)) = self.tile_download_rx.try_recv() {
             self.tile_pending.remove(&(z, x, y));
-            if let Ok(img) = image::load_from_memory(&bytes) {
-                let rgba = img.to_rgba8();
-                let pixels = rgba.into_raw();
-                let color_image = egui::ColorImage::from_rgba_unmultiplied([256, 256], &pixels);
-                let name = format!("tile_{z}_{x}_{y}");
-                let handle = ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR);
-                self.tile_cache.insert((z, x, y), handle);
+            match result {
+                Ok(color_image) => {
+                    self.tile_failures.remove(&(z, x, y));
+                    let name = format!("tile_{z}_{x}_{y}");
+                    let handle = ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR);
+                    self.tile_cache.insert((z, x, y), handle);
+                    self.tile_last_used
+                        .insert((z, x, y), self.tile_frame_counter);
+                }
+                Err(error) => {
+                    let attempt = self
+                        .tile_failures
+                        .get(&(z, x, y))
+                        .map_or(1, |(_, n)| n.saturating_add(1));
+                    self.tile_failures.insert(
+                        (z, x, y),
+                        (
+                            std::time::Instant::now() + Self::tile_retry_delay(attempt),
+                            attempt,
+                        ),
+                    );
+                    self.tile_last_error = Some(error);
+                }
+            }
+        }
+        while self.tile_failures.len() > 512 {
+            if let Some(key) = self
+                .tile_failures
+                .iter()
+                .min_by_key(|(_, (at, _))| *at)
+                .map(|(key, _)| *key)
+            {
+                self.tile_failures.remove(&key);
             }
         }
     }
@@ -796,34 +1212,17 @@ impl AdsBPanel {
             let ty_e = (cy2 + half_h / tile_px).ceil() as i64;
             for tx in tx_s..tx_e {
                 for ty in ty_s..ty_e {
+                    if !(0..n as i64).contains(&ty) {
+                        continue;
+                    }
                     let wt = tx.rem_euclid(n as i64) as u32;
-                    let wu = ty.rem_euclid(n as i64) as u32;
+                    let wu = ty as u32;
                     if !self.tile_cache.contains_key(&(z2, wt, wu)) {
                         self.request_tile(z2, wt, wu);
                     }
                 }
             }
         }
-    }
-
-    fn maybe_geolocate(&mut self) {
-        if self.geo_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.geo_rx = Some(rx);
-        std::thread::spawn(move || {
-            if let Ok(resp) = ureq::get("http://ip-api.com/json/")
-                .header("User-Agent", "ez-sdr/0.1")
-                .call()
-            {
-                if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
-                    if let (Some(lat), Some(lon)) = (json["lat"].as_f64(), json["lon"].as_f64()) {
-                        let _ = tx.send((lat, lon));
-                    }
-                }
-            }
-        });
     }
 
     /// Renders the standalone ADS-B receive/antenna setup guide — used as an
@@ -949,19 +1348,21 @@ impl AdsBPanel {
             .try_lock()
             .map(|s| s.config.theme_config.clone())
             .unwrap_or_default();
+        let mut observer_changed = false;
         if let Ok(state) = self.shared.try_lock() {
             if (state.config.observer_lat - self.observer_lat).abs() > 0.001
                 || (state.config.observer_lon - self.observer_lon).abs() > 0.001
             {
                 self.observer_lat = state.config.observer_lat;
                 self.observer_lon = state.config.observer_lon;
+                observer_changed = true;
             }
+        }
+        if observer_changed {
+            self.recenter_on_observer();
         }
 
         // First-time tile init: geolocate, then center on observer
-        if self.geo_rx.is_none() {
-            self.maybe_geolocate();
-        }
         if let Some(rx) = &self.geo_rx {
             if let Ok((lat, lon)) = rx.try_recv() {
                 self.observer_lat = lat;
@@ -981,7 +1382,7 @@ impl AdsBPanel {
         let response = response.on_hover_text(
             "OSM map — drag to pan, scroll to zoom, click an aircraft dot to select",
         );
-        let painter = ui.painter();
+        let painter = ui.painter().with_clip_rect(rect);
 
         // Background fill (shows behind tiles during loading)
         painter.rect_filled(rect, 0.0, theme.bg.to_egui());
@@ -1024,6 +1425,7 @@ impl AdsBPanel {
             self.tile_cx -= f64::from(delta.x) / 256.0;
             self.tile_cy -= f64::from(delta.y) / 256.0;
         }
+        self.clamp_map_center();
 
         // Render OSM tiles
         let cx = self.tile_cx;
@@ -1044,9 +1446,20 @@ impl AdsBPanel {
         let tx_e = (cx + half_w / tile_px).ceil() as i64;
         let ty_s = (cy - half_h / tile_px).floor() as i64;
         let ty_e = (cy + half_h / tile_px).ceil() as i64;
+        let dark_map = ui.visuals().dark_mode;
+        let tile_tint = if dark_map {
+            egui::Color32::from_rgb(144, 156, 168)
+        } else {
+            egui::Color32::WHITE
+        };
+        let mut missing_tiles = 0_usize;
+        let mut failed_tiles = 0_usize;
 
         for tx in tx_s..tx_e {
             for ty in ty_s..ty_e {
+                if !(0..n).contains(&ty) {
+                    continue;
+                }
                 let sx = center_x + (tx as f64 - cx) * tile_px;
                 let sy = center_y + (ty as f64 - cy) * tile_px;
                 let tile_rect = egui::Rect::from_min_size(
@@ -1057,7 +1470,7 @@ impl AdsBPanel {
                     continue;
                 }
                 let wt = tx.rem_euclid(n) as u32;
-                let wu = ty.rem_euclid(n) as u32;
+                let wu = ty as u32;
                 let key = (zoom, wt, wu);
                 if let Some(handle) = self.tile_cache.get(&key) {
                     self.tile_last_used.insert(key, self.tile_frame_counter);
@@ -1065,11 +1478,35 @@ impl AdsBPanel {
                         handle.id(),
                         tile_rect,
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
+                        tile_tint,
                     );
-                } else if should_fetch_tiles {
+                } else {
+                    missing_tiles += 1;
+                    if self.tile_failures.contains_key(&key) {
+                        failed_tiles += 1;
+                    }
                     painter.rect_filled(tile_rect, 0.0, theme.surface.to_egui());
-                    self.request_tile(zoom, wt, wu);
+                    let grid = theme.text_dim.with_alpha(30).to_egui();
+                    for division in 0..4 {
+                        let offset = division as f32 * 64.0;
+                        painter.line_segment(
+                            [
+                                tile_rect.left_top() + egui::vec2(offset, 0.0),
+                                tile_rect.left_bottom() + egui::vec2(offset, 0.0),
+                            ],
+                            egui::Stroke::new(0.5, grid),
+                        );
+                        painter.line_segment(
+                            [
+                                tile_rect.left_top() + egui::vec2(0.0, offset),
+                                tile_rect.right_top() + egui::vec2(0.0, offset),
+                            ],
+                            egui::Stroke::new(0.5, grid),
+                        );
+                    }
+                    if should_fetch_tiles {
+                        self.request_tile(zoom, wt, wu);
+                    }
                 }
             }
         }
@@ -1087,8 +1524,45 @@ impl AdsBPanel {
         }
 
         // Prefetch adjacent zoom levels (debounced)
-        if !zoom_debouncing {
+        if !zoom_debouncing && missing_tiles == 0 {
             self.prefetch_adjacent_zoom(rect);
+        }
+
+        if missing_tiles > 0 {
+            let status = if failed_tiles > 0 && self.tile_cache.is_empty() {
+                "Map unavailable · retrying automatically"
+            } else if failed_tiles > 0 {
+                "Some map tiles unavailable · retrying"
+            } else {
+                "Loading map tiles…"
+            };
+            let galley = painter.layout_no_wrap(
+                status.into(),
+                egui::FontId::proportional(11.0),
+                theme.text_normal.to_egui(),
+            );
+            let status_rect = egui::Rect::from_min_size(
+                rect.left_top() + egui::vec2(8.0, 8.0),
+                galley.size() + egui::vec2(12.0, 8.0),
+            );
+            painter.rect_filled(status_rect, 3.0, theme.bg.with_alpha(235).to_egui());
+            painter.galley(
+                status_rect.left_top() + egui::vec2(6.0, 4.0),
+                galley,
+                theme.text_normal.to_egui(),
+            );
+            if failed_tiles > 0 {
+                ui.interact(
+                    status_rect,
+                    ui.id().with("map_tile_status"),
+                    egui::Sense::hover(),
+                )
+                .on_hover_text(
+                    self.tile_last_error
+                        .as_deref()
+                        .unwrap_or("Map tiles are unavailable. Aircraft tracking continues."),
+                );
+            }
         }
 
         // Click handler (select aircraft) — use coordinate from tile projection
@@ -1099,12 +1573,12 @@ impl AdsBPanel {
                 let cx_f32 = rect.center().x;
                 let cy_f32 = rect.center().y;
                 for ac in &self.aircraft {
-                    if ac.lat == 0.0 && ac.lon == 0.0 {
+                    if !self.has_position(ac) || !self.matches_filters(ac) {
                         continue;
                     }
                     let tx_f = Self::lon_to_tile_x(ac.lon, self.tile_zoom);
                     let ty_f = Self::lat_to_tile_y(ac.lat, self.tile_zoom);
-                    let x = cx_f32 + (tx_f - self.tile_cx) as f32 * 256.0;
+                    let x = cx_f32 + self.tile_x_delta(tx_f) as f32 * 256.0;
                     let y = cy_f32 + (ty_f - self.tile_cy) as f32 * 256.0;
                     let dist = ((pos.x - x).powi(2) + (pos.y - y).powi(2)).sqrt();
                     if dist < 14.0 && dist < closest_dist {
@@ -1122,7 +1596,7 @@ impl AdsBPanel {
         // Observer + range rings (projected via tile coords)
         let obs_tx = Self::lon_to_tile_x(self.observer_lon, self.tile_zoom);
         let obs_ty = Self::lat_to_tile_y(self.observer_lat, self.tile_zoom);
-        let obs_x = (f64::from(rect.center().x) + (obs_tx - self.tile_cx) * 256.0) as f32;
+        let obs_x = (f64::from(rect.center().x) + self.tile_x_delta(obs_tx) * 256.0) as f32;
         let obs_y = (f64::from(rect.center().y) + (obs_ty - self.tile_cy) * 256.0) as f32;
         if rect.contains(egui::pos2(obs_x, obs_y)) {
             for (dist_km, alpha) in [
@@ -1145,7 +1619,7 @@ impl AdsBPanel {
                             );
                     let t2x = Self::lon_to_tile_x(lon2.to_degrees(), self.tile_zoom);
                     let t2y = Self::lat_to_tile_y(lat2.to_degrees(), self.tile_zoom);
-                    let rx = (f64::from(rect.center().x) + (t2x - self.tile_cx) * 256.0) as f32;
+                    let rx = (f64::from(rect.center().x) + self.tile_x_delta(t2x) * 256.0) as f32;
                     let ry = (f64::from(rect.center().y) + (t2y - self.tile_cy) * 256.0) as f32;
                     ring_points.push(egui::pos2(rx, ry));
                 }
@@ -1175,7 +1649,16 @@ impl AdsBPanel {
 
         // Trails
         if self.show_trails {
+            let visible: std::collections::HashSet<_> = self
+                .aircraft
+                .iter()
+                .filter(|ac| self.has_position(ac) && self.matches_filters(ac))
+                .map(|ac| ac.icao)
+                .collect();
             for (icao, trail) in &self.aircraft_trails {
+                if !visible.contains(icao) {
+                    continue;
+                }
                 if trail.len() < 2 {
                     continue;
                 }
@@ -1190,7 +1673,7 @@ impl AdsBPanel {
                         let tix = Self::lon_to_tile_x(lon, self.tile_zoom);
                         let tiy = Self::lat_to_tile_y(lat, self.tile_zoom);
                         egui::pos2(
-                            (f64::from(rect.center().x) + (tix - self.tile_cx) * 256.0) as f32,
+                            (f64::from(rect.center().x) + self.tile_x_delta(tix) * 256.0) as f32,
                             (f64::from(rect.center().y) + (tiy - self.tile_cy) * 256.0) as f32,
                         )
                     })
@@ -1202,23 +1685,17 @@ impl AdsBPanel {
         }
 
         // Aircraft
-        let map_now = std::time::Instant::now();
+        let plane_texture = self.plane_texture(ui.ctx());
         for ac in &self.aircraft {
-            let age = map_now.duration_since(ac.seen).as_secs();
-            if age > self.max_age_secs {
+            if !self.matches_filters(ac) {
                 continue;
             }
-            if self.altitude_filter_enabled
-                && (ac.altitude < self.min_altitude_ft || ac.altitude > self.max_altitude_ft)
-            {
-                continue;
-            }
-            if ac.lat == 0.0 && ac.lon == 0.0 {
+            if !self.has_position(ac) {
                 continue;
             }
             let tix = Self::lon_to_tile_x(ac.lon, self.tile_zoom);
             let tiy = Self::lat_to_tile_y(ac.lat, self.tile_zoom);
-            let x = (f64::from(rect.center().x) + (tix - self.tile_cx) * 256.0) as f32;
+            let x = (f64::from(rect.center().x) + self.tile_x_delta(tix) * 256.0) as f32;
             let y = (f64::from(rect.center().y) + (tiy - self.tile_cy) * 256.0) as f32;
             let color = if self.selected_icao == Some(ac.icao) {
                 egui::Color32::from_rgb(0, 255, 255)
@@ -1246,14 +1723,35 @@ impl AdsBPanel {
                 .get(&ac.icao)
                 .map_or("", |i| i.model.as_str());
             let category = classify_aircraft(model_str);
-            draw_plane_model(
-                painter,
-                egui::pos2(x, y),
-                ac.heading as f32,
-                &category,
-                color,
-                model_scale,
-            );
+            // Use a real embedded SVG marker for the common fixed-wing case.
+            // The painter fallback remains for helicopters and unusual models.
+            if !matches!(category, AcCategory::Helicopter) && plane_texture.is_some() {
+                if let Some(texture) = &plane_texture {
+                    let size = egui::vec2(model_scale * 2.6, model_scale * 2.6);
+                    let marker_rect = egui::Rect::from_center_size(egui::pos2(x, y), size);
+                    let mut mesh = egui::epaint::Mesh::with_texture(texture.id());
+                    mesh.add_rect_with_uv(
+                        marker_rect,
+                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                        color,
+                    );
+                    mesh.rotate(
+                        egui::emath::Rot2::from_angle((ac.heading as f32).to_radians()),
+                        marker_rect.center(),
+                    );
+                    // Clip the marker to the map, including near toolbar edges.
+                    painter.add(mesh);
+                }
+            } else {
+                draw_plane_model(
+                    &painter,
+                    egui::pos2(x, y),
+                    ac.heading as f32,
+                    &category,
+                    color,
+                    model_scale,
+                );
+            }
             if !ac.callsign.is_empty() {
                 painter.text(
                     egui::pos2(x + 6.0, y - 9.0),
@@ -1302,15 +1800,84 @@ impl AdsBPanel {
             egui::FontId::proportional(7.0),
             theme.text_dim.to_egui(),
         );
+        painter.text(
+            egui::pos2(rect.left() + 6.0, rect.bottom() - 5.0),
+            egui::Align2::LEFT_BOTTOM,
+            "© OpenStreetMap contributors",
+            egui::FontId::proportional(9.0),
+            theme.text_dim.to_egui(),
+        );
+    }
+
+    fn ui_uat_source(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("978 MHz source").strong());
+        ui.label("dump978-fa · JSON TCP feed");
+        ui.horizontal(|ui| {
+            ui.label("Address");
+            ui.add_enabled(
+                !self.uat_receiver.is_active(),
+                egui::TextEdit::singleline(&mut self.uat_address)
+                    .desired_width(ui.available_width())
+                    .hint_text(crate::uat_receiver::DEFAULT_ADDRESS),
+            );
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!self.uat_receiver.is_active(), egui::Button::new("Connect"))
+                .clicked()
+            {
+                self.clear_tracks();
+                self.connect_uat();
+            }
+            if ui
+                .add_enabled(
+                    self.uat_receiver.is_active(),
+                    egui::Button::new("Disconnect"),
+                )
+                .clicked()
+            {
+                self.stop_uat();
+            }
+        });
+        ui.label(self.receiver_status());
+        if let UatStatus::Error(message) | UatStatus::Reconnecting(message) =
+            self.uat_receiver.status()
+        {
+            ui.label(
+                egui::RichText::new(message)
+                    .small()
+                    .color(egui::Color32::from_rgb(222, 172, 97)),
+            );
+        }
+        let (received, rejected, dropped) = self.uat_receiver.counts();
+        ui.label(
+            egui::RichText::new(format!(
+                "{received} reports · {rejected} invalid · {dropped} dropped"
+            ))
+            .small(),
+        );
+        ui.collapsing("Receiver setup", |ui| {
+            ui.label("Start FlightAware dump978-fa on the receiver computer, then connect here. UAT broadcasts are primarily available in the US.");
+            let mut command = crate::uat_receiver::SETUP_COMMAND.to_owned();
+            ui.add(egui::TextEdit::multiline(&mut command).font(egui::TextStyle::Monospace).desired_width(ui.available_width()).desired_rows(3).interactive(false));
+            if ui.small_button("Copy command").clicked() {
+                ui.ctx().copy_text(crate::uat_receiver::SETUP_COMMAND.into());
+            }
+            ui.label("Install dump978-fa and your SoapySDR device driver first. Selecting 978 releases ez-sdr's receiver so dump978-fa can own the SDR. Stop dump978-fa before returning to 1090 on the same dongle. For a remote feed, enter its IP:port.");
+            ui.hyperlink_to("dump978-fa documentation", "https://github.com/flightaware/dump978");
+        });
+        ui.separator();
     }
 
     /// Renders the aircraft list and controls — for the ADS-B tab right sidebar.
     pub fn ui_list(&mut self, ui: &mut egui::Ui) {
-        if !self.checklist.ui(ui) {
-            if let Some(msg) = self.checklist.pending_status.take() {
-                self.pending_status_flash = Some(msg);
-            }
-            return;
+        if self.region == AdsbRegion::Uat978 {
+            self.ui_uat_source(ui);
+        }
+        if self.region == AdsbRegion::ModeS1090 {
+            ui.collapsing("Antenna setup", |ui| {
+                self.checklist.ui(ui);
+            });
         }
         if let Some(msg) = self.checklist.pending_status.take() {
             self.pending_status_flash = Some(msg);
@@ -1323,7 +1890,9 @@ impl AdsBPanel {
             .unwrap_or_default();
 
         while let Ok((icao, info)) = self.info_rx.try_recv() {
-            self.aircraft_info.insert(icao, info);
+            if self.aircraft.iter().any(|ac| ac.icao == icao) {
+                self.aircraft_info.insert(icao, info);
+            }
         }
 
         if let Ok(state) = self.shared.try_lock() {
@@ -1338,8 +1907,21 @@ impl AdsBPanel {
         // Update trails here so they're ready when ui_map() renders. Kept
         // outside the collapsible cards below so trail history keeps building
         // even while a card is collapsed (module_card skips contents when closed).
+        let live: std::collections::HashSet<_> = self.aircraft.iter().map(|ac| ac.icao).collect();
+        let positioned: std::collections::HashSet<_> = self
+            .aircraft
+            .iter()
+            .filter(|ac| self.has_position(ac) && ac.seen.elapsed().as_secs() <= self.max_age_secs)
+            .map(|ac| ac.icao)
+            .collect();
+        self.aircraft_trails
+            .retain(|key, _| positioned.contains(key));
+        self.aircraft_info.retain(|key, _| live.contains(key));
+        if self.selected_icao.is_some_and(|key| !live.contains(&key)) {
+            self.selected_icao = None;
+        }
         for ac in &self.aircraft {
-            if ac.lat == 0.0 && ac.lon == 0.0 {
+            if !self.has_position(ac) {
                 continue;
             }
             let trail = self.aircraft_trails.entry(ac.icao).or_default();
@@ -1365,7 +1947,7 @@ impl AdsBPanel {
             .iter()
             .filter(|ac| {
                 now_inst.duration_since(ac.seen).as_secs() <= self.max_age_secs
-                    && (ac.lat != 0.0 || ac.lon != 0.0)
+                    && self.has_position(ac)
             })
             .count();
         let msg_rate = if let Some(start) = self.start_time {
@@ -1388,10 +1970,7 @@ impl AdsBPanel {
                 ui.horizontal(|ui| {
                     if self.start_time.is_some() {
                         if ui.button("■ Stop").clicked() {
-                            if let Ok(mut state) = self.shared.try_lock() {
-                                state.adsb_running = false;
-                            }
-                            self.start_time = None;
+                            self.stop_receiving();
                         }
                     } else if ui.button("▶ Start ADS-B").clicked() {
                         self.begin();
@@ -1440,7 +2019,7 @@ impl AdsBPanel {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.callsign_filter)
                             .desired_width(100.0)
-                            .hint_text("search callsign/ICAO"),
+                            .hint_text("search callsign/address"),
                     );
                     if !self.callsign_filter.is_empty() && ui.small_button("✕").clicked() {
                         self.callsign_filter.clear();
@@ -1501,13 +2080,7 @@ impl AdsBPanel {
                 let mut fetch_icao: Option<u32> = None;
                 for ac in &self.aircraft {
                     let age = now.duration_since(ac.seen).as_secs();
-                    if age > max_age { continue; }
-                    if self.altitude_filter_enabled && (ac.altitude < self.min_altitude_ft || ac.altitude > self.max_altitude_ft) { continue; }
-                    if !self.callsign_filter.is_empty() {
-                        let q = self.callsign_filter.to_lowercase();
-                        let icao_str = format!("{:06x}", ac.icao);
-                        if !ac.callsign.to_lowercase().contains(&q) && !icao_str.contains(&q) { continue; }
-                    }
+                    if !self.matches_filters(ac) { continue; }
                     let is_selected = self.selected_icao == Some(ac.icao);
                     let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
                     // Age fade: blend text_normal → text_dim as the contact goes stale.
@@ -1519,22 +2092,24 @@ impl AdsBPanel {
                         let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * age_frac * 0.85) as u8;
                         egui::Color32::from_rgb(lerp(n.0, d.0), lerp(n.1, d.1), lerp(n.2, d.2))
                     };
-                    let label = if ac.callsign.is_empty() { format!("{:06X}", ac.icao) } else { ac.callsign.clone() };
+                    let label = if ac.callsign.is_empty() { address_label(ac.icao) } else { ac.callsign.clone() };
                     if ui.label(egui::RichText::new(&label).color(row_col).small()).clicked() {
                         self.selected_icao = Some(ac.icao);
                         fetch_icao = Some(ac.icao);
                     }
                     ui.label(egui::RichText::new(format!("{}ft", ac.altitude)).color(row_col).small());
                     ui.label(egui::RichText::new(format!("{}kt", ac.speed)).color(row_col).small());
+                    let has_position = self.has_position(ac);
                     let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
-                    ui.label(egui::RichText::new(format!("{dist:.0}km")).color(row_col).small());
+                    let distance_label = if has_position { format!("{dist:.0}km") } else { "—".into() };
+                    ui.label(egui::RichText::new(distance_label).color(row_col).small());
                     let age_color = if age < 10 { theme.success.to_egui() } else if age < 30 { theme.warning.to_egui() } else { theme.text_dim.to_egui() };
                     ui.label(egui::RichText::new(format!("{age}s")).color(age_color).small());
-                    if ui.small_button("🤖").clicked() {
+                    if ui.add_enabled(has_position, egui::Button::new("🤖").small()).clicked() {
                         let bearing = self.bearing(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
                         self.pending_ai_prompt = Some(format!(
-                            "Aircraft on ADS-B:\nCallsign: {}\nICAO: {:06X}\nAlt: {} ft, Speed: {} kt, Heading: {}°\nPos: {:.4}°N, {:.4}°E\nDist: {:.1} km, Bearing: {:.0}°",
-                            label, ac.icao, ac.altitude, ac.speed, ac.heading, ac.lat, ac.lon, dist, bearing
+                            "Aircraft on ADS-B:\nCallsign: {}\nAddress: {}\nAlt: {} ft, Speed: {} kt, Heading: {}°\nPos: {:.4}°N, {:.4}°E\nDist: {:.1} km, Bearing: {:.0}°",
+                            label, address_label(ac.icao), ac.altitude, ac.speed, ac.heading, ac.lat, ac.lon, dist, bearing
                         ));
                     }
                     ui.end_row();
@@ -1570,6 +2145,91 @@ mod tests {
         assert!(panel.pending_ai_prompt.is_none());
         assert!(panel.alert_enabled);
         assert!(!panel.desktop_notifications);
+        assert!((panel.observer_lat - 51.5).abs() < f64::EPSILON);
+        assert!((panel.observer_lon + 0.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn adsb_reset_retires_late_enrichment_and_old_selection() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        let old_sender = panel.info_tx.clone();
+        panel.aircraft.push(AircraftEntry {
+            icao: 1,
+            ..Default::default()
+        });
+        panel.selected_icao = Some(1);
+        panel.pending_ai_prompt = Some("old aircraft".into());
+        panel.clear_tracks();
+        assert!(old_sender.send((1, AircraftInfo::default())).is_err());
+        assert!(panel.aircraft.is_empty());
+        assert!(panel.selected_icao.is_none());
+        assert!(panel.pending_ai_prompt.is_none());
+        assert!(panel.info_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn adsb_map_wraps_date_line_but_never_poles_and_rejects_invalid_positions() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.tile_cx = AdsBPanel::lon_to_tile_x(179.9, panel.tile_zoom);
+        let east = panel.tile_x_delta(AdsBPanel::lon_to_tile_x(-179.9, panel.tile_zoom));
+        assert!(
+            east > 0.0 && east < 0.2,
+            "nearby dateline aircraft should be visible"
+        );
+        panel.tile_cy = -100.0;
+        panel.clamp_map_center();
+        assert_eq!(panel.tile_cy, 0.0);
+        panel.tile_cy = 1000.0;
+        panel.clamp_map_center();
+        assert_eq!(panel.tile_cy, 256.0);
+        assert!(!panel.has_position(&AircraftEntry {
+            lat: 91.0,
+            lon: 1.0,
+            ..Default::default()
+        }));
+        assert!(!panel.has_position(&AircraftEntry {
+            lat: 40.0,
+            lon: f64::NAN,
+            ..Default::default()
+        }));
+    }
+
+    #[test]
+    fn adsb_map_filters_match_search_and_altitude_and_busy_switch_is_atomic() {
+        let shared = make_shared_state();
+        let mut panel = AdsBPanel::new(shared.clone());
+        let ac = AircraftEntry {
+            icao: 0x123abc,
+            callsign: "TEST123".into(),
+            altitude: 10000,
+            ..Default::default()
+        };
+        panel.callsign_filter = "test".into();
+        assert!(panel.matches_filters(&ac));
+        panel.callsign_filter = "missing".into();
+        assert!(!panel.matches_filters(&ac));
+        panel.callsign_filter = "123ABC".into();
+        panel.altitude_filter_enabled = true;
+        panel.min_altitude_ft = 12000;
+        assert!(!panel.matches_filters(&ac));
+        let _guard = shared.lock().unwrap();
+        panel.set_region(AdsbRegion::Uat978);
+        assert_eq!(panel.region, AdsbRegion::ModeS1090);
+        assert!(panel
+            .pending_status_flash
+            .as_deref()
+            .unwrap()
+            .contains("busy"));
+    }
+
+    #[test]
+    fn map_recenter_uses_observer_coordinates() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.observer_lat = 40.7128;
+        panel.observer_lon = -74.0060;
+        panel.recenter_on_observer();
+        assert!((panel.tile_cx - AdsBPanel::lon_to_tile_x(-74.0060, panel.tile_zoom)).abs() < 1e-9);
+        assert!((panel.tile_cy - AdsBPanel::lat_to_tile_y(40.7128, panel.tile_zoom)).abs() < 1e-9);
     }
 
     #[test]
@@ -1710,5 +2370,194 @@ mod tests {
         assert!((b - 0.0).abs() < 1.0, "north bearing {b} not ≈0°");
         let b = panel.bearing(0.0, 0.0, 0.0, 10.0);
         assert!((b - 90.0).abs() < 1.0, "east bearing {b} not ≈90°");
+    }
+
+    #[test]
+    fn region_picker_frequencies_are_standard() {
+        assert_eq!(AdsbRegion::ModeS1090.frequency_hz(), 1_090_000_000);
+        assert_eq!(AdsbRegion::ModeS1090.sample_rate_hz(), 2_400_000);
+        assert_eq!(AdsbRegion::Uat978.frequency_hz(), 978_000_000);
+        assert_eq!(AdsbRegion::Uat978.sample_rate_hz(), 2_083_333);
+        assert_ne!(AdsbRegion::ModeS1090, AdsbRegion::Uat978);
+    }
+
+    #[test]
+    fn uat_reports_merge_into_table_and_map_without_fabricating_positions() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.region = AdsbRegion::Uat978;
+        let update = |line: &[u8]| TimedReport {
+            report: crate::uat_receiver::parse_report(line).unwrap(),
+            received: std::time::Instant::now(),
+        };
+        panel.ingest_uat_report(update(
+            br#"{"address":"a1b2c3","address_qualifier":"adsb_icao","callsign":"N123AB"}"#,
+        ));
+        assert_eq!(panel.aircraft.len(), 1);
+        assert_eq!(panel.aircraft[0].callsign, "N123AB");
+        assert!(!panel.has_position(&panel.aircraft[0]));
+        panel.ingest_uat_report(update(br#"{"address":"a1b2c3","address_qualifier":"adsb_icao","position":{"lat":40.25,"lon":-75.5},"pressure_altitude":12000,"ground_speed":140,"true_track":90}"#));
+        assert_eq!(panel.aircraft.len(), 1);
+        let aircraft = &panel.aircraft[0];
+        assert!(panel.has_position(aircraft));
+        assert_eq!((aircraft.lat, aircraft.lon), (40.25, -75.5));
+        assert_eq!(
+            (aircraft.altitude, aircraft.speed, aircraft.heading),
+            (12000, 140, 90)
+        );
+        assert_eq!(aircraft.callsign, "N123AB");
+        panel.ingest_uat_report(update(
+            br#"{"address":"a1b2c3","address_qualifier":"tisb_icao","ground_speed":142}"#,
+        ));
+        assert_eq!(panel.aircraft.len(), 1);
+        assert_eq!(panel.aircraft[0].speed, 142);
+        assert!(panel.has_position(&panel.aircraft[0]));
+    }
+
+    #[test]
+    fn uat_anonymous_tracks_are_distinct_and_never_enriched_as_icao() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.region = AdsbRegion::Uat978;
+        for qualifier in ["adsb_icao", "adsb_other", "tisb_trackfile"] {
+            let json = format!(r#"{{"address":"a1b2c3","address_qualifier":"{qualifier}"}}"#);
+            panel.ingest_uat_report(TimedReport {
+                report: crate::uat_receiver::parse_report(json.as_bytes()).unwrap(),
+                received: std::time::Instant::now(),
+            });
+        }
+        assert_eq!(panel.aircraft.len(), 3);
+        let anonymous = panel.aircraft[1].icao;
+        panel.fetch_aircraft_info(anonymous);
+        assert!(!panel.aircraft_info.contains_key(&anonymous));
+    }
+
+    #[test]
+    fn uat_positions_expire_even_when_nonposition_reports_keep_arriving() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.region = AdsbRegion::Uat978;
+        let report = crate::uat_receiver::parse_report(
+            br#"{"address":"a1b2c3","address_qualifier":"adsb_icao","position":{"lat":0,"lon":0}}"#,
+        )
+        .unwrap();
+        panel.ingest_uat_report(TimedReport {
+            report,
+            received: std::time::Instant::now(),
+        });
+        assert!(
+            panel.has_position(&panel.aircraft[0]),
+            "real zero coordinates are a valid position"
+        );
+        panel.uat_position_seen.insert(
+            0xa1b2c3,
+            std::time::Instant::now() - std::time::Duration::from_secs(61),
+        );
+        panel.poll_uat();
+        assert_eq!(panel.aircraft.len(), 1);
+        assert!(
+            !panel.has_position(&panel.aircraft[0]),
+            "stale coordinates must leave the map"
+        );
+        panel.aircraft[0].seen = std::time::Instant::now() - std::time::Duration::from_secs(121);
+        panel.poll_uat();
+        assert!(panel.aircraft.is_empty());
+        assert!(panel.uat_position_seen.is_empty());
+    }
+
+    #[test]
+    fn uat_selection_releases_local_receiver_and_disables_modes_decoder() {
+        let shared = make_shared_state();
+        let mut panel = AdsBPanel::new(shared.clone());
+        panel.uat_address = "invalid endpoint".into();
+        {
+            let mut state = shared.lock().unwrap();
+            state.adsb_running = true;
+            state.audio_running = true;
+        }
+        panel.set_region(AdsbRegion::Uat978);
+        assert_eq!(panel.region, AdsbRegion::Uat978);
+        let state = shared.lock().unwrap();
+        assert!(!state.adsb_running);
+        assert!(!state.audio_running);
+        assert_eq!(
+            state.source.status,
+            crate::source_manager::SourceStatus::Idle
+        );
+        assert!(panel.receiver_status().contains("error"));
+    }
+
+    #[test]
+    fn modes_begin_disables_radio_audio_and_starts_idle_daemon() {
+        let shared = make_shared_state();
+        {
+            let mut state = shared.lock().unwrap();
+            state.audio_running = true;
+            state.source.source_mode = crate::source_manager::SourceMode::Daemon;
+            state.source.daemon_addr = "invalid endpoint".into();
+        }
+        let mut panel = AdsBPanel::new(shared.clone());
+        panel.begin();
+        let state = shared.lock().unwrap();
+        assert!(!state.audio_running);
+        assert!(state.adsb_running);
+        assert_eq!(state.source.frequency_hz, 1_090_000_000);
+        assert!(
+            matches!(
+                state.source.status,
+                crate::source_manager::SourceStatus::Error(_)
+            ),
+            "idle daemon must attempt a connection, exposing the invalid endpoint"
+        );
+    }
+
+    #[test]
+    fn generic_stop_cancels_uat_backend() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.region = AdsbRegion::Uat978;
+        panel.uat_receiver.start("127.0.0.1:9").unwrap();
+        panel.start_time = Some(std::time::Instant::now());
+        panel.stop_receiving();
+        assert!(!panel.uat_receiver.is_active());
+        assert_eq!(panel.uat_receiver.status(), UatStatus::Stopped);
+        assert!(panel.start_time.is_none());
+    }
+
+    #[test]
+    fn map_tile_input_is_bounded_and_dimensions_validated() {
+        let oversized = vec![0_u8; AdsBPanel::MAX_TILE_BYTES + 1];
+        assert!(AdsBPanel::read_tile_bytes(&mut std::io::Cursor::new(oversized)).is_err());
+        for (width, height, valid) in [(256, 256, true), (1, 1, false), (257, 256, false)] {
+            let mut encoded = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(image::RgbaImage::new(width, height))
+                .write_to(&mut encoded, image::ImageFormat::Png)
+                .unwrap();
+            let decoded = AdsBPanel::decode_tile(encoded.get_ref());
+            assert_eq!(decoded.is_ok(), valid);
+        }
+        assert!(AdsBPanel::decode_tile(b"not a PNG").is_err());
+    }
+
+    #[test]
+    fn failed_map_tiles_back_off_instead_of_restarting_each_frame() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        let context = egui::Context::default();
+        let key = (8, 100, 100);
+        panel
+            .tile_download_tx
+            .send((key, Err("offline".into())))
+            .unwrap();
+        panel.process_tile_downloads(&context);
+        assert_eq!(panel.tile_failures[&key].1, 1);
+        for _ in 0..60 {
+            panel.request_tile(key.0, key.1, key.2);
+        }
+        assert!(panel.tile_pending.is_empty());
+        assert_eq!(
+            panel
+                .tile_inflight
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+        assert_eq!(AdsBPanel::tile_retry_delay(1).as_secs(), 5);
+        assert_eq!(AdsBPanel::tile_retry_delay(2).as_secs(), 10);
+        assert_eq!(AdsBPanel::tile_retry_delay(u32::MAX).as_secs(), 60);
     }
 }

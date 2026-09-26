@@ -44,10 +44,22 @@ pub type SpectrumFrame = Vec<f32>;
 pub struct SpectrumWorker {
     iq_sender: crossbeam_channel::Sender<Vec<Complex32>>,
     spectrum_receiver: crossbeam_channel::Receiver<SpectrumFrame>,
-    _handle: Option<std::thread::JoinHandle<()>>,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl SpectrumWorker {
+    /// Create a dummy SpectrumWorker without spawning a thread.
+    /// Used in test environments where thread spawning may cause hangs.
+    pub fn new_uninitialized() -> Self {
+        let (iq_tx, _iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
+        let (_spectrum_tx, spectrum_rx) = crossbeam_channel::bounded::<SpectrumFrame>(4);
+        Self {
+            iq_sender: iq_tx,
+            spectrum_receiver: spectrum_rx,
+            handle: None,
+        }
+    }
+
     /// Create a new SpectrumWorker with the given FFT size and window type.
     /// Spawns a dedicated OS thread that owns the FftPlanner.
     pub fn new(fft_size: usize, window: WindowType) -> Self {
@@ -63,24 +75,19 @@ impl SpectrumWorker {
             let mut input_buf = vec![Complex32::new(0.0, 0.0); fft_size];
             let half = fft_size / 2;
 
+            // When iq_sender is dropped (on CentralApp drop), recv() returns Err
+            // and the loop exits. No select! needed — simpler and no hang.
             while let Ok(mut iq_window) = iq_rx.recv() {
-                // If capture outpaces FFT work, discard queued stale windows
-                // before computing. The newest window is what the waterfall
-                // should show, and this keeps latency bounded at the channel
-                // depth instead of replaying old RF data.
                 while let Ok(newer) = iq_rx.try_recv() {
                     iq_window = newer;
                 }
                 if iq_window.len() != fft_size {
                     continue;
                 }
-                // Apply window function
                 for i in 0..fft_size {
                     input_buf[i] = iq_window[i] * window_cache[i];
                 }
-                // Compute FFT
                 fft.process_with_scratch(&mut input_buf, &mut scratch);
-                // Convert to dB with fftshift (display order)
                 let mut dbs = vec![-120.0f32; fft_size];
                 for i in 0..fft_size {
                     let magnitude = input_buf[i].norm() * scale;
@@ -92,7 +99,6 @@ impl SpectrumWorker {
                     let dst = (i + half) % fft_size;
                     dbs[dst] = db;
                 }
-                // Send result back (drop if channel full — UI thread will catch up)
                 let _ = spectrum_tx.try_send(dbs);
             }
         });
@@ -100,7 +106,7 @@ impl SpectrumWorker {
         Self {
             iq_sender: iq_tx,
             spectrum_receiver: spectrum_rx,
-            _handle: Some(handle),
+            handle: Some(handle),
         }
     }
 
@@ -109,6 +115,25 @@ impl SpectrumWorker {
         self.iq_sender.try_send(iq).is_ok()
     }
 
+    /// Detach the worker thread. The thread exits when iq_sender is dropped.
+    pub fn shutdown(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            std::mem::forget(handle);
+        }
+    }
+}
+
+impl Drop for SpectrumWorker {
+    fn drop(&mut self) {
+        // When iq_sender is dropped (after this method returns), the worker's
+        // recv() returns Err and the thread exits. Detach — never join in Drop.
+        if let Some(handle) = self.handle.take() {
+            std::mem::forget(handle);
+        }
+    }
+}
+
+impl SpectrumWorker {
     /// Try to receive a completed spectrum frame without blocking. If several
     /// frames are queued, retain only the newest one so a slow UI never spends
     /// a frame processing stale display data.
@@ -139,6 +164,9 @@ pub struct DisplaySettings {
     pub peak_hold_time: f32,
     pub avg_alpha: f32,
     pub persistence: f32,
+    pub smoothing_enabled: bool,
+    pub smoothing_speed: f32,
+    pub fast_fft: bool,
     pub gradient_fill: bool,
     pub db_min: f32,
     pub db_max: f32,
@@ -272,6 +300,9 @@ pub struct SpectrumAnalyzer {
     fft_rate: u32,
     processed_frames: u64,
     last_daemon_timestamp_ms: Option<u64>,
+    smoothing_enabled: bool,
+    smoothing_speed: f32,
+    fast_fft: bool,
     frame_period_seconds: f64,
     waterfall_visible: bool,
     waterfall_width: usize,
@@ -605,6 +636,9 @@ impl SpectrumAnalyzer {
             show_grid: true,
             peak_hold_time: 1.0,
             persistence: 0.0,
+            smoothing_enabled: true,
+            smoothing_speed: 0.3,
+            fast_fft: false,
             persist_buf: vec![-100.0; fft_size],
             gradient_fill: true,
             pending_squelch_db: None,
@@ -670,6 +704,9 @@ impl SpectrumAnalyzer {
             peak_hold_time: self.peak_hold_time,
             avg_alpha: self.avg_alpha,
             persistence: self.persistence,
+            smoothing_enabled: self.smoothing_enabled,
+            smoothing_speed: self.smoothing_speed,
+            fast_fft: self.fast_fft,
             gradient_fill: self.gradient_fill,
             db_min: self.display_min_db,
             db_max: self.display_max_db,
@@ -879,6 +916,19 @@ impl SpectrumAnalyzer {
     }
 
     /// Set peak-hold decay time constant (seconds).
+    pub fn set_smoothing(&mut self, enabled: bool) {
+        self.smoothing_enabled = enabled;
+        if !enabled {
+            self.spectrum_dbs.fill(-100.0);
+        }
+    }
+    pub fn set_smoothing_speed(&mut self, speed: f32) {
+        self.smoothing_speed = speed.clamp(0.0, 1.0);
+        self.avg_alpha = 1.0 - self.smoothing_speed;
+    }
+    pub fn set_fast_fft(&mut self, fast: bool) {
+        self.fast_fft = fast;
+    }
     pub fn set_peak_hold_time(&mut self, secs: f32) {
         self.peak_hold_time = secs.clamp(0.1, 60.0);
     }
@@ -1263,6 +1313,19 @@ impl SpectrumAnalyzer {
     /// Ingest a precomputed, fftshifted daemon frame. Frame timestamps enforce
     /// the requested display cadence; a backwards clock resets that cadence.
     /// Invalid resolutions/nonfinite bins are discarded before any allocation.
+    /// Ingest a raw spectrum frame from the SpectrumWorker. The frame is a
+    /// fftshifted Vec<f32> of dB values matching the current fft_size.
+    pub fn apply_spectrum_frame(&mut self, frame: &[f32]) {
+        if self.frozen || frame.len() != self.fft_size {
+            return;
+        }
+        if frame.iter().any(|v| !v.is_finite()) {
+            return;
+        }
+        self.spectrum_dbs.copy_from_slice(frame);
+        self.processed_frames += 1;
+    }
+
     pub fn push_spectrum_frame(&mut self, frame: &ez_proto::SpectrumFrame) {
         if self.frozen
             || !Self::valid_fft_size(frame.bins.len())

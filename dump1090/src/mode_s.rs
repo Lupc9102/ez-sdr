@@ -55,6 +55,7 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
                 }
                 19 => {
                     am.velocity = decode_velocity(msg);
+                    am.vertical_rate = decode_vertical_rate(msg);
                 }
                 _ => {}
             }
@@ -191,6 +192,24 @@ fn decode_velocity(msg: &[u8]) -> Option<(f64, f64)> {
     Some((speed_kt, heading))
 }
 
+/// Decode TC19 vertical rate. The 9-bit field is in 64 ft/min increments with
+/// zero reserved for "unavailable"; the sign bit selects climb or descent.
+fn decode_vertical_rate(msg: &[u8]) -> Option<i32> {
+    if msg.len() < 10 || msg[4] >> 3 != 19 {
+        return None;
+    }
+    let raw = (u16::from(msg[8] & 0x07) << 6) | u16::from(msg[9] >> 2);
+    if raw == 0 {
+        return None;
+    }
+    let magnitude = i32::from(raw - 1) * 64;
+    Some(if msg[8] & 0x08 == 0 {
+        magnitude
+    } else {
+        -magnitude
+    })
+}
+
 /// Decode a `ModesMessage` produced by the demodulator into an aircraft message.
 #[must_use]
 pub fn decode_mode_s(mm: &ModesMessage) -> Option<AircraftMessage> {
@@ -223,6 +242,7 @@ pub struct AircraftMessage {
     pub callsign: Option<String>,
     pub position: Option<(f64, f64)>,
     pub velocity: Option<(f64, f64)>,
+    pub vertical_rate: Option<i32>,
 }
 
 #[cfg(test)]
@@ -507,6 +527,21 @@ mod tests {
         assert!(decode_velocity(&msg).is_none());
         msg[4] = (19 << 3) | 3; // subtype 3 is airspeed, not handled here
         assert!(decode_velocity(&msg).is_none());
+    }
+
+    #[test]
+    fn decode_vertical_rate_handles_climb_descent_and_unavailable() {
+        let mut msg = [0u8; 14];
+        msg[4] = (19 << 3) | 1;
+        // raw=11 => (11-1)*64 = 640 ft/min climb.
+        msg[8] = 0;
+        msg[9] = 11 << 2;
+        assert_eq!(decode_vertical_rate(&msg), Some(640));
+        msg[8] |= 0x08;
+        assert_eq!(decode_vertical_rate(&msg), Some(-640));
+        msg[8] = 0;
+        msg[9] = 0;
+        assert_eq!(decode_vertical_rate(&msg), None);
     }
 
     #[test]

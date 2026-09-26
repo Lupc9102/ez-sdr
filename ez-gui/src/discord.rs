@@ -875,13 +875,22 @@ pub fn embed_generic(title: &str, description: &str, emoji: &str, color: u32) ->
 /// Returns `None` if no valid image URL could be resolved within the timeout.
 #[must_use]
 pub fn fetch_aircraft_image(icao: &str) -> Option<String> {
-    // Try multiple image sources in order
+    // PlaneSpotters photo URLs contain numeric photo IDs and are returned by
+    // the public API; constructing a URL from the aircraft ICAO hex is invalid.
     let icao_upper = icao.to_uppercase();
-
-    // Try PlaneSpotters CDN - most reliable for aircraft photos
-    let planespotters_url = format!("https://cdn-photos.planespotters.net/photos/{icao_upper}.jpg");
-    if is_url_valid(&planespotters_url) {
-        return Some(planespotters_url);
+    let endpoint = format!("https://api.planespotters.net/pub/photos/hex/{icao_upper}");
+    if let Ok(resp) = ureq::get(&endpoint).call() {
+        if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
+            let photo = &json["photos"][0];
+            let image_url = photo["image"]["src"]
+                .as_str()
+                .or_else(|| photo["thumbnail"]["src"].as_str());
+            if let Some(url) = image_url {
+                if is_url_valid(url) {
+                    return Some(url.to_string());
+                }
+            }
+        }
     }
 
     // Try FlightRadar24's aircraft type icon database (fallback)

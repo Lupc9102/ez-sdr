@@ -1,7 +1,7 @@
 //! Shared widget layer built on top of `theme.rs` design tokens and
 //! `fx.rs` painter primitives. Keeps those two modules focused (pure
 //! tokens, pure painters) while this one composes them into ready-to-use
-//! widgets shared across the Listen/Satellites/Planes tabs.
+//! widgets shared across the Listen/Planes/Meteor/Satellites tabs.
 
 use crate::theme::ThemeConfig;
 
@@ -33,7 +33,7 @@ pub fn module_card<R>(
         .corner_radius(egui::CornerRadius::same(
             theme.corner.panels.clamp(0.0, 255.0) as u8,
         ))
-        .inner_margin(egui::Margin::same(8))
+        .inner_margin(egui::Margin::same(6))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.push_id(id_key, |ui| {

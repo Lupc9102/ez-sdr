@@ -256,35 +256,23 @@ impl FrequencyDatabase {
     fn satellite_presets() -> Vec<FrequencyPreset> {
         vec![
             FrequencyPreset {
-                name: "NOAA 15 APT (137.620 MHz)".to_string(),
-                frequency_hz: 137_620_000,
-                mode: "WFM".to_string(),
-                category: PresetCategory::Satellite,
-                description: "NOAA 15 weather satellite APT downlink".to_string(),
-                region: Some("Global".to_string()),
-            },
-            FrequencyPreset {
-                name: "NOAA 18 APT (137.9125 MHz)".to_string(),
-                frequency_hz: 137_912_500,
-                mode: "WFM".to_string(),
-                category: PresetCategory::Satellite,
-                description: "NOAA 18 weather satellite APT downlink".to_string(),
-                region: Some("Global".to_string()),
-            },
-            FrequencyPreset {
-                name: "NOAA 19 APT (137.100 MHz)".to_string(),
-                frequency_hz: 137_100_000,
-                mode: "WFM".to_string(),
-                category: PresetCategory::Satellite,
-                description: "NOAA 19 weather satellite APT downlink".to_string(),
-                region: Some("Global".to_string()),
-            },
-            FrequencyPreset {
-                name: "METEOR-M2 LRPT (137.100 MHz)".to_string(),
+                name: "Meteor-M2-4 LRPT (137.100 MHz)".to_string(),
                 frequency_hz: 137_100_000,
                 mode: "RAW".to_string(),
                 category: PresetCategory::Satellite,
-                description: "METEOR-M2 weather satellite LRPT downlink".to_string(),
+                description:
+                    "Meteor-M2-4 LRPT downlink; verify current transmitter status before a pass"
+                        .to_string(),
+                region: Some("Global".to_string()),
+            },
+            FrequencyPreset {
+                name: "Meteor-M2-3 LRPT (137.900 MHz)".to_string(),
+                frequency_hz: 137_900_000,
+                mode: "RAW".to_string(),
+                category: PresetCategory::Satellite,
+                description:
+                    "Meteor-M2-3 LRPT downlink; verify current transmitter status before a pass"
+                        .to_string(),
                 region: Some("Global".to_string()),
             },
         ]
@@ -400,5 +388,13 @@ mod tests {
             assert!(!category.label().is_empty());
             assert!(!category.icon().is_empty());
         }
+    }
+
+    #[test]
+    fn decommissioned_noaa_apt_satellites_are_not_active_presets() {
+        let satellites = FrequencyDatabase::by_category(PresetCategory::Satellite);
+        assert!(satellites
+            .iter()
+            .all(|preset| !preset.name.starts_with("NOAA ")));
     }
 }

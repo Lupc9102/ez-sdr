@@ -1,8 +1,11 @@
 //! ICAO address filter — bloom-like bitset derived from dump1090’s `icao_filter.c`
 
+use std::time::{Duration, Instant};
+
 const FILTER_SIZE: usize = 4096;
 const FILTER_MASK: usize = FILTER_SIZE - 1;
 const U64_COUNT: usize = FILTER_SIZE / 64;
+const FILTER_TTL: Duration = Duration::from_secs(60);
 
 /// ICAO address filter backed by a 4096-bit bitset (~512 bytes).
 ///
@@ -12,6 +15,8 @@ const U64_COUNT: usize = FILTER_SIZE / 64;
 /// collide and produce false positives.
 pub struct IcaoFilter {
     bits: [u64; U64_COUNT],
+    last_decay: Instant,
+    insertions: u32,
 }
 
 impl IcaoFilter {
@@ -20,6 +25,19 @@ impl IcaoFilter {
     pub fn new() -> Self {
         Self {
             bits: [0; U64_COUNT],
+            last_decay: Instant::now(),
+            insertions: 0,
+        }
+    }
+
+    /// Expire learned addresses during long-running receiver sessions.
+    ///
+    /// The original fixed bitset has no way to distinguish an old aircraft
+    /// from one seen recently. A rolling time window keeps the false-positive
+    /// rate bounded without changing the compact hash representation.
+    pub fn maintain(&mut self) {
+        if self.last_decay.elapsed() >= FILTER_TTL {
+            self.clear();
         }
     }
 
@@ -49,8 +67,15 @@ impl IcaoFilter {
 
     /// Set the bit corresponding to `addr`.
     pub fn add(&mut self, addr: u32) {
+        self.maintain();
         let h = Self::icao_hash(addr);
         self.bits[h >> 6] |= 1u64 << (h & 63);
+        self.insertions = self.insertions.saturating_add(1);
+        // A busy receiver can fill the filter before the time window expires;
+        // periodically rotate it to keep collisions from becoming universal.
+        if self.insertions >= (FILTER_SIZE as u32 * 2) {
+            self.clear();
+        }
     }
 
     /// Returns `true` if `addr` has been added to the filter.
@@ -66,6 +91,8 @@ impl IcaoFilter {
     /// Clear the filter, removing all addresses.
     pub fn clear(&mut self) {
         self.bits = [0; U64_COUNT];
+        self.last_decay = Instant::now();
+        self.insertions = 0;
     }
 }
 
@@ -162,5 +189,25 @@ mod tests {
         let mut f = IcaoFilter::new();
         f.add(0xFFFFFF);
         assert!(f.contains(0xFFFFFF));
+    }
+
+    #[test]
+    fn maintain_expires_addresses_after_ttl() {
+        let mut filter = IcaoFilter::new();
+        filter.add(0xABCDEF);
+        filter.last_decay = Instant::now() - FILTER_TTL - Duration::from_secs(1);
+        filter.maintain();
+        assert!(!filter.contains(0xABCDEF));
+        assert_eq!(filter.insertions, 0);
+    }
+
+    #[test]
+    fn sustained_insertions_rotate_before_the_bitset_saturates() {
+        let mut filter = IcaoFilter::new();
+        for address in 0..(FILTER_SIZE as u32 * 2) {
+            filter.add(address);
+        }
+        assert_eq!(filter.insertions, 0);
+        assert!(filter.bits.iter().all(|word| *word == 0));
     }
 }

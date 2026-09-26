@@ -13,9 +13,12 @@ use crate::spectrum::{ColorMap, WindowType};
 
 /// Matches the installed SDR++ profile's `menuWidth` at UI scale 1.0.
 pub const SIDEBAR_WIDTH: f32 = 300.0;
-pub const TOOLBAR_HEIGHT: f32 = 38.0;
+/// SDR++ keeps the transport row at a compact 40 px at the default UI scale.
+pub const TOOLBAR_HEIGHT: f32 = 40.0;
 const MAX_FREQUENCY: u64 = 999_999_999_999;
 const ROW_HEIGHT: f32 = 20.0;
+const LABEL_WIDTH: f32 = 96.0;
+const TOOLBAR_VOLUME_WIDTH: f32 = 160.0;
 
 pub struct RadioUi {
     shared: Arc<Mutex<SharedState>>,
@@ -102,6 +105,7 @@ impl RadioUi {
         ui.scope(|ui| {
             compact_spacing(ui);
             ui.spacing_mut().item_spacing.x = 8.0;
+            ui.spacing_mut().slider_width = TOOLBAR_VOLUME_WIDTH;
             ui.horizontal(|ui| {
                 if icon_button(ui, ToolbarIcon::Menu, "Show / hide receiver controls").clicked() {
                     self.show_sidebar = !self.show_sidebar;
@@ -152,7 +156,7 @@ impl RadioUi {
                         );
                 }
                 ui.add_sized(
-                    [240.0, 28.0],
+                    [TOOLBAR_VOLUME_WIDTH, 28.0],
                     egui::Slider::new(&mut state.volume, 0.0..=1.0).show_value(false),
                 )
                 .on_hover_text(format!("Volume: {:.0}%", state.volume * 100.0));
@@ -275,11 +279,11 @@ impl RadioUi {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
                 self.module_button(ui, "Recorder", SecondaryTool::Recorder);
                 self.module_button(ui, "Sinks", SecondaryTool::Sinks);
-                self.module_button(ui, "Frequency Manager", SecondaryTool::Bookmarks);
-                self.module_button(ui, "VFO Color", SecondaryTool::Customize);
+                self.module_button(ui, "Frequency Manager", SecondaryTool::FrequencyManager);
+                self.module_button(ui, "VFO Color", SecondaryTool::VfoColor);
                 self.module_button(ui, "Band Plan", SecondaryTool::BandPlan);
-                self.module_button(ui, "Theme", SecondaryTool::Customize);
-                self.module_button(ui, "Module Manager", SecondaryTool::Layout);
+                self.module_button(ui, "Theme", SecondaryTool::Theme);
+                self.module_button(ui, "Module Manager", SecondaryTool::ModuleManager);
                 self.module_button(ui, "Rigctl Server", SecondaryTool::Rigctl);
             });
             ui.label(
@@ -1231,6 +1235,50 @@ impl RadioUi {
                 }
             });
         }
+        row(ui, "FFT hold", |ui| {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.config.advanced.fft_hold)
+                        .range(0.0..=5.0)
+                        .speed(0.1)
+                        .suffix(" s"),
+                )
+                .changed()
+            {
+                state
+                    .spectrum
+                    .set_peak_hold_time(state.config.advanced.fft_hold);
+            }
+        });
+        if ui
+            .checkbox(&mut state.config.advanced.smoothing_enabled, "Smoothing")
+            .changed()
+        {
+            state
+                .spectrum
+                .set_smoothing(state.config.advanced.smoothing_enabled);
+        }
+        if state.config.advanced.smoothing_enabled {
+            row(ui, "Smoothing speed", |ui| {
+                if ui
+                    .add(
+                        egui::Slider::new(&mut state.config.advanced.smoothing_speed, 0.0..=1.0)
+                            .show_value(false),
+                    )
+                    .changed()
+                {
+                    state
+                        .spectrum
+                        .set_smoothing_speed(state.config.advanced.smoothing_speed);
+                }
+            });
+        }
+        if ui
+            .checkbox(&mut state.config.advanced.fast_fft, "Fast FFT")
+            .changed()
+        {
+            state.spectrum.set_fast_fft(state.config.advanced.fast_fft);
+        }
         let mut floor = state.config.advanced.db_min;
         let mut ceiling = state.config.advanced.db_max;
         row(ui, "Min", |ui| {
@@ -1395,8 +1443,12 @@ fn section(ui: &mut egui::Ui, title: &str, open: bool, body: impl FnOnce(&mut eg
 
 fn row(ui: &mut egui::Ui, label: &str, body: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
-        // SDR++ LeftLabel uses the actual text width followed by SameLine.
-        ui.label(label);
+        // Keep the label column stable so long controls such as “FFT
+        // smoothing” do not wrap and push the next row down at narrow sizes.
+        ui.add_sized(
+            [LABEL_WIDTH, ROW_HEIGHT],
+            egui::Label::new(label).wrap_mode(egui::TextWrapMode::Extend),
+        );
         body(ui);
     });
 }
@@ -2466,6 +2518,10 @@ mod tests {
                 .fixed_pos(egui::Pos2::ZERO)
                 .show(ctx, |ui| {
                     ui.set_width(300.0);
+                    // Match the production sidebar's compact spacing. Keeping
+                    // this in the harness makes the semantic click coordinates
+                    // exercise the same row geometry as the shipped UI.
+                    compact_spacing(ui);
                     let mut state = shared.lock().unwrap();
                     radio.radio_controls(ui, &mut state);
                 });
@@ -2554,13 +2610,13 @@ mod tests {
         settle_controls(&ctx, &mut radio, &shared);
         assert_eq!(shared.lock().unwrap().demod_mode, DemodMode::Cw);
         // CW Offset "+" button (right edge of the stepped offset row).
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(291.0, 160.0));
+        click_controls(&ctx, &mut radio, &shared, egui::pos2(291.0, 178.0));
         assert_eq!(shared.lock().unwrap().config.advanced.cw_offset_hz, 10.0);
         // CW Volume slider: clicking the track jumps to the clicked value.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 181.0));
+        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 202.0));
         assert_ne!(shared.lock().unwrap().config.advanced.cw_volume, 1.0);
         // CW Squelch checkbox at the start of its row.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(30.0, 202.0));
+        click_controls(&ctx, &mut radio, &shared, egui::pos2(30.0, 226.0));
         assert!(shared.lock().unwrap().config.advanced.cw_squelch_enabled);
     }
 
@@ -2603,7 +2659,7 @@ mod tests {
         let ctx = egui::Context::default();
         settle_controls(&ctx, &mut radio, &shared);
         // The stepped offset row's "+" button adds one 10Hz step.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(291.0, 160.0));
+        click_controls(&ctx, &mut radio, &shared, egui::pos2(291.0, 178.0));
         let state = shared.lock().unwrap();
         assert_eq!(state.config.advanced.cw_offset_hz, 10.0);
         assert!(
@@ -2623,7 +2679,7 @@ mod tests {
         let ctx = egui::Context::default();
         settle_controls(&ctx, &mut radio, &shared);
         // Clicking the volume slider track sets it to the clicked fraction.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 181.0));
+        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 202.0));
         let state = shared.lock().unwrap();
         assert_ne!(
             state.config.advanced.cw_volume, 1.0,
@@ -2646,12 +2702,12 @@ mod tests {
         let ctx = egui::Context::default();
         settle_controls(&ctx, &mut radio, &shared);
         // Toggle the CW Squelch checkbox on.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(30.0, 202.0));
+        click_controls(&ctx, &mut radio, &shared, egui::pos2(30.0, 226.0));
         assert!(shared.lock().unwrap().config.advanced.cw_squelch_enabled);
         // The squelch level slider appears below the checkbox; let it settle,
         // then click it to move the level off its -60dB default.
         settle_controls(&ctx, &mut radio, &shared);
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 223.0));
+        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 250.0));
         let state = shared.lock().unwrap();
         assert!(state.config.advanced.cw_squelch_enabled);
         assert_ne!(state.config.advanced.cw_squelch_level_db, -60.0);

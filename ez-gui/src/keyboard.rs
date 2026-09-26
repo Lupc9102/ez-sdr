@@ -34,6 +34,10 @@ impl KeyboardHandler {
         last_history_freq: &mut u64,
     ) -> KeyboardOutcome {
         let mut outcome = KeyboardOutcome::default();
+        if ctx.egui_wants_keyboard_input() {
+            return outcome;
+        }
+        let previous_frequency = state.source.frequency_hz;
 
         ctx.input(|i| {
             // ? : toggle keyboard help
@@ -43,36 +47,41 @@ impl KeyboardHandler {
 
             // Space: toggle start/stop
             if i.key_pressed(egui::Key::Space) {
-                if state.source.status == crate::source_manager::SourceStatus::Running {
+                if matches!(
+                    state.source.status,
+                    crate::source_manager::SourceStatus::Running
+                        | crate::source_manager::SourceStatus::Opening
+                ) {
                     state.source.stop();
+                    state.audio_running = false;
                 } else {
                     state.source.start();
+                    state.audio_running = true;
                 }
             }
 
             // Arrow keys: tune up/down/left/right (coarse = up/down, fine = left/right)
             // Shift modifier doubles the step
-            let fine = state.tune_step_fine_hz * if i.modifiers.shift { 10 } else { 1 };
-            let coarse = state.tune_step_coarse_hz * if i.modifiers.shift { 10 } else { 1 };
-            if i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.alt {
-                state.source.frequency_hz = (state.source.frequency_hz + coarse).min(1_770_000_000);
+            let fine = state
+                .tune_step_fine_hz
+                .saturating_mul(if i.modifiers.shift { 10 } else { 1 });
+            let coarse = state
+                .tune_step_coarse_hz
+                .saturating_mul(if i.modifiers.shift { 10 } else { 1 });
+            if i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_add(coarse);
                 outcome.freq_changed = true;
             }
-            if i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.alt {
-                state.source.frequency_hz = state
-                    .source
-                    .frequency_hz
-                    .saturating_sub(coarse)
-                    .max(500_000);
+            if i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_sub(coarse);
                 outcome.freq_changed = true;
             }
-            if i.key_pressed(egui::Key::ArrowRight) && !i.modifiers.alt {
-                state.source.frequency_hz = (state.source.frequency_hz + fine).min(1_770_000_000);
+            if i.key_pressed(egui::Key::ArrowRight) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_add(fine);
                 outcome.freq_changed = true;
             }
-            if i.key_pressed(egui::Key::ArrowLeft) && !i.modifiers.alt {
-                state.source.frequency_hz =
-                    state.source.frequency_hz.saturating_sub(fine).max(500_000);
+            if i.key_pressed(egui::Key::ArrowLeft) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_sub(fine);
                 outcome.freq_changed = true;
             }
 
@@ -279,7 +288,7 @@ impl KeyboardHandler {
                     .bookmarks
                     .bookmarks
                     .iter()
-                    .min_by_key(|b| (b.frequency_hz as i64 - cur as i64).unsigned_abs())
+                    .min_by_key(|b| b.frequency_hz.abs_diff(cur))
                     .map(|bm| (bm.frequency_hz, bm.name.clone()));
                 if let Some((freq, name)) = nearest {
                     state.source.frequency_hz = freq;
@@ -325,6 +334,7 @@ impl KeyboardHandler {
                     state.source.gain_db = (state.source.gain_db + 5.0).min(49.0);
                     status_bar.info(format!("Gain: {:.0} dB", state.source.gain_db));
                 }
+                crate::radio_ui::restart_if_running(&mut state.source);
             }
 
             // Ctrl+Up/Down: volume up / down by 10%
@@ -391,6 +401,12 @@ impl KeyboardHandler {
                 status_bar.info("📊 dB range reset to -120…0".to_string());
             }
         });
+
+        if outcome.freq_changed {
+            let requested = state.source.frequency_hz;
+            state.source.frequency_hz = previous_frequency;
+            crate::radio_ui::tune(state, requested);
+        }
 
         outcome
     }

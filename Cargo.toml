@@ -27,7 +27,7 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 clap = "4"
 pkg-config = "0.3"
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 axum = "0.8"
 tower = "0.5"
 tower-http = "0.6"

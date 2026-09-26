@@ -77,7 +77,7 @@ Available tools:
 - set_sample_rate(rate: u32) — Sample rate in Hz
 - toggle_bias_tee(on: bool) — Enable/disable bias tee
 - start_recording() / stop_recording()
-- select_satellite(name: string) — NOAA 15/18/19, Meteor-M2, ISS
+- select_satellite(name: string) — Meteor-M2-3, Meteor-M2-4, ISS
 - set_squelch(db: f64) — Set squelch threshold in dB (e.g. -60.0)
 - set_volume(level: f64) — Set audio volume 0.0–1.0
 - start_adsb() / stop_adsb()
@@ -87,13 +87,11 @@ Available tools:
 - set_lpf_cutoff(hz: f64) — Set audio low-pass filter cutoff in Hz (e.g. 3000 for voice, 15000 for FM)
 - set_ppm(ppm: i32) — Set frequency correction in parts-per-million (corrects oscillator drift)
 - configure_scanner(start_mhz: f64, stop_mhz: f64, step_khz: f64, dwell_ms: u64, threshold_db: f64, run: bool) — Configure the frequency scanner. All args optional; only the ones you pass are changed. run=true starts the sweep after applying, run=false stops it. Example: {\"tool\": \"configure_scanner\", \"args\": {\"start_mhz\": 118.0, \"stop_mhz\": 137.0, \"step_khz\": 25.0, \"dwell_ms\": 300, \"threshold_db\": -60, \"run\": true}}
-- web_search(query: string) — Search the web for external information (current events, technical specs, frequency databases, regulatory info, etc.)
 
 When you want to call a tool respond with exactly:
 {\"tool\": \"name\", \"args\": {}}
 You may call multiple tools sequentially — include one JSON block per tool call in your response.
-Always explain what you are doing before each tool call.
-Use web_search when the user asks about external information not available in your training data (current events, specific product specs, local frequency allocations, etc.).";
+Always explain what you are doing before each tool call.";
 
 // Streaming state sent from worker thread
 enum StreamEvent {
@@ -655,7 +653,7 @@ impl AiPanel {
     /// through to the `_` arm of `execute_tool_call`, which mutates nothing,
     /// so they execute immediately (returning an "Unknown tool" message).
     fn is_read_only_tool(name: &str) -> bool {
-        matches!(name, "get_status" | "get_freq_history" | "web_search")
+        matches!(name, "get_status" | "get_freq_history")
     }
 
     /// Approve a queued tool call by index, executing it now. Returns the
@@ -875,6 +873,10 @@ impl AiPanel {
                 }
                 "select_satellite" => {
                     if let Some(sat) = args["name"].as_str() {
+                        if sat.to_ascii_lowercase().contains("meteor") {
+                            state.selected_satellite = None;
+                            return "Meteor uses offline decoding. Open the Meteor tab and import an existing .cs8, CU8 or CF32 recording.".to_string();
+                        }
                         state.selected_satellite = Some(sat.to_string());
                         return format!("Satellite '{sat}' selected");
                     }
@@ -893,7 +895,7 @@ impl AiPanel {
                         if !db.is_finite() {
                             return "Error: squelch must be finite".to_string();
                         }
-                        state.squelch = db as f32;
+                        crate::radio_ui::set_power_squelch_level(&mut state, db as f32);
                         return format!("Squelch set to {db:.1} dB");
                     }
                     return "Error: missing db argument".to_string();
@@ -1023,113 +1025,10 @@ impl AiPanel {
                     state.scanner_command = Some(cmd);
                     return format!("Scanner configured: {}", applied.join(", "));
                 }
-                "web_search" => {
-                    if let Some(q) = args["query"].as_str() {
-                        drop(state); // Release lock before network call
-                        return Self::web_search(q);
-                    }
-                    return "Error: missing query argument".to_string();
-                }
                 _ => return format!("Unknown tool: {name}"),
             }
         }
         "Error: could not access SDR state".to_string()
-    }
-
-    /// Search the web using `DuckDuckGo` Lite. Returns formatted results.
-    fn web_search(query: &str) -> String {
-        let client = match reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .user_agent("Mozilla/5.0 (compatible; EZ-SDR/1.0)")
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => return format!("Search client error: {e}"),
-        };
-
-        let url = format!(
-            "https://lite.duckduckgo.com/lite/?q={}",
-            urlencoding::encode(query)
-        );
-        let resp = match client.get(&url).send() {
-            Ok(r) => r,
-            Err(e) => return format!("Search request failed: {e}"),
-        };
-
-        let html = match resp.text() {
-            Ok(t) => t,
-            Err(e) => return format!("Failed to read search response: {e}"),
-        };
-
-        // Parse DuckDuckGo Lite HTML for result snippets
-        // The layout has <td class="result-snippet"> for snippets and <a class="result-link"> for URLs
-        let mut results = Vec::new();
-        let mut remaining = html.as_str();
-
-        // Extract result snippets
-        while let Some(start) = remaining.find("class=\"result-snippet\"") {
-            let after_tag = &remaining[start + 22..];
-            if let Some(end) = after_tag.find("</td>") {
-                let snippet_html = &after_tag[..end];
-                // Strip HTML tags from snippet
-                let mut clean = String::new();
-                let mut in_tag = false;
-                for ch in snippet_html.chars() {
-                    match ch {
-                        '<' => in_tag = true,
-                        '>' => in_tag = false,
-                        '&' => { /* skip HTML entities */ }
-                        _ if !in_tag => clean.push(ch),
-                        _ => {}
-                    }
-                }
-                let clean = clean.trim().to_string();
-                if !clean.is_empty() {
-                    results.push(clean);
-                }
-                remaining = &after_tag[end..];
-            } else {
-                break;
-            }
-        }
-
-        if results.is_empty() {
-            // Fallback: try to extract any text content between <body> tags
-            if let Some(body_start) = html.find("<body>") {
-                if let Some(body_end) = html.find("</body>") {
-                    let body = &html[body_start + 6..body_end];
-                    let mut text = String::new();
-                    let mut in_tag = false;
-                    for ch in body.chars() {
-                        match ch {
-                            '<' => in_tag = true,
-                            '>' => in_tag = false,
-                            _ if !in_tag && !ch.is_control() => text.push(ch),
-                            _ => {}
-                        }
-                    }
-                    let text = text.split_whitespace().collect::<Vec<&_>>().join(" ");
-                    if !text.is_empty() {
-                        return format!(
-                            "Search results for '{}':\n{}",
-                            query,
-                            text.chars().take(2000).collect::<String>()
-                        );
-                    }
-                }
-            }
-            return format!("No results found for '{query}'");
-        }
-
-        let mut output = format!(
-            "Search results for '{}' ({} results):\n\n",
-            query,
-            results.len().min(5)
-        );
-        for (i, snippet) in results.iter().take(5).enumerate() {
-            output.push_str(&format!("{}. {}\n\n", i + 1, snippet));
-        }
-        output
     }
 
     /// Scan `text` for the first frequency mention (e.g. "137.1 MHz", "1090 MHz", "433 kHz").
@@ -1642,7 +1541,7 @@ impl AiPanel {
                 // Web search toggle
                 let mut ws = self.web_search_enabled;
                 ui.checkbox(&mut ws, "🔍 Search")
-                    .on_hover_text("Toggle web search: allow the AI to search the web for external info (DuckDuckGo, no key needed).");
+                    .on_hover_text("Use the selected AI provider's native web-search tool when supported. Search terms are sent to that provider; no third-party HTML scraping is performed.");
                 if ws != self.web_search_enabled {
                     self.web_search_enabled = ws;
                     if let Ok(mut state) = self.shared.try_lock() {
@@ -1742,10 +1641,6 @@ impl AiPanel {
                             "set_ppm(ppm)",
                             "Frequency correction in PPM (oscillator drift)",
                         ),
-                        (
-                            "web_search(query)",
-                            "Search the web for external information",
-                        ),
                     ];
                     for (name, desc) in &tools {
                         ui.monospace(*name);
@@ -1762,7 +1657,7 @@ impl AiPanel {
             let quick_prompts = [
                 ("📻 FM Radio",      "Tune to 100.1 MHz and set mode to WFM"),
                 ("✈ ADS-B",          "Start ADS-B tracking"),
-                ("🛰 NOAA 19",       "Track NOAA 19 weather satellite"),
+                ("🛰 Meteor M2-3",   "Track Meteor-M2-3 weather satellite"),
                 ("📡 Scan VHF",      "Scan 145 to 165 MHz for active signals"),
                 ("🔊 Max audio",     "Set gain to 40 and volume to maximum"),
                 ("📋 Status",        "Show me the current SDR status"),
@@ -1983,9 +1878,10 @@ mod tests {
 
     #[test]
     fn test_read_only_tool_classification() {
-        for t in ["get_status", "get_freq_history", "web_search"] {
+        for t in ["get_status", "get_freq_history"] {
             assert!(AiPanel::is_read_only_tool(t), "{t} must be read-only");
         }
+        assert!(!AiPanel::is_read_only_tool("web_search"));
         for t in [
             "tune_frequency",
             "set_gain",
@@ -2199,15 +2095,6 @@ mod tests {
         assert!(
             !panel.abort_flag.load(Ordering::Relaxed),
             "abort_flag should be false initially"
-        );
-    }
-
-    #[test]
-    fn test_web_search_fn() {
-        let result = AiPanel::web_search("");
-        assert!(
-            !result.is_empty(),
-            "web_search should return a non-empty string"
         );
     }
 

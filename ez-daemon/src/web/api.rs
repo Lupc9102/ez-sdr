@@ -146,16 +146,20 @@ async fn get_hardware(State(state): State<Arc<DaemonState>>) -> Json<HardwareSta
 async fn set_frequency(
     State(state): State<Arc<DaemonState>>,
     Json(body): Json<FrequencyRequest>,
-) -> StatusCode {
-    state.set_frequency(body.hz);
-    StatusCode::NO_CONTENT
+) -> Result<StatusCode, ApiError> {
+    tokio::task::spawn_blocking(move || state.set_frequency(body.hz))
+        .await
+        .map_err(anyhow::Error::from)??;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn set_sample_rate(
     State(state): State<Arc<DaemonState>>,
     Json(body): Json<SampleRateRequest>,
 ) -> Result<StatusCode, ApiError> {
-    state.set_sample_rate(body.hz)?;
+    tokio::task::spawn_blocking(move || state.set_sample_rate(body.hz))
+        .await
+        .map_err(anyhow::Error::from)??;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -163,7 +167,9 @@ async fn set_gain(
     State(state): State<Arc<DaemonState>>,
     Json(body): Json<GainRequest>,
 ) -> Result<StatusCode, ApiError> {
-    state.set_gain(body.db)?;
+    tokio::task::spawn_blocking(move || state.set_gain(body.db))
+        .await
+        .map_err(anyhow::Error::from)??;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -183,8 +189,13 @@ async fn create_channel(
     Json(spec): Json<ChannelSpec>,
 ) -> Result<(StatusCode, Json<ChannelSpec>), ApiError> {
     let response_spec = spec.clone();
-    state.subscribe(spec)?;
-    Ok((StatusCode::CREATED, Json(response_spec)))
+    let (_, created) = state.subscribe(spec)?;
+    let status = if created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((status, Json(response_spec)))
 }
 
 async fn set_demod_mode(
@@ -265,12 +276,48 @@ mod tests {
     use super::*;
     use crate::bus::SampleBus;
     use crate::hardware::synthetic::SyntheticSource;
+    use crate::hardware::IqSource;
     use crate::ingest;
     use ez_proto::PipelineKind;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use tokio::net::TcpListener;
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct RejectFrequencySource(SyntheticSource);
+
+    impl IqSource for RejectFrequencySource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            self.0.start()
+        }
+        fn stop(&mut self) {
+            self.0.stop();
+        }
+        fn set_frequency(&mut self, _hz: u64) -> anyhow::Result<()> {
+            anyhow::bail!("frequency rejected by REST test source")
+        }
+        fn set_sample_rate(&mut self, hz: u32) -> anyhow::Result<()> {
+            self.0.set_sample_rate(hz)
+        }
+        fn set_gain(&mut self, db: f64) -> anyhow::Result<()> {
+            self.0.set_gain(db)
+        }
+        fn read_iq(&mut self, buf: &mut [num_complex::Complex32]) -> anyhow::Result<usize> {
+            self.0.read_iq(buf)
+        }
+        fn frequency_hz(&self) -> u64 {
+            self.0.frequency_hz()
+        }
+        fn sample_rate_hz(&self) -> u32 {
+            self.0.sample_rate_hz()
+        }
+        fn gain_db(&self) -> f64 {
+            self.0.gain_db()
+        }
+        fn kind(&self) -> &'static str {
+            "reject-frequency-test"
+        }
+    }
 
     fn unique_temp_dir(label: &str) -> std::path::PathBuf {
         let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -297,6 +344,33 @@ mod tests {
             unique_temp_dir("state"),
         ));
 
+        let app = router().with_state(state);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app.into_make_service())
+                .await
+                .unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    async fn spawn_rejecting_test_api() -> String {
+        let bus = SampleBus::new();
+        let running = Arc::new(AtomicBool::new(true));
+        let (hardware, _ingest_thread) = ingest::spawn(
+            Box::new(RejectFrequencySource(SyntheticSource::default())),
+            bus.clone(),
+            running,
+        )
+        .unwrap();
+        let state = Arc::new(DaemonState::new(
+            bus,
+            hardware,
+            100_000_000,
+            2_000_000,
+            unique_temp_dir("state-reject"),
+        ));
         let app = router().with_state(state);
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -372,6 +446,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 204);
+    }
+
+    #[tokio::test]
+    async fn rejected_hardware_frequency_is_reported_by_rest() {
+        let base = spawn_rejecting_test_api().await;
+        let response = reqwest::Client::new()
+            .post(format!("{base}/api/hardware/frequency"))
+            .json(&serde_json::json!({ "hz": 105_000_000u64 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert!(body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("frequency rejected by REST test source")));
     }
 
     #[tokio::test]

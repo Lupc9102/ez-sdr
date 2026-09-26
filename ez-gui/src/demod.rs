@@ -1,3 +1,4 @@
+use crate::config::AdvancedConfig;
 use crate::sdr_panel::DemodMode;
 use num_complex::Complex32;
 use std::borrow::Cow;
@@ -879,6 +880,43 @@ impl Demodulator {
             (-2.0 * cw) / a0,
             (1.0 - alpha) / a0,
         );
+    }
+
+    /// Push every demod-related setting from the Advanced panel onto this
+    /// demodulator. Used by the UI thread and by [`DemodWorker`] when the
+    /// user edits DSP settings.
+    pub fn apply_advanced(&mut self, a: &AdvancedConfig, mode: DemodMode) {
+        self.set_agc_enabled(a.agc_enabled && crate::radio_ui::mode_has_agc(mode));
+        self.set_agc_target(a.agc_target);
+        self.set_agc_attack(a.agc_attack);
+        self.set_agc_decay(a.agc_decay);
+        self.set_agc_rates(a.agc_attack_rate, a.agc_decay_rate);
+        self.set_carrier_agc_enabled(a.carrier_agc);
+        self.set_fm_lowpass_enabled(a.fm_lowpass);
+        self.set_fm_if_noise_reduction(a.fm_if_nr, a.fm_if_preset);
+        self.set_rds_tap_enabled(a.rds_enabled && mode == DemodMode::Wfm);
+        self.set_audio_hpf(a.audio_hpf_hz);
+        self.set_dc_blocker(a.dc_blocker);
+        self.set_deemph_tau(a.deemph_tau_us);
+        self.set_audio_gain(a.audio_gain);
+        self.set_notch(a.notch_hz, a.notch_width_hz);
+        self.set_bass(a.bass_db);
+        self.set_treble(a.treble_db);
+        self.set_noise_blanker(a.noise_blanker);
+        self.set_pitch(a.pitch_octaves);
+        // Source IQ processing owns correction/decimation before the spectrum and VFO.
+        self.set_rf_dc_remove(false);
+        self.set_rf_noise_blanker(
+            a.rf_noise_blanker && crate::radio_ui::mode_has_noise_blanker(mode),
+        );
+        self.set_rf_noise_blanker_level(a.rf_noise_blanker_level);
+        self.set_rf_notch(a.rf_notch, a.rf_notch_hz);
+        self.set_rf_decim(1);
+        self.set_cw_tone(a.cw_tone_hz);
+        self.set_dsb_sideband(a.dsb_sideband);
+        self.set_cw_offset(a.cw_offset_hz);
+        self.set_cw_volume(a.cw_volume);
+        self.set_cw_squelch(a.cw_squelch_enabled, a.cw_squelch_level_db);
     }
 
     // ---------------- Setters (driven by the Advanced panel) ----------------
@@ -1841,6 +1879,251 @@ impl Demodulator {
         self.rf_notch_x2 = (0.0, 0.0);
         self.rf_notch_y1 = (0.0, 0.0);
         self.rf_notch_y2 = (0.0, 0.0);
+    }
+}
+
+// ---------------- Dedicated demod worker thread ----------------
+
+// Compile-time guard: the worker thread moves a Demodulator across threads,
+// so fail the build if a non-Send/Sync field is ever introduced.
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Demodulator>();
+};
+
+/// Per-batch demodulation settings applied by [`DemodWorker`] before it
+/// demodulates the next IQ batch. All fields are plain data, so the struct
+/// is cheap to clone into the control channel.
+#[derive(Debug, Clone, Copy)]
+pub struct DemodConfig {
+    /// Concrete demodulation mode for the next batch.
+    pub mode: DemodMode,
+    /// VFO-mixed sample rate entering the demodulator (Hz).
+    pub input_rate: f64,
+    /// Audio output rate (Hz).
+    pub audio_rate: u32,
+    /// Audio low-pass cutoff (Hz).
+    pub lpf_cutoff: f32,
+    /// RF channel bandwidth (Hz); zero selects the mode default.
+    pub rf_bandwidth: f32,
+    /// Demodulate with the FM stereo multiplex decoder.
+    pub stereo: bool,
+}
+
+impl Default for DemodConfig {
+    fn default() -> Self {
+        Self {
+            mode: DemodMode::Fm,
+            input_rate: 2_048_000.0,
+            audio_rate: 48_000,
+            lpf_cutoff: 15_000.0,
+            rf_bandwidth: 0.0,
+            stereo: false,
+        }
+    }
+}
+
+/// One finished demodulation frame returned to the UI thread.
+///
+/// The audio and the demodulator's side taps travel together so the UI can
+/// run CTCSS/RDS and read metrics without touching the demodulator itself.
+#[derive(Debug)]
+pub struct DemodFrame {
+    /// Demodulation mode that produced this frame.
+    pub mode: DemodMode,
+    /// Demodulated audio: mono samples, or interleaved L/R when stereo.
+    pub audio: Vec<f32>,
+    /// True when `audio` is interleaved stereo.
+    pub stereo: bool,
+    /// FM stereo pilot lock for this frame (false for mono modes).
+    pub stereo_locked: bool,
+    /// FM deviation measured over the block (Hz).
+    pub fm_deviation_hz: f32,
+    /// Smoothed audio peak of the block.
+    pub audio_peak: f32,
+    /// NFM sub-audible tap at the audio clock; populated for FM batches.
+    pub nfm_subaudible: Vec<f32>,
+    /// WFM multiplex tap for RDS; populated only when the RDS tap is enabled.
+    pub wfm_multiplex: Vec<f32>,
+    /// Exact sample clock of `wfm_multiplex`.
+    pub wfm_multiplex_rate: f64,
+}
+
+/// Control messages consumed by the [`DemodWorker`] loop between batches.
+#[derive(Debug)]
+enum WorkerMessage {
+    /// Replace the per-batch demodulation configuration.
+    Config(DemodConfig),
+    /// Push the full Advanced-panel DSP settings onto the demodulator.
+    Advanced(AdvancedConfig, DemodMode),
+}
+
+/// A [`Demodulator`] that lives and runs on a dedicated OS thread.
+///
+/// The UI thread queues demodulated [`Complex32`] batches with
+/// [`DemodWorker::push_iq`] and drains finished frames with the non-blocking
+/// [`DemodWorker::try_recv_frame`]; when no frame is ready the UI skips a
+/// cycle instead of blocking playback on the DSP thread. Per-batch settings
+/// are pushed with [`DemodWorker::configure`] and bulk Advanced-panel
+/// settings with [`DemodWorker::configure_advanced`]; both are coalesced
+/// control messages, never a blocking hand-off.
+pub struct DemodWorker {
+    /// IQ batches waiting to be demodulated. Wrapped in Option so Drop can
+    /// take and drop it before joining the worker thread (unblocking recv()).
+    iq_tx: Option<crossbeam_channel::Sender<Vec<Complex32>>>,
+    /// Configuration and settings requests consumed by the worker loop.
+    config_tx: crossbeam_channel::Sender<WorkerMessage>,
+    /// One-shot control requests consumed by the worker loop.
+    reset_tx: crossbeam_channel::Sender<()>,
+    /// Finished demod frames waiting for the UI thread.
+    audio_rx: crossbeam_channel::Receiver<DemodFrame>,
+    /// The dedicated thread; the Demodulator is owned inside this thread.
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl DemodWorker {
+    /// Create a dummy DemodWorker without spawning a thread.
+    /// Used in test environments where thread spawning may cause hangs.
+    pub fn new_uninitialized(_capacity: usize) -> Self {
+        let (iq_tx, _iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
+        let (config_tx, _config_rx) = crossbeam_channel::bounded::<WorkerMessage>(4);
+        let (reset_tx, _reset_rx) = crossbeam_channel::bounded::<()>(1);
+        let (_audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(4);
+        Self {
+            iq_tx: Some(iq_tx),
+            config_tx,
+            reset_tx,
+            audio_rx,
+            handle: None,
+        }
+    }
+
+    /// Spawn the worker thread. `capacity` bounds both the IQ and frame
+    /// queues; control messages use their own small bounded queue.
+    pub fn new(capacity: usize) -> Self {
+        let (iq_tx, iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(capacity);
+        let (config_tx, config_rx) = crossbeam_channel::bounded::<WorkerMessage>(4);
+        let (reset_tx, reset_rx) = crossbeam_channel::bounded::<()>(1);
+        let (audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(capacity);
+        let handle = std::thread::spawn(move || {
+            let mut demod = Demodulator::new();
+            let mut config = DemodConfig::default();
+            while let Ok(iq) = iq_rx.recv() {
+                // Apply any pending control messages before demodulating so
+                // a batch never runs with stale settings or a missed reset.
+                while let Ok(message) = config_rx.try_recv() {
+                    match message {
+                        WorkerMessage::Config(new) => config = new,
+                        WorkerMessage::Advanced(advanced, mode) => {
+                            demod.apply_advanced(&advanced, mode);
+                        }
+                    }
+                }
+                if reset_rx.try_recv().is_ok() {
+                    demod.reset();
+                }
+                demod.set_sample_rates_exact(config.input_rate, config.audio_rate);
+                demod.set_lpf_cutoff(config.lpf_cutoff);
+                demod.set_rf_bandwidth(config.rf_bandwidth);
+                let frame = if config.stereo {
+                    let frames = demod.demodulate_stereo_complex(&iq, config.mode);
+                    let mut audio = Vec::with_capacity(frames.len() * 2);
+                    for [left, right] in frames {
+                        audio.push(left);
+                        audio.push(right);
+                    }
+                    DemodFrame {
+                        mode: config.mode,
+                        audio,
+                        stereo: true,
+                        stereo_locked: demod.last_stereo_locked,
+                        fm_deviation_hz: demod.last_fm_deviation_hz,
+                        audio_peak: demod.last_audio_peak,
+                        nfm_subaudible: demod.take_nfm_subaudible_audio(),
+                        wfm_multiplex: Vec::new(),
+                        wfm_multiplex_rate: 0.0,
+                    }
+                } else {
+                    let audio = demod.demodulate_complex(&iq, config.mode);
+                    DemodFrame {
+                        mode: config.mode,
+                        audio,
+                        stereo: false,
+                        stereo_locked: false,
+                        fm_deviation_hz: demod.last_fm_deviation_hz,
+                        audio_peak: demod.last_audio_peak,
+                        nfm_subaudible: demod.take_nfm_subaudible_audio(),
+                        wfm_multiplex: Vec::new(),
+                        wfm_multiplex_rate: 0.0,
+                    }
+                };
+                // The RDS tap is populated inside both demod paths when the
+                // tap is enabled; collect it once after demodulation.
+                let mut frame = frame;
+                (frame.wfm_multiplex, frame.wfm_multiplex_rate) = demod.take_wfm_multiplex();
+                if audio_tx.try_send(frame).is_err() {
+                    continue; // UI thread is behind or gone; drop frame, keep looping.
+                }
+            }
+        });
+        Self {
+            iq_tx: Some(iq_tx),
+            config_tx,
+            reset_tx,
+            audio_rx,
+            handle: Some(handle),
+        }
+    }
+
+    /// Non-blocking: queue one IQ batch for demodulation. Returns `false`
+    /// when the worker is full or gone and the batch must be dropped.
+    pub fn push_iq(&self, iq: Vec<Complex32>) -> bool {
+        self.iq_tx
+            .as_ref()
+            .is_some_and(|tx| tx.try_send(iq).is_ok())
+    }
+
+    /// Non-blocking: replace the per-batch demodulation configuration.
+    /// Coalesced while a request is queued; the worker applies the newest
+    /// one before its next batch.
+    pub fn configure(&self, config: DemodConfig) -> bool {
+        self.config_tx
+            .try_send(WorkerMessage::Config(config))
+            .is_ok()
+    }
+
+    /// Non-blocking: push the full Advanced-panel DSP settings onto the
+    /// worker's demodulator. Coalesced while a request is queued.
+    pub fn configure_advanced(&self, advanced: &AdvancedConfig, mode: DemodMode) -> bool {
+        self.config_tx
+            .try_send(WorkerMessage::Advanced(advanced.clone(), mode))
+            .is_ok()
+    }
+
+    /// Non-blocking: take the next finished demod frame, if any. The UI
+    /// thread skips playback when this returns `None`.
+    pub fn try_recv_frame(&self) -> Option<DemodFrame> {
+        self.audio_rx.try_recv().ok()
+    }
+
+    /// Ask the worker thread to call [`Demodulator::reset`] before
+    /// demodulating the next batch. Coalesced while a request is queued.
+    pub fn request_reset(&self) -> bool {
+        self.reset_tx.try_send(()).is_ok()
+    }
+}
+
+impl Drop for DemodWorker {
+    fn drop(&mut self) {
+        // Drain pending frames so a worker blocked on a full audio queue can
+        // observe the closed IQ channel and exit, then reap the thread.
+        while self.audio_rx.try_recv().is_ok() {}
+        // Drop iq_tx BEFORE joining: this unblocks the worker's recv() so
+        // the thread can exit. Without this, join() would block forever.
+        self.iq_tx = None;
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -3353,5 +3636,73 @@ mod tests {
             .map(|sample| sample.abs())
             .fold(0.0_f32, f32::max);
         assert!(peak < 0.01, "CW squelch passed weak signal: peak {peak}");
+    }
+
+    fn poll_for_frame(worker: &DemodWorker) -> Option<DemodFrame> {
+        for _ in 0..2_000 {
+            if let Some(frame) = worker.try_recv_frame() {
+                return Some(frame);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        None
+    }
+
+    #[test]
+    fn demod_worker_round_trips_iq_to_audio() {
+        let worker = DemodWorker::new(4);
+        worker.configure(DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            audio_rate: 48_000,
+            ..DemodConfig::default()
+        });
+        // 2 ms of a 1 kHz tone on a steady carrier.
+        let iq: Vec<Complex32> = (0..384)
+            .map(|n| {
+                let envelope =
+                    0.5 + 0.5 * (std::f64::consts::TAU * 1_000.0 * n as f64 / 192_000.0).cos();
+                Complex32::new(envelope as f32, 0.0)
+            })
+            .collect();
+        assert!(worker.push_iq(iq));
+        let frame = poll_for_frame(&worker).expect("worker produced a frame");
+        assert_eq!(frame.mode, DemodMode::Am);
+        assert!(!frame.stereo);
+        assert!(!frame.audio.is_empty());
+        // The AM envelope's 1 kHz tone must survive the round trip.
+        let settled = &frame.audio[frame.audio.len() / 2..];
+        let tone = tone_amplitude(settled, 1_000.0, 48_000);
+        assert!(tone > 0.05, "AM tone lost in worker round trip: {tone}");
+    }
+
+    #[test]
+    fn demod_worker_reconfigures_mode_and_resets() {
+        let worker = DemodWorker::new(4);
+        let carrier = |count: usize| {
+            (0..count)
+                .map(|_| Complex32::new(0.6, 0.0))
+                .collect::<Vec<_>>()
+        };
+        worker.configure(DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            audio_rate: 48_000,
+            ..DemodConfig::default()
+        });
+        assert!(worker.push_iq(carrier(384)));
+        let frame = poll_for_frame(&worker).expect("AM frame");
+        assert_eq!(frame.mode, DemodMode::Am);
+        // Switch modes; the reset request must be consumed without stalling.
+        worker.request_reset();
+        worker.configure(DemodConfig {
+            mode: DemodMode::Fm,
+            input_rate: 192_000.0,
+            audio_rate: 48_000,
+            ..DemodConfig::default()
+        });
+        assert!(worker.push_iq(carrier(384)));
+        let frame = poll_for_frame(&worker).expect("FM frame");
+        assert_eq!(frame.mode, DemodMode::Fm);
     }
 }

@@ -203,6 +203,36 @@ fn apply_bit_errors(msg: &mut [u8], bit: usize) {
     msg[byte] ^= mask;
 }
 
+/// Correct a 56-bit message without inspecting the unused trailing bytes in
+/// the 14-byte demodulator scratch buffer. Short surveillance replies are
+/// commonly followed by unrelated samples, so running the long-message CRC
+/// first can turn that trailing noise into a false long-frame correction.
+fn correct_short_message(
+    input: &[u8; MODES_LONG_MSG_BYTES],
+    max_errors: usize,
+) -> (isize, [u8; MODES_LONG_MSG_BYTES]) {
+    let short_bytes = &input[..MODES_SHORT_MSG_BYTES];
+    let short_syndrome = crc24_parity(short_bytes);
+    if short_syndrome == 0 {
+        let mut msg = [0u8; MODES_LONG_MSG_BYTES];
+        msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
+        return (0, msg);
+    }
+
+    if max_errors >= 1 {
+        for bit in 0..MODES_SHORT_MSG_BITS {
+            if single_bit_syndrome(bit + SHORT_MSG_OFFSET) == short_syndrome {
+                let mut msg = [0u8; MODES_LONG_MSG_BYTES];
+                msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
+                apply_bit_errors(&mut msg, bit);
+                return (1, msg);
+            }
+        }
+    }
+
+    (-1, *input)
+}
+
 /// Try to correct a message using the linearity of the CRC.
 ///
 /// Returns `(corrections, corrected_msg)` or `(-1, original_msg)` if
@@ -211,7 +241,15 @@ fn correct_message(
     input: &[u8; MODES_LONG_MSG_BYTES],
     max_errors: usize,
 ) -> (isize, [u8; MODES_LONG_MSG_BYTES]) {
-    // Check long-form (112-bit) CRC first.
+    // Select the frame width from the DF before calculating a CRC. The bytes
+    // after a 56-bit reply are scratch-buffer contents, not part of its CRC.
+    // This ordering is also what keeps a noisy short reply from being
+    // misclassified as a corrected 112-bit message.
+    if mode_s_message_len_by_type(input[0] >> 3) == MODES_SHORT_MSG_BITS {
+        return correct_short_message(input, max_errors);
+    }
+
+    // Check long-form (112-bit) CRC.
     let long_syndrome = crc24_parity(input);
     if long_syndrome == 0 {
         // Already valid.
@@ -241,27 +279,6 @@ fn correct_message(
                     apply_bit_errors(&mut msg, b2);
                     return (2, msg);
                 }
-            }
-        }
-    }
-
-    // Try short-form (56-bit) correction.
-    let short_bytes = &input[..MODES_SHORT_MSG_BYTES];
-    let short_syndrome = crc24_parity(short_bytes);
-    if short_syndrome == 0 {
-        // Valid short message (DF11 with IID = 0).
-        let mut msg = [0u8; MODES_LONG_MSG_BYTES];
-        msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
-        return (0, msg);
-    }
-
-    if max_errors >= 1 {
-        for bit in 0..MODES_SHORT_MSG_BITS {
-            if single_bit_syndrome(bit + SHORT_MSG_OFFSET) == short_syndrome {
-                let mut msg = [0u8; MODES_LONG_MSG_BYTES];
-                msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
-                apply_bit_errors(&mut msg, bit);
-                return (1, msg);
             }
         }
     }
@@ -331,8 +348,7 @@ pub fn score_mode_s_message(
         11 => {
             let syndrome = crc24_parity(&corrected[..MODES_SHORT_MSG_BYTES]);
             if syndrome & 0xFFFF80 != 0 {
-                // CRC does not match the expected form for DF11 (IID != 0 case handled below loosely).
-                // We still allow it if fully valid.
+                return ScoreRank::Uncorrectable;
             }
             let iid = syndrome & 0x7F;
             let recent = icao_filter.contains(addr & 0xFFFFFF);
@@ -448,6 +464,7 @@ pub fn decode_mode_s_message(
     enable_df24: bool,
     max_errors: usize,
 ) -> Result<(), i32> {
+    icao_filter.maintain();
     if mm.score == ScoreRank::NotSet {
         mm.score = score_mode_s_message(input, icao_filter, enable_df24, max_errors);
     }
@@ -463,7 +480,7 @@ pub fn decode_mode_s_message(
 
     let (corrections, corrected) = correct_message(input, max_errors);
     mm.msg = corrected;
-    mm.correctedbits = corrections as usize;
+    mm.correctedbits = (corrections.max(0) as usize).min(2);
 
     let df = mm.msg[0] >> 3;
     mm.msgtype = df;
@@ -592,7 +609,8 @@ fn generate_damage_set(df: u8, damage_bits: usize) -> u32 {
 
 /// 2.4 MHz Mode S / Mode A/C demodulator state.
 pub struct Demod2400 {
-    last_message_end: usize,
+    /// End of the last decoded message in absolute 12 MHz sample-clock ticks.
+    last_message_end: u64,
     valid_df_short: u32,
     valid_df_long: u32,
     msg1: [u8; MODES_LONG_MSG_BYTES],
@@ -644,6 +662,7 @@ impl Demod2400 {
         stats: &mut DemodStats,
         on_message: &mut dyn FnMut(&mut ModesMessage),
     ) {
+        self.icao_filter.maintain();
         if mag.flags.0 & MAGBUF_DISCONTINUOUS != 0 {
             self.last_message_end = 0;
         }
@@ -651,19 +670,23 @@ impl Demod2400 {
         let m = &mag.data[..mag.valid_length];
         let mlen = mag.valid_length.saturating_sub(mag.overlap);
 
-        if self.last_message_end > mlen {
-            self.last_message_end = mlen;
-        }
-
         let mut sum_scaled_signal_power: u64 = 0;
         let mut msg = self.msg1;
         let mut best_msg = self.msg2;
 
-        let mut j = self.last_message_end;
-        while j < mlen {
+        let decoded_end = self
+            .last_message_end
+            .saturating_sub(mag.sample_timestamp)
+            .div_ceil(5);
+        // The previous call could not inspect its final 289 samples without
+        // the next block. Revisit that tail, while skipping already emitted
+        // messages by absolute timestamp even when overlap grows at startup.
+        let mut j = (decoded_end.min(mag.valid_length as u64) as usize)
+            .max(mag.overlap.saturating_sub(289));
+        while j < mag.valid_length {
             let preamble = &m[j..];
-            if preamble.len() < 269 + 1 + 19 {
-                // Not enough samples left for a full long message.
+            if preamble.len() < 290 {
+                // Not enough samples left for a full long message (289 max offset in phase 8 + 1).
                 break;
             }
 
@@ -941,7 +964,9 @@ impl Demod2400 {
                 j += 1;
                 continue;
             }
-            stats.demod_accepted[decoded_mm.correctedbits] += 1;
+            if decoded_mm.correctedbits < stats.demod_accepted.len() {
+                stats.demod_accepted[decoded_mm.correctedbits] += 1;
+            }
 
             // Measure signal power over the message duration.
             {
@@ -975,22 +1000,20 @@ impl Demod2400 {
 
             // Pass the decoded message upward.
             on_message(&mut decoded_mm);
-            self.last_message_end = msg_end;
+            self.last_message_end = mag.sample_timestamp.saturating_add(msg_end as u64 * 5);
         }
 
         // Update noise power.
         {
             let sum_signal_power = sum_scaled_signal_power as f64 / 65535.0 / 65535.0;
-            let block_noise_power = (mag.mean_power * mlen as f64 - sum_signal_power).max(0.0);
+            let raw_noise = mag.mean_power * mlen as f64 - sum_signal_power;
+            let block_noise_power = if raw_noise.is_finite() && raw_noise > 0.0 {
+                raw_noise
+            } else {
+                0.0
+            };
             stats.noise_power_sum += block_noise_power;
             stats.noise_power_count += mlen as u64;
-        }
-
-        // Trailing empty samples.
-        if self.last_message_end < mlen {
-            self.last_message_end = 0;
-        } else {
-            self.last_message_end -= mlen;
         }
     }
 
@@ -1745,8 +1768,11 @@ mod tests {
         let short = [0u8; MODES_SHORT_MSG_BYTES];
         let mut padded = [0u8; MODES_LONG_MSG_BYTES];
         padded[..MODES_SHORT_MSG_BYTES].copy_from_slice(&short);
-        let (corrections, _corrected) = correct_message(&padded, 2);
+        padded[7..].fill(0xFF);
+        let (corrections, corrected) = correct_message(&padded, 2);
         assert_eq!(corrections, 0);
+        assert_eq!(&corrected[..MODES_SHORT_MSG_BYTES], &short);
+        assert!(corrected[MODES_SHORT_MSG_BYTES..].iter().all(|&b| b == 0));
     }
 
     #[test]

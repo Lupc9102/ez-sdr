@@ -278,7 +278,7 @@ impl IqSource for RtlSdrSource {
             return Err(RtlSdrError::ReadSyncFailed.into());
         }
 
-        let bytes_read = n_read as usize;
+        let bytes_read = (n_read.max(0) as usize).min(self.read_buf.len());
         let complex = lrpt_decode::iq_bytes_to_complex(&self.read_buf[..bytes_read]);
         let n = complex.len().min(buf.len());
         buf[..n].copy_from_slice(&complex[..n]);
@@ -338,5 +338,25 @@ mod tests {
     fn is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<RtlSdrSource>();
+    }
+
+    #[test]
+    fn n_read_clamping_prevents_out_of_bounds() {
+        let read_buf_len = 1024usize;
+
+        // Negative n_read clamps to 0
+        let neg_n_read: c_int = -1;
+        let bytes_read = (neg_n_read.max(0) as usize).min(read_buf_len);
+        assert_eq!(bytes_read, 0);
+
+        // Excess n_read clamps to read_buf.len()
+        let excess_n_read: c_int = 2048;
+        let bytes_read = (excess_n_read.max(0) as usize).min(read_buf_len);
+        assert_eq!(bytes_read, 1024);
+
+        // Valid n_read within bounds is preserved
+        let normal_n_read: c_int = 512;
+        let bytes_read = (normal_n_read.max(0) as usize).min(read_buf_len);
+        assert_eq!(bytes_read, 512);
     }
 }

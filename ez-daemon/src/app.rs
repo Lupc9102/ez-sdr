@@ -6,7 +6,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -15,6 +15,7 @@ use tokio::net::TcpListener;
 use crate::bus::SampleBus;
 use crate::hardware::replay::{FileReplaySource, ReplayFormat};
 use crate::hardware::synthetic::SyntheticSource;
+use crate::hardware::tcp_iq::TcpIqSource;
 use crate::hardware::IqSource;
 use crate::ingest;
 use crate::server;
@@ -32,6 +33,20 @@ pub enum SourceConfig {
         looping: bool,
         speed: f32,
     },
+    /// Raw Uc8 IQ from a network rtl_tcp-compatible source.
+    TcpIq {
+        address: SocketAddr,
+        rtl_tcp_header: bool,
+    },
+    /// First available RTL-SDR, or the device whose serial/name matches `device`.
+    #[cfg(feature = "rtlsdr")]
+    RtlSdr { device: Option<String> },
+    /// First available HackRF device.
+    #[cfg(feature = "hackrf")]
+    HackRf,
+    /// SoapySDR device selected by its driver argument string.
+    #[cfg(feature = "soapy")]
+    Soapy { device: Option<String> },
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +81,20 @@ fn build_source(config: &SourceConfig, initial_sample_rate_hz: u32) -> Result<Bo
             *looping,
             *speed,
         )?),
+        SourceConfig::TcpIq {
+            address,
+            rtl_tcp_header,
+        } => Box::new(TcpIqSource::new(*address, *rtl_tcp_header)),
+        #[cfg(feature = "rtlsdr")]
+        SourceConfig::RtlSdr { device } => {
+            Box::new(crate::hardware::rtlsdr::RtlSdrSource::new(device.clone()))
+        }
+        #[cfg(feature = "hackrf")]
+        SourceConfig::HackRf => Box::new(crate::hardware::hackrf::HackRfSource::new()),
+        #[cfg(feature = "soapy")]
+        SourceConfig::Soapy { device } => {
+            Box::new(crate::hardware::soapy::SoapySource::new(device.clone()))
+        }
     };
     Ok(source)
 }
@@ -109,11 +138,11 @@ pub async fn run(config: DaemonConfig, running: Arc<AtomicBool>) -> Result<()> {
         crate::web::serve(web_listener, web_state, web_running, web_static_dir).await
     });
 
-    let (tcp_result, web_result) = tokio::join!(tcp_task, web_task);
-    let result = tcp_result
-        .map_err(anyhow::Error::from)
-        .and_then(|r| r)
-        .and(web_result.map_err(anyhow::Error::from).and_then(|r| r));
+    let result = tokio::select! {
+        res = tcp_task => res.map_err(anyhow::Error::from).and_then(|r| r),
+        res = web_task => res.map_err(anyhow::Error::from).and_then(|r| r),
+    };
+    running.store(false, Ordering::Relaxed);
 
     let _ = tokio::task::spawn_blocking(move || ingest_thread.join()).await;
     result

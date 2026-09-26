@@ -1249,7 +1249,7 @@ impl HowToPanel {
         );
         ui.label("  •  Second click on the same value: sets it as the COARSE step (used by ↑ / ↓)  — shown in blue");
         ui.label("  •  Shift+Arrow multiplies the step by 10 for rapid movement");
-        Self::tip(ui, "For scanning FM broadcast (88–108 MHz), set step to 200k. For NFM scanner work, set 12.5k or 25k. For CW/SSB on HF, use 1k.");
+        Self::tip(ui, "For scanning FM broadcast (88–108 MHz), set step to 200k. For NFM scanner work, set 12.5k or 25k. For SSB or locating CW on HF, use 1k; the built-in CW mode provides an audible beat note but does not transcribe Morse.");
 
         ui.add_space(10.0);
         Self::h2(ui, "Frequency identification");
@@ -1663,13 +1663,13 @@ impl HowToPanel {
             ui.end_row();
 
             let modes: &[(&str, &str, &str, &str)] = &[
-                ("WFM", "Wideband FM",      "Commercial FM broadcast (88–108 MHz). Supports stereo & RDS decoding.", "~200 kHz"),
+                ("WFM", "Wideband FM",      "Commercial FM broadcast (88–108 MHz), mono or stereo audio with optional RDS decoding.", "~200 kHz"),
                 ("NFM", "Narrowband FM",    "Land mobile radio: police, fire, EMS, weather radio, marine VHF, amateur FM repeaters, NOAA APT.", "8–16 kHz"),
                 ("AM",  "Amplitude Mod.",   "Aviation ATC voice (118–137 MHz), AM broadcast (530–1700 kHz), shortwave, NDBs. AIRBAND IS ALWAYS AM.", "6–10 kHz"),
                 ("USB", "Upper Sideband",   "Amateur HF voice above 10 MHz. Standard above 10 MHz by convention.", "2.4–3 kHz"),
                 ("LSB", "Lower Sideband",   "Amateur HF voice below 10 MHz. Some HF utility and military traffic.", "2.4–3 kHz"),
                 ("DSB", "Double Sideband",  "Non-directional beacons (NDB), some experimental transmissions.", "~6 kHz"),
-                ("CW",  "Morse Code",       "Amateur and utility Morse. Use a very narrow filter (~500 Hz).", "~500 Hz"),
+                ("CW",  "Morse Code",       "Built-in CW mode mixes Morse carriers to an audible beat tone; it does not transcribe Morse.", "~500 Hz"),
                 ("RAW", "Raw I/Q",          "Records or passes through raw baseband. Feed into external decoders.", "variable"),
             ];
 
@@ -1717,7 +1717,7 @@ impl HowToPanel {
     fn section_adsb(&mut self, ui: &mut egui::Ui) {
         Self::h1(ui, "ADS-B Aircraft Tracking (1090 MHz)");
 
-        ui.label("ADS-B (Automatic Dependent Surveillance – Broadcast) is a system where aircraft continuously broadcast their GPS position, altitude, speed, heading, and callsign every ~0.5 seconds.");
+        ui.label("This workflow receives 1090 MHz Mode-S extended squitter (1090ES), where aircraft broadcast position, altitude, speed, heading, and callsign. The separate 978 MHz UAT link is available through an external dump978-fa JSON/TCP feed; EZ-SDR does not demodulate UAT in-process.");
         ui.add_space(8.0);
 
         Self::h2(ui, "Technical details");
@@ -1728,7 +1728,10 @@ impl HowToPanel {
                 for (k, v) in &[
                     ("Frequency", "1090.000 MHz  (Mode S squitter — exact)"),
                     ("Modulation", "PPM (Pulse Position Modulation) — 1 Mbps"),
-                    ("Required sample rate", "2.048 MHz minimum"),
+                    (
+                        "Required sample rate",
+                        "2.400 MHz (required by the Mode-S decoder)",
+                    ),
                     ("Antenna polarization", "Vertical"),
                     (
                         "Typical outdoor range",
@@ -1746,7 +1749,7 @@ impl HowToPanel {
         Self::h2(ui, "Getting started in ez-sdr");
         ui.label("1.  Open the ADS-B tab");
         ui.label(
-            "2.  Click Start ADS-B — ez-sdr auto-tunes to 1090 MHz, sets 2.048 MHz sample rate",
+            "2.  Click Start ADS-B — ez-sdr auto-tunes to 1090 MHz and sets the required 2.4 MSPS sample rate",
         );
         ui.label("3.  Aircraft appear on the map within seconds of receiving their first position message");
         ui.label("4.  Click any aircraft dot on the map to look up its model, operator, and registration via Planespotters API");
@@ -1771,12 +1774,12 @@ impl HowToPanel {
     }
 
     fn section_satellite(&mut self, ui: &mut egui::Ui) {
-        Self::h1(ui, "Satellite Tracking & NOAA Weather Images");
+        Self::h1(ui, "Satellite Tracking & Meteor LRPT Images");
 
         ui.label("The Satellite tab lets you track Low Earth Orbit (LEO) satellites using TLE (Two-Line Element set) orbital data. ez-sdr predicts upcoming passes and can auto-tune and auto-record them.");
         ui.add_space(8.0);
 
-        Self::h2(ui, "Active NOAA APT weather satellites (as of 2025)");
+        Self::h2(ui, "Weather-satellite targets");
         egui::Grid::new("noaa_sats")
             .num_columns(3)
             .striped(true)
@@ -1787,16 +1790,14 @@ impl HowToPanel {
                 ui.end_row();
                 for (sat, freq, note) in &[
                     (
-                        "NOAA 15",
-                        "137.620 MHz",
-                        "Active but aging — audio can be noisy",
-                    ),
-                    ("NOAA 18", "137.9125 MHz", "Most reliable as of 2024–2025"),
-                    ("NOAA 19", "137.100 MHz", "Operational, good signal quality"),
-                    (
-                        "Meteor M2-3",
+                        "Meteor-M2-3",
                         "137.900 MHz",
-                        "Russian satellite; digital LRPT mode (not APT)",
+                        "Digital LRPT; verify current transmitter status",
+                    ),
+                    (
+                        "Meteor-M2-4",
+                        "137.100 MHz",
+                        "Digital LRPT; verify current transmitter status",
                     ),
                 ] {
                     ui.label(*sat);
@@ -1807,24 +1808,13 @@ impl HowToPanel {
             });
 
         ui.add_space(10.0);
-        Self::h2(ui, "Demodulation settings for NOAA APT");
-        egui::Grid::new("apt_set")
-            .num_columns(2)
-            .striped(true)
-            .show(ui, |ui| {
-                for (k, v) in &[
-                    ("Mode", "WFM (Wideband FM)"),
-                    ("Bandwidth", "34–40 kHz"),
-                    ("Sample rate", "Any rate ≥ 1 MHz — 2.048 MHz recommended"),
-                ] {
-                    ui.label(egui::RichText::new(*k).strong());
-                    ui.label(*v);
-                    ui.end_row();
-                }
-            });
+        Self::h2(ui, "Decode a Meteor recording");
+        ui.label("Open the Meteor tab and choose an existing signed .cs8, unsigned CU8, or CF32 IQ file.");
+        ui.label("Enter the recording's actual sample rate and choose the satellite/protocol settings. Start Decode, then export the recovered image.");
+        ui.label("Meteor decoding is offline. EZ-SDR does not start an SDR, record a pass, or subscribe a live Meteor decoder from this workflow.");
 
         ui.add_space(10.0);
-        Self::h2(ui, "Antenna for NOAA APT — V-dipole");
+        Self::h2(ui, "Antenna for 137 MHz weather satellites — V-dipole");
         Self::draw_vdipole(ui);
         ui.add_space(4.0);
         ui.label("  •  Each arm: 54.7 cm for 137 MHz");
@@ -1837,25 +1827,14 @@ impl HowToPanel {
         );
 
         ui.add_space(10.0);
-        Self::h2(ui, "Tracking a pass in ez-sdr");
-        ui.label("1.  Settings tab: enter your observer lat/lon");
-        ui.label(
-            "2.  Satellite tab → Download TLE to fetch the latest Two-Line Elements from Celestrak",
-        );
-        ui.label("3.  Upcoming passes appear in the Scheduler tab with start time and max elevation angle");
-        ui.label("4.  At pass start, ez-sdr auto-tunes to the correct frequency");
-        ui.label(
-            "5.  Real-time Doppler correction is applied throughout the pass (~±3 kHz at 137 MHz)",
-        );
-        ui.label("   •  The Satellite panel shows the live Doppler shift value in color: green (small), yellow (moderate), orange (large)");
-        ui.label("   •  A '✓ Corrected' indicator appears next to the Doppler value when auto-tune is active");
-        ui.label("   •  A 🛰 badge appears in the status bar showing the current shift — click the Satellite panel label to see details");
-        ui.label("6.  Record the audio (Recorder tab) → decode offline with SatDump or WXtoImg");
+        Self::h2(ui, "Pass planning");
+        ui.label("Set your observer coordinates and import a current TLE file in the satellite tools to inspect upcoming passes.");
+        ui.label("Meteor pass selection shows timing and Doppler information only; it does not retune or record in EZ-SDR.");
+        ui.label("Recordings made outside EZ-SDR can be imported into the Meteor tab for offline decoding.");
 
         ui.add_space(8.0);
         Self::tip(ui, "Passes above 30° max elevation give the best images. A 90° (directly overhead) pass yields ~12 minutes of signal and a full-width image.");
-        Self::tip(ui, "NOAA APT transmits at only 4 W. A clean antenna placement is critical — the satellite is 800+ km away.");
-        Self::warn(ui, "NOAA 15/18/19 are aging spacecraft. NOAA 15 in particular has had anomalies. If you receive garbage from one satellite, try the others.");
+        Self::warn(ui, "NOAA-15, NOAA-18, and NOAA-19 were decommissioned in 2025. Their former APT frequencies are historical references, not active targets.");
     }
 
     fn section_scanner(&mut self, ui: &mut egui::Ui) {
@@ -2188,7 +2167,7 @@ impl HowToPanel {
         Self::h2(ui, "Scheduler");
         ui.label("The Scheduler automatically tunes to and optionally records satellite passes based on TLE predictions:");
         ui.label(
-            "  1.  Load TLE data in the Satellite tab (Download button → pulls from Celestrak)",
+            "  1.  Import a current TLE file in the Satellite tab (there is no automatic download client)",
         );
         ui.label("  2.  Set your location (lat/lon) in Settings");
         ui.label("  3.  Upcoming passes populate the Scheduler automatically with start time and max elevation");
@@ -2321,7 +2300,7 @@ impl HowToPanel {
                     (
                         "FM Broadcast",
                         "88–108 MHz",
-                        "WFM. Stereo + RDS. Best first thing to receive.",
+                        "WFM mono or stereo audio with optional RDS decoding. Best first thing to receive.",
                     ),
                     (
                         "Aviation Navigation",
@@ -2336,7 +2315,7 @@ impl HowToPanel {
                     (
                         "NOAA APT Satellites",
                         "137.1 / 137.62 / 137.9125 MHz",
-                        "WFM 34 kHz. Weather images from LEO satellites.",
+                        "Legacy APT reference only; the built-in decoder targets Meteor LRPT. NOAA APT is wide-deviation FM audio, not the 200 kHz broadcast-WFM preset.",
                     ),
                     (
                         "NOAA Weather Radio (US)",
@@ -2360,7 +2339,7 @@ impl HowToPanel {
                     ),
                     (
                         "Marine VHF",
-                        "156–174 MHz",
+                        "156–162.05 MHz",
                         "NFM. Ch 16 = 156.800 MHz (distress / calling).",
                     ),
                     (
@@ -2585,7 +2564,10 @@ impl HowToPanel {
             .striped(true)
             .show(ui, |ui| {
                 for (prompt, effect) in &[
-                    ("Tune to NOAA 19", "Sets 137.1 MHz, WFM mode"),
+                    (
+                        "Decode my Meteor .cs8 recording",
+                        "Explains offline import in the Meteor tab",
+                    ),
                     (
                         "Scan for active signals between 145 and 165 MHz",
                         "Explains scanner setup",
@@ -2757,7 +2739,7 @@ impl HowToPanel {
         Self::h2(ui, "ADS-B / Satellite Issues");
         egui::Grid::new("ts_adsb").num_columns(2).striped(true).show(ui, |ui| {
             for (symptom, fix) in &[
-                ("No aircraft decoded", "You need a 1090 MHz antenna (5 dB mag-mount works well). The stock whip is too short. Sample rate must be 2.048 MSps."),
+                ("No aircraft decoded", "You need a 1090 MHz antenna (5 dB mag-mount works well). The stock whip is too short. Sample rate must be 2.4 MSPS. This workflow supports 1090ES; for 978 MHz UAT, run dump978-fa and configure its JSON/TCP feed."),
                 ("Aircraft appear but no positions", "Only seeing Mode C, not ADS-B. Older aircraft don't transmit position. Normal — the ICAO + altitude is still useful."),
                 ("NOAA image black/garbled", "Satellite passed but signal was too weak — need a V-dipole antenna at 137 MHz. Check pass elevation: <20° will be weak."),
                 ("Satellite pass time wrong", "Observer lat/lon not set. Go to Settings → Satellite Observer Location."),
