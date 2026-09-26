@@ -24,6 +24,12 @@ use std::sync::{
     Arc, Mutex,
 };
 
+/// Audio frames arrive from the GUI/DSP pipeline in small batches. Keep enough
+/// batches queued to absorb a late repaint or a short DSP scheduling hiccup
+/// without making the real-time CPAL callback wait on the UI thread.
+#[cfg(feature = "audio")]
+const AUDIO_QUEUE_CAPACITY: usize = 32;
+
 /// None selects the system default; a stored CPAL ID selects that device only.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -385,7 +391,7 @@ impl AudioWorker {
     /// Create a dummy AudioWorker without spawning a thread.
     /// Used in test environments where CPAL may block on device enumeration.
     pub fn new_uninitialized() -> Self {
-        let (audio_tx, _audio_rx) = crossbeam_channel::bounded::<Vec<f32>>(4);
+        let (audio_tx, _audio_rx) = crossbeam_channel::bounded::<Vec<f32>>(AUDIO_QUEUE_CAPACITY);
         let (stop_tx, _stop_rx) = crossbeam_channel::bounded::<()>(1);
         let failed = Arc::new(AtomicBool::new(false));
         let error_message = Arc::new(Mutex::new(None));
@@ -410,7 +416,7 @@ impl AudioWorker {
             );
         }
 
-        let (audio_tx, audio_rx) = crossbeam_channel::bounded(4);
+        let (audio_tx, audio_rx) = crossbeam_channel::bounded(AUDIO_QUEUE_CAPACITY);
         let (stop_tx, stop_rx) = crossbeam_channel::bounded(1);
         let failed = Arc::new(AtomicBool::new(false));
         let error_message = Arc::new(Mutex::new(None));

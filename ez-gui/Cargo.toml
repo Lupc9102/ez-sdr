@@ -82,7 +82,7 @@ sgp4 = "2.4"
 ez-daemon = { workspace = true }
 
 [features]
-default = ["audio"]
+default = ["audio", "rtlsdr"]
 # Audio output support (WAV playback)
 audio = ["dep:cpal"]
 # Exposes the `test_helpers` module to integration tests/benches.

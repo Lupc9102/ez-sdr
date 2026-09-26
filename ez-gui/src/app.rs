@@ -11,10 +11,7 @@ pub struct FreqMemEntry {
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
 use crate::ai_panel::AiPanel;
-#[cfg(not(feature = "audio"))]
 use crate::audio_output::AudioOutput;
-#[cfg(feature = "audio")]
-use crate::audio_output::{AudioOutputSelection, AudioWorker};
 use crate::bookmarks::BookmarkDb;
 use crate::config::AppConfig;
 use crate::constellation::ConstellationDisplay;
@@ -104,11 +101,7 @@ pub struct CentralApp {
     ctcss: crate::radio_squelch::CtcssSquelch,
     rds: crate::radio_rds::RdsDecoder,
     daemon_audio: crate::audio_resampler::AudioResampler,
-    #[cfg(feature = "audio")]
-    audio: AudioWorker,
-    #[cfg(not(feature = "audio"))]
     audio: AudioOutput,
-    spectrum_worker: crate::spectrum::SpectrumWorker,
     adsb_decoder: AdsBDecoder,
     last_adsb_capture: Option<(u64, u32, crate::source_manager::SourceMode, u64, bool)>,
     scanner: crate::scanner::FrequencyScanner,
@@ -427,24 +420,13 @@ impl CentralApp {
             ctcss: crate::radio_squelch::CtcssSquelch::new(),
             rds: crate::radio_rds::RdsDecoder::new(),
             daemon_audio: crate::audio_resampler::AudioResampler::default(),
-            #[cfg(feature = "audio")]
-            audio: AudioWorker::new_uninitialized(),
-            #[cfg(not(feature = "audio"))]
             audio: AudioOutput::new(),
-            spectrum_worker: {
-                #[cfg(test)]
-                {
-                    crate::spectrum::SpectrumWorker::new_uninitialized()
-                }
-                #[cfg(not(test))]
-                {
-                    crate::spectrum::SpectrumWorker::new(2048, crate::spectrum::WindowType::Hann)
-                }
-            },
             #[cfg(test)]
             demod_worker: crate::demod::DemodWorker::new_uninitialized(4),
             #[cfg(not(test))]
-            demod_worker: crate::demod::DemodWorker::new(4),
+            // Keep several source blocks queued so a late GUI repaint does not
+            // turn directly into a dropped audio frame.
+            demod_worker: crate::demod::DemodWorker::new(16),
             adsb_decoder: AdsBDecoder::new(),
             last_adsb_capture: None,
             scanner: crate::scanner::FrequencyScanner::new(shared.clone()),
@@ -778,7 +760,10 @@ impl eframe::App for CentralApp {
                     .resolve(state.source.frequency_hz)
                     .label()
                     .into();
-                for _ in 0..4 {
+                // RTL-SDR delivers an 8 ms block at the default 2.048 MS/s.
+                // Drain ahead of the repaint cadence and allow a delayed frame
+                // to catch up instead of dropping input and producing a click.
+                for _ in 0..8 {
                     if let Some(samples) = state.source.recv_samples() {
                         sample_batch.push(samples);
                     } else {
@@ -856,6 +841,7 @@ impl eframe::App for CentralApp {
         )) = source_params
         {
             let mut all_audio_samples: Vec<f32> = Vec::new();
+            let mut spectrum_batch: Vec<Vec<num_complex::Complex32>> = Vec::new();
             let capture = (center, source_mode, stream_generation);
             let capture_changed = self.last_radio_capture.as_ref() != Some(&capture);
             if capture_changed {
@@ -941,7 +927,7 @@ impl eframe::App for CentralApp {
                     self.adsb_panel.decode_stats = self.adsb_decoder.stats();
                 }
                 if self.current_tab == AppTab::Listen {
-                    self.spectrum_worker.try_send_iq(wideband_iq);
+                    spectrum_batch.push(wideband_iq);
                 }
             }
 
@@ -1034,9 +1020,10 @@ impl eframe::App for CentralApp {
                     }
                     state.spectrum.update_params_exact(center, radio_rate);
                     state.spectrum.vfo_freq_hz = Some(freq);
-                    if let Some(frame) = self.spectrum_worker.try_recv_spectrum() {
-                        state.spectrum.apply_spectrum_frame(&frame);
+                    for samples in &spectrum_batch {
+                        state.spectrum.push_complex_samples(samples);
                     }
+                    state.spectrum.try_recv_spectrum();
                     if !all_audio_samples.is_empty() {
                         let wf = &mut state.spectrum.audio_waveform;
                         if wf.capacity() < 2048 {
@@ -1058,10 +1045,13 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // The FFT worker completes asynchronously. Drain it once per GUI tick
-        // so a final window is still painted when the source pauses or the
-        // user switches back to Radio after a hidden-tab update.
-        if let Ok(mut state) = self.shared.try_lock() {}
+        // Drain an asynchronously completed FFT even on a frame without new IQ,
+        // such as the final window arriving as the receiver pauses.
+        if self.current_tab == AppTab::Listen {
+            if let Ok(mut state) = self.shared.try_lock() {
+                state.spectrum.try_recv_spectrum();
+            }
+        }
 
         // Passive ADS-B: detect newly-arrived aircraft and fire alert toasts + Discord notifications.
         self.adsb_panel.poll_uat();
@@ -1202,7 +1192,7 @@ impl eframe::App for CentralApp {
             || self.adsb_panel.region == crate::adsb_panel::AdsbRegion::Uat978;
         ctx.request_repaint_after(Duration::from_millis(
             if receiver_active || !sample_batch.is_empty() {
-                33
+                16
             } else if background_active {
                 100
             } else {
@@ -1269,16 +1259,30 @@ impl eframe::App for CentralApp {
                 "Audio: {error}. Stop and restart the receiver to retry."
             ));
         }
-        if let Some((audio_running, _selection, _input_channels)) = audio_action {
+        if let Some((audio_running, selection, input_channels)) = audio_action {
             if audio_running && !self.audio.is_running() {
                 if !self.audio.has_failed() {
-                    // AudioWorker starts its thread in new(); just reset demod.
-                    self.recorder_panel
-                        .set_audio_sample_rate(self.audio.sample_rate());
-                    self.demod_worker.request_reset();
+                    match self.audio.start_with_selection_channels(
+                        crossbeam_channel::never::<Vec<f32>>(),
+                        &selection,
+                        input_channels,
+                    ) {
+                        Ok(()) => {
+                            self.recorder_panel
+                                .set_audio_sample_rate(self.audio.sample_rate());
+                            self.demod_worker.request_reset();
+                        }
+                        Err(error) => {
+                            self.audio.mark_failed();
+                            let _ = self.audio.take_error();
+                            self.status_bar.warning(format!(
+                                "Audio: {error}. Stop and restart the receiver to retry."
+                            ));
+                        }
+                    }
                 }
             } else if !audio_running && (self.audio.is_running() || self.audio.has_failed()) {
-                self.audio.shutdown();
+                self.audio.stop();
                 self.daemon_audio.reset();
             }
         }

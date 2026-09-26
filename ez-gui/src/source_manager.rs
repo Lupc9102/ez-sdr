@@ -122,6 +122,48 @@ fn validate_rtl_options(direct_sampling: bool, offset_tuning: bool) -> Result<()
     }
 }
 
+#[cfg(any(feature = "rtlsdr", test))]
+fn rtl_device_name(
+    name: String,
+    serial: Option<&str>,
+    product: Option<&str>,
+    manufacturer: Option<&str>,
+) -> String {
+    let lower = |value: &str| value.trim().to_ascii_lowercase();
+    let blog_manufacturer = manufacturer.is_some_and(|value| {
+        let value = lower(value);
+        value.contains("rtlsdrblog") || value.contains("rtl-sdr blog")
+    });
+    let product_text = product.map(lower);
+    let product_is_v4 = product_text.as_deref().is_some_and(|value| {
+        value == "blog v4"
+            || value.starts_with("blog v4 ")
+            || value == "rtl-sdr blog v4"
+            || (value == "v4" && blog_manufacturer)
+    });
+    let product_identifies_other_model = product_text.as_deref().is_some_and(|value| {
+        value.contains("blog v1")
+            || value.contains("blog v2")
+            || value.contains("blog v3")
+            || value.contains("v1")
+            || value.contains("v2")
+            || value.contains("v3")
+    });
+    let serial_is_v4_fallback = serial.is_some_and(|value| value.trim() == "00000001")
+        && blog_manufacturer
+        && !product_identifies_other_model;
+    let is_candidate_name = {
+        let value = lower(&name);
+        value.contains("generic") || value.contains("rtl")
+    };
+
+    if is_candidate_name && (product_is_v4 || serial_is_v4_fallback) {
+        "RTL-SDR Blog V4".into()
+    } else {
+        name
+    }
+}
+
 #[cfg(all(feature = "rtlsdr", not(test)))]
 fn enumerate_rtl_devices() -> Result<Vec<RtlDeviceInfo>, String> {
     // SAFETY: librtlsdr owns the returned name strings; each is copied before
@@ -161,12 +203,24 @@ fn enumerate_rtl_devices() -> Result<Vec<RtlDeviceInfo>, String> {
             let value = String::from_utf8_lossy(&bytes).trim().to_string();
             (!value.is_empty()).then_some(value)
         };
+        let manufacturer = text(&manufacturer);
+        let product = text(&product);
+        let serial = text(&serial);
+        // lib RTL-SDR can expose a generic RTL2832 name even when USB identity
+        // strings identify the tuner. Prefer the specific V4 label when the
+        // product/manufacturer or known factory serial confirms it.
+        let name = rtl_device_name(
+            name,
+            serial.as_deref(),
+            product.as_deref(),
+            manufacturer.as_deref(),
+        );
         devices.push(RtlDeviceInfo {
             index,
             name,
-            manufacturer: text(&manufacturer),
-            product: text(&product),
-            serial: text(&serial),
+            manufacturer,
+            product,
+            serial,
         });
     }
     Ok(devices)
@@ -468,9 +522,24 @@ impl SourceManager {
         match result {
             Ok(devices) => {
                 self.rtl_devices = devices;
-                match resolve_rtl_device(&self.rtl_device, &self.rtl_devices) {
-                    Ok(index) => self.rtl_device.index = index,
-                    Err(error) => self.rtl_device_refresh_error = Some(error),
+                let has_saved_serial = self
+                    .rtl_device
+                    .serial
+                    .as_deref()
+                    .is_some_and(|serial| !serial.is_empty());
+                if self.rtl_devices.len() == 1 && !has_saved_serial {
+                    let index = self.rtl_devices[0].index;
+                    if let Err(error) = self.select_rtl_device(index) {
+                        self.rtl_device_refresh_error = Some(error);
+                    }
+                } else {
+                    match resolve_rtl_device(&self.rtl_device, &self.rtl_devices) {
+                        Ok(index) => {
+                            self.rtl_device.index = index;
+                            self.rtl_device_refresh_error = None;
+                        }
+                        Err(error) => self.rtl_device_refresh_error = Some(error),
+                    }
                 }
             }
             Err(error) => self.rtl_device_refresh_error = Some(error),
@@ -1861,6 +1930,62 @@ mod tests {
             product: Some("Test receiver".into()),
             serial: serial.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn labels_blog_v4_from_usb_identity_without_mislabeling_v3_or_generic_dongles() {
+        assert_eq!(
+            rtl_device_name(
+                "Generic RTL2832U OEM".into(),
+                Some("custom-serial"),
+                Some("Blog V4"),
+                Some("RTLSDRBlog"),
+            ),
+            "RTL-SDR Blog V4"
+        );
+        assert_eq!(
+            rtl_device_name(
+                "Generic RTL2832U OEM".into(),
+                Some("00000001"),
+                None,
+                Some("RTLSDRBlog"),
+            ),
+            "RTL-SDR Blog V4"
+        );
+        assert_eq!(
+            rtl_device_name(
+                "Generic RTL2832U OEM".into(),
+                Some("custom-serial"),
+                Some("Blog V4"),
+                None,
+            ),
+            "RTL-SDR Blog V4"
+        );
+        assert_eq!(
+            rtl_device_name(
+                "Generic RTL2832U OEM".into(),
+                Some("00000000"),
+                Some("Blog V3"),
+                Some("RTLSDRBlog"),
+            ),
+            "Generic RTL2832U OEM"
+        );
+        assert_eq!(
+            rtl_device_name("Generic RTL2832U OEM".into(), None, None, None),
+            "Generic RTL2832U OEM"
+        );
+    }
+
+    #[test]
+    fn single_discovered_receiver_is_selected_when_no_serial_was_saved() {
+        let mut source = SourceManager::new();
+        let discovered = rtl_device(3, Some("only-receiver"));
+        assert!(source.refresh_rtl_devices_with(move || Ok(vec![discovered])));
+        assert!(wait_until(|| source.poll_rtl_devices()));
+        assert_eq!(source.rtl_device.index, 3);
+        assert_eq!(source.rtl_device.serial.as_deref(), Some("only-receiver"));
+        assert_eq!(source.selected_rtl_device().unwrap().index, 3);
+        assert!(source.rtl_device_refresh_error.is_none());
     }
 
     #[test]
