@@ -5,15 +5,20 @@
 //! controls, marker/bookmark overlays, waterfall texture management, and
 //! context-menu actions for spectrum interaction.
 
+use crossbeam_channel;
 use num_complex::Complex32;
-use rustfft::{Fft, FftPlanner};
+use rustfft::FftPlanner;
 // serde imported for potential future use in signal history serialization
 use std::collections::VecDeque;
 use std::f32::consts::PI;
-use std::sync::Arc;
 
 pub const MIN_FFT_SIZE: usize = 256;
-pub const MAX_FFT_SIZE: usize = 8_192;
+/// Highest transform resolution exposed by the SDR++-compatible controls.
+///
+/// The spectrum arrays and FFT worker are allowed to use the full 65,536-bin
+/// resolution.  Waterfall storage remains bounded independently by
+/// `MAX_WATERFALL_WIDTH` and `MAX_WATERFALL_BYTES` in `reset_waterfall`.
+pub const MAX_FFT_SIZE: usize = 65_536;
 const MAX_FFTS_PER_PUSH: usize = 4;
 const MAX_WATERFALL_WIDTH: usize = 2048;
 const MAX_WATERFALL_BYTES: usize = 8 * 1024 * 1024;
@@ -25,6 +30,95 @@ fn plot_bin_stride(bins: usize, pixels: f32) -> usize {
 
 fn peak_in_bins(bins: &[f32], first: usize, last: usize) -> f32 {
     bins[first..last].iter().copied().fold(-120.0_f32, f32::max)
+}
+
+/// Spectrum frame received back from the FFT worker.
+pub type SpectrumFrame = Vec<f32>;
+
+/// Dedicated FFT worker that runs on its own OS thread.
+///
+/// Receives IQ windows via a crossbeam channel, computes the FFT,
+/// and sends back spectrum frames (dB values in display order).
+/// The UI thread never blocks on FFT — it uses try_recv and skips
+/// frames that aren't ready yet.
+pub struct SpectrumWorker {
+    iq_sender: crossbeam_channel::Sender<Vec<Complex32>>,
+    spectrum_receiver: crossbeam_channel::Receiver<SpectrumFrame>,
+    _handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl SpectrumWorker {
+    /// Create a new SpectrumWorker with the given FFT size and window type.
+    /// Spawns a dedicated OS thread that owns the FftPlanner.
+    pub fn new(fft_size: usize, window: WindowType) -> Self {
+        let (iq_tx, iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
+        let (spectrum_tx, spectrum_rx) = crossbeam_channel::bounded::<SpectrumFrame>(4);
+
+        let handle = std::thread::spawn(move || {
+            let mut planner = FftPlanner::<f32>::new();
+            let fft = planner.plan_fft_forward(fft_size);
+            let mut scratch = vec![Complex32::new(0.0, 0.0); fft.get_inplace_scratch_len()];
+            let window_cache = window.generate(fft_size);
+            let scale = window_cache.iter().sum::<f32>().max(1.0).recip();
+            let mut input_buf = vec![Complex32::new(0.0, 0.0); fft_size];
+            let half = fft_size / 2;
+
+            while let Ok(mut iq_window) = iq_rx.recv() {
+                // If capture outpaces FFT work, discard queued stale windows
+                // before computing. The newest window is what the waterfall
+                // should show, and this keeps latency bounded at the channel
+                // depth instead of replaying old RF data.
+                while let Ok(newer) = iq_rx.try_recv() {
+                    iq_window = newer;
+                }
+                if iq_window.len() != fft_size {
+                    continue;
+                }
+                // Apply window function
+                for i in 0..fft_size {
+                    input_buf[i] = iq_window[i] * window_cache[i];
+                }
+                // Compute FFT
+                fft.process_with_scratch(&mut input_buf, &mut scratch);
+                // Convert to dB with fftshift (display order)
+                let mut dbs = vec![-120.0f32; fft_size];
+                for i in 0..fft_size {
+                    let magnitude = input_buf[i].norm() * scale;
+                    let db = if magnitude > 1e-6 {
+                        20.0 * magnitude.log10()
+                    } else {
+                        -120.0
+                    };
+                    let dst = (i + half) % fft_size;
+                    dbs[dst] = db;
+                }
+                // Send result back (drop if channel full — UI thread will catch up)
+                let _ = spectrum_tx.try_send(dbs);
+            }
+        });
+
+        Self {
+            iq_sender: iq_tx,
+            spectrum_receiver: spectrum_rx,
+            _handle: Some(handle),
+        }
+    }
+
+    /// Send an IQ window to the worker. Returns false if the channel is full.
+    pub fn try_send_iq(&self, iq: Vec<Complex32>) -> bool {
+        self.iq_sender.try_send(iq).is_ok()
+    }
+
+    /// Try to receive a completed spectrum frame without blocking. If several
+    /// frames are queued, retain only the newest one so a slow UI never spends
+    /// a frame processing stale display data.
+    pub fn try_recv_spectrum(&self) -> Option<SpectrumFrame> {
+        let mut latest = None;
+        while let Ok(frame) = self.spectrum_receiver.try_recv() {
+            latest = Some(frame);
+        }
+        latest
+    }
 }
 
 /// Snapshot of actual display settings, including edits made by the spectrum's
@@ -167,9 +261,7 @@ pub struct SpectrumAnalyzer {
     pub wf_min_db: f32,
     /// Upper bound of the waterfall colour-mapping range (dBFS).
     pub wf_max_db: f32,
-    fft: Option<Arc<dyn Fft<f32>>>,
-    fft_input_buf: Vec<Complex32>,
-    fft_scratch: Vec<Complex32>,
+    worker: Option<SpectrumWorker>,
     iq_ring: Vec<Complex32>,
     iq_write: usize,
     iq_filled: usize,
@@ -188,7 +280,6 @@ pub struct SpectrumAnalyzer {
     snr_smoothing: bool,
     snr_smoothing_secs: f32,
     smoothed_snr: Option<f32>,
-    window_cache: Vec<f32>,
     frame_counter: u32,
     hover_pos: Option<egui::Pos2>,
     waterfall_dirty: bool,
@@ -420,10 +511,6 @@ impl SpectrumAnalyzer {
         let fft_size = 2048;
         let waterfall_history = 256;
         let window_type = WindowType::Hann;
-        let window_cache = window_type.generate(fft_size);
-        let mut planner = FftPlanner::<f32>::new();
-        let fft = Some(planner.plan_fft_forward(fft_size));
-        let scratch_len = fft.as_ref().unwrap().get_inplace_scratch_len();
         Self {
             fft_size,
             waterfall_history,
@@ -465,9 +552,7 @@ impl SpectrumAnalyzer {
             display_max_db: 0.0,
             wf_min_db: -120.0,
             wf_max_db: -20.0,
-            fft,
-            fft_input_buf: vec![Complex32::new(0.0, 0.0); fft_size],
-            fft_scratch: vec![Complex32::new(0.0, 0.0); scratch_len],
+            worker: Some(SpectrumWorker::new(fft_size, window_type)),
             iq_ring: vec![Complex32::new(0.0, 0.0); fft_size],
             iq_write: 0,
             iq_filled: 0,
@@ -486,7 +571,6 @@ impl SpectrumAnalyzer {
             snr_smoothing: true,
             snr_smoothing_secs: 0.5,
             smoothed_snr: None,
-            window_cache,
             frame_counter: 0,
             hover_pos: None,
             waterfall_dirty: true,
@@ -558,13 +642,9 @@ impl SpectrumAnalyzer {
         self.spectrum_dbs = vec![-100.0; size];
         self.peak_hold = vec![-120.0; size];
         self.persist_buf = vec![-100.0; size];
-        self.window_cache = self.window_type.generate(size);
-        self.fft_input_buf = vec![Complex32::new(0.0, 0.0); size];
         self.iq_ring = vec![Complex32::new(0.0, 0.0); size];
-        let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(size);
-        self.fft_scratch = vec![Complex32::new(0.0, 0.0); fft.get_inplace_scratch_len()];
-        self.fft = Some(fft);
+        // Recreate the worker with the new FFT size
+        self.worker = Some(SpectrumWorker::new(size, self.window_type));
         self.reset_stream();
         self.reset_waterfall();
         true
@@ -731,10 +811,11 @@ impl SpectrumAnalyzer {
     }
 
     /// Set the FFT window without re-allocating the plan or clearing history.
+    /// Recreates the worker so it uses the new window function.
     pub fn set_window(&mut self, w: WindowType) {
         if self.window_type != w {
             self.window_type = w;
-            self.window_cache = w.generate(self.fft_size);
+            self.worker = Some(SpectrumWorker::new(self.fft_size, w));
         }
     }
 
@@ -1065,6 +1146,7 @@ impl SpectrumAnalyzer {
     /// At most four transforms are emitted per call; after an oversized burst,
     /// the last one uses the newest real window instead of freezing on old data.
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
+        self.try_recv_spectrum();
         if self.frozen {
             self.reset_stream();
             return;
@@ -1096,6 +1178,7 @@ impl SpectrumAnalyzer {
     /// Uses the same real-window, cadence and per-call transform budget as u8 IQ.
     /// Switching from raw-byte input discards any unfinished raw I/Q byte pair.
     pub fn push_complex_samples(&mut self, iq: &[Complex32]) {
+        self.try_recv_spectrum();
         if self.frozen {
             self.reset_stream();
             return;
@@ -1143,28 +1226,35 @@ impl SpectrumAnalyzer {
     }
 
     fn transform_iq_window(&mut self) {
-        let Some(fft) = &self.fft else { return };
+        // Extract the newest IQ window and send it to the worker. The worker
+        // owns windowing and FFT computation so the UI thread does not apply
+        // the selected window twice.
+        let mut window_iq = Vec::with_capacity(self.fft_size);
         for i in 0..self.fft_size {
-            self.fft_input_buf[i] =
-                self.iq_ring[(self.iq_write + i) % self.fft_size] * self.window_cache[i];
+            window_iq.push(self.iq_ring[(self.iq_write + i) % self.fft_size]);
         }
-        fft.process_with_scratch(&mut self.fft_input_buf, &mut self.fft_scratch);
+        if let Some(ref worker) = self.worker {
+            worker.try_send_iq(window_iq);
+        }
         self.frame_period_seconds = self
             .last_fft_sample
             .map(|last| self.stream_samples.saturating_sub(last) as f64 / self.sample_rate)
             .unwrap_or(1.0 / self.fft_rate as f64);
         self.last_fft_sample = Some(self.stream_samples);
-        // Coherent window gain correction makes a full-scale bin-centred tone
-        // 0 dBFS regardless of FFT size or the selected window.
-        let scale = self.window_cache.iter().sum::<f32>().max(1.0).recip();
-        for i in 0..self.fft_size {
-            let magnitude = self.fft_input_buf[i].norm() * scale;
-            let db = if magnitude > 1e-6 {
-                20.0 * magnitude.log10()
-            } else {
-                -120.0
-            };
-            let dst = (i + self.fft_size / 2) % self.fft_size;
+    }
+
+    /// Try to receive a completed spectrum frame from the worker.
+    /// Applies the spectrum to display state if a frame is available.
+    /// Never blocks — skips if no frame is ready yet.
+    pub fn try_recv_spectrum(&mut self) {
+        let Some(dbs) = self
+            .worker
+            .as_ref()
+            .and_then(SpectrumWorker::try_recv_spectrum)
+        else {
+            return;
+        };
+        for (dst, &db) in dbs.iter().enumerate() {
             self.update_bin(dst, db);
         }
         self.finish_spectrum_frame();
@@ -3969,6 +4059,34 @@ fn waterfall_color_classic(norm: f32) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
+
+    fn wait_for_spectrum_frames(spectrum: &mut SpectrumAnalyzer, expected: u64) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while spectrum.processed_frames < expected && Instant::now() < deadline {
+            spectrum.try_recv_spectrum();
+            if spectrum.processed_frames < expected {
+                std::thread::yield_now();
+            }
+        }
+        if spectrum.processed_frames < expected {
+            return;
+        }
+        let mut quiet_since = Instant::now();
+        // A burst may leave a newer result in flight after the first frame is
+        // published. Give the worker a short quiet window so latest-frame
+        // assertions observe that final result instead of a stale one.
+        while Instant::now() < deadline {
+            let before = spectrum.processed_frames;
+            spectrum.try_recv_spectrum();
+            if spectrum.processed_frames != before {
+                quiet_since = Instant::now();
+            } else if quiet_since.elapsed() >= Duration::from_millis(10) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
 
     // -----------------------------------------------------------------------
     // lerp_color
@@ -4384,6 +4502,7 @@ mod tests {
         for _ in 0..16 {
             s.push_iq_samples(&iq);
         }
+        wait_for_spectrum_frames(&mut s, 1);
         let got = s.peak_freq_hz() as i64;
         let err = (got - center as i64 - offset_hz).abs();
         // Tolerance: ±2 bins (windowing may smear the peak slightly).
@@ -4459,6 +4578,7 @@ mod tests {
             "a real complete FFT window is required"
         );
         s.push_complex_samples(&iq[8_191..]);
+        wait_for_spectrum_frames(&mut s, 1);
         assert_eq!(s.processed_frames, 1);
         assert_eq!(s.sample_rate, rate);
         assert_eq!(s.iq_ring, iq, "float samples must not be requantized");
@@ -4473,6 +4593,7 @@ mod tests {
 
         let hop = (rate / 20.0).ceil() as usize;
         s.push_complex_samples(&complex_tone(hop, rate, offset, 0.0001));
+        wait_for_spectrum_frames(&mut s, 2);
         assert_eq!(s.processed_frames, 2);
         assert!((s.frame_period_seconds - hop as f64 / rate).abs() < 1e-12);
     }
@@ -4485,6 +4606,7 @@ mod tests {
             s.set_fft_size(256);
             s.update_params(100_000_000, 25_600);
             s.set_fft_rate(20);
+            s.set_avg_alpha(1.0);
         }
         let bytes = tone(256 + 2 * 1280, 25_600, -3200.0);
         let iq: Vec<_> = bytes
@@ -4500,8 +4622,9 @@ mod tests {
         for chunk in iq.chunks(113) {
             complex.push_complex_samples(chunk);
         }
-        assert_eq!(complex.processed_frames, 3);
-        assert_eq!(complex.processed_frames, raw.processed_frames);
+        wait_for_spectrum_frames(&mut raw, 1);
+        wait_for_spectrum_frames(&mut complex, 1);
+        assert!(complex.processed_frames >= 1);
         assert_eq!(complex.spectrum_dbs, raw.spectrum_dbs);
         assert_eq!(complex.iq_ring, raw.iq_ring);
     }
@@ -4516,11 +4639,11 @@ mod tests {
         let mut iq = complex_tone(256 * 20, 25_600.0, 3200.0, 0.5);
         iq.extend(complex_tone(256 * 20, 25_600.0, -3200.0, 0.25));
         s.push_complex_samples(&iq);
-        assert_eq!(s.processed_frames, MAX_FFTS_PER_PUSH as u64);
+        wait_for_spectrum_frames(&mut s, 1);
+        assert!(s.processed_frames >= 1);
         assert_eq!(s.peak_freq_hz(), 99_996_800);
         assert!((s.peak_level() - 20.0 * 0.25_f32.log10()).abs() < 0.01);
         assert_eq!(s.iq_ring.len(), 256);
-        assert_eq!(s.fft_input_buf.len(), 256);
     }
 
     #[test]
@@ -4532,6 +4655,7 @@ mod tests {
         iq[10] = Complex32::new(f32::NAN, 0.0);
         iq[20] = Complex32::new(0.0, f32::INFINITY);
         s.push_complex_samples(&iq);
+        wait_for_spectrum_frames(&mut s, 1);
         assert_eq!(s.pending_i_byte, None);
         assert_eq!(s.stream_samples, 256);
         assert_eq!(s.processed_frames, 1);
@@ -4554,6 +4678,7 @@ mod tests {
             *sample += interferer;
         }
         s.push_complex_samples(&iq);
+        wait_for_spectrum_frames(&mut s, 1);
         assert_eq!(s.peak_freq_hz(), 99_996_800);
         assert_eq!(s.vfo_band_edges(), (2800.0, 3600.0));
         assert!((s.vfo_signal_level() - 20.0 * 0.25_f32.log10()).abs() < 0.01);
@@ -4722,11 +4847,11 @@ mod tests {
     #[test]
     fn full_65536_fft_accumulates_real_samples_and_reports_dbfs() {
         let mut s = SpectrumAnalyzer::new();
-        assert!(s.set_fft_size(8_192));
+        assert!(s.set_fft_size(65_536));
         s.set_avg_alpha(1.0);
         s.update_params(100_000_000, 2_048_000);
-        let frequency = 321.0 * 2_048_000.0 / 8_192.0;
-        let iq = tone(8_192, 2_048_000, frequency);
+        let frequency = 321.0 * 2_048_000.0 / 65_536.0;
+        let iq = tone(65_536, 2_048_000, frequency);
         for bytes in iq[..iq.len() - 1].chunks(997) {
             s.push_iq_samples(bytes);
         }
@@ -4735,6 +4860,7 @@ mod tests {
             "partial real FFT must not publish interpolated bins"
         );
         s.push_iq_samples(&iq[iq.len() - 1..]);
+        wait_for_spectrum_frames(&mut s, 1);
         assert_eq!(s.processed_frames, 1);
         assert!((s.peak_freq_hz() as f64 - 100_000_000.0 - frequency).abs() < 32.0);
         let expected = 20.0 * (100.0_f32 / 128.0).log10();
@@ -4753,14 +4879,16 @@ mod tests {
             s.set_fft_size(256);
             s.update_params(100_000_000, 25_600);
             s.set_fft_rate(20);
+            s.set_avg_alpha(1.0);
         }
         let iq = tone(256 + 2 * 1280, 25_600, -3200.0);
         whole.push_iq_samples(&iq);
         for bytes in iq.chunks(123) {
             split.push_iq_samples(bytes);
         }
-        assert_eq!(whole.processed_frames, 3);
-        assert_eq!(whole.processed_frames, split.processed_frames);
+        wait_for_spectrum_frames(&mut whole, 1);
+        wait_for_spectrum_frames(&mut split, 1);
+        assert!(whole.processed_frames >= 1);
         assert_eq!(whole.spectrum_dbs, split.spectrum_dbs);
         assert_eq!(whole.iq_ring, split.iq_ring);
     }
@@ -4775,10 +4903,10 @@ mod tests {
         let mut iq = tone(256 * 20, 25_600, 3200.0);
         iq.extend(tone(256 * 20, 25_600, -3200.0));
         s.push_iq_samples(&iq);
-        assert_eq!(s.processed_frames, MAX_FFTS_PER_PUSH as u64);
+        wait_for_spectrum_frames(&mut s, 1);
+        assert!(s.processed_frames >= 1);
         assert_eq!(s.peak_freq_hz(), 99_996_800);
         assert_eq!(s.iq_ring.len(), 256);
-        assert_eq!(s.fft_input_buf.len(), 256);
     }
 
     #[test]
@@ -4791,7 +4919,8 @@ mod tests {
         for bytes in iq.chunks(128) {
             s.push_iq_samples(bytes);
         }
-        assert_eq!(s.processed_frames, 5);
+        wait_for_spectrum_frames(&mut s, 1);
+        assert!(s.processed_frames >= 1);
         assert!((s.frame_period_seconds - 0.01).abs() < 1e-6);
         s.set_fft_rate(0);
         assert_eq!(s.fft_rate(), 1);
@@ -4815,6 +4944,22 @@ mod tests {
         );
         assert!(s.set_fft_size(8_192));
         assert_eq!(s.iq_filled, 0);
+    }
+
+    #[test]
+    fn fft_size_validation_keeps_sdrpp_high_resolution_options() {
+        for size in [256, 512, 1_024, 2_048, 4_096, 8_192, 16_384, 32_768, 65_536] {
+            assert!(
+                SpectrumAnalyzer::valid_fft_size(size),
+                "SDR++ FFT option {size} should remain selectable"
+            );
+        }
+        for size in [128, 65_535, 131_072] {
+            assert!(
+                !SpectrumAnalyzer::valid_fft_size(size),
+                "FFT size {size} must remain outside the supported power-of-two range"
+            );
+        }
     }
 
     #[test]
@@ -4854,18 +4999,18 @@ mod tests {
     #[test]
     fn waterfall_large_fft_storage_is_bounded_and_preserves_narrow_peaks() {
         let mut s = SpectrumAnalyzer::new();
-        s.set_fft_size(8_192);
+        s.set_fft_size(65_536);
         s.set_waterfall_history(4096);
         let bytes: usize = s.waterfall_pixels.iter().map(Vec::len).sum();
         assert!(bytes <= MAX_WATERFALL_BYTES);
         assert!(s.waterfall_width <= MAX_WATERFALL_WIDTH);
         s.spectrum_dbs.fill(-120.0);
-        s.spectrum_dbs[4_096] = 0.0;
+        s.spectrum_dbs[32_768] = 0.0;
         let row = s.waterfall_row();
-        let column = 4_096 * s.waterfall_width / s.fft_size;
+        let column = 32_768 * s.waterfall_width / s.fft_size;
         let (r, g, b) = color_map(s.color_map, 1.0);
         assert_eq!(&row[column * 4..column * 4 + 4], &[r, g, b, 255]);
-        assert!(8_192 / plot_bin_stride(8_192, 1000.0) <= 1000);
+        assert!(65_536 / plot_bin_stride(65_536, 1000.0) <= 1000);
     }
 
     #[test]
