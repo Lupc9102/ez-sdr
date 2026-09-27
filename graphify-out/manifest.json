@@ -115,13 +115,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app.rs": {
-    "mtime": 1790423695.27919,
-    "ast_hash": "fc3098179a6548e12e668fce13eebf7d",
+    "mtime": 1790499895.4082432,
+    "ast_hash": "54550a6044c825a88a9098bf7b51a0b7",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
-    "mtime": 1790423493.3751218,
-    "ast_hash": "0a63e5313cf095ff5c14b24756a4f990",
+    "mtime": 1790436255.1553524,
+    "ast_hash": "0a2eafffd19b2f5ac9dae40bef7001ef",
     "semantic_hash": ""
   },
   "ez-gui/src/bookmarks.rs": {
@@ -130,8 +130,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/config.rs": {
-    "mtime": 1790415659.560983,
-    "ast_hash": "ba63686f439f1e1470ca16d84b3870fc",
+    "mtime": 1790499905.4454794,
+    "ast_hash": "513a42d5a434d3683a41c5a343382164",
     "semantic_hash": ""
   },
   "ez-gui/src/demod.rs": {
@@ -140,8 +140,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/howto_panel.rs": {
-    "mtime": 1790409810.526003,
-    "ast_hash": "e84ed223c869a4a77592913a85f40fd6",
+    "mtime": 1790498620.7518017,
+    "ast_hash": "20a15008ea332742e67f96cf709396a6",
     "semantic_hash": ""
   },
   "ez-gui/src/main.rs": {
@@ -180,8 +180,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/source_manager.rs": {
-    "mtime": 1790257205.413597,
-    "ast_hash": "84d466ff61e99455e67a31559bceee7f",
+    "mtime": 1790431503.337927,
+    "ast_hash": "4f200f90ec5b0ce13e1b6027e384fa00",
     "semantic_hash": ""
   },
   "ez-gui/src/spectrum.rs": {
@@ -370,8 +370,8 @@
     "semantic_hash": ""
   },
   "signal_history.json": {
-    "mtime": 1790363862.3767834,
-    "ast_hash": "22120d5043fb508aba2c9cc7336ce500",
+    "mtime": 1790498620.7535808,
+    "ast_hash": "2f09cf727fe7944c9c55e41b4d9c95a3",
     "semantic_hash": ""
   },
   ".opencode/plans/ai-recommend.md": {
@@ -460,8 +460,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/advanced_panel.rs": {
-    "mtime": 1790423695.2301888,
-    "ast_hash": "5378e6a402c310a0860957a86f2eda3a",
+    "mtime": 1790498620.7496293,
+    "ast_hash": "686e135108d1b34df3047d47ff60cba8",
     "semantic_hash": ""
   },
   "ez-gui/src/ui_kit.rs": {
@@ -665,8 +665,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/keyboard.rs": {
-    "mtime": 1790175582.1916728,
-    "ast_hash": "1ff4e11d8c28287194c5026307beee06",
+    "mtime": 1790498620.7520542,
+    "ast_hash": "9e4201bbac097582db08c2b2dd6b639a",
     "semantic_hash": ""
   },
   "ez-gui/src/lib.rs": {
@@ -675,13 +675,13 @@
     "semantic_hash": ""
   },
   "ez-gui/src/mode_bar.rs": {
-    "mtime": 1790415907.6677253,
-    "ast_hash": "7f41b73054c5f37ad834739b9580b97e",
+    "mtime": 1790499836.7544584,
+    "ast_hash": "afb6c75265b41493010b8b86104f48e1",
     "semantic_hash": ""
   },
   "ez-gui/src/quick_start.rs": {
-    "mtime": 1790409810.494002,
-    "ast_hash": "e6fccb208b1c7abbb51c23a8d30ba7ed",
+    "mtime": 1790499857.9188502,
+    "ast_hash": "38c34d41f6e97d843ecf6b6f0aa55b60",
     "semantic_hash": ""
   },
   "ez-gui/src/satellite_tab.rs": {
@@ -690,8 +690,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/secondary_panel.rs": {
-    "mtime": 1790423695.510196,
-    "ast_hash": "206a3e0fa72750cee092a8e357b3298d",
+    "mtime": 1790499871.1906588,
+    "ast_hash": "e7ffd1015d2a776971652a4dd0616ac3",
     "semantic_hash": ""
   },
   "ez-gui/src/status_bar.rs": {
@@ -900,8 +900,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app_ui_tests.rs": {
-    "mtime": 1790423611.0860767,
-    "ast_hash": "953545611787e20c41cff7fd07f60ec1",
+    "mtime": 1790499923.2529373,
+    "ast_hash": "abcd6621ca8db5656a64bf9ade1fe7d1",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_resampler.rs": {
@@ -925,8 +925,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/radio_ui.rs": {
-    "mtime": 1790423695.4421942,
-    "ast_hash": "9b842de7dab8d1935873d4a1bcce5448",
+    "mtime": 1790498620.7532046,
+    "ast_hash": "b71aa68d0f12d041a83c9616107f8384",
     "semantic_hash": ""
   },
   "ez-gui/src/rigctl.rs": {
@@ -5162,6 +5162,31 @@
   "tile_cache/9/298/181.png": {
     "mtime": 1790363807.6984444,
     "ast_hash": "27c1a8263cd5d1434ea9bdda6a607978",
+    "semantic_hash": ""
+  },
+  "AUDIO_SKIP_FIX_SESSION_SUMMARY.md": {
+    "mtime": 1790436663.789105,
+    "ast_hash": "508d85c4825e5fffb4a96c2ec62e0624",
+    "semantic_hash": ""
+  },
+  "SIDE_MENU_CLEANUP_SESSION_SUMMARY.md": {
+    "mtime": 1790494092.1095355,
+    "ast_hash": "87cd64d0d371ef7ffbd5d7362816a2c1",
+    "semantic_hash": ""
+  },
+  "SIDE_MENU_CLEANUP_TASK.md": {
+    "mtime": 1790494092.1405363,
+    "ast_hash": "1ef2ae4afee03a76eada25287afdad07",
+    "semantic_hash": ""
+  },
+  "rtl-fix-task.md": {
+    "mtime": 1790436614.7099335,
+    "ast_hash": "6eb165a52b5ea64cde2359e0000c9890",
+    "semantic_hash": ""
+  },
+  "rtl.md": {
+    "mtime": 1790428688.5856192,
+    "ast_hash": "1c1e2f2faf93981afa7c1fee98fdd794",
     "semantic_hash": ""
   }
 }
