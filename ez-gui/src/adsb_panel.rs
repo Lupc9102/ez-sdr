@@ -9,8 +9,10 @@ pub struct AdsBPanel {
     pub aircraft: Vec<AircraftEntry>,
     pub selected_icao: Option<u32>,
     pub total_messages: u64,
-    /// (preambles, accepted, rejected) from `AdsBDecoder::stats()`.
-    pub decode_stats: (u64, u64, u64),
+    /// (preambles, accepted, rejected, modeac, accepted_0err, accepted_1err,
+    ///  accepted_2err, signal_power, noise_power, peak_signal_power,
+    ///  strong_signal_count) from `AdsBDecoder::stats()`.
+    pub decode_stats: (u64, u64, u64, u64, u64, u64, u64, f64, f64, f64, u64),
     pub start_time: Option<std::time::Instant>,
     pub aircraft_info: std::collections::HashMap<u32, AircraftInfo>,
     info_rx: std::sync::mpsc::Receiver<(u32, AircraftInfo)>,
@@ -54,6 +56,11 @@ pub struct AdsBPanel {
     pub uat_address: String,
     uat_receiver: UatReceiver,
     uat_position_seen: std::collections::HashMap<u32, std::time::Instant>,
+    uat_dropped: u64,
+    /// Timestamps of recent messages for rolling-window rate calculation.
+    message_times: std::collections::VecDeque<std::time::Instant>,
+    /// ICAO addresses with in-flight aircraft info fetch requests.
+    info_inflight: Arc<std::sync::RwLock<std::collections::HashSet<u32>>>,
 }
 
 /// Mode S is decoded locally; UAT reports come from dump978-fa's JSON TCP feed.
@@ -94,9 +101,23 @@ pub struct AircraftEntry {
     pub lat: f64,
     pub lon: f64,
     pub altitude: u32,
+    pub altitude_type: AltitudeType,
     pub speed: u32,
     pub heading: u32,
+    pub squawk: Option<u32>,
+    pub vertical_rate: Option<i32>,
+    pub surface_movement: Option<u32>,
+    pub surface_heading: Option<u32>,
+    pub has_position: bool,
     pub seen: std::time::Instant,
+}
+
+/// Altitude source type (barometric vs geometric/GNSS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AltitudeType {
+    #[default]
+    Barometric,
+    Geometric,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -130,8 +151,14 @@ impl Default for AircraftEntry {
             lat: 0.0,
             lon: 0.0,
             altitude: 0,
+            altitude_type: AltitudeType::Barometric,
             speed: 0,
             heading: 0,
+            squawk: None,
+            vertical_rate: None,
+            surface_movement: None,
+            surface_heading: None,
+            has_position: false,
             seen: std::time::Instant::now(),
         }
     }
@@ -353,7 +380,7 @@ impl AdsBPanel {
             aircraft: vec![],
             selected_icao: None,
             total_messages: 0,
-            decode_stats: (0, 0, 0),
+            decode_stats: (0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0),
             start_time: None,
             aircraft_info: std::collections::HashMap::new(),
             info_rx,
@@ -396,6 +423,9 @@ impl AdsBPanel {
             uat_address: crate::uat_receiver::DEFAULT_ADDRESS.into(),
             uat_receiver: UatReceiver::default(),
             uat_position_seen: std::collections::HashMap::new(),
+            uat_dropped: 0,
+            message_times: std::collections::VecDeque::new(),
+            info_inflight: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
         }
     }
 
@@ -471,13 +501,42 @@ impl AdsBPanel {
         self.known_icao.clear();
         self.selected_icao = None;
         self.total_messages = 0;
-        self.decode_stats = (0, 0, 0);
+        self.decode_stats = (0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0);
         self.notifications.clear();
         self.pending_ai_prompt = None;
         self.pending_status_flash = None;
+        self.message_times.clear();
+        self.info_inflight.write().unwrap().clear();
         // In-flight enrichment belongs to the previous capture. Retire its
         // channel so late replies cannot repopulate the freshly cleared UI.
         (self.info_tx, self.info_rx) = std::sync::mpsc::channel();
+    }
+
+    /// Record a message timestamp for rolling-window rate calculation.
+    fn record_message(&mut self) {
+        let now = std::time::Instant::now();
+        self.message_times.push_back(now);
+        // Keep only the last 5 seconds of timestamps.
+        while let Some(&oldest) = self.message_times.front() {
+            if now.duration_since(oldest).as_secs() > 5 {
+                self.message_times.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Calculate the current message rate over a 5-second rolling window.
+    fn recent_message_rate(&self) -> f64 {
+        if self.message_times.len() < 2 {
+            return 0.0;
+        }
+        let now = std::time::Instant::now();
+        let window_secs = now
+            .duration_since(*self.message_times.front().unwrap_or(&now))
+            .as_secs_f64()
+            .max(1.0);
+        self.message_times.len() as f64 / window_secs
     }
 
     fn connect_uat(&mut self) {
@@ -548,6 +607,7 @@ impl AdsBPanel {
             let Some(report) = self.uat_receiver.try_recv() else {
                 break;
             };
+            self.record_message();
             self.ingest_uat_report(report);
         }
         let now = std::time::Instant::now();
@@ -564,7 +624,22 @@ impl AdsBPanel {
         self.known_icao.retain(|key| live.contains(key));
         let (received, rejected, dropped) = self.uat_receiver.counts();
         self.total_messages = received;
-        self.decode_stats = (received + rejected, received, rejected + dropped);
+        // L20: Report dropped separately from rejected. The previous code
+        // mislabeled queue-overflow drops as rejections.
+        self.decode_stats = (
+            received + rejected + dropped,
+            received,
+            rejected,
+            0,
+            0,
+            0,
+            0,
+            0.0,
+            0.0,
+            0.0,
+            0,
+        );
+        self.uat_dropped = dropped;
     }
 
     fn ingest_uat_report(&mut self, timed: TimedReport) {
@@ -635,19 +710,24 @@ impl AdsBPanel {
                 .get(&aircraft.icao)
                 .is_some_and(|seen| seen.elapsed().as_secs() <= self.max_age_secs)
         } else {
-            aircraft.lat.is_finite()
-                && aircraft.lon.is_finite()
-                && (aircraft.lat != 0.0 || aircraft.lon != 0.0)
+            // Use the explicit has_position flag instead of (0,0) sentinel.
+            // This correctly handles aircraft at real coordinates (0,0).
+            aircraft.has_position
         }
     }
 
     fn matches_filters(&self, aircraft: &AircraftEntry) -> bool {
-        if aircraft.seen.elapsed().as_secs() > self.max_age_secs
-            || (self.altitude_filter_enabled
-                && (aircraft.altitude < self.min_altitude_ft
-                    || aircraft.altitude > self.max_altitude_ft))
-        {
+        if aircraft.seen.elapsed().as_secs() > self.max_age_secs {
             return false;
+        }
+        // M18: Validate min <= max to prevent inverted range silently
+        // hiding all aircraft.
+        if self.altitude_filter_enabled {
+            let min = self.min_altitude_ft.min(self.max_altitude_ft);
+            let max = self.min_altitude_ft.max(self.max_altitude_ft);
+            if aircraft.altitude < min || aircraft.altitude > max {
+                return false;
+            }
         }
         let query = self.callsign_filter.trim().to_ascii_lowercase();
         query.is_empty()
@@ -804,7 +884,7 @@ impl AdsBPanel {
         let right_margin = 12.0;
         let bottom_margin = 12.0;
         let max_toasts = 5;
-        let toast_ttl = 8.0f32;
+        let toast_ttl = 15.0f32; // L22: increased from 8s to 15s for readability
 
         let now = std::time::Instant::now();
         // Active toasts, oldest→newest; we render the newest few, newest at the bottom.
@@ -919,6 +999,10 @@ impl AdsBPanel {
         if self.aircraft_info.contains_key(&icao) {
             return;
         }
+        // M17: Track in-flight fetches to prevent duplicate concurrent requests.
+        if self.info_inflight.read().unwrap().contains(&icao) {
+            return;
+        }
         self.aircraft_info.insert(
             icao,
             AircraftInfo {
@@ -927,19 +1011,14 @@ impl AdsBPanel {
                 registration: "Loading...".to_string(),
             },
         );
+        self.info_inflight.write().unwrap().insert(icao);
 
         let icao_hex = format!("{icao:06X}");
         let tx = self.info_tx.clone();
+        let inflight = Arc::clone(&self.info_inflight);
 
         std::thread::spawn(move || {
             let url = format!("https://api.planespotters.net/pub/photos/hex/{icao_hex}");
-            // Send on EVERY path: a fetch failure must still overwrite the
-            // "Loading..." placeholder so it stops blocking retries, and must
-            // surface "Unknown" so the user sees the lookup failed. The
-            // previous code dropped both error paths silently, leaving the
-            // aircraft info panel stuck at "Loading..." forever after one
-            // transient network blip (the contains_key guard at the top then
-            // prevented any retry for the rest of the session).
             let (model, operator, registration) = match ureq::get(&url).call() {
                 Ok(resp) => match resp.into_body().read_json::<serde_json::Value>() {
                     Ok(json) => (
@@ -976,6 +1055,7 @@ impl AdsBPanel {
                     registration,
                 },
             ));
+            inflight.write().unwrap().remove(&icao);
         });
     }
 
@@ -1511,10 +1591,30 @@ impl AdsBPanel {
             }
         }
 
-        // Evict least-recently-used tiles if over the cap
+        // Evict least-recently-used tiles if over the cap.
+        // M16: Never evict tiles that are currently visible in the viewport.
         if self.tile_cache.len() > Self::MAX_CACHED_TILES {
-            let mut by_age: Vec<((u32, u32, u32), u64)> =
-                self.tile_last_used.iter().map(|(k, v)| (*k, *v)).collect();
+            // Compute the set of visible tile keys.
+            let visible: std::collections::HashSet<(u32, u32, u32)> = {
+                let mut set = std::collections::HashSet::new();
+                for tx in tx_s..tx_e {
+                    for ty in ty_s..ty_e {
+                        if !(0..n).contains(&ty) {
+                            continue;
+                        }
+                        let wt = tx.rem_euclid(n) as u32;
+                        let wu = ty as u32;
+                        set.insert((zoom, wt, wu));
+                    }
+                }
+                set
+            };
+            let mut by_age: Vec<((u32, u32, u32), u64)> = self
+                .tile_last_used
+                .iter()
+                .filter(|(k, _)| !visible.contains(k))
+                .map(|(k, v)| (*k, *v))
+                .collect();
             by_age.sort_by_key(|(_, frame)| *frame);
             let excess = self.tile_cache.len() - Self::MAX_CACHED_TILES;
             for (key, _) in by_age.into_iter().take(excess) {
@@ -1581,7 +1681,8 @@ impl AdsBPanel {
                     let x = cx_f32 + self.tile_x_delta(tx_f) as f32 * 256.0;
                     let y = cy_f32 + (ty_f - self.tile_cy) as f32 * 256.0;
                     let dist = ((pos.x - x).powi(2) + (pos.y - y).powi(2)).sqrt();
-                    if dist < 14.0 && dist < closest_dist {
+                    let click_radius = 20.0_f32; // L18: increased from 14px
+                    if dist < click_radius && dist < closest_dist {
                         closest_dist = dist;
                         closest_icao = Some(ac.icao);
                     }
@@ -1589,6 +1690,9 @@ impl AdsBPanel {
                 if let Some(icao) = closest_icao {
                     self.selected_icao = Some(icao);
                     self.fetch_aircraft_info(icao);
+                } else {
+                    // L23: Clicking empty map clears the selection
+                    self.selected_icao = None;
                 }
             }
         }
@@ -1678,7 +1782,14 @@ impl AdsBPanel {
                         )
                     })
                     .collect();
+                // M15: Skip segments that cross the antimeridian to prevent
+                // trails from stretching across the entire map.
+                let map_width_px = rect.width();
                 for w in pts.windows(2) {
+                    let dx = (w[0].x - w[1].x).abs();
+                    if dx > map_width_px / 2.0 {
+                        continue; // Dateline crossing — skip this segment
+                    }
                     painter.line_segment([w[0], w[1]], egui::Stroke::new(1.2, trail_color));
                 }
             }
@@ -1925,11 +2036,14 @@ impl AdsBPanel {
                 continue;
             }
             let trail = self.aircraft_trails.entry(ac.icao).or_default();
+            // L24: Use a smaller distance threshold (~11m) for better
+            // trail resolution of slow-moving aircraft.
             if trail.back().is_none_or(|&(lat, lon)| {
-                (lat - ac.lat).abs() > 0.001 || (lon - ac.lon).abs() > 0.001
+                (lat - ac.lat).abs() > 0.0001 || (lon - ac.lon).abs() > 0.0001
             }) {
                 trail.push_back((ac.lat, ac.lon));
-                if trail.len() > 30 {
+                // L25: Increased from 30 to 300 points (~5 min at 1-2s/update)
+                if trail.len() > 300 {
                     trail.pop_front();
                 }
             }
@@ -1950,13 +2064,11 @@ impl AdsBPanel {
                     && self.has_position(ac)
             })
             .count();
-        let msg_rate = if let Some(start) = self.start_time {
-            self.total_messages as f64 / start.elapsed().as_secs_f64().max(0.001)
-        } else {
-            0.0
-        };
+        // M19: Use a rolling window rate instead of lifetime average.
+        // Count messages in the last 5 seconds for a current rate.
+        let now_rate = self.recent_message_rate();
         ui.label(format!(
-            "✈ {active_count} aircraft  ({with_pos} w/pos)  {msg_rate:.0} msg/s"
+            "✈ {active_count} aircraft  ({with_pos} w/pos)  {now_rate:.0} msg/s"
         ));
 
         module_card(
@@ -2134,7 +2246,7 @@ mod tests {
         assert!(panel.aircraft.is_empty());
         assert!(panel.selected_icao.is_none());
         assert_eq!(panel.total_messages, 0);
-        assert_eq!(panel.decode_stats, (0, 0, 0));
+        assert_eq!(panel.decode_stats, (0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0));
         assert!(panel.start_time.is_none());
         assert_eq!(panel.min_altitude_ft, 0);
         assert_eq!(panel.max_altitude_ft, 60_000);
@@ -2293,8 +2405,14 @@ mod tests {
             lat: 51.5,
             lon: -0.1,
             altitude: 35000,
+            altitude_type: AltitudeType::Barometric,
             speed: 450,
             heading: 270,
+            squawk: None,
+            vertical_rate: None,
+            surface_movement: None,
+            surface_heading: None,
+            has_position: true,
             seen: std::time::Instant::now(),
         });
         panel.check_for_new_aircraft();

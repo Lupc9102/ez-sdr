@@ -144,7 +144,7 @@ impl PacketPipeline {
         let n = (block.samples.len().max(1)) as f64;
 
         let mut mag = MagBuf {
-            data,
+            data: data.into(),
             total_length: overlap + block.samples.len(),
             valid_length: overlap + block.samples.len(),
             overlap,
@@ -170,7 +170,7 @@ impl PacketPipeline {
             .extend_from_slice(&mag.data[mag.data.len() - keep..]);
         self.last_block_end_sample = Some(block.start_sample + block.samples.len() as u64);
 
-        self.mag_buf = std::mem::take(&mut mag.data);
+        self.mag_buf = mag.data.into_owned();
 
         for mm in &messages {
             self.merge_message(mm);

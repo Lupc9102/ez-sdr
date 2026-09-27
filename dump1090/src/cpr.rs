@@ -208,8 +208,27 @@ pub fn decode_cpr_surface(
     let mut rlat0 = air_dlat0 * (f64::from(cpr_mod(j, 60)) + lat0 / 131072.0);
     let mut rlat1 = air_dlat1 * (f64::from(cpr_mod(j, 59)) + lat1 / 131072.0);
 
-    rlat0 += ((reflat - rlat0 + 45.0) / 90.0).floor() * 90.0;
-    rlat1 += ((reflat - rlat1 + 45.0) / 90.0).floor() * 90.0;
+    // Resolve 90-degree surface grid ambiguity using the C reference logic.
+    // The C code (cpr.c:258-265) conditionally subtracts 90 or leaves unchanged,
+    // never adds +90. The previous floor-based formula could push rlat above 90.
+    if rlat0 == 0.0 {
+        if reflat < -45.0 {
+            rlat0 = -90.0;
+        } else if reflat > 45.0 {
+            rlat0 = 90.0;
+        }
+    } else if rlat0 - reflat > 45.0 {
+        rlat0 -= 90.0;
+    }
+    if rlat1 == 0.0 {
+        if reflat < -45.0 {
+            rlat1 = -90.0;
+        } else if reflat > 45.0 {
+            rlat1 = 90.0;
+        }
+    } else if rlat1 - reflat > 45.0 {
+        rlat1 -= 90.0;
+    }
 
     if !(-90.0..=90.0).contains(&rlat0) || !(-90.0..=90.0).contains(&rlat1) {
         return None;

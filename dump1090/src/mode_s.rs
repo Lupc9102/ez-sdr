@@ -50,7 +50,7 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
                         am.callsign = Some(callsign);
                     }
                 }
-                9..=18 => {
+                9..=18 | 20..=22 => {
                     am.altitude = decode_altitude(msg, true);
                 }
                 19 => {

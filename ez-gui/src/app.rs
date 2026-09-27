@@ -596,8 +596,14 @@ impl CentralApp {
             lat,
             lon,
             altitude: item.altitude_ft.unwrap_or_default().max(0) as u32,
+            altitude_type: crate::adsb_panel::AltitudeType::Barometric,
             speed: item.ground_speed_kt.unwrap_or_default().max(0.0) as u32,
             heading: item.track_deg.unwrap_or_default().rem_euclid(360.0) as u32,
+            squawk: None,
+            vertical_rate: None,
+            surface_movement: None,
+            surface_heading: None,
+            has_position: true,
             seen: std::time::Instant::now(),
         })
     }
@@ -903,6 +909,11 @@ impl eframe::App for CentralApp {
                         || (center > 1_088_000_000 && center < 1_092_000_000))
                 {
                     self.adsb_decoder.feed_iq(samples, rate);
+                    if self.adsb_decoder.sample_rate_mismatch() {
+                        self.status_bar.warning(
+                            "⚠ ADS-B: sample rate mismatch (expected 2.4 MHz)".to_string(),
+                        );
+                    }
                     let ac = self.adsb_decoder.get_aircraft();
                     self.adsb_panel.aircraft = ac;
                     self.adsb_panel.total_messages = self.adsb_decoder.total_messages;

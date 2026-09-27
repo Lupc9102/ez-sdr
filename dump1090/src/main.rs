@@ -267,7 +267,7 @@ fn main() -> anyhow::Result<()> {
         let (mean_level, mean_power) = compute_magbuf_stats(magnitudes);
 
         let mag_buf = MagBuf {
-            data: std::mem::take(&mut mag_data),
+            data: std::mem::take(&mut mag_data).into(),
             total_length: valid_length,
             valid_length,
             overlap,
@@ -293,7 +293,7 @@ fn main() -> anyhow::Result<()> {
 
         // Reclaim the magnitude buffer allocation and retain the tail as the
         // next block's overlap.
-        mag_data = mag_buf.data;
+        mag_data = mag_buf.data.into_owned();
         let tail = valid_length.saturating_sub(OVERLAP_SAMPLES);
         carry.clear();
         carry.extend_from_slice(&mag_data[tail..valid_length]);
