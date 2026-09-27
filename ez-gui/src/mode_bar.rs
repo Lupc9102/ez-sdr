@@ -1,9 +1,8 @@
-//! Mode bar: top navigation bar containing the three primary workspaces.
-//! progressive disclosure deck (⚙ More), and ambient AI toggle (🤖 Ask).
+//! Mode bar: top navigation bar containing the primary workspaces, a curated
+//! utility menu, and the optional AI assistant popup.
 
 use crate::adsb_panel::AdsBPanel;
 use crate::app::SharedState;
-use crate::quick_start::QuickStartWizard;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +47,7 @@ pub enum SecondaryTool {
     Scheduler,
     Settings,
     HowTo,
+    SetupGuide,
     Discord,
     Mqtt,
     WebRemote,
@@ -72,6 +72,7 @@ impl SecondaryTool {
             SecondaryTool::Scheduler => "🗓",
             SecondaryTool::Settings => "⚙",
             SecondaryTool::HowTo => "❓",
+            SecondaryTool::SetupGuide => "🧭",
             SecondaryTool::Discord => "💬",
             SecondaryTool::Mqtt => "📡",
             SecondaryTool::WebRemote => "🌐",
@@ -96,6 +97,7 @@ impl SecondaryTool {
             SecondaryTool::Scheduler => "Scheduler",
             SecondaryTool::Settings => "Settings",
             SecondaryTool::HowTo => "How To",
+            SecondaryTool::SetupGuide => "Setup Guide",
             SecondaryTool::Discord => "Discord",
             SecondaryTool::Mqtt => "MQTT",
             SecondaryTool::WebRemote => "Web Remote",
@@ -120,6 +122,7 @@ impl SecondaryTool {
             SecondaryTool::Scheduler => "scheduler",
             SecondaryTool::Settings => "settings",
             SecondaryTool::HowTo => "howto",
+            SecondaryTool::SetupGuide => "setup_guide",
             SecondaryTool::Discord => "discord",
             SecondaryTool::Mqtt => "mqtt",
             SecondaryTool::WebRemote => "webremote",
@@ -142,6 +145,7 @@ impl SecondaryTool {
             SecondaryTool::Bookmarks
             | SecondaryTool::Settings
             | SecondaryTool::HowTo
+            | SecondaryTool::SetupGuide
             | SecondaryTool::Customize => Beginner,
             // Power tools.
             SecondaryTool::Scanner
@@ -169,27 +173,19 @@ impl SecondaryTool {
     }
 }
 
-/// All secondary tools, in the fallback order used when a layout id is
-/// missing from [`crate::config::LayoutConfig::secondary_tools`].
+/// Secondary tools that belong in the primary Tools menu.
+///
+/// The enum below intentionally retains the integration and legacy variants
+/// so saved layouts and the secondary renderer stay backwards compatible, but
+/// the main menu only exposes receiver workflow tools.  Integrations
+/// (Discord/MQTT/Web Remote/Rigctl), duplicate views (Band Plan, Frequency
+/// Manager, Layout), and cosmetic/status-only entries remain available to
+/// existing configuration readers without adding another side menu.
 pub const ALL_SECONDARY_TOOLS: &[SecondaryTool] = &[
-    SecondaryTool::Bookmarks,
     SecondaryTool::Scanner,
-    SecondaryTool::Recorder,
-    SecondaryTool::Sinks,
-    SecondaryTool::BandPlan,
-    SecondaryTool::Scheduler,
-    SecondaryTool::Discord,
-    SecondaryTool::Mqtt,
-    SecondaryTool::WebRemote,
-    SecondaryTool::Rigctl,
-    SecondaryTool::Layout,
-    SecondaryTool::Settings,
     SecondaryTool::HowTo,
-    SecondaryTool::Advanced,
-    SecondaryTool::FrequencyManager,
-    SecondaryTool::VfoColor,
-    SecondaryTool::Theme,
-    SecondaryTool::ModuleManager,
+    SecondaryTool::SetupGuide,
+    SecondaryTool::Settings,
 ];
 
 /// Immediate-mode render function: one `&mut` per panel/widget by design.
@@ -201,9 +197,6 @@ pub fn render_mode_bar(
     current_tab: &mut AppTab,
     active_secondary_tool: &mut Option<SecondaryTool>,
     adsb_panel: &mut AdsBPanel,
-    quick_start: &mut QuickStartWizard,
-    show_keyboard_help: &mut bool,
-    ai_ask_open: &mut bool,
 ) {
     let colors = shared
         .try_lock()
@@ -259,23 +252,6 @@ pub fn render_mode_bar(
                         *active_secondary_tool = Some(tool);
                         ui.close();
                     }
-                }
-                ui.separator();
-                if ui.button("Appearance").clicked() {
-                    *active_secondary_tool = Some(SecondaryTool::Customize);
-                    ui.close();
-                }
-                if ui.button("AI assistant").clicked() {
-                    *ai_ask_open = !*ai_ask_open;
-                    ui.close();
-                }
-                if ui.button("Setup guide").clicked() {
-                    quick_start.start();
-                    ui.close();
-                }
-                if ui.button("Keyboard shortcuts").clicked() {
-                    *show_keyboard_help = true;
-                    ui.close();
                 }
             });
         });

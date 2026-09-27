@@ -175,6 +175,35 @@ fn offline_test_app() -> CentralApp {
 }
 
 #[test]
+fn utility_tools_render_as_floating_windows() {
+    for tool in [
+        SecondaryTool::Scanner,
+        SecondaryTool::HowTo,
+        SecondaryTool::SetupGuide,
+        SecondaryTool::Settings,
+    ] {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = CentralApp::new_with_config(&cc, AppConfig::default());
+        app.theme_applied = true;
+        app.active_secondary_tool = Some(tool);
+        let mut frame = eframe::Frame::_new_kittest();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| app.ui(ui, &mut frame));
+        assert!(
+            app.active_secondary_tool.is_some(),
+            "{tool:?} utility window should stay open"
+        );
+    }
+}
+
+#[test]
 fn restored_file_source_and_mode_stay_idle_with_usable_legacy_settings() {
     let ctx = egui::Context::default();
     let cc = eframe::CreationContext::_new_kittest(ctx);

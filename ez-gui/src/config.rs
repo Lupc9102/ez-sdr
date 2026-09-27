@@ -405,9 +405,11 @@ impl Default for LayoutConfig {
                 "scanner",
                 "recorder",
                 "scheduler",
-                "discord",
-                "howto",
                 "settings",
+                "howto",
+                "setup_guide",
+                "advanced",
+                "customize",
             ]),
         }
     }
@@ -826,6 +828,31 @@ impl AppConfig {
             .all(|i| valid_tab_ids.contains(&i.id.as_str()))
         {
             cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
+        }
+        // Migrate layouts from releases that exposed every integration and
+        // duplicate utility as a side menu. Keep only the curated workflow
+        // tools so old config files cannot repopulate the cluttered menu.
+        let valid_secondary_ids = [
+            "bookmarks",
+            "scanner",
+            "recorder",
+            "scheduler",
+            "settings",
+            "howto",
+            "setup_guide",
+            "advanced",
+            "customize",
+        ];
+        cfg.layout
+            .secondary_tools
+            .retain(|item| valid_secondary_ids.contains(&item.id.as_str()));
+        for id in valid_secondary_ids {
+            if !cfg.layout.secondary_tools.iter().any(|item| item.id == id) {
+                cfg.layout.secondary_tools.push(LayoutItem {
+                    id: id.to_string(),
+                    visible: true,
+                });
+            }
         }
     }
 
@@ -1373,9 +1400,11 @@ mod tests {
                 "scanner",
                 "recorder",
                 "scheduler",
-                "discord",
+                "settings",
                 "howto",
-                "settings"
+                "setup_guide",
+                "advanced",
+                "customize"
             ]
         );
         assert!(layout.main_tabs.iter().all(|i| i.visible));
@@ -1420,6 +1449,16 @@ mod tests {
                     visible: true,
                 },
             ],
+            secondary_tools: vec![
+                LayoutItem {
+                    id: "discord".into(),
+                    visible: true,
+                },
+                LayoutItem {
+                    id: "bookmarks".into(),
+                    visible: false,
+                },
+            ],
             ..Default::default()
         };
         let old_cfg = AppConfig {
@@ -1446,6 +1485,16 @@ mod tests {
                 .visible
         );
         assert!(!loaded.layout.main_tabs.iter().any(|i| i.id == "decoding"));
+        assert!(!loaded
+            .layout
+            .secondary_tools
+            .iter()
+            .any(|i| i.id == "discord"));
+        assert!(loaded
+            .layout
+            .secondary_tools
+            .iter()
+            .any(|i| i.id == "customize"));
 
         std::env::set_current_dir(original_dir).expect("test should restore original directory");
         let _ = std::fs::remove_dir_all(&dir);

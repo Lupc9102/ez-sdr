@@ -5,6 +5,7 @@
 use crate::ai_panel::AiPanel;
 use crate::app::{SecondaryTool, SharedState};
 use crate::howto_panel::HowToPanel;
+use crate::quick_start::QuickStartWizard;
 use crate::scanner::FrequencyScanner;
 use crate::status_bar::StatusBar;
 use std::sync::{Arc, Mutex};
@@ -14,6 +15,7 @@ pub struct SecondaryPanelContext<'a> {
     pub active_secondary_tool: &'a mut Option<SecondaryTool>,
     pub scanner: &'a mut FrequencyScanner,
     pub howto_panel: &'a mut HowToPanel,
+    pub quick_start: &'a mut QuickStartWizard,
     pub status_bar: &'a mut StatusBar,
     pub ai_panel: &'a mut AiPanel,
 }
@@ -60,6 +62,13 @@ pub fn render_secondary_panel(
                 }
             }
             SecondaryTool::HowTo => ctx.howto_panel.ui(ui),
+            SecondaryTool::SetupGuide => {
+                if !ctx.quick_start.is_active() {
+                    ctx.quick_start.start();
+                }
+                let shared = ctx.shared.clone();
+                ctx.quick_start.render_content(ui, &shared);
+            }
             _ => {}
         });
 }

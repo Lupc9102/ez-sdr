@@ -138,79 +138,90 @@ impl HowToPanel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::left("howto_sidebar")
-            .resizable(false)
-            .exact_size(185.0)
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("howto_sidebar_scroll")
-                    .show(ui, |ui| {
-                        ui.heading("Topics");
-                        ui.add_space(4.0);
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.search_query)
-                                .desired_width(f32::INFINITY)
-                                .hint_text("🔍 Search…"),
-                        )
-                        .on_hover_text("Filter by keyword — e.g. 'gain', 'scanner', 'waterfall'.");
-                        if !self.search_query.is_empty() && ui.small_button("✕ Clear").clicked() {
-                            self.search_query.clear();
-                        }
-                        ui.separator();
-                        let matches = Self::search_matches(&self.search_query);
-                        for (i, section) in SECTIONS.iter().enumerate() {
-                            let visible = self.search_query.is_empty() || matches.contains(&i);
-                            if !visible {
-                                continue;
-                            }
-                            let highlighted = !self.search_query.is_empty() && matches.contains(&i);
-                            let label = if highlighted {
-                                egui::RichText::new(*section)
-                                    .color(egui::Color32::from_rgb(255, 220, 80))
-                            } else {
-                                egui::RichText::new(*section)
-                            };
-                            if ui
-                                .selectable_label(self.selected_section == i, label)
-                                .clicked()
+        // This panel can be embedded in a floating utility window. Keep the
+        // topic list and article side by side without nesting egui root panels,
+        // which would otherwise turn the popup into another split-screen.
+        ui.horizontal_top(|ui| {
+            let available_height = ui.available_height();
+            ui.allocate_ui_with_layout(
+                egui::vec2(185.0, available_height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("howto_sidebar_scroll")
+                        .show(ui, |ui| {
+                            ui.heading("Topics");
+                            ui.add_space(4.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.search_query)
+                                    .desired_width(f32::INFINITY)
+                                    .hint_text("🔍 Search…"),
+                            )
+                            .on_hover_text(
+                                "Filter by keyword — e.g. 'gain', 'scanner', 'waterfall'.",
+                            );
+                            if !self.search_query.is_empty() && ui.small_button("✕ Clear").clicked()
                             {
-                                self.selected_section = i;
+                                self.search_query.clear();
                             }
-                        }
-                        if !self.search_query.is_empty() && matches.is_empty() {
-                            ui.colored_label(egui::Color32::GRAY, "No topics found.");
+                            ui.separator();
+                            let matches = Self::search_matches(&self.search_query);
+                            for (i, section) in SECTIONS.iter().enumerate() {
+                                let visible = self.search_query.is_empty() || matches.contains(&i);
+                                if !visible {
+                                    continue;
+                                }
+                                let highlighted =
+                                    !self.search_query.is_empty() && matches.contains(&i);
+                                let label = if highlighted {
+                                    egui::RichText::new(*section)
+                                        .color(egui::Color32::from_rgb(255, 220, 80))
+                                } else {
+                                    egui::RichText::new(*section)
+                                };
+                                if ui
+                                    .selectable_label(self.selected_section == i, label)
+                                    .clicked()
+                                {
+                                    self.selected_section = i;
+                                }
+                            }
+                            if !self.search_query.is_empty() && matches.is_empty() {
+                                ui.colored_label(egui::Color32::GRAY, "No topics found.");
+                            }
+                        });
+                },
+            );
+            ui.separator();
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("howto_content")
+                    .show(ui, |ui| {
+                        ui.set_max_width(740.0);
+                        ui.add_space(4.0);
+                        match self.selected_section {
+                            0 => self.section_getting_started(ui),
+                            1 => self.section_no_hardware(ui),
+                            2 => self.section_what_is_sdr(ui),
+                            3 => self.section_rtlsdr_hardware(ui),
+                            4 => self.section_antennas(ui),
+                            5 => self.section_sdr_panel(ui),
+                            6 => self.section_spectrum(ui),
+                            7 => self.section_demod_modes(ui),
+                            8 => self.section_adsb(ui),
+                            9 => self.section_satellite(ui),
+                            10 => self.section_scanner(ui),
+                            11 => self.section_recorder(ui),
+                            12 => self.section_bookmarks(ui),
+                            13 => self.section_noise(ui),
+                            14 => self.section_freq_reference(ui),
+                            15 => self.section_soapy(ui),
+                            16 => self.section_ai_agent(ui),
+                            17 => self.section_troubleshooting(ui),
+                            _ => {}
                         }
                     });
             });
-
-        egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("howto_content")
-                .show(ui, |ui| {
-                    ui.set_max_width(740.0);
-                    ui.add_space(4.0);
-                    match self.selected_section {
-                        0 => self.section_getting_started(ui),
-                        1 => self.section_no_hardware(ui),
-                        2 => self.section_what_is_sdr(ui),
-                        3 => self.section_rtlsdr_hardware(ui),
-                        4 => self.section_antennas(ui),
-                        5 => self.section_sdr_panel(ui),
-                        6 => self.section_spectrum(ui),
-                        7 => self.section_demod_modes(ui),
-                        8 => self.section_adsb(ui),
-                        9 => self.section_satellite(ui),
-                        10 => self.section_scanner(ui),
-                        11 => self.section_recorder(ui),
-                        12 => self.section_bookmarks(ui),
-                        13 => self.section_noise(ui),
-                        14 => self.section_freq_reference(ui),
-                        15 => self.section_soapy(ui),
-                        16 => self.section_ai_agent(ui),
-                        17 => self.section_troubleshooting(ui),
-                        _ => {}
-                    }
-                });
         });
     }
 

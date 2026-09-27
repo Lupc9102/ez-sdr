@@ -89,6 +89,7 @@ pub struct CentralApp {
     meteor_decoder: DecodingPanel,
     ai_panel: AiPanel,
     howto_panel: HowToPanel,
+    quick_start: crate::quick_start::QuickStartWizard,
     web_remote: WebRemote,
     rigctl: RigctlServer,
     mqtt: MqttPublisher,
@@ -396,6 +397,7 @@ impl CentralApp {
             meteor_decoder: DecodingPanel::default(),
             ai_panel: AiPanel::new(shared.clone()),
             howto_panel: HowToPanel::new(),
+            quick_start: crate::quick_start::QuickStartWizard::new(),
             web_remote,
             rigctl,
             mqtt,
@@ -2057,6 +2059,7 @@ impl CentralApp {
             active_secondary_tool: &mut self.active_secondary_tool,
             scanner: &mut self.scanner,
             howto_panel: &mut self.howto_panel,
+            quick_start: &mut self.quick_start,
             status_bar: &mut self.status_bar,
             ai_panel: &mut self.ai_panel,
         };

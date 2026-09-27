@@ -1,4 +1,4 @@
-//! Helpers and drawer UI for the `⚙ More → Advanced` panel.
+//! Helpers and utility-window UI for the `⚙ More → Advanced` tool.
 
 use crate::config::AdvancedConfig;
 use crate::spectrum::{ColorMap, WindowType};
@@ -135,7 +135,7 @@ pub fn push_advanced(demod: &mut crate::demod::DemodWorker, shared: &mut crate::
     shared.config.advanced.fft_rate = shared.spectrum.fft_rate();
 }
 
-/// Render the `⚙ More → Advanced` drawer body.
+/// Render the Advanced utility window body.
 ///
 /// Interactive widgets only update `shared.config.advanced` in place; the
 /// running [`crate::demod::DemodWorker`] is re-synced from the whole config

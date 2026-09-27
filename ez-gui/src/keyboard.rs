@@ -4,8 +4,6 @@ use crate::status_bar::StatusBar;
 /// Outcomes from keyboard shortcut processing that require CentralApp fields.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct KeyboardOutcome {
-    /// User requested toggle of keyboard help overlay (`?`).
-    pub toggle_help: bool,
     /// User requested start/stop recording (`Ctrl+R`).
     pub toggle_recording: bool,
     /// User requested toggle of frequency scanner (`S`).
@@ -40,11 +38,6 @@ impl KeyboardHandler {
         let previous_frequency = state.source.frequency_hz;
 
         ctx.input(|i| {
-            // ? : toggle keyboard help
-            if i.key_pressed(egui::Key::Questionmark) {
-                outcome.toggle_help = true;
-            }
-
             // Space: toggle start/stop
             if i.key_pressed(egui::Key::Space) {
                 if matches!(
@@ -420,7 +413,6 @@ mod tests {
     fn keyboard_handler_creation() {
         let _handler = KeyboardHandler::new();
         let outcome = KeyboardOutcome::default();
-        assert!(!outcome.toggle_help);
         assert!(!outcome.toggle_recording);
         assert!(!outcome.toggle_scanner);
         assert!(!outcome.freq_changed);

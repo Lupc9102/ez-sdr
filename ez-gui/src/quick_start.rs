@@ -199,18 +199,24 @@ impl QuickStartWizard {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.set_min_width(500.0);
-
-                match &self.state {
-                    QuickStartState::Inactive => {}
-                    QuickStartState::Welcome => self.ui_welcome(ui),
-                    QuickStartState::DeviceSelection => self.ui_device_selection(ui, shared),
-                    QuickStartState::WorkflowSelection => self.ui_workflow_selection(ui),
-                    QuickStartState::WorkflowConfiguration(workflow) => {
-                        self.ui_workflow_config(ui, shared, *workflow)
-                    }
-                    QuickStartState::Complete => self.ui_complete(ui),
-                }
+                self.render_content(ui, shared);
             });
+    }
+
+    /// Render the wizard steps into an existing UI. Used by the Setup Guide
+    /// utility window so the guided workflow lives inside that window instead
+    /// of a nested pop-up.
+    pub fn render_content(&mut self, ui: &mut egui::Ui, shared: &Arc<Mutex<SharedState>>) {
+        match &self.state {
+            QuickStartState::Inactive => {}
+            QuickStartState::Welcome => self.ui_welcome(ui),
+            QuickStartState::DeviceSelection => self.ui_device_selection(ui, shared),
+            QuickStartState::WorkflowSelection => self.ui_workflow_selection(ui),
+            QuickStartState::WorkflowConfiguration(workflow) => {
+                self.ui_workflow_config(ui, shared, *workflow)
+            }
+            QuickStartState::Complete => self.ui_complete(ui),
+        }
     }
 
     fn ui_welcome(&mut self, ui: &mut egui::Ui) {
