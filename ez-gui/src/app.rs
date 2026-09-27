@@ -18,7 +18,6 @@ use crate::constellation::ConstellationDisplay;
 use crate::decoding_panel::DecodingPanel;
 use crate::demod::{DemodConfig, DemodWorker};
 use crate::discord::DiscordNotifier;
-use crate::discord_panel::DiscordPanel;
 use crate::howto_panel::HowToPanel;
 use crate::mqtt::MqttPublisher;
 use crate::recorder_panel::RecorderPanel;
@@ -108,21 +107,15 @@ pub struct CentralApp {
     last_scheduler_update: std::time::Instant,
     last_source_status: crate::source_manager::SourceStatus,
     last_auto_tuned_satellite: String,
-    bookmark_panel: crate::bookmark_manager::BookmarkPanel,
-    quick_start: crate::quick_start::QuickStartWizard,
-    show_keyboard_help: bool,
     last_history_freq: u64,
     freq_history_idx: Option<usize>,
     recording_start: Option<std::time::Instant>,
     bm_last_len: usize,
     bm_dirty_since: Option<std::time::Instant>,
-    scheduler_panel: crate::scheduler::SchedulerPanel,
     // Frequency jump dialog
     show_freq_jump: bool,
     freq_jump_input: String,
     freq_jump_matches: Vec<(String, u64)>,
-    // Session notes
-    session_notes: String,
     // SDR glossary popup
     show_glossary: bool,
     // First strong signal celebration
@@ -138,7 +131,6 @@ pub struct CentralApp {
     )>,
     theme_applied: bool,
     discord: DiscordNotifier,
-    discord_panel: DiscordPanel,
     last_recording: bool,
     last_adsb_running: bool,
     last_scanner_enabled: bool,
@@ -150,14 +142,10 @@ pub struct CentralApp {
     last_traffic_bucket: usize,
     last_manual_tune_time: std::time::Instant,
     active_secondary_tool: Option<SecondaryTool>,
-    /// 🤖 Ask — ambient AI slide-over, openable from every mode's bar button.
-    ai_ask_open: bool,
     /// ⚙ More — whether the tool-picker menu (deck of hidden tools) is showing.
     #[allow(dead_code)]
     more_menu_open: bool,
-    adsb_instructions_open: bool,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
-    customize_panel: crate::customize_panel::CustomizePanel,
 }
 
 impl CentralApp {
@@ -412,7 +400,6 @@ impl CentralApp {
             rigctl,
             mqtt,
             discord,
-            discord_panel: DiscordPanel::new(),
             radio_iq: crate::radio_iq::RadioIqProcessor::new(Default::default()),
             vfo_mixer: crate::radio_iq::VfoMixer::new(2_048_000.0),
             last_radio_capture: None,
@@ -433,19 +420,14 @@ impl CentralApp {
             last_scheduler_update: std::time::Instant::now(),
             last_source_status: crate::source_manager::SourceStatus::Idle,
             last_auto_tuned_satellite: String::new(),
-            bookmark_panel: crate::bookmark_manager::BookmarkPanel::new(),
-            quick_start: crate::quick_start::QuickStartWizard::new(),
-            show_keyboard_help: false,
             last_history_freq: {
                 let state = shared.lock().expect("shared state mutex poisoned");
                 state.source.frequency_hz
             },
             freq_history_idx: None,
-            scheduler_panel: crate::scheduler::SchedulerPanel::new(),
             show_freq_jump: false,
             freq_jump_input: String::new(),
             freq_jump_matches: Vec::new(),
-            session_notes: String::new(),
             show_glossary: false,
             first_strong_signal_seen: false,
             last_demod_mode: crate::sdr_panel::DemodMode::Fm,
@@ -465,11 +447,8 @@ impl CentralApp {
             last_traffic_bucket: 0,
             last_manual_tune_time: std::time::Instant::now(),
             active_secondary_tool: None,
-            ai_ask_open: false,
             more_menu_open: false,
-            adsb_instructions_open: false,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
-            customize_panel: crate::customize_panel::CustomizePanel::default(),
         };
         // Apply saved advanced settings onto the live engines so a fresh launch
         // reproduces the user's last profile.
@@ -1134,18 +1113,9 @@ impl eframe::App for CentralApp {
                 &mut self.last_history_freq,
             )
         } else {
-            let mut fallback = crate::keyboard::KeyboardOutcome::default();
-            ctx.input(|i| {
-                if i.key_pressed(egui::Key::Questionmark) {
-                    fallback.toggle_help = true;
-                }
-            });
-            fallback
+            crate::keyboard::KeyboardOutcome::default()
         };
 
-        if outcome.toggle_help {
-            self.show_keyboard_help = !self.show_keyboard_help;
-        }
         if outcome.freq_changed {
             self.last_manual_tune_time = std::time::Instant::now();
             if let Ok(mut state) = self.shared.try_lock() {
@@ -1737,11 +1707,6 @@ impl eframe::App for CentralApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if self.quick_start.is_active() {
-            self.quick_start.ui(ui.ctx(), &self.shared);
-            return;
-        }
-
         // Take a snapshot of the shared state once per frame
         let snapshot = {
             if let Ok(state) = self.shared.try_lock() {
@@ -1760,32 +1725,24 @@ impl eframe::App for CentralApp {
             .exact_size(30.0)
             .show(ui, |ui| self.render_mode_bar(ui));
 
-        // ⚙ More — the deck of hidden tools (Bookmarks/Scanner/Settings/…) as a
-        // left slide-over, reusing the existing secondary-tool machinery.
+        // Secondary tools are utility windows. They stay above the receiver
+        // workspace so opening a tool never resizes the spectrum or controls.
         if let Some(tool) = self.active_secondary_tool {
-            egui::Panel::left("secondary_panel")
+            let mut open = true;
+            egui::Window::new(format!("{} {}", tool.icon(), tool.label()))
+                .id(egui::Id::new(("secondary_tool_window", tool.id())))
+                .open(&mut open)
+                .default_size([430.0, 560.0])
+                .min_size([320.0, 240.0])
+                .max_size([680.0, 820.0])
                 .resizable(true)
-                .default_size(360.0)
-                .show(ui, |ui| self.render_secondary_panel(ui, tool, &snapshot));
-        }
-
-        // 🤖 Ask — ambient AI slide-over, available in every mode.
-        if self.ai_ask_open {
-            egui::Panel::right("ai_ask_panel")
-                .resizable(true)
-                .default_size(340.0)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("🤖 Ask").strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("✕").on_hover_text("Close").clicked() {
-                                self.ai_ask_open = false;
-                            }
-                        });
-                    });
-                    ui.separator();
-                    self.ai_panel.ui(ui);
+                .collapsible(false)
+                .show(ui.ctx(), |ui| {
+                    self.render_secondary_panel(ui, tool)
                 });
+            if !open {
+                self.active_secondary_tool = None;
+            }
         }
 
         // Humanized status strip: frequency, mode, plain-language signal, REC.
@@ -1965,69 +1922,6 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // Quick Start Wizard overlay
-        self.quick_start.ui(ui.ctx(), &self.shared);
-
-        // Keyboard shortcuts help overlay
-        if self.show_keyboard_help {
-            egui::Window::new("Keyboard Shortcuts (?)")
-                .id(egui::Id::new("keyboard_help"))
-                .default_size([400.0, 500.0])
-                .movable(true)
-                .show(ui.ctx(), |ui| {
-                    egui::Grid::new("shortcuts_grid").num_columns(2).striped(true).show(ui, |ui| {
-                        ui.monospace("Space"); ui.label("Start/Stop SDR source"); ui.end_row();
-                        ui.monospace("↑ / ↓"); ui.label("Tune by coarse step (default 1 MHz, set via step row)"); ui.end_row();
-                        ui.monospace("← / →"); ui.label("Tune by fine step (default 100 kHz, set via step row)"); ui.end_row();
-                        ui.monospace("Shift+Arrow"); ui.label("Tune by 10× the current step"); ui.end_row();
-                        ui.monospace("[ / ] or Alt+←/→"); ui.label("Frequency history back/forward"); ui.end_row();
-                        ui.monospace("F1 / Alt+R"); ui.label("Demod: RAW"); ui.end_row();
-                        ui.monospace("F2 / Alt+A"); ui.label("Demod: AM"); ui.end_row();
-                        ui.monospace("F3 / Alt+F"); ui.label("Demod: NFM"); ui.end_row();
-                        ui.monospace("F4 / Alt+W"); ui.label("Demod: WFM"); ui.end_row();
-                        ui.monospace("F5 / Alt+L"); ui.label("Demod: LSB"); ui.end_row();
-                        ui.monospace("F6 / Alt+U"); ui.label("Demod: USB"); ui.end_row();
-                        ui.monospace("M"); ui.label("Toggle audio mute on/off"); ui.end_row();
-                        ui.monospace("F"); ui.label("Freeze / unfreeze spectrum display"); ui.end_row();
-                        ui.monospace("C"); ui.label("Cycle waterfall colormap (Classic→Viridis→Plasma→…)"); ui.end_row();
-                        ui.monospace("V"); ui.label("Swap VFO A ↔ VFO B (quick frequency toggle)"); ui.end_row();
-                        ui.monospace("B"); ui.label("Tune to nearest bookmark from current frequency"); ui.end_row();
-                        ui.monospace("T"); ui.label("Tune to the strongest signal in the visible spectrum"); ui.end_row();
-                        ui.monospace("S"); ui.label("Toggle scanner on/off (frequency sweep mode)"); ui.end_row();
-                        ui.monospace("R"); ui.label("Reset spectrum dB range to default (-120 to 0 dB)"); ui.end_row();
-                        ui.monospace("J"); ui.label("Open frequency jump dialog — type MHz or band name to jump"); ui.end_row();
-                        ui.monospace("Ctrl++"); ui.label("Zoom in on spectrum (×1.5 per press)"); ui.end_row();
-                        ui.monospace("Ctrl+-"); ui.label("Zoom out on spectrum"); ui.end_row();
-                        ui.monospace("Ctrl+0"); ui.label("Reset spectrum zoom to 1× (full span)"); ui.end_row();
-                        ui.monospace("P"); ui.label("Toggle spectrum peak hold on/off"); ui.end_row();
-                        ui.monospace("1–9"); ui.label("Tune to bookmark #1–#9 instantly"); ui.end_row();
-                        ui.monospace("Alt+1–9"); ui.label("Recall frequency memory M1–M9 (empty slots do nothing)"); ui.end_row();
-                        ui.monospace("Alt+Shift+1–9"); ui.label("Save current frequency to memory M1–M9"); ui.end_row();
-                        ui.monospace("G / Shift+G"); ui.label("Gain +5 dB / −5 dB step"); ui.end_row();
-                        ui.monospace("Ctrl+↑ / Ctrl+↓"); ui.label("Volume +10% / −10%"); ui.end_row();
-                        ui.monospace("Ctrl+B"); ui.label("Quick-bookmark current frequency"); ui.end_row();
-                        ui.monospace("Ctrl+R"); ui.label("Start / stop recording (toggle)"); ui.end_row();
-                        ui.monospace("Ctrl+S"); ui.label("Save config + recent frequencies + spectrum dB range + VFO B + waterfall range"); ui.end_row();
-                        ui.monospace("?"); ui.label("Toggle this shortcut reference"); ui.end_row();
-                        ui.separator(); ui.separator(); ui.end_row();
-                        ui.label(egui::RichText::new("Spectrum / Waterfall").italics()); ui.label(""); ui.end_row();
-                        ui.monospace("Left-click"); ui.label("Tune to clicked frequency"); ui.end_row();
-                        ui.monospace("Left-drag (waterfall)"); ui.label("Pan zoom window left/right"); ui.end_row();
-                        ui.monospace("Right-click"); ui.label("Context menu: Tune · Bookmark · Copy freq · Set squelch"); ui.end_row();
-                        ui.monospace("Middle-click"); ui.label("Drop a frequency marker"); ui.end_row();
-                        ui.monospace("Scroll"); ui.label("Zoom in/out on spectrum and waterfall"); ui.end_row();
-                        ui.monospace("Shift+Scroll"); ui.label("Pan spectrum left/right"); ui.end_row();
-                        ui.monospace("Mid-drag"); ui.label("Pan spectrum view"); ui.end_row();
-                        ui.separator(); ui.separator(); ui.end_row();
-                        ui.label(egui::RichText::new("Status bar").italics()); ui.label(""); ui.end_row();
-                        ui.monospace("Click frequency"); ui.label("Copy frequency value to clipboard"); ui.end_row();
-                        ui.monospace("◀ ▶ buttons"); ui.label("Navigate frequency history"); ui.end_row();
-                        ui.monospace("⟳ Layout"); ui.label("Reset panel layout to default"); ui.end_row();
-                        ui.monospace("❓ Glossary"); ui.label("Open/close the SDR term glossary"); ui.end_row();
-                    });
-                });
-        }
-
         // SDR Glossary popup
         if self.show_glossary {
             let mut open = true;
@@ -2118,9 +2012,8 @@ pub struct SharedSnapshot {
 // ── Main tab render methods ───────────────────────────────────────────────────
 
 impl CentralApp {
-    /// Top mode bar: the entire top-level navigation. Left = the 3 task modes
-    /// (icon + word); right = the ambient `🤖 Ask` slide-over toggle and the
-    /// `⚙ More` deck of hidden tools (opened as a menu, revealed by user level).
+    /// Top mode bar: the entire top-level navigation. It exposes the task
+    /// modes, curated utility menu, and compact AI popup toggle.
     fn render_mode_bar(&mut self, ui: &mut egui::Ui) {
         crate::mode_bar::render_mode_bar(
             ui,
@@ -2128,9 +2021,6 @@ impl CentralApp {
             &mut self.current_tab,
             &mut self.active_secondary_tool,
             &mut self.adsb_panel,
-            &mut self.quick_start,
-            &mut self.show_keyboard_help,
-            &mut self.ai_ask_open,
         );
     }
 
@@ -2159,37 +2049,18 @@ impl CentralApp {
         };
     }
 
-    fn render_secondary_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        tool: SecondaryTool,
-        snapshot: &Option<SharedSnapshot>,
-    ) {
+    fn render_secondary_panel(&mut self, ui: &mut egui::Ui, tool: SecondaryTool) {
         self.recorder_panel
             .set_audio_sample_rate(self.audio.sample_rate());
         let mut ctx = crate::secondary_panel::SecondaryPanelContext {
             shared: &self.shared,
             active_secondary_tool: &mut self.active_secondary_tool,
-            bookmark_panel: &mut self.bookmark_panel,
-            scheduler_panel: &mut self.scheduler_panel,
-            demod: &mut self.demod_worker,
             scanner: &mut self.scanner,
-            ai_panel: &mut self.ai_panel,
-            ai_ask_open: &mut self.ai_ask_open,
-            status_bar: &mut self.status_bar,
-            recorder_panel: &mut self.recorder_panel,
-            radio_ui: &mut self.radio_ui,
             howto_panel: &mut self.howto_panel,
-            discord_panel: &mut self.discord_panel,
-            discord: &mut self.discord,
-            mqtt: &mut self.mqtt,
-            web_remote: &mut self.web_remote,
-            rigctl: &mut self.rigctl,
-            customize_panel: &mut self.customize_panel,
-            last_manual_tune_time: &mut self.last_manual_tune_time,
-            session_notes: &mut self.session_notes,
+            status_bar: &mut self.status_bar,
+            ai_panel: &mut self.ai_panel,
         };
-        crate::secondary_panel::render_secondary_panel(&mut ctx, ui, tool, snapshot);
+        crate::secondary_panel::render_secondary_panel(&mut ctx, ui, tool);
     }
 
     fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
@@ -2205,11 +2076,6 @@ impl CentralApp {
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| self.radio_ui.sidebar(ui));
                 });
-            // Module shortcuts are painted inside RadioUi, then applied here
-            // after the sidebar closure releases its mutable borrow.
-            if let Some(tool) = self.radio_ui.take_requested_tool() {
-                self.active_secondary_tool = Some(tool);
-            }
         }
         egui::Panel::right("radio_spectrum_rail")
             .exact_size(64.0)
@@ -2360,42 +2226,8 @@ impl CentralApp {
                         .info("🤖 Aircraft details sent to AI".to_string());
                 }
             });
-        // Map dominates the tab; on-page receive instructions live in a collapsed
-        // banner so the map stays the primary focus by default.
-        egui::Panel::top("adsb_instructions")
-            .resizable(false)
-            .exact_size(if self.adsb_instructions_open {
-                260.0
-            } else {
-                24.0
-            })
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let arrow = if self.adsb_instructions_open {
-                        "▼"
-                    } else {
-                        "▶"
-                    };
-                    if ui
-                        .small_button(format!(
-                            "{arrow} 📡 How to receive ADS-B (antenna, 1090 MHz setup)"
-                        ))
-                        .on_hover_text(
-                            "Show/hide setup instructions for receiving live aircraft data",
-                        )
-                        .clicked()
-                    {
-                        self.adsb_instructions_open = !self.adsb_instructions_open;
-                    }
-                });
-                if self.adsb_instructions_open {
-                    egui::ScrollArea::vertical()
-                        .id_salt("adsb_instructions_scroll")
-                        .show(ui, |ui| {
-                            self.adsb_panel.ui_antenna_guide(ui);
-                        });
-                }
-            });
+        // Setup guidance is available from the How To popup; keep the map and
+        // aircraft list unobstructed in the tracking workspace.
         egui::Panel::top("adsb_band_picker").show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Region / band");

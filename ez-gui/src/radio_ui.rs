@@ -6,7 +6,6 @@
 use std::sync::{mpsc, Arc, Mutex};
 
 use crate::app::SharedState;
-use crate::mode_bar::SecondaryTool;
 use crate::sdr_panel::DemodMode;
 use crate::source_manager::{DirectSamplingBranch, SourceManager, SourceMode, SourceStatus};
 use crate::spectrum::{ColorMap, WindowType};
@@ -40,10 +39,6 @@ pub struct RadioUi {
         Option<mpsc::Receiver<Result<Vec<crate::audio_output::AudioOutputDeviceInfo>, String>>>,
     audio_scan_started: bool,
     audio_scan_error: Option<String>,
-    /// A compact SDR++ module shortcut can request the existing full tool
-    /// drawer. Keeping the request deferred avoids borrowing `CentralApp`
-    /// while the radio sidebar is being painted.
-    requested_tool: Option<SecondaryTool>,
 }
 
 impl RadioUi {
@@ -73,27 +68,7 @@ impl RadioUi {
             audio_scan: None,
             audio_scan_started: false,
             audio_scan_error: None,
-            requested_tool: None,
         }
-    }
-
-    /// Consume a module shortcut request generated while drawing the radio
-    /// sidebar. `CentralApp` applies it after the sidebar borrow ends.
-    pub(crate) fn take_requested_tool(&mut self) -> Option<SecondaryTool> {
-        self.requested_tool.take()
-    }
-
-    /// Render the dedicated Sinks view used by the SDR++ module shortcut.
-    /// It reuses the exact same output controls as the compact Radio sidebar
-    /// so device/rate/mute changes have one source of truth.
-    pub(crate) fn sinks_panel(&mut self, ui: &mut egui::Ui, state: &mut SharedState) {
-        ui.heading("Audio sinks");
-        ui.label("Select the output device and stream rate used by the receiver.");
-        self.audio_controls(ui, state);
-    }
-
-    pub(crate) fn band_plan_panel(&mut self, ui: &mut egui::Ui, state: &mut SharedState) {
-        state.spectrum.ui_band_plan_panel(ui);
     }
 
     pub fn toolbar(&mut self, ui: &mut egui::Ui) {
@@ -260,58 +235,6 @@ impl RadioUi {
             self.display_controls(ui, &mut state);
             state.spectrum.ui_radio_controls(ui);
         });
-        self.sdrpp_module_inventory(ui);
-    }
-
-    /// SDR++ keeps these plugin modules in the same left-side module column.
-    /// EZ-SDR already has equivalent focused tools; expose the same inventory
-    /// here so the common workflow does not require hunting through `Tools`.
-    /// The rows stay collapsed by default to preserve the compact 300 px
-    /// receiver geometry and low visual noise.
-    fn sdrpp_module_inventory(&mut self, ui: &mut egui::Ui) {
-        section(ui, "SDR++ Modules", false, |ui| {
-            ui.label(
-                egui::RichText::new("Installed modules")
-                    .small()
-                    .color(ui.visuals().weak_text_color()),
-            );
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
-                self.module_button(ui, "Recorder", SecondaryTool::Recorder);
-                self.module_button(ui, "Sinks", SecondaryTool::Sinks);
-                self.module_button(ui, "Frequency Manager", SecondaryTool::FrequencyManager);
-                self.module_button(ui, "VFO Color", SecondaryTool::VfoColor);
-                self.module_button(ui, "Band Plan", SecondaryTool::BandPlan);
-                self.module_button(ui, "Theme", SecondaryTool::Theme);
-                self.module_button(ui, "Module Manager", SecondaryTool::ModuleManager);
-                self.module_button(ui, "Rigctl Server", SecondaryTool::Rigctl);
-            });
-            ui.label(
-                egui::RichText::new(
-                    "Sinks and band plan are live modules; other entries open the closest EZ-SDR tool.",
-                )
-                .small()
-                .color(ui.visuals().weak_text_color()),
-            );
-        });
-    }
-
-    fn module_button(&mut self, ui: &mut egui::Ui, label: &str, tool: SecondaryTool) {
-        let tooltip = if label == "Rigctl Server" {
-            "Open the loopback Hamlib/rigctld-compatible control server"
-        } else {
-            "Open the matching EZ-SDR module"
-        };
-        if ui
-            .add_sized(
-                [ui.available_width().min(132.0), ROW_HEIGHT],
-                egui::Button::new(label),
-            )
-            .on_hover_text(tooltip)
-            .clicked()
-        {
-            self.requested_tool = Some(tool);
-        }
     }
 
     /// Start from the spectrum's empty-state control using the same mute
@@ -2449,28 +2372,6 @@ mod tests {
             radio.sidebar(ui);
         });
         assert_eq!(shared.lock().unwrap().source.status, SourceStatus::Idle);
-    }
-
-    #[test]
-    fn sinks_module_reuses_audio_controls_without_starting_receiver() {
-        let shared = crate::test_helpers::make_shared_state();
-        let mut radio = RadioUi::new(Arc::clone(&shared));
-        crate::test_helpers::run_ui(|ui| {
-            let mut state = shared.lock().unwrap();
-            radio.sinks_panel(ui, &mut state);
-        });
-        assert_eq!(shared.lock().unwrap().source.status, SourceStatus::Idle);
-    }
-
-    #[test]
-    fn band_plan_module_reuses_spectrum_overlay_state() {
-        let shared = crate::test_helpers::make_shared_state();
-        let mut radio = RadioUi::new(Arc::clone(&shared));
-        crate::test_helpers::run_ui(|ui| {
-            let mut state = shared.lock().unwrap();
-            radio.band_plan_panel(ui, &mut state);
-        });
-        assert!(shared.lock().unwrap().spectrum.band_plan_visible());
     }
 
     // ------------------------------------------------------------------
