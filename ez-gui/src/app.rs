@@ -742,9 +742,10 @@ impl eframe::App for CentralApp {
                     .label()
                     .into();
                 // RTL-SDR delivers an 8 ms block at the default 2.048 MS/s.
-                // Drain ahead of the repaint cadence and allow a delayed frame
-                // to catch up instead of dropping input and producing a click.
-                for _ in 0..8 {
+                // Drain at most 2 batches (16 ms) per frame — enough to keep
+                // up at 60 fps without a 131k-sample catch-up spike that
+                // amplifies stalls. Excess blocks are dropped by the source.
+                for _ in 0..2 {
                     if let Some(samples) = state.source.recv_samples() {
                         sample_batch.push(samples);
                     } else {

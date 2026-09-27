@@ -7,7 +7,7 @@
 //! as well as file and network IQ sources.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 
@@ -246,11 +246,20 @@ struct DaemonAudioTuning {
 
 /// Live input cannot wait for the UI without overrunning the hardware's USB
 /// buffers. Drop only the overflow block; a full queue is not a dead receiver.
-fn send_live_samples(tx: &Sender<SourceMessage>, samples: Vec<u8>) -> bool {
-    !matches!(
-        tx.try_send(SourceMessage::Samples(samples)),
-        Err(TrySendError::Disconnected(_))
-    )
+/// Counts drops so the UI can surface them for diagnosis.
+fn send_live_samples(
+    tx: &Sender<SourceMessage>,
+    samples: Vec<u8>,
+    dropped: &std::sync::atomic::AtomicU64,
+) -> bool {
+    match tx.try_send(SourceMessage::Samples(samples)) {
+        Ok(()) => true,
+        Err(TrySendError::Disconnected(_)) => false,
+        Err(TrySendError::Full(_)) => {
+            dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            true // not a disconnect; the block is dropped but the source lives on
+        }
+    }
 }
 
 /// File replay and terminal messages must survive temporary UI stalls. A short
@@ -359,6 +368,8 @@ pub struct SourceManager {
     running: Arc<AtomicBool>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     stream_generation: u64,
+    /// Number of sample blocks dropped due to queue overflow (UI was behind).
+    dropped_blocks: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// The operating mode of the SDR source.
@@ -406,7 +417,7 @@ impl Default for SourceManager {
 impl SourceManager {
     /// Create a new `SourceManager` in `Idle` state with default tuning values.
     pub fn new() -> Self {
-        let (tx, rx) = bounded(32);
+        let (tx, rx) = bounded(8);
         Self {
             status: SourceStatus::Idle,
             frequency_hz: 109_000_000,
@@ -447,6 +458,7 @@ impl SourceManager {
             running: Arc::new(AtomicBool::new(false)),
             worker_handle: None,
             stream_generation: 0,
+            dropped_blocks: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -642,12 +654,13 @@ impl SourceManager {
         // stop() joins the previous local worker before this flag is reused.
         self.running.store(true, Ordering::SeqCst);
         let running = self.running.clone();
+        let dropped_blocks = self.dropped_blocks.clone();
 
         // Recreate channel if needed (after a previous stop)
         let tx = if let Some(tx) = self.tx.take() {
             tx
         } else {
-            let (new_tx, new_rx) = bounded(32);
+            let (new_tx, new_rx) = bounded(8);
             self.rx = Some(new_rx);
             new_tx
         };
@@ -847,7 +860,7 @@ impl SourceManager {
                                 }
                             };
                             if n > 0 {
-                                if !send_live_samples(&tx, buf[..n].to_vec()) {
+                                if !send_live_samples(&tx, buf[..n].to_vec(), &dropped_blocks) {
                                     break;
                                 }
                             }
@@ -921,7 +934,7 @@ impl SourceManager {
                             }
                         }
 
-                        if !send_live_samples(&tx, buf.clone()) {
+                        if !send_live_samples(&tx, buf.clone(), &dropped_blocks) {
                             break;
                         }
                         if !wait_cancellable(
@@ -1278,7 +1291,7 @@ impl SourceManager {
             let _ = handle.join();
         }
         // Recreate channel for next start()
-        let (new_tx, new_rx) = bounded(32);
+        let (new_tx, new_rx) = bounded(8);
         self.tx = Some(new_tx);
         self.rx = Some(new_rx);
         self.status = SourceStatus::Idle;
@@ -2256,12 +2269,13 @@ mod tests {
     #[test]
     fn live_queue_full_discards_a_block_without_disconnect() {
         let (tx, rx) = bounded(1);
-        assert!(send_live_samples(&tx, vec![1, 2]));
-        assert!(send_live_samples(&tx, vec![3, 4]));
+        let dropped = std::sync::atomic::AtomicU64::new(0);
+        assert!(send_live_samples(&tx, vec![1, 2], &dropped));
+        assert!(send_live_samples(&tx, vec![3, 4], &dropped));
         assert!(matches!(rx.try_recv(), Ok(SourceMessage::Samples(samples)) if samples == [1, 2]));
-        assert!(send_live_samples(&tx, vec![5, 6]));
+        assert!(send_live_samples(&tx, vec![5, 6], &dropped));
         drop(rx);
-        assert!(!send_live_samples(&tx, vec![7, 8]));
+        assert!(!send_live_samples(&tx, vec![7, 8], &dropped));
     }
 
     #[test]

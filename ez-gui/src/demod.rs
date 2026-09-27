@@ -2,6 +2,8 @@ use crate::config::AdvancedConfig;
 use crate::sdr_panel::DemodMode;
 use num_complex::Complex32;
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// 2nd-order IIR biquad (RBJ cookbook) used for audio notch + bass/treble shelves.
 struct Biquad {
@@ -1979,6 +1981,10 @@ pub struct DemodWorker {
     audio_rx: crossbeam_channel::Receiver<DemodFrame>,
     /// The dedicated thread; the Demodulator is owned inside this thread.
     handle: Option<std::thread::JoinHandle<()>>,
+    /// IQ batches dropped because the worker queue was full.
+    dropped_iq: Arc<AtomicU64>,
+    /// Demod frames dropped because the UI was behind.
+    dropped_frames: Arc<AtomicU64>,
 }
 
 impl DemodWorker {
@@ -1995,6 +2001,8 @@ impl DemodWorker {
             reset_tx,
             audio_rx,
             handle: None,
+            dropped_iq: Arc::new(AtomicU64::new(0)),
+            dropped_frames: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -2005,6 +2013,10 @@ impl DemodWorker {
         let (config_tx, config_rx) = crossbeam_channel::bounded::<WorkerMessage>(4);
         let (reset_tx, reset_rx) = crossbeam_channel::bounded::<()>(1);
         let (audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(capacity);
+        let dropped_iq = Arc::new(AtomicU64::new(0));
+        let dropped_frames = Arc::new(AtomicU64::new(0));
+        let _worker_dropped_iq = Arc::clone(&dropped_iq);
+        let worker_dropped_frames = Arc::clone(&dropped_frames);
         let handle = std::thread::spawn(move || {
             let mut demod = Demodulator::new();
             let mut config = DemodConfig::default();
@@ -2062,6 +2074,7 @@ impl DemodWorker {
                 let mut frame = frame;
                 (frame.wfm_multiplex, frame.wfm_multiplex_rate) = demod.take_wfm_multiplex();
                 if audio_tx.try_send(frame).is_err() {
+                    worker_dropped_frames.fetch_add(1, Ordering::Relaxed);
                     continue; // UI thread is behind or gone; drop frame, keep looping.
                 }
             }
@@ -2072,15 +2085,35 @@ impl DemodWorker {
             reset_tx,
             audio_rx,
             handle: Some(handle),
+            dropped_iq,
+            dropped_frames,
         }
     }
 
     /// Non-blocking: queue one IQ batch for demodulation. Returns `false`
     /// when the worker is full or gone and the batch must be dropped.
     pub fn push_iq(&self, iq: Vec<Complex32>) -> bool {
-        self.iq_tx
-            .as_ref()
-            .is_some_and(|tx| tx.try_send(iq).is_ok())
+        match self.iq_tx.as_ref() {
+            Some(tx) => match tx.try_send(iq) {
+                Ok(()) => true,
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => false,
+                Err(crossbeam_channel::TrySendError::Full(_)) => {
+                    self.dropped_iq.fetch_add(1, Ordering::Relaxed);
+                    false
+                }
+            },
+            None => false,
+        }
+    }
+
+    /// Number of IQ batches dropped due to worker queue overflow.
+    pub fn dropped_iq(&self) -> u64 {
+        self.dropped_iq.load(Ordering::Relaxed)
+    }
+
+    /// Number of demod frames dropped because the UI was behind.
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
     }
 
     /// Non-blocking: replace the per-batch demodulation configuration.

@@ -1927,7 +1927,7 @@ impl SpectrumAnalyzer {
                 ),
             );
 
-            // Filled area + line
+            // Filled area + line — single polyline instead of ~600 line_segment calls
             let pts: Vec<egui::Pos2> = history_vec
                 .iter()
                 .enumerate()
@@ -1947,18 +1947,11 @@ impl SpectrumAnalyzer {
                     egui::Stroke::NONE,
                 ));
 
-                // Color-coded line segments
-                for i in 0..pts.len() - 1 {
-                    let norm = ((history_vec[i] - min_v) / range).clamp(0.0, 1.0);
-                    let col = if norm > 0.7 {
-                        egui::Color32::from_rgb(46, 204, 113)
-                    } else if norm > 0.45 {
-                        egui::Color32::from_rgb(241, 196, 15)
-                    } else {
-                        egui::Color32::from_rgb(52, 152, 219)
-                    };
-                    painter.line_segment([pts[i], pts[i + 1]], egui::Stroke::new(1.2, col));
-                }
+                // Single polyline for the history curve
+                painter.add(egui::Shape::line(
+                    pts.clone(),
+                    egui::Stroke::new(1.2, egui::Color32::from_rgb(46, 204, 113)),
+                ));
 
                 // Peak dot
                 if let Some((pk_idx, &pk_db)) = history_vec
@@ -2054,24 +2047,20 @@ impl SpectrumAnalyzer {
                     ],
                     egui::Stroke::new(0.3, egui::Color32::from_rgba_unmultiplied(80, 80, 120, 80)),
                 );
-                // Waveform line
-                let mut prev = None;
-                for (i, &s) in wf_samples.iter().enumerate() {
-                    let x = wave_rect.left() + (i as f32 / (n_wf - 1) as f32) * wave_rect.width();
-                    let y = mid_y - s * amp;
-                    if let Some(p) = prev {
-                        let color = if s.abs() > 0.5 {
-                            egui::Color32::from_rgb(231, 76, 60) // red on loud
-                        } else if s.abs() > 0.25 {
-                            egui::Color32::from_rgb(241, 196, 15) // yellow on moderate
-                        } else {
-                            egui::Color32::from_rgb(46, 204, 113) // green on quiet
-                        };
-                        wf_painter
-                            .line_segment([p, egui::pos2(x, y)], egui::Stroke::new(1.0, color));
-                    }
-                    prev = Some(egui::pos2(x, y));
-                }
+                // Waveform as a single polyline (one draw call instead of ~2000)
+                let points: Vec<egui::Pos2> = wf_samples
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &s)| {
+                        let x = wave_rect.left()
+                            + (i as f32 / (n_wf - 1) as f32) * wave_rect.width();
+                        egui::pos2(x, mid_y - s * amp)
+                    })
+                    .collect();
+                wf_painter.add(egui::Shape::line(
+                    points,
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 204, 113)),
+                ));
                 // Label
                 wf_painter.text(
                     egui::pos2(wave_rect.left() + 2.0, wave_rect.top() + 2.0),
@@ -2880,9 +2869,8 @@ impl SpectrumAnalyzer {
             }
         }
 
-        // Spectrum line (zoom-aware)
+        // Spectrum line (zoom-aware) — single polyline instead of ~1800 line_segment calls
         {
-            let mut prev_pos = None;
             let half_span = self.sample_rate / 2.0;
             let first_bin = ((left_hz + half_span) / self.sample_rate * n as f64) as usize;
             let last_bin = ((right_hz + half_span) / self.sample_rate * n as f64) as usize;
@@ -2890,23 +2878,26 @@ impl SpectrumAnalyzer {
             let last_bin = last_bin.clamp(first_bin + 1, n);
             let visible_bins = (last_bin - first_bin).max(1);
             let stride = plot_bin_stride(visible_bins, spectrum_rect.width());
-            for i in (first_bin..last_bin).step_by(stride) {
-                let frac = (i - first_bin) as f32 / visible_bins as f32;
-                let x = spectrum_rect.left() + frac * spectrum_rect.width();
-                let db = if self.persistence > 0.0 {
-                    peak_in_bins(&self.persist_buf, i, (i + stride).min(last_bin))
-                } else {
-                    peak_in_bins(&self.spectrum_dbs, i, (i + stride).min(last_bin))
-                };
-                let norm = ((db - min_db) / range).clamp(0.0, 1.0);
-                let y = spectrum_rect.bottom() - norm * spectrum_height;
-                if let Some(prev) = prev_pos {
-                    painter.line_segment(
-                        [prev, egui::pos2(x, y)],
-                        egui::Stroke::new(1.5, self.curve_color),
-                    );
-                }
-                prev_pos = Some(egui::pos2(x, y));
+            let points: Vec<egui::Pos2> = (first_bin..last_bin)
+                .step_by(stride)
+                .map(|i| {
+                    let frac = (i - first_bin) as f32 / visible_bins as f32;
+                    let x = spectrum_rect.left() + frac * spectrum_rect.width();
+                    let db = if self.persistence > 0.0 {
+                        peak_in_bins(&self.persist_buf, i, (i + stride).min(last_bin))
+                    } else {
+                        peak_in_bins(&self.spectrum_dbs, i, (i + stride).min(last_bin))
+                    };
+                    let norm = ((db - min_db) / range).clamp(0.0, 1.0);
+                    let y = spectrum_rect.bottom() - norm * spectrum_height;
+                    egui::pos2(x, y)
+                })
+                .collect();
+            if points.len() > 1 {
+                painter.add(egui::Shape::line(
+                    points,
+                    egui::Stroke::new(1.5, self.curve_color),
+                ));
             }
         }
 
@@ -2952,24 +2943,21 @@ impl SpectrumAnalyzer {
             let sq_y = spectrum_rect.bottom() - sq_norm * spectrum_height;
             let dash_len = 6.0_f32;
             let gap_len = 4.0_f32;
-            let total = dash_len + gap_len;
-            let n_dashes = (spectrum_rect.width() / total).ceil() as usize;
-            for i in 0..n_dashes {
-                let x0 = spectrum_rect.left() + i as f32 * total;
-                let x1 = (x0 + dash_len).min(spectrum_rect.right());
-                painter.line_segment(
-                    [egui::pos2(x0, sq_y), egui::pos2(x1, sq_y)],
-                    egui::Stroke::new(
-                        1.0,
-                        egui::Color32::from_rgba_unmultiplied(
-                            self.color_warning.r(),
-                            self.color_warning.g(),
-                            self.color_warning.b(),
-                            180,
-                        ),
+            // Single dashed line (one draw call) instead of ~200 line_segment calls
+            painter.add(egui::Shape::dashed_line(
+                &[egui::pos2(spectrum_rect.left(), sq_y), egui::pos2(spectrum_rect.right(), sq_y)],
+                egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgba_unmultiplied(
+                        self.color_warning.r(),
+                        self.color_warning.g(),
+                        self.color_warning.b(),
+                        180,
                     ),
-                );
-            }
+                ),
+                dash_len,
+                gap_len,
+            ));
             painter.text(
                 egui::pos2(spectrum_rect.right() - 4.0, sq_y - 2.0),
                 egui::Align2::RIGHT_BOTTOM,

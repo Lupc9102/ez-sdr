@@ -20,15 +20,21 @@ fn preferred_host() -> Result<cpal::Host, String> {
 }
 use crossbeam_channel::Receiver;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     Arc, Mutex,
 };
 
 /// Audio frames arrive from the GUI/DSP pipeline in small batches. Keep enough
 /// batches queued to absorb a late repaint or a short DSP scheduling hiccup
 /// without making the real-time CPAL callback wait on the UI thread.
+/// 8 frames × 8.1 ms = 64 ms worst case (the 200 ms backlog limit already
+/// provides deeper jitter absorption; a shallower queue bounds latency).
 #[cfg(feature = "audio")]
-const AUDIO_QUEUE_CAPACITY: usize = 32;
+const AUDIO_QUEUE_CAPACITY: usize = 8;
+
+/// Explicit output buffer size (~10 ms at 48 kHz) instead of the
+/// PulseAudio default (50-100 ms), which was the single largest fixed
+/// latency component. Passed as the CPAL latency hint in build_output_stream.
 
 /// None selects the system default; a stored CPAL ID selects that device only.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -291,7 +297,7 @@ fn build_output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
                 format!("Audio output failed: {error}"),
             )
         },
-        None,
+        Some(std::time::Duration::from_millis(10)),
     )
 }
 fn record_failure(failed: &AtomicBool, message: &Mutex<Option<String>>, error: String) {
@@ -340,6 +346,8 @@ fn create_cpal_stream(
     let sample_rate = supported.sample_rate();
     let format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
+    // The latency hint (Some(10ms)) in build_output_stream requests a small
+    // buffer from PulseAudio instead of its 50-100 ms default.
     let stream = match format {
         cpal::SampleFormat::F32 => build_output_stream::<f32>(
             &device,
@@ -384,6 +392,7 @@ pub struct AudioWorker {
     error_message: Arc<Mutex<Option<String>>>,
     sample_rate: Arc<AtomicU32>,
     input_channels: usize,
+    dropped_frames: Arc<AtomicU64>,
 }
 
 #[cfg(feature = "audio")]
@@ -396,6 +405,7 @@ impl AudioWorker {
         let failed = Arc::new(AtomicBool::new(false));
         let error_message = Arc::new(Mutex::new(None));
         let sample_rate = Arc::new(AtomicU32::new(48_000));
+        let dropped_frames = Arc::new(AtomicU64::new(0));
         Self {
             audio_tx,
             stop_tx,
@@ -404,6 +414,7 @@ impl AudioWorker {
             error_message,
             sample_rate,
             input_channels: 1,
+            dropped_frames,
         }
     }
 
@@ -421,12 +432,27 @@ impl AudioWorker {
         let failed = Arc::new(AtomicBool::new(false));
         let error_message = Arc::new(Mutex::new(None));
         let sample_rate = Arc::new(AtomicU32::new(48_000));
+        let dropped_frames = Arc::new(AtomicU64::new(0));
 
         let worker_failed = Arc::clone(&failed);
         let worker_error_message = Arc::clone(&error_message);
         let worker_sample_rate = Arc::clone(&sample_rate);
 
         let handle = std::thread::spawn(move || {
+            #[cfg(target_os = "linux")]
+            {
+                // Raise audio thread priority to reduce CPAL callback jitter.
+                // Best-effort: ignore errors on unsupported platforms.
+                unsafe {
+                    let mut param: libc::sched_param = std::mem::zeroed();
+                    param.sched_priority = 50;
+                    libc::pthread_setschedparam(
+                        libc::pthread_self(),
+                        libc::SCHED_FIFO,
+                        &param,
+                    );
+                }
+            }
             match create_cpal_stream(
                 audio_rx,
                 &selection,
@@ -454,12 +480,23 @@ impl AudioWorker {
             error_message,
             sample_rate,
             input_channels,
+            dropped_frames,
         })
     }
 
     /// Non-blocking send. Returns `false` if the channel is full (sample is dropped).
     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
-        self.audio_tx.try_send(samples).is_ok()
+        if self.audio_tx.try_send(samples).is_ok() {
+            true
+        } else {
+            self.dropped_frames.fetch_add(1, Ordering::Relaxed);
+            false
+        }
+    }
+
+    /// Number of audio frames dropped due to queue overflow since start.
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
     }
 
     /// Signal the worker to stop and wait for it to finish.
@@ -629,6 +666,18 @@ impl AudioOutput {
     pub fn has_failed(&self) -> bool {
         self.failed.load(Ordering::Acquire)
     }
+
+    /// Number of audio frames dropped due to queue overflow since start.
+    pub fn dropped_frames(&self) -> u64 {
+        #[cfg(feature = "audio")]
+        {
+            if let Some(worker) = &self.worker {
+                return worker.dropped_frames();
+            }
+        }
+        0
+    }
+
     /// Drain the message without clearing failure state. Stop/restart resets it.
     pub fn take_error(&self) -> Option<String> {
         self.error_message
