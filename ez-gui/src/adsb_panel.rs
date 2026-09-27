@@ -40,6 +40,8 @@ pub struct AdsBPanel {
     tile_download_tx: std::sync::mpsc::Sender<((u32, u32, u32), Result<egui::ColorImage, String>)>,
     tile_download_rx:
         std::sync::mpsc::Receiver<((u32, u32, u32), Result<egui::ColorImage, String>)>,
+    tile_request_tx: crossbeam_channel::Sender<(u32, u32, u32)>,
+    tile_request_rx: crossbeam_channel::Receiver<(u32, u32, u32)>,
     tile_failures: std::collections::HashMap<(u32, u32, u32), (std::time::Instant, u32)>,
     tile_last_error: Option<String>,
     tile_zoom: u32,
@@ -369,13 +371,14 @@ impl AdsBPanel {
     pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
         let (info_tx, info_rx) = std::sync::mpsc::channel();
         let (tile_download_tx, tile_download_rx) = std::sync::mpsc::channel();
+        let (tile_request_tx, tile_request_rx) = crossbeam_channel::unbounded();
         let (observer_lat, observer_lon) = shared
             .try_lock()
             .map(|state| (state.config.observer_lat, state.config.observer_lon))
             .unwrap_or((51.5, -0.1));
         let init_cx = Self::lon_to_tile_x(observer_lon, 8);
         let init_cy = Self::lat_to_tile_y(observer_lat, 8);
-        Self {
+        let panel = Self {
             shared: shared.clone(),
             aircraft: vec![],
             selected_icao: None,
@@ -407,6 +410,8 @@ impl AdsBPanel {
             tile_pending: std::collections::HashSet::new(),
             tile_download_tx,
             tile_download_rx,
+            tile_request_tx,
+            tile_request_rx,
             tile_failures: std::collections::HashMap::new(),
             tile_last_error: None,
             tile_zoom: 8,
@@ -426,7 +431,29 @@ impl AdsBPanel {
             uat_dropped: 0,
             message_times: std::collections::VecDeque::new(),
             info_inflight: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
+        };
+        // Spawn the tile download worker pool. Workers read from tile_request_rx
+        // (crossbeam supports multiple consumers), download tiles, and send
+        // results through tile_download_tx. Threads are detached — they exit
+        // when the channel closes (panel dropped).
+        {
+            let tile_request_rx = panel.tile_request_rx.clone();
+            let tile_download_tx = panel.tile_download_tx.clone();
+            let tile_inflight = Arc::clone(&panel.tile_inflight);
+            for _ in 0..Self::TILE_WORKER_THREADS {
+                let tile_request_rx = tile_request_rx.clone();
+                let tile_download_tx = tile_download_tx.clone();
+                let tile_inflight = Arc::clone(&tile_inflight);
+                std::thread::spawn(move || {
+                    while let Ok((z, x, y)) = tile_request_rx.recv() {
+                        let image = Self::load_or_fetch_tile(z, x, y);
+                        let _ = tile_download_tx.send(((z, x, y), image));
+                        tile_inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                });
+            }
         }
+        panel
     }
 
     /// Auto-configure the SDR for ADS-B and start receiving. Idempotent: if the
@@ -1086,6 +1113,7 @@ impl AdsBPanel {
     const ZOOM_DEBOUNCE_MS: u64 = 300;
     const MAX_CACHED_TILES: usize = 400;
     const MAX_CONCURRENT_TILE_DOWNLOADS: usize = 8;
+    const TILE_WORKER_THREADS: usize = 4;
     const MAX_TILE_BYTES: usize = 1024 * 1024;
 
     fn lon_to_tile_x(lon: f64, zoom: u32) -> f64 {
@@ -1224,13 +1252,7 @@ impl AdsBPanel {
         self.tile_pending.insert((z, x, y));
         self.tile_inflight
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tx = self.tile_download_tx.clone();
-        let inflight = std::sync::Arc::clone(&self.tile_inflight);
-        std::thread::spawn(move || {
-            let image = Self::load_or_fetch_tile(z, x, y);
-            let _ = tx.send(((z, x, y), image));
-            inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        });
+        let _ = self.tile_request_tx.send((z, x, y));
     }
 
     fn process_tile_downloads(&mut self, ctx: &egui::Context) {
