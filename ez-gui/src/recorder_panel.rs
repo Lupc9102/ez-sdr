@@ -1240,6 +1240,7 @@ mod tests {
             source: crate::source_manager::SourceManager::new(),
             spectrum: crate::spectrum::SpectrumAnalyzer::new(),
             config: crate::config::AppConfig::default(),
+            input_format: dump1090::demod::InputFormat::Uc8,
             bookmarks: crate::bookmarks::BookmarkDb::load_or_default(),
             scheduler: crate::scheduler::Scheduler::new(),
             tle: crate::tle_engine::TleEngine::new(),

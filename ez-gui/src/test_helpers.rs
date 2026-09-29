@@ -14,6 +14,7 @@ pub fn make_shared_state() -> Arc<Mutex<SharedState>> {
         source: SourceManager::new(),
         spectrum: SpectrumAnalyzer::new(),
         config: AppConfig::default(),
+        input_format: dump1090::demod::InputFormat::Uc8,
         bookmarks: BookmarkDb::default(),
         scheduler: Scheduler::new(),
         tle: TleEngine::new(),

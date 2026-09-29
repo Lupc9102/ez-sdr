@@ -128,6 +128,9 @@ fn render_workspaces() {
                     surface_heading: None,
                     has_position: true,
                     seen: std::time::Instant::now(),
+                    reliable: true,
+                    correctedbits: 0,
+                    score: 1.0,
                 },
             )
             .collect();

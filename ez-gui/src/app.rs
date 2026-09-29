@@ -49,6 +49,8 @@ pub struct SharedState {
     pub source: SourceManager,
     pub spectrum: SpectrumAnalyzer,
     pub config: AppConfig,
+    /// IQ sample format produced by the current source.
+    pub input_format: dump1090::demod::InputFormat,
     pub bookmarks: BookmarkDb,
     pub scheduler: Scheduler,
     pub tle: TleEngine,
@@ -244,6 +246,7 @@ impl CentralApp {
         let mut spectrum = SpectrumAnalyzer::new();
         spectrum.load_signal_history();
         let shared = Arc::new(Mutex::new(SharedState {
+            input_format: dump1090::demod::InputFormat::Uc8,
             source: SourceManager::new(),
             spectrum,
             config,
@@ -605,6 +608,9 @@ impl CentralApp {
             surface_heading: None,
             has_position: true,
             seen: std::time::Instant::now(),
+            reliable: true,
+            correctedbits: 0,
+            score: 1.0,
         })
     }
 
@@ -908,7 +914,8 @@ impl eframe::App for CentralApp {
                     && (center == 1_090_000_000
                         || (center > 1_088_000_000 && center < 1_092_000_000))
                 {
-                    self.adsb_decoder.feed_iq(samples, rate);
+                    let format = self.shared.lock().unwrap().input_format;
+                    self.adsb_decoder.feed_iq_with_format(samples, rate, format);
                     if self.adsb_decoder.sample_rate_mismatch() {
                         self.status_bar.warning(
                             "⚠ ADS-B: sample rate mismatch (expected 2.4 MHz)".to_string(),

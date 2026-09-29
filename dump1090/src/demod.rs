@@ -1265,7 +1265,7 @@ impl Demod2400 {
 // ========================================================================
 
 /// Common input formats that the RTL-SDR / SDR front-ends provide.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputFormat {
     /// Unsigned 8-bit IQ (RTL-SDR default).
     Uc8,
@@ -1273,6 +1273,22 @@ pub enum InputFormat {
     Sc16,
     /// Signed 16-bit IQ with 11-bit Q offset correction.
     Sc16Q11,
+}
+
+impl InputFormat {
+    /// Number of bytes per IQ sample for this format.
+    pub fn bytes_per_sample(&self) -> usize {
+        match self {
+            InputFormat::Uc8 => 2,
+            InputFormat::Sc16 | InputFormat::Sc16Q11 => 4,
+        }
+    }
+}
+
+impl Default for InputFormat {
+    fn default() -> Self {
+        InputFormat::Uc8
+    }
 }
 
 /// Convert a buffer of interleaved IQ samples into magnitude values.

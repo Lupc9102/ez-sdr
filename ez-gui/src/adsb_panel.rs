@@ -51,6 +51,10 @@ pub struct AdsBPanel {
     tile_last_used: std::collections::HashMap<(u32, u32, u32), u64>,
     tile_frame_counter: u64,
     tile_inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Current sort column for the aircraft table (0=Flight, 1=Alt, 2=Spd, 3=Hdg, 4=Dist, 5=Age).
+    sort_column: u8,
+    /// Sort direction: true = ascending, false = descending.
+    sort_ascending: bool,
     last_zoom_change: std::time::Instant,
     geo_rx: Option<std::sync::mpsc::Receiver<(f64, f64)>>,
     plane_texture: Option<egui::TextureHandle>,
@@ -112,6 +116,12 @@ pub struct AircraftEntry {
     pub surface_heading: Option<u32>,
     pub has_position: bool,
     pub seen: std::time::Instant,
+    /// Whether the last position decode was reliable (no CRC correction needed).
+    pub reliable: bool,
+    /// Number of CRC-corrected bits in the last decoded message (0-2).
+    pub correctedbits: u8,
+    /// Signal quality score (0.0-1.0) from the demodulator.
+    pub score: f64,
 }
 
 /// Altitude source type (barometric vs geometric/GNSS).
@@ -162,6 +172,9 @@ impl Default for AircraftEntry {
             surface_heading: None,
             has_position: false,
             seen: std::time::Instant::now(),
+            reliable: false,
+            correctedbits: 0,
+            score: 0.0,
         }
     }
 }
@@ -422,6 +435,8 @@ impl AdsBPanel {
             tile_last_used: std::collections::HashMap::new(),
             tile_frame_counter: 0,
             tile_inflight: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            sort_column: 0,
+            sort_ascending: true,
             geo_rx: None,
             plane_texture: None,
             region: AdsbRegion::ModeS1090,
@@ -1940,6 +1955,105 @@ impl AdsBPanel {
             egui::FontId::proportional(9.0),
             theme.text_dim.to_egui(),
         );
+
+        // I4: Zoom indicator (top-right)
+        let zoom_text = format!("Zoom: {}", self.tile_zoom);
+        let zoom_galley = painter.layout_no_wrap(
+            zoom_text.into(),
+            egui::FontId::proportional(10.0),
+            theme.text_normal.to_egui(),
+        );
+        let zoom_rect = egui::Rect::from_min_size(
+            rect.right_top() - zoom_galley.size() - egui::vec2(10.0, 8.0),
+            zoom_galley.size() + egui::vec2(8.0, 4.0),
+        );
+        painter.rect_filled(zoom_rect, 3.0, theme.bg.with_alpha(200).to_egui());
+        painter.galley(
+            zoom_rect.left_top() + egui::vec2(4.0, 2.0),
+            zoom_galley,
+            theme.text_normal.to_egui(),
+        );
+
+        // I5: Scale bar (bottom-right, above attribution)
+        let meters_per_pixel = 156543.03392 * self.observer_lat.to_radians().cos()
+            / (1u64 << self.tile_zoom) as f64;
+        let scale_bar_meters = if meters_per_pixel * 100.0 < 100.0 {
+            100.0
+        } else if meters_per_pixel * 100.0 < 500.0 {
+            500.0
+        } else if meters_per_pixel * 100.0 < 1000.0 {
+            1000.0
+        } else if meters_per_pixel * 100.0 < 5000.0 {
+            5000.0
+        } else {
+            10000.0
+        };
+        let scale_bar_px = scale_bar_meters / meters_per_pixel;
+        let scale_bar_y = rect.bottom() - 20.0;
+        let scale_bar_x = rect.right() - scale_bar_px as f32 - 12.0;
+        painter.line_segment(
+            [
+                egui::pos2(scale_bar_x, scale_bar_y),
+                egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y),
+            ],
+            egui::Stroke::new(2.0, theme.text_normal.to_egui()),
+        );
+        painter.line_segment(
+            [
+                egui::pos2(scale_bar_x, scale_bar_y - 3.0),
+                egui::pos2(scale_bar_x, scale_bar_y + 3.0),
+            ],
+            egui::Stroke::new(1.0, theme.text_normal.to_egui()),
+        );
+        painter.line_segment(
+            [
+                egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y - 3.0),
+                egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y + 3.0),
+            ],
+            egui::Stroke::new(1.0, theme.text_normal.to_egui()),
+        );
+        let scale_label = if scale_bar_meters >= 1000.0 {
+            format!("{:.0} km", scale_bar_meters / 1000.0)
+        } else {
+            format!("{:.0} m", scale_bar_meters)
+        };
+        painter.text(
+            egui::pos2(scale_bar_x + scale_bar_px as f32 / 2.0, scale_bar_y - 4.0),
+            egui::Align2::CENTER_BOTTOM,
+            scale_label,
+            egui::FontId::proportional(8.0),
+            theme.text_dim.to_egui(),
+        );
+
+        // I8: Lat/lon grid overlay (subtle, every 0.5 degrees)
+        let grid_color = theme.text_dim.with_alpha(20).to_egui();
+        let grid_stroke = egui::Stroke::new(0.5, grid_color);
+        let lat_start = (self.tile_cy - half_h / tile_px).floor() as i64;
+        let lat_end = (self.tile_cy + half_h / tile_px).ceil() as i64;
+        let lon_start = (self.tile_cx - half_w / tile_px).floor() as i64;
+        let lon_end = (self.tile_cx + half_w / tile_px).ceil() as i64;
+        for lat in lat_start..=lat_end {
+            let lat_f = lat as f64;
+            let ty = Self::lat_to_tile_y(lat_f, self.tile_zoom);
+            let sy = (f64::from(rect.center().y) + (ty - self.tile_cy) * tile_px) as f32;
+            if sy >= rect.top() && sy <= rect.bottom() {
+                painter.line_segment(
+                    [egui::pos2(rect.left(), sy), egui::pos2(rect.right(), sy)],
+                    grid_stroke,
+                );
+            }
+        }
+        for lon in lon_start..=lon_end {
+            let lon_f = lon as f64;
+            let tx = Self::lon_to_tile_x(lon_f, self.tile_zoom);
+            let sx = (f64::from(rect.center().x) + self.tile_x_delta(tx) * tile_px) as f32;
+            if sx >= rect.left() && sx <= rect.right() {
+                painter.line_segment(
+                    [egui::pos2(sx, rect.top()), egui::pos2(sx, rect.bottom())],
+                    grid_stroke,
+                );
+            }
+        }
     }
 
     fn ui_uat_source(&mut self, ui: &mut egui::Ui) {
@@ -2200,24 +2314,59 @@ impl AdsBPanel {
         ui.separator();
         module_card(ui, &theme, "planes.list", "✈", "Aircraft", true, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("adsb_list_compact").num_columns(6).striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new("Flight").small().strong());
-                ui.label(egui::RichText::new("Alt").small().strong());
-                ui.label(egui::RichText::new("Spd").small().strong());
-                ui.label(egui::RichText::new("Dist").small().strong());
-                ui.label(egui::RichText::new("Age").small().strong());
+            // I7: Sortable column headers
+            let mut sort_col = self.sort_column;
+            let mut sort_asc = self.sort_ascending;
+            egui::Grid::new("adsb_list_header").num_columns(7).show(ui, |ui| {
+                for (label, col) in [
+                    ("Flight", 0), ("Alt", 1), ("Spd", 2), ("Hdg", 3), ("Dist", 4), ("Age", 5),
+                ] {
+                    let text = if sort_col == col {
+                        format!("{} {}", label, if sort_asc { "▲" } else { "▼" })
+                    } else {
+                        label.to_string()
+                    };
+                    if ui.button(egui::RichText::new(text).small().strong()).clicked() {
+                        if sort_col == col {
+                            sort_asc = !sort_asc;
+                        } else {
+                            sort_col = col;
+                            sort_asc = true;
+                        }
+                    }
+                }
                 ui.label(egui::RichText::new("").small());
                 ui.end_row();
+            });
+            self.sort_column = sort_col;
+            self.sort_ascending = sort_asc;
 
+            let mut aircraft: Vec<AircraftEntry> = self.aircraft.iter().filter(|ac| self.matches_filters(ac)).cloned().collect();
+            aircraft.sort_by(|a, b| {
+                let ord = match sort_col {
+                    0 => a.callsign.cmp(&b.callsign),
+                    1 => a.altitude.cmp(&b.altitude),
+                    2 => a.speed.cmp(&b.speed),
+                    3 => a.heading.cmp(&b.heading),
+                    4 => {
+                        let da = self.haversine_distance(self.observer_lat, self.observer_lon, a.lat, a.lon);
+                        let db = self.haversine_distance(self.observer_lat, self.observer_lon, b.lat, b.lon);
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    }
+                    5 => a.seen.cmp(&b.seen),
+                    _ => std::cmp::Ordering::Equal,
+                };
+                if sort_asc { ord } else { ord.reverse() }
+            });
+
+            egui::Grid::new("adsb_list_compact").num_columns(7).striped(true).show(ui, |ui| {
                 let now = std::time::Instant::now();
                 let max_age = self.max_age_secs;
                 let mut fetch_icao: Option<u32> = None;
-                for ac in &self.aircraft {
+                for ac in aircraft {
                     let age = now.duration_since(ac.seen).as_secs();
-                    if !self.matches_filters(ac) { continue; }
                     let is_selected = self.selected_icao == Some(ac.icao);
                     let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
-                    // Age fade: blend text_normal → text_dim as the contact goes stale.
                     let row_col = if is_selected {
                         theme.accent.to_egui()
                     } else {
@@ -2233,7 +2382,10 @@ impl AdsBPanel {
                     }
                     ui.label(egui::RichText::new(format!("{}ft", ac.altitude)).color(row_col).small());
                     ui.label(egui::RichText::new(format!("{}kt", ac.speed)).color(row_col).small());
-                    let has_position = self.has_position(ac);
+                    // I6: Heading column
+                    let hdg_label = if ac.has_position { format!("{}°", ac.heading) } else { "—".into() };
+                    ui.label(egui::RichText::new(hdg_label).color(row_col).small());
+                    let has_position = self.has_position(&ac);
                     let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
                     let distance_label = if has_position { format!("{dist:.0}km") } else { "—".into() };
                     ui.label(egui::RichText::new(distance_label).color(row_col).small());
@@ -2436,6 +2588,9 @@ mod tests {
             surface_heading: None,
             has_position: true,
             seen: std::time::Instant::now(),
+            reliable: true,
+            correctedbits: 0,
+            score: 1.0,
         });
         panel.check_for_new_aircraft();
     }
