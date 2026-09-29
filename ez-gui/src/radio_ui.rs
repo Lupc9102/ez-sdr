@@ -1514,7 +1514,14 @@ pub(crate) fn change_source(state: &mut SharedState, mode: SourceMode) {
         SourceStatus::Running | SourceStatus::Opening
     );
     state.source.stop();
+    let format = match mode {
+        SourceMode::Hardware => dump1090::demod::InputFormat::Uc8,
+        SourceMode::Replay => dump1090::demod::InputFormat::Uc8,
+        SourceMode::Daemon => dump1090::demod::InputFormat::Uc8,
+        SourceMode::Simulated => dump1090::demod::InputFormat::Uc8,
+    };
     state.source.source_mode = mode;
+    state.set_input_format(format);
     if running {
         state.source.start();
     }

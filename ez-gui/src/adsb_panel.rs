@@ -27,6 +27,8 @@ pub struct AdsBPanel {
     pub pending_ai_prompt: Option<String>,
     pub observer_lat: f64,
     pub observer_lon: f64,
+    /// Whether the observer position has been explicitly set by the user.
+    observer_position_set: bool,
     pub alert_enabled: bool,
     pub alert_range_km: f64,
     pub desktop_notifications: bool,
@@ -115,6 +117,8 @@ pub struct AircraftEntry {
     pub surface_movement: Option<u32>,
     pub surface_heading: Option<u32>,
     pub has_position: bool,
+    /// Whether heading has been decoded from a velocity message.
+    pub has_heading: bool,
     pub seen: std::time::Instant,
     /// Whether the last position decode was reliable (no CRC correction needed).
     pub reliable: bool,
@@ -171,6 +175,7 @@ impl Default for AircraftEntry {
             surface_movement: None,
             surface_heading: None,
             has_position: false,
+            has_heading: false,
             seen: std::time::Instant::now(),
             reliable: false,
             correctedbits: 0,
@@ -411,6 +416,7 @@ impl AdsBPanel {
             pending_ai_prompt: None,
             observer_lat,
             observer_lon,
+            observer_position_set: false,
             alert_enabled: true,
             alert_range_km: 0.0,
             desktop_notifications: false,
@@ -806,6 +812,7 @@ impl AdsBPanel {
                 {
                     self.observer_lat = state.config.observer_lat;
                     self.observer_lon = state.config.observer_lon;
+                    self.observer_position_set = true;
                 }
                 state.adsb_running
             } else {
@@ -1472,6 +1479,7 @@ impl AdsBPanel {
             {
                 self.observer_lat = state.config.observer_lat;
                 self.observer_lon = state.config.observer_lon;
+                self.observer_position_set = true;
                 observer_changed = true;
             }
         }
@@ -1975,57 +1983,60 @@ impl AdsBPanel {
         );
 
         // I5: Scale bar (bottom-right, above attribution)
-        let meters_per_pixel = 156543.03392 * self.observer_lat.to_radians().cos()
-            / (1u64 << self.tile_zoom) as f64;
-        let scale_bar_meters = if meters_per_pixel * 100.0 < 100.0 {
-            100.0
-        } else if meters_per_pixel * 100.0 < 500.0 {
-            500.0
-        } else if meters_per_pixel * 100.0 < 1000.0 {
-            1000.0
-        } else if meters_per_pixel * 100.0 < 5000.0 {
-            5000.0
-        } else {
-            10000.0
-        };
-        let scale_bar_px = scale_bar_meters / meters_per_pixel;
-        let scale_bar_y = rect.bottom() - 20.0;
-        let scale_bar_x = rect.right() - scale_bar_px as f32 - 12.0;
-        painter.line_segment(
-            [
-                egui::pos2(scale_bar_x, scale_bar_y),
-                egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y),
-            ],
-            egui::Stroke::new(2.0, theme.text_normal.to_egui()),
-        );
-        painter.line_segment(
-            [
-                egui::pos2(scale_bar_x, scale_bar_y - 3.0),
-                egui::pos2(scale_bar_x, scale_bar_y + 3.0),
-            ],
-            egui::Stroke::new(1.0, theme.text_normal.to_egui()),
-        );
-        painter.line_segment(
-            [
-                egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y - 3.0),
-                egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y + 3.0),
-            ],
-            egui::Stroke::new(1.0, theme.text_normal.to_egui()),
-        );
-        let scale_label = if scale_bar_meters >= 1000.0 {
-            format!("{:.0} km", scale_bar_meters / 1000.0)
-        } else {
-            format!("{:.0} m", scale_bar_meters)
-        };
-        painter.text(
-            egui::pos2(scale_bar_x + scale_bar_px as f32 / 2.0, scale_bar_y - 4.0),
-            egui::Align2::CENTER_BOTTOM,
-            scale_label,
-            egui::FontId::proportional(8.0),
-            theme.text_dim.to_egui(),
-        );
+        // Only show when the observer position has been explicitly set.
+        if self.observer_position_set {
+            let meters_per_pixel = 156543.03392 * self.observer_lat.to_radians().cos()
+                / (1u64 << self.tile_zoom) as f64;
+            let scale_bar_meters = if meters_per_pixel * 100.0 < 100.0 {
+                100.0
+            } else if meters_per_pixel * 100.0 < 500.0 {
+                500.0
+            } else if meters_per_pixel * 100.0 < 1000.0 {
+                1000.0
+            } else if meters_per_pixel * 100.0 < 5000.0 {
+                5000.0
+            } else {
+                10000.0
+            };
+            let scale_bar_px = scale_bar_meters / meters_per_pixel;
+            let scale_bar_y = rect.bottom() - 20.0;
+            let scale_bar_x = rect.right() - scale_bar_px as f32 - 12.0;
+            painter.line_segment(
+                [
+                    egui::pos2(scale_bar_x, scale_bar_y),
+                    egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y),
+                ],
+                egui::Stroke::new(2.0, theme.text_normal.to_egui()),
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(scale_bar_x, scale_bar_y - 3.0),
+                    egui::pos2(scale_bar_x, scale_bar_y + 3.0),
+                ],
+                egui::Stroke::new(1.0, theme.text_normal.to_egui()),
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y - 3.0),
+                    egui::pos2(scale_bar_x + scale_bar_px as f32, scale_bar_y + 3.0),
+                ],
+                egui::Stroke::new(1.0, theme.text_normal.to_egui()),
+            );
+            let scale_label = if scale_bar_meters >= 1000.0 {
+                format!("{:.0} km", scale_bar_meters / 1000.0)
+            } else {
+                format!("{:.0} m", scale_bar_meters)
+            };
+            painter.text(
+                egui::pos2(scale_bar_x + scale_bar_px as f32 / 2.0, scale_bar_y - 4.0),
+                egui::Align2::CENTER_BOTTOM,
+                scale_label,
+                egui::FontId::proportional(8.0),
+                theme.text_dim.to_egui(),
+            );
+        }
 
-        // I8: Lat/lon grid overlay (subtle, every 0.5 degrees)
+        // I8: Lat/lon grid overlay (subtle, every 1 degree)
         let grid_color = theme.text_dim.with_alpha(20).to_egui();
         let grid_stroke = egui::Stroke::new(0.5, grid_color);
         let lat_start = (self.tile_cy - half_h / tile_px).floor() as i64;
@@ -2356,6 +2367,8 @@ impl AdsBPanel {
                     5 => a.seen.cmp(&b.seen),
                     _ => std::cmp::Ordering::Equal,
                 };
+                // Secondary sort by ICAO for stable ordering when primary keys are equal.
+                let ord = ord.then_with(|| a.icao.cmp(&b.icao));
                 if sort_asc { ord } else { ord.reverse() }
             });
 
@@ -2383,7 +2396,7 @@ impl AdsBPanel {
                     ui.label(egui::RichText::new(format!("{}ft", ac.altitude)).color(row_col).small());
                     ui.label(egui::RichText::new(format!("{}kt", ac.speed)).color(row_col).small());
                     // I6: Heading column
-                    let hdg_label = if ac.has_position { format!("{}°", ac.heading) } else { "—".into() };
+                    let hdg_label = if ac.has_heading { format!("{}°", ac.heading) } else { "—".into() };
                     ui.label(egui::RichText::new(hdg_label).color(row_col).small());
                     let has_position = self.has_position(&ac);
                     let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
@@ -2587,6 +2600,7 @@ mod tests {
             surface_movement: None,
             surface_heading: None,
             has_position: true,
+            has_heading: true,
             seen: std::time::Instant::now(),
             reliable: true,
             correctedbits: 0,

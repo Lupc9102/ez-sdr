@@ -127,6 +127,7 @@ fn render_workspaces() {
                     surface_movement: None,
                     surface_heading: None,
                     has_position: true,
+                    has_heading: true,
                     seen: std::time::Instant::now(),
                     reliable: true,
                     correctedbits: 0,

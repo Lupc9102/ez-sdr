@@ -33,12 +33,6 @@ struct AircraftState {
     pub vertical_rate: Option<i32>,
     pub surface_movement: Option<u32>,
     pub surface_heading: Option<u32>,
-    /// Whether the last position decode was reliable (no CRC correction needed).
-    pub reliable: bool,
-    /// Number of CRC-corrected bits in the last decoded message (0-2).
-    pub correctedbits: u8,
-    /// Signal quality score (0.0-1.0) from the demodulator.
-    pub score: f64,
     position_seen: Option<std::time::Instant>,
     #[cfg(test)]
     pub cpr_even: Option<CprFrame>,
@@ -124,8 +118,10 @@ impl AdsBDecoder {
             repaired.extend_from_slice(&self.pending_i);
             self.pending_i.clear();
             repaired.extend_from_slice(iq);
+            // Pop trailing bytes that don't form a complete sample, preserving order.
             while repaired.len() % bytes_per_sample != 0 {
-                self.pending_i = vec![repaired.pop().unwrap()];
+                let byte = repaired.pop().unwrap();
+                self.pending_i.insert(0, byte);
             }
             repaired.as_slice()
         } else {
@@ -240,6 +236,7 @@ impl AdsBDecoder {
                 surface_movement: None,
                 surface_heading: None,
                 has_position: false,
+                has_heading: false,
                 seen: now,
                 reliable: false,
                 correctedbits: 0,
@@ -256,9 +253,6 @@ impl AdsBDecoder {
             vertical_rate: None,
             surface_movement: None,
             surface_heading: None,
-            reliable: true,
-            correctedbits: 0,
-            score: 1.0,
             position_seen: None,
             #[cfg(test)]
             cpr_even: None,
@@ -271,10 +265,8 @@ impl AdsBDecoder {
         entry.entry.seen = now;
 
         // Populate quality fields from the demodulator.
-        entry.reliable = reliable;
         entry.entry.reliable = reliable;
-        entry.correctedbits = correctedbits.min(2) as u8;
-        entry.entry.correctedbits = entry.correctedbits;
+        entry.entry.correctedbits = correctedbits.min(2) as u8;
         let score_val = match score {
             dump1090::demod::ScoreRank::Df17Known
             | dump1090::demod::ScoreRank::Df18Known
@@ -286,9 +278,19 @@ impl AdsBDecoder {
             | dump1090::demod::ScoreRank::Df11Acq1ErrorKnown => 0.75,
             dump1090::demod::ScoreRank::Df17_2ErrorKnown
             | dump1090::demod::ScoreRank::Df18_2ErrorKnown => 0.5,
+            // Valid CRC but unknown aircraft — better than garbage.
+            dump1090::demod::ScoreRank::Df17Unknown
+            | dump1090::demod::ScoreRank::Df18Unknown
+            | dump1090::demod::ScoreRank::Df11IidUnknown
+            | dump1090::demod::ScoreRank::Df11AcqUnknown
+            | dump1090::demod::ScoreRank::UnreliableKnown => 0.6,
+            dump1090::demod::ScoreRank::Df17_1ErrorUnknown
+            | dump1090::demod::ScoreRank::Df18_1ErrorUnknown
+            | dump1090::demod::ScoreRank::Df11Iid1ErrorUnknown
+            | dump1090::demod::ScoreRank::Df11Acq1ErrorUnknown
+            | dump1090::demod::ScoreRank::UnreliableUnknown => 0.4,
             _ => 0.25,
         };
-        entry.score = score_val;
         entry.entry.score = score_val;
 
         // Use the crate's decode_mode_s_message for common fields (H4).
@@ -326,6 +328,7 @@ impl AdsBDecoder {
                 let heading = heading.round() as u32 % 360;
                 entry.heading = Some(heading);
                 entry.entry.heading = heading;
+                entry.entry.has_heading = true;
             }
 
             // Vertical rate (H1)
@@ -418,6 +421,7 @@ impl AdsBDecoder {
                                     let heading = heading.round() as u32 % 360;
                                     entry.heading = Some(heading);
                                     entry.entry.heading = heading;
+                                    entry.entry.has_heading = true;
                                 }
                             }
                         }
@@ -1082,5 +1086,72 @@ mod tests {
             even.raw_lon,
             (u32::from(0x34u8 & 0x01) << 16) | (u32::from(0x56u8) << 8) | u32::from(0x78u8)
         );
+    }
+
+    #[test]
+    fn feed_iq_with_format_sc16_buffers_pending_bytes() {
+        // Sc16 has 4 bytes per IQ sample. Feed a buffer that is not a
+        // multiple of 4, then feed the remainder. The pending bytes must
+        // be preserved in order.
+        let mut d = AdsBDecoder::new();
+        // 10 bytes = 2 complete samples + 2 trailing bytes.
+        let buf1 = vec![0u8; 10];
+        d.feed_iq_with_format(&buf1, 2_400_000, InputFormat::Sc16);
+        assert_eq!(d.pending_i.len(), 2);
+        // Feed 2 more bytes to complete the sample.
+        let buf2 = vec![0u8; 2];
+        d.feed_iq_with_format(&buf2, 2_400_000, InputFormat::Sc16);
+        assert!(d.pending_i.is_empty());
+    }
+
+    #[test]
+    fn feed_iq_with_format_sc16q11_buffers_pending_bytes() {
+        let mut d = AdsBDecoder::new();
+        // 7 bytes = 1 complete sample + 3 trailing bytes.
+        let buf1 = vec![0u8; 7];
+        d.feed_iq_with_format(&buf1, 2_400_000, InputFormat::Sc16Q11);
+        assert_eq!(d.pending_i.len(), 3);
+        // Feed 1 more byte to complete the sample.
+        let buf2 = vec![0u8; 1];
+        d.feed_iq_with_format(&buf2, 2_400_000, InputFormat::Sc16Q11);
+        assert!(d.pending_i.is_empty());
+    }
+
+    #[test]
+    fn feed_iq_with_format_uc8_no_pending_on_even_buffer() {
+        let mut d = AdsBDecoder::new();
+        let buf = vec![0u8; 8]; // 4 complete Uc8 samples
+        d.feed_iq_with_format(&buf, 2_400_000, InputFormat::Uc8);
+        assert!(d.pending_i.is_empty());
+    }
+
+    #[test]
+    fn feed_iq_with_format_uc8_buffers_odd_byte() {
+        let mut d = AdsBDecoder::new();
+        let buf = vec![0u8; 7]; // 3 complete samples + 1 trailing byte
+        d.feed_iq_with_format(&buf, 2_400_000, InputFormat::Uc8);
+        assert_eq!(d.pending_i.len(), 1);
+    }
+
+    #[test]
+    fn score_mapping_distinguishes_known_from_unknown() {
+        let mut d = AdsBDecoder::new();
+        // Known aircraft, no errors → 1.0
+        d.process_decoded(1, 17, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        assert_eq!(d.aircraft.get(&1).unwrap().entry.score, 1.0);
+        // Unknown aircraft, no errors → 0.6 (better than garbage)
+        d.process_decoded(2, 17, [0; 14], 1.0, false, 0, dump1090::demod::ScoreRank::Df17Unknown);
+        assert_eq!(d.aircraft.get(&2).unwrap().entry.score, 0.6);
+        // Uncorrectable → 0.25
+        d.process_decoded(3, 17, [0; 14], 1.0, false, 0, dump1090::demod::ScoreRank::Uncorrectable);
+        assert_eq!(d.aircraft.get(&3).unwrap().entry.score, 0.25);
+    }
+
+    #[test]
+    fn has_heading_set_only_when_velocity_decoded() {
+        let mut d = AdsBDecoder::new();
+        // Position message without velocity → has_heading = false
+        d.process_decoded(1, 17, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        assert!(!d.aircraft.get(&1).unwrap().entry.has_heading);
     }
 }

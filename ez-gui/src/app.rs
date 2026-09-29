@@ -76,6 +76,13 @@ pub struct SharedState {
     pub scanner_command: Option<ScannerCommand>,
 }
 
+impl SharedState {
+    /// Set the IQ sample format produced by the current source.
+    pub fn set_input_format(&mut self, format: dump1090::demod::InputFormat) {
+        self.input_format = format;
+    }
+}
+
 pub struct CentralApp {
     shared: Arc<Mutex<SharedState>>,
     event_bus: crate::events::EventBus,
@@ -607,6 +614,7 @@ impl CentralApp {
             surface_movement: None,
             surface_heading: None,
             has_position: true,
+            has_heading: true,
             seen: std::time::Instant::now(),
             reliable: true,
             correctedbits: 0,
