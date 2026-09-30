@@ -175,7 +175,7 @@ mod tests {
                 total_length: len,
                 valid_length: len,
                 overlap: 0,
-                data,
+                data: data.into(),
                 sample_timestamp: 0,
                 sys_timestamp: 0,
                 flags: MagBufFlags(0),

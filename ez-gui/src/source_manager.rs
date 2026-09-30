@@ -7,7 +7,7 @@
 //! as well as file and network IQ sources.
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc,
 };
 

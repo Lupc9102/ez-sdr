@@ -563,7 +563,7 @@ pub fn decode_mode_s_message(
     let df = mm.msgtype;
     mm.reliable = match df {
         11 => {
-            let syndrome = crc24_parity(&mm.msg[..MODES_SHORT_MSG_BITS]);
+            let syndrome = crc24_parity(&mm.msg[..MODES_SHORT_MSG_BYTES]);
             let iid = syndrome & 0x7F;
             iid == 0 && mm.correctedbits == 0
         }
@@ -1265,8 +1265,9 @@ impl Demod2400 {
 // ========================================================================
 
 /// Common input formats that the RTL-SDR / SDR front-ends provide.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum InputFormat {
+    #[default]
     /// Unsigned 8-bit IQ (RTL-SDR default).
     Uc8,
     /// Signed 16-bit IQ.
@@ -1285,11 +1286,7 @@ impl InputFormat {
     }
 }
 
-impl Default for InputFormat {
-    fn default() -> Self {
-        InputFormat::Uc8
-    }
-}
+
 
 /// Convert a buffer of interleaved IQ samples into magnitude values.
 ///

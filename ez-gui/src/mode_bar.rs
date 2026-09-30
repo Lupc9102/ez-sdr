@@ -254,6 +254,7 @@ pub fn render_mode_bar(
                     }
                 }
             });
+            egui::warn_if_debug_build(ui);
         });
     });
 }

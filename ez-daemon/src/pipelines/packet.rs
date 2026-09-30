@@ -143,7 +143,7 @@ impl PacketPipeline {
         }
         let n = (block.samples.len().max(1)) as f64;
 
-        let mut mag = MagBuf {
+        let mag = MagBuf {
             data: data.into(),
             total_length: overlap + block.samples.len(),
             valid_length: overlap + block.samples.len(),
