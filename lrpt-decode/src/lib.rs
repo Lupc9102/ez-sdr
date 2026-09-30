@@ -636,7 +636,7 @@ mod tests {
         }
 
         let sps = (sample_rate / symbol_rate).round() as usize;
-        assert!(sps >= 2 && sps % 2 == 0);
+        assert!(sps >= 2 && sps.is_multiple_of(2));
         let half = sps / 2;
         let sample_count = symbols.len() * sps + half;
         let amplitude = 40.0;

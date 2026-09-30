@@ -102,9 +102,11 @@ impl Biquad {
 /// Sixth-order Butterworth channel filter. Double-precision state avoids the
 /// pole-rounding instability of narrow CW filters at MHz input rates. Coefficients
 /// are cached, so no trigonometry or divisions occur in the filter sample loop.
+type BiquadStage = ([f64; 3], [f64; 2], [[f64; 2]; 2]);
+
 #[derive(Default)]
 struct ComplexChannelLowpass {
-    stages: [([f64; 3], [f64; 2], [[f64; 2]; 2]); 3],
+    stages: [BiquadStage; 3],
     cutoff: f32,
     rate: f64,
 }
@@ -114,7 +116,7 @@ impl ComplexChannelLowpass {
         let rate = sample_rate_hz.max(1.0);
         let cutoff = cutoff_hz.max(1.0).min(rate as f32 * 0.45);
         if self.cutoff != cutoff || self.rate != rate {
-            let omega = std::f64::consts::TAU * f64::from(cutoff) / f64::from(rate);
+            let omega = std::f64::consts::TAU * f64::from(cutoff) / rate;
             let (sin, cos) = omega.sin_cos();
             for (stage, quality) in self.stages.iter_mut().zip([
                 0.517_638_090_205_041_5,
@@ -204,7 +206,7 @@ impl MultiplexDecimator {
         self.phase = 0;
         self.write = 0;
         let count = (self.factor * 24 + 1).clamp(63, 513) | 1;
-        let cutoff = (65_000.0 / f64::from(rate)).min(0.4 / self.factor as f64);
+        let cutoff = (65_000.0 / rate).min(0.4 / self.factor as f64);
         let middle = (count - 1) as f64 * 0.5;
         self.taps = (0..count)
             .map(|index| {
@@ -274,7 +276,7 @@ impl StereoFmDecoder {
         tau_us: f32,
     ) -> (Vec<f32>, Vec<f32>, f64) {
         self.multiplex.configure(input_rate);
-        let rate = f64::from(input_rate) / self.multiplex.factor as f64;
+        let rate = input_rate / self.multiplex.factor as f64;
         let decimation = (rate / f64::from(audio_rate)).floor().max(1.0) as usize;
         let output_rate = rate / decimation as f64;
         let pilot_step = std::f64::consts::TAU * 19_000.0 / rate;
@@ -1279,6 +1281,7 @@ impl Demodulator {
         samples
     }
 
+    #[allow(clippy::type_complexity)]
     fn prepare_fm_if<'a>(
         &mut self,
         iq: Cow<'a, [Complex32]>,
@@ -1482,10 +1485,10 @@ impl Demodulator {
         let right = right_chain.post_process(right);
         let left = self
             .resampler
-            .process(left, f64::from(rate), self.audio_sample_rate);
+            .process(left, rate, self.audio_sample_rate);
         let right = right_chain
             .resampler
-            .process(right, f64::from(rate), self.audio_sample_rate);
+            .process(right, rate, self.audio_sample_rate);
         self.stereo_right = Some(right_chain);
         debug_assert_eq!(left.len(), right.len());
         self.last_audio_peak = left
@@ -1789,7 +1792,7 @@ impl Demodulator {
         let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
         let beat = self.cw_tone_hz + self.cw_offset_hz;
         let beat_step =
-            std::f64::consts::TAU * f64::from(beat) / f64::from(self.effective_output_rate);
+            std::f64::consts::TAU * f64::from(beat) / self.effective_output_rate;
         for sample in iq.iter() {
             let i = sample.re;
             let q = sample.im;
@@ -1957,7 +1960,7 @@ enum WorkerMessage {
     /// Replace the per-batch demodulation configuration.
     Config(DemodConfig),
     /// Push the full Advanced-panel DSP settings onto the demodulator.
-    Advanced(AdvancedConfig, DemodMode),
+    Advanced(Box<AdvancedConfig>, DemodMode),
 }
 
 /// A [`Demodulator`] that lives and runs on a dedicated OS thread.
@@ -2129,7 +2132,7 @@ impl DemodWorker {
     /// worker's demodulator. Coalesced while a request is queued.
     pub fn configure_advanced(&self, advanced: &AdvancedConfig, mode: DemodMode) -> bool {
         self.config_tx
-            .try_send(WorkerMessage::Advanced(advanced.clone(), mode))
+            .try_send(WorkerMessage::Advanced(Box::new(advanced.clone()), mode))
             .is_ok()
     }
 

@@ -636,7 +636,7 @@ mod tests {
         let width = if version_b { 2 } else { 4 };
         let mut message = text.to_vec();
         message.push(b'\r');
-        while message.len() % width != 0 {
+        while !message.len().is_multiple_of(width) {
             message.push(b' ');
         }
         message

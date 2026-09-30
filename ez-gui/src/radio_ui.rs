@@ -377,11 +377,11 @@ impl RadioUi {
                             }
                         });
                 });
-                if selected != state.source.rtl_device.index {
-                    if state.source.select_rtl_device(selected).is_ok() {
-                        state.config.advanced.rtl_device = state.source.rtl_device.clone();
-                        restart = true;
-                    }
+                if selected != state.source.rtl_device.index
+                    && state.source.select_rtl_device(selected).is_ok()
+                {
+                    state.config.advanced.rtl_device = state.source.rtl_device.clone();
+                    restart = true;
                 }
                 if ui
                     .add_enabled(

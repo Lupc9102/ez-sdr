@@ -528,7 +528,7 @@ mod tests {
         assert!(reassembler
             .vcid_contexts
             .get(&0)
-            .map_or(true, |c| c.active_apid.is_none()));
+            .is_none_or(|c| c.active_apid.is_none()));
     }
 
     #[test]

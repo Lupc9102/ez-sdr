@@ -208,6 +208,7 @@ async fn connect_and_handshake(addr: SocketAddr, client_name: &str) -> Result<Ha
 /// the peer closes the connection, or a decode error occurs. Always leaves `status` in a
 /// terminal state (`Disconnected` or `Error`) before returning, so `DaemonClient::status`
 /// never gets stuck reporting a connection that's actually gone.
+#[allow(clippy::too_many_arguments)]
 async fn run_connection(
     addr: SocketAddr,
     client_name: String,

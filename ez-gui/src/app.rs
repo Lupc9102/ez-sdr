@@ -2058,24 +2058,28 @@ impl CentralApp {
     /// ending with the latest transient status flash.
     fn render_status_strip(&mut self, ui: &mut egui::Ui) {
         match self.current_tab {
-            AppTab::Meteor => ui.horizontal(|ui| {
-                ui.label(if self.meteor_decoder.running {
-                    "Decoding recording"
-                } else {
-                    "Meteor · offline decoder"
+            AppTab::Meteor => {
+                ui.horizontal(|ui| {
+                    ui.label(if self.meteor_decoder.running {
+                        "Decoding recording"
+                    } else {
+                        "Meteor · offline decoder"
+                    });
+                    if let Some(message) = self.status_bar.current() {
+                        ui.separator();
+                        ui.label(&message.text);
+                    }
                 });
-                if let Some(message) = self.status_bar.current() {
+            }
+            AppTab::Planes => {
+                ui.horizontal(|ui| {
+                    ui.label(self.adsb_panel.receiver_status());
                     ui.separator();
-                    ui.label(&message.text);
-                }
-            }),
-            AppTab::Planes => ui.horizontal(|ui| {
-                ui.label(self.adsb_panel.receiver_status());
-                ui.separator();
-                ui.label(format!("{} aircraft", self.adsb_panel.aircraft.len()));
-            }),
-            _ => return self.status_bar.render_strip(ui, &self.shared),
-        };
+                    ui.label(format!("{} aircraft", self.adsb_panel.aircraft.len()));
+                });
+            }
+            _ => self.status_bar.render_strip(ui, &self.shared),
+        }
     }
 
     fn render_secondary_panel(&mut self, ui: &mut egui::Ui, tool: SecondaryTool) {

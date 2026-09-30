@@ -868,10 +868,10 @@ impl AppConfig {
     }
 }
 
+type ConfigJobReceiver = std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>;
+
 #[derive(Clone)]
-struct ConfigFileJob(
-    std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>,
-);
+struct ConfigFileJob(ConfigJobReceiver);
 
 fn begin_config_file_job(
     ctx: &egui::Context,
@@ -1459,7 +1459,6 @@ mod tests {
                     visible: false,
                 },
             ],
-            ..Default::default()
         };
         let old_cfg = AppConfig {
             layout: old_layout,

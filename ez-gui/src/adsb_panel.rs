@@ -4,6 +4,8 @@ use crate::ui_kit::module_card;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 
+type TileDownloadResult = ((u32, u32, u32), Result<egui::ColorImage, String>);
+
 pub struct AdsBPanel {
     shared: Arc<Mutex<SharedState>>,
     pub aircraft: Vec<AircraftEntry>,
@@ -39,9 +41,8 @@ pub struct AdsBPanel {
     checklist: crate::antenna_checklist::AntennaChecklist,
     tile_cache: std::collections::HashMap<(u32, u32, u32), egui::TextureHandle>,
     tile_pending: std::collections::HashSet<(u32, u32, u32)>,
-    tile_download_tx: std::sync::mpsc::Sender<((u32, u32, u32), Result<egui::ColorImage, String>)>,
-    tile_download_rx:
-        std::sync::mpsc::Receiver<((u32, u32, u32), Result<egui::ColorImage, String>)>,
+    tile_download_tx: std::sync::mpsc::Sender<TileDownloadResult>,
+    tile_download_rx: std::sync::mpsc::Receiver<TileDownloadResult>,
     tile_request_tx: crossbeam_channel::Sender<(u32, u32, u32)>,
     tile_request_rx: crossbeam_channel::Receiver<(u32, u32, u32)>,
     tile_failures: std::collections::HashMap<(u32, u32, u32), (std::time::Instant, u32)>,
@@ -820,7 +821,7 @@ impl AdsBPanel {
             }
         };
 
-        if !adsb_running && !(self.region == AdsbRegion::Uat978 && self.uat_receiver.is_active()) {
+        if !(adsb_running || (self.region == AdsbRegion::Uat978 && self.uat_receiver.is_active())) {
             // Reset tracking so the next start is fresh.
             self.known_icao.clear();
             return;
@@ -1967,7 +1968,7 @@ impl AdsBPanel {
         // I4: Zoom indicator (top-right)
         let zoom_text = format!("Zoom: {}", self.tile_zoom);
         let zoom_galley = painter.layout_no_wrap(
-            zoom_text.into(),
+            zoom_text,
             egui::FontId::proportional(10.0),
             theme.text_normal.to_egui(),
         );

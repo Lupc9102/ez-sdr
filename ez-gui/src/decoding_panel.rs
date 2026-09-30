@@ -573,7 +573,7 @@ impl DecodingPanel {
 
     fn blocking_notice(&self, show_daemon: bool) -> Option<&str> {
         show_daemon
-            .then(|| self.no_decoder_reason.as_deref())
+            .then_some(self.no_decoder_reason.as_deref())
             .flatten()
     }
 
@@ -823,7 +823,7 @@ impl DecodingPanel {
                     frame.rs_ok,
                     frame.rs_failed
                 ));
-                if !self.daemon_textures.contains_key(&apid) {
+                if let std::collections::btree_map::Entry::Vacant(e) = self.daemon_textures.entry(apid) {
                     let rgba: Vec<u8> = frame
                         .pixels
                         .iter()
@@ -833,14 +833,11 @@ impl DecodingPanel {
                         [frame.width as usize, frame.height as usize],
                         &rgba,
                     );
-                    self.daemon_textures.insert(
-                        apid,
-                        ui.ctx().load_texture(
-                            format!("daemon-lrpt-apid-{apid}"),
-                            image,
-                            egui::TextureOptions::LINEAR,
-                        ),
-                    );
+                    e.insert(ui.ctx().load_texture(
+                        format!("daemon-lrpt-apid-{apid}"),
+                        image,
+                        egui::TextureOptions::LINEAR,
+                    ));
                 }
                 if let Some(texture) = self.daemon_textures.get(&apid) {
                     let natural = texture.size_vec2();

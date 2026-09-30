@@ -113,13 +113,13 @@ impl AdsBDecoder {
 
         let bytes_per_sample = format.bytes_per_sample();
         let mut repaired = Vec::new();
-        let iq = if !self.pending_i.is_empty() || iq.len() % bytes_per_sample != 0 {
+        let iq = if !self.pending_i.is_empty() || !iq.len().is_multiple_of(bytes_per_sample) {
             repaired.reserve(iq.len() + bytes_per_sample);
             repaired.extend_from_slice(&self.pending_i);
             self.pending_i.clear();
             repaired.extend_from_slice(iq);
             // Pop trailing bytes that don't form a complete sample, preserving order.
-            while repaired.len() % bytes_per_sample != 0 {
+            while !repaired.len().is_multiple_of(bytes_per_sample) {
                 let byte = repaired.pop().unwrap();
                 self.pending_i.insert(0, byte);
             }
@@ -171,7 +171,7 @@ impl AdsBDecoder {
         self.frame_count += 1;
 
         // M9: Periodically prune the CPR cache to prevent unbounded growth.
-        if self.frame_count % 100 == 0 {
+        if self.frame_count.is_multiple_of(100) {
             self.cpr_decoder
                 .prune_older_than(std::time::Duration::from_secs(60));
         }
@@ -193,6 +193,7 @@ impl AdsBDecoder {
         self.sample_rate_mismatch
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn process_decoded(&mut self, icao: u32, msgtype: u8, msg: [u8; 14], signal_level: f64, reliable: bool, correctedbits: usize, score: dump1090::demod::ScoreRank) {
         // Reject weak signals that are likely noise. Real ADS-B signals are
         // typically >0.1% of full scale; anything below this is almost certainly
@@ -640,9 +641,9 @@ impl AdsBDecoder {
             .filter(|ac| now.duration_since(ac.seen).as_secs() <= 600)
             .map(|ac| {
                 let mut entry = ac.entry.clone();
-                if !ac
+                if ac
                     .position_seen
-                    .is_some_and(|seen| now.duration_since(seen).as_secs() <= 60)
+                    .is_none_or(|seen| now.duration_since(seen).as_secs() > 60)
                 {
                     // Callsign/velocity replies must not refresh an old map fix.
                     entry.lat = 0.0;
@@ -742,7 +743,7 @@ fn mode_a_to_squawk(mode_a: u32) -> u32 {
     let c1 = (mode_a >> 4) & 1;
     let c2 = (mode_a >> 5) & 1;
     let c4 = (mode_a >> 6) & 1;
-    let d1 = (mode_a >> 0) & 1;
+    let d1 = mode_a & 1;
     let d2 = (mode_a >> 1) & 1;
     let d4 = (mode_a >> 2) & 1;
     // Octal squawk: C1 A1 C2 A2 C4 A4 B1 D1 B2 D2 B4 D4

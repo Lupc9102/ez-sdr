@@ -48,13 +48,33 @@ impl NetIo {
     /// # Errors
     /// Returns `anyhow::Error` if a TCP listener fails to bind on any of the
     /// requested ports.
+    /// Start listening on the given ports (bound to all interfaces "0.0.0.0").
+    ///
+    /// # Errors
+    /// Returns `anyhow::Error` if a TCP listener fails to bind on any of the
+    /// requested ports.
     pub fn start(&self, beast_port: u16, sbs_port: u16, raw_port: u16) -> anyhow::Result<()> {
-        let beast_listener = TcpListener::bind(("0.0.0.0", beast_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind Beast port {beast_port}: {e}"))?;
-        let sbs_listener = TcpListener::bind(("0.0.0.0", sbs_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind SBS port {sbs_port}: {e}"))?;
-        let raw_listener = TcpListener::bind(("0.0.0.0", raw_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind raw AVR port {raw_port}: {e}"))?;
+        self.start_on("0.0.0.0", beast_port, sbs_port, raw_port)
+    }
+
+    /// Start listening on the given ports on the specified bind address.
+    ///
+    /// # Errors
+    /// Returns `anyhow::Error` if a TCP listener fails to bind on any of the
+    /// requested ports.
+    pub fn start_on(
+        &self,
+        bind_address: &str,
+        beast_port: u16,
+        sbs_port: u16,
+        raw_port: u16,
+    ) -> anyhow::Result<()> {
+        let beast_listener = TcpListener::bind((bind_address, beast_port))
+            .map_err(|e| anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}"))?;
+        let sbs_listener = TcpListener::bind((bind_address, sbs_port))
+            .map_err(|e| anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}"))?;
+        let raw_listener = TcpListener::bind((bind_address, raw_port))
+            .map_err(|e| anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}"))?;
 
         Self::spawn_listener_loop(
             beast_listener,
@@ -455,5 +475,11 @@ mod tests {
         let frame = encode_beast_frame(0, 0, &msg);
         assert_eq!(frame.len(), 16); // 9 + 7
         assert_eq!(&frame[9..], &msg[..]);
+    }
+
+    #[test]
+    fn net_io_start_on_loopback() {
+        let net = NetIo::new();
+        assert!(net.start_on("127.0.0.1", 0, 0, 0).is_ok());
     }
 }

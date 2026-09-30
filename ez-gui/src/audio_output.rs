@@ -32,9 +32,9 @@ use std::sync::{
 #[cfg(feature = "audio")]
 const AUDIO_QUEUE_CAPACITY: usize = 8;
 
-/// Explicit output buffer size (~10 ms at 48 kHz) instead of the
-/// PulseAudio default (50-100 ms), which was the single largest fixed
-/// latency component. Passed as the CPAL latency hint in build_output_stream.
+// Explicit output buffer size (~10 ms at 48 kHz) instead of the
+// PulseAudio default (50-100 ms), which was the single largest fixed
+// latency component. Passed as the CPAL latency hint in build_output_stream.
 
 /// None selects the system default; a stored CPAL ID selects that device only.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -184,12 +184,12 @@ fn choose_stream_config(
             && config.channels() > 0
             && supported_format(config.sample_format())
     }) {
-        return Ok(default.clone());
+        return Ok(*default);
     }
     let preferred_channels = default.map_or(2, cpal::SupportedStreamConfig::channels);
     ranges.iter().filter(|range| range.channels() > 0 && supported_format(range.sample_format()) && range.contains_rate(rate))
         .max_by_key(|range| (range.channels() == preferred_channels, range.sample_format() == cpal::SampleFormat::F32, range.channels() == 2, std::cmp::Reverse(range.channels())))
-        .and_then(|range| range.clone().try_with_sample_rate(rate))
+        .and_then(|range| (*range).try_with_sample_rate(rate))
         .ok_or_else(|| format!("Audio output does not support {rate} Hz with F32, I16, or U16 samples. Choose a supported rate."))
 }
 
@@ -509,7 +509,7 @@ impl AudioWorker {
     pub fn shutdown(&mut self) {
         let _ = self.stop_tx.send(());
         if let Some(handle) = self.handle.take() {
-            std::mem::forget(handle);
+            drop(handle);
         }
     }
 

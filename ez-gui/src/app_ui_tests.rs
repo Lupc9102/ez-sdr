@@ -283,8 +283,10 @@ fn adsb_capture_identity_resets_on_retune_rate_and_source_changes() {
 
 #[test]
 fn daemon_aircraft_without_valid_coordinates_do_not_create_zero_position_markers() {
-    let mut item = ez_proto::AircraftTelemetry::default();
-    item.icao = 0xabc123;
+    let mut item = ez_proto::AircraftTelemetry {
+        icao: 0xabc123,
+        ..Default::default()
+    };
     assert!(CentralApp::map_daemon_aircraft(item.clone()).is_none());
     item.lat = Some(51.5);
     assert!(CentralApp::map_daemon_aircraft(item.clone()).is_none());
@@ -313,17 +315,17 @@ fn replay_runs_through_app_logic_with_muted_metadata_and_clears_at_eof() {
     let ctx = egui::Context::default();
     let mut frame = eframe::Frame::_new_kittest();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    let mut saw_audio = false;
-    let mut saw_metadata_processing = false;
+    let mut _saw_audio = false;
+    let mut _saw_metadata_processing = false;
     let mut finished = false;
     while std::time::Instant::now() < deadline {
         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
             app.logic(ui.ctx(), &mut frame)
         });
-        saw_metadata_processing |= app.radio_ui.rds.is_some();
+        _saw_metadata_processing |= app.radio_ui.rds.is_some();
         {
             let state = app.shared.lock().unwrap();
-            saw_audio |= !state.spectrum.audio_waveform.is_empty();
+            _saw_audio |= !state.spectrum.audio_waveform.is_empty();
             finished = state.source.status == crate::source_manager::SourceStatus::Idle
                 && state.source.replay_position == 262_144;
         }

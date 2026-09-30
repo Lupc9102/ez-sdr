@@ -62,6 +62,7 @@ impl SpectrumWorker {
 
     /// Create a new SpectrumWorker with the given FFT size and window type.
     /// Spawns a dedicated OS thread that owns the FftPlanner.
+    #[allow(clippy::needless_range_loop)]
     pub fn new(fft_size: usize, window: WindowType) -> Self {
         let (iq_tx, iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
         let (spectrum_tx, spectrum_rx) = crossbeam_channel::bounded::<SpectrumFrame>(4);
@@ -431,6 +432,7 @@ impl ItuRegion {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn amateur_limits(self) -> ((f64, f64), (f64, f64), Option<(f64, f64)>, (f64, f64)) {
         match self {
             Self::Region1 => ((3.5, 3.8), (7.0, 7.2), None, (430.0, 440.0)),

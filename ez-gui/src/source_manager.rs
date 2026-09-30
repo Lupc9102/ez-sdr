@@ -859,10 +859,8 @@ impl SourceManager {
                                     break;
                                 }
                             };
-                            if n > 0 {
-                                if !send_live_samples(&tx, buf[..n].to_vec(), &dropped_blocks) {
-                                    break;
-                                }
+                            if n > 0 && !send_live_samples(&tx, buf[..n].to_vec(), &dropped_blocks) {
+                                break;
                             }
                         }
                         // SAFETY: `dev` is non-null and was opened above.
@@ -1555,6 +1553,7 @@ fn rand_f64(seed: f64) -> f64 {
 // available. The caller must ensure the returned pointer is eventually closed
 // with `rtl_sdr_close`.
 #[cfg(all(feature = "rtlsdr", not(test)))]
+#[allow(clippy::too_many_arguments)]
 unsafe fn rtl_sdr_open(
     selection: &RtlDeviceSelection,
     frequency: u32,

@@ -233,6 +233,7 @@ fn error_positions(locator: &[u8]) -> Option<Vec<usize>> {
     (positions.len() == expected).then_some(positions)
 }
 
+#[allow(clippy::needless_range_loop)]
 fn solve_error_magnitudes(s: &[u8], positions: &[usize]) -> Option<Vec<u8>> {
     let n = positions.len();
     let mut matrix = vec![vec![0u8; n + 1]; n];
