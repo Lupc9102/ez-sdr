@@ -3645,7 +3645,7 @@ impl SpectrumAnalyzer {
 
         if self.waterfall_dirty
             || self.waterfall_texture.is_none()
-            || (self.full_waterfall_update && self.waterfall_pending_rows.iter().any(|&row| row))
+            
         {
             let mut rgba_bytes =
                 Vec::with_capacity(self.waterfall_width * self.waterfall_history * 4);

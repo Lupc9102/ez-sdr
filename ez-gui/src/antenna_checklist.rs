@@ -134,6 +134,7 @@ impl AntennaChecklist {
                 ui.label(egui::RichText::new(self.title).size(15.0).strong());
                 ui.add_space(2.0);
                 ui.label(egui::RichText::new(self.intro).small().color(egui::Color32::GRAY));
+                egui::warn_if_debug_build(ui);
                 ui.add_space(6.0);
 
                 egui::Grid::new(ui.id().with("_cl_grid")).num_columns(2).spacing([6.0, 3.0]).show(ui, |ui| {
