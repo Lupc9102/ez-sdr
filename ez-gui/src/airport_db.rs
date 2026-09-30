@@ -240,6 +240,29 @@ fn suggested_bw(freq_mhz: f64) -> u32 {
     }
 }
 
+#[inline]
+fn starts_with_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    haystack
+        .get(..needle.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(needle))
+}
+
+#[inline]
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let n_bytes = needle.as_bytes();
+    let n_len = n_bytes.len();
+    if haystack.len() < n_len {
+        return false;
+    }
+    haystack
+        .as_bytes()
+        .windows(n_len)
+        .any(|window| window.eq_ignore_ascii_case(n_bytes))
+}
+
 #[derive(Default)]
 pub struct AirportDb {
     pub airports: HashMap<String, Airport>,
@@ -361,23 +384,28 @@ impl AirportDb {
             if type_filter != "all" && a.atype != type_filter {
                 continue;
             }
-            let ident = a.ident.to_ascii_uppercase();
-            let icao = a.icao.to_ascii_uppercase();
-            let iata = a.iata.to_ascii_uppercase();
-            let name = a.name.to_ascii_uppercase();
             if q.is_empty() {
                 if a.scheduled {
                     hits.push((5, a));
                 }
-            } else if ident == q || icao == q || iata == q {
+            } else if a.ident.eq_ignore_ascii_case(&q)
+                || a.icao.eq_ignore_ascii_case(&q)
+                || a.iata.eq_ignore_ascii_case(&q)
+            {
                 hits.push((0, a));
-            } else if ident.starts_with(&q) || icao.starts_with(&q) || iata.starts_with(&q) {
+            } else if starts_with_ignore_ascii_case(&a.ident, &q)
+                || starts_with_ignore_ascii_case(&a.icao, &q)
+                || starts_with_ignore_ascii_case(&a.iata, &q)
+            {
                 hits.push((1, a));
-            } else if name.starts_with(&q) {
+            } else if starts_with_ignore_ascii_case(&a.name, &q) {
                 hits.push((2, a));
-            } else if ident.contains(&q) || icao.contains(&q) || iata.contains(&q) {
+            } else if contains_ignore_ascii_case(&a.ident, &q)
+                || contains_ignore_ascii_case(&a.icao, &q)
+                || contains_ignore_ascii_case(&a.iata, &q)
+            {
                 hits.push((3, a));
-            } else if name.contains(&q) {
+            } else if contains_ignore_ascii_case(&a.name, &q) {
                 hits.push((4, a));
             }
         }
@@ -1943,5 +1971,67 @@ mod tests {
         assert_eq!(csv_split(r#""hello""#), vec!["hello"]);
         assert_eq!(csv_split(r#""""#), vec![""]);
         assert_eq!(csv_split(r#"a,""b""",c"#), vec!["a", "b\",c"]);
+    }
+
+    #[test]
+    fn test_starts_with_ignore_ascii_case() {
+        assert!(starts_with_ignore_ascii_case("KLAX", "kl"));
+        assert!(starts_with_ignore_ascii_case("KLAX", "KLAX"));
+        assert!(starts_with_ignore_ascii_case("KLAX", ""));
+        assert!(!starts_with_ignore_ascii_case("KLAX", "KLAXX"));
+        assert!(!starts_with_ignore_ascii_case("KLAX", "LA"));
+        // Unicode character boundary safety
+        assert!(!starts_with_ignore_ascii_case("München", "mun"));
+        assert!(starts_with_ignore_ascii_case("München", "m"));
+    }
+
+    #[test]
+    fn test_contains_ignore_ascii_case() {
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", "angeles"));
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", "LOS"));
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", "INTL"));
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", ""));
+        assert!(!contains_ignore_ascii_case("Los Angeles Intl", "San"));
+        assert!(!contains_ignore_ascii_case("LAX", "LAXX"));
+    }
+
+    #[test]
+    fn test_airport_db_search_ranking_and_case_insensitivity() {
+        let db = AirportDb::load_fallback();
+
+        // Exact match (rank 0)
+        let hits = db.search("klax", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "KLAX");
+
+        let hits = db.search("lax", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].iata, "LAX");
+
+        // Code prefix match (rank 1)
+        let hits = db.search("eg", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "EGLL");
+
+        // Name prefix match (rank 2)
+        let hits = db.search("paris", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "LFPG");
+
+        // Substring match (rank 4)
+        let hits = db.search("heathrow", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "EGLL");
+
+        // Type filtering
+        let hits_all = db.search("heathrow", "all", 10);
+        assert!(!hits_all.is_empty());
+        let hits_filtered = db.search("heathrow", "small_airport", 10);
+        assert!(hits_filtered.is_empty());
+
+        // Empty query returns scheduled airports
+        let empty_hits = db.search("", "all", 5);
+        assert_eq!(empty_hits.len(), 5);
+        assert!(empty_hits.iter().all(|a| a.scheduled));
     }
 }
