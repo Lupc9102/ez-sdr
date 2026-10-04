@@ -1,0 +1,212 @@
+{
+  "source_commit": "823514d6bfd73155a622d58adce622280d668320",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "exit_code": 0,
+  "probes": [
+    {
+      "observed": {
+        "accepted": true,
+        "learned": "ABCDEF",
+        "unlearned_accepted": "000151"
+      },
+      "probe": "icao_collision_ap"
+    },
+    {
+      "observed": {
+        "duplicate_adds": 8192,
+        "known_after": false
+      },
+      "probe": "icao_duplicate_rotation"
+    },
+    {
+      "observed": {
+        "after_no_emergency_fpm": 1,
+        "before_fpm": 5568
+      },
+      "probe": "status_corrupts_vertical_rate"
+    },
+    {
+      "observed": {
+        "decoded_ft": 0,
+        "encoded_ft": -500
+      },
+      "probe": "negative_altitude"
+    },
+    {
+      "observed": {
+        "has_heading": false,
+        "heading": 90
+      },
+      "probe": "airspeed_heading_validity"
+    },
+    {
+      "observed": {
+        "df17_and_non_icao_df18_cf1_entries": 1,
+        "merged_id": 11259375
+      },
+      "probe": "df18_identity_merge"
+    },
+    {
+      "observed": {
+        "crc_repair_limit": 0,
+        "demod_accepted": false,
+        "iid": 1,
+        "previously_learned": true,
+        "semantic_accepted": false
+      },
+      "probe": "df11_iid_contract"
+    },
+    {
+      "observed": {
+        "daemon_position": false,
+        "local_position": true,
+        "type_code": 20
+      },
+      "probe": "geometric_cpr_omission"
+    },
+    {
+      "observed": {
+        "altitude": 0,
+        "mapped_age_ms": 0,
+        "missing_track_has_heading": true,
+        "no_position_dropped": true,
+        "quality": 1.0,
+        "reliable": true,
+        "reported_age_ms": 1,
+        "vertical_rate": null
+      },
+      "probe": "daemon_adapter"
+    },
+    {
+      "observed": {
+        "input_file_bytes": 32,
+        "original": [
+          90,
+          110,
+          127,
+          128,
+          140,
+          160,
+          180,
+          200
+        ],
+        "progress_bytes": 8,
+        "replayed": [
+          0,
+          0,
+          77,
+          203,
+          254,
+          254,
+          254,
+          254
+        ]
+      },
+      "probe": "cf32_roundtrip"
+    },
+    {
+      "observed": {
+        "bytes": 0,
+        "is_running_after_worker_exit": true,
+        "start_ok": true,
+        "stop_ok": true
+      },
+      "probe": "cf32_failure_reporting"
+    },
+    {
+      "observed": {
+        "first_bytes": 16,
+        "remaining_bytes": 8,
+        "same_path": true
+      },
+      "probe": "cf32_overwrite"
+    },
+    {
+      "observed": {
+        "panel_recording": true,
+        "shared_recording": false
+      },
+      "probe": "daemon_recorder_lock"
+    },
+    {
+      "observed": {
+        "bytes_accepted_after_limit": 8,
+        "duration_limit_s": 60,
+        "elapsed_s": 61,
+        "stopped_only_after_ui": true
+      },
+      "probe": "hidden_recorder_deadline"
+    },
+    {
+      "observed": {
+        "adsb_claimed": true,
+        "recorder_recording": false,
+        "result": "Recording started",
+        "sample_rate": 2048000,
+        "shared_recording": true,
+        "source_generation_changed": false,
+        "source_running": false
+      },
+      "probe": "ai_tool_actions"
+    },
+    {
+      "observed": {
+        "input_block_len": 4,
+        "input_starts": [
+          0,
+          1000
+        ],
+        "output_starts": [
+          0,
+          4
+        ]
+      },
+      "probe": "channelizer_erases_gap"
+    },
+    {
+      "observed": {
+        "frame_mode": "FM",
+        "latest_accepted": false,
+        "latest_requested": "AM"
+      },
+      "probe": "demod_config_not_coalesced"
+    },
+    {
+      "observed": {
+        "actual_peak_hz": 100200000,
+        "logged_hit_hz": 100000000,
+        "selected_channel_db": -120.0,
+        "wideband_peak_db": -10.0
+      },
+      "probe": "scanner_off_channel_hit"
+    },
+    {
+      "observed": {
+        "delay_ms": 80,
+        "reply": "RPRT -1\n",
+        "requests": 0,
+        "sent_command": "F 1090000000"
+      },
+      "probe": "rigctl_fragmentation"
+    }
+  ],
+  "temporary_work_dir": "/tmp/ez-sdr-logic-audit-e_oud20m",
+  "source_hashes": {
+    "ez-gui/src/app.rs": "17e9e7ad605a7a17e58e9c3b880b7b894de6aac1fabec8832805ab3b955a3b55",
+    "ez-gui/src/ai_panel.rs": "12119830f6897b376933a2e92ffcf8dbca561944a07afbb9c2437b06cdce3719",
+    "ez-gui/src/adsb_decoder.rs": "85bfa89fde1aae36c0279aacc0edce17c185eae5499258495200f8b0d41ec013",
+    "ez-gui/src/test_helpers.rs": "e606106764175c4bb6ec23bcc8b90789e456be9e7fef2a6c8f48e224a918097d",
+    "ez-gui/src/recorder_panel.rs": "7c09b19db29b94d346310c0faa49d249608ef8040314262315f8670235e93840",
+    "ez-gui/src/source_manager.rs": "a6f30f1cf90293bbab2e9d66d44af745192931b3fdf84979f8488085ac811cf9",
+    "ez-gui/src/satellite/recorder.rs": "6c0ab8c8cc39a184da1e397fe0d09d9fbecb24142572898f909807238d9ac2af",
+    "ez-gui/src/scanner.rs": "e5026a4e8234a54f675bf6d810cbd0cbc9b103f3e8054676fa90e7973b060c60",
+    "ez-gui/src/spectrum.rs": "d7a1035f03fbcc1e44a4a2a33c933d072585073374f5eec125844c11d294d6ab",
+    "ez-gui/src/demod.rs": "c9eb53331e0fa8fe87a71284a2d435999b855c48234b72f904f8d474530bba77",
+    "ez-gui/src/rigctl.rs": "e3fcf7a73dd36c6b24376c5acd2fc21dd50586975efffa6e3fd6ec1599cd8c3a",
+    "ez-daemon/src/channelizer.rs": "f243970de75b6d749b051645d10f21d2c26d944f0c2f2bedf10330d35627592f",
+    "ez-daemon/src/pipelines/packet.rs": "0f83dfd28cdaf82ad4d8ceb49942f1c119e9812b21ba62c96e0b953a613e82a4",
+    "dump1090/src/icao_filter.rs": "60ef2298d9936c403ece43bd46720a97616578b0e7dbe7a667073c2c35e118b2",
+    "dump1090/src/mode_s.rs": "ced6ace3ee64972b8ea08555803eadb6b2c484cb41343d4855bbff77d212ef75",
+    "dump1090/src/demod.rs": "ea2c46c01dea52da101a345dd8ce72ee1a6bfb7a6af72a484984b4f29482a332"
+  }
+}

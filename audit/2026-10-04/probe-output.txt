@@ -1,0 +1,21 @@
+AUDIT {"observed":{"accepted":true,"learned":"ABCDEF","unlearned_accepted":"000151"},"probe":"icao_collision_ap"}
+AUDIT {"observed":{"duplicate_adds":8192,"known_after":false},"probe":"icao_duplicate_rotation"}
+AUDIT {"observed":{"after_no_emergency_fpm":1,"before_fpm":5568},"probe":"status_corrupts_vertical_rate"}
+AUDIT {"observed":{"decoded_ft":0,"encoded_ft":-500},"probe":"negative_altitude"}
+AUDIT {"observed":{"has_heading":false,"heading":90},"probe":"airspeed_heading_validity"}
+AUDIT {"observed":{"df17_and_non_icao_df18_cf1_entries":1,"merged_id":11259375},"probe":"df18_identity_merge"}
+AUDIT {"observed":{"crc_repair_limit":0,"demod_accepted":false,"iid":1,"previously_learned":true,"semantic_accepted":false},"probe":"df11_iid_contract"}
+AUDIT {"observed":{"daemon_position":false,"local_position":true,"type_code":20},"probe":"geometric_cpr_omission"}
+AUDIT {"observed":{"altitude":0,"mapped_age_ms":0,"missing_track_has_heading":true,"no_position_dropped":true,"quality":1.0,"reliable":true,"reported_age_ms":1,"vertical_rate":null},"probe":"daemon_adapter"}
+AUDIT {"observed":{"input_file_bytes":32,"original":[90,110,127,128,140,160,180,200],"progress_bytes":8,"replayed":[0,0,77,203,254,254,254,254]},"probe":"cf32_roundtrip"}
+AUDIT {"observed":{"bytes":0,"is_running_after_worker_exit":true,"start_ok":true,"stop_ok":true},"probe":"cf32_failure_reporting"}
+AUDIT {"observed":{"first_bytes":16,"remaining_bytes":8,"same_path":true},"probe":"cf32_overwrite"}
+AUDIT {"observed":{"panel_recording":true,"shared_recording":false},"probe":"daemon_recorder_lock"}
+AUDIT {"observed":{"bytes_accepted_after_limit":8,"duration_limit_s":60,"elapsed_s":61,"stopped_only_after_ui":true},"probe":"hidden_recorder_deadline"}
+AUDIT {"observed":{"adsb_claimed":true,"recorder_recording":false,"result":"Recording started","sample_rate":2048000,"shared_recording":true,"source_generation_changed":false,"source_running":false},"probe":"ai_tool_actions"}
+AUDIT {"observed":{"input_block_len":4,"input_starts":[0,1000],"output_starts":[0,4]},"probe":"channelizer_erases_gap"}
+AUDIT {"observed":{"frame_mode":"FM","latest_accepted":false,"latest_requested":"AM"},"probe":"demod_config_not_coalesced"}
+AUDIT {"observed":{"actual_peak_hz":100200000,"logged_hit_hz":100000000,"selected_channel_db":-120.0,"wideband_peak_db":-10.0},"probe":"scanner_off_channel_hit"}
+[rigctl] listening on 127.0.0.1:43371
+AUDIT {"observed":{"delay_ms":80,"reply":"RPRT -1\n","requests":0,"sent_command":"F 1090000000"},"probe":"rigctl_fragmentation"}
+Cf32StreamWriter: failed to create /tmp/ez-sdr-logic-audit-e_oud20m/20261004_175757_missing/parent_1090.000MHz.cf32: No such file or directory (os error 2)

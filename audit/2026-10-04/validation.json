@@ -1,0 +1,22 @@
+{
+  "findings": 42,
+  "priorities": {
+    "P1": 12,
+    "P2": 29,
+    "P3": 1
+  },
+  "executable_probes": 19,
+  "findings_with_recorded_probes": 21,
+  "baseline": {
+    "passed_executions": 1457,
+    "failed": 0,
+    "ignored": 8,
+    "duplicate_dump1090_passes": 249
+  },
+  "source_links_validated": 117,
+  "tested_source_hashes_match": true,
+  "production_rust_unchanged": true,
+  "pre_existing_deletions_preserved": 672,
+  "gui_rust_files_inventoried": 62,
+  "canvas_typescript": "Passed TypeScript 5.9.3 strict check against installed cursor/canvas SDK declarations; skipLibCheck applies to SDK dependencies, not canvas source. No running UI screenshot or host render verified."
+}

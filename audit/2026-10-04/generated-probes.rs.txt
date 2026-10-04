@@ -1,0 +1,495 @@
+
+#![allow(dead_code, unused_imports)]
+pub use ez_gui::*;
+pub use ez_daemon::{bus, broadcast};
+use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+use ez_gui::app::{FreqMemEntry, SharedState};
+use ez_gui::bookmarks::BookmarkDb;
+use ez_gui::config::AppConfig;
+use ez_gui::scheduler::Scheduler;
+use ez_gui::source_manager::{SourceManager, SourceMode};
+use ez_gui::spectrum::SpectrumAnalyzer;
+use ez_gui::tle_engine::TleEngine;
+mod local_probe {
+    include!("/home/lupc/Documents/ez-sdr/ez-gui/src/adsb_decoder.rs");
+    pub fn inject(d: &mut AdsBDecoder, msg: [u8;14], reliable: bool) {
+        let icao = ((msg[1] as u32)<<16)|((msg[2] as u32)<<8)|msg[3] as u32;
+        d.process_decoded(icao, msg[0]>>3, msg, 0.5, reliable, 0, dump1090::demod::ScoreRank::Df17Known);
+    }
+}
+mod packet_probe {
+    include!("/tmp/ez-sdr-logic-audit-e_oud20m/packet.rs");
+    pub fn inject(d: &mut PacketPipeline, mm: &dump1090::demod::ModesMessage) {d.merge_message(mm);}
+    pub fn snapshot(d: &PacketPipeline) -> Vec<ez_proto::AircraftTelemetry> {d.aircraft.values().cloned().collect()}
+}
+struct Mapper;
+impl Mapper { fn map_daemon_aircraft(
+        item: ez_proto::AircraftTelemetry,
+    ) -> Option<crate::adsb_panel::AircraftEntry> {
+        let (lat, lon) = (item.lat?, item.lon?);
+        if !lat.is_finite()
+            || !lon.is_finite()
+            || !(-90.0..=90.0).contains(&lat)
+            || !(-180.0..=180.0).contains(&lon)
+        {
+            return None;
+        }
+        Some(crate::adsb_panel::AircraftEntry {
+            icao: item.icao,
+            callsign: item.callsign.unwrap_or_default(),
+            lat,
+            lon,
+            altitude: item.altitude_ft.unwrap_or_default().max(0) as u32,
+            altitude_type: crate::adsb_panel::AltitudeType::Barometric,
+            speed: item.ground_speed_kt.unwrap_or_default().max(0.0) as u32,
+            heading: item.track_deg.unwrap_or_default().rem_euclid(360.0) as u32,
+            squawk: None,
+            vertical_rate: None,
+            surface_movement: None,
+            surface_heading: None,
+            has_position: true,
+            has_heading: true,
+            seen: std::time::Instant::now(),
+            reliable: true,
+            correctedbits: 0,
+            score: 1.0,
+        })
+    } }
+struct Ai { shared: Arc<Mutex<SharedState>> }
+impl Ai { fn execute_tool_call(&mut self, name: &str, args: &serde_json::Value) -> String {
+        if let Ok(mut state) = self.shared.try_lock() {
+            match name {
+                "tune_frequency" => {
+                    if let Some(hz) = args["hz"].as_u64() {
+                        // Clamp to the radio tuning range: an unclamped model
+                        // value (or MHz/Hz confusion) must not park the SDR
+                        // at 0 Hz or 18 EHz.
+                        let hz = hz.clamp(500_000, 1_770_000_000);
+                        state.source.frequency_hz = hz;
+                        return format!("Tuned to {:.3} MHz", hz as f64 / 1e6);
+                    }
+                    return "Error: missing hz argument".to_string();
+                }
+                "set_gain" => {
+                    if let Some(db) = args["db"].as_f64() {
+                        if !db.is_finite() {
+                            return "Error: gain must be finite".to_string();
+                        }
+                        state.source.gain_db = db;
+                        return format!("Gain set to {db:.1} dB");
+                    }
+                    return "Error: missing db argument".to_string();
+                }
+                "set_sample_rate" => {
+                    if let Some(rate) = args["rate"].as_u64() {
+                        if rate == 0 {
+                            return "Error: sample rate must be non-zero".to_string();
+                        }
+                        // Saturate instead of `as u32` truncation past 4 GHz.
+                        let rate = rate.min(u64::from(u32::MAX)) as u32;
+                        state.source.sample_rate_hz = rate;
+                        return format!("Sample rate set to {:.3} MSps", rate as f64 / 1e6);
+                    }
+                    return "Error: missing rate argument".to_string();
+                }
+                "toggle_bias_tee" => {
+                    if let Some(on) = args["on"].as_bool() {
+                        state.source.bias_tee = on;
+                        return format!("Bias tee {}", if on { "ON" } else { "OFF" });
+                    }
+                    return "Error: missing on argument".to_string();
+                }
+                "set_demod" => {
+                    if let Some(mode) = args["mode"].as_str() {
+                        let demod = match mode.to_uppercase().as_str() {
+                            "RAW" => crate::sdr_panel::DemodMode::Raw,
+                            "AM" => crate::sdr_panel::DemodMode::Am,
+                            "FM" | "NFM" => crate::sdr_panel::DemodMode::Fm,
+                            "WFM" => crate::sdr_panel::DemodMode::Wfm,
+                            "LSB" => crate::sdr_panel::DemodMode::Lsb,
+                            "USB" => crate::sdr_panel::DemodMode::Usb,
+                            _ => crate::sdr_panel::DemodMode::Fm,
+                        };
+                        state.demod_mode = demod;
+                        return format!("Demod mode set to {}", mode.to_uppercase());
+                    }
+                    return "Error: missing mode argument".to_string();
+                }
+                "start_recording" => {
+                    state.recording = true;
+                    return "Recording started".to_string();
+                }
+                "stop_recording" => {
+                    state.recording = false;
+                    return "Recording stopped".to_string();
+                }
+                "select_satellite" => {
+                    if let Some(sat) = args["name"].as_str() {
+                        if sat.to_ascii_lowercase().contains("meteor") {
+                            state.selected_satellite = None;
+                            return "Meteor uses offline decoding. Open the Meteor tab and import an existing .cs8, CU8 or CF32 recording.".to_string();
+                        }
+                        state.selected_satellite = Some(sat.to_string());
+                        return format!("Satellite '{sat}' selected");
+                    }
+                    return "Error: missing name argument".to_string();
+                }
+                "start_adsb" => {
+                    state.adsb_running = true;
+                    return "ADS-B tracking started at 1090 MHz".to_string();
+                }
+                "stop_adsb" => {
+                    state.adsb_running = false;
+                    return "ADS-B tracking stopped".to_string();
+                }
+                "set_squelch" => {
+                    if let Some(db) = args["db"].as_f64() {
+                        if !db.is_finite() {
+                            return "Error: squelch must be finite".to_string();
+                        }
+                        crate::radio_ui::set_power_squelch_level(&mut state, db as f32);
+                        return format!("Squelch set to {db:.1} dB");
+                    }
+                    return "Error: missing db argument".to_string();
+                }
+                "set_volume" => {
+                    if let Some(level) = args["level"].as_f64() {
+                        state.volume = (level as f32).clamp(0.0, 1.0);
+                        return format!("Volume set to {:.0}%", level * 100.0);
+                    }
+                    return "Error: missing level argument".to_string();
+                }
+                "get_status" => {
+                    return serde_json::json!({
+                        "frequency_mhz": state.source.frequency_hz as f64 / 1e6,
+                        "gain_db": state.source.gain_db,
+                        "demod": state.demod_mode.label(),
+                        "sample_rate_msps": f64::from(state.source.sample_rate_hz) / 1e6,
+                        "squelch_db": state.squelch,
+                        "volume": state.volume,
+                        "lpf_cutoff_hz": state.lpf_cutoff,
+                        "recording": state.recording,
+                        "adsb_running": state.adsb_running,
+                        "peak_db": state.spectrum.peak_level(),
+                        "noise_floor_db": state.spectrum.noise_floor(),
+                        "snr_db": state.spectrum.peak_level() - state.spectrum.noise_floor(),
+                        "bookmark_count": state.bookmarks.bookmarks.len(),
+                        "lo_offset_hz": state.lo_offset_hz,
+                        "ppm_correction": state.source.ppm_correction,
+                    })
+                    .to_string();
+                }
+                "get_freq_history" => {
+                    let history: Vec<String> = state
+                        .freq_history
+                        .iter()
+                        .map(|&hz| format!("{:.4} MHz", hz as f64 / 1e6))
+                        .collect();
+                    if history.is_empty() {
+                        return "No frequency history yet".to_string();
+                    }
+                    return format!("Recent frequencies (oldest→newest): {}", history.join(", "));
+                }
+                "add_bookmark" => {
+                    let name = args["name"].as_str().unwrap_or("AI Bookmark").to_string();
+                    let hz = args["hz"]
+                        .as_u64()
+                        .unwrap_or(state.source.frequency_hz)
+                        .clamp(500_000, 1_770_000_000);
+                    let mode = args["mode"]
+                        .as_str()
+                        .unwrap_or(state.demod_mode.label())
+                        .to_string();
+                    let notes = args["notes"].as_str().unwrap_or("").to_string();
+                    let freq_mhz = hz as f64 / 1e6;
+                    state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                        name: name.clone(),
+                        frequency_hz: hz,
+                        mode,
+                        bandwidth_hz: 12_500,
+                        category: "AI".to_string(),
+                        notes,
+                        starred: false,
+                    });
+                    state.bookmarks_modified = true;
+                    state.spectrum.bookmark_freqs_dirty = true;
+                    return format!("Bookmark '{name}' saved at {freq_mhz:.4} MHz");
+                }
+                "set_lpf_cutoff" => {
+                    if let Some(hz) = args["hz"].as_f64() {
+                        if !hz.is_finite() || hz <= 0.0 {
+                            return "Error: LPF cutoff must be positive".to_string();
+                        }
+                        let hz = hz.clamp(50.0, 24_000.0);
+                        state.lpf_cutoff = hz as f32;
+                        return format!("Audio LPF cutoff set to {hz:.0} Hz");
+                    }
+                    return "Error: missing hz argument".to_string();
+                }
+                "set_ppm" => {
+                    if let Some(ppm) = args["ppm"].as_i64() {
+                        // Real TCXOs are tens of ppm; clamp generously so a
+                        // hallucinated value can't push tuning math absurd.
+                        let ppm = ppm.clamp(-10_000, 10_000);
+                        state.source.ppm_correction = ppm as i32;
+                        return format!("PPM correction set to {ppm} ppm");
+                    }
+                    return "Error: missing ppm argument".to_string();
+                }
+                "configure_scanner" => {
+                    // Merge into any command still pending from an earlier tool
+                    // call this frame so sequential calls don't clobber each other.
+                    let mut cmd = state.scanner_command.take().unwrap_or_default();
+                    let mut applied: Vec<String> = Vec::new();
+                    if let Some(mhz) = args["start_mhz"].as_f64() {
+                        let mhz = mhz.clamp(0.5, 1770.0);
+                        cmd.start_hz = Some((mhz * 1e6) as u64);
+                        applied.push(format!("start {mhz:.3} MHz"));
+                    }
+                    if let Some(mhz) = args["stop_mhz"].as_f64() {
+                        let mhz = mhz.clamp(0.5, 1770.0);
+                        cmd.stop_hz = Some((mhz * 1e6) as u64);
+                        applied.push(format!("stop {mhz:.3} MHz"));
+                    }
+                    if let Some(khz) = args["step_khz"].as_f64() {
+                        cmd.step_hz = Some((khz * 1e3) as u64);
+                        applied.push(format!("step {khz:.1} kHz"));
+                    }
+                    if let Some(ms) = args["dwell_ms"].as_u64() {
+                        cmd.dwell_ms = Some(ms);
+                        applied.push(format!("dwell {ms} ms"));
+                    }
+                    if let Some(db) = args["threshold_db"].as_f64() {
+                        cmd.threshold_db = Some(db as f32);
+                        applied.push(format!("threshold {db:.0} dB"));
+                    }
+                    if let Some(run) = args["run"].as_bool() {
+                        cmd.run = Some(run);
+                        applied.push(if run {
+                            "start sweep".to_string()
+                        } else {
+                            "stop sweep".to_string()
+                        });
+                    }
+                    if applied.is_empty() {
+                        return "Error: configure_scanner needs at least one of start_mhz, stop_mhz, step_khz, dwell_ms, threshold_db, run".to_string();
+                    }
+                    state.scanner_command = Some(cmd);
+                    return format!("Scanner configured: {}", applied.join(", "));
+                }
+                _ => return format!("Unknown tool: {name}"),
+            }
+        }
+        "Error: could not access SDR state".to_string()
+    } }
+mod radio_ui {
+    pub use ez_gui::radio_ui::*;
+    use ez_gui::app::SharedState;
+    pub(crate) fn set_power_squelch_level(state: &mut SharedState, level: f32) {
+    if !level.is_finite() {
+        return;
+    }
+    state.config.advanced.squelch_mode = if level <= -100.0 {
+        crate::radio_squelch::SquelchMode::Off
+    } else {
+        crate::radio_squelch::SquelchMode::Power
+    };
+    state.config.advanced.squelch_level_db = level.clamp(-100.0, 0.0);
+    sync_squelch_level(state);
+}
+    pub(crate) fn sync_squelch_level(state: &mut SharedState) {
+    state.squelch =
+        if state.config.advanced.squelch_mode == crate::radio_squelch::SquelchMode::Power {
+            state.config.advanced.squelch_level_db.clamp(-100.0, 0.0)
+        } else {
+            -100.0
+        };
+}
+}
+pub fn make_shared_state() -> Arc<Mutex<SharedState>> {
+    Arc::new(Mutex::new(SharedState {
+        source: SourceManager::new(),
+        spectrum: SpectrumAnalyzer::new(),
+        config: AppConfig::default(),
+        input_format: dump1090::demod::InputFormat::Uc8,
+        bookmarks: BookmarkDb::default(),
+        scheduler: Scheduler::new(),
+        tle: TleEngine::new(),
+        demod_mode: crate::sdr_panel::DemodMode::Fm,
+        recording: false,
+        adsb_running: false,
+        selected_satellite: None,
+        audio_running: false,
+        volume: 0.5,
+        squelch: -50.0,
+        lpf_cutoff: 15000.0,
+        fm_deviation_hz: 0.0,
+        audio_peak: 0.0,
+        freq_history: VecDeque::with_capacity(20),
+        vfo_b: 0,
+        freq_memory: std::array::from_fn(|_| FreqMemEntry::default()),
+        tune_step_fine_hz: 100_000,
+        tune_step_coarse_hz: 1_000_000,
+        lo_offset_hz: 0,
+        mqtt_connected: false,
+        mqtt_enabled: false,
+        bookmarks_modified: true,
+        scanner_command: None,
+    }))
+}
+fn parity(mut msg: [u8;14]) -> [u8;14] {
+    let crc=dump1090::crc::crc24(&msg[..11]);
+    msg[11]=(crc>>16) as u8;msg[12]=(crc>>8)as u8;msg[13]=crc as u8;
+    assert!(dump1090::crc::check_crc(&msg)); msg
+}
+fn item() -> ez_proto::AircraftTelemetry {
+    ez_proto::AircraftTelemetry { icao:0xabcdef,callsign:Some("AUDIT".into()),altitude_ft:Some(-500),lat:Some(51.0),lon:Some(0.0),ground_speed_kt:None,track_deg:None,vertical_rate_fpm:Some(640),msg_count:4,last_seen_ms:1 }
+}
+fn emit(id: &str, value: serde_json::Value) { println!("AUDIT {}",serde_json::json!({"probe":id,"observed":value})); }
+fn main() {
+    let output=std::path::PathBuf::from(std::env::args().nth(1).unwrap());
+    let mut filter=dump1090::icao_filter::IcaoFilter::new();
+    let known=0xabcdef;filter.add(known);
+    let collision=(1..0xffffff).find(|&x| x!=known && filter.contains(x)).unwrap();
+    let mut ap=[0u8;14];ap[0]=4<<3;
+    let crc=dump1090::crc::crc24(&ap[..4])^collision;
+    ap[4]=(crc>>16)as u8;ap[5]=(crc>>8)as u8;ap[6]=crc as u8;
+    let mut mm=dump1090::demod::ModesMessage::default();
+    let accepted=dump1090::demod::decode_mode_s_message(&mut mm,&ap,&mut filter,false,0).is_ok();
+    assert!(accepted);assert_eq!(mm.addr,collision);
+    emit("icao_collision_ap",serde_json::json!({"learned":format!("{known:06X}"),"unlearned_accepted":format!("{collision:06X}"),"accepted":accepted}));
+    let mut filter=dump1090::icao_filter::IcaoFilter::new();
+    for _ in 0..8192 {filter.add(known);}
+    assert!(!filter.contains(known));
+    emit("icao_duplicate_rotation",serde_json::json!({"duplicate_adds":8192,"known_after":filter.contains(known)}));
+
+    let mut d=local_probe::AdsBDecoder::new();
+    let mut vr=[0u8;14];vr[0]=0x8d;vr[1]=0xab;vr[2]=0xcd;vr[3]=0xef;vr[4]=(19<<3)|1;vr[8]=1;vr[9]=0x60;
+    local_probe::inject(&mut d,parity(vr),true);
+    let before=d.get_aircraft()[0].vertical_rate;
+    let mut status=vr;status[4]=(28<<3)|1;status[5..11].fill(0);
+    local_probe::inject(&mut d,parity(status),true);
+    let after=d.get_aircraft()[0].vertical_rate;
+    assert_eq!(after,Some(1));assert_ne!(before,after);
+    emit("status_corrupts_vertical_rate",serde_json::json!({"before_fpm":before,"after_no_emergency_fpm":after}));
+    let mut neg=vr;neg[4]=11<<3;neg[5]=0x05;neg[6]=0x80;
+    let altitude=dump1090::mode_s::decode_mode_s_message(&parity(neg)).unwrap().altitude;
+    assert_eq!(altitude,Some(0));
+    emit("negative_altitude",serde_json::json!({"encoded_ft":-500,"decoded_ft":altitude}));
+    let mut heading=vr;heading[4]=(19<<3)|3;heading[5]=0x05;heading[6]=0x00;
+    let mut h=local_probe::AdsBDecoder::new();local_probe::inject(&mut h,parity(heading),true);
+    let ac=&h.get_aircraft()[0];assert_eq!(ac.heading,90);assert!(!ac.has_heading);
+    emit("airspeed_heading_validity",serde_json::json!({"heading":ac.heading,"has_heading":ac.has_heading}));
+    let mut df18=neg;df18[0]=(18<<3)|1;
+    let mut namespace=local_probe::AdsBDecoder::new();
+    local_probe::inject(&mut namespace,parity(neg),true);
+    local_probe::inject(&mut namespace,parity(df18),true);
+    assert_eq!(namespace.get_aircraft().len(),1);
+    emit("df18_identity_merge",serde_json::json!({"df17_and_non_icao_df18_cf1_entries":namespace.get_aircraft().len(),"merged_id":namespace.get_aircraft()[0].icao}));
+
+    let bus=bus::SampleBus::new();let tap=bus.subscribe(4,bus::OverflowPolicy::DropIncoming);
+    let mut packet=packet_probe::PacketPipeline::new(tap,2400000);
+    let mut allcall=[0u8;14];allcall[0]=11<<3;allcall[1]=0xab;allcall[2]=0xcd;allcall[3]=0xef;
+    let crc=dump1090::crc::crc24(&allcall[..4])^1;allcall[4]=(crc>>16)as u8;allcall[5]=(crc>>8)as u8;allcall[6]=crc as u8;
+    let mut f=dump1090::icao_filter::IcaoFilter::new();f.add(0xabcdef);let mut mm=dump1090::demod::ModesMessage::default();
+    let accepted=dump1090::demod::decode_mode_s_message(&mut mm,&allcall,&mut f,false,0).is_ok();
+    assert!(!accepted);
+    let semantic_accepted=dump1090::mode_s::decode_mode_s_message(&allcall).is_some();assert!(!semantic_accepted);
+    emit("df11_iid_contract",serde_json::json!({"demod_accepted":accepted,"iid":1,"semantic_accepted":semantic_accepted,"previously_learned":true,"crc_repair_limit":0}));
+    let mut local=local_probe::AdsBDecoder::new();
+    for hex in ["8D40621D58C382D690C8AC2863A7","8D40621D58C386435CC412692AD6"] {
+        let mut msg=[0u8;14];for i in 0..14 {msg[i]=u8::from_str_radix(&hex[i*2..i*2+2],16).unwrap();}
+        msg[4]=(20<<3)|(msg[4]&7);msg=parity(msg);
+        let mut mm=dump1090::demod::ModesMessage::default();mm.msg=msg;mm.msgtype=17;mm.addr=0x40621d;mm.msgbits=112;
+        local_probe::inject(&mut local,msg,true);packet_probe::inject(&mut packet,&mm);
+    }
+    let local_position=local.get_aircraft()[0].has_position;
+    let daemon_position=packet_probe::snapshot(&packet).iter().any(|a| a.lat.is_some());
+    assert!(local_position);assert!(!daemon_position);
+    emit("geometric_cpr_omission",serde_json::json!({"type_code":20,"local_position":local_position,"daemon_position":daemon_position}));
+
+    let mut no_pos=item();no_pos.lat=None;no_pos.lon=None;
+    assert!(Mapper::map_daemon_aircraft(no_pos).is_none());
+    let mapped=Mapper::map_daemon_aircraft(item()).unwrap();
+    assert!(mapped.has_heading&&mapped.reliable&&mapped.vertical_rate.is_none());
+    emit("daemon_adapter",serde_json::json!({"no_position_dropped":true,"missing_track_has_heading":mapped.has_heading,"quality":mapped.score,"reliable":mapped.reliable,"vertical_rate":mapped.vertical_rate,"altitude":mapped.altitude,"reported_age_ms":1,"mapped_age_ms":mapped.seen.elapsed().as_millis()}));
+
+    let samples=[90u8,110,127,128,140,160,180,200];
+    let mut writer=satellite::recorder::Cf32StreamWriter::start(output.to_str().unwrap(),Some("ROUNDTRIP".into()),2400000,1090000000,0.0,0.0).unwrap();
+    let path=writer.path().to_owned();writer.write(&samples);writer.stop().unwrap();
+    let mut source=SourceManager::new();source.source_mode=SourceMode::Replay;source.replay_file=Some(path.to_string_lossy().into());source.replay_loop=false;source.start();
+    let deadline=Instant::now()+Duration::from_secs(2);
+    let replay=loop {if let Some(v)=source.recv_samples(){break v;}assert!(Instant::now()<deadline);std::thread::sleep(Duration::from_millis(2));};
+    let position=source.replay_position;let size=source.replay_size;source.stop();
+    assert_ne!(samples.to_vec(),replay);
+    emit("cf32_roundtrip",serde_json::json!({"original":samples,"replayed":replay,"progress_bytes":position,"input_file_bytes":size}));
+    let mut broken=satellite::recorder::Cf32StreamWriter::start(output.to_str().unwrap(),Some("missing/parent".into()),2400000,1090000000,0.0,0.0).unwrap();
+    std::thread::sleep(Duration::from_millis(30));let claimed=broken.is_running();broken.write(&samples);
+    let stopped=broken.stop().unwrap();assert!(claimed);assert_eq!(stopped.bytes_total,0);
+    emit("cf32_failure_reporting",serde_json::json!({"start_ok":true,"is_running_after_worker_exit":claimed,"stop_ok":true,"bytes":stopped.bytes_total}));
+    let mut overwrite = None;
+    for _ in 0..3 {
+        let mut first=satellite::recorder::Cf32StreamWriter::start(output.to_str().unwrap(),Some("COLLISION".into()),2400000,1090000000,0.0,0.0).unwrap();
+        let path=first.path().to_owned();first.write(&[90,110,140,160]);first.stop().unwrap();let before=std::fs::metadata(&path).unwrap().len();
+        let mut second=satellite::recorder::Cf32StreamWriter::start(output.to_str().unwrap(),Some("COLLISION".into()),2400000,1090000000,0.0,0.0).unwrap();
+        let same_path=path==second.path();second.write(&[180,200]);second.stop().unwrap();
+        if same_path {overwrite=Some((before,std::fs::metadata(&path).unwrap().len()));break;}
+    }
+    let (before,after)=overwrite.expect("two starts must fall in same second within three attempts");assert_eq!(before,16);assert_eq!(after,8);
+    emit("cf32_overwrite",serde_json::json!({"same_path":true,"first_bytes":before,"remaining_bytes":after}));
+
+    let shared=make_shared_state();let mut recorder=recorder_panel::RecorderPanel::new(shared.clone());
+    let lock=shared.lock().unwrap();recorder.handle_daemon_recording(ez_proto::RecordingStatus{channel_id:1,active:true,path:None,bytes_written:10,duration_sec:1.0});
+    assert!(recorder.recording);assert!(!lock.recording);drop(lock);
+    emit("daemon_recorder_lock",serde_json::json!({"panel_recording":recorder.recording,"shared_recording":shared.lock().unwrap().recording}));
+    recorder.recording=false;recorder.record_iq=true;recorder.record_audio=false;recorder.output_dir=output.join("iq").to_string_lossy().into();
+    recorder.max_duration_mins=1;recorder.start_recording();assert!(recorder.recording);
+    recorder.start_time=Some(Instant::now()-Duration::from_secs(61));recorder.write_samples(&samples);
+    assert!(recorder.recording);let before=recorder.bytes_written;
+    let ctx=egui::Context::default();let _=ctx.run_ui(egui::RawInput::default(),|ctx|{egui::CentralPanel::default().show(ctx,|ui|recorder.ui(ui));});
+    assert!(!recorder.recording);
+    emit("hidden_recorder_deadline",serde_json::json!({"duration_limit_s":60,"elapsed_s":61,"bytes_accepted_after_limit":before,"stopped_only_after_ui":true}));
+    let mut ai=Ai{shared:shared.clone()};let claimed=ai.execute_tool_call("start_recording",&serde_json::json!({}));
+    assert!(shared.lock().unwrap().recording);assert!(!recorder.recording);
+    let gen=shared.lock().unwrap().source.stream_generation();
+    ai.execute_tool_call("tune_frequency",&serde_json::json!({"hz":1090000000}));
+    ai.execute_tool_call("start_adsb",&serde_json::json!({}));
+    let s=shared.lock().unwrap();assert_eq!(gen,s.source.stream_generation());
+    emit("ai_tool_actions",serde_json::json!({"result":claimed,"shared_recording":s.recording,"recorder_recording":recorder.recording,"source_generation_changed":gen!=s.source.stream_generation(),"source_running":matches!(s.source.status,source_manager::SourceStatus::Running),"adsb_claimed":s.adsb_running,"sample_rate":s.source.sample_rate_hz}));drop(s);
+
+    let bus=ez_daemon::bus::SampleBus::new();let tap=bus.subscribe(4,ez_daemon::bus::OverflowPolicy::DropIncoming);
+    let mut ch=ez_daemon::channelizer::Channelizer::new(tap,1090000000,2400000);let (_,out)=ch.add_channel(1090000000,2400000).unwrap();
+    for start in [0,1000] {bus.publish(ez_daemon::bus::SampleBlock{start_sample:start,sample_rate_hz:2400000,center_freq_hz:1090000000,samples:Arc::from(vec![num_complex::Complex32::new(1.0,0.0);4])});assert!(ch.tick(Duration::ZERO));}
+    let first=out.try_recv().unwrap();let second=out.try_recv().unwrap();assert_eq!(second.start_sample,4);
+    emit("channelizer_erases_gap",serde_json::json!({"input_starts":[0,1000],"input_block_len":4,"output_starts":[first.start_sample,second.start_sample]}));
+
+    let worker=demod::DemodWorker::new(8);
+    for _ in 0..4 {assert!(worker.configure(demod::DemodConfig::default()));}
+    let mut latest=demod::DemodConfig::default();latest.mode=sdr_panel::DemodMode::Am;
+    let accepted=worker.configure(latest);assert!(!accepted);
+    assert!(worker.push_iq(vec![num_complex::Complex32::new(0.5,0.0);8192]));
+    let deadline=Instant::now()+Duration::from_secs(2);
+    let frame=loop {if let Some(f)=worker.try_recv_frame(){break f;}assert!(Instant::now()<deadline);std::thread::sleep(Duration::from_millis(2));};
+    assert_eq!(frame.mode,sdr_panel::DemodMode::Fm);
+    emit("demod_config_not_coalesced",serde_json::json!({"latest_requested":"AM","latest_accepted":accepted,"frame_mode":frame.mode.label()}));
+    drop(worker);
+
+    let mut spectrum=SpectrumAnalyzer::new();spectrum.update_params(100000000,2048000);spectrum.set_avg_alpha(1.0);
+    spectrum.vfo_freq_hz=Some(100000000);spectrum.vfo_bw_hz=12500;
+    let mut bins=vec![-120.0;spectrum.fft_size()];let bin=bins.len()/2+200;bins[bin]=-10.0;
+    spectrum.push_spectrum_frame(&ez_proto::SpectrumFrame{center_hz:100000000,sample_rate_hz:2048000,bins,timestamp_ms:1});
+    let global=spectrum.peak_level();let vfo=spectrum.vfo_signal_level();
+    let mut scanner=scanner::FrequencyScanner::new(shared.clone());scanner.start_hz=100000000;scanner.stop_hz=101000000;scanner.dwell_ms=0;scanner.threshold_db=-50.0;scanner.start();scanner.tick(global);
+    assert!(vfo < -50.0);assert_eq!(scanner.hits.len(),1);assert_eq!(scanner.hits[0].freq_hz,100000000);
+    emit("scanner_off_channel_hit",serde_json::json!({"wideband_peak_db":global,"selected_channel_db":vfo,"actual_peak_hz":spectrum.peak_freq_hz(),"logged_hit_hz":scanner.hits[0].freq_hz}));
+
+    use std::io::{Read,Write};
+    let mut server=rigctl::RigctlServer::new();server.set_enabled(true,0);
+    for _ in 0..100 {if server.bound_port()!=0{break;}std::thread::sleep(Duration::from_millis(2));}
+    let mut stream=std::net::TcpStream::connect(("127.0.0.1",server.bound_port())).unwrap();stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    stream.write_all(b"F 1").unwrap();std::thread::sleep(Duration::from_millis(80));stream.write_all(b"090000000\n").unwrap();
+    std::thread::sleep(Duration::from_millis(30));let reqs=server.poll_requests();let mut buf=[0u8;64];let n=stream.read(&mut buf).unwrap();
+    assert!(reqs.is_empty());emit("rigctl_fragmentation",serde_json::json!({"sent_command":"F 1090000000","delay_ms":80,"requests":reqs.len(),"reply":String::from_utf8_lossy(&buf[..n])}));drop(stream);server.stop();
+}
