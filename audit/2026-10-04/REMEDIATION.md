@@ -30,7 +30,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [x] R07 (P2): Recording duration enforcement lives in an unrendered panel
 - [ ] G01 (P1): The scanner logs an off-channel signal as a hit at the selected frequency
 - [ ] G02 (P2): The scanner continues making decisions from stale spectra when Listen is hidden or the source is stopped
-- [ ] G03 (P2): The demodulation control queue discards the newest settings instead of coalescing them
+- [x] G03 (P2): The demodulation control queue discards the newest settings instead of coalescing them
 - [ ] G04 (P2): Saved hardware and spectrum controls are not consistently restored or applied
 - [ ] G05 (P2): Applying appearance or integration settings retunes the active receiver to the startup default
 - [x] G06 (P2): Bookmark autosave watches collection length and clean exit does not flush pending bookmarks
@@ -93,3 +93,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Batch 6: A16 publishes typed receiver counter/rate snapshots from actual local Mode S framing, the UAT ingest worker and the daemon packet pipeline. A shared fixed five-second window uses at most 50 buckets; idle reads expire rates without arrivals or tab rendering, and receiver-counter resets retire old rate state. Aircraft snapshot republication never counts as reception. UAT accepted/drop/rejection counters remain separate. Daemon idle snapshots and disconnected GUI snapshots reach zero; daemon lifetime totals survive aircraft pruning.
 - Batch 6 regressions exercise real Mode S IQ locally and in the daemon (100 messages, total 100, rate 20/s), UAT parsing/queue overflow, idle expiry, receiver resets, bounded known-cadence accounting and wire preservation of counters and channel identity. Protocol is now 4; rebuild GUI and daemon together.
 - Batch 6 final gates: Rust 1.92.0 workspace all-target tests pass (1,505 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed. Twenty-three of 42 formal findings are fixed. The goal remains active.
+
+- Batch 7: G03 replaces the four-entry settings FIFO with synchronized latest-value batch/profile/reset state and one coalesced wakeup. Controls apply and acknowledge their revision even without IQ. Frames carry their exact batch settings, control revision and advanced-profile revision; the app discards superseded audio and records a submitted profile only when delivery succeeds. Unchanged settings preserve the acknowledgement.
+- Batch 7 regressions flood 100 settings/profiles before IQ, verify independent idle acknowledgement and final AM/muted output, change controls under IQ backlog, check frame revisions/settings and verify missing-worker requests report failure.
+- Batch 7 final gates: Rust 1.92.0 workspace all-target tests pass (1,508 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed. Twenty-four of 42 formal findings are fixed. Four untouched files still differ under the full workspace format check; the goal remains active.

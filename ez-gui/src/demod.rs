@@ -2,8 +2,8 @@ use crate::config::AdvancedConfig;
 use crate::sdr_panel::DemodMode;
 use num_complex::Complex32;
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// 2nd-order IIR biquad (RBJ cookbook) used for audio notch + bass/treble shelves.
 struct Biquad {
@@ -1483,9 +1483,7 @@ impl Demodulator {
         }
         let left = self.post_process(left);
         let right = right_chain.post_process(right);
-        let left = self
-            .resampler
-            .process(left, rate, self.audio_sample_rate);
+        let left = self.resampler.process(left, rate, self.audio_sample_rate);
         let right = right_chain
             .resampler
             .process(right, rate, self.audio_sample_rate);
@@ -1791,8 +1789,7 @@ impl Demodulator {
         let cutoff = self.rf_bandwidth(mode) / 2.0;
         let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
         let beat = self.cw_tone_hz + self.cw_offset_hz;
-        let beat_step =
-            std::f64::consts::TAU * f64::from(beat) / self.effective_output_rate;
+        let beat_step = std::f64::consts::TAU * f64::from(beat) / self.effective_output_rate;
         for sample in iq.iter() {
             let i = sample.re;
             let q = sample.im;
@@ -1899,7 +1896,7 @@ const _: () = {
 /// Per-batch demodulation settings applied by [`DemodWorker`] before it
 /// demodulates the next IQ batch. All fields are plain data, so the struct
 /// is cheap to clone into the control channel.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DemodConfig {
     /// Concrete demodulation mode for the next batch.
     pub mode: DemodMode,
@@ -1934,6 +1931,12 @@ impl Default for DemodConfig {
 /// run CTCSS/RDS and read metrics without touching the demodulator itself.
 #[derive(Debug)]
 pub struct DemodFrame {
+    /// Latest control revision applied before this batch began.
+    pub control_version: u64,
+    /// Advanced-profile revision applied to the demodulator.
+    pub advanced_version: u64,
+    /// Concrete per-batch settings used for these samples.
+    pub config: DemodConfig,
     /// Demodulation mode that produced this frame.
     pub mode: DemodMode,
     /// Demodulated audio: mono samples, or interleaved L/R when stereo.
@@ -1954,13 +1957,15 @@ pub struct DemodFrame {
     pub wfm_multiplex_rate: f64,
 }
 
-/// Control messages consumed by the [`DemodWorker`] loop between batches.
-#[derive(Debug)]
-enum WorkerMessage {
-    /// Replace the per-batch demodulation configuration.
-    Config(DemodConfig),
-    /// Push the full Advanced-panel DSP settings onto the demodulator.
-    Advanced(Box<AdvancedConfig>, DemodMode),
+/// Replaceable control state. Config/profile/reset revisions travel together;
+/// a capacity-one wakeup is a notification, never a queue of settings to lose.
+#[derive(Clone, Default)]
+struct WorkerControl {
+    config: DemodConfig,
+    advanced: Option<(AdvancedConfig, DemodMode)>,
+    version: u64,
+    advanced_version: u64,
+    reset_version: u64,
 }
 
 /// A [`Demodulator`] that lives and runs on a dedicated OS thread.
@@ -1976,10 +1981,10 @@ pub struct DemodWorker {
     /// IQ batches waiting to be demodulated. Wrapped in Option so Drop can
     /// take and drop it before joining the worker thread (unblocking recv()).
     iq_tx: Option<crossbeam_channel::Sender<Vec<Complex32>>>,
-    /// Configuration and settings requests consumed by the worker loop.
-    config_tx: crossbeam_channel::Sender<WorkerMessage>,
-    /// One-shot control requests consumed by the worker loop.
-    reset_tx: crossbeam_channel::Sender<()>,
+    control: Arc<Mutex<WorkerControl>>,
+    control_wake_tx: crossbeam_channel::Sender<()>,
+    applied_version: Arc<AtomicU64>,
+    running: Arc<AtomicBool>,
     /// Finished demod frames waiting for the UI thread.
     audio_rx: crossbeam_channel::Receiver<DemodFrame>,
     /// The dedicated thread; the Demodulator is owned inside this thread.
@@ -1995,13 +2000,14 @@ impl DemodWorker {
     /// Used in test environments where thread spawning may cause hangs.
     pub fn new_uninitialized(_capacity: usize) -> Self {
         let (iq_tx, _iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
-        let (config_tx, _config_rx) = crossbeam_channel::bounded::<WorkerMessage>(4);
-        let (reset_tx, _reset_rx) = crossbeam_channel::bounded::<()>(1);
+        let (control_wake_tx, _control_wake_rx) = crossbeam_channel::bounded(1);
         let (_audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(4);
         Self {
             iq_tx: Some(iq_tx),
-            config_tx,
-            reset_tx,
+            control: Default::default(),
+            control_wake_tx,
+            applied_version: Default::default(),
+            running: Arc::new(AtomicBool::new(false)),
             audio_rx,
             handle: None,
             dropped_iq: Arc::new(AtomicU64::new(0)),
@@ -2010,11 +2016,16 @@ impl DemodWorker {
     }
 
     /// Spawn the worker thread. `capacity` bounds both the IQ and frame
-    /// queues; control messages use their own small bounded queue.
+    /// queues; controls use replaceable state and one bounded wakeup.
     pub fn new(capacity: usize) -> Self {
         let (iq_tx, iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(capacity);
-        let (config_tx, config_rx) = crossbeam_channel::bounded::<WorkerMessage>(4);
-        let (reset_tx, reset_rx) = crossbeam_channel::bounded::<()>(1);
+        let (control_wake_tx, control_wake_rx) = crossbeam_channel::bounded(1);
+        let control = Arc::new(Mutex::new(WorkerControl::default()));
+        let worker_control = Arc::clone(&control);
+        let applied_version = Arc::new(AtomicU64::new(0));
+        let worker_applied = Arc::clone(&applied_version);
+        let running = Arc::new(AtomicBool::new(true));
+        let worker_running = Arc::clone(&running);
         let (audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(capacity);
         let dropped_iq = Arc::new(AtomicU64::new(0));
         let dropped_frames = Arc::new(AtomicU64::new(0));
@@ -2022,24 +2033,38 @@ impl DemodWorker {
         let worker_dropped_frames = Arc::clone(&dropped_frames);
         let handle = std::thread::spawn(move || {
             let mut demod = Demodulator::new();
-            let mut config = DemodConfig::default();
-            while let Ok(iq) = iq_rx.recv() {
-                // Apply any pending control messages before demodulating so
-                // a batch never runs with stale settings or a missed reset.
-                while let Ok(message) = config_rx.try_recv() {
-                    match message {
-                        WorkerMessage::Config(new) => config = new,
-                        WorkerMessage::Advanced(advanced, mode) => {
-                            demod.apply_advanced(&advanced, mode);
-                        }
+            let mut advanced_version = 0;
+            let mut reset_version = 0;
+            loop {
+                let iq = crossbeam_channel::select! {
+                    recv(iq_rx) -> input => match input { Ok(iq) => Some(iq), Err(_) => break },
+                    recv(control_wake_rx) -> wake => {
+                        if wake.is_err() { break; }
+                        None
+                    },
+                };
+                let desired = worker_control
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone();
+                let config = desired.config;
+                if desired.advanced_version != advanced_version {
+                    if let Some((advanced, mode)) = &desired.advanced {
+                        demod.apply_advanced(advanced, *mode);
                     }
+                    advanced_version = desired.advanced_version;
                 }
-                if reset_rx.try_recv().is_ok() {
+                if desired.reset_version != reset_version {
                     demod.reset();
+                    reset_version = desired.reset_version;
                 }
                 demod.set_sample_rates_exact(config.input_rate, config.audio_rate);
                 demod.set_lpf_cutoff(config.lpf_cutoff);
                 demod.set_rf_bandwidth(config.rf_bandwidth);
+                worker_applied.store(desired.version, Ordering::Release);
+                let Some(iq) = iq else {
+                    continue;
+                };
                 let frame = if config.stereo {
                     let frames = demod.demodulate_stereo_complex(&iq, config.mode);
                     let mut audio = Vec::with_capacity(frames.len() * 2);
@@ -2048,6 +2073,9 @@ impl DemodWorker {
                         audio.push(right);
                     }
                     DemodFrame {
+                        control_version: desired.version,
+                        advanced_version,
+                        config,
                         mode: config.mode,
                         audio,
                         stereo: true,
@@ -2061,6 +2089,9 @@ impl DemodWorker {
                 } else {
                     let audio = demod.demodulate_complex(&iq, config.mode);
                     DemodFrame {
+                        control_version: desired.version,
+                        advanced_version,
+                        config,
                         mode: config.mode,
                         audio,
                         stereo: false,
@@ -2081,11 +2112,14 @@ impl DemodWorker {
                     continue; // UI thread is behind or gone; drop frame, keep looping.
                 }
             }
+            worker_running.store(false, Ordering::Release);
         });
         Self {
             iq_tx: Some(iq_tx),
-            config_tx,
-            reset_tx,
+            control,
+            control_wake_tx,
+            applied_version,
+            running,
             audio_rx,
             handle: Some(handle),
             dropped_iq,
@@ -2123,17 +2157,58 @@ impl DemodWorker {
     /// Coalesced while a request is queued; the worker applies the newest
     /// one before its next batch.
     pub fn configure(&self, config: DemodConfig) -> bool {
-        self.config_tx
-            .try_send(WorkerMessage::Config(config))
-            .is_ok()
+        self.update_control(|desired| {
+            if desired.config == config {
+                return false;
+            }
+            desired.config = config;
+            true
+        })
     }
 
-    /// Non-blocking: push the full Advanced-panel DSP settings onto the
-    /// worker's demodulator. Coalesced while a request is queued.
+    /// Replace the full Advanced profile without discarding pending batch settings.
     pub fn configure_advanced(&self, advanced: &AdvancedConfig, mode: DemodMode) -> bool {
-        self.config_tx
-            .try_send(WorkerMessage::Advanced(Box::new(advanced.clone()), mode))
-            .is_ok()
+        self.update_control(|desired| {
+            if desired
+                .advanced
+                .as_ref()
+                .is_some_and(|(a, m)| a == advanced && *m == mode)
+            {
+                return false;
+            }
+            desired.advanced = Some((advanced.clone(), mode));
+            desired.advanced_version = desired.version + 1;
+            true
+        })
+    }
+
+    fn update_control(&self, update: impl FnOnce(&mut WorkerControl) -> bool) -> bool {
+        if !self.running.load(Ordering::Acquire) {
+            return false;
+        }
+        {
+            let mut desired = self.control.lock().unwrap_or_else(|p| p.into_inner());
+            if !update(&mut desired) {
+                return true;
+            }
+            desired.version += 1;
+        }
+        match self.control_wake_tx.try_send(()) {
+            Ok(()) | Err(crossbeam_channel::TrySendError::Full(())) => true,
+            Err(crossbeam_channel::TrySendError::Disconnected(())) => false,
+        }
+    }
+
+    pub fn requested_version(&self) -> u64 {
+        self.control
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .version
+    }
+
+    /// Acknowledges control application even while IQ input is idle.
+    pub fn applied_version(&self) -> u64 {
+        self.applied_version.load(Ordering::Acquire)
     }
 
     /// Non-blocking: take the next finished demod frame, if any. The UI
@@ -2145,7 +2220,10 @@ impl DemodWorker {
     /// Ask the worker thread to call [`Demodulator::reset`] before
     /// demodulating the next batch. Coalesced while a request is queued.
     pub fn request_reset(&self) -> bool {
-        self.reset_tx.try_send(()).is_ok()
+        self.update_control(|desired| {
+            desired.reset_version = desired.version + 1;
+            true
+        })
     }
 }
 
@@ -3682,6 +3760,128 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         None
+    }
+
+    #[test]
+    fn demod_control_flood_coalesces_config_and_profile_and_acknowledges_without_iq() {
+        let worker = DemodWorker::new(4);
+        for n in 0..100 {
+            assert!(worker.configure(DemodConfig {
+                input_rate: 192_000.0 + n as f64,
+                ..Default::default()
+            }));
+            let advanced = AdvancedConfig {
+                audio_gain: n as f32 / 100.0,
+                ..Default::default()
+            };
+            assert!(worker.configure_advanced(&advanced, DemodMode::Fm));
+        }
+        let config = DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            ..Default::default()
+        };
+        let advanced = AdvancedConfig {
+            audio_gain: 0.0,
+            ..Default::default()
+        };
+        assert!(worker.configure_advanced(&advanced, DemodMode::Am));
+        let advanced_version = worker.requested_version();
+        assert!(worker.configure(config));
+        assert!(worker.request_reset());
+        let version = worker.requested_version();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while worker.applied_version() != version && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            worker.applied_version(),
+            version,
+            "control application must wake without IQ"
+        );
+        assert!(worker.configure(config));
+        assert!(worker.configure_advanced(&advanced, DemodMode::Am));
+        assert_eq!(
+            worker.requested_version(),
+            version,
+            "unchanged controls preserve acknowledgement"
+        );
+        assert!(worker.push_iq(vec![Complex32::new(0.6, 0.0); 384]));
+        let frame = poll_for_frame(&worker).expect("final configuration produces a frame");
+        assert_eq!(frame.control_version, version);
+        assert_eq!(frame.advanced_version, advanced_version);
+        assert_eq!(frame.config, config);
+        assert_eq!(frame.mode, DemodMode::Am);
+        assert!(!frame.audio.is_empty());
+        assert!(
+            frame.audio.iter().all(|sample| *sample == 0.0),
+            "final advanced audio gain must be applied"
+        );
+    }
+
+    #[test]
+    fn demod_frame_versions_identify_latest_controls_under_iq_backlog() {
+        let worker = DemodWorker::new(4);
+        assert!(worker.configure(DemodConfig {
+            mode: DemodMode::Fm,
+            input_rate: 192_000.0,
+            ..Default::default()
+        }));
+        for _ in 0..4 {
+            worker.push_iq(vec![Complex32::new(0.6, 0.0); 50_000]);
+        }
+        for n in 0..50 {
+            assert!(worker.configure(DemodConfig {
+                input_rate: 192_000.0 + n as f64,
+                ..Default::default()
+            }));
+        }
+        let final_config = DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            ..Default::default()
+        };
+        assert!(worker.configure(final_config));
+        assert!(worker.configure_advanced(
+            &AdvancedConfig {
+                audio_gain: 0.0,
+                ..Default::default()
+            },
+            DemodMode::Am
+        ));
+        let version = worker.requested_version();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut sent_final = false;
+        let mut final_frame = None;
+        while std::time::Instant::now() < deadline {
+            if !sent_final {
+                sent_final = worker.push_iq(vec![Complex32::new(0.6, 0.0); 384]);
+            }
+            while let Some(frame) = worker.try_recv_frame() {
+                assert!(frame.control_version <= version);
+                assert_eq!(frame.mode, frame.config.mode);
+                if frame.control_version == version {
+                    final_frame = Some(frame);
+                }
+            }
+            if final_frame.is_some() {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        let frame = final_frame.expect("backlog must not discard the final settings");
+        assert_eq!(frame.config, final_config);
+        assert_eq!(frame.advanced_version, version);
+        assert!(frame.audio.iter().all(|sample| *sample == 0.0));
+    }
+
+    #[test]
+    fn demod_controls_report_a_missing_worker_instead_of_success() {
+        let worker = DemodWorker::new_uninitialized(4);
+        assert!(!worker.configure(DemodConfig::default()));
+        assert!(!worker.configure_advanced(&AdvancedConfig::default(), DemodMode::Am));
+        assert!(!worker.request_reset());
+        assert_eq!(worker.requested_version(), 0);
     }
 
     #[test]

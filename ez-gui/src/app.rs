@@ -484,10 +484,10 @@ impl CentralApp {
 
     /// Forward the current Advanced-panel DSP settings to the demod worker.
     /// `state` must be a live [`SharedState`] guard.
-    fn sync_demod_advanced(&self, state: &SharedState) {
+    fn sync_demod_advanced(&self, state: &SharedState) -> bool {
         let mode = state.demod_mode.resolve(state.source.frequency_hz);
         self.demod_worker
-            .configure_advanced(&state.config.advanced, mode);
+            .configure_advanced(&state.config.advanced, mode)
     }
 
     fn process_rigctl_requests(&mut self) {
@@ -862,8 +862,9 @@ impl eframe::App for CentralApp {
                 state.demod_mode.resolve(state.source.frequency_hz),
                 crate::config::RadioModeProfile::capture(&state.config.advanced),
             );
-            if self.last_radio_profile.as_ref() != Some(&profile) {
-                self.sync_demod_advanced(&state);
+            if self.last_radio_profile.as_ref() != Some(&profile)
+                && self.sync_demod_advanced(&state)
+            {
                 self.last_radio_profile = Some(profile);
             }
         }
@@ -1065,7 +1066,7 @@ impl eframe::App for CentralApp {
             let mut last_demod_metrics: Option<(f32, f32)> = None;
             let demod_active = audio_running || rds_active || ctcss_active;
             while let Some(frame) = self.demod_worker.try_recv_frame() {
-                if !demod_active {
+                if !demod_active || frame.control_version != self.demod_worker.requested_version() {
                     continue;
                 }
                 if frame.stereo {
