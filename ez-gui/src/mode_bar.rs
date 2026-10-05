@@ -183,6 +183,7 @@ impl SecondaryTool {
 /// existing configuration readers without adding another side menu.
 pub const ALL_SECONDARY_TOOLS: &[SecondaryTool] = &[
     SecondaryTool::Scanner,
+    SecondaryTool::Recorder,
     SecondaryTool::HowTo,
     SecondaryTool::SetupGuide,
     SecondaryTool::Settings,

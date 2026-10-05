@@ -386,6 +386,50 @@ fn daemon_snapshots_preserve_observation_age_validity_and_quality() {
 }
 
 #[test]
+fn daemon_recording_events_update_panel_and_shared_state_under_the_app_lock() {
+    let mut app = offline_test_app();
+    let shared = Arc::clone(&app.shared);
+    let mut state = shared.lock().unwrap();
+    for active in [true, false] {
+        app.apply_daemon_recording(
+            ez_proto::RecordingStatus {
+                channel_id: 1,
+                active,
+                path: Some("capture.iq".into()),
+                bytes_written: 128,
+                duration_sec: 2.0,
+            },
+            &mut state,
+        );
+        assert_eq!(state.recording, active);
+        assert_eq!(app.recorder_panel.recording, active);
+    }
+}
+
+#[test]
+fn recorder_deadline_runs_on_hidden_tab_and_controls_are_dispatchable() {
+    assert!(ALL_SECONDARY_TOOLS.contains(&SecondaryTool::Recorder));
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Planes;
+    app.active_secondary_tool = None;
+    app.recorder_panel.recording = true;
+    app.recorder_panel.max_duration_mins = 1;
+    app.recorder_panel.start_time =
+        Some(std::time::Instant::now() - std::time::Duration::from_secs(61));
+    app.shared.lock().unwrap().recording = true;
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.logic(ui.ctx(), &mut frame)
+    });
+    assert!(!app.recorder_panel.recording);
+    assert!(!app.shared.lock().unwrap().recording);
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.render_secondary_panel(ui, SecondaryTool::Recorder)
+    });
+}
+
+#[test]
 fn replay_runs_through_app_logic_with_muted_metadata_and_clears_at_eof() {
     let mut app = offline_test_app();
     let path = std::env::temp_dir().join(format!("ez-app-flow-{}.cu8", std::process::id()));

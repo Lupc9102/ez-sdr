@@ -97,6 +97,14 @@ impl SatellitePanel {
 
     /// Call every frame from CentralApp::logic().
     pub fn tick_realtime(&mut self) {
+        if self.cf32_recording
+            && self
+                .cf32_writer
+                .as_ref()
+                .is_none_or(|writer| !writer.is_running())
+        {
+            self.stop_cf32_recording();
+        }
         let now = std::time::Instant::now();
         if now.duration_since(self.last_position_update) < self.position_update_interval {
             return;
@@ -562,7 +570,9 @@ impl SatellitePanel {
         }
         if self.cf32_recording {
             if let Some(w) = &mut self.cf32_writer {
-                w.write(samples);
+                if w.write(samples).is_err() {
+                    self.stop_cf32_recording();
+                }
             }
         }
     }

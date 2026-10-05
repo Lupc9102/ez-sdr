@@ -5,7 +5,7 @@
 //! kept off the egui thread; requests are handed to `CentralApp` so the shared
 //! radio state remains the single source of truth.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{
     atomic::{AtomicBool, AtomicU16, Ordering},
@@ -161,42 +161,64 @@ impl Drop for RigctlServer {
 
 fn handle_connection(stream: TcpStream, tx: &Sender<RigctlRequest>, stop: &AtomicBool) {
     let _ = stream.set_read_timeout(Some(POLL_INTERVAL));
-    let reader_stream = match stream.try_clone() {
-        Ok(clone) => clone,
-        Err(_) => return,
-    };
-    let mut reader = BufReader::new(reader_stream);
-    let mut writer = stream;
-    let mut line = String::new();
+    let mut stream = stream;
+    let mut line = Vec::new();
+    let mut discarding = false;
+    let mut buffer = [0; 512];
+    const MAX_COMMAND_BYTES: usize = 1024;
 
     while !stop.load(Ordering::Acquire) {
-        line.clear();
-        match reader.read_line(&mut line) {
+        match stream.read(&mut buffer) {
             Ok(0) => break,
-            Ok(_) => {
-                let command = line.trim();
-                if command.eq_ignore_ascii_case("q") {
-                    break;
-                }
-                let Some(request) = parse_command(command) else {
-                    let _ = writer.write_all(b"RPRT -1\n");
-                    continue;
-                };
-                let (request, reply) = request;
-                if tx.send(request).is_err() {
-                    let _ = writer.write_all(b"RPRT -11\n");
-                    break;
-                }
-                let response = wait_for_reply(&reply, stop);
-                if writer.write_all(response.as_bytes()).is_err() {
-                    break;
+            Ok(count) => {
+                for &byte in &buffer[..count] {
+                    if byte != b'\n' {
+                        if !discarding {
+                            if line.len() >= MAX_COMMAND_BYTES {
+                                line.clear();
+                                discarding = true;
+                            } else {
+                                line.push(byte);
+                            }
+                        }
+                        continue;
+                    }
+                    if discarding {
+                        discarding = false;
+                        if stream.write_all(b"RPRT -1\n").is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                    let command = std::mem::take(&mut line);
+                    let command = std::str::from_utf8(&command).unwrap_or("").trim();
+                    if command.eq_ignore_ascii_case("q") {
+                        return;
+                    }
+                    let Some((request, reply)) = parse_command(command) else {
+                        if stream.write_all(b"RPRT -1\n").is_err() {
+                            return;
+                        }
+                        continue;
+                    };
+                    if tx.send(request).is_err() {
+                        let _ = stream.write_all(b"RPRT -11\n");
+                        return;
+                    }
+                    let response = wait_for_reply(&reply, stop);
+                    if stream.write_all(response.as_bytes()).is_err() {
+                        return;
+                    }
                 }
             }
             Err(error)
                 if matches!(
                     error.kind(),
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
+                ) =>
+            {
+                // Retain the incomplete line across arbitrary TCP fragmentation.
+            }
             Err(_) => break,
         }
     }
@@ -274,6 +296,103 @@ pub fn error_response(code: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufRead, BufReader};
+
+    #[test]
+    fn every_tcp_fragment_boundary_preserves_commands_across_timeouts() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let (tx, rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &tx, &worker_stop);
+        });
+        let mut client = TcpStream::connect(address).unwrap();
+        client.set_nodelay(true).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let mut replies = BufReader::new(client.try_clone().unwrap());
+        for command in [
+            "F 1090000000\n",
+            "M AM 12000\n",
+            "V 50\n",
+            "f\n",
+            "m\n",
+            "v\n",
+        ] {
+            for split in 1..command.len() {
+                client.write_all(&command.as_bytes()[..split]).unwrap();
+                thread::sleep(POLL_INTERVAL * 2);
+                assert!(
+                    rx.try_recv().is_err(),
+                    "partial command must not be executed"
+                );
+                client.write_all(&command.as_bytes()[split..]).unwrap();
+                let request = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                let reply = match request {
+                    RigctlRequest::SetFrequency { hz, reply } => {
+                        assert_eq!(command, "F 1090000000\n");
+                        assert_eq!(hz, 1_090_000_000);
+                        reply
+                    }
+                    RigctlRequest::SetMode {
+                        mode,
+                        bandwidth_hz,
+                        reply,
+                    } => {
+                        assert_eq!(command, "M AM 12000\n");
+                        assert_eq!(mode, "AM");
+                        assert_eq!(bandwidth_hz, Some(12_000));
+                        reply
+                    }
+                    RigctlRequest::SetVolume { percent, reply } => {
+                        assert_eq!(command, "V 50\n");
+                        assert_eq!(percent, 50.0);
+                        reply
+                    }
+                    RigctlRequest::GetFrequency { reply } => {
+                        assert_eq!(command, "f\n");
+                        reply
+                    }
+                    RigctlRequest::GetMode { reply } => {
+                        assert_eq!(command, "m\n");
+                        reply
+                    }
+                    RigctlRequest::GetVolume { reply } => {
+                        assert_eq!(command, "v\n");
+                        reply
+                    }
+                };
+                reply.send("RPRT 0\n".into()).unwrap();
+                let mut response = String::new();
+                replies.read_line(&mut response).unwrap();
+                assert_eq!(response, "RPRT 0\n");
+                assert!(rx.try_recv().is_err());
+            }
+        }
+        client.write_all(&vec![b'X'; 2048]).unwrap();
+        client.write_all(b"\nf\n").unwrap();
+        let RigctlRequest::GetFrequency { reply } =
+            rx.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("oversized line must be discarded");
+        };
+        reply.send("118700000\n".into()).unwrap();
+        let mut response = String::new();
+        replies.read_line(&mut response).unwrap();
+        assert_eq!(response, "RPRT -1\n");
+        response.clear();
+        replies.read_line(&mut response).unwrap();
+        assert_eq!(response, "118700000\n");
+        client.write_all(b"F 1").unwrap();
+        let stopping = std::time::Instant::now();
+        stop.store(true, Ordering::Release);
+        worker.join().unwrap();
+        assert!(stopping.elapsed() < Duration::from_millis(250));
+    }
 
     #[test]
     fn parses_getters_and_setters() {

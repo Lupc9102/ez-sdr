@@ -1,11 +1,11 @@
-//! Utility window content for the curated Tools menu. Only the Scanner,
-//! How-To, and Settings tools remain dispatchable; each opens in its own
-//! secondary window above the receiver workspace.
+//! Utility windows for Scanner, Recorder, How-To, Setup Guide and Settings.
+//! Each opens above the receiver workspace; lifecycle work runs in app logic.
 
 use crate::ai_panel::AiPanel;
 use crate::app::{SecondaryTool, SharedState};
 use crate::howto_panel::HowToPanel;
 use crate::quick_start::QuickStartWizard;
+use crate::recorder_panel::RecorderPanel;
 use crate::scanner::FrequencyScanner;
 use crate::status_bar::StatusBar;
 use std::sync::{Arc, Mutex};
@@ -18,6 +18,7 @@ pub struct SecondaryPanelContext<'a> {
     pub quick_start: &'a mut QuickStartWizard,
     pub status_bar: &'a mut StatusBar,
     pub ai_panel: &'a mut AiPanel,
+    pub recorder_panel: &'a mut RecorderPanel,
 }
 
 pub fn render_secondary_panel(
@@ -41,6 +42,7 @@ pub fn render_secondary_panel(
     egui::ScrollArea::vertical()
         .id_salt("secondary_panel_scroll")
         .show(ui, |ui| match tool {
+            SecondaryTool::Recorder => ctx.recorder_panel.ui(ui),
             SecondaryTool::Settings => {
                 if let Ok(mut state) = ctx.shared.try_lock() {
                     state.config.ui(ui);

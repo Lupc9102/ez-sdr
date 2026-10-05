@@ -653,8 +653,18 @@ impl CentralApp {
         })
     }
 
+    fn apply_daemon_recording(
+        &mut self,
+        status: ez_proto::RecordingStatus,
+        state: &mut SharedState,
+    ) {
+        state.recording = status.active;
+        self.recorder_panel.handle_daemon_recording(status);
+    }
+
     fn drain_daemon_events(&mut self) {
-        let Ok(mut state) = self.shared.try_lock() else {
+        let shared = Arc::clone(&self.shared);
+        let Ok(mut state) = shared.try_lock() else {
             return;
         };
         state.source.sync_daemon_controls();
@@ -705,7 +715,7 @@ impl CentralApp {
                     }
                 }
                 Some(ez_proto::ServerEvent::Recording(status)) => {
-                    self.recorder_panel.handle_daemon_recording(status);
+                    self.apply_daemon_recording(status, &mut state);
                 }
                 Some(_) => {}
                 None => break,
@@ -716,6 +726,7 @@ impl CentralApp {
 
 impl eframe::App for CentralApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.recorder_panel.tick();
         self.recorder_panel
             .set_audio_sample_rate(self.audio.sample_rate());
         if let Ok(mut state) = self.shared.try_lock() {
@@ -2122,6 +2133,7 @@ impl CentralApp {
             quick_start: &mut self.quick_start,
             status_bar: &mut self.status_bar,
             ai_panel: &mut self.ai_panel,
+            recorder_panel: &mut self.recorder_panel,
         };
         crate::secondary_panel::render_secondary_panel(&mut ctx, ui, tool);
     }

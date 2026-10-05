@@ -23,11 +23,11 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [ ] A17 (P2): Trail collection depends on whether the Planes tab is rendered
 - [ ] R01 (P1): The app's CF32 writer and replay reader disagree about amplitude units
 - [ ] R02 (P2): CF32 replay progress advances in output bytes instead of file bytes
-- [ ] R03 (P1): CF32 recording failures and overflow are reported as success
-- [ ] R04 (P1): Restarting CF32 recording in the same second overwrites the previous capture
+- [x] R03 (P1): CF32 recording failures and overflow are reported as success
+- [x] R04 (P1): Restarting CF32 recording in the same second overwrites the previous capture
 - [ ] R05 (P1): A single IQ recording can contain multiple tuning or sample-rate epochs under one metadata header
-- [ ] R06 (P2): Daemon recording events cannot update shared recording state while the app holds its lock
-- [ ] R07 (P2): Recording duration enforcement lives in an unrendered panel
+- [x] R06 (P2): Daemon recording events cannot update shared recording state while the app holds its lock
+- [x] R07 (P2): Recording duration enforcement lives in an unrendered panel
 - [ ] G01 (P1): The scanner logs an off-channel signal as a hit at the selected frequency
 - [ ] G02 (P2): The scanner continues making decisions from stale spectra when Listen is hidden or the source is stopped
 - [ ] G03 (P2): The demodulation control queue discards the newest settings instead of coalescing them
@@ -44,7 +44,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [ ] S01 (P2): A later pass of the same satellite can fail to auto-tune
 - [ ] S02 (P2): Changing observer location leaves cached passes and trajectories for the old location
 - [ ] S03 (P2): Map panning is reset every second and satellite markers use stale projection parameters
-- [ ] L01 (P2): Ordinary TCP fragmentation can corrupt a valid rigctl command
+- [x] L01 (P2): Ordinary TCP fragmentation can corrupt a valid rigctl command
 - [ ] V01 (P3): Raw wideband IQ is presented as symbol-level QPSK quality
 
 ## Additional experiments
@@ -69,3 +69,9 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Changed Rust files formatted with pinned rustfmt. Full workspace format check exposes pre-existing formatting differences in untouched files; these are tracked as a final gate, not silently claimed to pass.
 - AST-only graphify update succeeds; generated tracked metadata that was deleted before this task is removed again after refresh. The ignored graph.json is retained and current.
 - Binary protocol bumped to 2 for changed telemetry; rebuild GUI and daemon together. Original defect-preserving forensic probes/evidence are preserved; desired behavior is verified by repository regression tests.
+
+- Batch 2: R03/R04 open the CF32 file before acknowledging start, create a unique session file without truncation, expose writer liveness/errors, account for lost samples, propagate write/flush/sidecar failures, and mark incomplete metadata. Failure polling runs independently of satellite rendering. Regression tests cover open failure, queue overflow, failed/exited workers, write/flush/sidecar failure and five rapid sessions. CF32 amplitude compatibility and capture-epoch integrity remain R01/R05 work.
+- Batch 2: R06 applies daemon recording state through the app's existing shared-state guard. R07 enforces deadlines in app logic and IQ/audio ingestion, and exposes Recorder through Tools. Hidden-tab deadline/current-route and locked daemon active/inactive regressions pass.
+- Batch 2: L01 preserves partial TCP commands across timeouts, requires newline framing, bounds lines at 1,024 bytes and remains cancellable. Loopback regression splits frequency/mode/volume requests and queries at every byte boundary, checks oversized-line recovery, and stops mid-line.
+- Next work: aircraft optional/signed and velocity semantics (A05/A06); sample-clock, source/queue/epoch and channelizer contracts (A08/A09/A10/R05); recording/replay amplitude and progress (R01/R02), followed by the remaining model, control, persistence and integration findings.
+- Batch 2 final gates: Rust 1.92.0 workspace all-target tests pass (1,480 executions, zero failures, eight ignored), strict all-target Clippy passes, changed Rust files pass pinned rustfmt, and graphify is refreshed. Thirteen of 42 formal findings are checked off; the goal remains active.

@@ -155,9 +155,13 @@ impl RecorderPanel {
     }
 
     pub fn stop(&mut self) {
+        self.request_stop();
+    }
+
+    fn request_stop(&mut self) -> bool {
         if !self.daemon_mode() {
             self.stop_recording();
-            return;
+            return true;
         }
         let result = self
             .shared
@@ -165,8 +169,14 @@ impl RecorderPanel {
             .map_err(|_| "source state is busy; try again".to_string())
             .and_then(|mut state| state.source.stop_daemon_recording());
         match result {
-            Ok(()) => self.last_error = "Stopping daemon recording…".to_string(),
-            Err(error) => self.last_error = error,
+            Ok(()) => {
+                self.last_error = "Stopping daemon recording…".to_string();
+                true
+            }
+            Err(error) => {
+                self.last_error = error;
+                false
+            }
         }
     }
 
@@ -583,7 +593,27 @@ impl RecorderPanel {
         }
     }
 
+    /// Lifecycle deadlines run from the model even when controls are hidden.
+    pub fn tick(&mut self) {
+        let limit = if self.quick_duration_secs > 0 {
+            self.quick_duration_secs
+        } else {
+            u64::from(self.max_duration_mins) * 60
+        };
+        if self.recording
+            && limit > 0
+            && self
+                .start_time
+                .is_some_and(|start| start.elapsed().as_secs() >= limit)
+            && self.request_stop()
+        {
+            self.quick_duration_secs = 0;
+            self.start_time = None;
+        }
+    }
+
     pub fn write_samples(&mut self, samples: &[u8]) {
+        self.tick();
         if !self.recording || samples.is_empty() {
             return;
         }
@@ -617,6 +647,7 @@ impl RecorderPanel {
     }
 
     pub fn write_audio_samples(&mut self, audio: &[f32]) {
+        self.tick();
         if self.recording {
             // Track peak level during recording
             if !audio.is_empty() {
@@ -847,11 +878,7 @@ impl RecorderPanel {
                 } else {
                     0
                 };
-                if limit_secs > 0 && elapsed >= limit_secs {
-                    self.stop();
-                    self.quick_duration_secs = 0;
-                    self.last_error.clear();
-                } else {
+                {
                     ui.horizontal(|ui| {
                         ui.colored_label(egui::Color32::RED, "● REC");
                         let mins = elapsed / 60;
