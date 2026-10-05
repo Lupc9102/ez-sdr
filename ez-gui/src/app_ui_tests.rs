@@ -906,3 +906,112 @@ fn mqtt_cadence_is_independent_of_scheduler_frames_and_settings_show_delivery_he
     }
     app.mqtt.disconnect();
 }
+
+#[test]
+fn applying_observer_settings_invalidates_fresh_pass_cache_and_updates_hidden_tracking() {
+    let mut app = offline_test_app();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.current_tab = AppTab::Planes;
+    let before: Vec<_> = app
+        .shared
+        .lock()
+        .unwrap()
+        .tle
+        .upcoming_passes()
+        .iter()
+        .map(|pass| (pass.satellite.clone(), pass.aos_dt, pass.los_dt))
+        .collect();
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.config.observer_lat = -33.8688;
+        state.config.observer_lon = 151.2093;
+        state.config.needs_apply = true;
+    }
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.logic(ui.ctx(), &mut frame)
+    });
+    let after: Vec<_> = app
+        .shared
+        .lock()
+        .unwrap()
+        .tle
+        .upcoming_passes()
+        .iter()
+        .map(|pass| (pass.satellite.clone(), pass.aos_dt, pass.los_dt))
+        .collect();
+    assert_ne!(before, after);
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.logic(ui.ctx(), &mut frame)
+    });
+    assert_eq!(
+        (
+            app.satellite_panel.observer_lat,
+            app.satellite_panel.observer_lon
+        ),
+        (-33.8688, 151.2093)
+    );
+    {
+        let state = app.shared.lock().unwrap();
+        assert_eq!(
+            (state.tle.observer_lat, state.tle.observer_lon),
+            (-33.8688, 151.2093)
+        );
+    }
+    let mut text = String::new();
+    let initial = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.satellite_panel.ui_observer_location(ui)
+    });
+    let heading = initial
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text().contains("Observer Location") => {
+                Some(text.pos + text.galley.rect.center().to_vec2())
+            }
+            _ => None,
+        })
+        .unwrap();
+    for pressed in [true, false] {
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![
+                    egui::Event::PointerMoved(heading),
+                    egui::Event::PointerButton {
+                        pos: heading,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ],
+                ..Default::default()
+            },
+            |ui| app.satellite_panel.ui_observer_location(ui),
+        );
+    }
+    for _ in 0..3 {
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 800.0),
+                )),
+                ..Default::default()
+            },
+            |ui| app.satellite_panel.ui_observer_location(ui),
+        );
+        for shape in output.shapes {
+            if let egui::Shape::Text(shape) = shape.shape {
+                text.push_str(shape.galley.text());
+            }
+        }
+    }
+    assert!(
+        text.contains("-33.8688"),
+        "observer latitude label is stale: {text}"
+    );
+    assert!(
+        text.contains("151.2093"),
+        "observer longitude label is stale: {text}"
+    );
+}

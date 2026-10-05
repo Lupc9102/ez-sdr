@@ -26,11 +26,29 @@ pub struct PassInfo {
 }
 
 pub struct TleEngine {
-    pub tles: Vec<TleEntry>,
+    tles: Vec<TleEntry>,
     pub observer_lat: f64,
     pub observer_lon: f64,
     cached_passes: Vec<PassInfo>,
     cached_at: Option<std::time::Instant>,
+    cached_key: Option<PassCacheKey>,
+    catalog_revision: u64,
+}
+
+/// Identity of every observer-dependent orbital product. The catalog is private;
+/// validated imports are its only mutation path and advance the revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OrbitIdentity {
+    latitude_bits: u64,
+    longitude_bits: u64,
+    catalog_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PassCacheKey {
+    orbit: OrbitIdentity,
+    start_minute: i64,
+    horizon_bits: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -63,6 +81,8 @@ impl TleEngine {
             observer_lon: -0.1,
             cached_passes: vec![],
             cached_at: None,
+            cached_key: None,
+            catalog_revision: 1,
         };
         engine.load_builtin();
         engine
@@ -71,9 +91,39 @@ impl TleEngine {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn with_observer(lat: f64, lon: f64) -> Self {
         let mut engine = Self::new();
-        engine.observer_lat = lat.clamp(-90.0, 90.0);
-        engine.observer_lon = normalize_longitude(lon);
+        engine.set_observer(lat, lon);
         engine
+    }
+
+    pub fn catalog(&self) -> &[TleEntry] {
+        &self.tles
+    }
+
+    /// Apply a finite observer position and invalidate immediately. Cache keys
+    /// also detect legacy direct field assignments before returning cached data.
+    pub fn set_observer(&mut self, lat: f64, lon: f64) -> bool {
+        if !lat.is_finite() || !lon.is_finite() {
+            return false;
+        }
+        let lat = lat.clamp(-90.0, 90.0);
+        let lon = normalize_longitude(lon);
+        if self.observer_lat == lat && self.observer_lon == lon {
+            return false;
+        }
+        self.observer_lat = lat;
+        self.observer_lon = lon;
+        self.cached_at = None;
+        self.cached_key = None;
+        self.cached_passes.clear();
+        true
+    }
+
+    pub(crate) fn orbit_identity(&self) -> OrbitIdentity {
+        OrbitIdentity {
+            latitude_bits: self.observer_lat.to_bits(),
+            longitude_bits: self.observer_lon.to_bits(),
+            catalog_revision: self.catalog_revision,
+        }
     }
 
     fn load_builtin(&mut self) {
@@ -169,19 +219,41 @@ impl TleEngine {
         for (catalog_index, imported) in replacements {
             self.tles[catalog_index] = imported;
         }
+        self.catalog_revision = self.catalog_revision.wrapping_add(1);
         self.cached_passes.clear();
         self.cached_at = None;
+        self.cached_key = None;
         Ok(replacement_count)
     }
 
     pub fn upcoming_passes(&mut self) -> &[PassInfo] {
-        let stale = match self.cached_at {
-            Some(t) => t.elapsed() > std::time::Duration::from_secs(60),
-            None => true,
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+        self.upcoming_passes_at(now, 72.0, std::time::Instant::now())
+    }
+
+    pub(crate) fn upcoming_passes_at(
+        &mut self,
+        start: f64,
+        hours: f64,
+        now: std::time::Instant,
+    ) -> &[PassInfo] {
+        let key = PassCacheKey {
+            orbit: self.orbit_identity(),
+            start_minute: (start / 60.0).floor() as i64,
+            horizon_bits: hours.to_bits(),
         };
+        let stale = self.cached_key != Some(key)
+            || self.cached_at.is_none_or(|at| {
+                now.saturating_duration_since(at) >= std::time::Duration::from_secs(60)
+            });
         if stale {
-            self.cached_passes = self.compute_passes(self.observer_lat, self.observer_lon, 72.0);
-            self.cached_at = Some(std::time::Instant::now());
+            self.cached_passes =
+                self.compute_passes_from(self.observer_lat, self.observer_lon, start, hours);
+            self.cached_at = Some(now);
+            self.cached_key = Some(key);
         }
         &self.cached_passes
     }
@@ -327,11 +399,22 @@ impl TleEngine {
         observer_lon: f64,
         hours: f64,
     ) -> Vec<crate::satellite::types::TrajectoryPoint> {
-        let mut points = Vec::new();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs_f64();
+        self.pass_trajectory_from(name, observer_lat, observer_lon, now, hours)
+    }
+
+    pub(crate) fn pass_trajectory_from(
+        &self,
+        name: &str,
+        observer_lat: f64,
+        observer_lon: f64,
+        now: f64,
+        hours: f64,
+    ) -> Vec<crate::satellite::types::TrajectoryPoint> {
+        let mut points = Vec::new();
         let Some(pass) = self
             .compute_passes_from(observer_lat, observer_lon, now, hours)
             .into_iter()
@@ -537,7 +620,11 @@ fn dot(left: [f64; 3], right: [f64; 3]) -> f64 {
 }
 
 fn normalize_longitude(longitude: f64) -> f64 {
-    (longitude + 180.0).rem_euclid(360.0) - 180.0
+    if (-180.0..180.0).contains(&longitude) {
+        longitude
+    } else {
+        (longitude + 180.0).rem_euclid(360.0) - 180.0
+    }
 }
 
 fn format_time(t: f64) -> String {
@@ -564,6 +651,78 @@ mod tests {
         "1 25544U 98067A   20194.88612269 -.00002218  00000-0 -31515-4 0  9992",
         "2 25544  51.6461 221.2784 0001413  89.1723 280.4612 15.49507896236008",
     ];
+
+    fn pass_signature(passes: &[PassInfo]) -> Vec<(String, f64, f64)> {
+        passes
+            .iter()
+            .map(|pass| (pass.satellite.clone(), pass.aos_dt, pass.los_dt))
+            .collect()
+    }
+
+    #[test]
+    fn fresh_pass_cache_tracks_observer_catalog_horizon_and_time_window() {
+        let mut engine = TleEngine::new();
+        let time = engine.tles[2].elements.datetime.and_utc().timestamp() as f64;
+        let now = std::time::Instant::now();
+        let original = pass_signature(engine.upcoming_passes_at(time, 24.0, now));
+        assert!(!original.is_empty());
+        assert!(engine.set_observer(-33.8688, 151.2093));
+        let relocated = pass_signature(engine.upcoming_passes_at(time, 24.0, now));
+        assert_eq!(
+            relocated,
+            pass_signature(&engine.compute_passes_from(-33.8688, 151.2093, time, 24.0))
+        );
+        assert_ne!(original, relocated);
+        // Legacy assignments cannot read a cache computed for another location.
+        engine.observer_lat = 40.7128;
+        engine.observer_lon = -74.0060;
+        let direct = pass_signature(engine.upcoming_passes_at(time, 24.0, now));
+        assert_eq!(
+            direct,
+            pass_signature(&engine.compute_passes_from(40.7128, -74.0060, time, 24.0))
+        );
+        assert_ne!(direct, relocated);
+        let short = pass_signature(engine.upcoming_passes_at(time, 6.0, now));
+        assert_eq!(
+            short,
+            pass_signature(&engine.compute_passes_from(40.7128, -74.0060, time, 6.0))
+        );
+        assert_ne!(short, direct);
+        let later = pass_signature(engine.upcoming_passes_at(time + 3600.0, 6.0, now));
+        assert_eq!(
+            later,
+            pass_signature(&engine.compute_passes_from(40.7128, -74.0060, time + 3600.0, 6.0))
+        );
+        assert_ne!(later, short);
+        let old_identity = engine.orbit_identity();
+        engine
+            .update_tles_from_text(&REFERENCE_ISS.join("\n"))
+            .unwrap();
+        assert_ne!(engine.orbit_identity(), old_identity);
+        let imported = pass_signature(engine.upcoming_passes_at(time + 3600.0, 6.0, now));
+        assert_eq!(
+            imported,
+            pass_signature(&engine.compute_passes_from(40.7128, -74.0060, time + 3600.0, 6.0))
+        );
+        assert_ne!(imported, later);
+    }
+
+    #[test]
+    fn unchanged_observer_reuses_cache_and_invalid_coordinates_preserve_it() {
+        let mut engine = TleEngine::new();
+        let time = engine.tles[2].elements.datetime.and_utc().timestamp() as f64;
+        let now = std::time::Instant::now();
+        engine.upcoming_passes_at(time, 72.0, now);
+        let key = engine.cached_key;
+        let at = engine.cached_at;
+        assert!(!engine.set_observer(51.5, -0.1));
+        assert!(!engine.set_observer(f64::NAN, 1.0));
+        assert!(!engine.set_observer(1.0, f64::INFINITY));
+        engine.upcoming_passes_at(time, 72.0, now + std::time::Duration::from_secs(1));
+        assert_eq!(engine.cached_key, key);
+        assert_eq!(engine.cached_at, at);
+        assert_eq!((engine.observer_lat, engine.observer_lon), (51.5, -0.1));
+    }
 
     #[test]
     fn bundled_tles_are_real_sgp4_elements() {

@@ -1,0 +1,48 @@
+{
+  "batch": 13,
+  "findings": [
+    "S02",
+    "S03"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1536,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "Fresh pass cache follows observer, catalog revision, forecast horizon and time window",
+    "London to Sydney relocation immediately refreshes hidden trajectory/position/pass data against fresh SGP4 references",
+    "Unchanged/invalid observer updates preserve cached data; legacy direct assignment invalidates by identity",
+    "Actual Save & Apply route updates hidden tracking and expanded observer coordinate labels",
+    "Actual egui drag disables follow; camera persists across tracking/observer ticks until explicit follow/recenter",
+    "Painted geographic markers agree with trajectory projection across three consecutive pan/zoom combinations",
+    "Configuration tests use explicit temporary file paths and never change process cwd"
+  ],
+  "isolated_mqtt_latency_gate": {
+    "command": "EZ_SDR_MQTT_STRICT_LATENCY=1 cargo +1.92.0 test -p ez-gui stalled_broker_bounds_publication_latency -- --test-threads=1 --nocapture",
+    "passed": true,
+    "p50_us": 45.156,
+    "p95_us": 79.35,
+    "p99_us": 95.211,
+    "max_us": 179.771,
+    "max_limit_us": 50000
+  },
+  "parallel_mqtt_latency_gate": {
+    "p99_limit_ms": 50,
+    "max_limit_ms": 1000,
+    "prior_failed_max_ms": 113.127965,
+    "prior_failed_p99_ms": 10.131643,
+    "note": "Strict wall-time maximum measured separately; these measurements do not establish actual-display RF throughput"
+  },
+  "limitations": [
+    "Nine formal findings and additional experiments remain open",
+    "Observer/pass recomputation cost under shared locking remains unmeasured",
+    "Actual-display RF throughput and supported-hardware experiments remain unmeasured",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

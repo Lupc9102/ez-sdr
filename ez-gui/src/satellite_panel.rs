@@ -6,7 +6,7 @@ use crate::satellite::picker::satellite_picker_ui;
 use crate::satellite::recorder::Cf32StreamWriter;
 use crate::satellite::types::*;
 use crate::theme::ThemeConfig;
-use crate::tle_engine::PassInfo;
+use crate::tle_engine::{OrbitIdentity, PassInfo};
 use crate::ui_kit::module_card;
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +27,14 @@ fn current_unix_time() -> f64 {
         .unwrap_or(0.0)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TrajectoryCacheKey {
+    orbit: OrbitIdentity,
+    satellite: String,
+    start_minute: i64,
+    horizon_bits: u64,
+}
+
 pub struct SatellitePanel {
     shared: Arc<Mutex<SharedState>>,
 
@@ -38,6 +46,8 @@ pub struct SatellitePanel {
     // Map tracker state
     pub map_renderer: MapRenderer,
     pub trajectory_loaded: bool,
+    orbit_identity: Option<OrbitIdentity>,
+    trajectory_key: Option<TrajectoryCacheKey>,
     pub current_sat_position: Option<SatPosition>,
     last_position_update: std::time::Instant,
     position_update_interval: std::time::Duration,
@@ -65,13 +75,19 @@ pub struct SatellitePanel {
 impl SatellitePanel {
     pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
         let catalog = build_satellite_catalog(&shared);
+        let observer = shared
+            .try_lock()
+            .map(|state| (state.tle.observer_lat, state.tle.observer_lon))
+            .unwrap_or((51.5, -0.1));
         Self {
             shared: shared.clone(),
             satellite_catalog: catalog,
             selected_sat_index: None,
             picker_search: String::new(),
-            map_renderer: MapRenderer::new(51.5, -0.1),
+            map_renderer: MapRenderer::new(observer.0, observer.1),
             trajectory_loaded: false,
+            orbit_identity: None,
+            trajectory_key: None,
             current_sat_position: None,
             last_position_update: std::time::Instant::now(),
             position_update_interval: std::time::Duration::from_secs(1),
@@ -80,8 +96,8 @@ impl SatellitePanel {
             cf32_output_dir: "./recordings".to_string(),
             selected_sat: None,
             doppler_hz: 0.0,
-            observer_lat: 51.5,
-            observer_lon: -0.1,
+            observer_lat: observer.0,
+            observer_lon: observer.1,
             auto_tune: true,
             cached_passes: vec![],
             pass_cache_at: std::time::Instant::now(),
@@ -97,6 +113,10 @@ impl SatellitePanel {
 
     /// Call every frame from CentralApp::logic().
     pub fn tick_realtime(&mut self) {
+        self.tick_realtime_at(std::time::Instant::now(), current_unix_time());
+    }
+
+    fn tick_realtime_at(&mut self, now: std::time::Instant, time: f64) {
         if self.cf32_recording
             && self
                 .cf32_writer
@@ -105,64 +125,93 @@ impl SatellitePanel {
         {
             self.stop_cf32_recording();
         }
-        let now = std::time::Instant::now();
-        if now.duration_since(self.last_position_update) < self.position_update_interval {
+        let shared = self.shared.clone();
+        let Ok(mut state) = shared.try_lock() else {
+            return;
+        };
+        let identity = state.tle.orbit_identity();
+        let changed = self.orbit_identity != Some(identity);
+        let wanted_trajectory = self
+            .selected_sat_index
+            .and_then(|idx| self.satellite_catalog.get(idx))
+            .map(|entry| TrajectoryCacheKey {
+                orbit: identity,
+                satellite: entry.tle_name.clone(),
+                start_minute: (time / 60.0).floor() as i64,
+                horizon_bits: 6.0_f64.to_bits(),
+            });
+        let trajectory_changed = wanted_trajectory != self.trajectory_key
+            || (wanted_trajectory.is_some() && !self.trajectory_loaded);
+        // Dependency changes bypass pacing, including while Track is hidden.
+        if !changed
+            && !trajectory_changed
+            && now.saturating_duration_since(self.last_position_update)
+                < self.position_update_interval
+        {
             return;
         }
         self.last_position_update = now;
-
-        if let Ok(state) = self.shared.try_lock() {
-            self.observer_lat = state.tle.observer_lat;
-            self.observer_lon = state.tle.observer_lon;
-            self.map_renderer.center_lat = state.tle.observer_lat;
-            self.map_renderer.center_lon = state.tle.observer_lon;
+        self.orbit_identity = Some(identity);
+        self.observer_lat = state.tle.observer_lat;
+        self.observer_lon = state.tle.observer_lon;
+        self.map_renderer
+            .set_observer_position(self.observer_lat, self.observer_lon);
+        if changed
+            || now.saturating_duration_since(self.pass_cache_at)
+                >= std::time::Duration::from_secs(5)
+        {
+            self.cached_passes = state.tle.upcoming_passes_at(time, 72.0, now).to_vec();
+            self.pass_cache_at = now;
         }
-
-        if let Some(idx) = self.selected_sat_index {
-            if idx < self.satellite_catalog.len() {
-                let entry = &self.satellite_catalog[idx];
-                let t = current_unix_time();
-                if let Ok(mut state) = self.shared.try_lock() {
-                    if let Some(pos) = state.tle.satellite_position(
-                        &entry.tle_name,
-                        state.tle.observer_lat,
-                        state.tle.observer_lon,
-                        t,
-                    ) {
-                        self.current_sat_position = Some(pos);
-
-                        // Mark active pass
-                        let is_active = state.tle.upcoming_passes().iter().any(|p| {
-                            p.satellite == entry.tle_name && p.aos_dt <= t && p.los_dt > t
-                        });
-                        self.map_renderer.in_pass_now = is_active;
-
-                        // Doppler here is orbit information only. In particular,
-                        // tracking Meteor must never retune the live receiver.
-                        self.doppler_hz = state.tle.doppler_shift_for_sat(
-                            &entry.tle_name,
-                            entry.frequency_hz as f64,
-                            t,
-                        );
-                    }
-
-                    // Load trajectory once
-                    if !self.trajectory_loaded {
-                        let traj = state.tle.pass_trajectory(
-                            &entry.tle_name,
-                            state.tle.observer_lat,
-                            state.tle.observer_lon,
-                            6.0,
-                        );
-                        self.map_renderer.set_trajectory(&traj);
-                        self.trajectory_loaded = true;
-                    }
-
-                    // Update markers
-                    self.map_renderer
-                        .set_satellite_position(self.current_sat_position);
-                }
+        for entry in &mut self.satellite_catalog {
+            entry.is_active_pass = self.cached_passes.iter().any(|pass| {
+                pass.satellite == entry.tle_name && pass.aos_dt <= time && pass.los_dt > time
+            });
+        }
+        if changed || wanted_trajectory.is_none() {
+            self.trajectory_loaded = false;
+            self.trajectory_key = None;
+            self.current_sat_position = None;
+            self.doppler_hz = 0.0;
+            self.map_renderer.in_pass_now = false;
+            self.map_renderer.set_trajectory(&[]);
+            self.map_renderer.set_satellite_position(None);
+        }
+        if let Some(entry) = self
+            .selected_sat_index
+            .and_then(|idx| self.satellite_catalog.get(idx))
+        {
+            self.current_sat_position = state.tle.satellite_position(
+                &entry.tle_name,
+                self.observer_lat,
+                self.observer_lon,
+                time,
+            );
+            self.map_renderer.in_pass_now = entry.is_active_pass;
+            self.doppler_hz =
+                state
+                    .tle
+                    .doppler_shift_for_sat(&entry.tle_name, entry.frequency_hz as f64, time);
+            let key = TrajectoryCacheKey {
+                orbit: identity,
+                satellite: entry.tle_name.clone(),
+                start_minute: (time / 60.0).floor() as i64,
+                horizon_bits: 6.0_f64.to_bits(),
+            };
+            if !self.trajectory_loaded || self.trajectory_key.as_ref() != Some(&key) {
+                let trajectory = state.tle.pass_trajectory_from(
+                    &entry.tle_name,
+                    self.observer_lat,
+                    self.observer_lon,
+                    time,
+                    6.0,
+                );
+                self.map_renderer.set_trajectory(&trajectory);
+                self.trajectory_key = Some(key);
+                self.trajectory_loaded = true;
             }
+            self.map_renderer
+                .set_satellite_position(self.current_sat_position);
         }
     }
 
@@ -197,14 +246,6 @@ impl SatellitePanel {
     fn ui_track(&mut self, ui: &mut egui::Ui) {
         ui.heading("Satellite Tracking");
         ui.add_space(4.0);
-
-        // Refresh the pass cache periodically — drives the pass summary below.
-        if self.pass_cache_at.elapsed() > std::time::Duration::from_secs(5) {
-            if let Ok(mut state) = self.shared.try_lock() {
-                self.cached_passes = state.tle.upcoming_passes().to_vec();
-                self.pass_cache_at = std::time::Instant::now();
-            }
-        }
 
         self.ui_picker(ui);
         ui.add_space(8.0);
@@ -374,6 +415,9 @@ impl SatellitePanel {
         self.selected_sat = Some(entry.name.clone());
         self.trajectory_loaded = false;
         self.current_sat_position = None;
+        self.trajectory_key = None;
+        self.map_renderer.set_satellite_position(None);
+        self.map_renderer.set_trajectory(&[]);
 
         if self.is_meteor_selected() {
             if self.cf32_recording {
@@ -605,7 +649,7 @@ impl SatellitePanel {
 
     /// Observer latitude/longitude control. Lives in the Align subtab since it
     /// directly affects the computed azimuth/elevation the compass depends on.
-    fn ui_observer_location(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn ui_observer_location(&mut self, ui: &mut egui::Ui) {
         let theme = self
             .shared
             .try_lock()
@@ -630,17 +674,24 @@ impl SatellitePanel {
             false,
             |ui| {
                 let changed_lat = ui
-                    .add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
+                    .add(
+                        egui::Slider::new(&mut self.observer_lat, -90.0..=90.0)
+                            .text("Latitude")
+                            .fixed_decimals(4),
+                    )
                     .changed();
                 let changed_lon = ui
                     .add(
-                        egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"),
+                        egui::Slider::new(&mut self.observer_lon, -180.0..=180.0)
+                            .text("Longitude")
+                            .fixed_decimals(4),
                     )
                     .changed();
                 if changed_lat || changed_lon {
                     if let Ok(mut state) = self.shared.try_lock() {
-                        state.tle.observer_lat = self.observer_lat;
-                        state.tle.observer_lon = self.observer_lon;
+                        state.tle.set_observer(self.observer_lat, self.observer_lon);
+                        state.config.observer_lat = state.tle.observer_lat;
+                        state.config.observer_lon = state.tle.observer_lon;
                     }
                 }
             },
@@ -713,6 +764,115 @@ fn build_satellite_catalog(shared: &Arc<Mutex<SharedState>>) -> Vec<SatelliteCat
 mod tests {
     use super::*;
     use crate::test_helpers::make_shared_state;
+
+    #[test]
+    fn relocating_observer_recomputes_hidden_passes_trajectory_and_position_immediately() {
+        let shared = make_shared_state();
+        let mut panel = SatellitePanel::new(shared.clone());
+        panel.selected_sat_index = Some(0);
+        let time = {
+            let state = shared.lock().unwrap();
+            state
+                .tle
+                .compute_passes(51.5, -0.1, 72.0)
+                .into_iter()
+                .find(|pass| pass.satellite == "Meteor-M2-3")
+                .unwrap()
+                .aos_dt
+                - 300.0
+        };
+        let now = std::time::Instant::now();
+        panel.tick_realtime_at(now, time);
+        assert!(panel.trajectory_loaded);
+        assert!(!panel.map_renderer.trajectory().is_empty());
+        let old_trajectory: Vec<_> = panel
+            .map_renderer
+            .trajectory()
+            .iter()
+            .map(|point| (point.timestamp, point.geo.lat, point.geo.lon))
+            .collect();
+        let old_passes: Vec<_> = panel
+            .cached_passes
+            .iter()
+            .map(|pass| (pass.satellite.clone(), pass.aos_dt, pass.los_dt))
+            .collect();
+        let old_position = panel.current_sat_position.unwrap();
+        let old_identity = panel.trajectory_key.clone();
+        shared.lock().unwrap().tle.set_observer(-33.8688, 151.2093);
+        // No Track rendering, elapsed-second wait or cache expiry.
+        panel.tick_realtime_at(now + std::time::Duration::from_millis(1), time);
+        assert_eq!(
+            (panel.observer_lat, panel.observer_lon),
+            (-33.8688, 151.2093)
+        );
+        assert_ne!(panel.trajectory_key, old_identity);
+        let state = shared.lock().unwrap();
+        let expected = state
+            .tle
+            .pass_trajectory_from("Meteor-M2-3", -33.8688, 151.2093, time, 6.0);
+        let actual: Vec<_> = panel
+            .map_renderer
+            .trajectory()
+            .iter()
+            .map(|point| (point.timestamp, point.geo.lat, point.geo.lon))
+            .collect();
+        assert_eq!(
+            actual,
+            expected
+                .iter()
+                .map(|point| (point.timestamp, point.geo.lat, point.geo.lon))
+                .collect::<Vec<_>>()
+        );
+        assert_ne!(actual, old_trajectory);
+        assert_ne!(
+            panel
+                .cached_passes
+                .iter()
+                .map(|pass| (pass.satellite.clone(), pass.aos_dt, pass.los_dt))
+                .collect::<Vec<_>>(),
+            old_passes
+        );
+        let new_position = panel.current_sat_position.unwrap();
+        let reference = state
+            .tle
+            .satellite_position("Meteor-M2-3", -33.8688, 151.2093, time)
+            .unwrap();
+        assert_eq!(new_position.azimuth, reference.azimuth);
+        assert_eq!(new_position.elevation, reference.elevation);
+        assert_ne!(new_position.azimuth, old_position.azimuth);
+        drop(state);
+        // A new time window invalidates the trajectory without an observer edit.
+        let previous = panel.trajectory_key.clone();
+        panel.tick_realtime_at(now + std::time::Duration::from_millis(2), time + 60.0);
+        assert_ne!(panel.trajectory_key, previous);
+    }
+
+    #[test]
+    fn tracking_ticks_preserve_panned_camera_until_explicit_follow() {
+        let shared = make_shared_state();
+        let mut panel = SatellitePanel::new(shared.clone());
+        panel.map_renderer.center_lat = 42.0;
+        panel.map_renderer.center_lon = 12.0;
+        panel.map_renderer.zoom = 8.0;
+        let now = std::time::Instant::now();
+        panel.tick_realtime_at(now, current_unix_time());
+        shared.lock().unwrap().tle.set_observer(-33.8688, 151.2093);
+        panel.tick_realtime_at(now + std::time::Duration::from_secs(2), current_unix_time());
+        assert_eq!(
+            (
+                panel.map_renderer.center_lat,
+                panel.map_renderer.center_lon,
+                panel.map_renderer.zoom
+            ),
+            (42.0, 12.0, 8.0)
+        );
+        panel.map_renderer.follow_observer = true;
+        panel.tick_realtime_at(now + std::time::Duration::from_secs(4), current_unix_time());
+        assert_eq!(
+            (panel.map_renderer.center_lat, panel.map_renderer.center_lon),
+            (-33.8688, 151.2093)
+        );
+    }
 
     #[test]
     fn test_new_defaults() {

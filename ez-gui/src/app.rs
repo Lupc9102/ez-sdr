@@ -355,8 +355,8 @@ impl CentralApp {
                     }
                 }
             }
-            state.tle.observer_lat = state.config.observer_lat;
-            state.tle.observer_lon = state.config.observer_lon;
+            let observer = (state.config.observer_lat, state.config.observer_lon);
+            state.tle.set_observer(observer.0, observer.1);
             // Restore recent frequency history from config
             let saved_recent: Vec<u64> = state.config.recent_frequencies.clone();
             for hz in saved_recent {
@@ -1611,8 +1611,8 @@ impl eframe::App for CentralApp {
                 // Apply font scale
                 let scale = state.config.font_scale as f32;
                 ctx.set_pixels_per_point(scale);
-                state.tle.observer_lat = state.config.observer_lat;
-                state.tle.observer_lon = state.config.observer_lon;
+                let observer = (state.config.observer_lat, state.config.observer_lon);
+                state.tle.set_observer(observer.0, observer.1);
                 self.web_remote.set_enabled(
                     state.config.web_remote_enabled,
                     state.config.web_remote_port,

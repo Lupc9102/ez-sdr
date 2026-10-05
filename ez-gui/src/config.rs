@@ -769,7 +769,11 @@ impl Default for AppConfig {
 impl AppConfig {
     /// Load configuration from `ez_sdr_config.json`, or return defaults if the file does not exist or cannot be parsed.
     pub fn load_or_default() -> Self {
-        let mut cfg: AppConfig = std::fs::read_to_string("ez_sdr_config.json")
+        Self::load_from("ez_sdr_config.json")
+    }
+
+    fn load_from(path: impl AsRef<std::path::Path>) -> Self {
+        let mut cfg: AppConfig = std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
             .unwrap_or_default();
@@ -862,13 +866,14 @@ impl AppConfig {
 
     /// Serialise and write the configuration atomically to `ez_sdr_config.json`.
     pub fn save(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            if let Err(e) =
-                crate::bookmarks::atomic_write_file("ez_sdr_config.json", json.as_bytes())
-            {
-                eprintln!("[config] failed to write config file: {}", e);
-            }
+        if let Err(error) = self.save_to("ez_sdr_config.json") {
+            eprintln!("[config] failed to write config file: {error}");
         }
+    }
+
+    fn save_to(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+        crate::bookmarks::atomic_write_file(path, json.as_bytes())
     }
 }
 
@@ -1272,11 +1277,6 @@ mod tests {
         );
     }
 
-    // `std::env::current_dir`/`set_current_dir` are process-global, so any test
-    // that changes cwd must serialize with other cwd-changing tests or they'll
-    // race and clobber each other's "restore" step under parallel test execution.
-    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn config_default_has_reasonable_freq() {
         let cfg = AppConfig::default();
@@ -1335,18 +1335,20 @@ mod tests {
 
     #[test]
     fn config_load_or_default_nonexistent_returns_default() {
-        let cfg = AppConfig::load_or_default();
+        let directory =
+            std::env::temp_dir().join(format!("ez_sdr_missing_config_{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let cfg = AppConfig::load_from(directory.join("does-not-exist.json"));
         assert_eq!(cfg.default_freq_hz, 100_000_000);
         assert_eq!(cfg.theme, "dark");
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn config_save_and_load_roundtrip() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("ez_sdr_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let original_dir = std::env::current_dir().expect("test should have a current directory");
-        std::env::set_current_dir(&dir).expect("test should cd into temp dir");
+        let path = dir.join("ez_sdr_config.json");
 
         let cfg = AppConfig {
             default_freq_hz: 433_000_000,
@@ -1357,9 +1359,9 @@ mod tests {
             observer_lon: -74.0060,
             ..Default::default()
         };
-        cfg.save();
+        cfg.save_to(&path).unwrap();
 
-        let loaded = AppConfig::load_or_default();
+        let loaded = AppConfig::load_from(&path);
         assert_eq!(loaded.default_freq_hz, 433_000_000);
         assert_eq!(loaded.theme, "light");
         assert_eq!(loaded.ai_model, "custom-model");
@@ -1367,7 +1369,6 @@ mod tests {
         assert!((loaded.observer_lat - 40.7128).abs() < f64::EPSILON);
         assert!((loaded.observer_lon - (-74.0060)).abs() < f64::EPSILON);
 
-        std::env::set_current_dir(original_dir).expect("test should restore original directory");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1424,11 +1425,9 @@ mod tests {
 
     #[test]
     fn layout_migration_maps_legacy_tabs_to_current_modes() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("ez_sdr_test_migrate_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let original_dir = std::env::current_dir().expect("test should have a current directory");
-        std::env::set_current_dir(&dir).expect("test should cd into temp dir");
+        let path = dir.join("ez_sdr_config.json");
 
         // Simulate a config saved under the old 6-tab layout.
         let old_layout = LayoutConfig {
@@ -1469,9 +1468,9 @@ mod tests {
             layout: old_layout,
             ..Default::default()
         };
-        old_cfg.save();
+        old_cfg.save_to(&path).unwrap();
 
-        let loaded = AppConfig::load_or_default();
+        let loaded = AppConfig::load_from(&path);
         let ids: Vec<&str> = loaded
             .layout
             .main_tabs
@@ -1500,7 +1499,6 @@ mod tests {
             .iter()
             .any(|i| i.id == "customize"));
 
-        std::env::set_current_dir(original_dir).expect("test should restore original directory");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
