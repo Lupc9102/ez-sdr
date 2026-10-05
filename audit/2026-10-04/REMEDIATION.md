@@ -28,13 +28,13 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [ ] R05 (P1): A single IQ recording can contain multiple tuning or sample-rate epochs under one metadata header
 - [x] R06 (P2): Daemon recording events cannot update shared recording state while the app holds its lock
 - [x] R07 (P2): Recording duration enforcement lives in an unrendered panel
-- [ ] G01 (P1): The scanner logs an off-channel signal as a hit at the selected frequency
+- [x] G01 (P1): The scanner logs an off-channel signal as a hit at the selected frequency
 - [ ] G02 (P2): The scanner continues making decisions from stale spectra when Listen is hidden or the source is stopped
 - [x] G03 (P2): The demodulation control queue discards the newest settings instead of coalescing them
 - [ ] G04 (P2): Saved hardware and spectrum controls are not consistently restored or applied
-- [ ] G05 (P2): Applying appearance or integration settings retunes the active receiver to the startup default
+- [x] G05 (P2): Applying appearance or integration settings retunes the active receiver to the startup default
 - [x] G06 (P2): Bookmark autosave watches collection length and clean exit does not flush pending bookmarks
-- [ ] G07 (P2): The current UI can send an AI request but never polls or renders its result
+- [x] G07 (P2): The current UI can send an AI request but never polls or renders its result
 - [ ] G08 (P2): Several AI tools report completed operations after changing only flags or shadow settings
 - [ ] G09 (P2): Daemon squelch changes through the spectrum and remote control never reach audio playback
 - [ ] G10 (P2): Stopping a GUI workflow removes a globally shared daemon channel
@@ -106,3 +106,8 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Batch 9: Daemon replay never fills one block across a loop boundary. Ingestion changes epochs after successful changed hardware settings. Each audio, spectrum, packet and LRPT consumer checks its own queue's sequence/clock: gaps reset discriminator/DC/SSB state, FFT partial windows/averages, packet overlap/CPR and partial LRPT coding/frame/packet state. LRPT completed images and lifetime counts survive a gap and decoding reacquires.
 - Batch 9 regressions cover real SampleBus overflow at decimation 1/4, injected gaps at 1/4/7, fractional sample clocks, adjacent-index epoch/retune changes, tiny blocks that defer the gap marker, absolute NCO phase, actual ADS-B and LRPT messages split across missing intervals, downstream audio/FFT history, and daemon replay rewind segmentation. A08 capture-clock CPR pairing, A09 continuous GUI ingestion and R05 recording epochs remain open.
 - Batch 9 final gates: Rust 1.92.0 workspace all-target tests pass (1,520 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed. Twenty-six of 42 formal findings are fixed. The remaining sixteen findings and additional experiments stay open; the goal remains active.
+
+- Batch 10: G01 routes scanner decisions through the selected RF passband measurement and refuses a mismatched selected VFO. A -10 dB carrier 200 kHz away cannot log a hit or hold the empty selected 12.5 kHz channel; a weaker in-band carrier logs its correct channel and strength. G02 freshness, hidden/frozen display processing and tuning-epoch settling remain explicit work.
+- Batch 10: G05 treats frequency/rate/gain defaults as startup preferences, labels them accordingly, and preserves the active capture when Save & Apply changes appearance, integrations or those defaults. Real app-logic regressions preserve 1090 MHz, 2.4 MS/s, gain, running state and capture generation while theme/font/topic/default preferences change. Dedicated live receiver controls still apply live changes; G04 persisted hardware/FFT restoration remains open.
+- Batch 10: G07 adds an accessible Tools → AI Agent response window, opens it for Scanner requests and current spectrum/aircraft prompts, and polls request/tool events from app logic regardless of window visibility. A loopback fake receives the real Scanner request, withholds its response until the window is closed, and verifies completion and visible text after reopening for both streamed success and HTTP 503 failure. Proposed mutations remain pending approval and never tune during hidden polling. No external provider calls were made. G08 lifecycle/tool semantics remains open.
+- Batch 10 final gates: Rust 1.92.0 workspace all-target tests pass (1,524 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed. Twenty-nine of 42 formal findings are fixed. Thirteen findings and additional experiments remain open; the goal stays active.

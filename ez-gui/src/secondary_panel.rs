@@ -1,4 +1,4 @@
-//! Utility windows for Scanner, Recorder, How-To, Setup Guide and Settings.
+//! Utility windows for Scanner, Recorder, AI, How-To, Setup Guide and Settings.
 //! Each opens above the receiver workspace; lifecycle work runs in app logic.
 
 use crate::ai_panel::AiPanel;
@@ -43,6 +43,7 @@ pub fn render_secondary_panel(
         .id_salt("secondary_panel_scroll")
         .show(ui, |ui| match tool {
             SecondaryTool::Recorder => ctx.recorder_panel.ui(ui),
+            SecondaryTool::Ai => ctx.ai_panel.ui(ui),
             SecondaryTool::Settings => {
                 if let Ok(mut state) = ctx.shared.try_lock() {
                     state.config.ui(ui);
@@ -59,8 +60,9 @@ pub fn render_secondary_panel(
                 if let Some(prompt) = ctx.scanner.pending_ai_prompt.take() {
                     ctx.ai_panel.input = prompt;
                     ctx.ai_panel.send_message();
+                    *ctx.active_secondary_tool = Some(SecondaryTool::Ai);
                     ctx.status_bar
-                        .info("🤖 Scanner request sent to AI Agent".to_string());
+                        .info("🤖 AI Agent opened for the scanner request".to_string());
                 }
             }
             SecondaryTool::HowTo => ctx.howto_panel.ui(ui),

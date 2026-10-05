@@ -804,6 +804,7 @@ impl CentralApp {
 
 impl eframe::App for CentralApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.ai_panel.tick();
         self.recorder_panel.tick();
         self.recorder_panel
             .set_audio_sample_rate(self.audio.sample_rate());
@@ -1556,18 +1557,14 @@ impl eframe::App for CentralApp {
 
             // Frequency scanner tick (runs every frame, rate-limited by dwell_ms)
             {
-                let (peak, scanner_cmd) = if let Ok(mut state) = self.shared.try_lock() {
-                    (state.spectrum.peak_level(), state.scanner_command.take())
-                } else {
-                    (-120.0, None)
-                };
-                // Apply any AI-issued scanner configuration before ticking so
-                // the sweep runs with the requested settings this frame.
-                if let Some(cmd) = scanner_cmd {
-                    self.scanner.apply_command(&cmd);
-                }
                 let prev_hits = self.scanner.hits.len();
-                self.scanner.tick(peak);
+                let shared = Arc::clone(&self.shared);
+                if let Ok(mut state) = shared.try_lock() {
+                    if let Some(cmd) = state.scanner_command.take() {
+                        self.scanner.apply_command(&cmd);
+                    }
+                    self.scanner.tick_spectrum(&state.spectrum);
+                }
                 // Publish any new hits to MQTT + Discord
                 if self.scanner.hits.len() > prev_hits {
                     for hit in &self.scanner.hits[prev_hits..] {
@@ -1606,26 +1603,14 @@ impl eframe::App for CentralApp {
             if state.config.needs_apply {
                 state.config.normalize();
                 state.config.needs_apply = false;
-                // Apply imported advanced controls as well as theme/source settings.
+                // Apply runtime appearance, DSP and integrations. Source defaults
+                // are startup preferences; live tuning stays in receiver controls.
                 self.sync_demod_advanced(&state);
                 // Apply theme
                 state.config.theme_config.apply_to_ctx(ctx);
                 // Apply font scale
                 let scale = state.config.font_scale as f32;
                 ctx.set_pixels_per_point(scale);
-                let source_settings_changed = state.source.sample_rate_hz
-                    != state.config.default_sample_rate
-                    || state.source.gain_db != state.config.default_gain;
-                let old_center = state.source.capture_center_frequency_hz();
-                state.source.sample_rate_hz = state.config.default_sample_rate;
-                state.source.gain_db = state.config.default_gain;
-                let frequency = state.config.default_freq_hz;
-                crate::radio_ui::tune(&mut state, frequency);
-                if source_settings_changed
-                    && old_center == state.source.capture_center_frequency_hz()
-                {
-                    crate::radio_ui::restart_if_running(&mut state.source);
-                }
                 state.tle.observer_lat = state.config.observer_lat;
                 state.tle.observer_lon = state.config.observer_lon;
                 self.web_remote.set_enabled(
@@ -2354,6 +2339,7 @@ impl CentralApp {
                 if let Some(freq) = state.spectrum.pending_ai_freq.take() {
                     let freq_mhz = freq as f64 / 1e6;
                     self.ai_panel.input = format!("I'm looking at {freq_mhz:.4} MHz on the spectrum. What signals might be here? What demod mode?");
+                    self.active_secondary_tool = Some(SecondaryTool::Ai);
                     self.status_bar.info(format!("🤖 AI prompt for {freq_mhz:.3} MHz"));
                 }
             }
@@ -2368,6 +2354,7 @@ impl CentralApp {
                 self.adsb_panel.ui_list(ui);
                 if let Some(prompt) = self.adsb_panel.pending_ai_prompt.take() {
                     self.ai_panel.input = prompt;
+                    self.active_secondary_tool = Some(SecondaryTool::Ai);
                     self.status_bar
                         .info("🤖 Aircraft details sent to AI".to_string());
                 }

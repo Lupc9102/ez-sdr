@@ -606,7 +606,20 @@ impl FrequencyScanner {
         );
     }
 
-    pub fn tick(&mut self, spectrum_peak_db: f32) {
+    /// Measure only the RF passband that is actually selected. The global
+    /// spectrum peak can belong to an entirely different captured channel.
+    pub fn tick_spectrum(&mut self, spectrum: &crate::spectrum::SpectrumAnalyzer) {
+        if spectrum.vfo_frequency_hz() != self.current_freq_hz {
+            self.last_peak_db = -120.0;
+            if self.enabled && !self.paused {
+                self.status_text = "Waiting for the selected scan channel".into();
+            }
+            return;
+        }
+        self.tick(spectrum.vfo_signal_level());
+    }
+
+    fn tick(&mut self, spectrum_peak_db: f32) {
         self.last_peak_db = spectrum_peak_db;
         if !self.enabled || self.paused {
             return;
@@ -1706,6 +1719,63 @@ impl FrequencyScanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn off_channel_carrier_does_not_log_a_hit_or_hold_the_sweep() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut scanner = FrequencyScanner::new(shared);
+        scanner.start_hz = 100_000_000;
+        scanner.stop_hz = 100_100_000;
+        scanner.step_hz = 25_000;
+        scanner.dwell_ms = 0;
+        scanner.threshold_db = -60.0;
+        scanner.hold_on_active = true;
+        scanner.start();
+        let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+        spectrum.set_fft_size(2048);
+        spectrum.update_params(100_000_000, 2_048_000);
+        spectrum.vfo_freq_hz = Some(100_000_000);
+        spectrum.vfo_bw_hz = 12_500;
+        spectrum.demod_mode = "NFM".into();
+        let mut bins = vec![-120.0; 2048];
+        bins[1224] = -10.0; // +200 kHz, outside the selected +/-6.25 kHz.
+        spectrum.apply_spectrum_frame(&bins);
+        scanner.tick_spectrum(&spectrum);
+        assert!(scanner.hits.is_empty());
+        assert!(!scanner.holding);
+        assert_eq!(scanner.current_freq_hz, 100_025_000);
+        assert_eq!(scanner.last_peak_db, -120.0);
+
+        // The next selected channel has a weaker, real in-band carrier. The
+        // stronger unrelated peak must not determine its logged strength.
+        spectrum.vfo_freq_hz = Some(100_025_000);
+        bins[1049] = -40.0;
+        spectrum.apply_spectrum_frame(&bins);
+        scanner.tick_spectrum(&spectrum);
+        assert_eq!(scanner.hits.len(), 1);
+        assert_eq!(scanner.hits[0].freq_hz, 100_025_000);
+        assert_eq!(scanner.hits[0].strength_db, -40.0);
+        assert!(scanner.holding);
+        assert_eq!(scanner.current_freq_hz, 100_025_000);
+    }
+
+    #[test]
+    fn a_different_selected_vfo_cannot_be_logged_under_the_scan_frequency() {
+        let mut scanner = FrequencyScanner::new(crate::test_helpers::make_shared_state());
+        scanner.start_hz = 100_000_000;
+        scanner.stop_hz = 100_100_000;
+        scanner.dwell_ms = 0;
+        scanner.start();
+        let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+        spectrum.set_fft_size(2048);
+        spectrum.update_params(100_000_000, 2_048_000);
+        spectrum.vfo_freq_hz = Some(100_200_000);
+        spectrum.apply_spectrum_frame(&vec![-10.0; 2048]);
+        scanner.tick_spectrum(&spectrum);
+        assert!(scanner.hits.is_empty());
+        assert_eq!(scanner.current_freq_hz, 100_000_000);
+        assert!(scanner.status_text.contains("Waiting"));
+    }
 
     #[test]
     fn parse_json_value_valid_u64() {

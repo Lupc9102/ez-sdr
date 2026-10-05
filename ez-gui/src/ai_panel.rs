@@ -730,7 +730,8 @@ impl AiPanel {
         results
     }
 
-    fn poll_stream(&mut self) {
+    /// Advance requests and proposed tools even when the response window is hidden.
+    pub fn tick(&mut self) {
         let rx = match self.pending_rx.take() {
             Some(rx) => rx,
             None => return,
@@ -1474,7 +1475,7 @@ impl AiPanel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        self.poll_stream();
+        self.tick();
 
         // Header with model/provider info and context token estimate
         let (model, provider, has_key, temp, reasoning_effort, web_search) = {

@@ -195,6 +195,7 @@ fn offline_test_app() -> CentralApp {
 fn utility_tools_render_as_floating_windows() {
     for tool in [
         SecondaryTool::Scanner,
+        SecondaryTool::Ai,
         SecondaryTool::HowTo,
         SecondaryTool::SetupGuide,
         SecondaryTool::Settings,
@@ -627,4 +628,221 @@ fn bookmark_dirty_content_flushes_before_debounce_and_survives_failed_save() {
     assert_eq!(read_saved(&app.bookmark_path), state.bookmarks.bookmarks);
     drop(state);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn save_and_apply_preserves_live_capture_when_defaults_and_unrelated_settings_change() {
+    let ctx = egui::Context::default();
+    let mut app = offline_test_app();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.theme_applied = true;
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Hardware;
+        state.source.frequency_hz = 1_090_000_000;
+        state.source.center_frequency_hz = Some(1_090_000_000);
+        state.source.sample_rate_hz = 2_400_000;
+        state.source.gain_db = 32.8;
+        // No physical receiver is opened: the real logic must preserve this
+        // running session rather than restart a device to apply preferences.
+        state.source.status = crate::source_manager::SourceStatus::Running;
+    }
+    for group in ["theme", "font", "integration", "startup defaults"] {
+        let expected = {
+            let mut state = app.shared.lock().unwrap();
+            match group {
+                "theme" => state.config.theme_config = crate::theme::ThemeConfig::light(),
+                "font" => state.config.font_scale = 1.25,
+                "integration" => state.config.mqtt_topic_prefix = "test/preserved".into(),
+                _ => {
+                    state.config.default_freq_hz = 144_000_000;
+                    state.config.default_sample_rate = 1_024_000;
+                    state.config.default_gain = 15.0;
+                }
+            }
+            state.config.needs_apply = true;
+            (
+                state.source.frequency_hz,
+                state.source.capture_center_frequency_hz(),
+                state.source.sample_rate_hz,
+                state.source.gain_db,
+                state.source.stream_generation(),
+            )
+        };
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| app.logic(&ctx, &mut frame));
+        let state = app.shared.lock().unwrap();
+        assert_eq!(
+            (
+                state.source.frequency_hz,
+                state.source.capture_center_frequency_hz(),
+                state.source.sample_rate_hz,
+                state.source.gain_db,
+                state.source.stream_generation(),
+            ),
+            expected,
+            "applying {group} changed the active receiver"
+        );
+        assert_eq!(
+            state.source.status,
+            crate::source_manager::SourceStatus::Running
+        );
+        assert!(!state.config.needs_apply);
+    }
+    assert_eq!(ctx.pixels_per_point(), 1.25);
+}
+
+#[test]
+fn scanner_ai_request_completes_hidden_and_can_be_reopened_without_external_calls() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    assert!(ALL_SECONDARY_TOOLS.contains(&SecondaryTool::Ai));
+    for success in [true, false] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = crossbeam_channel::bounded(1);
+        let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let mut socket = loop {
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "scanner never dispatched its request"
+                        );
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("loopback accept failed: {error}"),
+                }
+            };
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let body = loop {
+                let mut bytes = [0; 4096];
+                let count = socket.read(&mut bytes).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&bytes[..count]);
+                assert!(request.len() <= 128 * 1024);
+                if let Some(header_end) = request.windows(4).position(|s| s == b"\r\n\r\n") {
+                    let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap())
+                        })
+                        .unwrap();
+                    if request.len() >= header_end + 4 + length {
+                        break serde_json::from_slice::<serde_json::Value>(
+                            &request[header_end + 4..header_end + 4 + length],
+                        )
+                        .unwrap();
+                    }
+                }
+            };
+            request_tx.send(body).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            let (status, body) = if success {
+                let content = "Scanner loopback result.\n{\"tool\":\"tune_frequency\",\"args\":{\"hz\":144000000}}";
+                let chunk = serde_json::json!({"choices":[{"delta":{"content":content}}]});
+                ("200 OK", format!("data: {chunk}\n\ndata: [DONE]\n\n"))
+            } else {
+                ("503 Service Unavailable", "loopback unavailable".into())
+            };
+            write!(socket, "HTTP/1.1 {status}\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            socket.flush().unwrap();
+        });
+        let ctx = egui::Context::default();
+        let mut app = offline_test_app();
+        let mut frame = eframe::Frame::_new_kittest();
+        app.theme_applied = true;
+        {
+            let mut state = app.shared.lock().unwrap();
+            state.config.ai_provider = "OpenAI".into();
+            state.config.ai_endpoint = format!("http://{address}/chat/completions");
+            state.config.ai_api_key = "loopback-test".into();
+        }
+        let original_frequency = app.shared.lock().unwrap().source.frequency_hz;
+        app.active_secondary_tool = Some(SecondaryTool::Scanner);
+        app.scanner.pending_ai_prompt = Some("Explain this scanner hit".into());
+        let input = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input(), |ui| {
+            app.render_secondary_panel(ui, SecondaryTool::Scanner)
+        });
+        assert_eq!(app.active_secondary_tool, Some(SecondaryTool::Ai));
+        assert!(app.ai_panel.thinking);
+        let request = request_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["role"] == "user" && message["content"] == "Explain this scanner hit"
+            }));
+        app.active_secondary_tool = None;
+        app.current_tab = AppTab::Planes;
+        release_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while app.ai_panel.thinking {
+            app.logic(&ctx, &mut frame);
+            assert!(
+                Instant::now() < deadline,
+                "hidden AI request never completed"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        server.join().unwrap();
+        assert!(app.active_secondary_tool.is_none());
+        assert!(!app.ai_panel.messages.last().unwrap().streaming);
+        let expected = if success {
+            "Scanner loopback result."
+        } else {
+            "HTTP 503"
+        };
+        assert!(app
+            .ai_panel
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .contains(expected));
+        if success {
+            assert!(app
+                .ai_panel
+                .messages
+                .last()
+                .unwrap()
+                .content
+                .contains("awaiting approval"));
+        }
+        assert_eq!(
+            app.shared.lock().unwrap().source.frequency_hz,
+            original_frequency
+        );
+        app.active_secondary_tool = Some(SecondaryTool::Ai);
+        let mut rendered = false;
+        for _ in 0..3 {
+            let output = ctx.run_ui(input(), |ui| app.ui(ui, &mut frame));
+            rendered |= output.shapes.iter().any(|shape| match &shape.shape {
+                egui::Shape::Text(text) => text.galley.text().contains(expected),
+                _ => false,
+            });
+        }
+        assert!(
+            rendered,
+            "completed response is not visible in the real AI window"
+        );
+    }
 }

@@ -1,0 +1,31 @@
+{
+  "batch": 10,
+  "findings": [
+    "G01",
+    "G05",
+    "G07"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1524,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "Scanner ignores a stronger out-of-band carrier and logs/holds only the selected passband at its actual strength",
+    "A mismatched selected VFO cannot be logged under the scan frequency",
+    "Save and Apply preserves live center, frequency, rate, gain, status and capture generation across theme/font/integration/default edits",
+    "Real Scanner AI requests use a loopback fake; hidden-window polling completes success and HTTP error responses",
+    "Reopened Tools AI window visibly renders completed output and proposed mutations remain pending approval"
+  ],
+  "limitations": [
+    "Thirteen formal findings and additional experiments remain open",
+    "G02 scanner observation freshness/epoch settling and G08 actual AI tool lifecycles remain open",
+    "No external inference providers were contacted",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

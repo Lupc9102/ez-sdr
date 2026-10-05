@@ -946,16 +946,16 @@ impl AppConfig {
                 ui.add(egui::Slider::new(&mut self.default_freq_hz, 500_000..=1_770_000_000)
                     .text("Default frequency")
                     .custom_formatter(|v, _| format!("{:.3} MHz", v / 1e6)))
-                    .on_hover_text("The frequency the SDR tunes to when first started.");
+                    .on_hover_text("Startup frequency when no saved session is available. Save & Apply preserves the active receiver; use the Radio controls to tune it.");
                 ui.add(egui::Slider::new(&mut self.default_sample_rate, 225_001..=3_200_000)
-                    .text("Sample rate")
+                    .text("Default sample rate")
                     .custom_formatter(|v, _| format!("{:.3} MSps", v / 1e6)))
-                    .on_hover_text("How many samples per second the ADC captures. Also sets the visible spectrum width. Max stable for RTL-SDR: 2.4 MSps.");
+                    .on_hover_text("Startup sample rate. Use the Radio source controls to change the active capture rate.");
                 ui.add(egui::Slider::new(&mut self.default_gain, 0.0..=49.6)
                     .step_by(0.1)
-                    .text("Gain (dB)")
+                    .text("Default gain (dB)")
                     .custom_formatter(|v, _| format!("{v:.1} dB")))
-                    .on_hover_text("RF amplification. Higher is not always better — too much gain causes overload and phantom signals. Typical sweet spot: 30–45 dB.");
+                    .on_hover_text("Startup gain when no saved session is available. Use the Radio source controls to change live RF amplification.");
             });
 
             ui.collapsing("Frequency Calibration", |ui| {

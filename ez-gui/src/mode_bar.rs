@@ -42,6 +42,7 @@ pub enum SecondaryTool {
     Bookmarks,
     Scanner,
     Recorder,
+    Ai,
     Sinks,
     BandPlan,
     Scheduler,
@@ -67,6 +68,7 @@ impl SecondaryTool {
             SecondaryTool::Bookmarks => "⭐",
             SecondaryTool::Scanner => "🔍",
             SecondaryTool::Recorder => "⏺",
+            SecondaryTool::Ai => "🤖",
             SecondaryTool::Sinks => "🔊",
             SecondaryTool::BandPlan => "🗺",
             SecondaryTool::Scheduler => "🗓",
@@ -92,6 +94,7 @@ impl SecondaryTool {
             SecondaryTool::Bookmarks => "Bookmarks",
             SecondaryTool::Scanner => "Scanner",
             SecondaryTool::Recorder => "Recorder",
+            SecondaryTool::Ai => "AI Agent",
             SecondaryTool::Sinks => "Sinks",
             SecondaryTool::BandPlan => "Band Plan",
             SecondaryTool::Scheduler => "Scheduler",
@@ -117,6 +120,7 @@ impl SecondaryTool {
             SecondaryTool::Bookmarks => "bookmarks",
             SecondaryTool::Scanner => "scanner",
             SecondaryTool::Recorder => "recorder",
+            SecondaryTool::Ai => "ai_agent",
             SecondaryTool::Sinks => "sinks",
             SecondaryTool::BandPlan => "band_plan",
             SecondaryTool::Scheduler => "scheduler",
@@ -143,6 +147,7 @@ impl SecondaryTool {
         match self {
             // Always available.
             SecondaryTool::Bookmarks
+            | SecondaryTool::Ai
             | SecondaryTool::Settings
             | SecondaryTool::HowTo
             | SecondaryTool::SetupGuide
@@ -184,6 +189,7 @@ impl SecondaryTool {
 pub const ALL_SECONDARY_TOOLS: &[SecondaryTool] = &[
     SecondaryTool::Scanner,
     SecondaryTool::Recorder,
+    SecondaryTool::Ai,
     SecondaryTool::HowTo,
     SecondaryTool::SetupGuide,
     SecondaryTool::Settings,
