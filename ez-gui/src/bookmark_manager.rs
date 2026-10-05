@@ -620,7 +620,7 @@ impl BookmarkPanel {
                                     .clicked()
                                 {
                                     if let Ok(mut state) = shared.try_lock() {
-                                        state.source.frequency_hz = bm.frequency_hz;
+                                        crate::radio_ui::tune(&mut state, bm.frequency_hz);
                                         *last_manual_tune_time = std::time::Instant::now();
                                         if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) {
                                             state.demod_mode = mode;
@@ -686,7 +686,7 @@ impl BookmarkPanel {
                         // Double-click to tune
                         if !is_editing && row_response.response.double_clicked() {
                             if let Ok(mut state) = shared.try_lock() {
-                                state.source.frequency_hz = bm.frequency_hz;
+                                crate::radio_ui::tune(&mut state, bm.frequency_hz);
                                 if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&bm.mode) {
                                     state.demod_mode = mode;
                                 }

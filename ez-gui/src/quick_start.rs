@@ -141,7 +141,7 @@ impl Workflow {
 
         let should_start = state.source.status == crate::source_manager::SourceStatus::Running;
         state.source.stop();
-        state.source.frequency_hz = state.config.default_freq_hz;
+        crate::radio_ui::tune(state, state.config.default_freq_hz);
         state.source.center_frequency_hz = Some(state.source.frequency_hz);
         state.source.sample_rate_hz = state.config.default_sample_rate;
         state.source.gain_db = state.config.default_gain;

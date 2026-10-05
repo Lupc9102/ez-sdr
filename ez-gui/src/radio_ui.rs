@@ -337,6 +337,7 @@ impl RadioUi {
                     if commit_control(&response) {
                         state.source.center_frequency_hz = Some(center);
                         state.source.frequency_hz = center;
+                        state.last_manual_tune = Some(std::time::Instant::now());
                         restart = true;
                     }
                 });
@@ -1563,6 +1564,13 @@ fn set_receiver_running(state: &mut SharedState, running: bool, muted: bool) {
 }
 
 pub(crate) fn tune(state: &mut SharedState, frequency: u64) {
+    state.last_manual_tune = Some(std::time::Instant::now());
+    tune_scheduled(state, frequency);
+}
+
+/// Automatic jobs use the same receiver/VFO application, without establishing
+/// a manual cooldown that would postpone another scheduled pass.
+pub(crate) fn tune_scheduled(state: &mut SharedState, frequency: u64) {
     // Freeze the old center before changing the logical VFO, including legacy
     // callers whose SourceManager still has the follow-frequency default.
     let old_center = state.source.capture_center_frequency_hz();

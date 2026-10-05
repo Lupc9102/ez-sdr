@@ -76,9 +76,12 @@ pub fn render_satellite_tab(
                     "Observer: {:.4}°N  {:.4}°E",
                     satellite_panel.observer_lat, satellite_panel.observer_lon
                 ));
-                if satellite_panel.auto_tune {
-                    ui.separator();
-                    ui.colored_label(egui::Color32::GREEN, "✓ Auto-tune");
+                ui.separator();
+                if let Ok(mut state) = shared.try_lock() {
+                    ui.checkbox(&mut state.scheduler.auto_tune_enabled, "Auto-tune enabled");
+                }
+                if let Some(status) = &satellite_panel.auto_tune_status {
+                    ui.label(status);
                 }
                 if satellite_panel.cf32_recording {
                     ui.separator();

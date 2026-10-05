@@ -646,6 +646,7 @@ impl AdsBPanel {
             return;
         }
         state.audio_running = false;
+        state.last_manual_tune = Some(std::time::Instant::now());
         state
             .source
             .tune_and_restart(self.region.frequency_hz(), self.region.sample_rate_hz());
@@ -671,6 +672,7 @@ impl AdsBPanel {
         self.region = region;
         self.clear_tracks();
         state.audio_running = false;
+        state.last_manual_tune = Some(std::time::Instant::now());
         if region == AdsbRegion::Uat978 {
             state.adsb_running = false;
             state.source.stop();
@@ -744,6 +746,7 @@ impl AdsBPanel {
             return;
         };
         state.audio_running = false;
+        state.last_manual_tune = Some(std::time::Instant::now());
         state.adsb_running = false;
         state.source.stop();
         drop(state);

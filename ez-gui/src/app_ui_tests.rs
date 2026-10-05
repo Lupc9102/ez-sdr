@@ -1522,3 +1522,339 @@ fn saved_receiver_profile_import_applies_calibration_and_only_changed_hardware_r
         state.source.stop();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn repeated_satellite_passes_honor_gui_web_rigctl_and_scanner_manual_cooldown() {
+    use crate::tle_engine::PassInfo;
+    use futures_util::SinkExt;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let utc = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    for route in ["GUI", "web", "rigctl", "scanner"] {
+        let mut app = offline_test_app();
+        app.current_tab = AppTab::Planes;
+        let pass = |aos, los| PassInfo {
+            satellite: "ISS".into(),
+            aos: "AOS".into(),
+            los: "LOS".into(),
+            frequency_hz: 145_800_000,
+            aos_dt: aos,
+            los_dt: los,
+            max_elevation: 45.0,
+        };
+        let first_id;
+        let second_id;
+        {
+            let mut state = app.shared.lock().unwrap();
+            state.source.stop();
+            state.scheduler.update_from_passes(&[
+                pass(utc - 120.0, utc - 60.0),
+                pass(utc + 100.0, utc + 400.0),
+            ]);
+            first_id = state.scheduler.jobs[0].id;
+            second_id = state.scheduler.jobs[1].id;
+        }
+        app.tick_satellite_jobs(utc - 90.0, Instant::now());
+        assert_eq!(
+            app.shared.lock().unwrap().source.frequency_hz,
+            145_800_000,
+            "first {route}"
+        );
+        assert_eq!(app.last_auto_tuned_job.unwrap().0, first_id);
+        assert!(
+            app.shared.lock().unwrap().last_manual_tune.is_none(),
+            "scheduled tune caused manual cooldown"
+        );
+        // A forecast refreshed during this pass must not tune a second time.
+        app.tick_satellite_jobs(utc - 89.0, Instant::now());
+        assert_eq!(app.last_auto_tuned_job.unwrap().0, first_id);
+        app.tick_satellite_jobs(utc, Instant::now());
+        assert!(
+            app.last_auto_tuned_job.is_none(),
+            "LOS did not retire pass identity"
+        );
+        match route {
+            "GUI" => {
+                let ctx = egui::Context::default();
+                let mut frame = eframe::Frame::_new_kittest();
+                app.last_scheduler_update = Instant::now();
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        events: vec![egui::Event::Key {
+                            key: egui::Key::ArrowRight,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: egui::Modifiers::default(),
+                        }],
+                        ..Default::default()
+                    },
+                    |ui| app.logic(ui.ctx(), &mut frame),
+                );
+            }
+            "web" => {
+                let port = std::net::TcpListener::bind("127.0.0.1:0")
+                    .unwrap()
+                    .local_addr()
+                    .unwrap()
+                    .port();
+                app.web_remote.set_enabled(true, port);
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut ws = loop {
+                    if let Ok((ws, _)) =
+                        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await
+                    {
+                        break ws;
+                    }
+                    assert!(Instant::now() < deadline);
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                };
+                ws.send(Message::Text(r#"{"action":"tune","hz":144000000}"#.into()))
+                    .await
+                    .unwrap();
+                loop {
+                    app.process_web_remote_commands();
+                    if app.shared.lock().unwrap().source.frequency_hz == 144_000_000 {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline, "web tune not dispatched");
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                drop(ws);
+            }
+            "rigctl" => {
+                app.rigctl.set_enabled(true, 0);
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut socket = loop {
+                    let port = app.rigctl.bound_port();
+                    if port != 0 {
+                        if let Ok(socket) =
+                            tokio::net::TcpStream::connect(("127.0.0.1", port)).await
+                        {
+                            break socket;
+                        }
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "rigctl listener never became ready"
+                    );
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                };
+                socket.write_all(b"F 144000000\n").await.unwrap();
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    app.process_rigctl_requests();
+                    if app.shared.lock().unwrap().source.frequency_hz == 144_000_000 {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline);
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                let mut line = String::new();
+                tokio::io::BufReader::new(socket)
+                    .read_line(&mut line)
+                    .await
+                    .unwrap();
+                assert_eq!(line, "RPRT 0\n");
+            }
+            "scanner" => {
+                app.scanner.start_hz = 144_000_000;
+                app.scanner.stop_hz = 144_100_000;
+                app.scanner.start();
+                app.apply_scanner_tune();
+                assert_eq!(app.shared.lock().unwrap().source.frequency_hz, 144_000_000);
+            }
+            _ => unreachable!(),
+        }
+        let state = app.shared.lock().unwrap();
+        let manual_frequency = state.source.frequency_hz;
+        let manual_at = state
+            .last_manual_tune
+            .expect("route did not use shared manual tune command");
+        assert_ne!(manual_frequency, 145_800_000, "{route} didn't tune");
+        drop(state);
+        app.tick_satellite_jobs(utc + 150.0, manual_at + Duration::from_secs(14));
+        assert_eq!(
+            app.shared.lock().unwrap().source.frequency_hz,
+            manual_frequency,
+            "cooldown ignored for {route}"
+        );
+        assert!(app.last_auto_tuned_job.is_none());
+        app.tick_satellite_jobs(utc + 152.0, manual_at + Duration::from_secs(16));
+        let applied = app
+            .last_auto_tuned_job
+            .expect("later pass of same satellite was skipped");
+        assert_eq!((applied.0, applied.1), (second_id, 145_800_000));
+        assert_eq!(app.shared.lock().unwrap().last_manual_tune, Some(manual_at));
+        // A manual change later in this handled pass stays in place, including
+        // after its cooldown: the automatic job executes once for this pass.
+        {
+            let mut state = app.shared.lock().unwrap();
+            crate::radio_ui::tune(&mut state, manual_frequency);
+        }
+        app.tick_satellite_jobs(utc + 200.0, manual_at + Duration::from_secs(100));
+        assert_eq!(
+            app.shared.lock().unwrap().source.frequency_hz,
+            manual_frequency
+        );
+        assert_eq!(app.last_auto_tuned_job, Some(applied));
+        let last_manual = app.shared.lock().unwrap().last_manual_tune;
+        app.handle_events();
+        let state = app.shared.lock().unwrap();
+        assert_eq!(
+            state.source.frequency_hz, manual_frequency,
+            "old frequency notification overwrote {route}"
+        );
+        assert_eq!(state.last_manual_tune, last_manual);
+    }
+}
+
+#[test]
+fn scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state() {
+    use ez_proto::{HardwareStatus, ServerEvent};
+    let mut app = offline_test_app();
+    let (client, _commands, events) = crate::daemon_client::DaemonClient::test_connection();
+    // A fake adapter exposes a real control request before its authoritative
+    // hardware acknowledgement; the scheduler must not report it as completed.
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Daemon;
+        state.source.set_test_daemon_client(client);
+        state.source.frequency_hz = 100_000_000;
+        state.source.center_frequency_hz = Some(100_000_000);
+        state
+            .scheduler
+            .update_from_passes(&[crate::tle_engine::PassInfo {
+                satellite: "ISS".into(),
+                aos: "AOS".into(),
+                los: "LOS".into(),
+                frequency_hz: 145_800_000,
+                aos_dt: 100.0,
+                los_dt: 200.0,
+                max_elevation: 45.0,
+            }]);
+        state.source.status = crate::source_manager::SourceStatus::Running;
+    }
+    app.tick_satellite_jobs(150.0, Instant::now());
+    assert!(app.last_auto_tuned_job.is_none());
+    assert!(app
+        .satellite_panel
+        .auto_tune_status
+        .as_ref()
+        .unwrap()
+        .contains("acknowledgement"));
+    events
+        .send(ServerEvent::Hardware(HardwareStatus {
+            connected: true,
+            frequency_hz: 145_800_000,
+            sample_rate_hz: 2_048_000,
+            gain_db: 20.0,
+            source_kind: "fake".into(),
+            error: None,
+        }))
+        .unwrap();
+    {
+        let mut state = app.shared.lock().unwrap();
+        let _ = state.source.recv_daemon_event();
+    }
+    app.tick_satellite_jobs(151.0, Instant::now());
+    assert!(app.last_auto_tuned_job.is_some());
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.scheduler.auto_tune_enabled = false;
+    }
+    app.tick_satellite_jobs(152.0, Instant::now());
+    assert!(app.last_auto_tuned_job.is_none());
+    assert!(app.satellite_panel.auto_tune_status.is_none());
+    // The actual satellite UI binds its checkbox to Scheduler, not a shadow.
+    let ctx = egui::Context::default();
+    let mut texts = String::new();
+    let mut checkbox = None;
+    for _ in 0..2 {
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            crate::satellite_tab::render_satellite_tab(
+                ui,
+                &app.shared,
+                &mut app.satellite_panel,
+                &mut app.satellite_subtab,
+                &mut app.constellation,
+                &mut app.decoding_panel,
+                &mut app.ai_panel,
+                &mut app.status_bar,
+            )
+        });
+        for shape in output.shapes {
+            if let egui::Shape::Text(t) = shape.shape {
+                if t.galley.text() == "Auto-tune enabled" {
+                    checkbox = Some(t.pos + t.galley.size() / 2.0);
+                }
+                texts.push_str(t.galley.text());
+            }
+        }
+    }
+    assert!(texts.contains("Auto-tune enabled"));
+    assert!(!app.shared.lock().unwrap().scheduler.auto_tune_enabled);
+    let position = checkbox.expect("checkbox label was not painted");
+    for pressed in [true, false] {
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+                ..Default::default()
+            },
+            |ui| {
+                crate::satellite_tab::render_satellite_tab(
+                    ui,
+                    &app.shared,
+                    &mut app.satellite_panel,
+                    &mut app.satellite_subtab,
+                    &mut app.constellation,
+                    &mut app.decoding_panel,
+                    &mut app.ai_panel,
+                    &mut app.status_bar,
+                )
+            },
+        );
+    }
+    assert!(
+        app.shared.lock().unwrap().scheduler.auto_tune_enabled,
+        "sidebar toggle did not update scheduler"
+    );
+    app.shared.lock().unwrap().source.status =
+        crate::source_manager::SourceStatus::Error("hardware rejected tuning".into());
+    app.tick_satellite_jobs(153.0, Instant::now());
+    assert!(app.last_auto_tuned_job.is_none());
+    assert!(app
+        .satellite_panel
+        .auto_tune_status
+        .as_ref()
+        .unwrap()
+        .contains("failed"));
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Replay;
+        state.source.status = crate::source_manager::SourceStatus::Idle;
+        state.source.center_frequency_hz = Some(100_000_000);
+    }
+    app.tick_satellite_jobs(154.0, Instant::now());
+    assert!(
+        app.last_auto_tuned_job.is_none(),
+        "unavailable replay frequency was claimed as applied"
+    );
+    assert!(app
+        .satellite_panel
+        .auto_tune_status
+        .as_ref()
+        .unwrap()
+        .contains("outside"));
+}

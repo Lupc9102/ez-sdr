@@ -6,10 +6,13 @@ pub struct Scheduler {
     pub jobs: Vec<ScheduledJob>,
     pub auto_tune_enabled: bool,
     pub custom_tasks: Vec<CustomTask>,
+    next_job_id: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct ScheduledJob {
+    /// Stable across overlapping forecast revisions; distinct for later passes.
+    pub id: u64,
     pub satellite: String,
     pub aos: String,
     pub los: String,
@@ -39,19 +42,48 @@ impl Scheduler {
             jobs: vec![],
             auto_tune_enabled: true,
             custom_tasks: vec![],
+            next_job_id: 1,
         }
     }
 
     pub fn update_from_passes(&mut self, passes: &[PassInfo]) {
+        let previous = std::mem::take(&mut self.jobs);
+        let mut reused = std::collections::HashSet::new();
         self.jobs = passes
             .iter()
-            .map(|p| ScheduledJob {
-                satellite: p.satellite.clone(),
-                aos: p.aos.clone(),
-                los: p.los.clone(),
-                frequency_hz: p.frequency_hz,
-                aos_dt: p.aos_dt,
-                los_dt: p.los_dt,
+            .filter(|p| p.aos_dt.is_finite() && p.los_dt.is_finite() && p.los_dt > p.aos_dt)
+            .map(|p| {
+                // Forecasts clip AOS to the query start during an active pass and
+                // refine crossings with slightly different brackets. Overlapping
+                // windows for one satellite/downlink identify the same physical job.
+                let id = previous
+                    .iter()
+                    .find(|old| {
+                        old.satellite == p.satellite
+                            && old.frequency_hz == p.frequency_hz
+                            && old.aos_dt < p.los_dt
+                            && p.aos_dt < old.los_dt
+                            && !reused.contains(&old.id)
+                    })
+                    .map(|old| old.id)
+                    .unwrap_or_else(|| {
+                        let id = self.next_job_id;
+                        self.next_job_id = self
+                            .next_job_id
+                            .checked_add(1)
+                            .expect("pass job namespace exhausted");
+                        id
+                    });
+                reused.insert(id);
+                ScheduledJob {
+                    id,
+                    satellite: p.satellite.clone(),
+                    aos: p.aos.clone(),
+                    los: p.los.clone(),
+                    frequency_hz: p.frequency_hz,
+                    aos_dt: p.aos_dt,
+                    los_dt: p.los_dt,
+                }
             })
             .collect();
     }
@@ -320,7 +352,7 @@ impl SchedulerPanel {
                         ui.monospace(format!("{:.3} MHz", job.frequency_hz as f64 / 1e6));
                         if ui.small_button("📡 Tune").on_hover_text("Tune SDR to this satellite's frequency now.").clicked() {
                             if let Ok(mut state) = shared.try_lock() {
-                                state.source.frequency_hz = job.frequency_hz;
+                                crate::radio_ui::tune(&mut state, job.frequency_hz);
                             }
                         }
                         ui.end_row();
@@ -496,6 +528,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pass_job_identity_survives_clipped_forecasts_but_distinguishes_later_passes() {
+        let mut scheduler = Scheduler::new();
+        let pass = |aos, los| PassInfo {
+            satellite: "ISS".into(),
+            aos: "AOS".into(),
+            los: "LOS".into(),
+            frequency_hz: 145_800_000,
+            aos_dt: aos,
+            los_dt: los,
+            max_elevation: 45.0,
+        };
+        scheduler.update_from_passes(&[pass(100.0, 200.0), pass(1000.0, 1100.0)]);
+        let first = scheduler.jobs[0].id;
+        let second = scheduler.jobs[1].id;
+        assert_ne!(first, second);
+        scheduler.update_from_passes(&[pass(150.0, 200.005), pass(1000.007, 1100.003)]);
+        assert_eq!(scheduler.jobs[0].id, first);
+        assert_eq!(scheduler.jobs[1].id, second);
+        scheduler.update_from_passes(&[]);
+        scheduler.update_from_passes(&[pass(2000.0, 2100.0)]);
+        assert_ne!(scheduler.jobs[0].id, first);
+        assert_ne!(scheduler.jobs[0].id, second);
+    }
+
+    #[test]
     fn new_scheduler_starts_empty() {
         let s = Scheduler::new();
         assert!(s.jobs.is_empty());
@@ -508,6 +565,7 @@ mod tests {
         let mut s = Scheduler::new();
         s.auto_tune_enabled = false;
         s.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "TestSat".into(),
             aos: String::new(),
             los: String::new(),
@@ -521,6 +579,7 @@ mod tests {
     fn make_scheduler() -> Scheduler {
         let mut s = Scheduler::new();
         s.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "TestSat".into(),
             aos: String::new(),
             los: String::new(),
@@ -558,6 +617,7 @@ mod tests {
         scheduler.jobs[0].satellite = "Meteor-M2-3".into();
         assert!(scheduler.active_radio_job(150.0).is_none());
         scheduler.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "ISS".into(),
             frequency_hz: 145_800_000,
             aos: String::new(),
@@ -574,6 +634,7 @@ mod tests {
     fn active_job_prefers_first_match() {
         let mut s = Scheduler::new();
         s.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "SatA".into(),
             aos: String::new(),
             los: String::new(),
@@ -582,6 +643,7 @@ mod tests {
             los_dt: 100.0,
         });
         s.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "SatB".into(),
             aos: String::new(),
             los: String::new(),
@@ -725,6 +787,7 @@ mod tests {
     fn scheduled_job_edge_times_midnight() {
         let mut s = Scheduler::new();
         s.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "MidnightSat".into(),
             aos: String::new(),
             los: String::new(),
@@ -740,6 +803,7 @@ mod tests {
     fn scheduled_job_edge_times_noon() {
         let mut s = Scheduler::new();
         s.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "NoonSat".into(),
             aos: String::new(),
             los: String::new(),
@@ -758,6 +822,7 @@ mod tests {
     fn scheduled_job_edge_times_2359() {
         let mut s = Scheduler::new();
         s.jobs.push(ScheduledJob {
+            id: 1,
             satellite: "LateSat".into(),
             aos: String::new(),
             los: String::new(),

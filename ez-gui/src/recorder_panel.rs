@@ -1291,6 +1291,7 @@ mod tests {
             mqtt_enabled: false,
             bookmarks_modified: true,
             scanner_command: None,
+            last_manual_tune: None,
         }))
     }
 

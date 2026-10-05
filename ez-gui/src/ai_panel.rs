@@ -814,7 +814,7 @@ impl AiPanel {
                         // value (or MHz/Hz confusion) must not park the SDR
                         // at 0 Hz or 18 EHz.
                         let hz = hz.clamp(500_000, 1_770_000_000);
-                        state.source.frequency_hz = hz;
+                        crate::radio_ui::tune(&mut state, hz);
                         return format!("Tuned to {:.3} MHz", hz as f64 / 1e6);
                     }
                     return "Error: missing hz argument".to_string();
@@ -1730,7 +1730,7 @@ impl AiPanel {
                     // Message content: newlines, code fences, clickable frequency links
                     if let Some(hz) = Self::render_message_content(ui, &msg.content, content_color) {
                         if let Ok(mut state) = self.shared.try_lock() {
-                            state.source.frequency_hz = hz;
+                            crate::radio_ui::tune(&mut state, hz);
                         }
                     }
 

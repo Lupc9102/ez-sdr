@@ -62,7 +62,7 @@ pub struct SatellitePanel {
     pub doppler_hz: f64,
     pub observer_lat: f64,
     pub observer_lon: f64,
-    pub auto_tune: bool,
+    pub(crate) auto_tune_status: Option<String>,
     cached_passes: Vec<PassInfo>,
     pass_cache_at: std::time::Instant,
     pub pending_ai_prompt: Option<String>,
@@ -98,7 +98,7 @@ impl SatellitePanel {
             doppler_hz: 0.0,
             observer_lat: observer.0,
             observer_lon: observer.1,
-            auto_tune: true,
+            auto_tune_status: None,
             cached_passes: vec![],
             pass_cache_at: std::time::Instant::now(),
             pending_ai_prompt: None,
@@ -424,7 +424,6 @@ impl SatellitePanel {
                 self.stop_cf32_recording();
             }
             self.pending_decode_request = None;
-            self.auto_tune = false;
             if let Ok(mut state) = self.shared.try_lock() {
                 state.selected_satellite = None;
             }
@@ -436,9 +435,8 @@ impl SatellitePanel {
         }
 
         if let Ok(mut state) = self.shared.try_lock() {
-            state.source.frequency_hz = pass_center_frequency(entry.frequency_hz, 0.0);
+            crate::radio_ui::tune(&mut state, pass_center_frequency(entry.frequency_hz, 0.0));
         }
-        self.auto_tune = true;
     }
 
     pub(crate) fn is_meteor_selected(&self) -> bool {
@@ -957,7 +955,10 @@ mod tests {
             assert_eq!(state.source.status, status);
             assert!(state.selected_satellite.is_none());
             assert!(state.recording, "Radio recording is independent");
-            assert!(!panel.auto_tune);
+            assert!(
+                state.scheduler.auto_tune_enabled,
+                "Meteor tracking does not change the shared schedule preference"
+            );
             assert!(panel.is_meteor_selected());
             assert!(panel.pending_decode_request.is_none());
             state.source.stop();
@@ -975,7 +976,7 @@ mod tests {
             .unwrap();
         panel.on_satellite_selected(index);
         assert_eq!(shared.lock().unwrap().source.frequency_hz, 145_800_000);
-        assert!(panel.auto_tune);
+        assert!(shared.lock().unwrap().last_manual_tune.is_some());
         assert!(!panel.is_meteor_selected());
     }
 

@@ -8,7 +8,7 @@ pub struct KeyboardOutcome {
     pub toggle_recording: bool,
     /// User requested toggle of frequency scanner (`S`).
     pub toggle_scanner: bool,
-    /// Frequency was changed, caller should update `last_manual_tune_time`.
+    /// Frequency was changed through the shared manual-tuning command.
     pub freq_changed: bool,
 }
 

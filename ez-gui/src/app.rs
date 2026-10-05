@@ -74,6 +74,8 @@ pub struct SharedState {
     pub mqtt_enabled: bool,
     pub bookmarks_modified: bool,
     pub scanner_command: Option<ScannerCommand>,
+    /// Every manual tuning route uses the same monotonic scheduler cooldown.
+    pub last_manual_tune: Option<Instant>,
 }
 
 impl SharedState {
@@ -116,7 +118,7 @@ pub struct CentralApp {
     scanner: crate::scanner::FrequencyScanner,
     last_scheduler_update: std::time::Instant,
     last_source_status: crate::source_manager::SourceStatus,
-    last_auto_tuned_satellite: String,
+    last_auto_tuned_job: Option<(u64, u64, u64, u64)>,
     last_history_freq: u64,
     freq_history_idx: Option<usize>,
     recording_start: Option<std::time::Instant>,
@@ -148,11 +150,10 @@ pub struct CentralApp {
     last_mqtt_connected: bool,
     seen_aircraft: std::collections::HashSet<u32>,
     notified_aircraft: std::collections::HashSet<u32>,
-    last_active_pass_sat: String,
+    last_active_pass_job: Option<(u64, String)>,
     discord_summary_last: std::time::Instant,
     current_tab: AppTab,
     last_traffic_bucket: usize,
-    last_manual_tune_time: std::time::Instant,
     active_secondary_tool: Option<SecondaryTool>,
     /// ⚙ More — whether the tool-picker menu (deck of hidden tools) is showing.
     #[allow(dead_code)]
@@ -204,11 +205,8 @@ impl CentralApp {
             match event {
                 crate::events::AppEvent::FrequencyChanged { hz } => {
                     self.frequency_history.add(hz, None);
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        if state.source.frequency_hz != hz {
-                            crate::radio_ui::tune(&mut state, hz);
-                        }
-                    }
+                    // This reports an already-applied change. Replaying it as
+                    // a command would overwrite a newer manual frequency.
                 }
                 crate::events::AppEvent::RecordingStateChanged { recording } => {
                     if recording {
@@ -282,6 +280,7 @@ impl CentralApp {
             mqtt_enabled: false,
             bookmarks_modified: true,
             scanner_command: None,
+            last_manual_tune: None,
         }));
 
         let mut web_remote = WebRemote::new();
@@ -408,7 +407,7 @@ impl CentralApp {
             scanner: crate::scanner::FrequencyScanner::new(shared.clone()),
             last_scheduler_update: std::time::Instant::now(),
             last_source_status: crate::source_manager::SourceStatus::Idle,
-            last_auto_tuned_satellite: String::new(),
+            last_auto_tuned_job: None,
             last_history_freq: {
                 let state = shared.lock().expect("shared state mutex poisoned");
                 state.source.frequency_hz
@@ -432,11 +431,10 @@ impl CentralApp {
             last_mqtt_connected: false,
             seen_aircraft: std::collections::HashSet::new(),
             notified_aircraft: std::collections::HashSet::new(),
-            last_active_pass_sat: String::new(),
+            last_active_pass_job: None,
             current_tab: AppTab::Listen,
             discord_summary_last: std::time::Instant::now(),
             last_traffic_bucket: 0,
-            last_manual_tune_time: std::time::Instant::now(),
             active_secondary_tool: None,
             more_menu_open: false,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
@@ -536,6 +534,140 @@ impl CentralApp {
                     let _ = reply.send(response);
                 }
             }
+        }
+    }
+
+    /// Scheduler lifecycle runs regardless of the selected/rendered tab.
+    fn tick_satellite_jobs(&mut self, now_unix: f64, now: Instant) {
+        let shared = Arc::clone(&self.shared);
+        let Ok(mut state) = shared.try_lock() else {
+            return;
+        };
+        let job = state.scheduler.active_radio_job(now_unix).cloned();
+        if let Some(job) = job {
+            if self
+                .last_active_pass_job
+                .as_ref()
+                .is_none_or(|(id, _)| *id != job.id)
+            {
+                self.event_bus
+                    .publish(crate::events::AppEvent::SatellitePassStarting {
+                        name: job.satellite.clone(),
+                        aos: job.aos.clone(),
+                    });
+                if let Some(pass) = state
+                    .tle
+                    .upcoming_passes()
+                    .iter()
+                    .find(|pass| pass.satellite == job.satellite)
+                {
+                    self.discord.fire(
+                        "sat_aos",
+                        crate::discord::embed_sat_aos(
+                            &job.satellite,
+                            job.frequency_hz,
+                            pass.max_elevation,
+                        ),
+                    );
+                }
+                self.last_active_pass_job = Some((job.id, job.satellite.clone()));
+            }
+            let manual_recent = state
+                .last_manual_tune
+                .is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(15));
+            if self
+                .last_auto_tuned_job
+                .is_some_and(|(id, _, _, _)| id == job.id)
+            {
+                self.satellite_panel.auto_tune_status =
+                    Some(format!("Pass tune completed for {}", job.satellite));
+            } else if manual_recent {
+                self.satellite_panel.auto_tune_status = Some("Waiting after manual tune".into());
+            } else {
+                let frequency =
+                    crate::satellite_panel::pass_center_frequency(job.frequency_hz, 0.0);
+                // Reconcile even an equal VFO: a replay/source transition can
+                // change which frequencies the current capture actually covers.
+                // Receiver control synchronization coalesces unchanged requests.
+                crate::radio_ui::tune_scheduled(&mut state, frequency);
+                match &state.source.status {
+                    crate::source_manager::SourceStatus::Opening => {
+                        self.satellite_panel.auto_tune_status = Some("Waiting for receiver".into());
+                    }
+                    crate::source_manager::SourceStatus::Error(error) => {
+                        self.satellite_panel.auto_tune_status =
+                            Some(format!("Tune failed: {error}"));
+                    }
+                    _ if state.source.frequency_hz != frequency => {
+                        self.satellite_panel.auto_tune_status =
+                            Some("Scheduled frequency is outside the available capture".into());
+                    }
+                    _ if !state.source.capture_tuning_applied() => {
+                        self.satellite_panel.auto_tune_status =
+                            Some("Waiting for capture acknowledgement".into());
+                    }
+                    _ => {
+                        self.last_auto_tuned_job = Some((
+                            job.id,
+                            state.source.frequency_hz,
+                            state.source.capture_center_frequency_hz(),
+                            state.source.stream_generation(),
+                        ));
+                        self.event_bus
+                            .publish(crate::events::AppEvent::FrequencyChanged { hz: frequency });
+                        let action = if state.source.status
+                            == crate::source_manager::SourceStatus::Running
+                        {
+                            "Auto-tuned"
+                        } else {
+                            "Prepared VFO"
+                        };
+                        self.satellite_panel.auto_tune_status =
+                            Some(format!("{action} for {}", job.satellite));
+                        self.status_bar.info(format!(
+                            "{action} to {} ({:.3} MHz)",
+                            job.satellite,
+                            frequency as f64 / 1e6
+                        ));
+                    }
+                }
+            }
+            self.satellite_panel.doppler_hz =
+                state
+                    .tle
+                    .doppler_shift_for_sat(&job.satellite, job.frequency_hz as f64, now_unix);
+        } else {
+            if let Some((_, satellite)) = self.last_active_pass_job.take() {
+                self.discord
+                    .fire("sat_los", crate::discord::embed_sat_los(&satellite));
+            }
+            self.last_auto_tuned_job = None;
+            self.satellite_panel.auto_tune_status = None;
+        }
+        if let Some((label, frequency)) = state.scheduler.poll_custom_tasks(now_unix) {
+            crate::radio_ui::tune_scheduled(&mut state, frequency);
+            self.discord.fire(
+                "task_fired",
+                crate::discord::embed_task_fired(&label, frequency),
+            );
+        }
+    }
+
+    fn apply_scanner_tune(&mut self) {
+        if let Some(frequency) = self.scanner.tune_request_hz.take() {
+            if let Ok(mut state) = self.shared.try_lock() {
+                crate::radio_ui::tune(&mut state, frequency);
+                if let Some(mode) = self
+                    .scanner
+                    .mode_request
+                    .take()
+                    .and_then(|mode| crate::sdr_panel::DemodMode::from_label(&mode))
+                {
+                    crate::radio_ui::select_demod(&mut state, mode);
+                }
+            }
+        } else {
+            self.scanner.mode_request = None;
         }
     }
 
@@ -1347,7 +1479,6 @@ impl eframe::App for CentralApp {
         };
 
         if outcome.freq_changed {
-            self.last_manual_tune_time = std::time::Instant::now();
             if let Ok(mut state) = self.shared.try_lock() {
                 let frequency = state.source.frequency_hz;
                 crate::radio_ui::tune(&mut state, frequency);
@@ -1503,70 +1634,12 @@ impl eframe::App for CentralApp {
                     state.scheduler.update_from_passes(&passes);
                     self.last_scheduler_update = now;
                 }
-                // Auto-tune to the first active pass (with cooldown after manual tuning)
-                let now_unix = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs_f64())
-                    .unwrap_or(0.0);
-                let tune_to = state
-                    .scheduler
-                    .active_radio_job(now_unix)
-                    .map(|j| (j.satellite.clone(), j.frequency_hz));
-                if let Some((sat, freq)) = tune_to {
-                    // Satellite AOS detection (new pass)
-                    if sat != self.last_active_pass_sat {
-                        let passes = state.tle.upcoming_passes();
-                        self.event_bus
-                            .publish(crate::events::AppEvent::SatellitePassStarting {
-                                name: sat.clone(),
-                                aos: "Pass active".to_string(),
-                            });
-                        if let Some(pass) = passes.iter().find(|p| p.satellite == sat) {
-                            let embed =
-                                crate::discord::embed_sat_aos(&sat, freq, pass.max_elevation);
-                            self.discord.fire("sat_aos", embed);
-                        }
-                        self.last_active_pass_sat = sat.clone();
-                    }
-                    // Only auto-tune if user hasn't manually changed frequency recently (15s cooldown)
-                    let manual_tune_recent = self.last_manual_tune_time.elapsed().as_secs() < 15;
-                    if !manual_tune_recent && sat != self.last_auto_tuned_satellite {
-                        crate::radio_ui::tune(
-                            &mut state,
-                            crate::satellite_panel::pass_center_frequency(freq, 0.0),
-                        );
-                        self.last_auto_tuned_satellite = sat.clone();
-                        self.event_bus
-                            .publish(crate::events::AppEvent::FrequencyChanged { hz: freq });
-                        self.status_bar.info(format!(
-                            "🛰 Auto-tuned to {} ({:.3} MHz)",
-                            sat,
-                            freq as f64 / 1e6
-                        ));
-                    }
-                    // Report Doppler continuously while leaving the receiver centered at
-                    // the nominal downlink. Repeated tuner jumps disrupt LRPT carrier and
-                    // timing recovery; the decoder's Costas loop follows the residual.
-                    let doppler = state.tle.doppler_shift_for_sat(&sat, freq as f64, now_unix);
-                    self.satellite_panel.doppler_hz = doppler;
-                } else if !self.last_active_pass_sat.is_empty() {
-                    // Satellite LOS detection (pass ended)
-                    let embed = crate::discord::embed_sat_los(&self.last_active_pass_sat);
-                    self.discord.fire("sat_los", embed);
-                    self.last_active_pass_sat.clear();
-                }
-                // Poll custom scheduled tasks
-                if let Some((label, freq)) = state.scheduler.poll_custom_tasks(now_unix) {
-                    crate::radio_ui::tune(&mut state, freq);
-                    eprintln!(
-                        "[scheduler] fired custom task '{}' → {:.3} MHz",
-                        label,
-                        freq as f64 / 1e6
-                    );
-                    let embed = crate::discord::embed_task_fired(&label, freq);
-                    self.discord.fire("task_fired", embed);
-                }
             }
+            let now_unix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            self.tick_satellite_jobs(now_unix, now);
 
             // Squelch-triggered recording tick
             {
@@ -1607,18 +1680,7 @@ impl eframe::App for CentralApp {
                         self.discord.fire("scanner_hit", embed);
                     }
                 }
-                if let Some(freq) = self.scanner.tune_request_hz.take() {
-                    if let Ok(mut state) = self.shared.try_lock() {
-                        crate::radio_ui::tune(&mut state, freq);
-                        if let Some(mode_str) = self.scanner.mode_request.take() {
-                            if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) {
-                                state.demod_mode = mode;
-                            }
-                        }
-                    }
-                } else {
-                    let _ = self.scanner.mode_request.take();
-                }
+                self.apply_scanner_tune();
             }
         }
 
@@ -2039,7 +2101,7 @@ impl eframe::App for CentralApp {
             if let Some(freq) = tune_to {
                 if let Ok(mut state) = self.shared.try_lock() {
                     crate::radio_ui::tune(&mut state, freq);
-                    self.last_manual_tune_time = std::time::Instant::now();
+
                     self.status_bar
                         .info(format!("⤵ {:.3} MHz", freq as f64 / 1e6));
                 }
@@ -2301,7 +2363,7 @@ impl CentralApp {
                 }
                 if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                     crate::radio_ui::tune(&mut state, freq);
-                    self.last_manual_tune_time = std::time::Instant::now();
+
                 }
                 if let Some(freq) = state.spectrum.pending_vfo_b_freq.take() {
                     state.vfo_b = freq;

@@ -390,6 +390,7 @@ pub struct SourceManager {
     daemon_last_center_hz: u64,
     daemon_last_sample_rate_hz: u32,
     daemon_last_gain_db: f64,
+    daemon_applied_capture: Option<(u64, u32)>,
     daemon_audio_mode: Option<ez_proto::DemodMode>,
     daemon_audio_tuning: Option<DaemonAudioTuning>,
     daemon_squelch_applied: Option<ez_proto::SquelchState>,
@@ -491,6 +492,7 @@ impl SourceManager {
             daemon_removals_pending: std::collections::HashSet::new(),
             daemon_last_center_hz: 109_000_000,
             daemon_last_sample_rate_hz: 2_048_000,
+            daemon_applied_capture: None,
             daemon_last_gain_db: 40.0,
             daemon_audio_mode: None,
             daemon_audio_tuning: None,
@@ -1041,6 +1043,7 @@ impl SourceManager {
         };
         let client = crate::daemon_client::DaemonClient::connect(addr, "ez-gui".to_string());
         self.daemon_session_ready = false;
+        self.daemon_applied_capture = None;
         self.daemon_channel_error = None;
         self.daemon_removals_pending.clear();
         self.daemon_audio_mode = None;
@@ -1051,6 +1054,11 @@ impl SourceManager {
         self.daemon_recording_active = false;
         self.daemon_client = Some(client);
         self.stream_generation = self.stream_generation.wrapping_add(1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_daemon_client(&mut self, client: crate::daemon_client::DaemonClient) {
+        self.daemon_client = Some(client);
     }
 
     pub fn daemon_channel_ids(&self) -> ez_proto::ClientChannels {
@@ -1243,7 +1251,25 @@ impl SourceManager {
         }
     }
 
+    /// An automatic tune is acknowledged only when the active capture reports
+    /// the requested geometry. Daemon control sends alone are not acknowledgements.
+    pub(crate) fn capture_tuning_applied(&self) -> bool {
+        if self.source_mode != SourceMode::Daemon {
+            return self.status != SourceStatus::Opening
+                && !matches!(self.status, SourceStatus::Error(_));
+        }
+        self.daemon_applied_capture.is_some_and(|(center, rate)| {
+            self.status == SourceStatus::Running
+                && center == self.capture_center_frequency_hz()
+                && rate == self.sample_rate_hz
+                && self.frequency_hz.abs_diff(center) <= u64::from(rate) / 2
+        })
+    }
+
     fn apply_daemon_hardware(&mut self, hardware: &ez_proto::HardwareStatus) {
+        self.daemon_applied_capture = hardware
+            .connected
+            .then_some((hardware.frequency_hz, hardware.sample_rate_hz));
         if self.center_frequency_hz.is_some() {
             self.center_frequency_hz = Some(hardware.frequency_hz);
         } else {
@@ -1602,6 +1628,7 @@ impl SourceManager {
         // Safe to do unconditionally regardless of mode — `None` in every non-Daemon mode.
         self.daemon_client = None;
         self.daemon_session_ready = false;
+        self.daemon_applied_capture = None;
         self.daemon_channel_error = None;
         self.daemon_removals_pending.clear();
         self.daemon_audio_mode = None;
