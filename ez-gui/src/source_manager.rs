@@ -2319,6 +2319,7 @@ mod tests {
             .start_recording(1, ez_proto::RecordingFormat::Cf32, 1_090_000_000, handle)
             .unwrap();
         bus.publish(SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
             center_freq_hz: 1_090_000_000,

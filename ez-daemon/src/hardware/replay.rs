@@ -48,6 +48,10 @@ pub struct FileReplaySource {
     started_at: Option<Instant>,
     samples_emitted: u64,
     byte_buf: Vec<u8>,
+    capture_epoch: u64,
+    capture_index: u64,
+    last_capture: Option<ez_proto::CaptureClock>,
+    pending_discontinuity: bool,
 }
 
 impl FileReplaySource {
@@ -92,6 +96,10 @@ impl FileReplaySource {
             started_at: None,
             samples_emitted: 0,
             byte_buf: Vec::new(),
+            capture_epoch: ez_proto::new_capture_epoch(),
+            capture_index: 0,
+            last_capture: None,
+            pending_discontinuity: true,
         })
     }
 
@@ -115,6 +123,11 @@ impl FileReplaySource {
 
 impl IqSource for FileReplaySource {
     fn start(&mut self) -> Result<()> {
+        self.reader.seek(SeekFrom::Start(0))?;
+        self.capture_epoch = ez_proto::new_capture_epoch();
+        self.capture_index = 0;
+        self.last_capture = None;
+        self.pending_discontinuity = true;
         self.running = true;
         self.started_at = Some(Instant::now());
         self.samples_emitted = 0;
@@ -155,10 +168,18 @@ impl IqSource for FileReplaySource {
             match self.reader.read(&mut self.byte_buf[filled..])? {
                 0 => {
                     if self.looping {
+                        // Publish the final segment of this epoch separately;
+                        // one block must never contain both sides of a rewind.
+                        if filled > 0 {
+                            break;
+                        }
                         if stalled {
                             break;
                         }
                         self.reader.seek(SeekFrom::Start(0))?;
+                        self.capture_epoch = ez_proto::new_capture_epoch();
+                        self.capture_index = 0;
+                        self.pending_discontinuity = true;
                         stalled = true;
                         continue;
                     }
@@ -179,6 +200,16 @@ impl IqSource for FileReplaySource {
             .convert(&self.byte_buf[..filled], self.amplitude);
         let n = complex.len().min(buf.len());
         buf[..n].copy_from_slice(&complex[..n]);
+        let mut clock = ez_proto::CaptureClock::new(
+            self.capture_epoch,
+            self.capture_index,
+            self.sample_rate_hz,
+            None,
+        );
+        clock.discontinuous = self.pending_discontinuity;
+        self.pending_discontinuity = false;
+        self.last_capture = Some(clock);
+        self.capture_index += n as u64;
         self.samples_emitted += n as u64;
         self.pace();
         Ok(n)
@@ -186,6 +217,10 @@ impl IqSource for FileReplaySource {
 
     fn frequency_hz(&self) -> u64 {
         self.frequency_hz
+    }
+
+    fn capture_clock(&self) -> Option<ez_proto::CaptureClock> {
+        self.last_capture
     }
 
     fn sample_rate_hz(&self) -> u32 {
@@ -205,6 +240,40 @@ impl IqSource for FileReplaySource {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn looped_replay_never_mixes_epochs_in_a_block_and_resets_the_capture_clock() {
+        let path = std::env::temp_dir().join(format!("ez-replay-epochs-{}.iq", std::process::id()));
+        std::fs::write(&path, [0, 255, 90, 160, 127, 128]).unwrap();
+        let mut replay = FileReplaySource::open(
+            path.to_str().unwrap(),
+            ReplayFormat::RawU8,
+            2_400_000,
+            true,
+            1000.0,
+        )
+        .unwrap();
+        replay.start().unwrap();
+        let mut output = [Complex32::new(0.0, 0.0); 8];
+        let mut previous_epoch = None;
+        for _ in 0..3 {
+            assert_eq!(replay.read_iq(&mut output).unwrap(), 3);
+            let clock = replay.capture_clock().unwrap();
+            assert_eq!(clock.source_sample_index, 0);
+            assert!(clock.discontinuous);
+            assert_eq!(
+                clock.origin_unix_ns, None,
+                "unknown acquisition UTC must remain unknown"
+            );
+            assert_ne!(previous_epoch, Some(clock.epoch));
+            assert_eq!(
+                &output[..3],
+                &lrpt_decode::uc8_bytes_to_normalized(&[0, 255, 90, 160, 127, 128])
+            );
+            previous_epoch = Some(clock.epoch);
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn replays_cf32_file_and_loops_on_eof() {

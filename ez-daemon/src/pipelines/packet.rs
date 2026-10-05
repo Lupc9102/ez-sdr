@@ -51,7 +51,7 @@ pub struct PacketPipeline {
     /// Tail copied from the previous block so Mode S messages spanning a
     /// channelizer block boundary remain decodable.
     overlap_tail: Vec<u16>,
-    last_block_end_sample: Option<u64>,
+    continuity: crate::bus::SampleContinuity,
     aircraft: HashMap<u32, AircraftTelemetry>,
     blocks_since_publish: u32,
     last_publish: Instant,
@@ -77,7 +77,7 @@ impl PacketPipeline {
             cpr: CprDecoder::new(),
             mag_buf: Vec::new(),
             overlap_tail: Vec::new(),
-            last_block_end_sample: None,
+            continuity: crate::bus::SampleContinuity::default(),
             aircraft: HashMap::new(),
             blocks_since_publish: 0,
             last_publish: Instant::now(),
@@ -170,9 +170,10 @@ impl PacketPipeline {
         let mut sum_power = 0.0_f64;
         let mut data = std::mem::take(&mut self.mag_buf);
         data.clear();
-        let contiguous = self.last_block_end_sample == Some(block.start_sample);
+        let contiguous = self.continuity.observe(block);
         if !contiguous {
             self.overlap_tail.clear();
+            self.cpr = CprDecoder::new();
         }
         let overlap = self.overlap_tail.len();
         data.reserve(overlap + block.samples.len());
@@ -211,7 +212,6 @@ impl PacketPipeline {
         self.overlap_tail.clear();
         self.overlap_tail
             .extend_from_slice(&mag.data[mag.data.len() - keep..]);
-        self.last_block_end_sample = Some(block.start_sample + block.samples.len() as u64);
 
         self.mag_buf = mag.data.into_owned();
 
@@ -463,6 +463,7 @@ mod tests {
         let output = pipeline.subscribe(8);
         let raw = encode_uc8(&[EXAMPLE_DF17_CALLSIGN; 100]);
         pipeline.process_block(&SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
             center_freq_hz: 1_090_000_000,
@@ -638,6 +639,7 @@ mod tests {
 
     fn silence_block(len: usize) -> SampleBlock {
         SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
             center_freq_hz: 1_090_000_000,
@@ -655,6 +657,7 @@ mod tests {
         assert!(n > 300);
         samples.truncate(n);
         bus.publish(SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
             center_freq_hz: 1_090_000_000,
@@ -662,6 +665,36 @@ mod tests {
         });
         assert!(pipeline.tick(Duration::from_millis(10)));
         assert_eq!(pipeline.tracked_count(), 1);
+    }
+
+    #[test]
+    fn upstream_missing_input_cannot_form_a_packet_across_the_channelizer() {
+        use crate::hardware::adsb::{encode_uc8, EXAMPLE_DF17_CALLSIGN};
+        for gap in [0, 1, 1000] {
+            let wideband = SampleBus::new();
+            let mut channelizer = Channelizer::new(
+                wideband.subscribe(8, OverflowPolicy::DropIncoming),
+                1_090_000_000,
+                2_400_000,
+            );
+            let (_, input) = channelizer.add_channel(1_090_000_000, 2_400_000).unwrap();
+            let mut decoder = PacketPipeline::new(input, 2_400_000);
+            let samples =
+                lrpt_decode::uc8_bytes_to_normalized(&encode_uc8(&[EXAMPLE_DF17_CALLSIGN]));
+            let cut = samples.len() / 2;
+            for (start, samples) in [(0, &samples[..cut]), (cut as u64 + gap, &samples[cut..])] {
+                wideband.publish(SampleBlock {
+                    capture: None,
+                    start_sample: start,
+                    sample_rate_hz: 2_400_000,
+                    center_freq_hz: 1_090_000_000,
+                    samples: std::sync::Arc::from(samples),
+                });
+                assert!(channelizer.tick(Duration::from_millis(10)));
+                assert!(decoder.tick(Duration::from_millis(10)));
+            }
+            assert_eq!(decoder.tracked_count(), usize::from(gap == 0), "gap={gap}");
+        }
     }
 
     #[test]
@@ -680,6 +713,7 @@ mod tests {
         let n = source.read_iq(&mut samples).unwrap();
         samples.truncate(n);
         wideband.publish(SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
             center_freq_hz: 1_090_000_000,

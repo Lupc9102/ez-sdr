@@ -1,0 +1,110 @@
+Workspace all-target tests with Rust 1.92.0
+
+running 254 tests
+....................................................................................... 87/254
+....................................................................................... 174/254
+................................................................................
+test result: ok. 254 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+
+running 254 tests
+....................................................................................... 87/254
+....................................................................................... 174/254
+................................................................................
+test result: ok. 254 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+
+running 184 tests
+........................................ii............................................. 87/184
+....................................................................................... 174/184
+..........
+test result: ok. 182 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 3.27s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+
+running 730 tests
+....................................................................................... 87/730
+.i..................................................................................... 174/730
+....................................................................................... 261/730
+....................................................................................... 348/730
+.................................................................................ii.... 435/730
+....................................................................................... 522/730
+.......................................................................i............... 609/730
+....................................................................................... 696/730
+..................................
+test result: ok. 726 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 7.93s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
+
+
+running 3 tests
+ii.
+test result: ok. 1 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 75 tests
+...........................................................................
+test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.02s
+
+
+Strict all-target Clippy
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Checking ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.31s
+
+AST-only graphify update
+Re-extracting code files in . (no LLM needed)...
+  AST extraction: 277/277 files (100%)
+[graphify watch] Skipped graph.html: Graph has 6200 nodes - too large for HTML viz (limit: 5000). Use --no-viz, raise GRAPHIFY_VIZ_NODE_LIMIT, or reduce input size.
+[graphify watch] Rebuilt: 6200 nodes, 13091 edges, 304 communities
+[graphify watch] graph.json and GRAPH_REPORT.md updated in graphify-out
+Code graph updated. For doc/paper/image changes run /graphify --update in your AI assistant.
+Tip: set GEMINI_API_KEY or GOOGLE_API_KEY to use Gemini for semantic extraction.

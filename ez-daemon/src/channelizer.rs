@@ -25,17 +25,36 @@ const CUTOFF_GUARD: f32 = 0.8;
 /// wideband block can be mixed to baseband one sample at a time, with phase carried
 /// correctly across successive blocks.
 struct Nco {
-    phase: f32,
-    phase_increment: f32,
+    phase: f64,
+    phase_increment: f64,
+    offset_hz: f64,
 }
 
 impl Nco {
     fn new(freq_offset_hz: f64, sample_rate_hz: f64) -> Self {
-        let phase_increment =
-            (-2.0 * std::f64::consts::PI * freq_offset_hz / sample_rate_hz) as f32;
+        let phase_increment = -2.0 * std::f64::consts::PI * freq_offset_hz / sample_rate_hz;
         Self {
             phase: 0.0,
             phase_increment,
+            offset_hz: freq_offset_hz,
+        }
+    }
+
+    fn seek(&mut self, sample_index: u64, source_rate_hz: f64) {
+        // Integer-Hz capture clocks retain phase even at large absolute indices.
+        let cycles = if self.offset_hz.fract() == 0.0
+            && source_rate_hz.fract() == 0.0
+            && source_rate_hz > 0.0
+        {
+            let rate = source_rate_hz as i128;
+            (-(self.offset_hz as i128) * i128::from(sample_index)).rem_euclid(rate) as f64
+                / rate as f64
+        } else {
+            (-self.offset_hz / source_rate_hz * sample_index as f64).rem_euclid(1.0)
+        };
+        self.phase = cycles * std::f64::consts::TAU;
+        if self.phase > std::f64::consts::PI {
+            self.phase -= std::f64::consts::TAU;
         }
     }
 
@@ -45,12 +64,12 @@ impl Nco {
         samples
             .iter()
             .map(|&s| {
-                let osc = Complex32::from_polar(1.0, self.phase);
+                let osc = Complex32::from_polar(1.0, self.phase as f32);
                 self.phase += self.phase_increment;
-                if self.phase > std::f32::consts::PI {
-                    self.phase -= 2.0 * std::f32::consts::PI;
-                } else if self.phase < -std::f32::consts::PI {
-                    self.phase += 2.0 * std::f32::consts::PI;
+                if self.phase > std::f64::consts::PI {
+                    self.phase -= 2.0 * std::f64::consts::PI;
+                } else if self.phase < -std::f64::consts::PI {
+                    self.phase += 2.0 * std::f64::consts::PI;
                 }
                 s * osc
             })
@@ -154,13 +173,23 @@ fn make_decimator(decimation: usize) -> FirDecimator {
 
 /// One tuned narrowband tap on the wideband stream: an independent DDC chain plus the
 /// [`SampleBus`] its decimated output is published to.
+#[derive(Clone, Copy)]
+struct InputEnd {
+    sample: u64,
+    clock: ez_proto::CaptureClock,
+    rate_hz: u32,
+    center_hz: u64,
+}
+
 struct VirtualChannel {
     id: u64,
     center_freq_hz: u64,
     output_rate_hz: u32,
     nco: Nco,
     decimator: FirDecimator,
-    output_sample_counter: u64,
+    last_input: Option<InputEnd>,
+    output_epoch: u64,
+    pending_discontinuity: bool,
     bus: SampleBus,
 }
 
@@ -181,7 +210,9 @@ impl VirtualChannel {
             output_rate_hz: (wideband_rate_hz as usize / decimation) as u32,
             nco,
             decimator,
-            output_sample_counter: 0,
+            last_input: None,
+            output_epoch: ez_proto::new_capture_epoch(),
+            pending_discontinuity: true,
             bus: SampleBus::new(),
         }
     }
@@ -190,14 +221,61 @@ impl VirtualChannel {
     /// or `None` if too few samples have accumulated yet to produce one (e.g. a short block
     /// against a large decimation factor).
     fn process(&mut self, block: &SampleBlock) -> Option<SampleBlock> {
+        let clock = block.capture_clock();
+        if clock.source_sample_rate_hz == 0 || clock.sample_stride == 0 || block.sample_rate_hz == 0
+        {
+            self.pending_discontinuity = true;
+            self.last_input = None;
+            return None;
+        }
+        let contiguous = !clock.discontinuous
+            && self.last_input.is_some_and(|end| {
+                end.sample == block.start_sample
+                    && end.rate_hz == block.sample_rate_hz
+                    && end.center_hz == block.center_freq_hz
+                    && end.clock.epoch == clock.epoch
+                    && end.clock.source_sample_index == clock.source_sample_index
+                    && end.clock.source_sample_rate_hz == clock.source_sample_rate_hz
+                    && end.clock.sample_stride == clock.sample_stride
+                    && end.clock.origin_unix_ns == clock.origin_unix_ns
+            });
+        let decimation = self.decimator.decimation as u64;
+        if !contiguous {
+            self.output_epoch = ez_proto::new_capture_epoch();
+            self.pending_discontinuity = true;
+            self.decimator.history.fill(Complex32::new(0.0, 0.0));
+            self.decimator.skip =
+                ((decimation - block.start_sample % decimation) % decimation) as usize;
+            self.nco = Nco::new(
+                self.center_freq_hz as f64 - block.center_freq_hz as f64,
+                clock.exact_sample_rate_hz(),
+            );
+            self.nco.seek(
+                clock.source_sample_index,
+                f64::from(clock.source_sample_rate_hz),
+            );
+        }
+        let first_offset = self.decimator.skip as u64;
         let mixed = self.nco.mix(&block.samples);
         let decimated = self.decimator.process(&mixed);
+        self.last_input = Some(InputEnd {
+            sample: block.start_sample + block.samples.len() as u64,
+            clock: clock.offset_samples(block.samples.len() as u64)?,
+            rate_hz: block.sample_rate_hz,
+            center_hz: block.center_freq_hz,
+        });
         if decimated.is_empty() {
             return None;
         }
-        let start_sample = self.output_sample_counter;
-        self.output_sample_counter += decimated.len() as u64;
+        let start_sample = (block.start_sample + first_offset) / decimation;
+        let mut output_clock = clock.offset_samples(first_offset)?;
+        output_clock.epoch = self.output_epoch;
+        output_clock.sample_stride = output_clock.sample_stride.checked_mul(decimation as u32)?;
+        output_clock.discontinuous = self.pending_discontinuity;
+        self.pending_discontinuity = false;
+        self.output_rate_hz = block.sample_rate_hz / decimation as u32;
         Some(SampleBlock {
+            capture: Some(output_clock),
             start_sample,
             sample_rate_hz: self.output_rate_hz,
             center_freq_hz: self.center_freq_hz,
@@ -309,7 +387,8 @@ impl Channelizer {
         channel.output_rate_hz = (self.wideband_rate_hz as usize / decimation) as u32;
         channel.nco = Nco::new(offset_hz, self.wideband_rate_hz as f64);
         channel.decimator = decimator;
-        channel.output_sample_counter = 0;
+        channel.last_input = None;
+        channel.pending_discontinuity = true;
         Ok(())
     }
 
@@ -364,24 +443,17 @@ impl Channelizer {
     }
 
     /// Re-centers the wideband capture (e.g. the hardware source retuned), recomputing every
-    /// active virtual channel's NCO offset against the new center so each channel stays
-    /// correctly tuned relative to its own absolute `center_freq_hz`. FIR/decimation state
-    /// (filter history, decimation phase) is preserved untouched — only the mix, which
-    /// depends on the *offset* from wideband center, needs to change; a brief NCO phase
-    /// discontinuity at the instant of retune is expected and physically matches the
-    /// hardware's own retune transient.
-    ///
-    /// Known limitation: a channel whose `center_freq_hz` now falls outside the new center's
-    /// Nyquist span is not removed or flagged — it keeps running and its NCO mix no longer
-    /// corresponds to a physically meaningful offset, so its output becomes meaningless
-    /// until the caller removes and re-adds it. Silently dropping it would be equally
-    /// surprising (a client's channel disappearing out from under it), so this is left as an
-    /// explicit, documented limitation rather than guessed at.
+    /// active virtual channel's NCO offset against the new center. The next input
+    /// resets NCO/FIR history and publishes a new discontinuous output epoch.
+    /// Each block's actual frequency/rate determines its mix, including queued
+    /// input from before the hardware retune.
     pub fn retune(&mut self, new_wideband_center_hz: u64) {
         self.wideband_center_hz = new_wideband_center_hz;
         for channel in &mut self.channels {
             let offset_hz = channel.center_freq_hz as f64 - new_wideband_center_hz as f64;
             channel.nco = Nco::new(offset_hz, self.wideband_rate_hz as f64);
+            channel.last_input = None;
+            channel.pending_discontinuity = true;
         }
     }
 
@@ -430,6 +502,7 @@ mod tests {
         samples: Vec<Complex32>,
     ) -> SampleBlock {
         SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz,
             center_freq_hz,
@@ -444,6 +517,173 @@ mod tests {
                 Complex32::from_polar(1.0, phase as f32)
             })
             .collect()
+    }
+
+    #[test]
+    fn missing_input_remains_visible_after_decimation_and_filter_state_resets() {
+        for decimation in [1, 4, 7] {
+            let mut channel = VirtualChannel::new(1, 100_000, 2_048_003, 100_000, decimation);
+            let first = wideband_block(100_000, 2_048_003, vec![Complex32::new(1.0, 0.0); 70]);
+            let previous = channel.process(&first).unwrap();
+            let mut next = wideband_block(100_000, 2_048_003, vec![Complex32::new(0.0, 0.0); 70]);
+            next.start_sample = 1000;
+            let current = channel.process(&next).unwrap();
+            assert_eq!(current.start_sample, 1000_u64.div_ceil(decimation as u64));
+            assert!(current.capture.unwrap().discontinuous);
+            assert_ne!(
+                current.capture.unwrap().epoch,
+                previous.capture.unwrap().epoch
+            );
+            assert!(
+                current.samples.iter().all(|sample| sample.norm() == 0.0),
+                "FIR history bridged the gap"
+            );
+            let capture = current.capture.unwrap();
+            assert_eq!(
+                capture.source_sample_index,
+                current.start_sample * decimation as u64
+            );
+            assert_eq!(capture.sample_stride, decimation as u32);
+            assert_eq!(
+                capture.exact_sample_rate_hz(),
+                2_048_003.0 / decimation as f64
+            );
+        }
+    }
+
+    #[test]
+    fn sub_decimation_gap_has_an_explicit_marker_even_when_output_indices_are_adjacent() {
+        let mut channel = VirtualChannel::new(1, 100_000, 1000, 100_000, 4);
+        let before = channel
+            .process(&wideband_block(
+                100_000,
+                1000,
+                vec![Complex32::new(1.0, 0.0)],
+            ))
+            .unwrap();
+        let mut gap = wideband_block(100_000, 1000, vec![Complex32::new(0.0, 0.0)]);
+        gap.start_sample = 2;
+        assert!(
+            channel.process(&gap).is_none(),
+            "this block precedes the next decimation grid point"
+        );
+        gap.start_sample = 3;
+        gap.samples = Arc::from(vec![Complex32::new(0.0, 0.0); 3]);
+        let after = channel.process(&gap).unwrap();
+        assert_eq!(
+            after.start_sample,
+            before.start_sample + before.samples.len() as u64
+        );
+        assert!(
+            after.capture.unwrap().discontinuous,
+            "numeric adjacency must not hide missing acquisition samples"
+        );
+        assert_ne!(before.capture.unwrap().epoch, after.capture.unwrap().epoch);
+        assert!(after.samples.iter().all(|sample| sample.norm() == 0.0));
+    }
+
+    #[test]
+    fn channelizer_preserves_acquisition_origin_and_continuous_fractional_clock() {
+        let mut channel = VirtualChannel::new(1, 100_000, 2_048_003, 100_000, 7);
+        let mut input = wideband_block(100_000, 2_048_003, vec![Complex32::new(0.0, 0.0); 73]);
+        input.start_sample = 13;
+        input.capture = Some(ez_proto::CaptureClock::new(
+            42,
+            13,
+            2_048_003,
+            Some(1_000_000),
+        ));
+        let first = channel.process(&input).unwrap();
+        input.start_sample += 73;
+        input.capture = input.capture.unwrap().offset_samples(73);
+        let second = channel.process(&input).unwrap();
+        let a = first.capture.unwrap();
+        let b = second.capture.unwrap();
+        assert_eq!(a.source_sample_index, 14);
+        assert_eq!(a.epoch, b.epoch);
+        assert!(!b.discontinuous);
+        assert_eq!(
+            second.start_sample,
+            first.start_sample + first.samples.len() as u64
+        );
+        assert_eq!(b.source_sample_index, second.start_sample * 7);
+        assert_eq!(
+            b.unix_time_ns(0),
+            Some(1_000_000 + b.source_sample_index * 1_000_000_000 / 2_048_003)
+        );
+    }
+
+    #[test]
+    fn nco_phase_follows_the_acquisition_index_after_a_gap() {
+        let mut channel = VirtualChannel::new(1, 100_000, 1000, 100_100, 1);
+        for start in [0_u64, 1003, 1_000_000_003] {
+            let samples: Vec<_> = (start..start + 40)
+                .map(|n| {
+                    let cycles = (100_u128 * u128::from(n)) % 1000;
+                    Complex32::from_polar(
+                        1.0,
+                        (cycles as f64 / 1000.0 * std::f64::consts::TAU) as f32,
+                    )
+                })
+                .collect();
+            let mut input = wideband_block(100_000, 1000, samples);
+            input.start_sample = start;
+            let output = channel.process(&input).unwrap();
+            assert!(output
+                .samples
+                .iter()
+                .all(|s| (*s - Complex32::new(1.0, 0.0)).norm() < 1e-5));
+        }
+    }
+
+    #[test]
+    fn actual_wideband_queue_overflow_reaches_every_channel_as_a_gap() {
+        for decimation in [1, 4] {
+            let bus = SampleBus::new();
+            let input = bus.subscribe(1, OverflowPolicy::DropOldest);
+            let mut channelizer = Channelizer::new(input, 100_000, 1000);
+            let (_, output) = channelizer.add_channel(100_000, 1000 / decimation).unwrap();
+            let mut block = wideband_block(100_000, 1000, vec![Complex32::new(1.0, 0.0); 8]);
+            bus.publish(block.clone());
+            assert!(channelizer.tick(Duration::ZERO));
+            let before = output.try_recv().unwrap();
+            block.start_sample = 8;
+            bus.publish(block.clone());
+            block.start_sample = 16;
+            block.samples = Arc::from(vec![Complex32::new(0.0, 0.0); 8]);
+            bus.publish(block);
+            assert_eq!(channelizer.wideband.dropped_count(), 1);
+            assert!(channelizer.tick(Duration::ZERO));
+            let after = output.try_recv().unwrap();
+            assert_eq!(after.start_sample, 16 / u64::from(decimation));
+            assert!(after.start_sample > before.start_sample + before.samples.len() as u64);
+            assert!(after.capture.unwrap().discontinuous);
+            assert!(after.samples.iter().all(|s| s.norm() == 0.0));
+        }
+    }
+
+    #[test]
+    fn source_epoch_and_channel_retune_are_visible_even_with_adjacent_indices() {
+        let bus = SampleBus::new();
+        let input = bus.subscribe(8, OverflowPolicy::DropOldest);
+        let mut channelizer = Channelizer::new(input, 100_000, 1000);
+        let (id, output) = channelizer.add_channel(100_000, 250).unwrap();
+        let mut block = wideband_block(100_000, 1000, vec![Complex32::new(0.0, 0.0); 16]);
+        let mut epoch = None;
+        for (index, source_epoch, retune) in [(0, 1, false), (16, 2, false), (32, 2, true)] {
+            block.start_sample = index;
+            block.capture = Some(ez_proto::CaptureClock::new(source_epoch, index, 1000, None));
+            if retune {
+                channelizer.retune_channel(id, 100_100, 250).unwrap();
+            }
+            bus.publish(block.clone());
+            assert!(channelizer.tick(Duration::ZERO));
+            let next = output.try_recv().unwrap();
+            assert!(next.capture.unwrap().discontinuous);
+            assert_ne!(Some(next.capture.unwrap().epoch), epoch);
+            assert_eq!(next.start_sample, index / 4);
+            epoch = Some(next.capture.unwrap().epoch);
+        }
     }
 
     #[test]

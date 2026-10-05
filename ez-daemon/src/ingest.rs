@@ -117,9 +117,17 @@ fn run(
 ) {
     let mut buf = vec![Complex32::new(0.0, 0.0); READ_CHUNK];
     let mut sample_counter: u64 = 0;
+    let mut capture_epoch = ez_proto::new_capture_epoch();
+    let mut pending_discontinuity = true;
+    let mut last_source_epoch = None;
 
     while running.load(Ordering::Relaxed) {
         while let Ok(command) = commands.try_recv() {
+            let before = (
+                source.frequency_hz(),
+                source.sample_rate_hz(),
+                source.gain_db(),
+            );
             let (result, reply) = match command {
                 HardwareCommand::Frequency { hz, reply } => (source.set_frequency(hz), reply),
                 HardwareCommand::SampleRate { hz, reply } => (source.set_sample_rate(hz), reply),
@@ -127,6 +135,17 @@ fn run(
             };
             match result {
                 Ok(()) => {
+                    if before
+                        != (
+                            source.frequency_hz(),
+                            source.sample_rate_hz(),
+                            source.gain_db(),
+                        )
+                    {
+                        capture_epoch = ez_proto::new_capture_epoch();
+                        sample_counter = 0;
+                        pending_discontinuity = true;
+                    }
                     status.store(Arc::new(status_snapshot(source, true, None)));
                     let _ = reply.send(Ok(()));
                 }
@@ -152,7 +171,29 @@ fn run(
                 break;
             }
             Ok(n) => {
+                let mut clock = if let Some(clock) = source.capture_clock() {
+                    if last_source_epoch != Some(clock.epoch) {
+                        capture_epoch = ez_proto::new_capture_epoch();
+                        pending_discontinuity = true;
+                        last_source_epoch = Some(clock.epoch);
+                    }
+                    sample_counter = clock.source_sample_index;
+                    clock
+                } else {
+                    ez_proto::CaptureClock::new(
+                        capture_epoch,
+                        sample_counter,
+                        source.sample_rate_hz(),
+                        // A read-call wall clock is not a hardware acquisition
+                        // timestamp. Sources with a real origin supply it above.
+                        None,
+                    )
+                };
+                clock.epoch = capture_epoch;
+                clock.discontinuous |= pending_discontinuity;
+                pending_discontinuity = false;
                 let block = SampleBlock {
+                    capture: Some(clock),
                     start_sample: sample_counter,
                     sample_rate_hz: source.sample_rate_hz(),
                     center_freq_hz: source.frequency_hz(),
@@ -283,7 +324,7 @@ mod tests {
     #[test]
     fn set_frequency_is_applied_and_reflected_in_status() {
         let bus = SampleBus::new();
-        let _sub = bus.subscribe(8, OverflowPolicy::DropOldest);
+        let sub = bus.subscribe(8, OverflowPolicy::DropOldest);
         let running = Arc::new(AtomicBool::new(true));
 
         let (handle, thread) = spawn(
@@ -292,6 +333,11 @@ mod tests {
             Arc::clone(&running),
         )
         .unwrap();
+
+        let before = sub.recv_timeout(Duration::from_secs(2)).unwrap();
+        let before_clock = before.capture.unwrap();
+        assert_eq!(before_clock.source_sample_index, before.start_sample);
+        assert_eq!(before_clock.origin_unix_ns, None);
 
         handle.set_frequency(101_000_000).unwrap();
 
@@ -305,6 +351,20 @@ mod tests {
                 "frequency change never observed"
             );
             std::thread::sleep(Duration::from_millis(10));
+        }
+
+        loop {
+            let after = sub.recv_timeout(Duration::from_secs(2)).unwrap();
+            if after.center_freq_hz == 101_000_000 {
+                let after_clock = after.capture.unwrap();
+                assert_ne!(after_clock.epoch, before_clock.epoch);
+                assert_eq!(after_clock.source_sample_index, after.start_sample);
+                if after.start_sample == 0 {
+                    assert!(after_clock.discontinuous);
+                }
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
         }
 
         running.store(false, Ordering::Relaxed);

@@ -14,7 +14,7 @@ use num_complex::Complex32;
 use ez_proto::{AudioFrame, ChannelId, DemodMode};
 
 use crate::broadcast::{Broadcaster, BroadcasterHandle, OverflowPolicy};
-use crate::bus::{SampleBlock, SampleBusHandle};
+use crate::bus::{SampleBlock, SampleBusHandle, SampleContinuity};
 
 /// Typical narrowband FM deviation (analog voice: NOAA weather radio, ham FM, PMR/GMRS).
 const NFM_DEVIATION_HZ: f32 = 5_000.0;
@@ -66,11 +66,11 @@ pub struct AudioConfig {
 
 /// Demodulates one virtual channel's baseband into audio. Carries whatever per-sample state
 /// its current mode needs (FM discriminator's previous sample, AM's DC-blocker history)
-/// across both blocks and ticks, so switching a client's demod mode mid-stream is the only
-/// thing that resets it (see [`Self::set_mode`]) — arriving in oddly-sized blocks never
-/// introduces a discontinuity.
+/// across continuous blocks and ticks. Capture gaps, retunes and mode changes reset it;
+/// merely arriving in oddly-sized blocks never introduces a discontinuity.
 pub struct AudioPipeline {
     input: SampleBusHandle,
+    continuity: SampleContinuity,
     channel_id: ChannelId,
     mode: DemodMode,
     dc_prev_x: f32,
@@ -92,6 +92,7 @@ impl AudioPipeline {
     pub fn new(input: SampleBusHandle, config: AudioConfig) -> Self {
         Self {
             input,
+            continuity: SampleContinuity::default(),
             channel_id: config.channel_id,
             mode: config.mode,
             dc_prev_x: 0.0,
@@ -114,14 +115,18 @@ impl AudioPipeline {
     pub fn set_mode(&mut self, mode: DemodMode) {
         if mode != self.mode {
             self.mode = mode;
-            self.dc_prev_x = 0.0;
-            self.dc_prev_y = 0.0;
-            self.prev_sample = Complex32::new(0.0, 0.0);
-            self.deemph_prev = 0.0;
-            self.ssb_phase = 0.0;
-            self.ssb_history.fill(Complex32::new(0.0, 0.0));
-            self.ssb_history_index = 0;
+            self.reset_history();
         }
+    }
+
+    fn reset_history(&mut self) {
+        self.dc_prev_x = 0.0;
+        self.dc_prev_y = 0.0;
+        self.prev_sample = Complex32::new(0.0, 0.0);
+        self.deemph_prev = 0.0;
+        self.ssb_phase = 0.0;
+        self.ssb_history.fill(Complex32::new(0.0, 0.0));
+        self.ssb_history_index = 0;
     }
 
     #[must_use]
@@ -182,6 +187,9 @@ impl AudioPipeline {
     }
 
     fn process_block(&mut self, block: &SampleBlock) {
+        if !self.continuity.observe(block) {
+            self.reset_history();
+        }
         let mut samples: Vec<f32> = match self.mode {
             DemodMode::Raw => block.samples.iter().map(|s| s.re).collect(),
             DemodMode::Am => self.demod_am(&block.samples),
@@ -300,6 +308,7 @@ mod tests {
 
     fn block_of(samples: Vec<Complex32>, sample_rate_hz: u32) -> SampleBlock {
         SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz,
             center_freq_hz: 100_000_000,
@@ -424,7 +433,9 @@ mod tests {
         ap.tick(Duration::from_millis(50));
         let first = out.try_recv().expect("first frame");
 
-        bus.publish(block_of(full_tone[200..].to_vec(), sample_rate as u32));
+        let mut next = block_of(full_tone[200..].to_vec(), sample_rate as u32);
+        next.start_sample = 200;
+        bus.publish(next);
         ap.tick(Duration::from_millis(50));
         let second = out.try_recv().expect("second frame");
 
@@ -438,6 +449,44 @@ mod tests {
             second.samples[0]
         );
         assert!((first.samples[199] - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn missing_samples_or_changed_epoch_reset_every_audio_mode() {
+        for mode in [
+            DemodMode::Am,
+            DemodMode::Fm,
+            DemodMode::Wfm,
+            DemodMode::Usb,
+            DemodMode::Lsb,
+        ] {
+            for gap in [false, true] {
+                let (_, mut pipeline) = pipeline_with(mode);
+                let output = pipeline.subscribe(8);
+                let mut before = block_of(tone(800, 1000.0, 48_000.0), 48_000);
+                before.capture = Some(ez_proto::CaptureClock::new(1, 0, 48_000, None));
+                pipeline.process_block(&before);
+                output.try_recv().unwrap();
+                let mut after = block_of(tone(128, -1000.0, 48_000.0), 48_000);
+                after.start_sample = if gap { 1000 } else { 800 };
+                after.capture = Some(ez_proto::CaptureClock::new(
+                    if gap { 1 } else { 2 },
+                    after.start_sample,
+                    48_000,
+                    None,
+                ));
+                pipeline.process_block(&after);
+                let actual = output.try_recv().unwrap();
+                let (_, mut fresh) = pipeline_with(mode);
+                let fresh_output = fresh.subscribe(4);
+                fresh.process_block(&after);
+                assert_eq!(
+                    actual.samples,
+                    fresh_output.try_recv().unwrap().samples,
+                    "old {mode:?} history bridged a capture boundary"
+                );
+            }
+        }
     }
 
     #[test]
@@ -616,7 +665,9 @@ mod tests {
         assert!(frame.samples.iter().all(|&s| s == 0.0));
 
         ap.set_squelch(DEFAULT_SQUELCH_DB);
-        bus.publish(block_of(full_tone[200..].to_vec(), sample_rate as u32));
+        let mut next = block_of(full_tone[200..].to_vec(), sample_rate as u32);
+        next.start_sample = 200;
+        bus.publish(next);
         ap.tick(Duration::from_millis(50));
         let unsquelched = out.try_recv().expect("expected a frame");
         let expected = (offset / NFM_DEVIATION_HZ as f64) as f32;

@@ -308,6 +308,7 @@ mod tests {
 
     fn block(samples: Vec<Complex32>) -> SampleBlock {
         SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 48_000,
             center_freq_hz: 100_000_000,

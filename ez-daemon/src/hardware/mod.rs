@@ -42,6 +42,12 @@ pub trait IqSource: Send {
     /// least one sample rather than returning `0`.
     fn read_iq(&mut self, buf: &mut [Complex32]) -> Result<usize>;
 
+    /// Clock of the samples returned by the most recent read, when supplied by
+    /// the source (notably replay loops). Native live input is clocked by ingestion.
+    fn capture_clock(&self) -> Option<ez_proto::CaptureClock> {
+        None
+    }
+
     fn frequency_hz(&self) -> u64;
     fn sample_rate_hz(&self) -> u32;
     fn gain_db(&self) -> f64;

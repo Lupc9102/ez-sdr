@@ -18,7 +18,7 @@ use lrpt_decode::{DecodeProgress, LrptDecoder};
 use ez_proto::{ChannelId, TelemetryFrame};
 
 use crate::broadcast::{Broadcaster, BroadcasterHandle, OverflowPolicy};
-use crate::bus::{SampleBlock, SampleBusHandle};
+use crate::bus::{SampleBlock, SampleBusHandle, SampleContinuity};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TelemetryConfig {
@@ -31,6 +31,8 @@ pub struct TelemetryPipeline {
     input: SampleBusHandle,
     channel_id: ChannelId,
     decoder: LrptDecoder,
+    symbol_rate_hz: u32,
+    continuity: SampleContinuity,
     progress_rx: crossbeam_channel::Receiver<DecodeProgress>,
     output: Broadcaster<TelemetryFrame>,
 }
@@ -43,6 +45,8 @@ impl TelemetryPipeline {
             input,
             channel_id: config.channel_id,
             decoder: LrptDecoder::new(config.sample_rate_hz, config.symbol_rate_hz, progress_tx),
+            symbol_rate_hz: config.symbol_rate_hz,
+            continuity: SampleContinuity::default(),
             progress_rx,
             output: Broadcaster::new(),
         }
@@ -76,6 +80,14 @@ impl TelemetryPipeline {
     }
 
     fn process_block(&mut self, block: &SampleBlock) {
+        if block.sample_rate_hz == 0 {
+            return;
+        }
+        if !self.continuity.observe(block) {
+            self.decoder
+                .reset_stream(block.sample_rate_hz, self.symbol_rate_hz);
+            while self.progress_rx.try_recv().is_ok() {}
+        }
         self.decoder.push_complex(&block.samples);
         while let Ok(progress) = self.progress_rx.try_recv() {
             self.publish_progress(&progress);
@@ -120,6 +132,7 @@ mod tests {
 
     fn silence_block(len: usize) -> SampleBlock {
         SampleBlock {
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 288_000,
             center_freq_hz: 137_100_000,

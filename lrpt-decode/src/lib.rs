@@ -332,6 +332,22 @@ impl LrptDecoder {
         }
     }
 
+    /// Discard partial RF, convolutional, CADU and packet state after missing
+    /// samples. Completed image data and lifetime RS counts remain available.
+    pub fn reset_stream(&mut self, sample_rate: u32, symbol_rate: u32) {
+        assert!(sample_rate > 0 && symbol_rate > 0);
+        self.demod = qpsk::QpskDemod::new(qpsk::QpskConfig {
+            sample_rate: sample_rate as f32,
+            symbol_rate: symbol_rate as f32,
+            oqpsk: true,
+            ..qpsk::QpskConfig::default()
+        });
+        self.lanes = std::array::from_fn(|_| DecodeLane::new());
+        self.selected_lane = None;
+        self.reassembler = ccsds::PacketReassembler::new();
+        self.frames_since_progress = 0;
+    }
+
     /// Feed a chunk of raw interleaved u8 IQ bytes (RTL-SDR `Uc8` convention).
     pub fn push_samples(&mut self, bytes: &[u8]) {
         let complex = iq_bytes_to_complex(bytes);
@@ -1006,6 +1022,27 @@ mod tests {
             assert_eq!(actual.rs_failed, expected.rs_failed, "{amplitude:?}");
             assert_eq!(actual.images, expected.images, "{amplitude:?}");
         }
+    }
+
+    #[test]
+    fn capture_gap_rejects_a_split_cadu_and_preserves_completed_images() {
+        let payload = build_synthetic_vcdu_payload(66, &[7; 40]);
+        let iq = build_coded_oqpsk_iq_stream(&payload, 0, true, 8_000.0, 1_000.0);
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut decoder = LrptDecoder::new(8_000, 1_000, tx);
+        decoder.push_samples(&iq);
+        assert_eq!(decoder.rs_ok, 4);
+        let images = decoder.images.render_all();
+        decoder.reset_stream(8_000, 1_000);
+        let cut = iq.len() / 4 * 2;
+        decoder.push_samples(&iq[..cut]);
+        decoder.reset_stream(8_000, 1_000);
+        decoder.push_samples(&iq[cut..]);
+        assert_eq!(decoder.rs_ok, 4, "partial CADU crossed a capture gap");
+        assert_eq!(decoder.images.render_all(), images);
+        decoder.reset_stream(8_000, 1_000);
+        decoder.push_samples(&iq);
+        assert_eq!(decoder.rs_ok, 8, "decoder must reacquire after the gap");
     }
 
     #[test]
