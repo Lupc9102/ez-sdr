@@ -804,6 +804,60 @@ impl AppConfig {
         }
         self.observer_lat = self.observer_lat.clamp(-90.0, 90.0);
         self.observer_lon = self.observer_lon.clamp(-180.0, 180.0);
+        self.ppm_correction = self.ppm_correction.clamp(-100, 100);
+        // Older profiles have duplicate display fields. Nondefault advanced
+        // values are authoritative; otherwise migrate the older aliases once.
+        let a = &mut self.advanced;
+        let d = &defaults.advanced;
+        if (a.db_min, a.db_max) == (d.db_min, d.db_max)
+            && (self.spectrum_min_db, self.spectrum_max_db)
+                != (defaults.spectrum_min_db, defaults.spectrum_max_db)
+        {
+            a.db_min = self.spectrum_min_db;
+            a.db_max = self.spectrum_max_db;
+        }
+        if a.peak_hold_time == d.peak_hold_time && a.fft_hold != d.fft_hold {
+            a.peak_hold_time = a.fft_hold;
+        }
+        if a.avg_alpha == d.avg_alpha && a.smoothing_speed != d.smoothing_speed {
+            a.avg_alpha = 1.0 - a.smoothing_speed;
+        }
+        fn finite(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
+            if value.is_finite() {
+                value.clamp(min, max)
+            } else {
+                fallback
+            }
+        }
+        if !crate::spectrum::SpectrumAnalyzer::valid_fft_size(a.fft_size) {
+            a.fft_size = d.fft_size;
+        }
+        a.fft_rate = a.fft_rate.clamp(1, 120);
+        a.wf_depth = a.wf_depth.clamp(32, 4096);
+        a.wf_speed = a.wf_speed.max(1);
+        a.window = crate::advanced_panel::window_from_str(&a.window)
+            .name()
+            .into();
+        self.color_map = crate::advanced_panel::color_from_str(&self.color_map)
+            .name()
+            .into();
+        a.snr_smoothing_secs = finite(a.snr_smoothing_secs, d.snr_smoothing_secs, 0.01, 10.0);
+        a.peak_hold_time = finite(a.peak_hold_time, d.peak_hold_time, 0.0, 60.0);
+        a.fft_hold = a.peak_hold_time;
+        a.avg_alpha = finite(a.avg_alpha, d.avg_alpha, 0.0, 1.0);
+        a.smoothing_speed = 1.0 - a.avg_alpha;
+        a.persistence = finite(a.persistence, d.persistence, 0.0, 0.98);
+        a.db_min = finite(a.db_min, d.db_min, -240.0, 10.0);
+        a.db_max = finite(a.db_max, d.db_max, a.db_min + 10.0, 60.0);
+        self.spectrum_min_db = a.db_min;
+        self.spectrum_max_db = a.db_max;
+        self.wf_min_db = finite(self.wf_min_db, defaults.wf_min_db, -240.0, 10.0);
+        self.wf_max_db = finite(
+            self.wf_max_db,
+            defaults.wf_max_db,
+            self.wf_min_db + 1.0,
+            60.0,
+        );
         let cfg = self;
         // Migration: the old 6-tab layout (sdr/adsb/satellite/ai/decoding/…)
         // collapses to the current task tabs. Any config with invalid tab IDs
@@ -1559,5 +1613,76 @@ mod tests {
         assert_eq!(cfg.theme, "");
         assert_eq!(cfg.output_directory, "");
         assert_eq!(cfg.ai_model, "");
+    }
+    #[test]
+    fn saved_display_normalization_migrates_aliases_and_rejects_invalid_values() {
+        let mut legacy = AppConfig {
+            spectrum_min_db: -93.0,
+            spectrum_max_db: -3.0,
+            ..Default::default()
+        };
+        legacy.advanced.fft_hold = 3.0;
+        legacy.advanced.smoothing_speed = 0.8;
+        legacy.normalize();
+        assert_eq!(
+            (legacy.advanced.db_min, legacy.advanced.db_max),
+            (-93.0, -3.0)
+        );
+        assert_eq!(legacy.advanced.peak_hold_time, 3.0);
+        assert!((legacy.advanced.avg_alpha - 0.2).abs() < 1e-6);
+        let before = legacy.advanced.clone();
+        legacy.normalize();
+        assert_eq!(legacy.advanced, before);
+
+        let mut invalid = AppConfig {
+            ppm_correction: 10_000,
+            color_map: "missing".into(),
+            wf_min_db: f32::NAN,
+            wf_max_db: f32::INFINITY,
+            ..Default::default()
+        };
+        let a = &mut invalid.advanced;
+        a.fft_size = usize::MAX;
+        a.fft_rate = 0;
+        a.wf_depth = usize::MAX;
+        a.wf_speed = 0;
+        a.window = "missing".into();
+        a.snr_smoothing_secs = f32::NAN;
+        a.peak_hold_time = f32::NAN;
+        a.avg_alpha = f32::NAN;
+        a.persistence = f32::INFINITY;
+        a.db_min = f32::NAN;
+        a.db_max = f32::NEG_INFINITY;
+        invalid.normalize();
+        let a = &invalid.advanced;
+        assert_eq!(
+            (a.fft_size, a.fft_rate, a.wf_depth, a.wf_speed),
+            (2048, 1, 4096, 1)
+        );
+        assert_eq!(
+            (
+                a.window.as_str(),
+                invalid.color_map.as_str(),
+                invalid.ppm_correction
+            ),
+            ("Hann", "Classic", 100)
+        );
+        for value in [
+            a.snr_smoothing_secs,
+            a.peak_hold_time,
+            a.avg_alpha,
+            a.persistence,
+            a.db_min,
+            a.db_max,
+            invalid.wf_min_db,
+            invalid.wf_max_db,
+        ] {
+            assert!(value.is_finite());
+        }
+        assert!(a.db_max >= a.db_min + 10.0);
+        let encoded = serde_json::to_vec(&invalid).unwrap();
+        let mut decoded: AppConfig = serde_json::from_slice(&encoded).unwrap();
+        decoded.normalize();
+        assert_eq!(decoded.advanced, invalid.advanced);
     }
 }

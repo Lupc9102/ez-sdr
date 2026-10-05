@@ -334,9 +334,6 @@ impl CentralApp {
                     state.demod_mode = mode;
                 }
             }
-            state.source.ppm_correction = state.config.ppm_correction;
-            state.lo_offset_hz = state.config.lo_offset_hz;
-            state.source.frequency_offset_hz = state.lo_offset_hz;
             state.vfo_b = if state.config.vfo_b_hz > 0 {
                 state.config.vfo_b_hz
             } else {
@@ -364,30 +361,8 @@ impl CentralApp {
                     state.freq_history.push_back(hz);
                 }
             }
-            // Restore saved spectrum dB range (non-default check avoids stomping on first run)
-            if state.config.spectrum_min_db != 0.0 || state.config.spectrum_max_db != 0.0 {
-                let min = state.config.spectrum_min_db;
-                let max = state.config.spectrum_max_db;
-                state.spectrum.set_display_range(min, max);
-            }
-            // Restore waterfall color range
-            if state.config.wf_min_db != 0.0 || state.config.wf_max_db != 0.0 {
-                state.spectrum.wf_min_db = state.config.wf_min_db;
-                state.spectrum.wf_max_db = state.config.wf_max_db;
-            }
-            // Restore waterfall colormap
-            if !state.config.color_map.is_empty() {
-                state.spectrum.color_map = match state.config.color_map.as_str() {
-                    "Viridis" => crate::spectrum::ColorMap::Viridis,
-                    "Plasma" => crate::spectrum::ColorMap::Plasma,
-                    "Magma" => crate::spectrum::ColorMap::Magma,
-                    "Inferno" => crate::spectrum::ColorMap::Inferno,
-                    "Turbo" => crate::spectrum::ColorMap::Turbo,
-                    "Grayscale" => crate::spectrum::ColorMap::Grayscale,
-                    "Hot" => crate::spectrum::ColorMap::Hot,
-                    _ => crate::spectrum::ColorMap::Classic,
-                };
-            }
+            // Preserve the loaded DSP profile before RadioUi's mode-sync runs.
+            state.config.last_session_demod = state.demod_mode.label().into();
             let init_freq = state.source.frequency_hz;
             if state.freq_history.is_empty() || state.freq_history.back() != Some(&init_freq) {
                 state.freq_history.push_back(init_freq);
@@ -474,12 +449,10 @@ impl CentralApp {
 }
 
 impl CentralApp {
-    /// Push the saved advanced settings onto the demod worker.
+    /// Apply saved receiver, display and DSP settings before capture starts.
     pub fn apply_advanced(&mut self) {
-        let shared = self.shared.lock().expect("shared state mutex poisoned");
-        let mode = shared.demod_mode.resolve(shared.source.frequency_hz);
-        self.demod_worker
-            .configure_advanced(&shared.config.advanced, mode);
+        let mut shared = self.shared.lock().expect("shared state mutex poisoned");
+        crate::advanced_panel::push_advanced(&mut self.demod_worker, &mut shared);
     }
 
     /// Forward the current Advanced-panel DSP settings to the demod worker.
@@ -873,6 +846,36 @@ impl CentralApp {
 
 impl eframe::App for CentralApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply config changes triggered from Settings tab
+        if let Ok(mut state) = self.shared.try_lock() {
+            if state.config.needs_apply {
+                state.config.normalize();
+                state.config.needs_apply = false;
+                // Apply runtime appearance, DSP and integrations. Source defaults
+                // are startup preferences; live tuning stays in receiver controls.
+                crate::advanced_panel::push_advanced(&mut self.demod_worker, &mut state);
+                // Apply theme
+                state.config.theme_config.apply_to_ctx(ctx);
+                // Apply font scale
+                let scale = state.config.font_scale as f32;
+                ctx.set_pixels_per_point(scale);
+                let observer = (state.config.observer_lat, state.config.observer_lon);
+                state.tle.set_observer(observer.0, observer.1);
+                self.web_remote.set_enabled(
+                    state.config.web_remote_enabled,
+                    state.config.web_remote_port,
+                );
+                self.rigctl
+                    .set_enabled(state.config.rigctl_enabled, state.config.rigctl_port);
+                self.mqtt.set_enabled(
+                    !state.config.mqtt_broker.is_empty(),
+                    state.config.mqtt_broker.clone(),
+                    state.config.mqtt_topic_prefix.clone(),
+                );
+                self.discord.apply_settings(&state.config.discord);
+            }
+        }
+
         self.ai_panel.tick();
         self.recorder_panel.tick();
         self.recorder_panel
@@ -1623,36 +1626,6 @@ impl eframe::App for CentralApp {
                 let scale = state.config.font_scale as f32;
                 ctx.set_pixels_per_point(scale);
                 self.theme_applied = true;
-            }
-        }
-
-        // Apply config changes triggered from Settings tab
-        if let Ok(mut state) = self.shared.try_lock() {
-            if state.config.needs_apply {
-                state.config.normalize();
-                state.config.needs_apply = false;
-                // Apply runtime appearance, DSP and integrations. Source defaults
-                // are startup preferences; live tuning stays in receiver controls.
-                self.sync_demod_advanced(&state);
-                // Apply theme
-                state.config.theme_config.apply_to_ctx(ctx);
-                // Apply font scale
-                let scale = state.config.font_scale as f32;
-                ctx.set_pixels_per_point(scale);
-                let observer = (state.config.observer_lat, state.config.observer_lon);
-                state.tle.set_observer(observer.0, observer.1);
-                self.web_remote.set_enabled(
-                    state.config.web_remote_enabled,
-                    state.config.web_remote_port,
-                );
-                self.rigctl
-                    .set_enabled(state.config.rigctl_enabled, state.config.rigctl_port);
-                self.mqtt.set_enabled(
-                    !state.config.mqtt_broker.is_empty(),
-                    state.config.mqtt_broker.clone(),
-                    state.config.mqtt_topic_prefix.clone(),
-                );
-                self.discord.apply_settings(&state.config.discord);
             }
         }
 

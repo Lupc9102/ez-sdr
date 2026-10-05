@@ -66,6 +66,21 @@ impl DirectSamplingBranch {
     }
 }
 
+/// Complete local-device open request, captured once before the worker starts.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RtlOpenSettings {
+    pub device: RtlDeviceSelection,
+    pub frequency_hz: u32,
+    pub sample_rate_hz: u32,
+    pub gain_db: f64,
+    pub ppm: i32,
+    pub bias_tee: bool,
+    pub tuner_agc: bool,
+    pub rtl_agc: bool,
+    pub direct_sampling_mode: i32,
+    pub offset_tuning: bool,
+}
+
 fn checked_tuner_center(center_hz: u64, frequency_offset_hz: i64) -> Result<u32, String> {
     let physical = if frequency_offset_hz >= 0 {
         center_hz.checked_add(frequency_offset_hz as u64)
@@ -505,6 +520,22 @@ impl SourceManager {
         checked_tuner_center(self.capture_center_frequency_hz(), self.frequency_offset_hz)
     }
 
+    pub(crate) fn rtl_open_settings(&self) -> Result<RtlOpenSettings, String> {
+        validate_rtl_options(self.direct_sampling, self.offset_tuning)?;
+        Ok(RtlOpenSettings {
+            device: self.rtl_device.clone(),
+            frequency_hz: self.rtl_center_frequency_hz()?,
+            sample_rate_hz: self.sample_rate_hz,
+            gain_db: self.gain_db,
+            ppm: self.ppm_correction,
+            bias_tee: self.bias_tee,
+            tuner_agc: self.tuner_agc,
+            rtl_agc: self.rtl_agc,
+            direct_sampling_mode: self.direct_sampling_mode(),
+            offset_tuning: self.offset_tuning,
+        })
+    }
+
     pub fn direct_sampling_mode(&self) -> i32 {
         if self.direct_sampling {
             self.direct_sampling_branch.mode()
@@ -662,20 +693,17 @@ impl SourceManager {
             );
             return;
         }
-        let mut rtl_frequency = 0;
-        if self.source_mode == SourceMode::Hardware {
-            if let Err(error) = validate_rtl_options(self.direct_sampling, self.offset_tuning) {
-                self.status = SourceStatus::Error(error);
-                return;
-            }
-            match self.rtl_center_frequency_hz() {
-                Ok(frequency) => rtl_frequency = frequency,
+        let _rtl_settings = if self.source_mode == SourceMode::Hardware {
+            match self.rtl_open_settings() {
+                Ok(settings) => Some(settings),
                 Err(error) => {
                     self.status = SourceStatus::Error(error);
                     return;
                 }
             }
-        }
+        } else {
+            None
+        };
         self.status = SourceStatus::Opening;
         // stop() joins the previous local worker before this flag is reused.
         self.running.store(true, Ordering::SeqCst);
@@ -691,17 +719,7 @@ impl SourceManager {
             new_tx
         };
 
-        #[allow(unused_variables)]
-        let freq = rtl_frequency;
         let rate = self.sample_rate_hz;
-        let _ppm = self.ppm_correction;
-        let _bias = self.bias_tee;
-        let _gain = self.gain_db;
-        let _tuner_agc = self.tuner_agc;
-        let _rtl_agc = self.rtl_agc;
-        let _direct = self.direct_sampling_mode();
-        let _offset_tuning = self.offset_tuning;
-        let _rtl_device = self.rtl_device.clone();
         let source_mode = self.source_mode.clone();
         let replay_file = self.replay_file.clone();
         let replay_loop = self.replay_loop;
@@ -861,18 +879,19 @@ impl SourceManager {
                         // SAFETY: `rtl_sdr_open` is an `unsafe` FFI wrapper but
                         // passes valid arguments to the wrapped C functions and
                         // initialises the device handle on success.
+                        let settings = _rtl_settings.expect("hardware open settings validated");
                         let opened = unsafe {
                             rtl_sdr_open(
-                                &_rtl_device,
-                                freq,
-                                rate,
-                                _ppm,
-                                _bias,
-                                _gain,
-                                _tuner_agc,
-                                _rtl_agc,
-                                _direct,
-                                _offset_tuning,
+                                &settings.device,
+                                settings.frequency_hz,
+                                settings.sample_rate_hz,
+                                settings.ppm,
+                                settings.bias_tee,
+                                settings.gain_db,
+                                settings.tuner_agc,
+                                settings.rtl_agc,
+                                settings.direct_sampling_mode,
+                                settings.offset_tuning,
                             )
                         };
                         let dev = match opened {
@@ -1769,6 +1788,11 @@ fn rand_f64(seed: f64) -> f64 {
     frac / 4294967296.0
 }
 
+#[cfg(any(test, feature = "rtlsdr"))]
+fn rtl_ppm_result_applied(result: i32) -> bool {
+    result >= 0 || result == -2
+}
+
 // SAFETY: This function calls raw FFI (`rtlsdr_open`, etc.) and must only be
 // called when `feature = "rtlsdr"` is active and a real RTL-SDR device is
 // available. The caller must ensure the returned pointer is eventually closed
@@ -1863,14 +1887,17 @@ unsafe fn rtl_sdr_open(
         }
     }
     if unsafe { rtlsdr_sys::rtlsdr_set_agc_mode(dev, i32::from(rtl_agc)) } < 0 {
-        eprintln!("rtlsdr: warning: failed to set RTL AGC mode");
+        return cleanup_and_fail("RTL AGC mode");
     }
-    if unsafe { rtlsdr_sys::rtlsdr_set_freq_correction(dev, ppm) } < 0 {
-        eprintln!("rtlsdr: warning: failed to set frequency correction");
+    // librtlsdr returns -2 when the exact requested correction is already set.
+    // https://github.com/osmocom/rtl-sdr/blob/master/src/librtlsdr.c
+    let ppm_result = unsafe { rtlsdr_sys::rtlsdr_set_freq_correction(dev, ppm) };
+    if !rtl_ppm_result_applied(ppm_result) {
+        return cleanup_and_fail("frequency correction");
     }
     let bias_on = if bias { 1 } else { 0 };
     if unsafe { rtlsdr_set_bias_tee(dev, bias_on) } < 0 {
-        eprintln!("rtlsdr: warning: failed to set bias tee");
+        return cleanup_and_fail("bias tee");
     }
     if unsafe { rtlsdr_sys::rtlsdr_reset_buffer(dev) } < 0 {
         return cleanup_and_fail("USB sample buffer reset");
@@ -3155,5 +3182,13 @@ mod tests {
             .unwrap_err()
             .contains("queued"));
         assert_eq!(source.daemon_squelch_applied(), Some(applied));
+    }
+    #[test]
+    fn rtl_ppm_accepts_already_applied_status_and_rejects_real_failures() {
+        assert!(rtl_ppm_result_applied(0));
+        assert!(rtl_ppm_result_applied(-2));
+        for error in [-1, -3, -5] {
+            assert!(!rtl_ppm_result_applied(error));
+        }
     }
 }

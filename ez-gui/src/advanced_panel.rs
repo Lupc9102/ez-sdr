@@ -101,13 +101,12 @@ where
 /// Used by the panel's "reset" button so the running app matches the saved
 /// (or reset) profile.
 pub fn push_advanced(demod: &mut crate::demod::DemodWorker, shared: &mut crate::app::SharedState) {
+    shared.config.normalize();
+    let previous_hardware = shared.source.rtl_open_settings();
     let mode = shared.demod_mode.resolve(shared.source.frequency_hz);
-    demod.configure_advanced(&shared.config.advanced, mode);
     let a = &shared.config.advanced;
     let s = &mut shared.spectrum;
-    if !s.set_fft_size(a.fft_size) {
-        s.set_fft_size(2048);
-    }
+    s.set_fft_size(a.fft_size);
     s.set_fft_rate(a.fft_rate);
     s.set_waterfall_visible(a.waterfall_visible);
     s.full_waterfall_update = a.full_waterfall_update;
@@ -117,22 +116,44 @@ pub fn push_advanced(demod: &mut crate::demod::DemodWorker, shared: &mut crate::
     s.waterfall_every_n = a.wf_speed.max(1);
     s.set_grid(a.grid);
     s.set_peak_hold_time(a.peak_hold_time);
+    s.set_smoothing(a.smoothing_enabled);
+    s.set_smoothing_speed(1.0 - a.avg_alpha);
     s.set_avg_alpha(a.avg_alpha);
+    s.set_fast_fft(a.fast_fft);
     s.set_persistence(a.persistence);
     s.set_gradient_fill(a.gradient_fill);
     s.set_color_map(color_from_str(&shared.config.color_map));
     s.set_display_range(a.db_min, a.db_max);
+    s.wf_min_db = shared.config.wf_min_db;
+    s.wf_max_db = shared.config.wf_max_db;
 
     shared.source.tuner_agc = a.tuner_agc;
     shared.source.rtl_agc = a.rtl_agc;
     shared.source.direct_sampling = a.direct_sampling;
     shared.source.direct_sampling_branch = a.direct_sampling_branch;
-    shared.source.frequency_offset_hz = shared.config.lo_offset_hz;
+    shared.source.ppm_correction = shared.config.ppm_correction;
+    shared.lo_offset_hz = shared.config.lo_offset_hz;
+    shared.source.frequency_offset_hz = shared.lo_offset_hz;
     shared.source.bias_tee = a.bias_tee;
     shared.source.rtl_device = a.rtl_device.clone();
     shared.source.offset_tuning = a.offset_tuning;
-    shared.config.advanced.fft_size = shared.spectrum.fft_size();
-    shared.config.advanced.fft_rate = shared.spectrum.fft_rate();
+    // Persist validated engine values before the first UI can write defaults
+    // back into the imported profile. No device is opened on startup.
+    crate::radio_ui::persist_display_settings(shared);
+    // A loaded profile is already the selected mode's profile. Do not replace
+    // it with mode defaults on the first frame or after a configuration import.
+    shared.config.last_session_demod = shared.demod_mode.label().into();
+    shared.config.radio_profiles.insert(
+        shared.demod_mode.label().into(),
+        crate::config::RadioModeProfile::capture(&shared.config.advanced),
+    );
+    crate::radio_ui::sync_demod_settings(shared);
+    demod.configure_advanced(&shared.config.advanced, mode);
+    if shared.source.source_mode == crate::source_manager::SourceMode::Hardware
+        && previous_hardware != shared.source.rtl_open_settings()
+    {
+        crate::radio_ui::restart_if_running(&mut shared.source);
+    }
 }
 
 /// Render the Advanced utility window body.

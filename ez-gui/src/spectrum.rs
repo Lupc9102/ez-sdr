@@ -965,7 +965,7 @@ impl SpectrumAnalyzer {
         self.fast_fft = fast;
     }
     pub fn set_peak_hold_time(&mut self, secs: f32) {
-        self.peak_hold_time = secs.clamp(0.1, 60.0);
+        self.peak_hold_time = secs.clamp(0.0, 60.0);
     }
 
     /// Set the new-frame weight (1 = immediate, lower = more averaging).
@@ -1396,9 +1396,13 @@ impl SpectrumAnalyzer {
     }
 
     fn update_bin(&mut self, dst: usize, db: f32) {
-        let smoothed = self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[dst];
+        let smoothed = if self.smoothing_enabled {
+            self.avg_alpha * db + (1.0 - self.avg_alpha) * self.spectrum_dbs[dst]
+        } else {
+            db
+        };
         self.spectrum_dbs[dst] = smoothed;
-        if db > self.peak_hold[dst] {
+        if self.peak_hold_time <= 0.0 || db > self.peak_hold[dst] {
             self.peak_hold[dst] = db;
         } else {
             let decay = 1.0 - (-self.frame_period_seconds as f32 / self.peak_hold_time).exp();
@@ -5201,5 +5205,22 @@ mod tests {
         s.waterfall_head = (h0 + 1) % h;
         assert_eq!(s.waterfall_head, (h0 + 1) % h);
         assert_eq!(s.waterfall_pixels.len(), h);
+    }
+    #[test]
+    fn restored_zero_hold_and_disabled_smoothing_follow_each_measured_frame() {
+        let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.set_smoothing(false);
+        spectrum.set_avg_alpha(0.05);
+        spectrum.set_peak_hold_time(0.0);
+        spectrum.update_bin(0, -10.0);
+        assert_eq!(
+            (spectrum.spectrum_dbs[0], spectrum.peak_hold[0]),
+            (-10.0, -10.0)
+        );
+        spectrum.update_bin(0, -100.0);
+        assert_eq!(
+            (spectrum.spectrum_dbs[0], spectrum.peak_hold[0]),
+            (-100.0, -100.0)
+        );
     }
 }

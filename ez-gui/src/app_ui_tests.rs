@@ -1288,3 +1288,236 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     drop(monitor);
     daemon.shutdown().await;
 }
+
+fn imported_receiver_profile() -> AppConfig {
+    let mut config = AppConfig::default();
+    config.mqtt_broker.clear();
+    config.default_freq_hz = 144_000_000;
+    config.default_sample_rate = 2_400_000;
+    config.default_gain = 32.8;
+    config.ppm_correction = -37;
+    config.lo_offset_hz = -125_000;
+    config.color_map = "Inferno".into();
+    config.wf_min_db = -97.0;
+    config.wf_max_db = -17.0;
+    let a = &mut config.advanced;
+    a.rtl_device = crate::source_manager::RtlDeviceSelection {
+        index: 3,
+        serial: Some("PROFILE-DEVICE".into()),
+    };
+    a.tuner_agc = true;
+    a.rtl_agc = true;
+    a.bias_tee = true;
+    a.direct_sampling = true;
+    a.direct_sampling_branch = crate::source_manager::DirectSamplingBranch::Q;
+    a.offset_tuning = false;
+    a.fft_size = 8192;
+    a.fft_rate = 17;
+    a.window = "Blackman".into();
+    a.waterfall_visible = false;
+    a.wf_depth = 333;
+    a.wf_speed = 7;
+    a.full_waterfall_update = false;
+    a.grid = false;
+    a.peak_hold_time = 2.5;
+    a.avg_alpha = 0.25;
+    a.smoothing_enabled = false;
+    a.fast_fft = true;
+    a.snr_smoothing = false;
+    a.snr_smoothing_secs = 1.7;
+    a.persistence = 0.6;
+    a.gradient_fill = false;
+    a.db_min = -103.0;
+    a.db_max = -13.0;
+    a.radio_bandwidth_hz = 18_000.0;
+    a.radio_snap_hz = 1250;
+    a.audio_cutoff_hz = 3500.0;
+    a.rf_decim = 4;
+    a.rf_dc_remove = true;
+    a.invert_iq = true;
+    a.rf_noise_blanker = true;
+    a.rf_noise_blanker_level = 4.0;
+    a.squelch_mode = crate::radio_squelch::SquelchMode::Power;
+    a.squelch_level_db = -43.0;
+    a.audio_gain = 0.0;
+    config
+}
+
+fn assert_imported_receiver_profile(app: &CentralApp) {
+    let state = app.shared.lock().unwrap();
+    let open = state.source.rtl_open_settings().unwrap();
+    assert_eq!(open.device.index, 3);
+    assert_eq!(open.device.serial.as_deref(), Some("PROFILE-DEVICE"));
+    assert_eq!(
+        open.frequency_hz,
+        state.source.capture_center_frequency_hz() as u32 - 125_000
+    );
+    assert_eq!(open.sample_rate_hz, state.source.sample_rate_hz);
+    assert_eq!(open.gain_db, state.source.gain_db);
+    assert_eq!(open.ppm, -37);
+    assert!(open.bias_tee && open.tuner_agc && open.rtl_agc);
+    assert_eq!(open.direct_sampling_mode, 2);
+    assert!(!open.offset_tuning);
+    assert_eq!(state.lo_offset_hz, -125_000);
+    let d = state.spectrum.display_settings();
+    assert_eq!(d.fft_size, 8192);
+    assert_eq!(d.fft_rate, 17);
+    assert_eq!(d.window, crate::spectrum::WindowType::Blackman);
+    assert_eq!((d.waterfall_history, d.waterfall_every_n), (333, 7));
+    assert!(!d.waterfall_visible && !d.full_waterfall_update && !d.grid && !d.gradient_fill);
+    assert!(!d.smoothing_enabled && !d.snr_smoothing);
+    assert!(d.fast_fft);
+    assert_eq!(
+        (
+            d.peak_hold_time,
+            d.avg_alpha,
+            d.smoothing_speed,
+            d.persistence,
+            d.snr_smoothing_secs
+        ),
+        (2.5, 0.25, 0.75, 0.6, 1.7)
+    );
+    assert_eq!(
+        (d.db_min, d.db_max, d.wf_min_db, d.wf_max_db),
+        (-103.0, -13.0, -97.0, -17.0)
+    );
+    assert_eq!(d.color_map, crate::spectrum::ColorMap::Inferno);
+    assert_eq!(state.lpf_cutoff, 3500.0);
+    assert_eq!(state.tune_step_fine_hz, 1250);
+    assert_eq!(crate::radio_ui::channel_bandwidth(&state), 18_000.0);
+    assert_eq!(state.squelch, -43.0);
+    let iq = crate::radio_ui::radio_iq_config(&state);
+    assert_eq!(iq.decimation, 4);
+    assert!(iq.dc_remove && iq.invert);
+    assert!(state.config.advanced.rf_noise_blanker);
+    assert_eq!(state.config.advanced.audio_gain, 0.0);
+    assert_eq!(state.config.advanced.fft_hold, 2.5);
+    assert_eq!(state.config.advanced.smoothing_speed, 0.75);
+}
+
+fn wait_for_saved_dsp_profile(app: &CentralApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let requested = app.demod_worker.requested_version();
+    while app.demod_worker.applied_version() < requested {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    // The loaded mute gain must really reach the idle worker and its next PCM,
+    // rather than only change a displayed config field.
+    let tone = (0..16_384)
+        .map(|i| num_complex::Complex32::from_polar(0.7, i as f32 * 0.05))
+        .collect();
+    assert!(app.demod_worker.push_iq(tone));
+    loop {
+        if let Some(frame) = app.demod_worker.try_recv_frame() {
+            assert!(!frame.audio.is_empty());
+            assert!(frame.audio.iter().all(|s| *s == 0.0));
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn saved_receiver_profile_restores_before_first_render_and_round_trips() {
+    let config = imported_receiver_profile();
+    let encoded = serde_json::to_vec(&config).unwrap();
+    let loaded: AppConfig = serde_json::from_slice(&encoded).unwrap();
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+    let mut app = CentralApp::new_with_config(&cc, loaded);
+    app.demod_worker = crate::demod::DemodWorker::new(16);
+    app.apply_advanced();
+    assert_imported_receiver_profile(&app);
+    assert_eq!(
+        app.shared.lock().unwrap().source.status,
+        crate::source_manager::SourceStatus::Idle
+    );
+    assert_eq!(app.shared.lock().unwrap().source.stream_generation(), 0);
+    let before = app.shared.lock().unwrap().config.advanced.clone();
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.render_sdr_tab(ui, &None)
+    });
+    assert_imported_receiver_profile(&app);
+    assert_eq!(app.shared.lock().unwrap().config.advanced, before);
+    wait_for_saved_dsp_profile(&app);
+    let saved = serde_json::to_vec(&app.shared.lock().unwrap().config).unwrap();
+    let reloaded = CentralApp::new_with_config(&cc, serde_json::from_slice(&saved).unwrap());
+    assert_imported_receiver_profile(&reloaded);
+}
+
+#[test]
+fn saved_receiver_profile_import_applies_calibration_and_only_changed_hardware_restarts() {
+    let ctx = egui::Context::default();
+    let mut app = offline_test_app();
+    app.demod_worker = crate::demod::DemodWorker::new(16);
+    let mut frame = eframe::Frame::_new_kittest();
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Hardware;
+        state.source.frequency_hz = 1_090_000_000;
+        state.source.center_frequency_hz = Some(1_090_000_000);
+        state.source.sample_rate_hz = 2_400_000;
+        state.source.gain_db = 32.8;
+        state.source.status = crate::source_manager::SourceStatus::Running;
+        state.config = imported_receiver_profile();
+        state.config.needs_apply = true;
+    }
+    // Unit-test builds reject physical hardware opening. Assert the exact
+    // production request and restart attempt without touching a USB device.
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.logic(ui.ctx(), &mut frame)
+    });
+    assert_imported_receiver_profile(&app);
+    let generation = app.shared.lock().unwrap().source.stream_generation();
+    assert_eq!(generation, 1);
+    assert_eq!(
+        app.shared.lock().unwrap().source.frequency_hz,
+        1_090_000_000
+    );
+    assert!(!app.shared.lock().unwrap().config.needs_apply);
+    wait_for_saved_dsp_profile(&app);
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.config.needs_apply = true;
+        state.config.font_scale = 1.2;
+    }
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.logic(ui.ctx(), &mut frame)
+    });
+    assert_imported_receiver_profile(&app);
+    assert_eq!(
+        app.shared.lock().unwrap().source.stream_generation(),
+        generation
+    );
+    {
+        let mut state = app.shared.lock().unwrap();
+        // Model an active device for the next application; the previous
+        // test-build open can already have returned its unsupported error.
+        state.source.status = crate::source_manager::SourceStatus::Running;
+        state.config.advanced.direct_sampling = false;
+        state.config.advanced.offset_tuning = true;
+        state.config.ppm_correction = 23;
+        state.config.lo_offset_hz = 250_000;
+        state.config.needs_apply = true;
+    }
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.logic(ui.ctx(), &mut frame)
+    });
+    {
+        let mut state = app.shared.lock().unwrap();
+        let open = state.source.rtl_open_settings().unwrap();
+        assert_eq!(
+            (
+                open.ppm,
+                open.frequency_hz,
+                open.direct_sampling_mode,
+                open.offset_tuning
+            ),
+            (23, 1_090_250_000, 0, true)
+        );
+        assert_eq!(state.source.stream_generation(), generation + 1);
+        state.source.stop();
+    }
+}

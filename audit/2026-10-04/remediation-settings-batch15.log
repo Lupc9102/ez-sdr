@@ -1,0 +1,35 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.61s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-79e3f80910199185)
+
+running 4 tests
+test config::tests::saved_display_normalization_migrates_aliases_and_rejects_invalid_values ... ok
+test radio_ui::tests::mode_changes_reset_both_filters_but_saved_settings_survive_ui_creation ... ok
+test app::app_ui_tests::saved_receiver_profile_import_applies_calibration_and_only_changed_hardware_restarts ... ok
+test app::app_ui_tests::saved_receiver_profile_restores_before_first_render_and_round_trips ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 751 filtered out; finished in 0.18s
+
+     Running unittests src/main.rs (target/debug/deps/ez_gui-94b01ee742d5517d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/debug/deps/event_bus_integration-b6caa54825dd1c43)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/debug/deps/radio_controls-a36d21a12c44270b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/debug/deps/radio_performance-fb63913e3bb789d1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s

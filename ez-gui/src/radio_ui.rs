@@ -1787,11 +1787,13 @@ fn default_audio_cutoff(mode: DemodMode) -> f32 {
 pub(crate) fn sync_demod_settings(state: &mut SharedState) {
     if state.config.last_session_demod != state.demod_mode.label() {
         select_demod(state, state.demod_mode);
-    } else if !state.config.advanced.audio_cutoff_hz.is_finite()
-        || state.config.advanced.audio_cutoff_hz <= 0.0
-    {
-        state.lpf_cutoff =
-            default_audio_cutoff(state.demod_mode.resolve(state.source.frequency_hz));
+    } else {
+        let cutoff = state.config.advanced.audio_cutoff_hz;
+        state.lpf_cutoff = if cutoff.is_finite() && cutoff > 0.0 {
+            cutoff.clamp(100.0, 20_000.0)
+        } else {
+            default_audio_cutoff(state.demod_mode.resolve(state.source.frequency_hz))
+        };
     }
     state.tune_step_fine_hz = if state.config.advanced.radio_snap_hz > 0 {
         state.config.advanced.radio_snap_hz.clamp(1, MAX_FREQUENCY)
@@ -1862,7 +1864,11 @@ pub(crate) fn persist_display_settings(state: &mut SharedState) {
     a.snr_smoothing_secs = display.snr_smoothing_secs;
     a.grid = display.grid;
     a.peak_hold_time = display.peak_hold_time;
+    a.fft_hold = display.peak_hold_time;
     a.avg_alpha = display.avg_alpha;
+    a.smoothing_enabled = display.smoothing_enabled;
+    a.smoothing_speed = display.smoothing_speed;
+    a.fast_fft = display.fast_fft;
     a.persistence = display.persistence;
     a.gradient_fill = display.gradient_fill;
     a.db_min = display.db_min;
