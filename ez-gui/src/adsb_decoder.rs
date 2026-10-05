@@ -138,8 +138,7 @@ impl AdsBDecoder {
         self.mag_buf.resize(total_length, 0);
         self.mag_buf[..overlap].copy_from_slice(&self.overlap_tail);
 
-        let (mean_level, mean_power) =
-            compute_magnitude(iq, &mut self.mag_buf[overlap..], format);
+        let (mean_level, mean_power) = compute_magnitude(iq, &mut self.mag_buf[overlap..], format);
 
         // M5: Use Cow::Borrowed to avoid cloning the magnitude buffer.
         let mag = MagBuf {
@@ -160,7 +159,15 @@ impl AdsBDecoder {
 
         let mut decoded = Vec::new();
         self.demod.demodulate(&mag, &mut self.stats, &mut |mm| {
-            decoded.push((mm.addr, mm.msgtype, mm.msg, mm.signal_level, mm.reliable, mm.correctedbits, mm.score));
+            decoded.push((
+                mm.addr,
+                mm.msgtype,
+                mm.msg,
+                mm.signal_level,
+                mm.reliable,
+                mm.correctedbits,
+                mm.score,
+            ));
         });
 
         self.overlap_tail.clear();
@@ -178,7 +185,15 @@ impl AdsBDecoder {
 
         for (icao, msgtype, msg, signal_level, reliable, correctedbits, score) in decoded {
             self.total_messages += 1;
-            self.process_decoded(icao, msgtype, msg, signal_level, reliable, correctedbits, score);
+            self.process_decoded(
+                icao,
+                msgtype,
+                msg,
+                signal_level,
+                reliable,
+                correctedbits,
+                score,
+            );
         }
     }
 
@@ -194,7 +209,25 @@ impl AdsBDecoder {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn process_decoded(&mut self, icao: u32, msgtype: u8, msg: [u8; 14], signal_level: f64, reliable: bool, correctedbits: usize, score: dump1090::demod::ScoreRank) {
+    fn process_decoded(
+        &mut self,
+        icao: u32,
+        msgtype: u8,
+        msg: [u8; 14],
+        signal_level: f64,
+        reliable: bool,
+        correctedbits: usize,
+        score: dump1090::demod::ScoreRank,
+    ) {
+        let identity = if msgtype == 18 {
+            let Some(identity) = dump1090::mode_s::df18_identity(&msg) else {
+                return;
+            };
+            Some(identity)
+        } else {
+            None
+        };
+        let icao = identity.map_or(icao, |identity| identity.key);
         // Reject weak signals that are likely noise. Real ADS-B signals are
         // typically >0.1% of full scale; anything below this is almost certainly
         // RF noise that happened to pass CRC.
@@ -225,6 +258,14 @@ impl AdsBDecoder {
         let entry = self.aircraft.entry(icao).or_insert_with(|| AircraftState {
             entry: AircraftEntry {
                 icao,
+                address_type: identity
+                    .map_or("icao", |identity| identity.address_type)
+                    .into(),
+                source: identity
+                    .map_or(if msgtype == 17 { "adsb" } else { "mode_s" }, |identity| {
+                        identity.source
+                    })
+                    .into(),
                 callsign: String::new(),
                 lat: 0.0,
                 lon: 0.0,
@@ -234,12 +275,16 @@ impl AdsBDecoder {
                 heading: 0,
                 squawk: None,
                 vertical_rate: None,
+                emergency: None,
                 surface_movement: None,
                 surface_heading: None,
                 has_position: false,
                 has_heading: false,
+                position_seen: None,
+                position_source: None,
                 seen: now,
                 reliable: false,
+                quality_known: false,
                 correctedbits: 0,
                 score: 0.0,
             },
@@ -265,34 +310,8 @@ impl AdsBDecoder {
         entry.seen = now;
         entry.entry.seen = now;
 
-        // Populate quality fields from the demodulator.
-        entry.entry.reliable = reliable;
-        entry.entry.correctedbits = correctedbits.min(2) as u8;
-        let score_val = match score {
-            dump1090::demod::ScoreRank::Df17Known
-            | dump1090::demod::ScoreRank::Df18Known
-            | dump1090::demod::ScoreRank::Df11IidKnown
-            | dump1090::demod::ScoreRank::Df11AcqKnown => 1.0,
-            dump1090::demod::ScoreRank::Df17_1ErrorKnown
-            | dump1090::demod::ScoreRank::Df18_1ErrorKnown
-            | dump1090::demod::ScoreRank::Df11Iid1ErrorKnown
-            | dump1090::demod::ScoreRank::Df11Acq1ErrorKnown => 0.75,
-            dump1090::demod::ScoreRank::Df17_2ErrorKnown
-            | dump1090::demod::ScoreRank::Df18_2ErrorKnown => 0.5,
-            // Valid CRC but unknown aircraft — better than garbage.
-            dump1090::demod::ScoreRank::Df17Unknown
-            | dump1090::demod::ScoreRank::Df18Unknown
-            | dump1090::demod::ScoreRank::Df11IidUnknown
-            | dump1090::demod::ScoreRank::Df11AcqUnknown
-            | dump1090::demod::ScoreRank::UnreliableKnown => 0.6,
-            dump1090::demod::ScoreRank::Df17_1ErrorUnknown
-            | dump1090::demod::ScoreRank::Df18_1ErrorUnknown
-            | dump1090::demod::ScoreRank::Df11Iid1ErrorUnknown
-            | dump1090::demod::ScoreRank::Df11Acq1ErrorUnknown
-            | dump1090::demod::ScoreRank::UnreliableUnknown => 0.4,
-            _ => 0.25,
-        };
-        entry.entry.score = score_val;
+        // Quality belongs to the retained position, not to unrelated traffic.
+        let score_val = score.quality();
 
         // Use the crate's decode_mode_s_message for common fields (H4).
         // This provides callsign, altitude, velocity, and vertical_rate in a
@@ -336,6 +355,13 @@ impl AdsBDecoder {
             if let Some(vr) = decoded.vertical_rate {
                 entry.vertical_rate = Some(vr);
                 entry.entry.vertical_rate = Some(vr);
+            }
+            if let Some(emergency) = decoded.emergency {
+                entry.entry.emergency = Some(emergency);
+            }
+            if let Some(squawk) = decoded.squawk {
+                entry.squawk = Some(squawk);
+                entry.entry.squawk = Some(squawk);
             }
         } else {
             // Fallback: decode fields manually when the crate's decoder
@@ -400,8 +426,7 @@ impl AdsBDecoder {
                             // Velocity (subtypes 1-2)
                             let st = msg[4] & 0x07;
                             if st == 1 || st == 2 {
-                                let ew_raw =
-                                    (u32::from(msg[5] & 0x03) << 8) | u32::from(msg[6]);
+                                let ew_raw = (u32::from(msg[5] & 0x03) << 8) | u32::from(msg[6]);
                                 let ns_raw =
                                     (u32::from(msg[7] & 0x7F) << 3) | u32::from(msg[8] >> 5);
                                 if ew_raw > 0 && ns_raw > 0 {
@@ -483,6 +508,13 @@ impl AdsBDecoder {
                         entry.entry.lon = lon;
                         entry.entry.has_position = true;
                         entry.position_seen = Some(now);
+                        entry.entry.position_seen = Some(now);
+                        entry.entry.position_source =
+                            Some(identity.map_or("adsb", |identity| identity.source).into());
+                        entry.entry.reliable = reliable;
+                        entry.entry.quality_known = true;
+                        entry.entry.correctedbits = correctedbits.min(2) as u8;
+                        entry.entry.score = score_val;
                     }
                 }
 
@@ -493,16 +525,14 @@ impl AdsBDecoder {
                         // Heading: ME bit 14 = validity, ME bits 15-24 = heading
                         let heading_valid = (msg[5] & 0x04) != 0;
                         if heading_valid {
-                            let heading_raw =
-                                ((u32::from(msg[5] & 0x03)) << 8) | u32::from(msg[6]);
+                            let heading_raw = ((u32::from(msg[5] & 0x03)) << 8) | u32::from(msg[6]);
                             let heading =
                                 (f64::from(heading_raw) * 360.0 / 1024.0).round() as u32 % 360;
                             entry.heading = Some(heading);
                             entry.entry.heading = heading;
                         }
                         // Airspeed: ME bits 26-35
-                        let airspeed_raw =
-                            (u32::from(msg[7] & 0x7F) << 3) | u32::from(msg[8] >> 5);
+                        let airspeed_raw = (u32::from(msg[7] & 0x7F) << 3) | u32::from(msg[8] >> 5);
                         if airspeed_raw > 0 {
                             let mul = if st == 4 { 4.0 } else { 1.0 };
                             let speed_kt = (f64::from(airspeed_raw - 1) * mul).round() as u32;
@@ -550,8 +580,7 @@ impl AdsBDecoder {
                     if heading_valid {
                         let heading_raw =
                             ((u32::from(msg[5] & 0x03) << 5) | u32::from(msg[6]) >> 3) & 0x7F;
-                        let heading =
-                            (f64::from(heading_raw) * 360.0 / 128.0).round() as u32 % 360;
+                        let heading = (f64::from(heading_raw) * 360.0 / 128.0).round() as u32 % 360;
                         entry.surface_heading = Some(heading);
                         entry.entry.surface_heading = Some(heading);
                     }
@@ -594,17 +623,14 @@ impl AdsBDecoder {
                             entry.entry.lon = lon;
                             entry.entry.has_position = true;
                             entry.position_seen = Some(now);
+                            entry.entry.position_seen = Some(now);
+                            entry.entry.position_source =
+                                Some(identity.map_or("adsb", |identity| identity.source).into());
+                            entry.entry.reliable = reliable;
+                            entry.entry.quality_known = true;
+                            entry.entry.correctedbits = correctedbits.min(2) as u8;
+                            entry.entry.score = score_val;
                         }
-                    }
-                }
-
-                // TC 28 (aircraft status) — L2
-                if tc == 28 {
-                    let emergency = msg[4] & 0x07;
-                    if emergency > 0 {
-                        // Emergency status: 1=general, 2=lifeguard, 3=minfuel,
-                        // 4=no comms, 5=unlawful, 6=downed, 7=SPI
-                        entry.entry.vertical_rate = Some(emergency as i32);
                     }
                 }
             }
@@ -747,7 +773,12 @@ fn mode_a_to_squawk(mode_a: u32) -> u32 {
     let d2 = (mode_a >> 1) & 1;
     let d4 = (mode_a >> 2) & 1;
     // Octal squawk: C1 A1 C2 A2 C4 A4 B1 D1 B2 D2 B4 D4
-    (c1 << 15) | (a1 << 14) | (c2 << 13) | (a2 << 12) | (c4 << 11) | (a4 << 10)
+    (c1 << 15)
+        | (a1 << 14)
+        | (c2 << 13)
+        | (a2 << 12)
+        | (c4 << 11)
+        | (a4 << 10)
         | (b1 << 9)
         | (d1 << 8)
         | (b2 << 7)
@@ -815,6 +846,69 @@ mod tests {
         }
     }
 
+    fn seal(mut msg: [u8; 14]) -> [u8; 14] {
+        let crc = dump1090::crc::crc24(&msg[..11]);
+        msg[11] = (crc >> 16) as u8;
+        msg[12] = (crc >> 8) as u8;
+        msg[13] = crc as u8;
+        msg
+    }
+
+    #[test]
+    fn equal_wire_addresses_in_df17_and_df18_other_are_separate_tracks() {
+        let mut standard = ez_daemon::hardware::adsb::EXAMPLE_DF17_CALLSIGN;
+        standard = seal(standard);
+        let mut other = standard;
+        other[0] = (18 << 3) | 1;
+        other = seal(other);
+        let iq = ez_daemon::hardware::adsb::encode_uc8(&[standard, other]);
+        let mut decoder = AdsBDecoder::new();
+        decoder.feed_iq(&iq, 2_400_000);
+        let tracks = decoder.get_aircraft();
+        assert_eq!(tracks.len(), 2);
+        assert!(tracks
+            .iter()
+            .any(|entry| entry.icao == 0x4840d6 && entry.address_type == "icao"));
+        assert!(tracks
+            .iter()
+            .any(|entry| entry.icao == 0x104840d6 && entry.address_type == "adsb_other"));
+    }
+
+    #[test]
+    fn status_updates_emergency_and_squawk_without_changing_vertical_rate() {
+        let mut d = AdsBDecoder::new();
+        d.process_decoded(
+            1,
+            11,
+            [0; 14],
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df11AcqKnown,
+        );
+        d.aircraft.get_mut(&1).unwrap().entry.vertical_rate = Some(5568);
+        for emergency in 0..=7 {
+            let mut status = [0; 14];
+            status[0] = 17 << 3;
+            status[4] = (28 << 3) | 1;
+            status[5] = (emergency << 5) | 0x0a;
+            status[6] = 0xaa;
+            d.process_decoded(
+                1,
+                17,
+                seal(status),
+                1.0,
+                true,
+                0,
+                dump1090::demod::ScoreRank::Df17Known,
+            );
+            let entry = &d.aircraft[&1].entry;
+            assert_eq!(entry.vertical_rate, Some(5568));
+            assert_eq!(entry.emergency, Some(emergency));
+            assert_eq!(entry.squawk, Some(7700));
+        }
+    }
+
     fn position_message(tc: u8, odd: bool, lat: u32, lon: u32) -> [u8; 14] {
         let mut msg = [0; 14];
         msg[0] = 0x8d;
@@ -830,8 +924,24 @@ mod tests {
     #[test]
     fn adsb_gnss_position_and_initial_surface_reference_are_supported() {
         let mut decoder = AdsBDecoder::new();
-        decoder.process_decoded(1, 17, position_message(20, false, 93000, 113609), 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
-        decoder.process_decoded(1, 17, position_message(21, true, 74158, 108994), 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        decoder.process_decoded(
+            1,
+            17,
+            position_message(20, false, 93000, 113609),
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
+        decoder.process_decoded(
+            1,
+            17,
+            position_message(21, true, 74158, 108994),
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
         let aircraft = decoder.get_aircraft();
         assert!((aircraft[0].lat - 52.2658).abs() < 0.001);
         assert!(aircraft[0].lon > 8.0 && aircraft[0].lon < 9.0);
@@ -843,10 +953,26 @@ mod tests {
         let raw_lon = (longitude.rem_euclid(dlon) / dlon * 131072.0).round() as u32;
         let msg = position_message(5, false, raw_lat, raw_lon);
         let mut surface = AdsBDecoder::new();
-        surface.process_decoded(2, 17, msg, 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        surface.process_decoded(
+            2,
+            17,
+            msg,
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
         assert_eq!(surface.get_aircraft()[0].lat, 0.0);
         surface.set_receiver_position(51.5, -0.1);
-        surface.process_decoded(2, 17, msg, 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        surface.process_decoded(
+            2,
+            17,
+            msg,
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
         let aircraft = surface.get_aircraft();
         assert!((aircraft[0].lat - latitude).abs() < 0.001);
         assert!((aircraft[0].lon - longitude).abs() < 0.001);
@@ -860,24 +986,56 @@ mod tests {
     #[test]
     fn adsb_old_position_expires_independently_and_track_memory_is_bounded() {
         let mut decoder = AdsBDecoder::new();
-        decoder.process_decoded(1, 11, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df11IidKnown);
+        decoder.process_decoded(
+            1,
+            11,
+            [0; 14],
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df11IidKnown,
+        );
         let state = decoder.aircraft.get_mut(&1).unwrap();
         state.entry.lat = 52.0;
         state.entry.lon = 5.0;
         state.position_seen = Some(std::time::Instant::now() - std::time::Duration::from_secs(61));
-        decoder.process_decoded(1, 11, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df11IidKnown);
+        decoder.process_decoded(
+            1,
+            11,
+            [0; 14],
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df11IidKnown,
+        );
         let aircraft = decoder.get_aircraft();
         assert_eq!(aircraft.len(), 1);
         assert_eq!((aircraft[0].lat, aircraft[0].lon), (0.0, 0.0));
         for icao in 2..=4200 {
-            decoder.process_decoded(icao, 11, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df11IidKnown);
+            decoder.process_decoded(
+                icao,
+                11,
+                [0; 14],
+                1.0,
+                true,
+                0,
+                dump1090::demod::ScoreRank::Df11IidKnown,
+            );
         }
         assert_eq!(decoder.aircraft.len(), 4096);
         let now = std::time::Instant::now();
         for state in decoder.aircraft.values_mut() {
             state.seen = now - std::time::Duration::from_secs(601);
         }
-        decoder.process_decoded(9000, 11, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df11IidKnown);
+        decoder.process_decoded(
+            9000,
+            11,
+            [0; 14],
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df11IidKnown,
+        );
         assert_eq!(decoder.aircraft.len(), 1);
     }
 
@@ -1026,7 +1184,15 @@ mod tests {
         msg[6] = 0x00; // E/W raw 0 → unavailable
         msg[7] = 0x19;
         msg[8] = 0x20; // N/S present
-        d.process_decoded(0xAABBCC, 17, msg, 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        d.process_decoded(
+            0xAABBCC,
+            17,
+            msg,
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
         let ac = d
             .aircraft
             .get(&0xAABBCC)
@@ -1053,7 +1219,15 @@ mod tests {
         msg[6] = 0x91; // E/W raw 401
         msg[7] = 0x19;
         msg[8] = 0x20; // N/S raw 201
-        d.process_decoded(0x112233, 17, msg, 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        d.process_decoded(
+            0x112233,
+            17,
+            msg,
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
         let ac = d.aircraft.get(&0x112233).expect("entry should exist");
         assert_eq!(ac.speed, Some(447));
         assert_eq!(ac.heading, Some(63));
@@ -1076,7 +1250,15 @@ mod tests {
         msg[8] = 0x34;
         msg[9] = 0x56;
         msg[10] = 0x78;
-        d.process_decoded(0xAABBCC, 17, msg, 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        d.process_decoded(
+            0xAABBCC,
+            17,
+            msg,
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
         let ac = d.aircraft.get(&0xAABBCC).expect("entry should exist");
         let even = ac.cpr_even.as_ref().expect("even frame stored");
         assert_eq!(
@@ -1135,24 +1317,54 @@ mod tests {
     }
 
     #[test]
-    fn score_mapping_distinguishes_known_from_unknown() {
+    fn position_quality_survives_unrelated_messages() {
+        use dump1090::demod::ScoreRank;
         let mut d = AdsBDecoder::new();
-        // Known aircraft, no errors → 1.0
-        d.process_decoded(1, 17, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
-        assert_eq!(d.aircraft.get(&1).unwrap().entry.score, 1.0);
-        // Unknown aircraft, no errors → 0.6 (better than garbage)
-        d.process_decoded(2, 17, [0; 14], 1.0, false, 0, dump1090::demod::ScoreRank::Df17Unknown);
-        assert_eq!(d.aircraft.get(&2).unwrap().entry.score, 0.6);
-        // Uncorrectable → 0.25
-        d.process_decoded(3, 17, [0; 14], 1.0, false, 0, dump1090::demod::ScoreRank::Uncorrectable);
-        assert_eq!(d.aircraft.get(&3).unwrap().entry.score, 0.25);
+        d.process_decoded(
+            1,
+            17,
+            position_message(11, false, 93000, 113609),
+            1.0,
+            false,
+            1,
+            ScoreRank::Df17_1ErrorKnown,
+        );
+        d.process_decoded(
+            1,
+            17,
+            position_message(11, true, 74158, 108994),
+            1.0,
+            false,
+            1,
+            ScoreRank::Df17_1ErrorKnown,
+        );
+        assert!(d.aircraft[&1].entry.has_position);
+        let time = d.aircraft[&1].entry.position_seen;
+        for rank in [ScoreRank::Df11AcqKnown, ScoreRank::UnreliableKnown] {
+            d.process_decoded(1, 11, [0; 14], 1.0, true, 0, rank);
+            let position = &d.aircraft[&1].entry;
+            assert!(!position.reliable);
+            assert_eq!(position.correctedbits, 1);
+            assert_eq!(position.score, 0.75);
+            assert_eq!(position.position_seen, time);
+        }
+        assert_eq!(ScoreRank::Df17Known.quality(), 1.0);
+        assert_eq!(ScoreRank::Df17Unknown.quality(), 0.6);
     }
 
     #[test]
     fn has_heading_set_only_when_velocity_decoded() {
         let mut d = AdsBDecoder::new();
         // Position message without velocity → has_heading = false
-        d.process_decoded(1, 17, [0; 14], 1.0, true, 0, dump1090::demod::ScoreRank::Df17Known);
+        d.process_decoded(
+            1,
+            17,
+            [0; 14],
+            1.0,
+            true,
+            0,
+            dump1090::demod::ScoreRank::Df17Known,
+        );
         assert!(!d.aircraft.get(&1).unwrap().entry.has_heading);
     }
 }

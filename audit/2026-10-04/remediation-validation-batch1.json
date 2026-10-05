@@ -1,0 +1,28 @@
+{
+  "batch": 1,
+  "findings": [
+    "A01",
+    "A02",
+    "A03",
+    "A04",
+    "A07",
+    "A11",
+    "A12",
+    "A15"
+  ],
+  "source_base": "63b3c3a7814a1927ebb6e3bac4d3fa73fd2d972e",
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "test_command": "cargo +1.92.0 test --workspace --all-targets",
+  "test_result": {
+    "passed_executions": 1472,
+    "failures": 0,
+    "ignored": 8
+  },
+  "clippy_command": "cargo +1.92.0 clippy --workspace --all-targets -- -D warnings",
+  "protocol_version": 2,
+  "limitations": [
+    "No real SDR/USB, disk hardware failure, external broker/provider/notification, or GPU session exercised.",
+    "Untouched baseline files still have formatting differences; final workspace formatting gate remains open.",
+    "All other findings and follow-up experiments remain pending in REMEDIATION.md."
+  ]
+}

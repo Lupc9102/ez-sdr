@@ -105,6 +105,8 @@ are still needed for field validation.
 
 ## Optional daemon
 
+The GUI and daemon must both speak protocol version 2; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state and position decode quality.
+
 The Rust daemon owns source/DSP pipelines and exposes the desktop's binary protocol
 at `127.0.0.1:7890`, plus HTTP/WebSocket APIs on `127.0.0.1:7891`.
 The previous `ez-web` frontend is not included in this worktree.

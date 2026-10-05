@@ -254,7 +254,14 @@ impl MqttPublisher {
     pub fn publish_aircraft(&mut self, aircraft: &[AircraftEntry]) {
         for ac in aircraft {
             let json = serde_json::json!({
-                "icao": format!("{:06X}", ac.icao),
+                "icao": (ac.icao <= 0x00ff_ffff).then(|| format!("{:06X}", ac.icao)),
+                "address": format!("{:06X}", ac.icao & 0x00ff_ffff),
+                "track_key": ac.icao,
+                "address_type": ac.address_type,
+                "source": ac.source,
+                "position_source": ac.position_source,
+                "emergency": ac.emergency,
+                "squawk": ac.squawk,
                 "callsign": ac.callsign,
                 "lat": ac.lat,
                 "lon": ac.lon,

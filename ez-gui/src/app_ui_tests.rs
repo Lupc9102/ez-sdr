@@ -132,6 +132,9 @@ fn render_workspaces() {
                     reliable: true,
                     correctedbits: 0,
                     score: 1.0,
+                    quality_known: true,
+                    position_seen: Some(std::time::Instant::now()),
+                    ..Default::default()
                 },
             )
             .collect();
@@ -287,15 +290,99 @@ fn daemon_aircraft_without_valid_coordinates_do_not_create_zero_position_markers
         icao: 0xabc123,
         ..Default::default()
     };
-    assert!(CentralApp::map_daemon_aircraft(item.clone()).is_none());
+    assert!(
+        !CentralApp::map_daemon_aircraft(item.clone())
+            .unwrap()
+            .has_position
+    );
     item.lat = Some(51.5);
-    assert!(CentralApp::map_daemon_aircraft(item.clone()).is_none());
+    assert!(
+        !CentralApp::map_daemon_aircraft(item.clone())
+            .unwrap()
+            .has_position
+    );
     item.lon = Some(f64::NAN);
-    assert!(CentralApp::map_daemon_aircraft(item.clone()).is_none());
+    assert!(
+        !CentralApp::map_daemon_aircraft(item.clone())
+            .unwrap()
+            .has_position
+    );
     item.lon = Some(181.0);
-    assert!(CentralApp::map_daemon_aircraft(item.clone()).is_none());
+    assert!(
+        !CentralApp::map_daemon_aircraft(item.clone())
+            .unwrap()
+            .has_position
+    );
     item.lon = Some(-0.1);
+    item.position_seen_ms = Some(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+    );
+    assert!(
+        CentralApp::map_daemon_aircraft(item.clone())
+            .unwrap()
+            .has_position
+    );
     assert_eq!(CentralApp::map_daemon_aircraft(item).unwrap().lat, 51.5);
+}
+
+#[test]
+fn daemon_snapshots_preserve_observation_age_validity_and_quality() {
+    let wall_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let item = ez_proto::AircraftTelemetry {
+        icao: 0xabc123,
+        callsign: Some("TEST123".into()),
+        last_seen_ms: wall_ms - 15_000,
+        lat: Some(51.5),
+        lon: Some(-0.1),
+        position_seen_ms: Some(wall_ms - 40_000),
+        altitude_geometric: true,
+        vertical_rate_fpm: Some(640),
+        squawk: Some(7700),
+        emergency: Some(1),
+        ..Default::default()
+    };
+    let first = CentralApp::map_daemon_aircraft(item.clone()).unwrap();
+    assert_eq!(first.callsign, "TEST123");
+    assert!(first.seen.elapsed().as_secs() >= 15);
+    assert!(first.position_seen.unwrap().elapsed().as_secs() >= 40);
+    assert!(!first.has_heading);
+    assert!(!first.quality_known);
+    assert!(!first.reliable);
+    assert_eq!(first.score, 0.0);
+    assert_eq!(
+        first.altitude_type,
+        crate::adsb_panel::AltitudeType::Geometric
+    );
+    assert_eq!(first.vertical_rate, Some(640));
+    assert_eq!(first.emergency, Some(1));
+    assert_eq!(first.squawk, Some(7700));
+    let second = CentralApp::map_daemon_aircraft(item.clone()).unwrap();
+    assert!(
+        second
+            .seen
+            .duration_since(first.seen)
+            .max(first.seen.duration_since(second.seen))
+            .as_millis()
+            < 2
+    );
+    let mut stale = item;
+    stale.position_seen_ms = Some(wall_ms - 61_000);
+    stale.position_quality = Some(ez_proto::AircraftQuality {
+        reliable: false,
+        corrected_bits: 1,
+        score: 0.75,
+    });
+    let stale = CentralApp::map_daemon_aircraft(stale).unwrap();
+    assert!(!stale.has_position);
+    assert!(stale.quality_known);
+    assert_eq!(stale.score, 0.75);
+    assert_eq!(stale.correctedbits, 1);
 }
 
 #[test]

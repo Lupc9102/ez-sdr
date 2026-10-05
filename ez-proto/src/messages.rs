@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -141,6 +141,8 @@ pub struct AudioFrame {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AircraftTelemetry {
     pub icao: u32,
+    pub address_type: String,
+    pub source: String,
     pub callsign: Option<String>,
     pub altitude_ft: Option<i32>,
     pub lat: Option<f64>,
@@ -148,8 +150,21 @@ pub struct AircraftTelemetry {
     pub ground_speed_kt: Option<f64>,
     pub track_deg: Option<f64>,
     pub vertical_rate_fpm: Option<i32>,
+    pub emergency: Option<u8>,
+    pub squawk: Option<u32>,
+    pub altitude_geometric: bool,
+    pub position_seen_ms: Option<u64>,
+    pub position_source: Option<String>,
+    pub position_quality: Option<AircraftQuality>,
     pub msg_count: u64,
     pub last_seen_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AircraftQuality {
+    pub reliable: bool,
+    pub corrected_bits: u8,
+    pub score: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

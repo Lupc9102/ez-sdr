@@ -106,6 +106,8 @@ impl AdsbRegion {
 #[derive(Debug, Clone)]
 pub struct AircraftEntry {
     pub icao: u32,
+    pub address_type: String,
+    pub source: String,
     pub callsign: String,
     pub lat: f64,
     pub lon: f64,
@@ -115,14 +117,18 @@ pub struct AircraftEntry {
     pub heading: u32,
     pub squawk: Option<u32>,
     pub vertical_rate: Option<i32>,
+    pub emergency: Option<u8>,
     pub surface_movement: Option<u32>,
     pub surface_heading: Option<u32>,
     pub has_position: bool,
     /// Whether heading has been decoded from a velocity message.
     pub has_heading: bool,
+    pub position_seen: Option<std::time::Instant>,
+    pub position_source: Option<String>,
     pub seen: std::time::Instant,
     /// Whether the last position decode was reliable (no CRC correction needed).
     pub reliable: bool,
+    pub quality_known: bool,
     /// Number of CRC-corrected bits in the last decoded message (0-2).
     pub correctedbits: u8,
     /// Signal quality score (0.0-1.0) from the demodulator.
@@ -164,6 +170,8 @@ impl Default for AircraftEntry {
     fn default() -> Self {
         Self {
             icao: 0,
+            address_type: "icao".into(),
+            source: "unknown".into(),
             callsign: String::new(),
             lat: 0.0,
             lon: 0.0,
@@ -173,12 +181,16 @@ impl Default for AircraftEntry {
             heading: 0,
             squawk: None,
             vertical_rate: None,
+            emergency: None,
             surface_movement: None,
             surface_heading: None,
             has_position: false,
             has_heading: false,
+            position_seen: None,
+            position_source: None,
             seen: std::time::Instant::now(),
             reliable: false,
+            quality_known: false,
             correctedbits: 0,
             score: 0.0,
         }
@@ -718,6 +730,13 @@ impl AdsBPanel {
             self.aircraft.len() - 1
         };
         let aircraft = &mut self.aircraft[index];
+        aircraft.source = "uat".into();
+        aircraft.address_type = if report.key <= 0x00ff_ffff {
+            "icao"
+        } else {
+            "uat_other"
+        }
+        .into();
         aircraft.seen = timed.received;
         if let Some(callsign) = report.callsign {
             aircraft.callsign = callsign;
@@ -726,6 +745,8 @@ impl AdsBPanel {
             aircraft.lat = lat;
             aircraft.lon = lon;
             self.uat_position_seen.insert(report.key, timed.received);
+            aircraft.position_seen = Some(timed.received);
+            aircraft.position_source = Some("uat".into());
         }
         if let Some(altitude) = report.altitude_ft {
             aircraft.altitude = altitude.max(0) as u32;
@@ -2390,7 +2411,22 @@ impl AdsBPanel {
                         egui::Color32::from_rgb(lerp(n.0, d.0), lerp(n.1, d.1), lerp(n.2, d.2))
                     };
                     let label = if ac.callsign.is_empty() { address_label(ac.icao) } else { ac.callsign.clone() };
-                    if ui.label(egui::RichText::new(&label).color(row_col).small()).clicked() {
+                    let display_label = if ac.emergency.is_some_and(|code| code != 0) {
+                        format!("⚠ {label}")
+                    } else { label.clone() };
+                    let status = match ac.emergency {
+                        Some(0) => "No emergency",
+                        Some(1) => "General emergency",
+                        Some(2) => "Medical / lifeguard",
+                        Some(3) => "Minimum fuel",
+                        Some(4) => "No communications",
+                        Some(5) => "Unlawful interference",
+                        Some(6) => "Downed aircraft",
+                        Some(_) => "Reserved emergency code",
+                        None => "Emergency status unavailable",
+                    };
+                    if ui.label(egui::RichText::new(&display_label).color(row_col).small())
+                        .on_hover_text(format!("{status}\nSquawk: {}\nSource: {} ({})", ac.squawk.map_or("—".into(), |s| format!("{s:04}")), ac.source, ac.address_type)).clicked() {
                         self.selected_icao = Some(ac.icao);
                         fetch_icao = Some(ac.icao);
                     }
@@ -2606,6 +2642,9 @@ mod tests {
             reliable: true,
             correctedbits: 0,
             score: 1.0,
+            quality_known: true,
+            position_seen: Some(std::time::Instant::now()),
+            ..Default::default()
         });
         panel.check_for_new_aircraft();
     }

@@ -184,11 +184,15 @@ impl PacketPipeline {
     }
 
     fn merge_message(&mut self, mm: &ModesMessage) {
-        // Tracker sees every framed message regardless of whether it semantically
-        // decodes, since liveness/count tracking is coarser-grained than field decoding.
-        self.tracker.update_from_message(mm);
-
-        let Some(decoded) = mode_s::decode_mode_s_message(&mm.msg) else {
+        let decoded = mode_s::decode_mode_s_message(&mm.msg);
+        // Public/test callers may construct ModesMessage directly. Keep the
+        // tracker keyed by the same validated namespace as the semantic fields.
+        let mut tracked = mm.clone();
+        if let Some(decoded) = &decoded {
+            tracked.addr = decoded.icao;
+        }
+        self.tracker.update_from_message(&tracked);
+        let Some(decoded) = decoded else {
             return;
         };
 
@@ -225,12 +229,16 @@ impl PacketPipeline {
                 icao: decoded.icao,
                 ..Default::default()
             });
+        entry.address_type = decoded.address_type.into();
+        entry.source = decoded.source.into();
 
         if let Some(callsign) = decoded.callsign {
             entry.callsign = Some(callsign);
         }
         if let Some(altitude) = decoded.altitude {
             entry.altitude_ft = Some(altitude as i32);
+            entry.altitude_geometric =
+                matches!(mm.msgtype, 17 | 18) && (20..=22).contains(&(mm.msg[4] >> 3));
         }
         if let Some((speed_kt, heading)) = decoded.velocity {
             entry.ground_speed_kt = Some(speed_kt);
@@ -238,6 +246,12 @@ impl PacketPipeline {
         }
         if let Some(vertical_rate) = decoded.vertical_rate {
             entry.vertical_rate_fpm = Some(vertical_rate);
+        }
+        if let Some(emergency) = decoded.emergency {
+            entry.emergency = Some(emergency);
+        }
+        if let Some(squawk) = decoded.squawk {
+            entry.squawk = Some(squawk);
         }
 
         // decode_mode_s_message already CRC-gates its own field extraction, but CPR
@@ -247,6 +261,13 @@ impl PacketPipeline {
         if let Some((lat, lon)) = cpr_position {
             entry.lat = Some(lat);
             entry.lon = Some(lon);
+            entry.position_seen_ms = Some(mm.sys_timestamp_msg);
+            entry.position_source = Some(decoded.source.into());
+            entry.position_quality = Some(ez_proto::AircraftQuality {
+                reliable: mm.reliable,
+                corrected_bits: mm.correctedbits.min(2) as u8,
+                score: mm.score.quality(),
+            });
         }
     }
 
@@ -408,6 +429,53 @@ mod tests {
     const VALID_DF17_CALLSIGN: [u8; 14] = [
         0x8D, 0x48, 0x40, 0xD6, 0x20, 0x2C, 0xC3, 0x7C, 0xDB, 0x31, 0x57, 0x9F, 0xE8, 0x02,
     ];
+
+    #[test]
+    fn df18_namespaces_survive_tracking_and_snapshot_publication() {
+        let (_bus, mut pipeline) = test_pipeline();
+        for cf in [None, Some(1), Some(5)] {
+            let mut mm = synthetic_df17(0xABCDEF, [1 << 3, 0, 0, 0, 0, 0, 0]);
+            if let Some(cf) = cf {
+                mm.msg[0] = (18 << 3) | cf;
+                mm.msgtype = 18;
+                let parity = dump1090::crc::crc24(&mm.msg[..11]);
+                mm.msg[11] = (parity >> 16) as u8;
+                mm.msg[12] = (parity >> 8) as u8;
+                mm.msg[13] = parity as u8;
+            }
+            mm.sys_timestamp_msg = now_ms();
+            pipeline.merge_message(&mm);
+        }
+        let output = pipeline.subscribe(1);
+        pipeline.prune_and_publish();
+        let snapshot = output.try_recv().unwrap();
+        assert_eq!(snapshot.len(), 3);
+        for key in [0xABCDEF, 0x10ABCDEF, 0x12ABCDEF] {
+            assert!(snapshot
+                .iter()
+                .any(|entry| entry.icao == key && entry.msg_count == 1));
+        }
+        assert_eq!(pipeline.aircraft[&0x12ABCDEF].source, "tisb");
+    }
+
+    #[test]
+    fn aircraft_status_preserves_vertical_rate_in_daemon() {
+        let (_bus, mut pipeline) = test_pipeline();
+        let velocity = synthetic_df17(1, [19 << 3 | 1, 0, 1, 0, 0x20, 0x08, 0x04]);
+        pipeline.merge_message(&velocity);
+        let rate = pipeline.aircraft[&1].vertical_rate_fpm;
+        assert!(rate.is_some());
+        for emergency in 0..=7 {
+            pipeline.merge_message(&synthetic_df17(
+                1,
+                [28 << 3 | 1, emergency << 5 | 0x0a, 0xaa, 0, 0, 0, 0],
+            ));
+            let entry = &pipeline.aircraft[&1];
+            assert_eq!(entry.vertical_rate_fpm, rate);
+            assert_eq!(entry.emergency, Some(emergency));
+            assert_eq!(entry.squawk, Some(7700));
+        }
+    }
 
     #[test]
     fn extract_airborne_cpr_matches_known_bit_layout_odd() {

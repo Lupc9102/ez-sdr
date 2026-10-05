@@ -31,7 +31,8 @@ pub fn address_label(key: u32) -> String {
     if key <= 0x00ff_ffff {
         format!("{key:06X}")
     } else {
-        format!("UAT {:06X}", key & 0x00ff_ffff)
+        let namespace = if key >> 24 >= 0x10 { "DF18" } else { "UAT" };
+        format!("{namespace} {:06X}", key & 0x00ff_ffff)
     }
 }
 

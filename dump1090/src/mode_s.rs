@@ -4,6 +4,50 @@
 use crate::crc::{check_crc, crc24_parity};
 use crate::demod::ModesMessage;
 
+/// Wire identity and payload interpretation for DF18. Namespace bits occupy
+/// the high byte of the tracking key, outside the 24-bit address and UAT keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExtendedIdentity {
+    pub key: u32,
+    pub address_type: &'static str,
+    pub source: &'static str,
+}
+
+/// Decode CF and the type-specific IMF before interpreting an extended squitter.
+/// Coarse TIS-B, management and reserved payloads have no supported ES layout.
+#[must_use]
+pub fn df18_identity(msg: &[u8]) -> Option<ExtendedIdentity> {
+    if msg.len() < 11 || msg[0] >> 3 != 18 {
+        return None;
+    }
+    let address = (u32::from(msg[1]) << 16) | (u32::from(msg[2]) << 8) | u32::from(msg[3]);
+    let cf = msg[0] & 7;
+    let tc = msg[4] >> 3;
+    let imf = match tc {
+        5..=8 => msg[6] & 0x08 != 0,
+        0 | 9..=18 | 20..=22 => msg[4] & 1 != 0,
+        19 => msg[5] & 0x80 != 0,
+        28 | 31 => msg[10] & 1 != 0,
+        29 => msg[10] & 0x20 != 0,
+        _ => false,
+    };
+    let (namespace, address_type, source) = match cf {
+        0 => (0, "icao_non_transponder", "adsb"),
+        1 => (0x10, "adsb_other", "adsb"),
+        2 if imf => (0x11, "tisb_trackfile", "tisb"),
+        2 => (0, "icao", "tisb"),
+        5 => (0x12, "tisb_other", "tisb"),
+        6 if imf => (0x13, "adsr_other", "adsr"),
+        6 => (0, "icao", "adsr"),
+        _ => return None,
+    };
+    Some(ExtendedIdentity {
+        key: address | (namespace << 24),
+        address_type,
+        source,
+    })
+}
+
 /// Decode a raw Mode S message into altitude, callsign, and velocity fields.
 ///
 /// Position is intentionally left unset here: airborne/surface CPR position
@@ -30,15 +74,28 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
         11 | 17 | 18 => (u32::from(msg[1]) << 16) | (u32::from(msg[2]) << 8) | u32::from(msg[3]),
         _ => crc24_parity(msg),
     };
-    if matches!(df, 11 | 17 | 18) && !check_crc(msg) {
+    if (df == 11 && crc24_parity(msg) & 0xFFFF80 != 0) || (matches!(df, 17 | 18) && !check_crc(msg))
+    {
         return None;
     }
 
     let mut am = AircraftMessage {
         icao,
         df,
+        address_type: "icao",
+        source: if matches!(df, 17 | 18) {
+            "adsb"
+        } else {
+            "mode_s"
+        },
         ..Default::default()
     };
+    if df == 18 {
+        let identity = df18_identity(msg)?;
+        am.icao = identity.key;
+        am.address_type = identity.address_type;
+        am.source = identity.source;
+    }
 
     match df {
         17 | 18 => {
@@ -57,6 +114,13 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
                     am.velocity = decode_velocity(msg);
                     am.vertical_rate = decode_vertical_rate(msg);
                 }
+                28 if msg[4] & 7 == 1 => {
+                    am.emergency = Some(msg[5] >> 5);
+                    let id = (u32::from(msg[5] & 0x1F) << 8) | u32::from(msg[6]);
+                    if id != 0 {
+                        am.squawk = Some(decode_squawk(id));
+                    }
+                }
                 _ => {}
             }
         }
@@ -66,10 +130,24 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
         0 | 4 | 16 | 20 => {
             am.altitude = decode_altitude(msg, false);
         }
+        5 | 21 => {
+            let id = (u32::from(msg[2] & 0x1F) << 8) | u32::from(msg[3]);
+            if id != 0 {
+                am.squawk = Some(decode_squawk(id));
+            }
+        }
         _ => {}
     }
 
     Some(am)
+}
+
+fn decode_squawk(id: u32) -> u32 {
+    let mode_a = crate::mode_ac::decode_id13_field(id);
+    ((mode_a >> 12) & 7) * 1000
+        + ((mode_a >> 8) & 7) * 100
+        + ((mode_a >> 4) & 7) * 10
+        + (mode_a & 7)
 }
 
 /// Decode the 8-character flight identification (BDS 2,0) carried in an
@@ -238,16 +316,87 @@ pub fn extract_df(msg: &[u8]) -> u8 {
 pub struct AircraftMessage {
     pub icao: u32,
     pub df: u8,
+    pub address_type: &'static str,
+    pub source: &'static str,
     pub altitude: Option<u32>,
     pub callsign: Option<String>,
     pub position: Option<(f64, f64)>,
     pub velocity: Option<(f64, f64)>,
     pub vertical_rate: Option<i32>,
+    pub emergency: Option<u8>,
+    pub squawk: Option<u32>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn seal(mut msg: [u8; 14]) -> [u8; 14] {
+        let parity = crate::crc::crc24(&msg[..11]);
+        msg[11] = (parity >> 16) as u8;
+        msg[12] = (parity >> 8) as u8;
+        msg[13] = parity as u8;
+        msg
+    }
+
+    #[test]
+    fn df18_control_fields_and_imf_preserve_address_namespaces() {
+        for (cf, expected) in [(0, 0), (1, 0x10), (2, 0), (5, 0x12), (6, 0)] {
+            let mut msg = [0; 14];
+            msg[..5].copy_from_slice(&[(18 << 3) | cf, 0xAB, 0xCD, 0xEF, 11 << 3]);
+            let decoded = decode_mode_s_message(&seal(msg)).unwrap();
+            assert_eq!(decoded.icao, (expected << 24) | 0xABCDEF);
+            if cf == 2 || cf == 6 {
+                // Airborne-position IMF is ME bit 8.
+                msg[4] |= 1;
+                let non_icao = decode_mode_s_message(&seal(msg)).unwrap();
+                assert_eq!(
+                    non_icao.icao,
+                    ((if cf == 2 { 0x11 } else { 0x13 }) << 24) | 0xABCDEF
+                );
+                assert_ne!(decoded.address_type, non_icao.address_type);
+            }
+        }
+        for cf in [3, 4, 7] {
+            let mut msg = [0; 14];
+            msg[0] = (18 << 3) | cf;
+            assert!(decode_mode_s_message(&seal(msg)).is_none());
+        }
+        for cf in [2, 6] {
+            for (tc, byte, bit) in [
+                (5, 6, 0x08),
+                (19, 5, 0x80),
+                (28, 10, 1),
+                (29, 10, 0x20),
+                (31, 10, 1),
+            ] {
+                let mut msg = [0; 14];
+                msg[..4].copy_from_slice(&[(18 << 3) | cf, 0xAB, 0xCD, 0xEF]);
+                msg[4] = tc << 3;
+                assert_eq!(df18_identity(&msg).unwrap().key, 0xABCDEF);
+                msg[byte] |= bit;
+                assert_ne!(df18_identity(&msg).unwrap().key, 0xABCDEF);
+            }
+        }
+    }
+
+    #[test]
+    fn tc28_emergency_and_squawk_have_separate_fields_from_vertical_rate() {
+        for emergency in 0..=7 {
+            let mut msg = [0; 14];
+            msg[0] = 17 << 3;
+            msg[4] = (28 << 3) | 1;
+            // ID13 0x0aaa encodes squawk 7700.
+            msg[5] = (emergency << 5) | 0x0a;
+            msg[6] = 0xaa;
+            let decoded = decode_mode_s_message(&seal(msg)).unwrap();
+            assert_eq!(decoded.emergency, Some(emergency));
+            assert_eq!(decoded.squawk, Some(7700));
+            assert_eq!(decoded.vertical_rate, None);
+            msg[4] = (28 << 3) | 2;
+            assert_eq!(decode_mode_s_message(&seal(msg)).unwrap().emergency, None);
+        }
+    }
 
     #[test]
     fn extract_df_from_valid_msg() {

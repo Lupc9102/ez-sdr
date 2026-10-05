@@ -213,7 +213,14 @@ fn correct_short_message(
 ) -> (isize, [u8; MODES_LONG_MSG_BYTES]) {
     let short_bytes = &input[..MODES_SHORT_MSG_BYTES];
     let short_syndrome = crc24_parity(short_bytes);
-    if short_syndrome == 0 {
+    // DF11 parity includes a legitimate seven-bit interrogator identifier.
+    // Validate only the protected syndrome bits and preserve the overlay.
+    let syndrome_mask = if input[0] >> 3 == 11 {
+        0xFFFF80
+    } else {
+        0xFFFFFF
+    };
+    if short_syndrome & syndrome_mask == 0 {
         let mut msg = [0u8; MODES_LONG_MSG_BYTES];
         msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
         return (0, msg);
@@ -221,10 +228,21 @@ fn correct_short_message(
 
     if max_errors >= 1 {
         for bit in 0..MODES_SHORT_MSG_BITS {
-            if single_bit_syndrome(bit + SHORT_MSG_OFFSET) == short_syndrome {
+            if single_bit_syndrome(bit + SHORT_MSG_OFFSET) & syndrome_mask
+                == short_syndrome & syndrome_mask
+            {
                 let mut msg = [0u8; MODES_LONG_MSG_BYTES];
                 msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
                 apply_bit_errors(&mut msg, bit);
+                // A repaired DF must use the parity rules of its final format.
+                let final_mask = if msg[0] >> 3 == 11 {
+                    0xFFFF80
+                } else {
+                    0xFFFFFF
+                };
+                if crc24_parity(&msg[..MODES_SHORT_MSG_BYTES]) & final_mask != 0 {
+                    continue;
+                }
                 return (1, msg);
             }
         }
@@ -329,6 +347,37 @@ fn correct_message(
         correct_long_message(input, max_errors)
     } else {
         correct_short_message(input, max_errors)
+    }
+}
+
+impl ScoreRank {
+    /// UI decode-quality rank; this is a message classification, not a measured
+    /// probability that a coordinate is physically correct.
+    #[must_use]
+    pub fn quality(self) -> f64 {
+        match self {
+            ScoreRank::Df17Known
+            | ScoreRank::Df18Known
+            | ScoreRank::Df11IidKnown
+            | ScoreRank::Df11AcqKnown => 1.0,
+            ScoreRank::Df17_1ErrorKnown
+            | ScoreRank::Df18_1ErrorKnown
+            | ScoreRank::Df11Iid1ErrorKnown
+            | ScoreRank::Df11Acq1ErrorKnown => 0.75,
+            ScoreRank::Df17_2ErrorKnown | ScoreRank::Df18_2ErrorKnown => 0.5,
+            // Valid CRC but unknown aircraft — better than garbage.
+            ScoreRank::Df17Unknown
+            | ScoreRank::Df18Unknown
+            | ScoreRank::Df11IidUnknown
+            | ScoreRank::Df11AcqUnknown
+            | ScoreRank::UnreliableKnown => 0.6,
+            ScoreRank::Df17_1ErrorUnknown
+            | ScoreRank::Df18_1ErrorUnknown
+            | ScoreRank::Df11Iid1ErrorUnknown
+            | ScoreRank::Df11Acq1ErrorUnknown
+            | ScoreRank::UnreliableUnknown => 0.4,
+            _ => 0.25,
+        }
     }
 }
 
@@ -456,6 +505,9 @@ pub fn score_mode_s_message(
             }
         }
         18 => {
+            if crate::mode_s::df18_identity(&corrected).is_none() {
+                return ScoreRank::Uncorrectable;
+            }
             let recent = icao_filter.contains(addr | 0x0100_0000); // NT flag
             match corrections {
                 0 => {
@@ -539,13 +591,30 @@ pub fn decode_mode_s_message(
             mm.addr =
                 (u32::from(mm.msg[1]) << 16) | (u32::from(mm.msg[2]) << 8) | u32::from(mm.msg[3]);
             mm.crc = crc24_parity(&mm.msg[..MODES_SHORT_MSG_BYTES]);
-            icao_filter.add(mm.addr);
+            if mm.correctedbits == 0 && mm.crc == 0 {
+                icao_filter.add(mm.addr);
+            }
         }
-        17 | 18 => {
+        17 => {
             mm.addr =
                 (u32::from(mm.msg[1]) << 16) | (u32::from(mm.msg[2]) << 8) | u32::from(mm.msg[3]);
             mm.crc = crc24_parity(&mm.msg);
-            icao_filter.add(mm.addr);
+            if mm.correctedbits == 0 {
+                icao_filter.add(mm.addr);
+            }
+        }
+        18 => {
+            let identity = crate::mode_s::df18_identity(&mm.msg).ok_or(-1)?;
+            mm.addr = identity.key;
+            mm.crc = crc24_parity(&mm.msg);
+            if mm.correctedbits == 0 {
+                // DF18 history authorizes only subsequent DF18 scoring. It
+                // must not authorize Mode S AP traffic, even for ICAO CF=0.
+                let wire_address = (u32::from(mm.msg[1]) << 16)
+                    | (u32::from(mm.msg[2]) << 8)
+                    | u32::from(mm.msg[3]);
+                icao_filter.add(wire_address | 0x0100_0000);
+            }
         }
         _ => {
             mm.crc = crc24_parity(&mm.msg[..mm.msgbits / 8]);
@@ -1286,8 +1355,6 @@ impl InputFormat {
     }
 }
 
-
-
 /// Convert a buffer of interleaved IQ samples into magnitude values.
 ///
 /// * `iq`   – raw bytes from the SDR.
@@ -1404,6 +1471,71 @@ fn magnitude_sc16q11_sample(i: i16, q: i16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colliding_address_parity_is_rejected_until_that_address_is_learned() {
+        let mut raw = [0u8; 14];
+        raw[0] = 4 << 3;
+        let parity = crate::crc::crc24(&raw[..4]) ^ 0x000151;
+        raw[4] = (parity >> 16) as u8;
+        raw[5] = (parity >> 8) as u8;
+        raw[6] = parity as u8;
+        let mut filter = IcaoFilter::new();
+        filter.add(0xABCDEF);
+        assert!(
+            decode_mode_s_message(&mut ModesMessage::default(), &raw, &mut filter, false, 0)
+                .is_err()
+        );
+        filter.add(0x000151);
+        let mut decoded = ModesMessage::default();
+        decode_mode_s_message(&mut decoded, &raw, &mut filter, false, 0).unwrap();
+        assert_eq!(decoded.addr, 0x000151);
+    }
+
+    #[test]
+    fn df11_iid_survives_demodulation_and_semantic_decoding() {
+        for iid in [0u32, 1, 17, 79, 127] {
+            for max_errors in 0..=2 {
+                for known in [false, true] {
+                    let mut raw = [0u8; 14];
+                    raw[..4].copy_from_slice(&[11 << 3, 0xAB, 0xCD, 0xEF]);
+                    let parity = crate::crc::crc24(&raw[..4]) ^ iid;
+                    raw[4] = (parity >> 16) as u8;
+                    raw[5] = (parity >> 8) as u8;
+                    raw[6] = parity as u8;
+                    let mut filter = IcaoFilter::new();
+                    if known {
+                        filter.add(0xABCDEF);
+                    }
+                    let rank = score_mode_s_message(&raw, &filter, false, max_errors);
+                    assert_eq!(
+                        rank,
+                        match (iid == 0, known) {
+                            (true, true) => ScoreRank::Df11AcqKnown,
+                            (true, false) => ScoreRank::Df11AcqUnknown,
+                            (false, true) => ScoreRank::Df11IidKnown,
+                            (false, false) => ScoreRank::Df11IidUnknown,
+                        }
+                    );
+                    assert_eq!(
+                        crate::mode_s::decode_mode_s_message(&raw[..7])
+                            .unwrap()
+                            .icao,
+                        0xABCDEF
+                    );
+                    let mut decoded = ModesMessage::default();
+                    let accepted =
+                        decode_mode_s_message(&mut decoded, &raw, &mut filter, false, max_errors);
+                    assert_eq!(accepted.is_ok(), rank >= ScoreRank::AcceptThreshold);
+                    if accepted.is_ok() {
+                        assert_eq!(decoded.correctedbits, 0);
+                        assert_eq!(&decoded.msg[..7], &raw[..7]);
+                        assert_eq!(decoded.addr, 0xABCDEF);
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn surveillance_scoring_uses_syndrome_recency() {

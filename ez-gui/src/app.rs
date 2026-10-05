@@ -592,33 +592,64 @@ impl CentralApp {
     fn map_daemon_aircraft(
         item: ez_proto::AircraftTelemetry,
     ) -> Option<crate::adsb_panel::AircraftEntry> {
-        let (lat, lon) = (item.lat?, item.lon?);
-        if !lat.is_finite()
-            || !lon.is_finite()
-            || !(-90.0..=90.0).contains(&lat)
-            || !(-180.0..=180.0).contains(&lon)
-        {
-            return None;
-        }
+        let now = std::time::Instant::now();
+        let wall_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let observation_time = |timestamp: u64| {
+            now.checked_sub(std::time::Duration::from_millis(
+                wall_ms.saturating_sub(timestamp),
+            ))
+            .unwrap_or(now - std::time::Duration::from_secs(600))
+        };
+        let position = item.lat.zip(item.lon).filter(|&(lat, lon)| {
+            lat.is_finite()
+                && lon.is_finite()
+                && (-90.0..=90.0).contains(&lat)
+                && (-180.0..=180.0).contains(&lon)
+        });
+        let position_seen = item.position_seen_ms.map(observation_time);
+        let (lat, lon) = position.unwrap_or((0.0, 0.0));
+        let track = item.track_deg.filter(|track| track.is_finite());
+        let quality = item.position_quality;
         Some(crate::adsb_panel::AircraftEntry {
             icao: item.icao,
+            address_type: if item.address_type.is_empty() {
+                "unknown".into()
+            } else {
+                item.address_type
+            },
+            source: if item.source.is_empty() {
+                "unknown".into()
+            } else {
+                item.source
+            },
             callsign: item.callsign.unwrap_or_default(),
             lat,
             lon,
             altitude: item.altitude_ft.unwrap_or_default().max(0) as u32,
-            altitude_type: crate::adsb_panel::AltitudeType::Barometric,
+            altitude_type: if item.altitude_geometric {
+                crate::adsb_panel::AltitudeType::Geometric
+            } else {
+                crate::adsb_panel::AltitudeType::Barometric
+            },
             speed: item.ground_speed_kt.unwrap_or_default().max(0.0) as u32,
-            heading: item.track_deg.unwrap_or_default().rem_euclid(360.0) as u32,
-            squawk: None,
-            vertical_rate: None,
+            heading: track.unwrap_or_default().rem_euclid(360.0) as u32,
+            squawk: item.squawk,
+            vertical_rate: item.vertical_rate_fpm,
+            emergency: item.emergency,
             surface_movement: None,
             surface_heading: None,
-            has_position: true,
-            has_heading: true,
-            seen: std::time::Instant::now(),
-            reliable: true,
-            correctedbits: 0,
-            score: 1.0,
+            has_position: position.is_some()
+                && position_seen.is_some_and(|seen| seen.elapsed().as_secs() <= 60),
+            has_heading: track.is_some(),
+            position_seen,
+            position_source: item.position_source,
+            seen: observation_time(item.last_seen_ms),
+            reliable: quality.as_ref().is_some_and(|quality| quality.reliable),
+            quality_known: quality.is_some(),
+            correctedbits: quality.as_ref().map_or(0, |quality| quality.corrected_bits),
+            score: quality.as_ref().map_or(0.0, |quality| quality.score),
         })
     }
 
@@ -1766,9 +1797,7 @@ impl eframe::App for CentralApp {
                 .max_size([680.0, 820.0])
                 .resizable(true)
                 .collapsible(false)
-                .show(ui.ctx(), |ui| {
-                    self.render_secondary_panel(ui, tool)
-                });
+                .show(ui.ctx(), |ui| self.render_secondary_panel(ui, tool));
             if !open {
                 self.active_secondary_tool = None;
             }
