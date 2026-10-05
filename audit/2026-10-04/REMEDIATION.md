@@ -45,7 +45,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [ ] S02 (P2): Changing observer location leaves cached passes and trajectories for the old location
 - [ ] S03 (P2): Map panning is reset every second and satellite markers use stale projection parameters
 - [x] L01 (P2): Ordinary TCP fragmentation can corrupt a valid rigctl command
-- [ ] V01 (P3): Raw wideband IQ is presented as symbol-level QPSK quality
+- [x] V01 (P3): Raw wideband IQ is presented as symbol-level QPSK quality
 
 ## Additional experiments
 
@@ -97,3 +97,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Batch 7: G03 replaces the four-entry settings FIFO with synchronized latest-value batch/profile/reset state and one coalesced wakeup. Controls apply and acknowledge their revision even without IQ. Frames carry their exact batch settings, control revision and advanced-profile revision; the app discards superseded audio and records a submitted profile only when delivery succeeds. Unchanged settings preserve the acknowledgement.
 - Batch 7 regressions flood 100 settings/profiles before IQ, verify independent idle acknowledgement and final AM/muted output, change controls under IQ backlog, check frame revisions/settings and verify missing-worker requests report failure.
 - Batch 7 final gates: Rust 1.92.0 workspace all-target tests pass (1,508 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed. Twenty-four of 42 formal findings are fixed. Four untouched files still differ under the full workspace format check; the goal remains active.
+
+- Batch 8: V01 labels the satellite view as raw ADC IQ geometry before carrier/timing recovery and removes unsupported QPSK EVM/phase-error claims. Scatter points and density now cover the same bounded selected-sample window; eviction and capacity shrink subtract old density, Reset clears both, and capture center/rate/source/generation changes clear both even while frozen. Large pushes select at most 512 points.
+- Batch 8 regressions render known QPSK points, rotating-carrier and noise controls with explicit raw-IQ qualification and no symbol-quality metrics; verify density equality/expiry, capacity shrink/reset, and capture-change invalidation while frozen.
+- Batch 8 final gates: Rust 1.92.0 workspace all-target tests pass (1,508 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed. Twenty-five of 42 formal findings are fixed and committed. The remaining seventeen findings and additional experiments stay open; the goal remains active.

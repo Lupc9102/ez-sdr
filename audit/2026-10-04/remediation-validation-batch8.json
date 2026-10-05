@@ -1,0 +1,26 @@
+{
+  "batch": 8,
+  "findings": [
+    "V01"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1508,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "QPSK points, rotating carrier and noise render with raw-ADC qualification and no EVM/phase-error claims",
+    "Point eviction removes obsolete density; shrinking and Reset preserve window consistency",
+    "Capture center/rate/source/generation changes clear both points and density while frozen"
+  ],
+  "limitations": [
+    "Seventeen formal findings and additional experiments remain open",
+    "Four untouched files retain pre-existing full workspace formatting differences",
+    "Raw IQ geometry is not decoder symbol-quality telemetry"
+  ]
+}

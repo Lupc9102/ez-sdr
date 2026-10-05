@@ -963,6 +963,8 @@ impl eframe::App for CentralApp {
             signal_level,
         )) = source_params
         {
+            self.constellation
+                .observe_capture(center, rate, &source_mode, stream_generation);
             let mut all_audio_samples: Vec<f32> = Vec::new();
             let mut spectrum_batch: Vec<Vec<num_complex::Complex32>> = Vec::new();
             let capture = (center, source_mode, stream_generation);

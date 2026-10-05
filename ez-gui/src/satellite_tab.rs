@@ -98,7 +98,7 @@ pub fn render_satellite_tab(
                     status_bar.info("🤖 Satellite details sent to AI".to_string());
                 }
 
-                // Live signal-quality constellation — phase/amplitude view
+                // Raw capture geometry, before symbol/carrier/timing recovery.
                 // (SatDump-style) while a pass is active or recording.
                 if *satellite_subtab != SatelliteSubTab::Decode
                     && !satellite_panel.is_meteor_selected()
@@ -106,12 +106,7 @@ pub fn render_satellite_tab(
                 {
                     ui.add_space(8.0);
                     ui.separator();
-                    ui.label(egui::RichText::new("📶 Signal Quality").strong());
-                    ui.label(
-                        egui::RichText::new("IQ constellation")
-                            .small()
-                            .color(egui::Color32::from_gray(140)),
-                    );
+                    ui.label(egui::RichText::new("📶 Capture IQ").strong());
                     constellation.ui(ui, &theme);
                 }
             });
