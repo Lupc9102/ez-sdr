@@ -19,7 +19,7 @@ use crate::decoding_panel::DecodingPanel;
 use crate::demod::{DemodConfig, DemodWorker};
 use crate::discord::DiscordNotifier;
 use crate::howto_panel::HowToPanel;
-use crate::mqtt::MqttPublisher;
+use crate::mqtt::{MqttPublisher, TelemetryView};
 use crate::recorder_panel::RecorderPanel;
 use crate::rigctl::{RigctlRequest, RigctlServer};
 use crate::satellite_panel::SatellitePanel;
@@ -1703,7 +1703,10 @@ impl eframe::App for CentralApp {
                     "MQTT Connected",
                     &format!(
                         "Connected to {}",
-                        self.mqtt.connected_endpoint().unwrap_or("unknown endpoint")
+                        self.mqtt
+                            .connected_endpoint()
+                            .as_deref()
+                            .unwrap_or("unknown endpoint")
                     ),
                     "🔗",
                     0x00AA00,
@@ -1762,22 +1765,19 @@ impl eframe::App for CentralApp {
                     scanner_active,
                     snr_db: snr,
                 });
-            self.mqtt.tick_reconnect();
-            if self.last_scheduler_update.elapsed().as_secs() < 1 {
-                self.mqtt.tick(freq, gain);
-                self.mqtt.publish_signal(freq, peak, noise, mode, recording);
-                self.mqtt.publish_passes(&passes);
-                if !self.adsb_panel.aircraft.is_empty() {
-                    let icao_aircraft: Vec<_> = self
-                        .adsb_panel
-                        .aircraft
-                        .iter()
-                        .filter(|ac| ac.icao <= 0x00FF_FFFF)
-                        .cloned()
-                        .collect();
-                    self.mqtt.publish_aircraft(&icao_aircraft);
-                }
-            }
+            self.mqtt.publish_telemetry_if_due(
+                std::time::Instant::now(),
+                TelemetryView {
+                    frequency_hz: freq,
+                    gain_db: gain,
+                    signal_db: peak,
+                    noise_db: noise,
+                    mode,
+                    recording,
+                    passes: &passes,
+                    aircraft: &self.adsb_panel.aircraft,
+                },
+            );
 
             // Periodic session summary report
             if self.discord.settings.summary_enabled
@@ -2193,6 +2193,7 @@ impl CentralApp {
             status_bar: &mut self.status_bar,
             ai_panel: &mut self.ai_panel,
             recorder_panel: &mut self.recorder_panel,
+            mqtt: &self.mqtt,
         };
         crate::secondary_panel::render_secondary_panel(&mut ctx, ui, tool);
     }

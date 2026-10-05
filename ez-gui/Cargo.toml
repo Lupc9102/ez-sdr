@@ -53,6 +53,7 @@ serde_json = { workspace = true }
 
 # Async runtime / channels
 crossbeam-channel = { workspace = true }
+arc-swap = { workspace = true }
 
 # WAV/audio recording
 hound = "3.5"

@@ -19,6 +19,7 @@ pub struct SecondaryPanelContext<'a> {
     pub status_bar: &'a mut StatusBar,
     pub ai_panel: &'a mut AiPanel,
     pub recorder_panel: &'a mut RecorderPanel,
+    pub mqtt: &'a crate::mqtt::MqttPublisher,
 }
 
 pub fn render_secondary_panel(
@@ -45,6 +46,32 @@ pub fn render_secondary_panel(
             SecondaryTool::Recorder => ctx.recorder_panel.ui(ui),
             SecondaryTool::Ai => ctx.ai_panel.ui(ui),
             SecondaryTool::Settings => {
+                let stats = ctx.mqtt.stats();
+                ui.label(format!(
+                    "MQTT: {}",
+                    ctx.mqtt
+                        .connected_endpoint()
+                        .unwrap_or_else(|| "disconnected".into())
+                ));
+                ui.label(format!(
+                    "Telemetry sets: {} · Submitted: {} · Pending: {}",
+                    stats.telemetry_sets, stats.submitted, stats.pending
+                ));
+                ui.label(format!(
+                    "Coalesced: {} · Backpressure: {}",
+                    stats.coalesced, stats.backpressure
+                ));
+                ui.label(format!(
+                    "Expired: {} · Dropped events: {} · Rejected: {}",
+                    stats.expired, stats.dropped_events, stats.rejected
+                ));
+                if let Some(seconds) = ctx.mqtt.reconnect_in_secs() {
+                    ui.label(format!("MQTT reconnect in {seconds}s"));
+                }
+                if let Some(error) = ctx.mqtt.last_error() {
+                    ui.label(egui::RichText::new(error).color(egui::Color32::LIGHT_RED));
+                }
+                ui.separator();
                 if let Ok(mut state) = ctx.shared.try_lock() {
                     state.config.ui(ui);
                 }

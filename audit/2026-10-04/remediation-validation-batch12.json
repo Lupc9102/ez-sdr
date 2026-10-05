@@ -1,0 +1,40 @@
+{
+  "batch": 12,
+  "findings": [
+    "I01"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1529,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "60 Hz synthetic loop produces exactly three complete MQTT wire sets in 15 seconds",
+    "Actual app cadence ignores scheduler frame window and Settings renders counters/errors",
+    "Paused broker bounds and coalesces telemetry, preserves namespaced identities and delivers newest values after acknowledgement release",
+    "4,096-track limit, event overflow, ten-second in-flight/pending expiry and oversized/invalid payload rejection",
+    "Non-blocking reconfiguration, disable and drop while QoS acknowledgement is stalled",
+    "Delayed CONNACK completes on one socket; missing CONNACK expires without GUI polling",
+    "Two brokers: old socket closes before replacement publication; prefix-only edits preserve socket"
+  ],
+  "targeted_saturated_publication_latency_us": {
+    "p50": 58.08,
+    "p95": 100.932,
+    "p99": 116.782,
+    "max": 160.154,
+    "assertion_limit": 50000,
+    "calls": 2000,
+    "aircraft_per_call": 256
+  },
+  "limitations": [
+    "Eleven formal findings and additional experiments remain open",
+    "Mixed slow daemon/MQTT saturation experiment retains its daemon portion",
+    "Actual-display RF throughput and supported-hardware experiments remain unmeasured",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

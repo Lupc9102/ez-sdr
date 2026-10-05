@@ -846,3 +846,63 @@ fn scanner_ai_request_completes_hidden_and_can_be_reopened_without_external_call
         );
     }
 }
+
+#[test]
+fn mqtt_cadence_is_independent_of_scheduler_frames_and_settings_show_delivery_health() {
+    let mut app = offline_test_app();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    app.mqtt.set_enabled(
+        true,
+        listener.local_addr().unwrap().to_string(),
+        "audit".into(),
+    );
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    for _ in 0..60 {
+        app.last_scheduler_update = std::time::Instant::now();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.logic(ui.ctx(), &mut frame)
+        });
+    }
+    assert_eq!(
+        app.mqtt.stats().telemetry_sets,
+        1,
+        "scheduler frame window caused a publication burst"
+    );
+    app.mqtt
+        .set_enabled(true, "127.0.0.1:0".into(), "audit".into());
+    let mut text = String::new();
+    for _ in 0..3 {
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 800.0),
+                )),
+                ..Default::default()
+            },
+            |ui| app.render_secondary_panel(ui, SecondaryTool::Settings),
+        );
+        for shape in output.shapes {
+            if let egui::Shape::Text(shape) = shape.shape {
+                text.push_str(shape.galley.text());
+            }
+        }
+    }
+    for expected in [
+        "Telemetry sets: 1",
+        "Pending:",
+        "Coalesced:",
+        "Backpressure:",
+        "Expired:",
+        "Dropped events:",
+        "Rejected:",
+        "valid broker host and port",
+    ] {
+        assert!(
+            text.contains(expected),
+            "Settings does not expose {expected}: {text}"
+        );
+    }
+    app.mqtt.disconnect();
+}
