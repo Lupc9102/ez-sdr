@@ -707,6 +707,9 @@ impl CentralApp {
         status: ez_proto::RecordingStatus,
         state: &mut SharedState,
     ) {
+        if status.channel_id != state.source.daemon_channel_ids().spectrum {
+            return;
+        }
         state.recording = status.active;
         self.recorder_panel.handle_daemon_recording(status);
     }

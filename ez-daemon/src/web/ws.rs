@@ -72,7 +72,7 @@ async fn data_plane_ws(
             .into_response();
     };
     match state.subscribe_existing(id, kind) {
-        Ok(sub) => ws.on_upgrade(move |socket| stream_channel(socket, id, sub)),
+        Ok(sub) => ws.on_upgrade(move |socket| stream_channel(socket, id, sub, state)),
         Err(e) => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
     }
 }
@@ -83,7 +83,12 @@ async fn data_plane_ws(
 /// identical shape to the TCP path's `spawn_forwarder`/`run_writer` split, just one
 /// subscription per connection instead of a table of them (this route names exactly one
 /// channel in its URL).
-async fn stream_channel(socket: WebSocket, channel_id: ChannelId, sub: ChannelSubscription) {
+async fn stream_channel(
+    socket: WebSocket,
+    channel_id: ChannelId,
+    sub: ChannelSubscription,
+    state: Arc<DaemonState>,
+) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(DATA_CHANNEL_CAPACITY);
 
@@ -108,15 +113,31 @@ async fn stream_channel(socket: WebSocket, channel_id: ChannelId, sub: ChannelSu
     };
     drop(tx);
 
-    let writer = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if sink.send(msg).await.is_err() {
-                break;
+    let mut writer = tokio::spawn(async move {
+        let mut lifecycle = tokio::time::interval(CONTROL_HW_TICK);
+        loop {
+            tokio::select! {
+                _ = lifecycle.tick() => {
+                    if !state.channel_exists(channel_id) {
+                        let removed = ServerEvent::ChannelRemoved { channel_id };
+                        let _ = sink.send(Message::Text(serde_json::to_string(&removed).unwrap().into())).await;
+                        let _ = sink.send(Message::Close(None)).await;
+                        break;
+                    }
+                }
+                msg = rx.recv() => {
+                    let Some(msg) = msg else { break; };
+                    if sink.send(msg).await.is_err() { break; }
+                }
             }
         }
     });
 
-    while let Some(msg) = stream.next().await {
+    loop {
+        let msg = tokio::select! {
+            _ = &mut writer => { keep_running.store(false, Ordering::Relaxed); return; }
+            msg = stream.next() => { let Some(msg) = msg else { break; }; msg }
+        };
         match msg {
             Ok(Message::Close(_)) | Err(_) => break,
             // Data plane is one-way (server -> browser); pings/pongs are handled by axum
@@ -138,11 +159,15 @@ async fn control_ws(State(state): State<Arc<DaemonState>>, ws: WebSocketUpgrade)
 }
 
 async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
+    let Ok(client_channels) = state.allocate_client_channels() else {
+        return;
+    };
     let (mut sink, mut stream) = socket.split();
     let (event_tx, mut event_rx) = mpsc::channel::<ServerEvent>(CONTROL_EVENT_CHANNEL_CAPACITY);
 
     if event_tx
         .send(ServerEvent::Welcome {
+            client_channels,
             protocol_version: PROTOCOL_VERSION,
             active_channels: state.active_channels(),
         })
@@ -181,9 +206,20 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
         loop {
             let mut command = match deferred.take() {
                 Some(command) => command,
-                None => match command_rx.recv().await {
-                    Some(command) => command,
-                    None => break,
+                None => match tokio::time::timeout(CONTROL_HW_TICK, command_rx.recv()).await {
+                    Err(_) => {
+                        crate::server::report_removed_channels(
+                            &command_state,
+                            &command_events,
+                            &mut forwarders,
+                        )
+                        .await;
+                        continue;
+                    }
+                    Ok(command) => match command {
+                        Some(command) => command,
+                        None => break,
+                    },
                 },
             };
 
@@ -194,7 +230,15 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
                 }
             }
 
-            if !apply_command(command, &command_state, &command_events, &mut forwarders).await {
+            if !apply_command(
+                command,
+                &command_state,
+                &command_events,
+                &mut forwarders,
+                client_channels,
+            )
+            .await
+            {
                 break;
             }
         }
@@ -202,6 +246,7 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
         for stop in forwarders.values() {
             stop.store(false, Ordering::Relaxed);
         }
+        command_state.release_client_channels(client_channels);
     });
 
     let mut hw_tick = tokio::time::interval_at(
@@ -253,7 +298,9 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
                     break;
                 }
                 let mut disconnected = false;
-                for status in state.recording_statuses() {
+                for status in state.recording_statuses().into_iter().filter(|status| {
+                    status.channel_id < ez_proto::CLIENT_CHANNEL_START || client_channels.contains(status.channel_id)
+                }) {
                     if event_tx.send(ServerEvent::Recording(status)).await.is_err() {
                         disconnected = true;
                         break;

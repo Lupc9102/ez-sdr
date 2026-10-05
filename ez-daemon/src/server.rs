@@ -109,8 +109,10 @@ async fn handle_connection(
     };
     tracing::info!(%peer, client_name, "client attached");
 
+    let client_channels = state.allocate_client_channels()?;
     writer
         .send(ServerEvent::Welcome {
+            client_channels,
             protocol_version: PROTOCOL_VERSION,
             active_channels: state.active_channels(),
         })
@@ -123,11 +125,20 @@ async fn handle_connection(
     let writer_task = tokio::spawn(run_writer(writer, event_rx));
 
     let mut forwarders: HashMap<ChannelId, Arc<AtomicBool>> = HashMap::new();
-    let result = command_loop(&mut reader, &state, &running, &event_tx, &mut forwarders).await;
+    let result = command_loop(
+        &mut reader,
+        &state,
+        &running,
+        &event_tx,
+        &mut forwarders,
+        client_channels,
+    )
+    .await;
 
     for stop in forwarders.values() {
         stop.store(false, Ordering::Relaxed);
     }
+    state.release_client_channels(client_channels);
     drop(event_tx);
     let _ = writer_task.await;
     tracing::info!(%peer, "client detached");
@@ -194,6 +205,7 @@ async fn command_loop(
     daemon_running: &Arc<AtomicBool>,
     event_tx: &mpsc::Sender<ServerEvent>,
     forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
+    client_channels: ez_proto::ClientChannels,
 ) -> Result<()> {
     let mut hw_tick = tokio::time::interval_at(
         tokio::time::Instant::now() + CONNECTION_TICK,
@@ -205,7 +217,7 @@ async fn command_loop(
             msg = reader.next() => {
                 match msg {
                     Some(Ok(cmd)) => {
-                        if !apply_command(cmd, state, event_tx, forwarders).await {
+                        if !apply_command(cmd, state, event_tx, forwarders, client_channels).await {
                             return Ok(());
                         }
                     }
@@ -217,7 +229,12 @@ async fn command_loop(
                 if event_tx.send(ServerEvent::Hardware(state.hardware_status())).await.is_err() {
                     return Ok(());
                 }
-                for status in state.recording_statuses() {
+                report_removed_channels(state, event_tx, forwarders).await;
+                for status in state.recording_statuses().into_iter().filter(|status| {
+                    status.channel_id < ez_proto::CLIENT_CHANNEL_START
+                        || client_channels.contains(status.channel_id)
+                        || forwarders.contains_key(&status.channel_id)
+                }) {
                     if event_tx.send(ServerEvent::Recording(status)).await.is_err() {
                         return Ok(());
                     }
@@ -239,7 +256,40 @@ pub(crate) async fn apply_command(
     state: &Arc<DaemonState>,
     event_tx: &mpsc::Sender<ServerEvent>,
     forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
+    client_channels: ez_proto::ClientChannels,
 ) -> bool {
+    let controlled_channel = match &cmd {
+        ClientCommand::SetDemodMode { channel_id, .. }
+        | ClientCommand::SetVolume { channel_id, .. }
+        | ClientCommand::SetSquelch { channel_id, .. }
+        | ClientCommand::Retune { channel_id, .. }
+        | ClientCommand::RemoveChannel { channel_id }
+        | ClientCommand::StartRecording { channel_id, .. }
+        | ClientCommand::StopRecording { channel_id } => Some(*channel_id),
+        _ => None,
+    };
+    if controlled_channel
+        .is_some_and(|id| id >= ez_proto::CLIENT_CHANNEL_START && !client_channels.contains(id))
+    {
+        let message = "channel is owned by another connection".to_string();
+        if let ClientCommand::SetSquelch {
+            channel_id,
+            request_id,
+            ..
+        } = cmd
+        {
+            let _ = event_tx
+                .send(ServerEvent::Squelch {
+                    channel_id,
+                    request_id,
+                    result: Err(message),
+                })
+                .await;
+        } else {
+            send_error(event_tx, message).await;
+        }
+        return true;
+    }
     match cmd {
         ClientCommand::Hello { .. } => {
             send_error(event_tx, "unexpected Hello after handshake".to_string()).await;
@@ -270,7 +320,16 @@ pub(crate) async fn apply_command(
         }
         ClientCommand::Subscribe { channel } => {
             let channel_id = channel.id;
-            match state.subscribe(channel) {
+            let subscription = if channel_id >= ez_proto::CLIENT_CHANNEL_START
+                && !client_channels.contains(channel_id)
+            {
+                state
+                    .subscribe_existing(channel_id, channel.kind)
+                    .map(|sub| (sub, false))
+            } else {
+                state.subscribe(channel)
+            };
+            match subscription {
                 Ok((sub, _)) => spawn_forwarder(channel_id, sub, event_tx.clone(), forwarders),
                 Err(e) => send_error(event_tx, e.to_string()).await,
             }
@@ -315,11 +374,17 @@ pub(crate) async fn apply_command(
                 send_error(event_tx, e.to_string()).await;
             }
         }
-        ClientCommand::RemoveChannel { channel_id } => {
-            if let Err(e) = state.remove_channel(channel_id) {
-                send_error(event_tx, e.to_string()).await;
+        ClientCommand::RemoveChannel { channel_id } => match state.remove_channel(channel_id) {
+            Ok(()) => {
+                if let Some(stop) = forwarders.remove(&channel_id) {
+                    stop.store(false, Ordering::Relaxed);
+                }
+                let _ = event_tx
+                    .send(ServerEvent::ChannelRemoved { channel_id })
+                    .await;
             }
-        }
+            Err(e) => send_error(event_tx, e.to_string()).await,
+        },
         ClientCommand::StartRecording { channel_id, format } => {
             match state.start_recording(channel_id, format) {
                 Ok(status) => {
@@ -340,6 +405,26 @@ pub(crate) async fn apply_command(
         ClientCommand::Detach => return false,
     }
     true
+}
+
+pub(crate) async fn report_removed_channels(
+    state: &DaemonState,
+    event_tx: &mpsc::Sender<ServerEvent>,
+    forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
+) {
+    let removed: Vec<_> = forwarders
+        .keys()
+        .copied()
+        .filter(|id| !state.channel_exists(*id))
+        .collect();
+    for channel_id in removed {
+        if let Some(stop) = forwarders.remove(&channel_id) {
+            stop.store(false, Ordering::Relaxed);
+        }
+        let _ = event_tx
+            .send(ServerEvent::ChannelRemoved { channel_id })
+            .await;
+    }
 }
 
 async fn send_error(event_tx: &mpsc::Sender<ServerEvent>, message: String) {

@@ -141,6 +141,43 @@ mod tests {
     use tokio_util::codec::Framed;
 
     #[test]
+    fn private_session_and_spectrum_removal_identity_round_trip() {
+        use crate::{ClientChannels, ServerEvent, SpectrumFrame};
+        let ids = ClientChannels {
+            spectrum: 0x8000_0000,
+            audio: 0x8000_0001,
+            adsb: 0x8000_0002,
+            lrpt: 0x8000_0003,
+        };
+        for original in [
+            ServerEvent::Welcome {
+                protocol_version: crate::PROTOCOL_VERSION,
+                client_channels: ids,
+                active_channels: vec![],
+            },
+            ServerEvent::Spectrum(SpectrumFrame {
+                channel_id: ids.spectrum,
+                center_hz: 137_100_000,
+                sample_rate_hz: 2_400_000,
+                bins: vec![-100.0, -10.0],
+                timestamp_ms: 123,
+            }),
+            ServerEvent::ChannelRemoved {
+                channel_id: ids.audio,
+            },
+        ] {
+            let expected = bincode::serialize(&original).unwrap();
+            let mut codec = MessageCodec::<ServerEvent>::for_data();
+            let mut bytes = BytesMut::new();
+            codec.encode(original, &mut bytes).unwrap();
+            assert_eq!(
+                bincode::serialize(&codec.decode(&mut bytes).unwrap().unwrap()).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn aircraft_measurements_round_trip_without_losing_validity_or_reference() {
         use crate::{AircraftTelemetry, ServerEvent};
         for altitude in [None, Some(-1000), Some(-500), Some(0), Some(35000)] {

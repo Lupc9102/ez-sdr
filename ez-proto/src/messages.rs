@@ -8,11 +8,32 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
 pub type ChannelId = u32;
+
+/// High channel IDs are connection-owned. Low IDs remain explicit shared
+/// channels for daemon/API users; GUI workflows use the IDs in Welcome.
+pub const CLIENT_CHANNEL_START: ChannelId = 0x8000_0000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientChannels {
+    pub spectrum: ChannelId,
+    pub audio: ChannelId,
+    pub adsb: ChannelId,
+    pub lrpt: ChannelId,
+}
+
+impl ClientChannels {
+    pub fn ids(self) -> [ChannelId; 4] {
+        [self.spectrum, self.audio, self.adsb, self.lrpt]
+    }
+    pub fn contains(self, id: ChannelId) -> bool {
+        self.ids().contains(&id)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PipelineKind {
@@ -125,6 +146,7 @@ pub enum ClientCommand {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpectrumFrame {
+    pub channel_id: ChannelId,
     pub center_hz: u64,
     pub sample_rate_hz: u32,
     /// dB magnitudes, fftshifted to ascending-frequency order (bin 0 = center - fs/2).
@@ -240,6 +262,7 @@ pub struct RecordingStatus {
 pub enum ServerEvent {
     Welcome {
         protocol_version: u32,
+        client_channels: ClientChannels,
         active_channels: Vec<ChannelSpec>,
     },
     Spectrum(SpectrumFrame),
@@ -261,5 +284,10 @@ pub enum ServerEvent {
         channel_id: ChannelId,
         request_id: u64,
         result: Result<SquelchState, String>,
+    },
+    /// A subscribed channel was explicitly removed. Buffered older data can
+    /// follow this control event and must be rejected by its channel identity.
+    ChannelRemoved {
+        channel_id: ChannelId,
     },
 }

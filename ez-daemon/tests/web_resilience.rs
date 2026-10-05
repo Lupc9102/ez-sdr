@@ -372,3 +372,214 @@ async fn reconnect_after_hard_ws_drop_streams_again() {
     drop(ws2);
     daemon.shutdown().await;
 }
+
+// Exercise the browser control transport using the same private-channel contract
+// as the GUI TCP path, including a data-only observer's deletion notification.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn private_web_sessions_protect_controls_recordings_and_report_deletion() {
+    type Ws = tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >;
+    async fn command(ws: &mut Ws, cmd: ClientCommand) {
+        ws.send(TMessage::Text(serde_json::to_string(&cmd).unwrap()))
+            .await
+            .unwrap();
+    }
+    async fn event(ws: &mut Ws, wanted: impl Fn(&ServerEvent) -> bool) -> ServerEvent {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match ws.next().await.unwrap().unwrap() {
+                    TMessage::Text(text) => {
+                        let event: ServerEvent = serde_json::from_str(&text).unwrap();
+                        if wanted(&event) {
+                            return event;
+                        }
+                    }
+                    TMessage::Close(_) => panic!("closed before expected event"),
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("expected web lifecycle event")
+    }
+    let daemon = Harness::spawn("private-sessions").await;
+    wait_until_web_ready(&daemon.base_url()).await;
+    let (mut a, _) = connect_async(daemon.ws_url("/ws/control")).await.unwrap();
+    let (mut b, _) = connect_async(daemon.ws_url("/ws/control")).await.unwrap();
+    let ServerEvent::Welcome {
+        client_channels: aid,
+        ..
+    } = event(&mut a, |e| matches!(e, ServerEvent::Welcome { .. })).await
+    else {
+        unreachable!()
+    };
+    let ServerEvent::Welcome {
+        client_channels: bid,
+        ..
+    } = event(&mut b, |e| matches!(e, ServerEvent::Welcome { .. })).await
+    else {
+        unreachable!()
+    };
+    assert!(aid.ids().iter().all(|id| !bid.contains(*id)));
+    for (ws, ids) in [(&mut a, aid), (&mut b, bid)] {
+        command(
+            ws,
+            ClientCommand::Subscribe {
+                channel: ez_proto::ChannelSpec {
+                    id: ids.spectrum,
+                    center_offset_hz: 0,
+                    bandwidth_hz: 2_000_000,
+                    kind: ez_proto::PipelineKind::Spectrum,
+                    demod_mode: None,
+                },
+            },
+        )
+        .await;
+        event(
+            ws,
+            |e| matches!(e, ServerEvent::Spectrum(f) if f.channel_id == ids.spectrum),
+        )
+        .await;
+    }
+    // A may observe B's pipeline but cannot delete or reconfigure it.
+    command(
+        &mut a,
+        ClientCommand::Subscribe {
+            channel: ez_proto::ChannelSpec {
+                id: bid.spectrum,
+                center_offset_hz: 0,
+                bandwidth_hz: 2_000_000,
+                kind: ez_proto::PipelineKind::Spectrum,
+                demod_mode: None,
+            },
+        },
+    )
+    .await;
+    event(
+        &mut a,
+        |e| matches!(e, ServerEvent::Spectrum(f) if f.channel_id == bid.spectrum),
+    )
+    .await;
+    for cmd in [
+        ClientCommand::RemoveChannel {
+            channel_id: bid.spectrum,
+        },
+        ClientCommand::Retune {
+            channel_id: bid.spectrum,
+            center_offset_hz: 1000,
+            bandwidth_hz: 200_000,
+        },
+        ClientCommand::StartRecording {
+            channel_id: bid.spectrum,
+            format: ez_proto::RecordingFormat::Cf32,
+        },
+    ] {
+        command(&mut a, cmd).await;
+        let ServerEvent::Error { message } =
+            event(&mut a, |e| matches!(e, ServerEvent::Error { .. })).await
+        else {
+            unreachable!()
+        };
+        assert!(message.contains("another connection"));
+    }
+    command(
+        &mut b,
+        ClientCommand::StartRecording {
+            channel_id: bid.spectrum,
+            format: ez_proto::RecordingFormat::Cf32,
+        },
+    )
+    .await;
+    let ServerEvent::Recording(live) = event(
+        &mut b,
+        |e| matches!(e, ServerEvent::Recording(r) if r.active && r.bytes_written > 0),
+    )
+    .await
+    else {
+        unreachable!()
+    };
+    command(
+        &mut b,
+        ClientCommand::RemoveChannel {
+            channel_id: bid.spectrum,
+        },
+    )
+    .await;
+    let ServerEvent::Error { message } =
+        event(&mut b, |e| matches!(e, ServerEvent::Error { .. })).await
+    else {
+        unreachable!()
+    };
+    assert!(message.contains("recording"));
+    // Data-only observers must learn the removed identity instead of waiting
+    // forever on a broadcaster whose final producer has exited.
+    let (mut data, _) =
+        connect_async(daemon.ws_url(&format!("/ws/stream/spectrum/{}", aid.spectrum)))
+            .await
+            .unwrap();
+    wait_for_binary_frame(&mut data, "private data stream").await;
+    command(
+        &mut a,
+        ClientCommand::RemoveChannel {
+            channel_id: aid.spectrum,
+        },
+    )
+    .await;
+    event(
+        &mut a,
+        |e| matches!(e, ServerEvent::ChannelRemoved { channel_id } if *channel_id == aid.spectrum),
+    )
+    .await;
+    event(
+        &mut data,
+        |e| matches!(e, ServerEvent::ChannelRemoved { channel_id } if *channel_id == aid.spectrum),
+    )
+    .await;
+    event(
+        &mut b,
+        |e| matches!(e, ServerEvent::Spectrum(f) if f.channel_id == bid.spectrum),
+    )
+    .await;
+    command(
+        &mut b,
+        ClientCommand::StopRecording {
+            channel_id: bid.spectrum,
+        },
+    )
+    .await;
+    let ServerEvent::Recording(done) = event(
+        &mut b,
+        |e| matches!(e, ServerEvent::Recording(r) if !r.active),
+    )
+    .await
+    else {
+        unreachable!()
+    };
+    assert!(done.bytes_written >= live.bytes_written);
+    assert_eq!(
+        std::fs::metadata(done.path.unwrap()).unwrap().len(),
+        done.bytes_written
+    );
+    command(
+        &mut b,
+        ClientCommand::RemoveChannel {
+            channel_id: bid.spectrum,
+        },
+    )
+    .await;
+    event(
+        &mut b,
+        |e| matches!(e, ServerEvent::ChannelRemoved { channel_id } if *channel_id == bid.spectrum),
+    )
+    .await;
+    event(
+        &mut a,
+        |e| matches!(e, ServerEvent::ChannelRemoved { channel_id } if *channel_id == bid.spectrum),
+    )
+    .await;
+    drop(data);
+    drop(a);
+    drop(b);
+    daemon.shutdown().await;
+}

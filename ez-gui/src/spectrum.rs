@@ -4635,6 +4635,7 @@ mod tests {
         let mut bins = vec![-100.0; 256];
         bins[160] = peak;
         ez_proto::SpectrumFrame {
+            channel_id: 0,
             center_hz: 100_000_000,
             sample_rate_hz: 25_600,
             bins,

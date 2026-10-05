@@ -99,6 +99,7 @@ mod tests {
     #[test]
     fn spectrum_layout_matches_the_documented_byte_offsets() {
         let frame = SpectrumFrame {
+            channel_id: 0,
             center_hz: 433_000_000,
             sample_rate_hz: 2_000_000,
             bins: vec![-10.0, -20.5, 3.25],

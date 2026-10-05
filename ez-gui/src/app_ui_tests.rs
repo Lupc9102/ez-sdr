@@ -1054,10 +1054,10 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
         if ready {
             break;
         }
-        assert!(
-            Instant::now() < deadline,
-            "initial daemon squelch was not applied"
-        );
+        if Instant::now() >= deadline {
+            let state = app.shared.lock().unwrap();
+            panic!("initial daemon squelch was not applied: status={:?}, ids={:?}, pending={:?}, error={:?}", state.source.status, state.source.daemon_channel_ids(), state.source.daemon_squelch_pending_db(), state.source.daemon_squelch_error);
+        }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     // Observe the same real pipeline's PCM without opening a speaker.
@@ -1066,9 +1066,10 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
         assert!(Instant::now() < deadline);
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    let audio_id = app.shared.lock().unwrap().source.daemon_channel_ids().audio;
     monitor.send(ClientCommand::Subscribe {
         channel: ez_proto::ChannelSpec {
-            id: 2,
+            id: audio_id,
             center_offset_hz: 250_000,
             bandwidth_hz: 200_000,
             kind: ez_proto::PipelineKind::Audio,

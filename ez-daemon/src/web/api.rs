@@ -188,6 +188,12 @@ async fn create_channel(
     State(state): State<Arc<DaemonState>>,
     Json(spec): Json<ChannelSpec>,
 ) -> Result<(StatusCode, Json<ChannelSpec>), ApiError> {
+    if spec.id >= ez_proto::CLIENT_CHANNEL_START {
+        return Err(anyhow::anyhow!(
+            "high channel IDs are reserved for connection allocations; use the control WebSocket"
+        )
+        .into());
+    }
     let response_spec = spec.clone();
     let (_, created) = state.subscribe(spec)?;
     let status = if created {

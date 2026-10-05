@@ -46,6 +46,7 @@ pub enum ConnectionStatus {
 /// thread outlives the handle.
 pub struct DaemonClient {
     status: Arc<Mutex<ConnectionStatus>>,
+    client_channels: Arc<Mutex<Option<ez_proto::ClientChannels>>>,
     cmd_tx: tokio::sync::mpsc::UnboundedSender<ClientCommand>,
     control_event_rx: crossbeam_channel::Receiver<ServerEvent>,
     stream_event_rx: crossbeam_channel::Receiver<ServerEvent>,
@@ -60,6 +61,8 @@ impl DaemonClient {
     #[must_use]
     pub fn connect(addr: SocketAddr, client_name: String) -> Self {
         let status = Arc::new(Mutex::new(ConnectionStatus::Connecting));
+        let client_channels = Arc::new(Mutex::new(None));
+        let worker_channels = Arc::clone(&client_channels);
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
         let (control_event_tx, control_event_rx) = crossbeam_channel::unbounded();
         let (stream_event_tx, stream_event_rx) = crossbeam_channel::bounded(64);
@@ -88,6 +91,7 @@ impl DaemonClient {
                     addr,
                     client_name,
                     worker_status,
+                    worker_channels,
                     cmd_rx,
                     control_event_tx,
                     stream_event_tx,
@@ -99,6 +103,7 @@ impl DaemonClient {
 
         Self {
             status,
+            client_channels,
             cmd_tx,
             control_event_rx,
             stream_event_rx,
@@ -119,6 +124,7 @@ impl DaemonClient {
         (
             Self {
                 status: Arc::new(Mutex::new(ConnectionStatus::Connected)),
+                client_channels: Arc::new(Mutex::new(None)),
                 cmd_tx,
                 control_event_rx: event_rx,
                 stream_event_rx: crossbeam_channel::never(),
@@ -137,6 +143,13 @@ impl DaemonClient {
             .lock()
             .expect("daemon client status mutex poisoned")
             .clone()
+    }
+
+    pub fn client_channels(&self) -> Option<ez_proto::ClientChannels> {
+        *self
+            .client_channels
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     /// Queues a command for delivery. Fire-and-forget, matching `ez_daemon::ingest::IngestHandle`'s
@@ -193,7 +206,10 @@ async fn until_stopped<T>(
     }
 }
 
-async fn connect_and_handshake(addr: SocketAddr, client_name: &str) -> Result<Halves, String> {
+async fn connect_and_handshake(
+    addr: SocketAddr,
+    client_name: &str,
+) -> Result<(Halves, ez_proto::ClientChannels), String> {
     let stream = TcpStream::connect(addr)
         .await
         .map_err(|e| format!("connect to {addr} failed: {e}"))?;
@@ -210,15 +226,18 @@ async fn connect_and_handshake(addr: SocketAddr, client_name: &str) -> Result<Ha
         .await
         .map_err(|e| format!("failed to send Hello: {e}"))?;
 
-    match reader.next().await {
+    let client_channels = match reader.next().await {
         Some(Ok(ServerEvent::Welcome {
-            protocol_version, ..
+            protocol_version,
+            client_channels,
+            ..
         })) => {
             if protocol_version != PROTOCOL_VERSION {
                 return Err(format!(
                     "protocol version mismatch: daemon speaks {protocol_version}, client speaks {PROTOCOL_VERSION}"
                 ));
             }
+            client_channels
         }
         Some(Ok(ServerEvent::Error { message })) => {
             return Err(format!("daemon rejected handshake: {message}"))
@@ -226,9 +245,9 @@ async fn connect_and_handshake(addr: SocketAddr, client_name: &str) -> Result<Ha
         Some(Ok(other)) => return Err(format!("expected Welcome, got {other:?}")),
         Some(Err(e)) => return Err(format!("handshake decode error: {e}")),
         None => return Err("connection closed during handshake".to_string()),
-    }
+    };
 
-    Ok((reader, writer))
+    Ok(((reader, writer), client_channels))
 }
 
 /// Drives one connection end to end: handshake, then a `tokio::select!` loop routing queued
@@ -241,6 +260,7 @@ async fn run_connection(
     addr: SocketAddr,
     client_name: String,
     status: Arc<Mutex<ConnectionStatus>>,
+    client_channels: Arc<Mutex<Option<ez_proto::ClientChannels>>>,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<ClientCommand>,
     control_event_tx: crossbeam_channel::Sender<ServerEvent>,
     stream_event_tx: crossbeam_channel::Sender<ServerEvent>,
@@ -257,7 +277,7 @@ async fn run_connection(
             ConnectionStatus::Disconnected;
         return;
     };
-    let (mut reader, mut writer) = match handshake {
+    let ((mut reader, mut writer), allocated) = match handshake {
         Ok(Ok(halves)) => halves,
         Ok(Err(e)) => {
             *status.lock().expect("daemon client status mutex poisoned") =
@@ -270,6 +290,7 @@ async fn run_connection(
             return;
         }
     };
+    *client_channels.lock().unwrap_or_else(|p| p.into_inner()) = Some(allocated);
     *status.lock().expect("daemon client status mutex poisoned") = ConnectionStatus::Connected;
 
     let mut ticker = tokio::time::interval(SHUTDOWN_POLL_INTERVAL);
@@ -368,12 +389,18 @@ pub(crate) mod tests {
 
     pub(crate) struct TestDaemon {
         pub(crate) addr: SocketAddr,
+        pub(crate) web_addr: SocketAddr,
         running: Arc<AtomicBool>,
         handle: tokio::task::JoinHandle<anyhow::Result<()>>,
     }
 
     impl TestDaemon {
         pub(crate) async fn spawn(label: &str) -> Self {
+            Self::spawn_with_rate(label, 2_000_000).await
+        }
+
+        pub(crate) async fn spawn_with_rate(label: &str, rate: u32) -> Self {
+            let web_addr = free_addr().await;
             let addr = free_addr().await;
             let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
             let dir = std::env::temp_dir().join(format!(
@@ -382,9 +409,9 @@ pub(crate) mod tests {
             ));
             let config = DaemonConfig {
                 listen_addr: addr,
-                web_listen_addr: free_addr().await,
+                web_listen_addr: web_addr,
                 initial_freq_hz: 100_000_000,
-                initial_sample_rate_hz: 2_000_000,
+                initial_sample_rate_hz: rate,
                 recording_dir: dir,
                 web_static_dir: std::env::temp_dir()
                     .join("ez-gui-daemon-client-nonexistent-static"),
@@ -418,6 +445,7 @@ pub(crate) mod tests {
 
             Self {
                 addr,
+                web_addr,
                 running,
                 handle,
             }
@@ -618,6 +646,12 @@ pub(crate) mod tests {
         ));
         writer
             .send(ServerEvent::Welcome {
+                client_channels: ez_proto::ClientChannels {
+                    spectrum: 1,
+                    audio: 2,
+                    adsb: 3,
+                    lrpt: 4,
+                },
                 protocol_version: PROTOCOL_VERSION,
                 active_channels: Vec::new(),
             })
@@ -742,6 +776,9 @@ pub(crate) mod tests {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
             loop {
                 let event = wait_for_event(&client, "squelch reply").await;
+                if let ServerEvent::Error { message } = &event {
+                    panic!("daemon command error: {message}");
+                }
                 if let ServerEvent::Squelch {
                     channel_id: returned_channel,
                     request_id: returned_request,

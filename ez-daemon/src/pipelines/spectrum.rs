@@ -54,6 +54,7 @@ fn hann_window(len: usize) -> Vec<f32> {
 /// once) — downstream consumers are expected to be realtime visualizers that only care about
 /// the newest frame, so [`Self::subscribe`] uses [`OverflowPolicy::DropOldest`].
 pub struct SpectrumPipeline {
+    channel_id: ez_proto::ChannelId,
     input: SampleBusHandle,
     fft: std::sync::Arc<dyn Fft<f32>>,
     fft_size: usize,
@@ -72,6 +73,7 @@ impl SpectrumPipeline {
         let fft_size = config.fft_size.max(2);
         let mut planner = FftPlanner::<f32>::new();
         Self {
+            channel_id: 0,
             input,
             fft: planner.plan_fft_forward(fft_size),
             fft_size,
@@ -86,6 +88,10 @@ impl SpectrumPipeline {
     }
 
     /// Subscribes a new client to this pipeline's output frames.
+    pub fn set_channel_id(&mut self, id: ez_proto::ChannelId) {
+        self.channel_id = id;
+    }
+
     #[must_use]
     pub fn subscribe(&self, capacity: usize) -> BroadcasterHandle<SpectrumFrame> {
         self.output.subscribe(capacity, OverflowPolicy::DropOldest)
@@ -170,6 +176,7 @@ impl SpectrumPipeline {
                 .unwrap_or(0);
 
             self.output.publish(SpectrumFrame {
+                channel_id: self.channel_id,
                 center_hz: block.center_freq_hz,
                 sample_rate_hz: block.sample_rate_hz,
                 bins: self.smoothed_db.clone(),

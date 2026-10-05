@@ -380,6 +380,10 @@ pub struct SourceManager {
     /// `host:port` of the `ez-daemon` to connect to in `SourceMode::Daemon`.
     pub daemon_addr: String,
     daemon_client: Option<crate::daemon_client::DaemonClient>,
+    daemon_channels: ez_proto::ClientChannels,
+    daemon_session_ready: bool,
+    daemon_channel_error: Option<String>,
+    daemon_removals_pending: std::collections::HashSet<ez_proto::ChannelId>,
     /// Last frequency/sample-rate/gain actually sent to the daemon (or last value received
     /// FROM it) — lets `sync_daemon_controls` tell "user moved a slider" (send) apart from
     /// "the daemon just told us its own state" (already in sync, don't echo it back).
@@ -421,13 +425,9 @@ pub enum SourceMode {
     Daemon,
 }
 
-/// Wideband spectrum channel id this manager subscribes with in `SourceMode::Daemon`. Fixed
-/// rather than user-configurable: exactly one spectrum view is wired up to daemon mode so far
-/// (see `CentralApp`'s daemon-event routing), so there's only ever one channel to name.
-const DAEMON_SPECTRUM_CHANNEL_ID: ez_proto::ChannelId = 1;
+/// Local IDs used only by pure-command unit fixtures, before any handshake.
+#[cfg(test)]
 const DAEMON_AUDIO_CHANNEL_ID: ez_proto::ChannelId = 2;
-const DAEMON_ADSB_CHANNEL_ID: ez_proto::ChannelId = 3;
-const DAEMON_LRPT_CHANNEL_ID: ez_proto::ChannelId = 4;
 
 /// The run-state of the SDR source.
 #[derive(Debug, Clone, PartialEq)]
@@ -480,6 +480,15 @@ impl SourceManager {
             replay_size: 0,
             daemon_addr: "127.0.0.1:7890".to_string(),
             daemon_client: None,
+            daemon_channels: ez_proto::ClientChannels {
+                spectrum: 1,
+                audio: 2,
+                adsb: 3,
+                lrpt: 4,
+            },
+            daemon_session_ready: false,
+            daemon_channel_error: None,
+            daemon_removals_pending: std::collections::HashSet::new(),
             daemon_last_center_hz: 109_000_000,
             daemon_last_sample_rate_hz: 2_048_000,
             daemon_last_gain_db: 40.0,
@@ -1031,9 +1040,9 @@ impl SourceManager {
             }
         };
         let client = crate::daemon_client::DaemonClient::connect(addr, "ez-gui".to_string());
-        client.send(ez_proto::ClientCommand::Subscribe {
-            channel: self.daemon_spectrum_spec(),
-        });
+        self.daemon_session_ready = false;
+        self.daemon_channel_error = None;
+        self.daemon_removals_pending.clear();
         self.daemon_audio_mode = None;
         self.daemon_audio_tuning = None;
         self.reset_daemon_squelch();
@@ -1042,6 +1051,51 @@ impl SourceManager {
         self.daemon_recording_active = false;
         self.daemon_client = Some(client);
         self.stream_generation = self.stream_generation.wrapping_add(1);
+    }
+
+    pub fn daemon_channel_ids(&self) -> ez_proto::ClientChannels {
+        self.daemon_channels
+    }
+
+    fn sync_daemon_session(&mut self) {
+        if self.daemon_session_ready {
+            return;
+        }
+        let Some(channels) = self
+            .daemon_client
+            .as_ref()
+            .and_then(|client| client.client_channels())
+        else {
+            return;
+        };
+        self.daemon_channels = channels;
+        self.daemon_session_ready = true;
+        if let Some(client) = &self.daemon_client {
+            client.send(ez_proto::ClientCommand::Subscribe {
+                channel: self.daemon_spectrum_spec(),
+            });
+        }
+    }
+
+    fn active_daemon_data(&self, event: &ez_proto::ServerEvent) -> bool {
+        match event {
+            ez_proto::ServerEvent::Spectrum(frame) => {
+                self.daemon_session_ready && frame.channel_id == self.daemon_channels.spectrum
+            }
+            ez_proto::ServerEvent::Audio(frame) => {
+                self.daemon_audio_mode.is_some() && frame.channel_id == self.daemon_channels.audio
+            }
+            ez_proto::ServerEvent::Aircraft(snapshot) => {
+                self.daemon_adsb_subscribed && snapshot.channel_id == self.daemon_channels.adsb
+            }
+            ez_proto::ServerEvent::Telemetry(frame) => {
+                self.daemon_lrpt_subscribed && frame.channel_id == self.daemon_channels.lrpt
+            }
+            ez_proto::ServerEvent::Recording(status) => {
+                status.channel_id == self.daemon_channels.spectrum
+            }
+            _ => true,
+        }
     }
 
     fn reset_daemon_squelch(&mut self) {
@@ -1113,7 +1167,7 @@ impl SourceManager {
         self.daemon_squelch_last_requested = Some(db);
         self.daemon_squelch_error = None;
         if client.try_send(ez_proto::ClientCommand::SetSquelch {
-            channel_id: DAEMON_AUDIO_CHANNEL_ID,
+            channel_id: self.daemon_channels.audio,
             db,
             request_id,
         }) {
@@ -1144,7 +1198,7 @@ impl SourceManager {
         request_id: u64,
         result: &Result<ez_proto::SquelchState, String>,
     ) {
-        if channel_id != DAEMON_AUDIO_CHANNEL_ID
+        if channel_id != self.daemon_channels.audio
             || self
                 .daemon_squelch_pending
                 .as_ref()
@@ -1172,7 +1226,7 @@ impl SourceManager {
         self.source_mode == SourceMode::Daemon
             && self.status == SourceStatus::Running
             && self.daemon_audio_mode.is_some()
-            && frame.channel_id == DAEMON_AUDIO_CHANNEL_ID
+            && frame.channel_id == self.daemon_channels.audio
             && self.daemon_squelch_pending.is_none()
             && self
                 .daemon_squelch_applied
@@ -1181,7 +1235,7 @@ impl SourceManager {
 
     fn daemon_spectrum_spec(&self) -> ez_proto::ChannelSpec {
         ez_proto::ChannelSpec {
-            id: DAEMON_SPECTRUM_CHANNEL_ID,
+            id: self.daemon_channels.spectrum,
             center_offset_hz: 0,
             bandwidth_hz: self.sample_rate_hz,
             kind: ez_proto::PipelineKind::Spectrum,
@@ -1209,9 +1263,20 @@ impl SourceManager {
     /// worker thread is authoritative for them in the other modes.
     #[must_use]
     pub fn recv_daemon_event(&mut self) -> Option<ez_proto::ServerEvent> {
+        self.sync_daemon_session();
         let (status, event) = {
             let client = self.daemon_client.as_ref()?;
-            (client.status(), client.try_recv_event())
+            let mut event = None;
+            for _ in 0..64 {
+                let Some(next) = client.try_recv_event() else {
+                    break;
+                };
+                if self.active_daemon_data(&next) {
+                    event = Some(next);
+                    break;
+                }
+            }
+            (client.status(), event)
         };
         self.status = match status {
             crate::daemon_client::ConnectionStatus::Connecting => SourceStatus::Opening,
@@ -1219,11 +1284,33 @@ impl SourceManager {
             crate::daemon_client::ConnectionStatus::Disconnected => SourceStatus::Idle,
             crate::daemon_client::ConnectionStatus::Error(e) => SourceStatus::Error(e),
         };
+        if let Some(error) = &self.daemon_channel_error {
+            self.status = SourceStatus::Error(error.clone());
+        }
         if self.status != SourceStatus::Running && self.daemon_squelch_pending.take().is_some() {
             self.daemon_squelch_error =
                 Some("daemon disconnected before squelch acknowledgement".into());
         }
         let event = event?;
+        if let ez_proto::ServerEvent::ChannelRemoved { channel_id } = &event {
+            let expected = self.daemon_removals_pending.remove(channel_id);
+            let active = !expected
+                && ((*channel_id == self.daemon_channels.spectrum && self.daemon_session_ready)
+                    || (*channel_id == self.daemon_channels.audio
+                        && self.daemon_audio_mode.is_some())
+                    || (*channel_id == self.daemon_channels.adsb && self.daemon_adsb_subscribed)
+                    || (*channel_id == self.daemon_channels.lrpt && self.daemon_lrpt_subscribed));
+            if active {
+                self.daemon_channel_error = Some(format!(
+                    "daemon channel {channel_id} was removed; reconnect to restart the workflow"
+                ));
+                self.status = SourceStatus::Error(self.daemon_channel_error.clone().unwrap());
+                self.daemon_audio_mode = None;
+                self.reset_daemon_squelch();
+                self.daemon_adsb_subscribed = false;
+                self.daemon_lrpt_subscribed = false;
+            }
+        }
         if let ez_proto::ServerEvent::Squelch {
             channel_id,
             request_id,
@@ -1232,13 +1319,13 @@ impl SourceManager {
         {
             self.apply_daemon_squelch_reply(*channel_id, *request_id, result);
         } else if let ez_proto::ServerEvent::Audio(frame) = &event {
-            if frame.channel_id == DAEMON_AUDIO_CHANNEL_ID && self.daemon_audio_mode.is_some() {
+            if frame.channel_id == self.daemon_channels.audio && self.daemon_audio_mode.is_some() {
                 self.observe_daemon_squelch(frame.squelch);
             }
         } else if let ez_proto::ServerEvent::Hardware(hw) = &event {
             self.apply_daemon_hardware(hw);
         } else if let ez_proto::ServerEvent::Recording(status) = &event {
-            if status.channel_id == DAEMON_SPECTRUM_CHANNEL_ID {
+            if status.channel_id == self.daemon_channels.spectrum {
                 self.daemon_recording_active = status.active;
             }
         }
@@ -1252,6 +1339,10 @@ impl SourceManager {
         if self.source_mode != SourceMode::Daemon {
             return Err("daemon recording is only available in Daemon source mode".to_string());
         }
+        self.sync_daemon_session();
+        if !self.daemon_session_ready {
+            return Err("wait for the daemon channel allocation before recording".into());
+        }
         let client = self
             .daemon_client
             .as_ref()
@@ -1260,7 +1351,7 @@ impl SourceManager {
             return Err("wait for the daemon connection before recording".to_string());
         }
         client.send(ez_proto::ClientCommand::StartRecording {
-            channel_id: DAEMON_SPECTRUM_CHANNEL_ID,
+            channel_id: self.daemon_channels.spectrum,
             format,
         });
         Ok(())
@@ -1270,12 +1361,16 @@ impl SourceManager {
         if self.source_mode != SourceMode::Daemon {
             return Err("daemon recording is only available in Daemon source mode".to_string());
         }
+        self.sync_daemon_session();
+        if !self.daemon_session_ready {
+            return Err("wait for the daemon channel allocation before recording".into());
+        }
         let client = self
             .daemon_client
             .as_ref()
             .ok_or_else(|| "daemon is not connected".to_string())?;
         client.send(ez_proto::ClientCommand::StopRecording {
-            channel_id: DAEMON_SPECTRUM_CHANNEL_ID,
+            channel_id: self.daemon_channels.spectrum,
         });
         Ok(())
     }
@@ -1329,6 +1424,10 @@ impl SourceManager {
         if self.daemon_client.is_none() {
             return;
         }
+        self.sync_daemon_session();
+        if !self.daemon_session_ready || self.daemon_channel_error.is_some() {
+            return;
+        }
         let commands =
             self.daemon_workflow_commands(audio_running, adsb_running, meteor_lrpt, demod_mode);
         if let Some(client) = &self.daemon_client {
@@ -1346,6 +1445,20 @@ impl SourceManager {
         demod_mode: crate::sdr_panel::DemodMode,
     ) -> Vec<ez_proto::ClientCommand> {
         let mut commands = Vec::new();
+        // Wait for the old pipeline teardown acknowledgement before reusing
+        // its session ID. A delayed removal must never retire its replacement.
+        let audio_running = audio_running
+            && !self
+                .daemon_removals_pending
+                .contains(&self.daemon_channels.audio);
+        let adsb_running = adsb_running
+            && !self
+                .daemon_removals_pending
+                .contains(&self.daemon_channels.adsb);
+        let meteor_lrpt = meteor_lrpt
+            && !self
+                .daemon_removals_pending
+                .contains(&self.daemon_channels.lrpt);
 
         let mut wanted_audio_mode = if audio_running && !adsb_running && !meteor_lrpt {
             match demod_mode.resolve(self.frequency_hz) {
@@ -1385,7 +1498,7 @@ impl SourceManager {
         match (self.daemon_audio_mode, wanted_audio_mode) {
             (None, Some(mode)) => commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
-                    id: DAEMON_AUDIO_CHANNEL_ID,
+                    id: self.daemon_channels.audio,
                     center_offset_hz: wanted_audio_tuning.map_or(0, |tuning| tuning.offset_hz),
                     bandwidth_hz: wanted_audio_tuning.map_or(0, |tuning| tuning.bandwidth_hz),
                     kind: ez_proto::PipelineKind::Audio,
@@ -1394,15 +1507,15 @@ impl SourceManager {
             }),
             (Some(_), None) => {
                 commands.push(ez_proto::ClientCommand::Unsubscribe {
-                    channel_id: DAEMON_AUDIO_CHANNEL_ID,
+                    channel_id: self.daemon_channels.audio,
                 });
                 commands.push(ez_proto::ClientCommand::RemoveChannel {
-                    channel_id: DAEMON_AUDIO_CHANNEL_ID,
+                    channel_id: self.daemon_channels.audio,
                 });
             }
             (Some(current), Some(mode)) if current != mode => {
                 commands.push(ez_proto::ClientCommand::SetDemodMode {
-                    channel_id: DAEMON_AUDIO_CHANNEL_ID,
+                    channel_id: self.daemon_channels.audio,
                     mode,
                 });
             }
@@ -1414,7 +1527,7 @@ impl SourceManager {
         {
             if let Some(tuning) = wanted_audio_tuning {
                 commands.push(ez_proto::ClientCommand::Retune {
-                    channel_id: DAEMON_AUDIO_CHANNEL_ID,
+                    channel_id: self.daemon_channels.audio,
                     center_offset_hz: tuning.offset_hz,
                     bandwidth_hz: tuning.bandwidth_hz,
                 });
@@ -1429,7 +1542,7 @@ impl SourceManager {
         if adsb_running && !self.daemon_adsb_subscribed {
             commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
-                    id: DAEMON_ADSB_CHANNEL_ID,
+                    id: self.daemon_channels.adsb,
                     center_offset_hz: 0,
                     bandwidth_hz: 2_400_000,
                     kind: ez_proto::PipelineKind::AdsbPackets,
@@ -1438,10 +1551,10 @@ impl SourceManager {
             });
         } else if !adsb_running && self.daemon_adsb_subscribed {
             commands.push(ez_proto::ClientCommand::Unsubscribe {
-                channel_id: DAEMON_ADSB_CHANNEL_ID,
+                channel_id: self.daemon_channels.adsb,
             });
             commands.push(ez_proto::ClientCommand::RemoveChannel {
-                channel_id: DAEMON_ADSB_CHANNEL_ID,
+                channel_id: self.daemon_channels.adsb,
             });
         }
         self.daemon_adsb_subscribed = adsb_running;
@@ -1449,7 +1562,7 @@ impl SourceManager {
         if meteor_lrpt && !self.daemon_lrpt_subscribed {
             commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
-                    id: DAEMON_LRPT_CHANNEL_ID,
+                    id: self.daemon_channels.lrpt,
                     center_offset_hz: 0,
                     bandwidth_hz: 288_000,
                     kind: ez_proto::PipelineKind::LrptTelemetry,
@@ -1458,13 +1571,18 @@ impl SourceManager {
             });
         } else if !meteor_lrpt && self.daemon_lrpt_subscribed {
             commands.push(ez_proto::ClientCommand::Unsubscribe {
-                channel_id: DAEMON_LRPT_CHANNEL_ID,
+                channel_id: self.daemon_channels.lrpt,
             });
             commands.push(ez_proto::ClientCommand::RemoveChannel {
-                channel_id: DAEMON_LRPT_CHANNEL_ID,
+                channel_id: self.daemon_channels.lrpt,
             });
         }
         self.daemon_lrpt_subscribed = meteor_lrpt;
+        for command in &commands {
+            if let ez_proto::ClientCommand::RemoveChannel { channel_id } = command {
+                self.daemon_removals_pending.insert(*channel_id);
+            }
+        }
         commands
     }
 
@@ -1476,13 +1594,16 @@ impl SourceManager {
         if self.daemon_recording_active {
             if let Some(client) = &self.daemon_client {
                 client.send(ez_proto::ClientCommand::StopRecording {
-                    channel_id: DAEMON_SPECTRUM_CHANNEL_ID,
+                    channel_id: self.daemon_channels.spectrum,
                 });
             }
         }
         // Dropping tears the connection down (signals the worker, sends Detach, joins it).
         // Safe to do unconditionally regardless of mode — `None` in every non-Daemon mode.
         self.daemon_client = None;
+        self.daemon_session_ready = false;
+        self.daemon_channel_error = None;
+        self.daemon_removals_pending.clear();
         self.daemon_audio_mode = None;
         self.daemon_audio_tuning = None;
         self.reset_daemon_squelch();
@@ -1935,6 +2056,270 @@ unsafe fn rtl_sdr_close(dev: *mut std::ffi::c_void) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn session_event(
+        source: &mut SourceManager,
+        what: &str,
+        predicate: impl Fn(&ez_proto::ServerEvent) -> bool,
+    ) -> ez_proto::ServerEvent {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            for _ in 0..64 {
+                let Some(event) = source.recv_daemon_event() else {
+                    break;
+                };
+                if let ez_proto::ServerEvent::Error { message } = &event {
+                    panic!("{what}: {message}");
+                }
+                if predicate(&event) {
+                    return event;
+                }
+            }
+            assert!(
+                !matches!(source.status, SourceStatus::Error(_)),
+                "{what}: {:?}",
+                source.status
+            );
+            assert!(
+                Instant::now() < deadline,
+                "timed out {what}: {:?}",
+                source.status
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn daemon_sessions_isolate_gui_mode_stop_disconnect_and_recording() {
+        use crate::sdr_panel::DemodMode;
+        use ez_proto::ServerEvent as E;
+        let daemon =
+            crate::daemon_client::tests::TestDaemon::spawn_with_rate("two-gui", 2_400_000).await;
+        let mut a = SourceManager::new();
+        let mut b = SourceManager::new();
+        for source in [&mut a, &mut b] {
+            source.source_mode = SourceMode::Daemon;
+            source.daemon_addr = daemon.addr.to_string();
+            source.start();
+            session_event(source, "initial spectrum", |e| matches!(e, E::Spectrum(_))).await;
+            source.sync_daemon_workflows(true, false, false, DemodMode::Fm);
+            session_event(source, "initial audio", |e| matches!(e, E::Audio(_))).await;
+        }
+        let a_ids = a.daemon_channel_ids();
+        let b_ids = b.daemon_channel_ids();
+        assert!(a_ids
+            .ids()
+            .iter()
+            .all(|id| *id >= ez_proto::CLIENT_CHANNEL_START));
+        assert!(a_ids.ids().iter().all(|id| !b_ids.contains(*id)));
+        let observer =
+            crate::daemon_client::DaemonClient::connect(daemon.addr, "foreign-observer".into());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while observer.client_channels().is_none() {
+            assert!(Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        observer.send(ez_proto::ClientCommand::RemoveChannel {
+            channel_id: b_ids.audio,
+        });
+        observer.send(ez_proto::ClientCommand::SetSquelch {
+            request_id: 17,
+            channel_id: b_ids.audio,
+            db: 0.0,
+        });
+        let mut deletion_rejected = false;
+        let mut squelch_rejected = false;
+        while !deletion_rejected || !squelch_rejected {
+            match observer.try_recv_event() {
+                Some(E::Error { message }) => {
+                    assert!(message.contains("another connection"));
+                    deletion_rejected = true;
+                }
+                Some(E::Squelch {
+                    request_id: 17,
+                    result: Err(message),
+                    ..
+                }) => {
+                    assert!(message.contains("another connection"));
+                    squelch_rejected = true;
+                }
+                _ => {}
+            }
+            assert!(
+                Instant::now() < deadline,
+                "TCP foreign control wasn't rejected"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        drop(observer);
+        b.start_daemon_recording(ez_proto::RecordingFormat::Cf32)
+            .unwrap();
+        let E::Recording(before) = session_event(
+            &mut b,
+            "recording started",
+            |e| matches!(e, E::Recording(s) if s.active && s.bytes_written > 0),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        // Both managers traverse the production workflow dispatcher. A changes
+        // demodulation, stops audio, switches to ADS-B, then stops that decoder.
+        a.sync_daemon_workflows(true, false, false, DemodMode::Am);
+        session_event(&mut a, "changed audio mode", |e| matches!(e, E::Audio(_))).await;
+        a.sync_daemon_workflows(false, true, false, DemodMode::Am);
+        session_event(&mut a, "ADS-B snapshot", |e| matches!(e, E::Aircraft(_))).await;
+        a.sync_daemon_workflows(false, false, false, DemodMode::Am);
+        a.stop();
+        let E::Audio(frame) = session_event(&mut b, "other GUI audio survives", |e| {
+            matches!(e, E::Audio(_))
+        })
+        .await
+        else {
+            unreachable!()
+        };
+        assert_eq!(frame.channel_id, b_ids.audio);
+        assert!(b.accept_daemon_audio(&frame));
+        let E::Recording(after) = session_event(
+            &mut b,
+            "recording continues",
+            |e| matches!(e, E::Recording(s) if s.active && s.bytes_written > before.bytes_written),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        assert_eq!(after.channel_id, b_ids.spectrum);
+        // Inspect the actual channel table via the public web API after cleanup.
+        let url = format!("http://{}/api/channels", daemon.web_addr);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let channels: Vec<ez_daemon::state::ChannelMetrics> =
+                reqwest::get(&url).await.unwrap().json().await.unwrap();
+            if channels.iter().all(|c| !a_ids.contains(c.spec.id)) {
+                assert!(channels.iter().any(|c| c.spec.id == b_ids.audio));
+                assert!(channels.iter().any(|c| c.spec.id == b_ids.spectrum));
+                break;
+            }
+            assert!(Instant::now() < deadline, "A's private pipelines leaked");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        b.stop_daemon_recording().unwrap();
+        let E::Recording(done) = session_event(
+            &mut b,
+            "recording completed",
+            |e| matches!(e, E::Recording(s) if !s.active),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        assert!(done.bytes_written >= after.bytes_written);
+        assert_eq!(
+            std::fs::metadata(done.path.unwrap()).unwrap().len(),
+            done.bytes_written
+        );
+        b.stop();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let channels: Vec<ez_daemon::state::ChannelMetrics> =
+                reqwest::get(&url).await.unwrap().json().await.unwrap();
+            if channels.is_empty() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "B's private pipelines leaked");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        daemon.shutdown().await;
+    }
+
+    #[test]
+    fn daemon_session_filters_foreign_data_and_waits_for_own_teardown() {
+        use ez_proto::{ServerEvent as E, *};
+        let (client, _commands, events) = crate::daemon_client::DaemonClient::test_connection();
+        let mut source = SourceManager::new();
+        source.source_mode = SourceMode::Daemon;
+        source.daemon_client = Some(client);
+        source.daemon_session_ready = true;
+        source.daemon_audio_mode = Some(ez_proto::DemodMode::Fm);
+        source.daemon_adsb_subscribed = true;
+        source.daemon_lrpt_subscribed = true;
+        let foreign = 99;
+        for event in [
+            E::Spectrum(SpectrumFrame {
+                channel_id: foreign,
+                center_hz: 100_000_000,
+                sample_rate_hz: 2_000_000,
+                bins: vec![0.0],
+                timestamp_ms: 1,
+            }),
+            E::Audio(AudioFrame {
+                channel_id: foreign,
+                sample_rate_hz: 48000,
+                samples: vec![1.0],
+                squelch: SquelchState {
+                    db: -100.0,
+                    revision: 1,
+                },
+            }),
+            E::Aircraft(AircraftSnapshot {
+                channel_id: foreign,
+                ..Default::default()
+            }),
+            E::Telemetry(TelemetryFrame {
+                channel_id: foreign,
+                apid: 1,
+                width: 1,
+                height: 1,
+                pixels: vec![0],
+                rs_ok: 0,
+                rs_failed: 0,
+                costas_locked: false,
+                frame_locked: false,
+            }),
+            E::Recording(RecordingStatus {
+                channel_id: foreign,
+                active: true,
+                path: None,
+                bytes_written: 0,
+                duration_sec: 0.0,
+            }),
+        ] {
+            events.send(event).unwrap();
+        }
+        events.send(E::Pong { nonce: 77 }).unwrap();
+        assert!(matches!(
+            source.recv_daemon_event(),
+            Some(E::Pong { nonce: 77 })
+        ));
+        assert!(!source.daemon_recording_active);
+        assert!(source.daemon_squelch_applied().is_none());
+        source.daemon_workflow_commands(false, false, false, crate::sdr_panel::DemodMode::Fm);
+        assert!(source
+            .daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Fm)
+            .is_empty());
+        events
+            .send(E::ChannelRemoved {
+                channel_id: source.daemon_channels.audio,
+            })
+            .unwrap();
+        let _ = source.recv_daemon_event();
+        assert_eq!(source.status, SourceStatus::Running);
+        assert!(source
+            .daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Fm)
+            .iter()
+            .any(|c| matches!(c, ClientCommand::Subscribe { .. })));
+        events
+            .send(E::ChannelRemoved {
+                channel_id: source.daemon_channels.audio,
+            })
+            .unwrap();
+        let _ = source.recv_daemon_event();
+        assert!(matches!(&source.status, SourceStatus::Error(e) if e.contains("removed")));
+        assert!(source.daemon_audio_mode.is_none());
+        let _ = source.recv_daemon_event();
+        assert!(matches!(&source.status, SourceStatus::Error(_)));
+    }
 
     #[test]
     fn capture_center_follows_vfo_by_default_and_can_stay_independent() {
