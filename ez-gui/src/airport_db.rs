@@ -503,9 +503,21 @@ impl AirportDb {
     }
 
     fn store_sqlite(airports: &[Airport], freqs: &[AirportFreq]) -> Result<(), String> {
-        let mut conn = Connection::open("ez_sdr.db").map_err(|e| e.to_string())?;
-        conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
-        conn.execute_batch(
+        Self::store_sqlite_at(std::path::Path::new("ez_sdr.db"), airports, freqs)
+    }
+
+    fn store_sqlite_at(
+        path: &std::path::Path,
+        airports: &[Airport],
+        freqs: &[AirportFreq],
+    ) -> Result<(), String> {
+        let mut conn = Connection::open(path).map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;")
+            .map_err(|e| e.to_string())?;
+        // Schema, removal and replacement belong to one commit. Any prepare,
+        // insert or commit failure rolls back to the previously usable cache.
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS airports (
                 ident TEXT PRIMARY KEY,
                 icao TEXT,
@@ -530,7 +542,6 @@ impl AirportDb {
             DELETE FROM airports;",
         )
         .map_err(|e| e.to_string())?;
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
         {
             let mut stmt = tx.prepare(
                 "INSERT OR REPLACE INTO airports (ident,icao,iata,name,lat,lon,country,type,scheduled) VALUES (?,?,?,?,?,?,?,?,?)"
@@ -1757,6 +1768,113 @@ impl Airport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn airport_cache_replacement_rolls_back_failed_inserts_and_is_atomic_for_readers() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-sdr-airport-atomic-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("cache.db");
+        let airport = |ident: &str| Airport {
+            ident: ident.into(),
+            icao: ident.into(),
+            iata: String::new(),
+            name: format!("{ident} airport"),
+            lat: 51.0,
+            lon: -0.5,
+            country: "GB".into(),
+            atype: "small_airport".into(),
+            scheduled: true,
+        };
+        let frequency = |ident: &str| AirportFreq {
+            airport_ident: ident.into(),
+            freq_type: FreqType::Tower,
+            raw_type: "TWR".into(),
+            description: format!("{ident} tower"),
+            frequency_mhz: 118.5,
+        };
+        let old = [airport("OLDA"), airport("OLDB")];
+        let old_freq = [frequency("OLDA"), frequency("OLDB")];
+        let new = [airport("NEWA"), airport("NEWB")];
+        let new_freq = [frequency("NEWA"), frequency("NEWB")];
+        AirportDb::store_sqlite_at(&path, &old, &old_freq).unwrap();
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE unrelated (value TEXT); INSERT INTO unrelated VALUES ('preserved');",
+            )
+            .unwrap();
+        for (table, key) in [("airports", "ident"), ("airport_freqs", "airport_ident")] {
+            // Fail on the second replacement row, after the old data has been
+            // deleted and one new row has already been inserted in each stage.
+            connection
+                .execute_batch(&format!(
+                    "CREATE TRIGGER fail_replacement BEFORE INSERT ON {table}
+                WHEN NEW.{key} = 'NEWB' BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END;"
+                ))
+                .unwrap();
+            let error = AirportDb::store_sqlite_at(&path, &new, &new_freq).unwrap_err();
+            assert!(error.contains("injected insert failure"), "{error}");
+            let restored = AirportDb::load_from_sqlite(&connection);
+            assert!(restored.cached_sqlite);
+            assert_eq!(restored.airports.len(), 2);
+            assert_eq!(restored.freqs.len(), 2);
+            for ident in ["OLDA", "OLDB"] {
+                let a = &restored.airports[ident];
+                assert_eq!(
+                    (&a.icao, &a.name, a.lat, a.lon, &a.country, a.scheduled),
+                    (
+                        &ident.to_string(),
+                        &format!("{ident} airport"),
+                        51.0,
+                        -0.5,
+                        &"GB".to_string(),
+                        true
+                    )
+                );
+                assert_eq!(
+                    restored.freqs[ident][0].description,
+                    format!("{ident} tower")
+                );
+                assert_eq!(restored.freqs[ident][0].frequency_mhz, 118.5);
+                assert_eq!(restored.freqs[ident][0].freq_type, FreqType::Tower);
+            }
+            assert_eq!(
+                connection
+                    .query_row("SELECT value FROM unrelated", [], |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "preserved"
+            );
+            connection
+                .execute_batch("DROP TRIGGER fail_replacement;")
+                .unwrap();
+        }
+        // A WAL reader holding an old snapshot continues seeing a complete old
+        // dataset while the writer commits both replacement tables together.
+        connection.execute_batch("BEGIN;").unwrap();
+        assert_eq!(AirportDb::load_from_sqlite(&connection).airports.len(), 2);
+        AirportDb::store_sqlite_at(&path, &new, &new_freq).unwrap();
+        let old_snapshot = AirportDb::load_from_sqlite(&connection);
+        assert!(old_snapshot.airports.contains_key("OLDA"));
+        assert!(old_snapshot.freqs.contains_key("OLDB"));
+        assert!(!old_snapshot.airports.contains_key("NEWA"));
+        connection.execute_batch("COMMIT;").unwrap();
+        let committed = AirportDb::load_from_sqlite(&connection);
+        assert_eq!(committed.airports.len(), 2);
+        assert_eq!(committed.freqs.len(), 2);
+        assert!(committed.airports.contains_key("NEWA"));
+        assert!(committed.freqs.contains_key("NEWB"));
+        assert!(!committed.airports.contains_key("OLDA"));
+        assert!(!committed.freqs.contains_key("OLDB"));
+        drop(connection);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn test_freq_type_from_raw_emergency() {
