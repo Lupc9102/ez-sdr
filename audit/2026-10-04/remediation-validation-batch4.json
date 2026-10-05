@@ -1,0 +1,29 @@
+{
+  "batch": 4,
+  "findings": [
+    "R02",
+    "G06"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1495,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "raw/CF32 input byte progress at every block including final partial block and 100% before EOF",
+    "looped CF32 input offsets reset on every iteration",
+    "immediate add/name/notes/star/delete/replace bookmark flush and reload",
+    "same-length unflagged content changes debounce and save",
+    "failed bookmark save preserves previous file and dirty state until retry"
+  ],
+  "limitations": [
+    "R01 CF32 amplitude and R05 capture epoch integrity remain pending",
+    "full workspace format still differs in eight untouched files",
+    "hardware experiments remain pending"
+  ]
+}

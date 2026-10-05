@@ -558,3 +558,73 @@ fn aircraft_trails_collect_and_expire_while_planes_is_hidden() {
     app.logic(&ctx, &mut frame);
     assert_eq!(app.adsb_panel.trail_len(1), 0);
 }
+
+#[test]
+fn bookmark_dirty_content_flushes_before_debounce_and_survives_failed_save() {
+    let mut app = offline_test_app();
+    let dir = std::env::temp_dir().join(format!("ez-bookmarks-exit-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    app.bookmark_path = dir.join("bookmarks.json");
+    app.flush_bookmarks();
+    let read_saved = |path: &std::path::Path| -> Vec<crate::bookmarks::Bookmark> {
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    };
+    for operation in 0..5 {
+        {
+            let mut state = app.shared.lock().unwrap();
+            // Exercise content comparison even when a legacy path omits its dirty flag.
+            state.bookmarks_modified = false;
+            let new = state.bookmarks.bookmarks[0].clone();
+            match operation {
+                0 => state.bookmarks.bookmarks.push(new),
+                1 => {
+                    state.bookmarks.bookmarks[0].name = "Edited name".into();
+                    state.bookmarks.bookmarks[0].notes = "Edited notes".into();
+                }
+                2 => state.bookmarks.bookmarks[0].starred = true,
+                3 => {
+                    state.bookmarks.bookmarks.pop();
+                    state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
+                        name: "Replacement".into(),
+                        ..new
+                    });
+                }
+                _ => {
+                    state.bookmarks.bookmarks.remove(0);
+                }
+            }
+        }
+        // The close hook calls this exact flush even when logic never observed the edit.
+        app.flush_bookmarks();
+        let state = app.shared.lock().unwrap();
+        assert_eq!(read_saved(&app.bookmark_path), state.bookmarks.bookmarks);
+        assert!(!state.bookmarks_modified);
+        assert!(app.bm_dirty_since.is_none());
+    }
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.bookmarks.bookmarks[0].starred = !state.bookmarks.bookmarks[0].starred;
+        state.bookmarks_modified = false;
+    }
+    app.tick_bookmark_autosave();
+    assert!(app.shared.lock().unwrap().bookmarks_modified);
+    assert!(app.bm_dirty_since.is_some());
+    app.bm_dirty_since = Some(std::time::Instant::now() - std::time::Duration::from_secs(16));
+    app.tick_bookmark_autosave();
+    assert!(!app.shared.lock().unwrap().bookmarks_modified);
+    let previous = std::fs::read(&app.bookmark_path).unwrap();
+    app.bookmark_path = dir.join("blocked");
+    std::fs::create_dir_all(&app.bookmark_path).unwrap();
+    app.shared.lock().unwrap().bookmarks.bookmarks[0].name = "After failure".into();
+    app.flush_bookmarks();
+    assert!(app.shared.lock().unwrap().bookmarks_modified);
+    assert!(app.bm_dirty_since.is_some());
+    assert_eq!(std::fs::read(dir.join("bookmarks.json")).unwrap(), previous);
+    std::fs::remove_dir(&app.bookmark_path).unwrap();
+    app.flush_bookmarks();
+    let state = app.shared.lock().unwrap();
+    assert!(!state.bookmarks_modified);
+    assert_eq!(read_saved(&app.bookmark_path), state.bookmarks.bookmarks);
+    drop(state);
+    std::fs::remove_dir_all(dir).unwrap();
+}

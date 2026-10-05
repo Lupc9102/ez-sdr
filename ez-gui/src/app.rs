@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Default)]
 pub struct FreqMemEntry {
@@ -120,7 +120,8 @@ pub struct CentralApp {
     last_history_freq: u64,
     freq_history_idx: Option<usize>,
     recording_start: Option<std::time::Instant>,
-    bm_last_len: usize,
+    bm_last_observed: Vec<crate::bookmarks::Bookmark>,
+    bookmark_path: std::path::PathBuf,
     bm_dirty_since: Option<std::time::Instant>,
     // Frequency jump dialog
     show_freq_jump: bool,
@@ -447,7 +448,8 @@ impl CentralApp {
             last_audio_source: None,
             theme_applied: false,
             recording_start: None,
-            bm_last_len: 0,
+            bm_last_observed: Vec::new(),
+            bookmark_path: "ez_sdr_bookmarks.json".into(),
             bm_dirty_since: None,
             last_recording: false,
             last_adsb_running: false,
@@ -674,6 +676,57 @@ impl CentralApp {
             correctedbits: quality.as_ref().map_or(0, |quality| quality.corrected_bits),
             score: quality.as_ref().map_or(0.0, |quality| quality.score),
         })
+    }
+
+    fn save_bookmarks_locked(&mut self, state: &mut SharedState) {
+        state.bookmarks_modified = true;
+        match state.bookmarks.save_to(&self.bookmark_path) {
+            Ok(()) => {
+                state.bookmarks_modified = false;
+                self.bm_last_observed = state.bookmarks.bookmarks.clone();
+                self.bm_dirty_since = None;
+            }
+            Err(error) => {
+                self.status_bar
+                    .error(format!("Could not save bookmarks: {error}"));
+                // Keep dirty state and retry after the debounce, avoiding an I/O
+                // failure on every frame when the destination remains unavailable.
+                self.bm_dirty_since = Some(Instant::now());
+            }
+        }
+    }
+
+    fn tick_bookmark_autosave(&mut self) {
+        let shared = Arc::clone(&self.shared);
+        let Ok(mut state) = shared.try_lock() else {
+            return;
+        };
+        if state.bookmarks.bookmarks != self.bm_last_observed {
+            self.bm_last_observed = state.bookmarks.bookmarks.clone();
+            state.bookmarks_modified = true;
+            self.bm_dirty_since = Some(Instant::now());
+        }
+        if state.bookmarks_modified && self.bm_dirty_since.is_none() {
+            self.bm_dirty_since = Some(Instant::now());
+        }
+        if self
+            .bm_dirty_since
+            .is_some_and(|since| since.elapsed() >= Duration::from_secs(15))
+        {
+            self.save_bookmarks_locked(&mut state);
+        }
+    }
+
+    /// Clean exit bypasses debounce and waits for the shared-state guard.
+    fn flush_bookmarks(&mut self) {
+        let shared = Arc::clone(&self.shared);
+        let mut state = shared.lock().unwrap_or_else(|p| p.into_inner());
+        if state.bookmarks_modified
+            || self.bm_dirty_since.is_some()
+            || state.bookmarks.bookmarks != self.bm_last_observed
+        {
+            self.save_bookmarks_locked(&mut state);
+        }
     }
 
     fn apply_daemon_recording(
@@ -1755,20 +1808,7 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // Auto-save bookmarks when modified (15-second debounce)
-        if let Ok(state) = self.shared.try_lock() {
-            let cur_len = state.bookmarks.bookmarks.len();
-            if cur_len != self.bm_last_len {
-                self.bm_last_len = cur_len;
-                self.bm_dirty_since = Some(std::time::Instant::now());
-            }
-            if let Some(dirty_since) = self.bm_dirty_since {
-                if dirty_since.elapsed().as_secs() >= 15 {
-                    state.bookmarks.save();
-                    self.bm_dirty_since = None;
-                }
-            }
-        }
+        self.tick_bookmark_autosave();
 
         // Track frequency changes for history
         if let Ok(mut state) = self.shared.try_lock() {
@@ -2058,6 +2098,7 @@ impl eframe::App for CentralApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.flush_bookmarks();
         // Auto-save session state on clean exit so next launch resumes where we left off.
         if let Ok(state) = self.shared.try_lock() {
             let mut cfg = state.config.clone();

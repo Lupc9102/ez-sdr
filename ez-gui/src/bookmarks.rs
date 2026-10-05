@@ -7,7 +7,7 @@ pub struct BookmarkDb {
 }
 
 /// A single bookmarked frequency with metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bookmark {
     /// Human-readable label (e.g. "Meteor-M2-3 LRPT")
     pub name: String,
@@ -254,9 +254,13 @@ impl BookmarkDb {
 
     /// Persist all bookmarks atomically to `ez_sdr_bookmarks.json`. Silently ignores I/O errors.
     pub fn save(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(&self.bookmarks) {
-            let _ = atomic_write_file(BOOKMARKS_FILE, json.as_bytes());
-        }
+        let _ = self.save_to(BOOKMARKS_FILE);
+    }
+
+    /// Checked atomic persistence used by autosave and clean-exit flushing.
+    pub fn save_to(&self, path: impl AsRef<std::path::Path>) -> Result<(), String> {
+        let json = serde_json::to_vec_pretty(&self.bookmarks).map_err(|e| e.to_string())?;
+        atomic_write_file(path, &json).map_err(|e| e.to_string())
     }
 
     /// Load bookmarks from `ez_sdr_bookmarks.json`. Returns `None` if the file

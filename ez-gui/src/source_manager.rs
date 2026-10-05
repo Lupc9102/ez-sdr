@@ -233,6 +233,10 @@ fn enumerate_rtl_devices() -> Result<Vec<RtlDeviceInfo>, String> {
 
 enum SourceMessage {
     Samples(Vec<u8>),
+    ReplaySamples {
+        samples: Vec<u8>,
+        file_position: u64,
+    },
     EndOfStream,
     Error(String),
 }
@@ -747,6 +751,7 @@ impl SourceManager {
                     let mut reader = file;
                     let buf_size = 65536;
                     let mut buf = vec![0u8; buf_size];
+                    let mut file_position = 0u64;
                     while running.load(Ordering::Acquire) {
                         match reader.read(&mut buf) {
                             Ok(0) => {
@@ -765,6 +770,7 @@ impl SourceManager {
                                         }
                                     };
                                     reader = file2;
+                                    file_position = 0;
                                     continue;
                                 }
                                 send_cancellable(&tx, &running, SourceMessage::EndOfStream);
@@ -794,7 +800,15 @@ impl SourceManager {
                                     buf[..n].to_vec()
                                 };
 
-                                if !send_cancellable(&tx, &running, SourceMessage::Samples(chunk)) {
+                                file_position += n as u64;
+                                if !send_cancellable(
+                                    &tx,
+                                    &running,
+                                    SourceMessage::ReplaySamples {
+                                        samples: chunk,
+                                        file_position,
+                                    },
+                                ) {
                                     break;
                                 }
                                 let num_samples = if is_cf32 { n / 8 } else { n / 2 };
@@ -859,7 +873,8 @@ impl SourceManager {
                                     break;
                                 }
                             };
-                            if n > 0 && !send_live_samples(&tx, buf[..n].to_vec(), &dropped_blocks) {
+                            if n > 0 && !send_live_samples(&tx, buf[..n].to_vec(), &dropped_blocks)
+                            {
                                 break;
                             }
                         }
@@ -1301,11 +1316,12 @@ impl SourceManager {
     pub fn recv_samples(&mut self) -> Option<Vec<u8>> {
         if let Some(rx) = &self.rx {
             match rx.try_recv() {
-                Ok(SourceMessage::Samples(samples)) => {
-                    if self.source_mode == SourceMode::Replay && self.replay_size > 0 {
-                        self.replay_position =
-                            (self.replay_position + samples.len() as u64).min(self.replay_size);
-                    }
+                Ok(SourceMessage::Samples(samples)) => Some(samples),
+                Ok(SourceMessage::ReplaySamples {
+                    samples,
+                    file_position,
+                }) => {
+                    self.replay_position = file_position.min(self.replay_size);
                     Some(samples)
                 }
                 Ok(SourceMessage::EndOfStream) => {
@@ -2228,6 +2244,63 @@ mod tests {
             std::thread::sleep(Duration::from_millis(2));
         }
         false
+    }
+
+    #[test]
+    fn replay_progress_tracks_input_bytes_at_each_block_and_before_eof() {
+        for cf32 in [false, true] {
+            let input = vec![0; 4 * 65_536 + 8];
+            let mut recording = TestRecording::new(&input);
+            if cf32 {
+                let path = recording.0.with_extension("cf32");
+                std::fs::rename(&recording.0, &path).unwrap();
+                recording.0 = path;
+            }
+            let mut source = recording.source(1);
+            source.start();
+            for expected_position in [65_536, 131_072, 196_608, 262_144, 262_152] {
+                let mut delivered = None;
+                assert!(wait_until(|| {
+                    delivered = source.recv_samples();
+                    delivered.is_some()
+                }));
+                assert_eq!(source.replay_position, expected_position);
+                assert_eq!(source.status, SourceStatus::Running);
+                assert!(source.replay_position <= source.replay_size);
+                let input_len = if expected_position == 262_152 {
+                    8
+                } else {
+                    65_536
+                };
+                assert_eq!(
+                    delivered.unwrap().len(),
+                    input_len / if cf32 { 4 } else { 1 }
+                );
+            }
+            assert_eq!(source.replay_position, source.replay_size); // reaches 100% before EOF is consumed
+            assert!(wait_until(|| {
+                source.recv_samples();
+                source.status == SourceStatus::Idle
+            }));
+            source.stop();
+        }
+    }
+
+    #[test]
+    fn looped_cf32_progress_is_the_current_iteration_file_offset() {
+        let mut recording = TestRecording::new(&vec![0; 65_536 + 8]);
+        let path = recording.0.with_extension("cf32");
+        std::fs::rename(&recording.0, &path).unwrap();
+        recording.0 = path;
+        let mut source = recording.source(1);
+        source.replay_loop = true;
+        source.start();
+        for expected_position in [65_536, 65_544, 65_536, 65_544, 65_536, 65_544] {
+            assert!(wait_until(|| source.recv_samples().is_some()));
+            assert_eq!(source.replay_position, expected_position);
+            assert_eq!(source.status, SourceStatus::Running);
+        }
+        source.stop();
     }
 
     #[test]

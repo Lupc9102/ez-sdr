@@ -22,7 +22,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [ ] A16 (P2): 1090 message-rate and daemon totals are disconnected from message reception
 - [x] A17 (P2): Trail collection depends on whether the Planes tab is rendered
 - [ ] R01 (P1): The app's CF32 writer and replay reader disagree about amplitude units
-- [ ] R02 (P2): CF32 replay progress advances in output bytes instead of file bytes
+- [x] R02 (P2): CF32 replay progress advances in output bytes instead of file bytes
 - [x] R03 (P1): CF32 recording failures and overflow are reported as success
 - [x] R04 (P1): Restarting CF32 recording in the same second overwrites the previous capture
 - [ ] R05 (P1): A single IQ recording can contain multiple tuning or sample-rate epochs under one metadata header
@@ -33,7 +33,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [ ] G03 (P2): The demodulation control queue discards the newest settings instead of coalescing them
 - [ ] G04 (P2): Saved hardware and spectrum controls are not consistently restored or applied
 - [ ] G05 (P2): Applying appearance or integration settings retunes the active receiver to the startup default
-- [ ] G06 (P2): Bookmark autosave watches collection length and clean exit does not flush pending bookmarks
+- [x] G06 (P2): Bookmark autosave watches collection length and clean exit does not flush pending bookmarks
 - [ ] G07 (P2): The current UI can send an AI request but never polls or renders its result
 - [ ] G08 (P2): Several AI tools report completed operations after changing only flags or shadow settings
 - [ ] G09 (P2): Daemon squelch changes through the spectrum and remote control never reach audio playback
@@ -81,3 +81,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Batch 3: A13 expires daemon positions independently of other traffic and publishes/prunes on idle timeouts. Stale positions cannot bootstrap surface CPR. A14 handles TC20-22 and uses explicitly configured actual capture-site coordinates for initial surface CPR, with the shared 45 NM plausibility policy. Daemon CLI accepts paired --receiver-lat/--receiver-lon; no coordinates are assumed.
 - Batch 3: A17 moves bounded trail history/expiry into app logic, verified while Planes is hidden. I03 exports nullable partial/stale positions, validity/source/age and typed optional measurements; Discord eligibility has independent deduplication and retries until a current position arrives. No notifications were sent.
 - Batch 3 final gates: Rust 1.92.0 workspace all-target tests pass (1,492 executions, zero failures, eight ignored), strict all-target Clippy passes, changed files pass pinned rustfmt, and graphify is refreshed. Binary protocol is now 3; rebuild GUI and daemon together. Nineteen of 42 formal findings are fixed and committed after this batch; the goal remains active.
+
+- Batch 4: R02 carries absolute input-file offsets with replay blocks, so progress uses raw/CF32 on-disk bytes rather than converted CU8 output bytes. Each loop resets the offset. Regressions verify every block, a short final block, 100% before EOF is consumed and three loops. R01 amplitude and R05 epoch integrity remain explicit.
+- Batch 4: G06 detects bookmark content changes (including equal-length edits and paths missing a dirty flag), retains the 15-second debounce, and flushes pending data through the clean-exit hook. Checked atomic saves clear dirty state only after success; failures retain dirty state and retry. Temporary-file regressions add, rename, edit notes, star, delete-and-add, delete, immediately flush/reload, and inject a failed destination without changing cwd or user files.
+- Batch 4 final gates: Rust 1.92.0 workspace all-target tests pass (1,495 executions, zero failures, eight ignored); strict all-target Clippy and changed-file format checks pass; graphify is refreshed. Twenty-one of 42 formal findings are fixed; the goal remains active. Eight untouched files still differ under the full workspace format check.
