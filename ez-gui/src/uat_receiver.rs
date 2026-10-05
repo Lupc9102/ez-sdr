@@ -147,8 +147,38 @@ pub enum UatStatus {
 #[derive(Default)]
 struct Counters {
     received: AtomicU64,
+    rate_window: Mutex<ez_proto::MessageRateWindow>,
     rejected: AtomicU64,
     dropped: AtomicU64,
+}
+
+impl Counters {
+    fn snapshot_at(&self, now: Instant) -> ez_proto::ReceiverSnapshot {
+        let received = self.received.load(Ordering::Relaxed);
+        let rejected = self.rejected.load(Ordering::Relaxed);
+        ez_proto::ReceiverSnapshot {
+            timestamp_ms: ez_proto::unix_time_ms(),
+            total_messages: received,
+            decode_stats: (
+                received + rejected,
+                received,
+                rejected,
+                0,
+                0,
+                0,
+                0,
+                0.0,
+                0.0,
+                0.0,
+                0,
+            ),
+            messages_per_second: self
+                .rate_window
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .rate_at(now),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -250,6 +280,10 @@ impl UatReceiver {
         )
     }
 
+    pub fn receiver_snapshot(&self) -> ez_proto::ReceiverSnapshot {
+        self.counters.snapshot_at(Instant::now())
+    }
+
     pub fn try_recv(&self) -> Option<TimedReport> {
         self.rx.try_recv().ok()
     }
@@ -324,11 +358,17 @@ fn read_reports(
                     .and_then(parse_report);
                 match report {
                     Ok(report) => {
-                        counters.received.fetch_add(1, Ordering::Relaxed);
+                        let now = Instant::now();
+                        let total = counters.received.fetch_add(1, Ordering::Relaxed) + 1;
+                        counters
+                            .rate_window
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .observe_total(total, now);
                         if tx
                             .try_send(TimedReport {
                                 report,
-                                received: Instant::now(),
+                                received: now,
                             })
                             .is_err()
                         {
@@ -491,6 +531,15 @@ mod tests {
         assert_eq!(counters.received.load(Ordering::Relaxed), 3);
         assert_eq!(counters.rejected.load(Ordering::Relaxed), 1);
         assert_eq!(counters.dropped.load(Ordering::Relaxed), 1);
+        let now = Instant::now();
+        let snapshot = counters.snapshot_at(now);
+        assert_eq!(snapshot.total_messages, 3);
+        assert_eq!(snapshot.decode_stats.1, 3);
+        assert_eq!(snapshot.decode_stats.2, 1);
+        assert_eq!(snapshot.messages_per_second, 0.6);
+        let idle = counters.snapshot_at(now + Duration::from_secs(6));
+        assert_eq!(idle.total_messages, 3);
+        assert_eq!(idle.messages_per_second, 0.0);
     }
 
     #[test]

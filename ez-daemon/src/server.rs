@@ -360,7 +360,10 @@ pub(crate) fn spawn_forwarder(
             spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Audio)
         }
         ChannelSubscription::AdsbPackets(h) => {
-            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Aircraft)
+            spawn_forward_thread(channel_id, h, event_tx, move |mut snapshot| {
+                snapshot.channel_id = channel_id;
+                ServerEvent::Aircraft(snapshot)
+            })
         }
         ChannelSubscription::LrptTelemetry(h) => {
             spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Telemetry)

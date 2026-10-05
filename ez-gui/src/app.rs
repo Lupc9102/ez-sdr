@@ -776,11 +776,13 @@ impl CentralApp {
                         let _ = self.audio.push_audio(samples);
                     }
                 }
-                Some(ez_proto::ServerEvent::Aircraft(aircraft))
+                Some(ez_proto::ServerEvent::Aircraft(snapshot))
                     if adsb_running
                         && self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090 =>
                 {
-                    self.adsb_panel.aircraft = aircraft
+                    self.adsb_panel.apply_receiver_snapshot(snapshot.receiver);
+                    self.adsb_panel.aircraft = snapshot
+                        .aircraft
                         .into_iter()
                         .filter_map(Self::map_daemon_aircraft)
                         .collect();
@@ -1049,8 +1051,8 @@ impl eframe::App for CentralApp {
                     }
                     let ac = self.adsb_decoder.get_aircraft();
                     self.adsb_panel.aircraft = ac;
-                    self.adsb_panel.total_messages = self.adsb_decoder.total_messages;
-                    self.adsb_panel.decode_stats = self.adsb_decoder.stats();
+                    self.adsb_panel
+                        .apply_receiver_snapshot(self.adsb_decoder.receiver_snapshot());
                 }
                 if self.current_tab == AppTab::Listen {
                     spectrum_batch.push(wideband_iq);
@@ -1181,6 +1183,14 @@ impl eframe::App for CentralApp {
 
         // Passive ADS-B: detect newly-arrived aircraft and fire alert toasts + Discord notifications.
         self.adsb_panel.poll_uat();
+        if self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090
+            && self.shared.try_lock().ok().is_some_and(|state| {
+                state.source.source_mode != crate::source_manager::SourceMode::Daemon
+            })
+        {
+            self.adsb_panel
+                .apply_receiver_snapshot(self.adsb_decoder.receiver_snapshot());
+        }
         self.adsb_panel.tick_model();
         self.adsb_panel.check_for_new_aircraft();
         if let Some(msg) = self.adsb_panel.pending_status_flash.take() {

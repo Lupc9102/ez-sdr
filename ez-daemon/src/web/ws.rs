@@ -95,7 +95,8 @@ async fn stream_channel(socket: WebSocket, channel_id: ChannelId, sub: ChannelSu
             Message::Binary(wire::encode_audio(&f).into())
         }),
         ChannelSubscription::AdsbPackets(h) => {
-            spawn_forward_thread(channel_id, h, tx.clone(), |f| {
+            spawn_forward_thread(channel_id, h, tx.clone(), move |mut f| {
+                f.channel_id = channel_id;
                 Message::Text(serde_json::to_string(&f).unwrap_or_default().into())
             })
         }

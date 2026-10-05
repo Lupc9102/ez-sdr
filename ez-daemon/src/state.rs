@@ -23,8 +23,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 use ez_proto::{
-    AircraftTelemetry, AudioFrame, ChannelId, ChannelSpec, DemodMode, HardwareStatus, PipelineKind,
-    RecordingFormat, RecordingStatus, SpectrumFrame, TelemetryFrame,
+    AudioFrame, ChannelId, ChannelSpec, DemodMode, HardwareStatus, PipelineKind, RecordingFormat,
+    RecordingStatus, SpectrumFrame, TelemetryFrame,
 };
 
 use crate::broadcast::BroadcasterHandle;
@@ -67,7 +67,7 @@ struct ActiveChannel {
 pub enum ChannelSubscription {
     Spectrum(BroadcasterHandle<SpectrumFrame>),
     Audio(BroadcasterHandle<AudioFrame>),
-    AdsbPackets(BroadcasterHandle<Vec<AircraftTelemetry>>),
+    AdsbPackets(BroadcasterHandle<ez_proto::AircraftSnapshot>),
     LrptTelemetry(BroadcasterHandle<TelemetryFrame>),
 }
 

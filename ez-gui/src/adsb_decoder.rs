@@ -12,6 +12,7 @@ pub struct AdsBDecoder {
     cpr_decoder: dump1090::cpr::CprDecoder,
     aircraft: HashMap<u32, AircraftState>,
     pub total_messages: u64,
+    rate_window: ez_proto::MessageRateWindow,
     pub frame_count: u64,
     total_samples: u64,
     pending_i: Vec<u8>,
@@ -71,6 +72,7 @@ impl AdsBDecoder {
             cpr_decoder: dump1090::cpr::CprDecoder::new(),
             aircraft: HashMap::new(),
             total_messages: 0,
+            rate_window: Default::default(),
             frame_count: 0,
             total_samples: 0,
             pending_i: Vec::new(),
@@ -181,6 +183,8 @@ impl AdsBDecoder {
 
         for (icao, msgtype, msg, signal_level, reliable, correctedbits, score) in decoded {
             self.total_messages += 1;
+            self.rate_window
+                .observe_total(self.total_messages, std::time::Instant::now());
             self.process_decoded(
                 icao,
                 msgtype,
@@ -493,6 +497,19 @@ impl AdsBDecoder {
             .collect()
     }
 
+    pub fn receiver_snapshot(&self) -> ez_proto::ReceiverSnapshot {
+        self.receiver_snapshot_at(std::time::Instant::now())
+    }
+
+    fn receiver_snapshot_at(&self, now: std::time::Instant) -> ez_proto::ReceiverSnapshot {
+        ez_proto::ReceiverSnapshot {
+            timestamp_ms: ez_proto::unix_time_ms(),
+            total_messages: self.total_messages,
+            decode_stats: self.stats(),
+            messages_per_second: self.rate_window.rate_at(now),
+        }
+    }
+
     /// Return demodulator statistics: (preambles, accepted, rejected, modeac,
     /// accepted_0err, accepted_1err, accepted_2err, signal_power, noise_power,
     /// peak_signal_power, strong_signal_count)
@@ -685,6 +702,22 @@ mod tests {
         assert_eq!(ac.surface_heading, None);
         assert_eq!(ac.heading, None);
         assert_eq!(ac.airspeed, None);
+    }
+
+    #[test]
+    fn local_receiver_snapshot_counts_real_messages_and_expires_on_idle() {
+        use ez_daemon::hardware::adsb::{encode_uc8, EXAMPLE_DF17_CALLSIGN};
+        let mut decoder = AdsBDecoder::new();
+        decoder.feed_iq(&encode_uc8(&[EXAMPLE_DF17_CALLSIGN; 100]), 2_400_000);
+        let now = std::time::Instant::now();
+        let snapshot = decoder.receiver_snapshot_at(now);
+        assert_eq!(snapshot.total_messages, 100);
+        assert_eq!(snapshot.decode_stats.1, 100);
+        assert_eq!(snapshot.decode_stats.4, 100);
+        assert_eq!(snapshot.messages_per_second, 20.0);
+        let idle = decoder.receiver_snapshot_at(now + std::time::Duration::from_secs(6));
+        assert_eq!(idle.total_messages, 100);
+        assert_eq!(idle.messages_per_second, 0.0);
     }
 
     #[test]

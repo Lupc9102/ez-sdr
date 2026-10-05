@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -173,6 +173,26 @@ pub struct AircraftQuality {
     pub score: f64,
 }
 
+/// Preambles, accepted/rejected/Mode A/C, accepted by corrected bits, average
+/// signal/noise power, peak signal power and strong-signal count.
+pub type ReceiverDecodeStats = (u64, u64, u64, u64, u64, u64, u64, f64, f64, f64, u64);
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReceiverSnapshot {
+    pub timestamp_ms: u64,
+    pub total_messages: u64,
+    pub decode_stats: ReceiverDecodeStats,
+    /// Accepted received messages in a fixed five-second window, per second.
+    pub messages_per_second: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AircraftSnapshot {
+    pub channel_id: ChannelId,
+    pub aircraft: Vec<AircraftTelemetry>,
+    pub receiver: ReceiverSnapshot,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryFrame {
     pub channel_id: ChannelId,
@@ -215,7 +235,7 @@ pub enum ServerEvent {
     Spectrum(SpectrumFrame),
     Audio(AudioFrame),
     /// Full snapshot of currently-tracked aircraft (daemon prunes stale entries itself).
-    Aircraft(Vec<AircraftTelemetry>),
+    Aircraft(AircraftSnapshot),
     Telemetry(TelemetryFrame),
     Hardware(HardwareStatus),
     Recording(RecordingStatus),

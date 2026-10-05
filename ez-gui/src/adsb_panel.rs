@@ -67,7 +67,8 @@ pub struct AdsBPanel {
     uat_position_seen: std::collections::HashMap<u32, std::time::Instant>,
     uat_dropped: u64,
     /// Timestamps of recent messages for rolling-window rate calculation.
-    message_times: std::collections::VecDeque<std::time::Instant>,
+    receiver_rate: f64,
+    receiver_rate_seen: std::time::Instant,
     /// ICAO addresses with in-flight aircraft info fetch requests.
     info_inflight: Arc<std::sync::RwLock<std::collections::HashSet<u32>>>,
 }
@@ -598,7 +599,8 @@ impl AdsBPanel {
             uat_receiver: UatReceiver::default(),
             uat_position_seen: std::collections::HashMap::new(),
             uat_dropped: 0,
-            message_times: std::collections::VecDeque::new(),
+            receiver_rate: 0.0,
+            receiver_rate_seen: std::time::Instant::now(),
             info_inflight: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
         };
         // Spawn the tile download worker pool. Workers read from tile_request_rx
@@ -701,38 +703,39 @@ impl AdsBPanel {
         self.notifications.clear();
         self.pending_ai_prompt = None;
         self.pending_status_flash = None;
-        self.message_times.clear();
+        self.receiver_rate = 0.0;
         self.info_inflight.write().unwrap().clear();
         // In-flight enrichment belongs to the previous capture. Retire its
         // channel so late replies cannot repopulate the freshly cleared UI.
         (self.info_tx, self.info_rx) = std::sync::mpsc::channel();
     }
 
-    /// Record a message timestamp for rolling-window rate calculation.
-    fn record_message(&mut self) {
-        let now = std::time::Instant::now();
-        self.message_times.push_back(now);
-        // Keep only the last 5 seconds of timestamps.
-        while let Some(&oldest) = self.message_times.front() {
-            if now.duration_since(oldest).as_secs() > 5 {
-                self.message_times.pop_front();
-            } else {
-                break;
-            }
-        }
+    /// Receiver-generated counters and rate; repeated aircraft snapshots do not
+    /// manufacture message arrivals. Old/disconnected snapshots expire independently.
+    pub(crate) fn apply_receiver_snapshot(&mut self, snapshot: ez_proto::ReceiverSnapshot) {
+        self.total_messages = snapshot.total_messages;
+        self.decode_stats = snapshot.decode_stats;
+        self.receiver_rate = if snapshot.messages_per_second.is_finite() {
+            snapshot.messages_per_second.max(0.0)
+        } else {
+            0.0
+        };
+        let age = std::time::Duration::from_millis(
+            ez_proto::unix_time_ms().saturating_sub(snapshot.timestamp_ms),
+        );
+        self.receiver_rate_seen = std::time::Instant::now()
+            .checked_sub(age)
+            .unwrap_or_else(std::time::Instant::now);
     }
 
-    /// Calculate the current message rate over a 5-second rolling window.
+    /// Fixed five-second received-message rate. An idle/disconnected feed reaches zero.
     fn recent_message_rate(&self) -> f64 {
-        if self.message_times.len() < 2 {
-            return 0.0;
+        if self.receiver_rate_seen.elapsed().as_secs_f64() >= ez_proto::MESSAGE_RATE_WINDOW_SECONDS
+        {
+            0.0
+        } else {
+            self.receiver_rate
         }
-        let now = std::time::Instant::now();
-        let window_secs = now
-            .duration_since(*self.message_times.front().unwrap_or(&now))
-            .as_secs_f64()
-            .max(1.0);
-        self.message_times.len() as f64 / window_secs
     }
 
     fn connect_uat(&mut self) {
@@ -803,7 +806,6 @@ impl AdsBPanel {
             let Some(report) = self.uat_receiver.try_recv() else {
                 break;
             };
-            self.record_message();
             self.ingest_uat_report(report);
         }
         let now = std::time::Instant::now();
@@ -818,23 +820,8 @@ impl AdsBPanel {
             .retain(|key, _| self.uat_position_seen.contains_key(key));
         self.aircraft_info.retain(|key, _| live.contains(key));
         self.known_icao.retain(|key| live.contains(key));
-        let (received, rejected, dropped) = self.uat_receiver.counts();
-        self.total_messages = received;
-        // L20: Report dropped separately from rejected. The previous code
-        // mislabeled queue-overflow drops as rejections.
-        self.decode_stats = (
-            received + rejected + dropped,
-            received,
-            rejected,
-            0,
-            0,
-            0,
-            0,
-            0.0,
-            0.0,
-            0.0,
-            0,
-        );
+        let (_, _, dropped) = self.uat_receiver.counts();
+        self.apply_receiver_snapshot(self.uat_receiver.receiver_snapshot());
         self.uat_dropped = dropped;
     }
 
@@ -2670,6 +2657,34 @@ mod tests {
     }
 
     use crate::test_helpers::make_shared_state;
+
+    #[test]
+    fn daemon_receiver_snapshot_updates_totals_without_counting_republication() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        let snapshot = ez_proto::ReceiverSnapshot {
+            timestamp_ms: ez_proto::unix_time_ms(),
+            total_messages: 100,
+            decode_stats: (110, 100, 10, 0, 80, 15, 5, 0.4, 0.01, 0.9, 20),
+            messages_per_second: 20.0,
+        };
+        for _ in 0..5 {
+            panel.apply_receiver_snapshot(snapshot.clone());
+        }
+        assert_eq!(panel.total_messages, 100);
+        assert_eq!(panel.decode_stats, snapshot.decode_stats);
+        assert_eq!(panel.recent_message_rate(), 20.0);
+        panel.receiver_rate_seen -= std::time::Duration::from_secs(6);
+        panel.tick_model(); // Hidden-tab/idle model maintenance requires no arrivals.
+        assert_eq!(panel.recent_message_rate(), 0.0);
+        panel.apply_receiver_snapshot(ez_proto::ReceiverSnapshot {
+            messages_per_second: 0.0,
+            ..snapshot
+        });
+        assert_eq!(panel.recent_message_rate(), 0.0);
+        panel.clear_tracks();
+        assert_eq!(panel.total_messages, 0);
+        assert_eq!(panel.recent_message_rate(), 0.0);
+    }
 
     #[test]
     fn test_new_defaults() {

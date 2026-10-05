@@ -19,7 +19,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [x] A13 (P2): A position can remain current indefinitely while unrelated traffic continues
 - [x] A14 (P2): Geometric-position messages and newly acquired surface tracks cannot produce daemon positions
 - [x] A15 (P2): DF11 interrogator parity is treated as a CRC error before IID scoring
-- [ ] A16 (P2): 1090 message-rate and daemon totals are disconnected from message reception
+- [x] A16 (P2): 1090 message-rate and daemon totals are disconnected from message reception
 - [x] A17 (P2): Trail collection depends on whether the Planes tab is rendered
 - [x] R01 (P1): The app's CF32 writer and replay reader disagree about amplitude units
 - [x] R02 (P2): CF32 replay progress advances in output bytes instead of file bytes
@@ -89,3 +89,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Batch 5: R01 makes all daemon input sources and new CF32 recordings use normalized full-scale components (CU8 0/255 maps to -1/+1), declares units in both writer sidecars, and uses exact rounded CU8 replay conversion. GUI replay, daemon replay and offline LRPT imports honor bounded metadata; known legacy satellite metadata and explicit GUI/CLI/API/sidecar choices import old byte-minus-127.4 captures without signal-peak guessing. Replay preference persists. Real writer/reader regressions preserve every ADC byte, weak/full-scale tones, ADS-B messages and coded LRPT frames.
 - Batch 5 replaces a timing-based FFT test wait with test-only explicit worker completion accounting after a parallel-load race exposed its stale-frame assertion; production FFT behavior is unchanged. Changed config, decoding and spectrum files also now pass pinned formatting.
 - Batch 5 final gates: Rust 1.92.0 workspace all-target tests pass (1,500 executions, zero failures, eight ignored); strict all-target Clippy and changed-file format checks pass; graphify is refreshed. Twenty-two of 42 formal findings are fixed; five untouched files still differ under the full workspace format check. Capture epochs, remaining controls/integrations and hardware experiments remain active.
+
+- Batch 6: A16 publishes typed receiver counter/rate snapshots from actual local Mode S framing, the UAT ingest worker and the daemon packet pipeline. A shared fixed five-second window uses at most 50 buckets; idle reads expire rates without arrivals or tab rendering, and receiver-counter resets retire old rate state. Aircraft snapshot republication never counts as reception. UAT accepted/drop/rejection counters remain separate. Daemon idle snapshots and disconnected GUI snapshots reach zero; daemon lifetime totals survive aircraft pruning.
+- Batch 6 regressions exercise real Mode S IQ locally and in the daemon (100 messages, total 100, rate 20/s), UAT parsing/queue overflow, idle expiry, receiver resets, bounded known-cadence accounting and wire preservation of counters and channel identity. Protocol is now 4; rebuild GUI and daemon together.
+- Batch 6 final gates: Rust 1.92.0 workspace all-target tests pass (1,505 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed. Twenty-three of 42 formal findings are fixed. The goal remains active.

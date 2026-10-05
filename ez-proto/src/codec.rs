@@ -161,12 +161,29 @@ mod tests {
             let mut codec = MessageCodec::<ServerEvent>::for_data();
             let mut bytes = BytesMut::new();
             codec
-                .encode(ServerEvent::Aircraft(vec![original]), &mut bytes)
+                .encode(
+                    ServerEvent::Aircraft(crate::AircraftSnapshot {
+                        channel_id: 73,
+                        aircraft: vec![original],
+                        receiver: crate::ReceiverSnapshot {
+                            timestamp_ms: 1234,
+                            total_messages: 100,
+                            messages_per_second: 20.0,
+                            decode_stats: (110, 100, 10, 0, 80, 15, 5, 0.4, 0.01, 0.9, 20),
+                        },
+                    }),
+                    &mut bytes,
+                )
                 .unwrap();
             let ServerEvent::Aircraft(received) = codec.decode(&mut bytes).unwrap().unwrap() else {
                 panic!("wrong event");
             };
-            let item = &received[0];
+            assert_eq!(received.channel_id, 73);
+            assert_eq!(received.receiver.total_messages, 100);
+            assert_eq!(received.receiver.messages_per_second, 20.0);
+            assert_eq!(received.receiver.timestamp_ms, 1234);
+            assert_eq!(received.receiver.decode_stats.6, 5);
+            let item = &received.aircraft[0];
             assert_eq!(item.altitude_ft, altitude);
             assert!(item.altitude_geometric);
             assert_eq!(item.ground_speed_kt, Some(0.0));

@@ -56,7 +56,8 @@ pub struct PacketPipeline {
     blocks_since_publish: u32,
     last_publish: Instant,
     receiver_position: Option<(f64, f64)>,
-    output: Broadcaster<Vec<AircraftTelemetry>>,
+    rate_window: ez_proto::MessageRateWindow,
+    output: Broadcaster<ez_proto::AircraftSnapshot>,
 }
 
 impl PacketPipeline {
@@ -81,6 +82,7 @@ impl PacketPipeline {
             blocks_since_publish: 0,
             last_publish: Instant::now(),
             receiver_position: None,
+            rate_window: Default::default(),
             output: Broadcaster::new(),
         }
     }
@@ -89,7 +91,7 @@ impl PacketPipeline {
     /// every currently-tracked aircraft, so a slow subscriber should only ever want the
     /// newest one — hence [`OverflowPolicy::DropOldest`].
     #[must_use]
-    pub fn subscribe(&self, capacity: usize) -> BroadcasterHandle<Vec<AircraftTelemetry>> {
+    pub fn subscribe(&self, capacity: usize) -> BroadcasterHandle<ez_proto::AircraftSnapshot> {
         self.output.subscribe(capacity, OverflowPolicy::DropOldest)
     }
 
@@ -137,6 +139,29 @@ impl PacketPipeline {
         const POLL_INTERVAL: Duration = Duration::from_millis(250);
         while running.load(Ordering::Relaxed) {
             self.tick(POLL_INTERVAL);
+        }
+    }
+
+    fn receiver_snapshot(&self, now: Instant) -> ez_proto::ReceiverSnapshot {
+        let stats = &self.stats;
+        let average = |sum: f64, count: u64| if count > 0 { sum / count as f64 } else { 0.0 };
+        ez_proto::ReceiverSnapshot {
+            timestamp_ms: now_ms(),
+            total_messages: stats.demod_accepted.iter().sum(),
+            messages_per_second: self.rate_window.rate_at(now),
+            decode_stats: (
+                stats.demod_preambles,
+                stats.demod_accepted.iter().sum(),
+                stats.demod_rejected_bad + stats.demod_rejected_unknown_icao,
+                stats.demod_modeac,
+                stats.demod_accepted[0],
+                stats.demod_accepted[1],
+                stats.demod_accepted[2],
+                average(stats.signal_power_sum, stats.signal_power_count),
+                average(stats.noise_power_sum, stats.noise_power_count),
+                stats.peak_signal_power,
+                stats.strong_signal_count,
+            ),
         }
     }
 
@@ -189,6 +214,9 @@ impl PacketPipeline {
         self.last_block_end_sample = Some(block.start_sample + block.samples.len() as u64);
 
         self.mag_buf = mag.data.into_owned();
+
+        self.rate_window
+            .observe_total(self.stats.demod_accepted.iter().sum(), Instant::now());
 
         for mm in &messages {
             self.merge_message(mm);
@@ -365,7 +393,11 @@ impl PacketPipeline {
             });
 
         let snapshot: Vec<AircraftTelemetry> = self.aircraft.values().cloned().collect();
-        self.output.publish(snapshot);
+        self.output.publish(ez_proto::AircraftSnapshot {
+            channel_id: 0,
+            aircraft: snapshot,
+            receiver: self.receiver_snapshot(Instant::now()),
+        });
     }
 }
 
@@ -422,6 +454,29 @@ mod tests {
         let bus = SampleBus::new();
         let handle = bus.subscribe(8, OverflowPolicy::DropIncoming);
         (bus, PacketPipeline::new(handle, 2_400_000))
+    }
+
+    #[test]
+    fn receiver_snapshot_counts_real_messages_and_expires_on_idle() {
+        use crate::hardware::adsb::{encode_uc8, EXAMPLE_DF17_CALLSIGN};
+        let (_, mut pipeline) = test_pipeline();
+        let output = pipeline.subscribe(8);
+        let raw = encode_uc8(&[EXAMPLE_DF17_CALLSIGN; 100]);
+        pipeline.process_block(&SampleBlock {
+            start_sample: 0,
+            sample_rate_hz: 2_400_000,
+            center_freq_hz: 1_090_000_000,
+            samples: std::sync::Arc::from(lrpt_decode::uc8_bytes_to_normalized(&raw)),
+        });
+        pipeline.prune_and_publish();
+        let snapshot = output.try_recv().unwrap();
+        assert_eq!(snapshot.aircraft.len(), 1);
+        assert_eq!(snapshot.receiver.total_messages, 100);
+        assert_eq!(snapshot.receiver.decode_stats.1, 100);
+        assert_eq!(snapshot.receiver.messages_per_second, 20.0);
+        let idle = pipeline.receiver_snapshot(Instant::now() + Duration::from_secs(6));
+        assert_eq!(idle.total_messages, 100);
+        assert_eq!(idle.messages_per_second, 0.0);
     }
 
     #[test]
@@ -515,7 +570,10 @@ mod tests {
         pipeline.merge_message(&surface);
         assert_eq!(pipeline.aircraft[&1].position_seen_ms, Some(now - 61_000)); // stale reference cannot refresh
         pipeline.prune_and_publish_at(now);
-        let snapshot = output.recv_timeout(Duration::from_millis(10)).unwrap();
+        let snapshot = output
+            .recv_timeout(Duration::from_millis(10))
+            .unwrap()
+            .aircraft;
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].lat, None);
         assert_eq!(snapshot[0].lon, None);
@@ -526,6 +584,7 @@ mod tests {
         assert!(output
             .recv_timeout(Duration::from_millis(10))
             .unwrap()
+            .aircraft
             .is_empty());
         assert_eq!(pipeline.tracked_count(), 0);
         drop(bus);
@@ -679,7 +738,7 @@ mod tests {
         }
         let output = pipeline.subscribe(1);
         pipeline.prune_and_publish();
-        let snapshot = output.try_recv().unwrap();
+        let snapshot = output.try_recv().unwrap().aircraft;
         assert_eq!(snapshot.len(), 3);
         for key in [0xABCDEF, 0x10ABCDEF, 0x12ABCDEF] {
             assert!(snapshot
@@ -881,7 +940,10 @@ mod tests {
         mm.sys_timestamp_msg = now_ms();
         pipeline.merge_message(&mm);
         pipeline.prune_and_publish();
-        let snapshot = out.try_recv().expect("expected a published snapshot");
+        let snapshot = out
+            .try_recv()
+            .expect("expected a published snapshot")
+            .aircraft;
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].icao, 0x333333);
     }
