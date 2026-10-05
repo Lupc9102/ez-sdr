@@ -284,4 +284,60 @@ mod tests {
         let result = server.next().await.expect("stream ended");
         assert!(result.is_err(), "frames larger than 64KB must be rejected");
     }
+    #[test]
+    fn squelch_command_reply_and_audio_applied_metadata_round_trip() {
+        use crate::{AudioFrame, ServerEvent, SquelchState};
+        let command = ClientCommand::SetSquelch {
+            channel_id: 17,
+            db: -23.5,
+            request_id: 123,
+        };
+        let mut commands = MessageCodec::for_commands();
+        let mut bytes = BytesMut::new();
+        commands.encode(command.clone(), &mut bytes).unwrap();
+        assert_eq!(commands.decode(&mut bytes).unwrap(), Some(command));
+        let applied = SquelchState {
+            db: -23.5,
+            revision: 45,
+        };
+        let mut data = MessageCodec::for_data();
+        for result in [Ok(applied), Err("not an audio channel".into())] {
+            data.encode(
+                ServerEvent::Squelch {
+                    channel_id: 17,
+                    request_id: 123,
+                    result: result.clone(),
+                },
+                &mut bytes,
+            )
+            .unwrap();
+            let Some(ServerEvent::Squelch {
+                channel_id,
+                request_id,
+                result: decoded,
+            }) = data.decode(&mut bytes).unwrap()
+            else {
+                panic!("wrong event")
+            };
+            assert_eq!((channel_id, request_id, decoded), (17, 123, result));
+        }
+        data.encode(
+            ServerEvent::Audio(AudioFrame {
+                channel_id: 17,
+                sample_rate_hz: 48_000,
+                samples: vec![0.0; 32],
+                squelch: applied,
+            }),
+            &mut bytes,
+        )
+        .unwrap();
+        let Some(ServerEvent::Audio(frame)) = data.decode(&mut bytes).unwrap() else {
+            panic!("wrong event")
+        };
+        assert_eq!(
+            (frame.channel_id, frame.sample_rate_hz, frame.squelch),
+            (17, 48_000, applied)
+        );
+        assert_eq!(frame.samples, vec![0.0; 32]);
+    }
 }

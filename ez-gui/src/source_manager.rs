@@ -299,6 +299,14 @@ fn iq_block_duration(byte_count: usize, sample_rate: u32) -> Duration {
     Duration::from_secs_f64((byte_count / 2) as f64 / f64::from(sample_rate))
 }
 
+const DAEMON_SQUELCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+struct PendingSquelch {
+    request_id: u64,
+    db: f32,
+    started: std::time::Instant,
+}
+
 /// Manages the SDR source lifecycle — starting, stopping, and reading IQ samples.
 ///
 /// Supports three modes: real RTL-SDR hardware (behind `feature = "rtlsdr"`),
@@ -365,6 +373,12 @@ pub struct SourceManager {
     daemon_last_gain_db: f64,
     daemon_audio_mode: Option<ez_proto::DemodMode>,
     daemon_audio_tuning: Option<DaemonAudioTuning>,
+    daemon_squelch_applied: Option<ez_proto::SquelchState>,
+    daemon_squelch_pending: Option<PendingSquelch>,
+    daemon_squelch_wanted: f32,
+    daemon_squelch_last_requested: Option<f32>,
+    daemon_squelch_next_request: u64,
+    pub daemon_squelch_error: Option<String>,
     daemon_adsb_subscribed: bool,
     daemon_lrpt_subscribed: bool,
     daemon_recording_active: bool,
@@ -456,6 +470,12 @@ impl SourceManager {
             daemon_last_gain_db: 40.0,
             daemon_audio_mode: None,
             daemon_audio_tuning: None,
+            daemon_squelch_applied: None,
+            daemon_squelch_pending: None,
+            daemon_squelch_wanted: -100.0,
+            daemon_squelch_last_requested: None,
+            daemon_squelch_next_request: 0,
+            daemon_squelch_error: None,
             daemon_adsb_subscribed: false,
             daemon_lrpt_subscribed: false,
             daemon_recording_active: false,
@@ -997,11 +1017,147 @@ impl SourceManager {
         });
         self.daemon_audio_mode = None;
         self.daemon_audio_tuning = None;
+        self.reset_daemon_squelch();
         self.daemon_adsb_subscribed = false;
         self.daemon_lrpt_subscribed = false;
         self.daemon_recording_active = false;
         self.daemon_client = Some(client);
         self.stream_generation = self.stream_generation.wrapping_add(1);
+    }
+
+    fn reset_daemon_squelch(&mut self) {
+        self.daemon_squelch_applied = None;
+        self.daemon_squelch_pending = None;
+        self.daemon_squelch_last_requested = None;
+        self.daemon_squelch_error = None;
+    }
+
+    pub fn daemon_squelch_applied(&self) -> Option<ez_proto::SquelchState> {
+        self.daemon_squelch_applied
+    }
+    pub fn daemon_squelch_pending_db(&self) -> Option<f32> {
+        self.daemon_squelch_pending
+            .as_ref()
+            .map(|_| self.daemon_squelch_wanted)
+    }
+
+    /// Request through the actual audio channel, retaining only one in-flight
+    /// command. Subsequent edits coalesce in the desired value/configuration.
+    pub fn request_daemon_squelch(&mut self, db: f32) -> Result<(), String> {
+        if !db.is_finite() {
+            return Err("squelch threshold must be finite".into());
+        }
+        if self.source_mode != SourceMode::Daemon || self.daemon_audio_mode.is_none() {
+            return Err("daemon audio channel is not active".into());
+        }
+        if self.daemon_client.as_ref().is_none_or(|client| {
+            client.status() != crate::daemon_client::ConnectionStatus::Connected
+        }) {
+            return Err("daemon is not connected".into());
+        }
+        if self.daemon_squelch_error.take().is_some() {
+            self.daemon_squelch_last_requested = None;
+        }
+        self.sync_daemon_squelch(db);
+        self.daemon_squelch_error.clone().map_or(Ok(()), Err)
+    }
+
+    pub fn sync_daemon_squelch(&mut self, db: f32) {
+        if !db.is_finite() {
+            self.daemon_squelch_error = Some("squelch threshold must be finite".into());
+            return;
+        }
+        if self.source_mode != SourceMode::Daemon || self.daemon_audio_mode.is_none() {
+            return;
+        }
+        self.daemon_squelch_wanted = db;
+        if self
+            .daemon_squelch_pending
+            .as_ref()
+            .is_some_and(|request| request.started.elapsed() >= DAEMON_SQUELCH_TIMEOUT)
+        {
+            self.daemon_squelch_pending = None;
+            self.daemon_squelch_error = Some("daemon squelch acknowledgement timed out".into());
+        }
+        if self.daemon_squelch_pending.is_some() || self.daemon_squelch_last_requested == Some(db) {
+            return;
+        }
+        let Some(client) = self
+            .daemon_client
+            .as_ref()
+            .filter(|client| client.status() == crate::daemon_client::ConnectionStatus::Connected)
+        else {
+            return;
+        };
+        self.daemon_squelch_next_request = self.daemon_squelch_next_request.wrapping_add(1);
+        let request_id = self.daemon_squelch_next_request;
+        self.daemon_squelch_last_requested = Some(db);
+        self.daemon_squelch_error = None;
+        if client.try_send(ez_proto::ClientCommand::SetSquelch {
+            channel_id: DAEMON_AUDIO_CHANNEL_ID,
+            db,
+            request_id,
+        }) {
+            self.daemon_squelch_pending = Some(PendingSquelch {
+                request_id,
+                db,
+                started: std::time::Instant::now(),
+            });
+        } else {
+            self.daemon_squelch_error = Some("daemon squelch command could not be queued".into());
+        }
+    }
+
+    fn observe_daemon_squelch(&mut self, state: ez_proto::SquelchState) {
+        if state.db.is_finite()
+            && self.daemon_squelch_applied.is_none_or(|applied| {
+                state.revision > applied.revision
+                    || (state.revision == applied.revision && state.db == applied.db)
+            })
+        {
+            self.daemon_squelch_applied = Some(state);
+        }
+    }
+
+    fn apply_daemon_squelch_reply(
+        &mut self,
+        channel_id: ez_proto::ChannelId,
+        request_id: u64,
+        result: &Result<ez_proto::SquelchState, String>,
+    ) {
+        if channel_id != DAEMON_AUDIO_CHANNEL_ID
+            || self
+                .daemon_squelch_pending
+                .as_ref()
+                .is_none_or(|pending| pending.request_id != request_id)
+        {
+            return;
+        }
+        let pending = self.daemon_squelch_pending.take().unwrap();
+        match result {
+            Ok(applied) => {
+                self.observe_daemon_squelch(*applied);
+                self.daemon_squelch_error = if !applied.db.is_finite() || applied.db != pending.db {
+                    Some("daemon applied an unexpected squelch threshold".into())
+                } else {
+                    None
+                };
+            }
+            Err(error) => self.daemon_squelch_error = Some(error.clone()),
+        }
+    }
+
+    /// Control replies can precede old data already queued on the client. Never
+    /// play audio from a lower applied revision or from a different channel.
+    pub fn accept_daemon_audio(&self, frame: &ez_proto::AudioFrame) -> bool {
+        self.source_mode == SourceMode::Daemon
+            && self.status == SourceStatus::Running
+            && self.daemon_audio_mode.is_some()
+            && frame.channel_id == DAEMON_AUDIO_CHANNEL_ID
+            && self.daemon_squelch_pending.is_none()
+            && self
+                .daemon_squelch_applied
+                .is_some_and(|applied| frame.squelch == applied)
     }
 
     fn daemon_spectrum_spec(&self) -> ez_proto::ChannelSpec {
@@ -1044,8 +1200,23 @@ impl SourceManager {
             crate::daemon_client::ConnectionStatus::Disconnected => SourceStatus::Idle,
             crate::daemon_client::ConnectionStatus::Error(e) => SourceStatus::Error(e),
         };
+        if self.status != SourceStatus::Running && self.daemon_squelch_pending.take().is_some() {
+            self.daemon_squelch_error =
+                Some("daemon disconnected before squelch acknowledgement".into());
+        }
         let event = event?;
-        if let ez_proto::ServerEvent::Hardware(hw) = &event {
+        if let ez_proto::ServerEvent::Squelch {
+            channel_id,
+            request_id,
+            result,
+        } = &event
+        {
+            self.apply_daemon_squelch_reply(*channel_id, *request_id, result);
+        } else if let ez_proto::ServerEvent::Audio(frame) = &event {
+            if frame.channel_id == DAEMON_AUDIO_CHANNEL_ID && self.daemon_audio_mode.is_some() {
+                self.observe_daemon_squelch(frame.squelch);
+            }
+        } else if let ez_proto::ServerEvent::Hardware(hw) = &event {
             self.apply_daemon_hardware(hw);
         } else if let ez_proto::ServerEvent::Recording(status) = &event {
             if status.channel_id == DAEMON_SPECTRUM_CHANNEL_ID {
@@ -1230,6 +1401,9 @@ impl SourceManager {
                 });
             }
         }
+        if self.daemon_audio_mode.is_some() && wanted_audio_mode.is_none() {
+            self.reset_daemon_squelch();
+        }
         self.daemon_audio_mode = wanted_audio_mode;
         self.daemon_audio_tuning = wanted_audio_tuning;
 
@@ -1292,6 +1466,7 @@ impl SourceManager {
         self.daemon_client = None;
         self.daemon_audio_mode = None;
         self.daemon_audio_tuning = None;
+        self.reset_daemon_squelch();
         self.daemon_adsb_subscribed = false;
         self.daemon_lrpt_subscribed = false;
         self.daemon_recording_active = false;
@@ -2823,5 +2998,162 @@ mod tests {
         // Known value from LCG formula
         let known = 1013904223.0 / 4294967296.0;
         assert!((a - known).abs() < 1e-10);
+    }
+    #[test]
+    fn daemon_squelch_correlates_acknowledgements_coalesces_and_rejects_old_audio() {
+        use ez_proto::{AudioFrame, ClientCommand, ServerEvent, SquelchState};
+        let (client, mut commands, events) = crate::daemon_client::DaemonClient::test_connection();
+        let mut source = SourceManager::new();
+        source.source_mode = SourceMode::Daemon;
+        source.status = SourceStatus::Running;
+        source.daemon_audio_mode = Some(ez_proto::DemodMode::Fm);
+        source.daemon_client = Some(client);
+        source.observe_daemon_squelch(SquelchState {
+            db: -100.0,
+            revision: 1,
+        });
+        source.request_daemon_squelch(-50.0).unwrap();
+        let ClientCommand::SetSquelch {
+            channel_id,
+            db,
+            request_id,
+        } = commands.try_recv().unwrap()
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!((channel_id, db), (DAEMON_AUDIO_CHANNEL_ID, -50.0));
+        source.request_daemon_squelch(-20.0).unwrap();
+        assert!(commands.try_recv().is_err());
+        assert_eq!(source.daemon_squelch_pending_db(), Some(-20.0));
+        let audio = AudioFrame {
+            channel_id,
+            sample_rate_hz: 48_000,
+            samples: vec![1.0],
+            squelch: SquelchState {
+                db: -100.0,
+                revision: 1,
+            },
+        };
+        assert!(!source.accept_daemon_audio(&audio));
+        for (foreign_channel, foreign_request) in [(99, request_id), (channel_id, request_id + 99)]
+        {
+            source.apply_daemon_squelch_reply(
+                foreign_channel,
+                foreign_request,
+                &Ok(SquelchState {
+                    db: -50.0,
+                    revision: 2,
+                }),
+            );
+            assert!(source.daemon_squelch_pending_db().is_some());
+            assert_eq!(source.daemon_squelch_applied().unwrap().db, -100.0);
+        }
+        events
+            .send(ServerEvent::Squelch {
+                channel_id,
+                request_id,
+                result: Ok(SquelchState {
+                    db: -50.0,
+                    revision: 2,
+                }),
+            })
+            .unwrap();
+        source.recv_daemon_event().unwrap();
+        assert_eq!(source.daemon_squelch_applied().unwrap().db, -50.0);
+        assert!(!source.accept_daemon_audio(&audio));
+        source.sync_daemon_squelch(-20.0);
+        let ClientCommand::SetSquelch {
+            request_id: final_request,
+            db,
+            ..
+        } = commands.try_recv().unwrap()
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(db, -20.0);
+        assert_ne!(final_request, request_id);
+        // Audio can arrive before its control reply; a late reply must not roll
+        // back the newer applied state. Older buffered frames remain rejected.
+        let newest = SquelchState {
+            db: -20.0,
+            revision: 3,
+        };
+        source.observe_daemon_squelch(newest);
+        source.apply_daemon_squelch_reply(channel_id, final_request, &Ok(newest));
+        source.apply_daemon_squelch_reply(
+            channel_id,
+            request_id,
+            &Ok(SquelchState {
+                db: -50.0,
+                revision: 2,
+            }),
+        );
+        assert_eq!(source.daemon_squelch_applied(), Some(newest));
+        source.observe_daemon_squelch(SquelchState {
+            db: -99.0,
+            revision: 3,
+        });
+        assert_eq!(source.daemon_squelch_applied(), Some(newest));
+        assert!(source.accept_daemon_audio(&AudioFrame {
+            squelch: newest,
+            ..audio.clone()
+        }));
+        assert!(!source.accept_daemon_audio(&AudioFrame {
+            channel_id: 99,
+            squelch: newest,
+            ..audio
+        }));
+        source.sync_daemon_squelch(-20.0);
+        assert!(commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn daemon_squelch_failure_timeout_and_closed_queue_preserve_applied_state() {
+        use ez_proto::{ClientCommand, SquelchState};
+        let (client, mut commands, _events) = crate::daemon_client::DaemonClient::test_connection();
+        let mut source = SourceManager::new();
+        source.source_mode = SourceMode::Daemon;
+        source.status = SourceStatus::Running;
+        source.daemon_audio_mode = Some(ez_proto::DemodMode::Fm);
+        source.daemon_client = Some(client);
+        let applied = SquelchState {
+            db: -100.0,
+            revision: 1,
+        };
+        source.observe_daemon_squelch(applied);
+        assert!(source.request_daemon_squelch(f32::NAN).is_err());
+        source.request_daemon_squelch(-50.0).unwrap();
+        let ClientCommand::SetSquelch { request_id, .. } = commands.try_recv().unwrap() else {
+            panic!("wrong command")
+        };
+        source.apply_daemon_squelch_reply(
+            DAEMON_AUDIO_CHANNEL_ID,
+            request_id,
+            &Err("channel removed".into()),
+        );
+        assert_eq!(
+            source.daemon_squelch_error.as_deref(),
+            Some("channel removed")
+        );
+        assert_eq!(source.daemon_squelch_applied(), Some(applied));
+        source.request_daemon_squelch(-50.0).unwrap();
+        commands.try_recv().unwrap();
+        source.daemon_squelch_pending.as_mut().unwrap().started =
+            std::time::Instant::now() - DAEMON_SQUELCH_TIMEOUT;
+        source.sync_daemon_squelch(-50.0);
+        assert!(source
+            .daemon_squelch_error
+            .as_ref()
+            .unwrap()
+            .contains("timed out"));
+        assert!(source.daemon_squelch_pending_db().is_none());
+        assert!(commands.try_recv().is_err()); // no per-frame retry storm
+        assert_eq!(source.daemon_squelch_applied(), Some(applied));
+        drop(commands);
+        assert!(source
+            .request_daemon_squelch(-30.0)
+            .unwrap_err()
+            .contains("queued"));
+        assert_eq!(source.daemon_squelch_applied(), Some(applied));
     }
 }

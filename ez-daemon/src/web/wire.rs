@@ -128,6 +128,10 @@ mod tests {
     #[test]
     fn audio_layout_matches_the_documented_byte_offsets() {
         let frame = AudioFrame {
+            squelch: ez_proto::SquelchState {
+                db: -40.0,
+                revision: 1,
+            },
             channel_id: 7,
             sample_rate_hz: 48_000,
             samples: vec![0.5, -0.5],

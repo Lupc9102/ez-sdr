@@ -738,6 +738,60 @@ impl CentralApp {
         self.recorder_panel.handle_daemon_recording(status);
     }
 
+    fn process_web_remote_commands(&mut self) {
+        let web_cmds = self.web_remote.poll_commands();
+        if !web_cmds.is_empty() {
+            let mut actions = Vec::new();
+            let mut errors = Vec::new();
+            if let Some(mut state) = self.try_lock_shared("web_remote_commands") {
+                for cmd in web_cmds {
+                    match cmd {
+                        RemoteCommand::Tune { freq_hz } => {
+                            crate::radio_ui::tune(&mut state, freq_hz);
+                        }
+                        RemoteCommand::SetGain { gain_db } => {
+                            state.source.gain_db = gain_db;
+                            crate::radio_ui::restart_if_running(&mut state.source);
+                        }
+                        RemoteCommand::SetDemod { mode } => {
+                            use crate::sdr_panel::DemodMode;
+                            if let Some(dm) = DemodMode::from_label(&mode) {
+                                state.demod_mode = dm;
+                            }
+                        }
+                        RemoteCommand::SetSquelch { db } => {
+                            if let Err(error) =
+                                crate::radio_ui::set_power_squelch_level(&mut state, db)
+                            {
+                                errors.push(error);
+                            }
+                        }
+                        RemoteCommand::SetVolume { level } => {
+                            state.volume = level.clamp(0.0, 1.0);
+                        }
+                        cmd => {
+                            actions.push(cmd);
+                        }
+                    }
+                }
+            }
+            for error in errors {
+                self.status_bar.warning(format!("Squelch: {error}"));
+                self.web_remote
+                    .broadcast_command_error("set_squelch", &error);
+            }
+            for cmd in actions {
+                match cmd {
+                    RemoteCommand::StartRecord => self.recorder_panel.start(),
+                    RemoteCommand::StopRecord => self.recorder_panel.stop(),
+                    RemoteCommand::StartScan => self.scanner.start(),
+                    RemoteCommand::StopScan => self.scanner.stop(),
+                    _ => {}
+                }
+            }
+        }
+    }
+
     fn drain_daemon_events(&mut self) {
         let shared = Arc::clone(&self.shared);
         let Ok(mut state) = shared.try_lock() else {
@@ -750,8 +804,16 @@ impl CentralApp {
         state
             .source
             .sync_daemon_workflows(audio_running, adsb_running, false, demod_mode);
+        let desired_squelch = crate::radio_ui::requested_power_squelch(&state);
+        state.source.sync_daemon_squelch(desired_squelch);
+        crate::radio_ui::sync_squelch_level(&mut state);
         for _ in 0..8 {
-            match state.source.recv_daemon_event() {
+            let previous_squelch = state.source.daemon_squelch_applied();
+            let event = state.source.recv_daemon_event();
+            if state.source.daemon_squelch_applied() != previous_squelch {
+                self.daemon_audio.reset();
+            }
+            match event {
                 Some(ez_proto::ServerEvent::Spectrum(frame)) => {
                     // The Radio plot is the only consumer of daemon FFT
                     // frames. Drop hidden-tab frames so switching to ADS-B or
@@ -765,8 +827,15 @@ impl CentralApp {
                 Some(ez_proto::ServerEvent::Error { message }) => {
                     self.status_bar.warning(format!("⚠ {message}"));
                 }
+                Some(ez_proto::ServerEvent::Squelch { .. }) => {
+                    crate::radio_ui::sync_squelch_level(&mut state);
+                    if let Some(error) = &state.source.daemon_squelch_error {
+                        self.status_bar.warning(format!("Squelch: {error}"));
+                    }
+                }
                 Some(ez_proto::ServerEvent::Audio(frame)) => {
-                    if state.audio_running {
+                    crate::radio_ui::sync_squelch_level(&mut state);
+                    if state.audio_running && state.source.accept_daemon_audio(&frame) {
                         let samples = self.daemon_audio.process(
                             &frame.samples,
                             frame.sample_rate_hz,
@@ -1412,48 +1481,7 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // Process web remote commands in a single lock
-        let web_cmds = self.web_remote.poll_commands();
-        if !web_cmds.is_empty() {
-            let mut actions = Vec::new();
-            if let Some(mut state) = self.try_lock_shared("web_remote_commands") {
-                for cmd in web_cmds {
-                    match cmd {
-                        RemoteCommand::Tune { freq_hz } => {
-                            crate::radio_ui::tune(&mut state, freq_hz);
-                        }
-                        RemoteCommand::SetGain { gain_db } => {
-                            state.source.gain_db = gain_db;
-                            crate::radio_ui::restart_if_running(&mut state.source);
-                        }
-                        RemoteCommand::SetDemod { mode } => {
-                            use crate::sdr_panel::DemodMode;
-                            if let Some(dm) = DemodMode::from_label(&mode) {
-                                state.demod_mode = dm;
-                            }
-                        }
-                        RemoteCommand::SetSquelch { db } => {
-                            crate::radio_ui::set_power_squelch_level(&mut state, db);
-                        }
-                        RemoteCommand::SetVolume { level } => {
-                            state.volume = level.clamp(0.0, 1.0);
-                        }
-                        cmd => {
-                            actions.push(cmd);
-                        }
-                    }
-                }
-            }
-            for cmd in actions {
-                match cmd {
-                    RemoteCommand::StartRecord => self.recorder_panel.start(),
-                    RemoteCommand::StopRecord => self.recorder_panel.stop(),
-                    RemoteCommand::StartScan => self.scanner.start(),
-                    RemoteCommand::StopScan => self.scanner.stop(),
-                    _ => {}
-                }
-            }
-        }
+        self.process_web_remote_commands();
 
         // Process loopback Hamlib/rigctld commands on the app thread so all
         // tuning and demodulation changes share the same live radio state.
@@ -1635,8 +1663,6 @@ impl eframe::App for CentralApp {
             let gain = state.source.gain_db;
             let ac_count = self.adsb_panel.aircraft.len();
             let passes = state.tle.upcoming_passes().to_vec();
-            let squelch = state.squelch;
-            let volume = state.volume;
             let recording = state.recording;
             let scanner_active = self.scanner.enabled;
             let peak = state.spectrum.peak_level();
@@ -1753,18 +1779,13 @@ impl eframe::App for CentralApp {
                 self.discord.fire("strong_signal", embed);
             }
             self.web_remote
-                .broadcast_state(&crate::web_remote::StreamState {
-                    freq_hz: freq,
-                    gain_db: gain,
-                    demod_mode: mode,
-                    aircraft_count: ac_count,
-                    passes: &passes,
-                    squelch,
-                    volume,
-                    recording,
+                .broadcast_state(&crate::web_remote::StreamState::from_receiver(
+                    &state,
+                    ac_count,
+                    &passes,
                     scanner_active,
-                    snr_db: snr,
-                });
+                    snr,
+                ));
             self.mqtt.publish_telemetry_if_due(
                 std::time::Instant::now(),
                 TelemetryView {
@@ -2320,7 +2341,7 @@ impl CentralApp {
                     state.bookmarks_modified = true;
                     state.spectrum.bookmark_freqs_dirty = true;
                 }
-                if let Some(sq) = state.spectrum.pending_squelch_db.take() { crate::radio_ui::set_power_squelch_level(&mut state, sq); }
+                if let Some(sq) = state.spectrum.pending_squelch_db.take() { if let Err(error) = crate::radio_ui::set_power_squelch_level(&mut state, sq) { self.status_bar.warning(format!("Squelch: {error}")); } }
                 let mut scan_range_changed = false;
                 if let Some(hz) = state.spectrum.pending_scan_start.take() {
                     self.scanner.start_hz = hz;

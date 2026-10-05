@@ -45,10 +45,40 @@ pub struct StreamState<'a> {
     pub aircraft_count: usize,
     pub passes: &'a [crate::tle_engine::PassInfo],
     pub squelch: f32,
+    pub squelch_pending: Option<f32>,
+    pub squelch_error: Option<&'a str>,
+    pub squelch_applied: bool,
     pub volume: f32,
     pub recording: bool,
     pub scanner_active: bool,
     pub snr_db: f32,
+}
+
+impl<'a> StreamState<'a> {
+    pub(crate) fn from_receiver(
+        state: &'a crate::app::SharedState,
+        aircraft_count: usize,
+        passes: &'a [crate::tle_engine::PassInfo],
+        scanner_active: bool,
+        snr_db: f32,
+    ) -> Self {
+        Self {
+            freq_hz: state.source.frequency_hz,
+            gain_db: state.source.gain_db,
+            demod_mode: state.demod_mode.label(),
+            aircraft_count,
+            passes,
+            squelch: state.squelch,
+            squelch_pending: state.source.daemon_squelch_pending_db(),
+            squelch_error: state.source.daemon_squelch_error.as_deref(),
+            squelch_applied: state.source.source_mode != crate::source_manager::SourceMode::Daemon
+                || state.source.daemon_squelch_applied().is_some(),
+            volume: state.volume,
+            recording: state.recording,
+            scanner_active,
+            snr_db,
+        }
+    }
 }
 
 /// Whether a WebSocket `Origin` header value is allowed to drive the remote.
@@ -274,6 +304,15 @@ impl WebRemote {
         cmds
     }
 
+    pub fn broadcast_command_error(&self, action: &str, message: &str) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(
+                serde_json::json!({"type":"command_error", "action":action, "message":message})
+                    .to_string(),
+            );
+        }
+    }
+
     pub fn broadcast_state(&mut self, state: &StreamState<'_>) {
         let tx = match &self.tx {
             Some(t) if t.receiver_count() > 0 => t,
@@ -285,6 +324,9 @@ impl WebRemote {
             "demod_mode": state.demod_mode,
             "aircraft_count": state.aircraft_count,
             "squelch_db": state.squelch,
+            "squelch_pending_db": state.squelch_pending,
+            "squelch_error": state.squelch_error,
+            "squelch_applied": state.squelch_applied,
             "volume": state.volume,
             "recording": state.recording,
             "scanner_active": state.scanner_active,
@@ -381,6 +423,9 @@ mod tests {
             aircraft_count: 5,
             passes: &[],
             squelch: 0.0,
+            squelch_pending: None,
+            squelch_error: None,
+            squelch_applied: true,
             volume: 0.8,
             recording: false,
             scanner_active: false,
@@ -477,6 +522,9 @@ mod tests {
             aircraft_count: 5,
             passes: &[],
             squelch: 0.0,
+            squelch_pending: None,
+            squelch_error: None,
+            squelch_applied: true,
             volume: 0.8,
             recording: false,
             scanner_active: false,

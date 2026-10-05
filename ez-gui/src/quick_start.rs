@@ -113,7 +113,7 @@ impl Workflow {
                 state.demod_mode = crate::sdr_panel::DemodMode::Wfm;
                 state.config.advanced.fft_size = 4096;
                 state.volume = 0.5;
-                crate::radio_ui::set_power_squelch_level(state, -50.0);
+                crate::radio_ui::set_power_squelch_preference(state, -50.0);
             }
             Workflow::Aircraft => {
                 // Configure for ADS-B (1090 MHz)
@@ -132,7 +132,7 @@ impl Workflow {
                 state.demod_mode = crate::sdr_panel::DemodMode::Fm;
                 state.config.advanced.fft_size = 4096;
                 state.volume = 0.5;
-                crate::radio_ui::set_power_squelch_level(state, -40.0);
+                crate::radio_ui::set_power_squelch_preference(state, -40.0);
             }
             Workflow::Custom => {
                 // Leave defaults, user will configure manually

@@ -147,6 +147,7 @@ function connect(){
   ws.onmessage=(e)=>{
     try{
       const s=JSON.parse(e.data);
+      if(s.type==='command_error'){log(s.message);return;}
       currentFreq=s.frequency_hz;
       document.getElementById('freqDisplay').textContent=(s.frequency_hz/1e6).toFixed(4)+' MHz';
       document.getElementById('gainDisplay').textContent=parseFloat(s.gain_db).toFixed(1)+' dB';
@@ -170,7 +171,7 @@ function connect(){
       document.getElementById('gainVal').textContent=parseFloat(s.gain_db).toFixed(1)+' dB';
       // Squelch
       document.getElementById('squelchSlider').value=s.squelch_db;
-      document.getElementById('squelchVal').textContent=parseFloat(s.squelch_db).toFixed(1)+' dB';
+      document.getElementById('squelchVal').textContent=(s.squelch_applied===false?'Waiting for applied state':parseFloat(s.squelch_db).toFixed(1)+' dB applied')+(s.squelch_pending_db!=null?' · '+Number(s.squelch_pending_db).toFixed(1)+' dB pending':'')+(s.squelch_error?' · '+s.squelch_error:'');
       // Volume
       document.getElementById('volSlider').value=s.volume;
       document.getElementById('volVal').textContent=Math.round(s.volume*100)+'%';
@@ -204,9 +205,9 @@ function quickTune(hz){currentFreq=hz;document.getElementById('freqInput').value
 function setGain(db){document.getElementById('gainVal').textContent=parseFloat(db).toFixed(1)+' dB';send({action:'set_gain',db:parseFloat(db)});}
 function quickGain(db){document.getElementById('gainSlider').value=db;setGain(db);}
 function setDemod(m){send({action:'set_demod',mode:m});}
-function setSquelch(db){document.getElementById('squelchVal').textContent=parseFloat(db).toFixed(1)+' dB';send({action:'set_squelch',db:parseFloat(db)});}
+function setSquelch(db){document.getElementById('squelchVal').textContent=parseFloat(db).toFixed(1)+' dB requested';send({action:'set_squelch',db:parseFloat(db)});}
 function setVolume(v){document.getElementById('volVal').textContent=Math.round(v*100)+'%';send({action:'set_volume',level:parseFloat(v)});}
-function log(msg){const el=document.getElementById('log');el.innerHTML+=`<div>${new Date().toLocaleTimeString()} ${msg}</div>`;el.scrollTop=el.scrollHeight;}
+function log(msg){const el=document.getElementById('log');const entry=document.createElement('div');entry.textContent=new Date().toLocaleTimeString()+' '+msg;el.appendChild(entry);el.scrollTop=el.scrollHeight;}
 connect();
 </script>
 </body>

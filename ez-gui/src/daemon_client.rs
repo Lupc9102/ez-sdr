@@ -108,6 +108,29 @@ impl DaemonClient {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_connection() -> (
+        Self,
+        tokio::sync::mpsc::UnboundedReceiver<ClientCommand>,
+        crossbeam_channel::Sender<ServerEvent>,
+    ) {
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (event_tx, event_rx) = crossbeam_channel::unbounded();
+        (
+            Self {
+                status: Arc::new(Mutex::new(ConnectionStatus::Connected)),
+                cmd_tx,
+                control_event_rx: event_rx,
+                stream_event_rx: crossbeam_channel::never(),
+                spectrum_event_rx: crossbeam_channel::never(),
+                running: Arc::new(AtomicBool::new(false)),
+                worker: None,
+            },
+            cmd_rx,
+            event_tx,
+        )
+    }
+
     #[must_use]
     pub fn status(&self) -> ConnectionStatus {
         self.status
@@ -120,7 +143,12 @@ impl DaemonClient {
     /// style: the only failure mode is the worker thread having already exited, which
     /// `status()` already reports, so a dropped send here would be redundant to also surface.
     pub fn send(&self, cmd: ClientCommand) {
-        let _ = self.cmd_tx.send(cmd);
+        let _ = self.try_send(cmd);
+    }
+
+    /// Reports a closed command channel to controls that require acknowledgement.
+    pub fn try_send(&self, cmd: ClientCommand) -> bool {
+        self.cmd_tx.send(cmd).is_ok()
     }
 
     /// Non-blocking pull of one queued event, oldest first. Returns `None` if nothing is
@@ -322,7 +350,7 @@ async fn run_connection(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use ez_daemon::{run, DaemonConfig, SourceConfig};
     use ez_proto::{ChannelSpec, PipelineKind};
@@ -338,14 +366,14 @@ mod tests {
             .unwrap()
     }
 
-    struct TestDaemon {
-        addr: SocketAddr,
+    pub(crate) struct TestDaemon {
+        pub(crate) addr: SocketAddr,
         running: Arc<AtomicBool>,
         handle: tokio::task::JoinHandle<anyhow::Result<()>>,
     }
 
     impl TestDaemon {
-        async fn spawn(label: &str) -> Self {
+        pub(crate) async fn spawn(label: &str) -> Self {
             let addr = free_addr().await;
             let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
             let dir = std::env::temp_dir().join(format!(
@@ -395,7 +423,7 @@ mod tests {
             }
         }
 
-        async fn shutdown(self) {
+        pub(crate) async fn shutdown(self) {
             self.running.store(false, Ordering::Relaxed);
             let result = tokio::time::timeout(Duration::from_secs(5), self.handle)
                 .await
@@ -670,6 +698,79 @@ mod tests {
             "Drop took too long to tear down the connection"
         );
 
+        daemon.shutdown().await;
+    }
+    #[tokio::test]
+    async fn daemon_squelch_wire_replies_report_applied_revision_and_rejections() {
+        let daemon = TestDaemon::spawn("squelch-wire").await;
+        let client = DaemonClient::connect(daemon.addr, "squelch-wire".into());
+        wait_for_status(&client, |s| *s == ConnectionStatus::Connected, "connection").await;
+        client.send(ClientCommand::Subscribe {
+            channel: ChannelSpec {
+                id: 71,
+                center_offset_hz: 0,
+                bandwidth_hz: 200_000,
+                kind: PipelineKind::Audio,
+                demod_mode: Some(ez_proto::DemodMode::Fm),
+            },
+        });
+        client.send(ClientCommand::Subscribe {
+            channel: ChannelSpec {
+                id: 72,
+                center_offset_hz: 0,
+                bandwidth_hz: 2_000_000,
+                kind: PipelineKind::Spectrum,
+                demod_mode: None,
+            },
+        });
+        let mut revision = 0;
+        for (request_id, channel_id, db, expected) in [
+            (1, 71, -50.0, None),
+            (2, 71, -50.0, None),
+            (3, 71, -20.0, None),
+            (4, 99, -50.0, Some("unknown channel")),
+            (5, 72, -50.0, Some("not an audio channel")),
+            (6, 71, f32::NAN, Some("finite")),
+            (7, 71, 61.0, Some("between")),
+            (8, 71, -241.0, Some("between")),
+        ] {
+            client.send(ClientCommand::SetSquelch {
+                channel_id,
+                db,
+                request_id,
+            });
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                let event = wait_for_event(&client, "squelch reply").await;
+                if let ServerEvent::Squelch {
+                    channel_id: returned_channel,
+                    request_id: returned_request,
+                    result,
+                } = event
+                {
+                    assert_eq!(
+                        (returned_channel, returned_request),
+                        (channel_id, request_id)
+                    );
+                    match expected {
+                        Some(error) => assert!(result.unwrap_err().contains(error)),
+                        None => {
+                            let state = result.unwrap();
+                            assert_eq!(state.db, db);
+                            if request_id == 2 {
+                                assert_eq!(state.revision, revision);
+                            } else {
+                                assert!(state.revision > revision);
+                            }
+                            revision = state.revision;
+                        }
+                    }
+                    break;
+                }
+                assert!(tokio::time::Instant::now() < deadline);
+            }
+        }
+        drop(client);
         daemon.shutdown().await;
     }
 }

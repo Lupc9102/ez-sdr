@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -88,6 +88,7 @@ pub enum ClientCommand {
         level: f32,
     },
     SetSquelch {
+        request_id: u64,
         channel_id: ChannelId,
         db: f32,
     },
@@ -131,8 +132,17 @@ pub struct SpectrumFrame {
     pub timestamp_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SquelchState {
+    pub db: f32,
+    /// Monotonic within this audio pipeline; identifies audio already gated
+    /// using these settings, independent of control/data delivery order.
+    pub revision: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioFrame {
+    pub squelch: SquelchState,
     pub channel_id: ChannelId,
     pub sample_rate_hz: u32,
     pub samples: Vec<f32>,
@@ -244,5 +254,12 @@ pub enum ServerEvent {
     },
     Error {
         message: String,
+    },
+    /// A correlated reply after the audio pipeline applied (or rejected) the
+    /// threshold. Audio frames independently carry the actual applied revision.
+    Squelch {
+        channel_id: ChannelId,
+        request_id: u64,
+        result: Result<SquelchState, String>,
     },
 }

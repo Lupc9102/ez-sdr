@@ -581,15 +581,21 @@ impl DaemonState {
         self.with_audio_pipeline(channel_id, |p| p.set_volume(level))
     }
 
-    pub fn set_squelch(&self, channel_id: ChannelId, db: f32) -> Result<()> {
-        self.with_audio_pipeline(channel_id, |p| p.set_squelch(db))
+    pub fn set_squelch(&self, channel_id: ChannelId, db: f32) -> Result<ez_proto::SquelchState> {
+        if !db.is_finite() || !(-240.0..=60.0).contains(&db) {
+            anyhow::bail!("squelch must be finite and between -240 and 60 dBFS");
+        }
+        self.with_audio_pipeline(channel_id, |pipeline| {
+            pipeline.set_squelch(db);
+            pipeline.squelch_state()
+        })
     }
 
-    fn with_audio_pipeline(
+    fn with_audio_pipeline<T>(
         &self,
         channel_id: ChannelId,
-        f: impl FnOnce(&mut AudioPipeline),
-    ) -> Result<()> {
+        f: impl FnOnce(&mut AudioPipeline) -> T,
+    ) -> Result<T> {
         let pipeline = {
             let channels = self.channels.lock().unwrap_or_else(|p| p.into_inner());
             let active = channels
@@ -600,8 +606,8 @@ impl DaemonState {
                 _ => return Err(anyhow!("channel {channel_id} is not an audio channel")),
             }
         };
-        f(&mut pipeline.lock().unwrap_or_else(|p| p.into_inner()));
-        Ok(())
+        let result = f(&mut pipeline.lock().unwrap_or_else(|p| p.into_inner()));
+        Ok(result)
     }
 
     /// Starts recording `channel_id`'s sample stream. Works for any channel kind, including

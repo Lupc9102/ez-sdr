@@ -1,0 +1,31 @@
+{
+  "batch": 14,
+  "findings": [
+    "G09"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1541,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6311 nodes, 13488 edges)",
+  "protocol_version": 5,
+  "regressions": [
+    "Actual spectrum pending-control route and real loopback WebSocket command mute/unmute deterministic daemon PCM and report matching applied state",
+    "Correlated typed TCP replies report successful revisions, unchanged-value reuse, unknown channel, non-audio channel, nonfinite and out-of-range errors",
+    "One in-flight request coalesces edits; wrong/stale replies, conflicting revisions, foreign channels and old audio are rejected",
+    "Timeout and closed command queues preserve acknowledged state and avoid per-frame retry storms",
+    "New commands, applied/error replies and audio metadata round-trip through bounded binary codecs"
+  ],
+  "limitations": [
+    "Eight formal findings and additional experiments remain open",
+    "Client/session channel ownership is still tracked separately as G10",
+    "Browser daemon binary audio header stays unchanged; typed control replies use JSON",
+    "No physical audio-device, supported-hardware or actual-display throughput claim",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

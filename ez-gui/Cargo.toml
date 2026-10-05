@@ -82,6 +82,7 @@ libc = "0.2"
 
 [dev-dependencies]
 ez-daemon = { workspace = true }
+tokio-tungstenite = { workspace = true }
 
 [features]
 default = ["audio", "rtlsdr"]

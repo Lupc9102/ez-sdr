@@ -620,6 +620,30 @@ impl RadioUi {
                 state.config.advanced.radio_snap_hz = state.tune_step_fine_hz;
             }
         });
+        if !local {
+            let mut threshold = requested_power_squelch(state);
+            row(ui, "Power squelch", |ui| {
+                if ui
+                    .add(egui::Slider::new(&mut threshold, -100.0..=0.0).suffix(" dBFS"))
+                    .changed()
+                {
+                    let _ = set_power_squelch_level(state, threshold);
+                }
+            });
+            if let Some(applied) = state.source.daemon_squelch_applied() {
+                ui.label(format!("Applied squelch: {:.1} dBFS", applied.db));
+            } else {
+                ui.label("Waiting for daemon squelch state");
+            }
+            if let Some(requested) = state.source.daemon_squelch_pending_db() {
+                ui.label(format!(
+                    "Requested: {requested:.1} dBFS · awaiting acknowledgement"
+                ));
+            }
+            if let Some(error) = &state.source.daemon_squelch_error {
+                ui.label(egui::RichText::new(error).color(egui::Color32::LIGHT_RED));
+            }
+        }
         ui.add_enabled_ui(local, |ui| {
             if matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
                 row(ui, "De-emphasis", |ui| {
@@ -1692,24 +1716,49 @@ pub(crate) fn mode_has_noise_blanker(mode: DemodMode) -> bool {
         DemodMode::Usb | DemodMode::Lsb | DemodMode::Dsb | DemodMode::Raw
     )
 }
-pub(crate) fn sync_squelch_level(state: &mut SharedState) {
-    state.squelch =
-        if state.config.advanced.squelch_mode == crate::radio_squelch::SquelchMode::Power {
-            state.config.advanced.squelch_level_db.clamp(-100.0, 0.0)
-        } else {
-            -100.0
-        };
-}
-pub(crate) fn set_power_squelch_level(state: &mut SharedState, level: f32) {
-    if !level.is_finite() {
-        return;
+pub(crate) fn requested_power_squelch(state: &SharedState) -> f32 {
+    if state.config.advanced.squelch_mode == crate::radio_squelch::SquelchMode::Power {
+        state.config.advanced.squelch_level_db.clamp(-100.0, 0.0)
+    } else {
+        -100.0
     }
+}
+
+pub(crate) fn sync_squelch_level(state: &mut SharedState) {
+    state.squelch = if state.source.source_mode == SourceMode::Daemon {
+        state
+            .source
+            .daemon_squelch_applied()
+            .map_or(-120.0, |applied| applied.db)
+    } else {
+        requested_power_squelch(state)
+    };
+}
+
+/// Spectrum, remote and receiver controls share this requested/applied boundary.
+pub(crate) fn set_power_squelch_level(state: &mut SharedState, level: f32) -> Result<(), String> {
+    if !level.is_finite() {
+        return Err("squelch threshold must be finite".into());
+    }
+    let level = level.clamp(-100.0, 0.0);
+    if state.source.source_mode == SourceMode::Daemon {
+        if let Err(error) = state.source.request_daemon_squelch(level) {
+            state.source.daemon_squelch_error = Some(error.clone());
+            return Err(error);
+        }
+    }
+    set_power_squelch_preference(state, level);
+    Ok(())
+}
+
+/// Setup configures a future capture; runtime controls use the command above.
+pub(crate) fn set_power_squelch_preference(state: &mut SharedState, level: f32) {
     state.config.advanced.squelch_mode = if level <= -100.0 {
         crate::radio_squelch::SquelchMode::Off
     } else {
         crate::radio_squelch::SquelchMode::Power
     };
-    state.config.advanced.squelch_level_db = level.clamp(-100.0, 0.0);
+    state.config.advanced.squelch_level_db = level;
     sync_squelch_level(state);
 }
 

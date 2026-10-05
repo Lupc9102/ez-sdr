@@ -896,8 +896,17 @@ impl AiPanel {
                         if !db.is_finite() {
                             return "Error: squelch must be finite".to_string();
                         }
-                        crate::radio_ui::set_power_squelch_level(&mut state, db as f32);
-                        return format!("Squelch set to {db:.1} dB");
+                        if let Err(error) =
+                            crate::radio_ui::set_power_squelch_level(&mut state, db as f32)
+                        {
+                            return format!("Error: {error}");
+                        }
+                        if state.source.daemon_squelch_pending_db().is_some() {
+                            return format!(
+                                "Squelch requested at {db:.1} dB; awaiting daemon acknowledgement"
+                            );
+                        }
+                        return format!("Squelch preference set to {db:.1} dB");
                     }
                     return "Error: missing db argument".to_string();
                 }

@@ -1015,3 +1015,276 @@ fn applying_observer_settings_invalidates_fresh_pass_cache_and_updates_hidden_tr
         "observer longitude label is stale: {text}"
     );
 }
+
+/// Exercises both real GUI command entry points against an isolated synthetic
+/// daemon. This test never starts a physical audio device or external provider.
+#[tokio::test]
+async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
+    use crate::daemon_client::{ConnectionStatus, DaemonClient};
+    use ez_proto::{ClientCommand, ServerEvent};
+    use futures_util::{SinkExt, StreamExt};
+    use std::time::{Duration, Instant};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let daemon = crate::daemon_client::tests::TestDaemon::spawn("squelch-app").await;
+    let mut app = offline_test_app();
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Daemon;
+        state.source.daemon_addr = daemon.addr.to_string();
+        state.source.center_frequency_hz = Some(100_000_000);
+        state.source.frequency_hz = 100_250_000;
+        state.source.sample_rate_hz = 2_000_000;
+        state.demod_mode = crate::sdr_panel::DemodMode::Fm;
+        state.audio_running = true;
+        crate::radio_ui::set_power_squelch_preference(&mut state, -100.0);
+        state.source.start();
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        app.drain_daemon_events();
+        let ready = {
+            let state = app.shared.lock().unwrap();
+            state
+                .source
+                .daemon_squelch_applied()
+                .is_some_and(|s| s.db == -100.0)
+                && state.source.daemon_squelch_pending_db().is_none()
+        };
+        if ready {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "initial daemon squelch was not applied"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // Observe the same real pipeline's PCM without opening a speaker.
+    let monitor = DaemonClient::connect(daemon.addr, "squelch-audio-observer".into());
+    while monitor.status() != ConnectionStatus::Connected {
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    monitor.send(ClientCommand::Subscribe {
+        channel: ez_proto::ChannelSpec {
+            id: 2,
+            center_offset_hz: 250_000,
+            bandwidth_hz: 200_000,
+            kind: ez_proto::PipelineKind::Audio,
+            demod_mode: Some(ez_proto::DemodMode::Fm),
+        },
+    });
+    async fn audio_at(client: &DaemonClient, db: f32, min_revision: u64) -> ez_proto::AudioFrame {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(ServerEvent::Audio(frame)) = client.try_recv_event() {
+                if frame.squelch.db == db && frame.squelch.revision >= min_revision {
+                    return frame;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no audio at applied squelch {db}"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    let open = audio_at(&monitor, -100.0, 0).await;
+    assert!(open.samples.iter().any(|s| s.abs() > 1e-5));
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.spectrum.pending_squelch_db = Some(0.0);
+    }
+    let ctx = egui::Context::default();
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.render_sdr_tab(ui, &None)
+    });
+    {
+        let state = app.shared.lock().unwrap();
+        assert_eq!(state.source.daemon_squelch_pending_db(), Some(0.0));
+        assert_eq!(
+            state.squelch, -100.0,
+            "request must not pretend to be applied"
+        );
+        assert_eq!(crate::radio_ui::requested_power_squelch(&state), 0.0);
+        assert!(!state.source.accept_daemon_audio(&open));
+    }
+    let closed = audio_at(&monitor, 0.0, open.squelch.revision + 1).await;
+    assert!(closed.squelch.revision > open.squelch.revision);
+    assert!(closed.samples.iter().all(|s| *s == 0.0));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        app.drain_daemon_events();
+        let ready = {
+            let state = app.shared.lock().unwrap();
+            let ready = state.squelch == 0.0 && state.source.daemon_squelch_pending_db().is_none();
+            if ready {
+                assert!(state.source.accept_daemon_audio(&closed));
+                assert!(!state.source.accept_daemon_audio(&open));
+            }
+            ready
+        };
+        if ready {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    app.web_remote.set_enabled(true, port);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut ws = loop {
+        if let Ok((ws, _)) =
+            tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await
+        {
+            break ws;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    ws.send(Message::Text(
+        r#"{"action":"set_squelch","db":-100.0}"#.into(),
+    ))
+    .await
+    .unwrap();
+    loop {
+        app.process_web_remote_commands();
+        if app
+            .shared
+            .lock()
+            .unwrap()
+            .source
+            .daemon_squelch_pending_db()
+            == Some(-100.0)
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    {
+        let state = app.shared.lock().unwrap();
+        assert_eq!(state.squelch, 0.0);
+        app.web_remote
+            .broadcast_state(&crate::web_remote::StreamState::from_receiver(
+                &state,
+                0,
+                &[],
+                false,
+                0.0,
+            ));
+    }
+    let pending = tokio::time::timeout(Duration::from_secs(5), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .into_text()
+        .unwrap();
+    let pending: serde_json::Value = serde_json::from_str(&pending).unwrap();
+    assert_eq!(pending["squelch_db"], 0.0);
+    assert_eq!(pending["squelch_pending_db"], -100.0);
+    assert_eq!(pending["squelch_applied"], true);
+    let reopened = audio_at(&monitor, -100.0, closed.squelch.revision + 1).await;
+    assert!(reopened.squelch.revision > closed.squelch.revision);
+    assert!(reopened.samples.iter().any(|s| s.abs() > 1e-5));
+    loop {
+        app.drain_daemon_events();
+        if app
+            .shared
+            .lock()
+            .unwrap()
+            .source
+            .daemon_squelch_pending_db()
+            .is_none()
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    {
+        let state = app.shared.lock().unwrap();
+        assert_eq!(state.squelch, -100.0);
+        assert!(state.source.accept_daemon_audio(&reopened));
+        assert!(!state.source.accept_daemon_audio(&closed));
+    }
+    {
+        let state = app.shared.lock().unwrap();
+        app.web_remote
+            .broadcast_state(&crate::web_remote::StreamState::from_receiver(
+                &state,
+                0,
+                &[],
+                false,
+                0.0,
+            ));
+    }
+    let applied = tokio::time::timeout(Duration::from_secs(5), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .into_text()
+        .unwrap();
+    let applied: serde_json::Value = serde_json::from_str(&applied).unwrap();
+    assert_eq!(applied["squelch_db"], -100.0);
+    assert_eq!(applied["squelch_pending_db"], serde_json::Value::Null);
+    assert_eq!(applied["squelch_error"], serde_json::Value::Null);
+    assert_eq!(applied["squelch_applied"], true);
+    // A WebSocket request with no live audio channel reports a command error
+    // and leaves both the preference and the last applied threshold intact.
+    app.shared.lock().unwrap().source.sync_daemon_workflows(
+        false,
+        false,
+        false,
+        crate::sdr_panel::DemodMode::Fm,
+    );
+    ws.send(Message::Text(
+        r#"{"action":"set_squelch","db":-30.0}"#.into(),
+    ))
+    .await
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        app.process_web_remote_commands();
+        if app
+            .shared
+            .lock()
+            .unwrap()
+            .source
+            .daemon_squelch_error
+            .is_some()
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let failure = tokio::time::timeout(Duration::from_secs(5), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .into_text()
+        .unwrap();
+    let failure: serde_json::Value = serde_json::from_str(&failure).unwrap();
+    assert_eq!(failure["type"], "command_error");
+    assert_eq!(failure["action"], "set_squelch");
+    assert!(failure["message"].as_str().unwrap().contains("not active"));
+    assert_eq!(
+        crate::radio_ui::requested_power_squelch(&app.shared.lock().unwrap()),
+        -100.0
+    );
+    ws.close(None).await.unwrap();
+    drop(ws);
+    app.web_remote.stop();
+    app.shared.lock().unwrap().source.stop();
+    drop(monitor);
+    daemon.shutdown().await;
+}

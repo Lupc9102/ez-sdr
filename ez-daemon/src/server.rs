@@ -290,10 +290,21 @@ pub(crate) async fn apply_command(
                 send_error(event_tx, e.to_string()).await;
             }
         }
-        ClientCommand::SetSquelch { channel_id, db } => {
-            if let Err(e) = state.set_squelch(channel_id, db) {
-                send_error(event_tx, e.to_string()).await;
-            }
+        ClientCommand::SetSquelch {
+            channel_id,
+            db,
+            request_id,
+        } => {
+            let result = state
+                .set_squelch(channel_id, db)
+                .map_err(|error| error.to_string());
+            let _ = event_tx
+                .send(ServerEvent::Squelch {
+                    channel_id,
+                    request_id,
+                    result,
+                })
+                .await;
         }
         ClientCommand::Retune {
             channel_id,

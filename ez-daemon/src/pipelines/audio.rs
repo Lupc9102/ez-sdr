@@ -84,6 +84,7 @@ pub struct AudioPipeline {
     ssb_filter_taps: Vec<f32>,
     volume: f32,
     squelch_db: f32,
+    squelch_revision: u64,
     output: Broadcaster<AudioFrame>,
 }
 
@@ -106,6 +107,7 @@ impl AudioPipeline {
             ssb_filter_taps: Vec::new(),
             volume: 1.0,
             squelch_db: DEFAULT_SQUELCH_DB,
+            squelch_revision: 0,
             output: Broadcaster::new(),
         }
     }
@@ -149,12 +151,23 @@ impl AudioPipeline {
     /// Sets the squelch threshold in dBFS: a block whose mean input power falls below this
     /// is still demodulated (to keep carried state continuous) but published as silence.
     pub fn set_squelch(&mut self, db: f32) {
+        if self.squelch_db != db {
+            self.squelch_revision = self.squelch_revision.wrapping_add(1);
+        }
         self.squelch_db = db;
     }
 
     #[must_use]
     pub fn squelch_db(&self) -> f32 {
         self.squelch_db
+    }
+
+    #[must_use]
+    pub fn squelch_state(&self) -> ez_proto::SquelchState {
+        ez_proto::SquelchState {
+            db: self.squelch_db,
+            revision: self.squelch_revision,
+        }
     }
 
     #[must_use]
@@ -224,6 +237,7 @@ impl AudioPipeline {
         }
 
         self.output.publish(AudioFrame {
+            squelch: self.squelch_state(),
             channel_id: self.channel_id,
             sample_rate_hz: block.sample_rate_hz,
             samples,
