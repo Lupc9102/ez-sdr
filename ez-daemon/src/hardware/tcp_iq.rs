@@ -137,7 +137,7 @@ impl IqSource for TcpIqSource {
             self.pending.push(self.read_buf[filled - 1]);
             filled -= 1;
         }
-        let complex = lrpt_decode::iq_bytes_to_complex(&self.read_buf[..filled]);
+        let complex = lrpt_decode::uc8_bytes_to_normalized(&self.read_buf[..filled]);
         let n = complex.len().min(buf.len());
         buf[..n].copy_from_slice(&complex[..n]);
         Ok(n)
@@ -189,8 +189,8 @@ mod tests {
         source.start().unwrap();
         let mut samples = [Complex32::new(0.0, 0.0); 2];
         assert_eq!(source.read_iq(&mut samples).unwrap(), 2);
-        assert!((samples[0].re + 0.4).abs() < 1e-5);
-        assert!((samples[1].re - 113.6).abs() < 1e-5);
+        assert!((samples[0].re + 0.5 / 127.5).abs() < 1e-5);
+        assert!((samples[1].re - 113.5 / 127.5).abs() < 1e-5);
         server.join().unwrap();
     }
 

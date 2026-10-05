@@ -45,6 +45,22 @@ impl From<ReplayFormatArg> for ReplayFormat {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ReplayAmplitudeArg {
+    Normalized,
+    #[value(name = "adc-counts-127-4")]
+    AdcCounts1274,
+}
+
+impl From<ReplayAmplitudeArg> for lrpt_decode::Cf32Amplitude {
+    fn from(value: ReplayAmplitudeArg) -> Self {
+        match value {
+            ReplayAmplitudeArg::Normalized => Self::Normalized,
+            ReplayAmplitudeArg::AdcCounts1274 => Self::AdcCounts127_4,
+        }
+    }
+}
+
 /// `ez-sdr` headless daemon: owns hardware ingestion, wideband channelization, and
 /// multi-tenant DSP pipeline routing. GUI and CLI clients attach over the network on-demand
 /// and never block or interrupt daemon-side processing by attaching or detaching.
@@ -101,6 +117,10 @@ struct Args {
     #[arg(long, value_enum, default_value = "cf32-le")]
     replay_format: ReplayFormatArg,
 
+    /// Override CF32 metadata for old recordings (normalized or adc-counts-127-4).
+    #[arg(long, value_enum)]
+    replay_amplitude: Option<ReplayAmplitudeArg>,
+
     /// Loop the replay file instead of stopping at end-of-file.
     #[arg(long)]
     replay_loop: bool,
@@ -133,6 +153,7 @@ impl Args {
                 format: self.replay_format.into(),
                 looping: self.replay_loop,
                 speed: self.replay_speed,
+                amplitude: self.replay_amplitude.map(Into::into),
             },
             SourceKind::TcpIq => SourceConfig::TcpIq {
                 address: self.iq_address,

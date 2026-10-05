@@ -21,7 +21,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [x] A15 (P2): DF11 interrogator parity is treated as a CRC error before IID scoring
 - [ ] A16 (P2): 1090 message-rate and daemon totals are disconnected from message reception
 - [x] A17 (P2): Trail collection depends on whether the Planes tab is rendered
-- [ ] R01 (P1): The app's CF32 writer and replay reader disagree about amplitude units
+- [x] R01 (P1): The app's CF32 writer and replay reader disagree about amplitude units
 - [x] R02 (P2): CF32 replay progress advances in output bytes instead of file bytes
 - [x] R03 (P1): CF32 recording failures and overflow are reported as success
 - [x] R04 (P1): Restarting CF32 recording in the same second overwrites the previous capture
@@ -85,3 +85,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Batch 4: R02 carries absolute input-file offsets with replay blocks, so progress uses raw/CF32 on-disk bytes rather than converted CU8 output bytes. Each loop resets the offset. Regressions verify every block, a short final block, 100% before EOF is consumed and three loops. R01 amplitude and R05 epoch integrity remain explicit.
 - Batch 4: G06 detects bookmark content changes (including equal-length edits and paths missing a dirty flag), retains the 15-second debounce, and flushes pending data through the clean-exit hook. Checked atomic saves clear dirty state only after success; failures retain dirty state and retry. Temporary-file regressions add, rename, edit notes, star, delete-and-add, delete, immediately flush/reload, and inject a failed destination without changing cwd or user files.
 - Batch 4 final gates: Rust 1.92.0 workspace all-target tests pass (1,495 executions, zero failures, eight ignored); strict all-target Clippy and changed-file format checks pass; graphify is refreshed. Twenty-one of 42 formal findings are fixed; the goal remains active. Eight untouched files still differ under the full workspace format check.
+
+- Batch 5: R01 makes all daemon input sources and new CF32 recordings use normalized full-scale components (CU8 0/255 maps to -1/+1), declares units in both writer sidecars, and uses exact rounded CU8 replay conversion. GUI replay, daemon replay and offline LRPT imports honor bounded metadata; known legacy satellite metadata and explicit GUI/CLI/API/sidecar choices import old byte-minus-127.4 captures without signal-peak guessing. Replay preference persists. Real writer/reader regressions preserve every ADC byte, weak/full-scale tones, ADS-B messages and coded LRPT frames.
+- Batch 5 replaces a timing-based FFT test wait with test-only explicit worker completion accounting after a parallel-load race exposed its stale-frame assertion; production FFT behavior is unchanged. Changed config, decoding and spectrum files also now pass pinned formatting.
+- Batch 5 final gates: Rust 1.92.0 workspace all-target tests pass (1,500 executions, zero failures, eight ignored); strict all-target Clippy and changed-file format checks pass; graphify is refreshed. Twenty-two of 42 formal findings are fixed; five untouched files still differ under the full workspace format check. Capture epochs, remaining controls/integrations and hardware experiments remain active.

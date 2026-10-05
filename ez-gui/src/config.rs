@@ -543,6 +543,7 @@ pub struct SourcePreferences {
     pub replay_file: Option<String>,
     pub replay_loop: bool,
     pub replay_speed: f32,
+    pub replay_cf32_amplitude: Option<lrpt_decode::Cf32Amplitude>,
 }
 
 impl Default for SourcePreferences {
@@ -553,6 +554,7 @@ impl Default for SourcePreferences {
             replay_file: None,
             replay_loop: false,
             replay_speed: 1.0,
+            replay_cf32_amplitude: None,
         }
     }
 }
@@ -572,6 +574,7 @@ impl SourcePreferences {
             replay_file: source.replay_file.clone(),
             replay_loop: source.replay_loop,
             replay_speed: source.replay_speed,
+            replay_cf32_amplitude: source.replay_cf32_amplitude,
         }
     }
 
@@ -586,6 +589,7 @@ impl SourcePreferences {
         source.daemon_addr = self.daemon_address.clone();
         source.replay_file = self.replay_file.clone();
         source.replay_loop = self.replay_loop;
+        source.replay_cf32_amplitude = self.replay_cf32_amplitude;
         source.replay_speed = if self.replay_speed.is_finite() && self.replay_speed > 0.0 {
             self.replay_speed
         } else {
@@ -868,7 +872,8 @@ impl AppConfig {
     }
 }
 
-type ConfigJobReceiver = std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>;
+type ConfigJobReceiver =
+    std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>;
 
 #[derive(Clone)]
 struct ConfigFileJob(ConfigJobReceiver);

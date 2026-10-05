@@ -23,7 +23,11 @@ use num_complex::Complex32;
 use std::path::Path;
 
 pub use image_builder::apid_channel_label;
-pub use iq_source::{cf32_le_bytes_to_complex, cs8_bytes_to_complex, iq_bytes_to_complex};
+pub use iq_source::{
+    cf32_amplitude_for_path, cf32_le_bytes_to_complex, cf32_le_bytes_to_normalized,
+    cf32_le_bytes_to_uc8, cs8_bytes_to_complex, iq_bytes_to_complex, normalized_component_to_uc8,
+    uc8_bytes_to_cf32_le, uc8_bytes_to_normalized, Cf32Amplitude,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LrptError {
@@ -31,6 +35,8 @@ pub enum LrptError {
     Io(#[from] std::io::Error),
     #[error("no CADU frame sync ever achieved on this recording")]
     NoSync,
+    #[error("invalid CF32 metadata: {0}")]
+    InvalidMetadata(String),
 }
 
 /// Snapshot of decode progress, sent periodically over `progress_tx` so the
@@ -100,9 +106,26 @@ pub fn decode_cf32_file(
     symbol_rate: u32,
     progress_tx: Sender<DecodeProgress>,
 ) -> Result<DecodeResult, LrptError> {
+    decode_cf32_file_with_amplitude(path, sample_rate, symbol_rate, progress_tx, None)
+}
+
+pub fn decode_cf32_file_with_amplitude(
+    path: &Path,
+    sample_rate: u32,
+    symbol_rate: u32,
+    progress_tx: Sender<DecodeProgress>,
+    explicit: Option<Cf32Amplitude>,
+) -> Result<DecodeResult, LrptError> {
+    let amplitude = cf32_amplitude_for_path(path, explicit).map_err(LrptError::InvalidMetadata)?;
     let file = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::with_capacity(1 << 20, file);
-    decode_cf32_reader(&mut reader, sample_rate, symbol_rate, progress_tx)
+    decode_cf32_reader_with_amplitude(
+        &mut reader,
+        sample_rate,
+        symbol_rate,
+        progress_tx,
+        amplitude,
+    )
 }
 
 /// Decode a Meteor LRPT recording stored as interleaved signed 8-bit I/Q (`.cs8`).
@@ -147,11 +170,28 @@ fn decode_cs8_reader(
     decoder.finish().ok_or(LrptError::NoSync)
 }
 
+#[cfg(test)]
 fn decode_cf32_reader(
     reader: &mut impl std::io::Read,
     sample_rate: u32,
     symbol_rate: u32,
     progress_tx: Sender<DecodeProgress>,
+) -> Result<DecodeResult, LrptError> {
+    decode_cf32_reader_with_amplitude(
+        reader,
+        sample_rate,
+        symbol_rate,
+        progress_tx,
+        Cf32Amplitude::Normalized,
+    )
+}
+
+fn decode_cf32_reader_with_amplitude(
+    reader: &mut impl std::io::Read,
+    sample_rate: u32,
+    symbol_rate: u32,
+    progress_tx: Sender<DecodeProgress>,
+    amplitude: Cf32Amplitude,
 ) -> Result<DecodeResult, LrptError> {
     let mut decoder = LrptDecoder::new(sample_rate, symbol_rate, progress_tx);
     let mut chunk = vec![0u8; 1 << 20];
@@ -163,7 +203,7 @@ fn decode_cf32_reader(
             Ok(n) => {
                 if carry.is_empty() {
                     let aligned_len = n / 8 * 8;
-                    decoder.push_samples_cf32(&chunk[..aligned_len]);
+                    decoder.push_samples_cf32_with_amplitude(&chunk[..aligned_len], amplitude);
                     carry.extend_from_slice(&chunk[aligned_len..n]);
                     continue;
                 }
@@ -176,13 +216,13 @@ fn decode_cf32_reader(
                 }
                 prefix[..carry.len()].copy_from_slice(&carry);
                 prefix[carry.len()..].copy_from_slice(&chunk[..needed]);
-                decoder.push_samples_cf32(&prefix);
+                decoder.push_samples_cf32_with_amplitude(&prefix, amplitude);
                 carry.clear();
 
                 let remaining = &chunk[needed..n];
                 let aligned_len = remaining.len() / 8 * 8;
                 if aligned_len > 0 {
-                    decoder.push_samples_cf32(&remaining[..aligned_len]);
+                    decoder.push_samples_cf32_with_amplitude(&remaining[..aligned_len], amplitude);
                 }
                 carry.extend_from_slice(&remaining[aligned_len..]);
             }
@@ -308,7 +348,11 @@ impl LrptDecoder {
     /// recorder format — see
     /// `ez-gui/src/satellite/recorder.rs::raw_iq_bytes_to_cf32_le`).
     pub fn push_samples_cf32(&mut self, bytes: &[u8]) {
-        let complex = cf32_le_bytes_to_complex(bytes);
+        self.push_samples_cf32_with_amplitude(bytes, Cf32Amplitude::Normalized);
+    }
+
+    pub fn push_samples_cf32_with_amplitude(&mut self, bytes: &[u8], amplitude: Cf32Amplitude) {
+        let complex = cf32_le_bytes_to_normalized(bytes, amplitude);
         self.push_complex(&complex);
     }
 
@@ -933,6 +977,34 @@ mod tests {
                 .finish()
                 .unwrap_or_else(|| panic!("hypothesis {hypothesis} failed"));
             assert!(result.rs_ok >= 4, "hypothesis {hypothesis}");
+        }
+    }
+
+    #[test]
+    fn normalized_and_legacy_cf32_recover_the_same_coded_lrpt_frames() {
+        let payload = build_synthetic_vcdu_payload(66, &[7; 40]);
+        let iq = build_coded_oqpsk_iq_frames(&payload, 0, true, 8_000.0, 1_000.0, 3);
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut original = LrptDecoder::new(8_000, 1_000, tx);
+        original.push_samples(&iq);
+        let expected = original.finish().expect("CU8 recovers LRPT");
+        assert_eq!(expected.rs_ok, 12);
+        for amplitude in [Cf32Amplitude::Normalized, Cf32Amplitude::AdcCounts127_4] {
+            let bytes = match amplitude {
+                Cf32Amplitude::Normalized => uc8_bytes_to_cf32_le(&iq),
+                Cf32Amplitude::AdcCounts127_4 => iq
+                    .iter()
+                    .flat_map(|value| (f32::from(*value) - 127.4).to_le_bytes())
+                    .collect(),
+            };
+            let mut reader = std::io::Cursor::new(bytes);
+            let (tx, _rx) = crossbeam_channel::unbounded();
+            let actual =
+                decode_cf32_reader_with_amplitude(&mut reader, 8_000, 1_000, tx, amplitude)
+                    .expect("CF32 recovers LRPT");
+            assert_eq!(actual.rs_ok, expected.rs_ok, "{amplitude:?}");
+            assert_eq!(actual.rs_failed, expected.rs_failed, "{amplitude:?}");
+            assert_eq!(actual.images, expected.images, "{amplitude:?}");
         }
     }
 

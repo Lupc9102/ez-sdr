@@ -76,7 +76,7 @@ impl AdsbEmulatorSource {
     pub fn new(messages: &[[u8; 14]], looping: bool) -> Self {
         let raw = encode_uc8(messages);
         Self {
-            iq: lrpt_decode::iq_bytes_to_complex(&raw),
+            iq: lrpt_decode::uc8_bytes_to_normalized(&raw),
             cursor: 0,
             looping,
             frequency_hz: 1_090_000_000,
@@ -161,10 +161,10 @@ mod tests {
     #[test]
     fn generated_uc8_decodes_as_the_example_aircraft() {
         let raw = encode_uc8(&[EXAMPLE_DF17_CALLSIGN]);
-        let complex = lrpt_decode::iq_bytes_to_complex(&raw);
+        let complex = lrpt_decode::uc8_bytes_to_normalized(&raw);
         let data: Vec<u16> = complex
             .iter()
-            .map(|sample| ((sample.norm() / 128.0) * 65535.0).min(65535.0) as u16)
+            .map(|sample| (sample.norm() * 65535.0).min(65535.0) as u16)
             .collect();
         let mut demod = Demod2400::new();
         let mut stats = DemodStats::default();

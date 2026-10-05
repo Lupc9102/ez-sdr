@@ -35,7 +35,8 @@ pub trait IqSource: Send {
     fn set_sample_rate(&mut self, hz: u32) -> Result<()>;
     fn set_gain(&mut self, db: f64) -> Result<()>;
 
-    /// Fills as much of `buf` as available and returns the number of samples written.
+    /// Fills normalized full-scale complex samples (CU8 0/255 => -1/+1).
+    /// Returns the number of samples written.
     /// A return of `0` means end-of-stream (only expected from finite sources such as a
     /// non-looping file replay) — live/synthetic sources always block until they have at
     /// least one sample rather than returning `0`.

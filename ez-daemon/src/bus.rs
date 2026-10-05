@@ -22,6 +22,8 @@ pub struct SampleBlock {
     pub start_sample: u64,
     pub sample_rate_hz: u32,
     pub center_freq_hz: u64,
+    /// Components are in normalized full-scale units (CU8 0/255 => -1/+1).
+    /// Filtering may overshoot full scale; CF32 preserves those float values.
     pub samples: Arc<[Complex32]>,
 }
 

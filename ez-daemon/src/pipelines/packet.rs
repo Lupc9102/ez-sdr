@@ -153,10 +153,8 @@ impl PacketPipeline {
         data.reserve(overlap + block.samples.len());
         data.extend_from_slice(&self.overlap_tail);
         for sample in block.samples.iter() {
-            // `RtlSdrSource` and `TcpIqSource` expose Uc8-derived Complex32
-            // values in approximately [-127.4, 127.6].  Convert back to the
-            // same 0..1 envelope used by dump1090's `convert_uc8_to_mag`.
-            let norm = (f64::from(sample.norm()) / 128.0).min(1.0);
+            // All daemon sources expose normalized full-scale components.
+            let norm = f64::from(sample.norm()).min(1.0);
             sum_level += norm;
             sum_power += norm * norm;
             data.push((norm * 65535.0).min(65535.0) as u16);

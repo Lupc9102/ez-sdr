@@ -30,9 +30,6 @@ use ez_proto::{ChannelId, RecordingFormat, RecordingStatus};
 
 use crate::bus::SampleBusHandle;
 
-const UC8_SCALE: f32 = 127.5;
-const UC8_OFFSET: f32 = 127.5;
-
 const RECV_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 struct ActiveRecording {
@@ -137,6 +134,28 @@ impl RecordingManager {
             .create_new(true)
             .open(&path)
             .with_context(|| format!("creating recording file {}", path.display()))?;
+        if format == RecordingFormat::Cf32 {
+            let metadata_path = PathBuf::from(format!("{}.json", path.display()));
+            let metadata = serde_json::json!({ "format": "cf32_le", "amplitude": lrpt_decode::Cf32Amplitude::Normalized,
+                "frequency_hz": center_freq_hz, "creator": "ez-daemon" });
+            let metadata_result = (|| -> Result<()> {
+                let mut sidecar = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&metadata_path)?;
+                if let Err(error) = sidecar.write_all(&serde_json::to_vec_pretty(&metadata)?) {
+                    drop(sidecar);
+                    let _ = std::fs::remove_file(&metadata_path);
+                    return Err(error.into());
+                }
+                Ok(())
+            })();
+            if let Err(error) = metadata_result {
+                drop(file);
+                let _ = std::fs::remove_file(&path);
+                return Err(error.context("writing CF32 amplitude metadata"));
+            }
+        }
         let writer = BufWriter::with_capacity(1_048_576, file);
 
         let stop = Arc::new(AtomicBool::new(false));
@@ -272,9 +291,7 @@ fn complex_to_uc8_bytes(samples: &[Complex32]) -> Vec<u8> {
 }
 
 fn component_to_uc8(component: f32) -> u8 {
-    (component * UC8_SCALE + UC8_OFFSET)
-        .round()
-        .clamp(0.0, 255.0) as u8
+    lrpt_decode::normalized_component_to_uc8(component)
 }
 
 fn now_ms() -> u64 {

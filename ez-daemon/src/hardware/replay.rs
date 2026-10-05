@@ -27,10 +27,10 @@ impl ReplayFormat {
         }
     }
 
-    fn convert(self, bytes: &[u8]) -> Vec<Complex32> {
+    fn convert(self, bytes: &[u8], amplitude: lrpt_decode::Cf32Amplitude) -> Vec<Complex32> {
         match self {
-            ReplayFormat::RawU8 => lrpt_decode::iq_bytes_to_complex(bytes),
-            ReplayFormat::Cf32Le => lrpt_decode::cf32_le_bytes_to_complex(bytes),
+            ReplayFormat::RawU8 => lrpt_decode::uc8_bytes_to_normalized(bytes),
+            ReplayFormat::Cf32Le => lrpt_decode::cf32_le_bytes_to_normalized(bytes, amplitude),
         }
     }
 }
@@ -38,6 +38,7 @@ impl ReplayFormat {
 pub struct FileReplaySource {
     reader: BufReader<File>,
     format: ReplayFormat,
+    amplitude: lrpt_decode::Cf32Amplitude,
     frequency_hz: u64,
     sample_rate_hz: u32,
     gain_db: f64,
@@ -57,13 +58,31 @@ impl FileReplaySource {
         looping: bool,
         speed: f32,
     ) -> Result<Self> {
+        Self::open_with_amplitude(path, format, sample_rate_hz, looping, speed, None)
+    }
+
+    pub fn open_with_amplitude(
+        path: &str,
+        format: ReplayFormat,
+        sample_rate_hz: u32,
+        looping: bool,
+        speed: f32,
+        explicit_amplitude: Option<lrpt_decode::Cf32Amplitude>,
+    ) -> Result<Self> {
         if sample_rate_hz == 0 {
             anyhow::bail!("replay sample rate must be non-zero");
         }
+        let amplitude = if format == ReplayFormat::Cf32Le {
+            lrpt_decode::cf32_amplitude_for_path(std::path::Path::new(path), explicit_amplitude)
+                .map_err(anyhow::Error::msg)?
+        } else {
+            lrpt_decode::Cf32Amplitude::Normalized
+        };
         let file = File::open(path).with_context(|| format!("opening replay file {path}"))?;
         Ok(Self {
             reader: BufReader::new(file),
             format,
+            amplitude,
             frequency_hz: 0,
             sample_rate_hz,
             gain_db: 0.0,
@@ -155,7 +174,9 @@ impl IqSource for FileReplaySource {
             return Ok(0);
         }
 
-        let complex = self.format.convert(&self.byte_buf[..filled]);
+        let complex = self
+            .format
+            .convert(&self.byte_buf[..filled], self.amplitude);
         let n = complex.len().min(buf.len());
         buf[..n].copy_from_slice(&complex[..n]);
         self.samples_emitted += n as u64;

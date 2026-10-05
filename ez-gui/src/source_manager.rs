@@ -349,6 +349,7 @@ pub struct SourceManager {
     pub replay_loop: bool,
     /// Replay speed multiplier (0.1×–10×).
     pub replay_speed: f32,
+    pub replay_cf32_amplitude: Option<lrpt_decode::Cf32Amplitude>,
     /// Current read position within the replay file (bytes).
     pub replay_position: u64,
     /// Total size of the replay file (bytes).
@@ -445,6 +446,7 @@ impl SourceManager {
             replay_file: None,
             replay_loop: false,
             replay_speed: 1.0,
+            replay_cf32_amplitude: None,
             replay_position: 0,
             replay_size: 0,
             daemon_addr: "127.0.0.1:7890".to_string(),
@@ -684,6 +686,7 @@ impl SourceManager {
         let replay_file = self.replay_file.clone();
         let replay_loop = self.replay_loop;
         let replay_speed = self.replay_speed;
+        let replay_cf32_amplitude = self.replay_cf32_amplitude;
         if self.source_mode == SourceMode::Replay {
             self.replay_position = 0;
             self.replay_size = replay_file
@@ -714,6 +717,20 @@ impl SourceManager {
                         .unwrap_or_default()
                         .to_ascii_lowercase();
                     let is_cf32 = matches!(extension.as_str(), "cf32" | "fc32");
+                    let amplitude = if is_cf32 {
+                        match lrpt_decode::cf32_amplitude_for_path(
+                            std::path::Path::new(&path),
+                            replay_cf32_amplitude,
+                        ) {
+                            Ok(amplitude) => amplitude,
+                            Err(message) => {
+                                send_cancellable(&tx, &running, SourceMessage::Error(message));
+                                return;
+                            }
+                        }
+                    } else {
+                        lrpt_decode::Cf32Amplitude::Normalized
+                    };
                     let sample_bytes = if is_cf32 { 8 } else { 2 };
                     match std::fs::metadata(&path) {
                         Ok(metadata)
@@ -778,24 +795,7 @@ impl SourceManager {
                             }
                             Ok(n) => {
                                 let chunk = if is_cf32 {
-                                    let mut out = Vec::with_capacity(n / 4);
-                                    for chunk in buf[..n].chunks_exact(8) {
-                                        let i = f32::from_le_bytes(chunk[0..4].try_into().unwrap());
-                                        let q = f32::from_le_bytes(chunk[4..8].try_into().unwrap());
-                                        let to_u8 = |value: f32| {
-                                            if value.is_finite() {
-                                                ((value.clamp(-1.0, 1.0) * 127.0) as i16 + 127)
-                                                    as u8
-                                            } else {
-                                                127
-                                            }
-                                        };
-                                        let i_u8 = to_u8(i);
-                                        let q_u8 = to_u8(q);
-                                        out.push(i_u8);
-                                        out.push(q_u8);
-                                    }
-                                    out
+                                    lrpt_decode::cf32_le_bytes_to_uc8(&buf[..n], amplitude)
                                 } else {
                                     buf[..n].to_vec()
                                 };
@@ -1433,6 +1433,36 @@ impl SourceManager {
                     }
                 }
                 ui.separator();
+                ui.add_enabled_ui(
+                    !matches!(self.status, SourceStatus::Running | SourceStatus::Opening),
+                    |ui| {
+                        egui::ComboBox::from_id_salt("cf32_amplitude")
+                            .selected_text(match self.replay_cf32_amplitude {
+                                None => "CF32: metadata / normalized",
+                                Some(lrpt_decode::Cf32Amplitude::Normalized) => "CF32: normalized",
+                                Some(lrpt_decode::Cf32Amplitude::AdcCounts127_4) => {
+                                    "CF32: legacy ADC counts"
+                                }
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.replay_cf32_amplitude,
+                                    None,
+                                    "Metadata / normalized default",
+                                );
+                                ui.selectable_value(
+                                    &mut self.replay_cf32_amplitude,
+                                    Some(lrpt_decode::Cf32Amplitude::Normalized),
+                                    "Normalized full scale",
+                                );
+                                ui.selectable_value(
+                                    &mut self.replay_cf32_amplitude,
+                                    Some(lrpt_decode::Cf32Amplitude::AdcCounts127_4),
+                                    "Legacy ADC counts (byte minus 127.4)",
+                                );
+                            });
+                    },
+                );
                 ui.checkbox(&mut self.replay_loop, "Loop");
                 ui.label("Speed:");
                 ui.add(
@@ -2247,6 +2277,163 @@ mod tests {
     }
 
     #[test]
+    fn both_cf32_writers_replay_adc_levels_tones_and_adsb_without_clipping() {
+        use ez_daemon::broadcast::OverflowPolicy;
+        use ez_daemon::bus::{SampleBlock, SampleBus};
+        use ez_daemon::hardware::{
+            adsb::{encode_uc8, EXAMPLE_DF17_CALLSIGN},
+            replay::{FileReplaySource, ReplayFormat},
+            IqSource,
+        };
+        let mut raw: Vec<u8> = (0..=255).flat_map(|i| [i, 255 - i]).collect();
+        for amplitude in [0.01, 0.25, 1.0] {
+            for n in 0..4096 {
+                let s = num_complex::Complex32::from_polar(amplitude, n as f32 * 0.1);
+                raw.extend([
+                    lrpt_decode::normalized_component_to_uc8(s.re),
+                    lrpt_decode::normalized_component_to_uc8(s.im),
+                ]);
+            }
+        }
+        raw.extend(vec![127; 1024]);
+        raw.extend(encode_uc8(&[EXAMPLE_DF17_CALLSIGN; 3]));
+        let dir =
+            std::env::temp_dir().join(format!("ez-cf32-path-roundtrip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut satellite = crate::satellite::recorder::Cf32StreamWriter::start(
+            dir.to_str().unwrap(),
+            None,
+            2_400_000,
+            1_090_000_000,
+            0.0,
+            0.0,
+        )
+        .unwrap();
+        satellite.write(&raw).unwrap();
+        satellite.stop().unwrap();
+        let satellite_path = satellite.path().to_path_buf();
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(8, OverflowPolicy::DropIncoming);
+        let mut manager = ez_daemon::recording::RecordingManager::new(&dir);
+        manager
+            .start_recording(1, ez_proto::RecordingFormat::Cf32, 1_090_000_000, handle)
+            .unwrap();
+        bus.publish(SampleBlock {
+            start_sample: 0,
+            sample_rate_hz: 2_400_000,
+            center_freq_hz: 1_090_000_000,
+            samples: Arc::from(lrpt_decode::uc8_bytes_to_normalized(&raw)),
+        });
+        assert!(wait_until(
+            || manager.status(1).unwrap().bytes_written == raw.len() as u64 * 4
+        ));
+        let daemon_path =
+            std::path::PathBuf::from(manager.stop_recording(1).unwrap().path.unwrap());
+        let mut original_decoder = crate::adsb_decoder::AdsBDecoder::new();
+        original_decoder.feed_iq(&raw, 2_400_000);
+        assert_eq!(original_decoder.total_messages, 3);
+        for path in [satellite_path, daemon_path] {
+            let metadata = lrpt_decode::cf32_amplitude_for_path(&path, None).unwrap();
+            assert_eq!(metadata, lrpt_decode::Cf32Amplitude::Normalized);
+            let mut source = SourceManager::new();
+            source.source_mode = SourceMode::Replay;
+            source.replay_file = Some(path.to_string_lossy().into_owned());
+            source.sample_rate_hz = u32::MAX;
+            source.start();
+            let mut replayed = Vec::new();
+            assert!(wait_until(|| {
+                if let Some(chunk) = source.recv_samples() {
+                    replayed.extend(chunk);
+                }
+                source.status == SourceStatus::Idle
+            }));
+            source.stop();
+            assert_eq!(replayed, raw);
+            let mut decoder = crate::adsb_decoder::AdsBDecoder::new();
+            decoder.feed_iq(&replayed, 2_400_000);
+            assert_eq!(decoder.total_messages, original_decoder.total_messages);
+            assert_eq!(
+                decoder.get_aircraft()[0].callsign,
+                original_decoder.get_aircraft()[0].callsign
+            );
+            let mut daemon_reader = FileReplaySource::open(
+                path.to_str().unwrap(),
+                ReplayFormat::Cf32Le,
+                u32::MAX,
+                false,
+                1000.0,
+            )
+            .unwrap();
+            daemon_reader.start().unwrap();
+            let mut buffer = vec![num_complex::Complex32::new(0.0, 0.0); raw.len() / 2];
+            assert_eq!(daemon_reader.read_iq(&mut buffer).unwrap(), raw.len() / 2);
+            let converted: Vec<u8> = buffer
+                .iter()
+                .flat_map(|s| {
+                    [
+                        lrpt_decode::normalized_component_to_uc8(s.re),
+                        lrpt_decode::normalized_component_to_uc8(s.im),
+                    ]
+                })
+                .collect();
+            assert_eq!(converted, raw);
+            daemon_reader.stop();
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_cf32_import_has_explicit_units_and_no_peak_based_guessing() {
+        let original = [90u8, 110, 127, 128, 140, 160, 180, 200];
+        let bytes: Vec<u8> = original
+            .iter()
+            .flat_map(|v| (f32::from(*v) - 127.4).to_le_bytes())
+            .collect();
+        let mut recording = TestRecording::new(&bytes);
+        let path = recording.0.with_extension("cf32");
+        std::fs::rename(&recording.0, &path).unwrap();
+        recording.0 = path;
+        let mut source = recording.source(2);
+        source.replay_cf32_amplitude = Some(lrpt_decode::Cf32Amplitude::AdcCounts127_4);
+        source.start();
+        let mut replayed = Vec::new();
+        assert!(wait_until(|| {
+            if let Some(chunk) = source.recv_samples() {
+                replayed.extend(chunk);
+            }
+            source.status == SourceStatus::Idle
+        }));
+        source.stop();
+        assert_eq!(replayed, original);
+        use ez_daemon::hardware::{
+            replay::{FileReplaySource, ReplayFormat},
+            IqSource,
+        };
+        let mut reader = FileReplaySource::open_with_amplitude(
+            recording.0.to_str().unwrap(),
+            ReplayFormat::Cf32Le,
+            u32::MAX,
+            false,
+            1000.0,
+            Some(lrpt_decode::Cf32Amplitude::AdcCounts127_4),
+        )
+        .unwrap();
+        reader.start().unwrap();
+        let mut samples = [num_complex::Complex32::new(0.0, 0.0); 4];
+        assert_eq!(reader.read_iq(&mut samples).unwrap(), 4);
+        let replayed: Vec<u8> = samples
+            .iter()
+            .flat_map(|s| {
+                [
+                    lrpt_decode::normalized_component_to_uc8(s.re),
+                    lrpt_decode::normalized_component_to_uc8(s.im),
+                ]
+            })
+            .collect();
+        assert_eq!(replayed, original);
+    }
+
+    #[test]
     fn replay_progress_tracks_input_bytes_at_each_block_and_before_eof() {
         for cf32 in [false, true] {
             let input = vec![0; 4 * 65_536 + 8];
@@ -2334,7 +2521,7 @@ mod tests {
             "{:?}",
             source.status
         );
-        assert_eq!(output, [127, 127, 127, 127, 254, 0, 190, 64]);
+        assert_eq!(output, [128, 128, 128, 128, 255, 0, 191, 64]);
         source.stop();
     }
 

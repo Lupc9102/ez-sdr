@@ -8,7 +8,7 @@
 //! samples instead of discarding phase into a magnitude table.
 //!
 //! HackRF's native wire format is signed 8-bit I/Q; XORing each byte with `0x80` converts it
-//! to the same unsigned, 127.5-centered convention `lrpt_decode::iq_bytes_to_complex` already
+//! to the same unsigned, 127.5-centered convention `lrpt_decode::uc8_bytes_to_normalized` already
 //! expects (the RTL-SDR "Uc8" convention), so both hardware backends share one converter.
 
 use std::ffi::{c_int, c_void};
@@ -357,7 +357,7 @@ impl IqSource for HackRfSource {
         let samples_available = self.byte_buf.len() / 2;
         let n = samples_available.min(buf.len());
         let bytes_consumed = n * 2;
-        let complex = lrpt_decode::iq_bytes_to_complex(&self.byte_buf[..bytes_consumed]);
+        let complex = lrpt_decode::uc8_bytes_to_normalized(&self.byte_buf[..bytes_consumed]);
         buf[..n].copy_from_slice(&complex[..n]);
         self.byte_buf.drain(..bytes_consumed);
         Ok(n)

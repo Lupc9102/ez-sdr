@@ -100,6 +100,11 @@ fn decode_recording(
             format.label()
         ));
     }
+    let amplitude = if format == RecordingFormat::Cf32 {
+        lrpt_decode::cf32_amplitude_for_path(path, None)?
+    } else {
+        lrpt_decode::Cf32Amplitude::Normalized
+    };
     let (decoder_tx, decoder_rx) = crossbeam_channel::bounded(1);
     let mut decoder = lrpt_decode::LrptDecoder::new(sample_rate, symbol_rate, decoder_tx);
     let mut reader = std::io::BufReader::new(file);
@@ -125,7 +130,7 @@ fn decode_recording(
                         "Recording contains a non-finite CF32 value at sample {sample}. Use finite little-endian float I/Q samples."
                     ));
                 }
-                decoder.push_samples_cf32(&chunk[..length]);
+                decoder.push_samples_cf32_with_amplitude(&chunk[..length], amplitude);
             }
         }
         remaining -= length as u64;
@@ -823,7 +828,9 @@ impl DecodingPanel {
                     frame.rs_ok,
                     frame.rs_failed
                 ));
-                if let std::collections::btree_map::Entry::Vacant(e) = self.daemon_textures.entry(apid) {
+                if let std::collections::btree_map::Entry::Vacant(e) =
+                    self.daemon_textures.entry(apid)
+                {
                     let rgba: Vec<u8> = frame
                         .pixels
                         .iter()

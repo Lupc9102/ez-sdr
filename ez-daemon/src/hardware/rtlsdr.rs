@@ -3,7 +3,7 @@
 
 //! RTL-SDR [`IqSource`] backend. Mirrors `dump1090::sdr::rtlsdr`'s proven FFI bindings and
 //! device lifecycle (open, gain stepping, device lookup by index/serial), but yields
-//! phase-preserving `Complex32` samples via [`lrpt_decode::iq_bytes_to_complex`] instead of
+//! phase-preserving `Complex32` samples via [`lrpt_decode::uc8_bytes_to_normalized`] instead of
 //! discarding phase into a magnitude table — the daemon's spectrum and LRPT pipelines both
 //! need phase information dump1090's magnitude-only path can't provide.
 
@@ -279,7 +279,7 @@ impl IqSource for RtlSdrSource {
         }
 
         let bytes_read = (n_read.max(0) as usize).min(self.read_buf.len());
-        let complex = lrpt_decode::iq_bytes_to_complex(&self.read_buf[..bytes_read]);
+        let complex = lrpt_decode::uc8_bytes_to_normalized(&self.read_buf[..bytes_read]);
         let n = complex.len().min(buf.len());
         buf[..n].copy_from_slice(&complex[..n]);
         Ok(n)

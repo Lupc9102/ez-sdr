@@ -103,6 +103,15 @@ Meteor-M2-3/M2-4 LRPT OQPSK at 80 or 72 ksym/s. NOAA APT, HRPT and GOES are not 
 Synthetic end-to-end and protocol tests are available; independent off-air recordings
 are still needed for field validation.
 
+New CF32 recordings contain little-endian float32 I/Q in normalized full-scale units
+(CU8 values 0 and 255 map to -1 and +1). Their JSON sidecar declares
+`"amplitude": "normalized"`. Replay and Meteor imports read this declaration; the
+known older satellite-recorder sidecar selects its legacy `byte - 127.4` units.
+Other files without amplitude metadata default to normalized units. For an older
+unannotated recording, select **Legacy ADC counts** in Replay, pass the daemon
+`--replay-amplitude adc-counts-127-4`, or add `"amplitude": "adc_counts_127_4"`
+to its JSON sidecar before a Meteor import. Units are never guessed from signal peaks.
+
 ## Optional daemon
 
 The GUI and daemon must both speak protocol version 3; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate.

@@ -32,6 +32,7 @@ pub enum SourceConfig {
         format: ReplayFormat,
         looping: bool,
         speed: f32,
+        amplitude: Option<lrpt_decode::Cf32Amplitude>,
     },
     /// Raw Uc8 IQ from a network rtl_tcp-compatible source.
     TcpIq {
@@ -76,12 +77,14 @@ fn build_source(config: &SourceConfig, initial_sample_rate_hz: u32) -> Result<Bo
             format,
             looping,
             speed,
-        } => Box::new(FileReplaySource::open(
+            amplitude,
+        } => Box::new(FileReplaySource::open_with_amplitude(
             path,
             *format,
             initial_sample_rate_hz,
             *looping,
             *speed,
+            *amplitude,
         )?),
         SourceConfig::TcpIq {
             address,
@@ -274,6 +277,7 @@ mod tests {
                 format: ReplayFormat::Cf32Le,
                 looping: true,
                 speed: 1000.0,
+                amplitude: None,
             },
         };
         let running = Arc::new(AtomicBool::new(true));

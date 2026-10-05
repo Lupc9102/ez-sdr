@@ -45,6 +45,10 @@ pub struct SpectrumWorker {
     iq_sender: crossbeam_channel::Sender<Vec<Complex32>>,
     spectrum_receiver: crossbeam_channel::Receiver<SpectrumFrame>,
     handle: Option<std::thread::JoinHandle<()>>,
+    #[cfg(test)]
+    submitted_windows: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    completed_windows: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl SpectrumWorker {
@@ -57,6 +61,10 @@ impl SpectrumWorker {
             iq_sender: iq_tx,
             spectrum_receiver: spectrum_rx,
             handle: None,
+            #[cfg(test)]
+            submitted_windows: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            completed_windows: Default::default(),
         }
     }
 
@@ -66,6 +74,10 @@ impl SpectrumWorker {
     pub fn new(fft_size: usize, window: WindowType) -> Self {
         let (iq_tx, iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
         let (spectrum_tx, spectrum_rx) = crossbeam_channel::bounded::<SpectrumFrame>(4);
+        #[cfg(test)]
+        let completed_windows = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        #[cfg(test)]
+        let thread_completed = completed_windows.clone();
 
         let handle = std::thread::spawn(move || {
             let mut planner = FftPlanner::<f32>::new();
@@ -79,8 +91,14 @@ impl SpectrumWorker {
             // When iq_sender is dropped (on CentralApp drop), recv() returns Err
             // and the loop exits. No select! needed — simpler and no hang.
             while let Ok(mut iq_window) = iq_rx.recv() {
+                #[cfg(test)]
+                let mut consumed = 1;
                 while let Ok(newer) = iq_rx.try_recv() {
                     iq_window = newer;
+                    #[cfg(test)]
+                    {
+                        consumed += 1;
+                    }
                 }
                 if iq_window.len() != fft_size {
                     continue;
@@ -101,6 +119,8 @@ impl SpectrumWorker {
                     dbs[dst] = db;
                 }
                 let _ = spectrum_tx.try_send(dbs);
+                #[cfg(test)]
+                thread_completed.fetch_add(consumed, std::sync::atomic::Ordering::Release);
             }
         });
 
@@ -108,12 +128,25 @@ impl SpectrumWorker {
             iq_sender: iq_tx,
             spectrum_receiver: spectrum_rx,
             handle: Some(handle),
+            #[cfg(test)]
+            submitted_windows: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            completed_windows,
         }
     }
 
     /// Send an IQ window to the worker. Returns false if the channel is full.
     pub fn try_send_iq(&self, iq: Vec<Complex32>) -> bool {
-        self.iq_sender.try_send(iq).is_ok()
+        #[cfg(test)]
+        self.submitted_windows
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let sent = self.iq_sender.try_send(iq).is_ok();
+        #[cfg(test)]
+        if !sent {
+            self.submitted_windows
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        sent
     }
 
     /// Detach the worker thread. The thread exits when iq_sender is dropped.
@@ -2054,8 +2087,8 @@ impl SpectrumAnalyzer {
                     .iter()
                     .enumerate()
                     .map(|(i, &s)| {
-                        let x = wave_rect.left()
-                            + (i as f32 / (n_wf - 1) as f32) * wave_rect.width();
+                        let x =
+                            wave_rect.left() + (i as f32 / (n_wf - 1) as f32) * wave_rect.width();
                         egui::pos2(x, mid_y - s * amp)
                     })
                     .collect();
@@ -2947,7 +2980,10 @@ impl SpectrumAnalyzer {
             let gap_len = 4.0_f32;
             // Single dashed line (one draw call) instead of ~200 line_segment calls
             painter.add(egui::Shape::dashed_line(
-                &[egui::pos2(spectrum_rect.left(), sq_y), egui::pos2(spectrum_rect.right(), sq_y)],
+                &[
+                    egui::pos2(spectrum_rect.left(), sq_y),
+                    egui::pos2(spectrum_rect.right(), sq_y),
+                ],
                 egui::Stroke::new(
                     1.0,
                     egui::Color32::from_rgba_unmultiplied(
@@ -4116,29 +4152,27 @@ mod tests {
 
     fn wait_for_spectrum_frames(spectrum: &mut SpectrumAnalyzer, expected: u64) {
         let deadline = Instant::now() + Duration::from_secs(2);
-        while spectrum.processed_frames < expected && Instant::now() < deadline {
-            spectrum.try_recv_spectrum();
-            if spectrum.processed_frames < expected {
-                std::thread::yield_now();
-            }
-        }
-        if spectrum.processed_frames < expected {
-            return;
-        }
-        let mut quiet_since = Instant::now();
-        // A burst may leave a newer result in flight after the first frame is
-        // published. Give the worker a short quiet window so latest-frame
-        // assertions observe that final result instead of a stale one.
         while Instant::now() < deadline {
-            let before = spectrum.processed_frames;
             spectrum.try_recv_spectrum();
-            if spectrum.processed_frames != before {
-                quiet_since = Instant::now();
-            } else if quiet_since.elapsed() >= Duration::from_millis(10) {
-                break;
+            let finished = spectrum.worker.as_ref().is_none_or(|worker| {
+                worker
+                    .completed_windows
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    == worker
+                        .submitted_windows
+                        .load(std::sync::atomic::Ordering::Relaxed)
+            });
+            if finished {
+                // Completion is published after the result, including windows
+                // coalesced by the worker. Drain that final result before returning.
+                spectrum.try_recv_spectrum();
+                if spectrum.processed_frames >= expected {
+                    return;
+                }
             }
-            std::thread::sleep(Duration::from_millis(1));
+            std::thread::yield_now();
         }
+        panic!("FFT worker did not finish {expected} frames before the deadline");
     }
 
     // -----------------------------------------------------------------------

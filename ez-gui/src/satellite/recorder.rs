@@ -11,6 +11,7 @@ pub struct Cf32RecordingMeta {
     pub frequency_hz: u64,
     pub sample_rate_hz: u32,
     pub format: String,
+    pub amplitude: lrpt_decode::Cf32Amplitude,
     pub start_utc: String,
     pub end_utc: Option<String>,
     pub duration_sec: f64,
@@ -98,6 +99,7 @@ impl Cf32StreamWriter {
             frequency_hz: center_freq_hz,
             sample_rate_hz: sample_rate,
             format: "cf32_le".to_string(),
+            amplitude: lrpt_decode::Cf32Amplitude::Normalized,
             start_utc,
             end_utc: None,
             duration_sec: 0.0,
@@ -285,15 +287,7 @@ fn write_chunks<W: Write>(
 }
 
 fn raw_iq_bytes_to_cf32_le(samples: &[u8]) -> Vec<u8> {
-    let n_pairs = samples.len() / 2;
-    let mut out = Vec::with_capacity(n_pairs * 8);
-    for i in 0..n_pairs {
-        let i_val = samples[2 * i] as f32 - 127.4;
-        let q_val = samples[2 * i + 1] as f32 - 127.4;
-        out.extend_from_slice(&i_val.to_le_bytes());
-        out.extend_from_slice(&q_val.to_le_bytes());
-    }
-    out
+    lrpt_decode::uc8_bytes_to_cf32_le(samples)
 }
 
 #[cfg(test)]
@@ -477,8 +471,8 @@ mod tests {
         assert_eq!(out.len(), 8);
         let i_val = f32::from_le_bytes([out[0], out[1], out[2], out[3]]);
         let q_val = f32::from_le_bytes([out[4], out[5], out[6], out[7]]);
-        assert!((i_val - (-127.4)).abs() < 1e-5);
-        assert!((q_val - 127.6).abs() < 1e-5);
+        assert_eq!(i_val, -1.0);
+        assert_eq!(q_val, 1.0);
     }
 
     #[test]
