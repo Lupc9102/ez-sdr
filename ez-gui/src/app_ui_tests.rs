@@ -118,10 +118,10 @@ fn render_workspaces() {
                     callsign: callsign.into(),
                     lat,
                     lon,
-                    altitude: 18000,
+                    altitude: Some(18000),
                     altitude_type: crate::adsb_panel::AltitudeType::Barometric,
-                    speed: 220,
-                    heading,
+                    speed: Some(220),
+                    heading: Some(heading),
                     squawk: None,
                     vertical_rate: None,
                     surface_movement: None,
@@ -151,8 +151,12 @@ fn render_workspaces() {
                         callsign: Some(callsign.into()),
                         position: Some((lat, lon)),
                         altitude_ft: Some(18000),
+                        altitude_geometric: false,
                         ground_speed_kt: Some(220.0),
-                        heading_deg: Some(heading),
+                        heading_deg: None,
+                        heading_true: false,
+                        on_ground: Some(false),
+                        track_deg: Some(heading),
                     });
             }
         }
@@ -478,4 +482,79 @@ fn replay_runs_through_app_logic_with_muted_metadata_and_clears_at_eof() {
     assert!(app.radio_ui.rds.is_none());
     assert!(app.radio_ui.received_tone.is_none());
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn aircraft_signed_optional_and_typed_measurements_survive_daemon_adapter() {
+    for altitude in [-1000, -500, 0, 35000] {
+        let item = ez_proto::AircraftTelemetry {
+            icao: 1,
+            altitude_ft: Some(altitude),
+            ..Default::default()
+        };
+        let ac = CentralApp::map_daemon_aircraft(item).unwrap();
+        assert_eq!(ac.altitude, Some(altitude));
+        assert_eq!(ac.speed, None);
+        assert_eq!(ac.heading, None);
+        assert_eq!(ac.ground_track, None);
+        assert_eq!(ac.speed_label(), "—");
+        assert_eq!(ac.direction_label(), "—");
+    }
+    let item = ez_proto::AircraftTelemetry {
+        icao: 1,
+        ground_speed_kt: Some(0.0),
+        track_deg: Some(90.0),
+        heading_deg: Some(120.0),
+        heading_true: true,
+        airspeed_kt: Some(300.0),
+        airspeed_true: true,
+        ..Default::default()
+    };
+    let ac = CentralApp::map_daemon_aircraft(item).unwrap();
+    assert_eq!(ac.speed, Some(0));
+    assert_eq!(ac.ground_track, Some(90));
+    assert_eq!(ac.heading, Some(120));
+    assert!(ac.heading_true);
+    assert_eq!(ac.airspeed, Some(300));
+    assert!(ac.airspeed_true);
+    assert!(ac.has_heading);
+    let ac = CentralApp::map_daemon_aircraft(ez_proto::AircraftTelemetry::default()).unwrap();
+    assert_eq!(ac.altitude_label(), "—");
+    assert_eq!(ac.speed_label(), "—");
+    assert_eq!(ac.direction_label(), "—");
+}
+
+#[test]
+fn aircraft_trails_collect_and_expire_while_planes_is_hidden() {
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Listen;
+    app.sync_adsb_capture();
+    app.adsb_panel.aircraft = vec![crate::adsb_panel::AircraftEntry {
+        icao: 1,
+        lat: 51.5,
+        lon: -0.1,
+        has_position: true,
+        position_seen: Some(std::time::Instant::now()),
+        ..Default::default()
+    }];
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.logic(&ctx, &mut frame);
+    assert_eq!(app.adsb_panel.trail_len(1), 1);
+    for _ in 0..305 {
+        let ac = &mut app.adsb_panel.aircraft[0];
+        ac.lat += 0.001;
+        ac.position_seen = Some(std::time::Instant::now());
+        app.adsb_panel.tick_model();
+    }
+    assert_eq!(app.adsb_panel.trail_len(1), 300);
+    app.logic(&ctx, &mut frame);
+    assert_eq!(app.adsb_panel.trail_len(1), 300); // duplicates don't grow
+    app.adsb_panel.aircraft[0].position_seen =
+        Some(std::time::Instant::now() - std::time::Duration::from_secs(61));
+    app.logic(&ctx, &mut frame);
+    assert_eq!(app.adsb_panel.trail_len(1), 0);
+    app.adsb_panel.aircraft.clear();
+    app.logic(&ctx, &mut frame);
+    assert_eq!(app.adsb_panel.trail_len(1), 0);
 }

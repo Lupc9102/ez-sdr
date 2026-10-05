@@ -67,18 +67,29 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
     }
     let msg = &msg[..required_len];
 
-    // DF11/17/18 carry the ICAO address directly and must pass CRC. Other
-    // downlink formats overlay the address on the parity field, so the
-    // recovered CRC remainder *is* the address.
-    let icao = match df {
-        11 | 17 | 18 => (u32::from(msg[1]) << 16) | (u32::from(msg[2]) << 8) | u32::from(msg[3]),
-        _ => crc24_parity(msg),
-    };
     if (df == 11 && crc24_parity(msg) & 0xFFFF80 != 0) || (matches!(df, 17 | 18) && !check_crc(msg))
     {
         return None;
     }
 
+    decode_validated_mode_s_message(msg)
+}
+
+/// Extract fields from a message whose integrity was already checked by the
+/// demodulator. Socket/file callers should use `decode_mode_s_message` instead.
+#[must_use]
+pub fn decode_validated_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
+    let df = extract_df(msg);
+    let required_len = if matches!(df, 0 | 4 | 5 | 11) { 7 } else { 14 };
+    if msg.len() < required_len {
+        return None;
+    }
+    let msg = &msg[..required_len];
+    let icao = if matches!(df, 11 | 17 | 18) {
+        (u32::from(msg[1]) << 16) | (u32::from(msg[2]) << 8) | u32::from(msg[3])
+    } else {
+        crc24_parity(msg)
+    };
     let mut am = AircraftMessage {
         icao,
         df,
@@ -107,11 +118,36 @@ pub fn decode_mode_s_message(msg: &[u8]) -> Option<AircraftMessage> {
                         am.callsign = Some(callsign);
                     }
                 }
+                5..=8 => {
+                    am.on_ground = Some(true);
+                    let movement = (u32::from(msg[4] & 7) << 4) | u32::from(msg[5] >> 4);
+                    am.surface_movement = decode_surface_movement(movement);
+                    if msg[5] & 0x08 != 0 {
+                        let raw = (u32::from(msg[5] & 7) << 4) | u32::from(msg[6] >> 4);
+                        // Surface operation status is needed to disambiguate track
+                        // from heading. Preserve that uncertainty until supported.
+                        am.surface_direction = Some(f64::from(raw) * 360.0 / 128.0);
+                    }
+                }
                 9..=18 | 20..=22 => {
+                    am.on_ground = Some(false);
                     am.altitude = decode_altitude(msg, true);
                 }
                 19 => {
+                    am.on_ground = Some(false);
                     am.velocity = decode_velocity(msg);
+                    if matches!(msg[4] & 7, 3 | 4) {
+                        if msg[5] & 4 != 0 {
+                            let raw = (u32::from(msg[5] & 3) << 8) | u32::from(msg[6]);
+                            am.magnetic_heading = Some(f64::from(raw) * 360.0 / 1024.0);
+                        }
+                        let raw = (u32::from(msg[7] & 0x7f) << 3) | u32::from(msg[8] >> 5);
+                        if raw != 0 {
+                            am.airspeed =
+                                Some(f64::from(raw - 1) * if msg[4] & 7 == 4 { 4.0 } else { 1.0 });
+                            am.airspeed_true = msg[7] & 0x80 != 0;
+                        }
+                    }
                     am.vertical_rate = decode_vertical_rate(msg);
                 }
                 28 if msg[4] & 7 == 1 => {
@@ -182,7 +218,7 @@ fn decode_callsign(msg: &[u8]) -> String {
 /// Bit layout follows the reference `decodeAC12Field`/`decodeAC13Field`:
 /// the Q bit selects 25-ft encoding, otherwise the field is Gray-coded
 /// Mode C and is resolved via [`crate::mode_ac`].
-fn decode_altitude(msg: &[u8], is_df17: bool) -> Option<u32> {
+fn decode_altitude(msg: &[u8], is_df17: bool) -> Option<i32> {
     use crate::mode_ac::{decode_id13_field, mode_a_to_mode_c};
     if is_df17 {
         if msg.len() < 7 {
@@ -194,7 +230,7 @@ fn decode_altitude(msg: &[u8], is_df17: bool) -> Option<u32> {
         if q {
             let n = ((ac12 & 0x0FE0) >> 1) | (ac12 & 0x000F);
             let alt = (n as i32 * 25) - 1000;
-            Some(alt.max(0) as u32)
+            Some(alt)
         } else {
             // Gillham Mode C: rebuild the 13-bit field with M=0 inserted,
             // then Gray-decode exactly like the reference.
@@ -203,7 +239,7 @@ fn decode_altitude(msg: &[u8], is_df17: bool) -> Option<u32> {
             if n < -12 {
                 return None;
             }
-            Some((n * 100).max(0) as u32)
+            Some(n * 100)
         }
     } else {
         // Short / long surveillance (DF0, 4, 16, 20): AC field is 13 bits at msg[2..4]
@@ -220,14 +256,14 @@ fn decode_altitude(msg: &[u8], is_df17: bool) -> Option<u32> {
         if q {
             let n = ((ac & 0x1F80) >> 2) | ((ac & 0x0020) >> 1) | (ac & 0x000F);
             let alt = (n as i32 * 25) - 1000;
-            Some(alt.max(0) as u32)
+            Some(alt)
         } else {
             // Gillham Mode C via Gray decode (reference `decodeAC13Field`).
             let n = mode_a_to_mode_c(decode_id13_field(ac))?;
             if n < -12 {
                 return None;
             }
-            Some((n * 100).max(0) as u32)
+            Some(n * 100)
         }
     }
 }
@@ -268,6 +304,22 @@ fn decode_velocity(msg: &[u8]) -> Option<(f64, f64)> {
     }
 
     Some((speed_kt, heading))
+}
+
+/// ADS-B v0 surface movement scale, used until operation status supplies a
+/// version. Codes 0 and 125..127 mean unavailable, while code 1 means stopped.
+fn decode_surface_movement(raw: u32) -> Option<f64> {
+    Some(match raw {
+        1 => 0.0,
+        2..=8 => 0.125 + (f64::from(raw) - 2.0 + 0.5) * 0.125,
+        9..=12 => 1.0 + (f64::from(raw) - 9.0 + 0.5) * 0.25,
+        13..=38 => 2.0 + (f64::from(raw) - 13.0 + 0.5) * 0.5,
+        39..=93 => 15.0 + (f64::from(raw) - 39.0 + 0.5),
+        94..=108 => 70.0 + (f64::from(raw) - 94.0 + 0.5) * 2.0,
+        109..=123 => 100.0 + (f64::from(raw) - 109.0 + 0.5) * 5.0,
+        124 => 180.0,
+        _ => return None,
+    })
 }
 
 /// Decode TC19 vertical rate. The 9-bit field is in 64 ft/min increments with
@@ -318,10 +370,16 @@ pub struct AircraftMessage {
     pub df: u8,
     pub address_type: &'static str,
     pub source: &'static str,
-    pub altitude: Option<u32>,
+    pub altitude: Option<i32>,
     pub callsign: Option<String>,
     pub position: Option<(f64, f64)>,
     pub velocity: Option<(f64, f64)>,
+    pub magnetic_heading: Option<f64>,
+    pub airspeed: Option<f64>,
+    pub airspeed_true: bool,
+    pub surface_movement: Option<f64>,
+    pub surface_direction: Option<f64>,
+    pub on_ground: Option<bool>,
     pub vertical_rate: Option<i32>,
     pub emergency: Option<u8>,
     pub squawk: Option<u32>,
@@ -541,8 +599,8 @@ mod tests {
     #[test]
     fn decode_altitude_gillham_round_trip_short() {
         // Encoder → wire field → Gray decoder must reproduce the altitude.
-        for alt_ft in [0u32, 1200, 5000, 35000, 126700] {
-            let mode_c = (alt_ft / 100) as i32;
+        for alt_ft in [-1000i32, -500, 0, 1200, 5000, 35000, 126700] {
+            let mode_c = alt_ft / 100;
             let ma =
                 crate::mode_ac::altitude_100ft_to_squawk(mode_c).expect("encoder should succeed");
             let ac13 = mode_a_to_ac13_field(ma);
@@ -566,8 +624,8 @@ mod tests {
     #[test]
     fn decode_altitude_gillham_round_trip_df17() {
         // DF17 Q=0 path: AC12 → 13-bit field (M=0 inserted) → Gray decode.
-        for alt_ft in [0u32, 5000, 35000] {
-            let mode_c = (alt_ft / 100) as i32;
+        for alt_ft in [-1000i32, -500, 0, 5000, 35000] {
+            let mode_c = alt_ft / 100;
             let ma =
                 crate::mode_ac::altitude_100ft_to_squawk(mode_c).expect("encoder should succeed");
             let n13 = mode_a_to_ac13_field(ma);

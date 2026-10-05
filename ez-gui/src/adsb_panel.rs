@@ -19,8 +19,8 @@ pub struct AdsBPanel {
     pub aircraft_info: std::collections::HashMap<u32, AircraftInfo>,
     info_rx: std::sync::mpsc::Receiver<(u32, AircraftInfo)>,
     info_tx: std::sync::mpsc::Sender<(u32, AircraftInfo)>,
-    pub min_altitude_ft: u32,
-    pub max_altitude_ft: u32,
+    pub min_altitude_ft: i32,
+    pub max_altitude_ft: i32,
     pub altitude_filter_enabled: bool,
     pub max_age_secs: u64,
     pub callsign_filter: String,
@@ -111,17 +111,22 @@ pub struct AircraftEntry {
     pub callsign: String,
     pub lat: f64,
     pub lon: f64,
-    pub altitude: u32,
+    pub altitude: Option<i32>,
     pub altitude_type: AltitudeType,
-    pub speed: u32,
-    pub heading: u32,
+    pub speed: Option<u32>,
+    pub heading: Option<u32>,
+    pub heading_true: bool,
+    pub ground_track: Option<u32>,
+    pub airspeed: Option<u32>,
+    pub airspeed_true: bool,
+    pub on_ground: Option<bool>,
     pub squawk: Option<u32>,
     pub vertical_rate: Option<i32>,
     pub emergency: Option<u8>,
     pub surface_movement: Option<u32>,
     pub surface_heading: Option<u32>,
     pub has_position: bool,
-    /// Whether heading has been decoded from a velocity message.
+    /// Whether a current ground track, aircraft heading or surface direction exists.
     pub has_heading: bool,
     pub position_seen: Option<std::time::Instant>,
     pub position_source: Option<String>,
@@ -158,8 +163,8 @@ pub struct AdsBNotification {
     pub callsign: String,
     pub lat: f64,
     pub lon: f64,
-    pub altitude: u32,
-    pub speed: u32,
+    pub altitude: Option<i32>,
+    pub speed: Option<u32>,
     pub distance_km: Option<f64>,
     pub bearing_deg: Option<f64>,
     pub timestamp: std::time::Instant,
@@ -175,10 +180,15 @@ impl Default for AircraftEntry {
             callsign: String::new(),
             lat: 0.0,
             lon: 0.0,
-            altitude: 0,
+            altitude: None,
             altitude_type: AltitudeType::Barometric,
-            speed: 0,
-            heading: 0,
+            speed: None,
+            heading: None,
+            heading_true: false,
+            ground_track: None,
+            airspeed: None,
+            airspeed_true: false,
+            on_ground: None,
             squawk: None,
             vertical_rate: None,
             emergency: None,
@@ -194,6 +204,131 @@ impl Default for AircraftEntry {
             correctedbits: 0,
             score: 0.0,
         }
+    }
+}
+
+impl AircraftEntry {
+    pub fn apply_measurements(&mut self, decoded: &dump1090::mode_s::AircraftMessage, msg: &[u8]) {
+        if let Some(ground) = decoded.on_ground {
+            if self.on_ground.is_some_and(|prior| prior != ground) {
+                self.altitude = None;
+                self.speed = None;
+                self.ground_track = None;
+                self.heading = None;
+                self.airspeed = None;
+                self.surface_movement = None;
+                self.surface_heading = None;
+            }
+            self.on_ground = Some(ground);
+        }
+        let tc = if matches!(decoded.df, 17 | 18) {
+            msg[4] >> 3
+        } else {
+            0
+        };
+        if matches!(tc, 9..=18 | 20..=22) || matches!(decoded.df, 0 | 4 | 16 | 20) {
+            self.altitude = decoded.altitude;
+            self.altitude_type = if (20..=22).contains(&tc) {
+                AltitudeType::Geometric
+            } else {
+                AltitudeType::Barometric
+            };
+        }
+        if tc == 19 {
+            match msg[4] & 7 {
+                1 | 2 => {
+                    self.speed = decoded.velocity.map(|v| v.0.round() as u32);
+                    self.ground_track = decoded.velocity.map(|v| v.1.round() as u32 % 360);
+                }
+                3 | 4 => {
+                    self.heading = decoded.magnetic_heading.map(|v| v.round() as u32 % 360);
+                    self.heading_true = false;
+                    self.airspeed = decoded.airspeed.map(|v| v.round() as u32);
+                    self.airspeed_true = decoded.airspeed_true;
+                }
+                _ => {}
+            }
+            self.vertical_rate = decoded.vertical_rate;
+        }
+        if (5..=8).contains(&tc) {
+            self.altitude = None;
+            self.heading = None;
+            self.airspeed = None;
+            self.ground_track = None;
+            self.vertical_rate = None;
+            self.speed = decoded.surface_movement.map(|v| v.round() as u32);
+            self.surface_movement = self.speed;
+            self.surface_heading = decoded.surface_direction.map(|v| v.round() as u32 % 360);
+        }
+        self.has_heading = self.direction().is_some();
+    }
+
+    pub fn direction(&self) -> Option<u32> {
+        self.ground_track.or(self.heading).or(self.surface_heading)
+    }
+
+    pub fn altitude_label(&self) -> String {
+        self.altitude.map_or("—".into(), |v| {
+            format!(
+                "{v} ft {}",
+                if self.altitude_type == AltitudeType::Geometric {
+                    "GNSS"
+                } else {
+                    "baro"
+                }
+            )
+        })
+    }
+
+    pub fn speed_label(&self) -> String {
+        let ground = self.speed.map(|v| format!("{v} kt GS"));
+        let air = self
+            .airspeed
+            .map(|v| format!("{v} kt {}", if self.airspeed_true { "TAS" } else { "IAS" }));
+        let values = [ground, air]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" / ");
+        if values.is_empty() {
+            "—".into()
+        } else {
+            values
+        }
+    }
+
+    pub fn direction_label(&self) -> String {
+        let ground = self.ground_track.map(|v| format!("{v}° track"));
+        let heading = self.heading.map(|v| {
+            format!(
+                "{v}° {} heading",
+                if self.heading_true { "true" } else { "mag" }
+            )
+        });
+        let surface = self
+            .surface_heading
+            .map(|v| format!("{v}° surface track/heading"));
+        let values = [ground, heading, surface]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" / ");
+        if values.is_empty() {
+            "—".into()
+        } else {
+            values
+        }
+    }
+
+    pub fn position_valid(&self) -> bool {
+        self.has_position
+            && self
+                .position_seen
+                .is_some_and(|seen| seen.elapsed() <= std::time::Duration::from_secs(60))
+            && self.lat.is_finite()
+            && self.lon.is_finite()
+            && (-90.0..=90.0).contains(&self.lat)
+            && (-180.0..=180.0).contains(&self.lon)
     }
 }
 
@@ -737,6 +872,18 @@ impl AdsBPanel {
             "uat_other"
         }
         .into();
+        if let Some(ground) = report.on_ground {
+            if aircraft.on_ground.is_some_and(|prior| prior != ground) {
+                aircraft.altitude = None;
+                aircraft.speed = None;
+                aircraft.heading = None;
+                aircraft.ground_track = None;
+                aircraft.surface_heading = None;
+                aircraft.airspeed = None;
+                aircraft.vertical_rate = None;
+            }
+            aircraft.on_ground = Some(ground);
+        }
         aircraft.seen = timed.received;
         if let Some(callsign) = report.callsign {
             aircraft.callsign = callsign;
@@ -745,18 +892,29 @@ impl AdsBPanel {
             aircraft.lat = lat;
             aircraft.lon = lon;
             self.uat_position_seen.insert(report.key, timed.received);
+            aircraft.has_position = true;
             aircraft.position_seen = Some(timed.received);
             aircraft.position_source = Some("uat".into());
         }
         if let Some(altitude) = report.altitude_ft {
-            aircraft.altitude = altitude.max(0) as u32;
+            aircraft.altitude = Some(altitude);
+            aircraft.altitude_type = if report.altitude_geometric {
+                AltitudeType::Geometric
+            } else {
+                AltitudeType::Barometric
+            };
         }
         if let Some(speed) = report.ground_speed_kt {
-            aircraft.speed = speed.round() as u32;
+            aircraft.speed = Some(speed.round() as u32);
         }
         if let Some(heading) = report.heading_deg {
-            aircraft.heading = heading.round() as u32 % 360;
+            aircraft.heading = Some(heading.round() as u32 % 360);
+            aircraft.heading_true = report.heading_true;
         }
+        if let Some(track) = report.track_deg {
+            aircraft.ground_track = Some(track.round() as u32 % 360);
+        }
+        aircraft.has_heading = aircraft.direction().is_some();
     }
 
     #[cfg(test)]
@@ -776,13 +934,15 @@ impl AdsBPanel {
             return false;
         }
         if self.region == AdsbRegion::Uat978 {
-            self.uat_position_seen
-                .get(&aircraft.icao)
-                .is_some_and(|seen| seen.elapsed().as_secs() <= self.max_age_secs)
+            aircraft.position_valid()
+                && self
+                    .uat_position_seen
+                    .get(&aircraft.icao)
+                    .is_some_and(|seen| seen.elapsed().as_secs() <= self.max_age_secs)
         } else {
             // Use the explicit has_position flag instead of (0,0) sentinel.
             // This correctly handles aircraft at real coordinates (0,0).
-            aircraft.has_position
+            aircraft.position_valid()
         }
     }
 
@@ -795,7 +955,10 @@ impl AdsBPanel {
         if self.altitude_filter_enabled {
             let min = self.min_altitude_ft.min(self.max_altitude_ft);
             let max = self.min_altitude_ft.max(self.max_altitude_ft);
-            if aircraft.altitude < min || aircraft.altitude > max {
+            if !aircraft
+                .altitude
+                .is_some_and(|alt| alt >= min && alt <= max)
+            {
                 return false;
             }
         }
@@ -803,6 +966,47 @@ impl AdsBPanel {
         query.is_empty()
             || aircraft.callsign.to_ascii_lowercase().contains(&query)
             || format!("{:06x}", aircraft.icao & 0x00ff_ffff).contains(&query)
+    }
+
+    /// Maintain history and expiry independently of the visible tab.
+    pub fn tick_model(&mut self) {
+        let live: std::collections::HashSet<_> = self.aircraft.iter().map(|ac| ac.icao).collect();
+        let positioned: std::collections::HashSet<_> = self
+            .aircraft
+            .iter()
+            .filter(|ac| self.has_position(ac) && ac.seen.elapsed().as_secs() <= self.max_age_secs)
+            .map(|ac| ac.icao)
+            .collect();
+        self.aircraft_trails
+            .retain(|key, _| positioned.contains(key));
+        self.aircraft_info.retain(|key, _| live.contains(key));
+        if self.selected_icao.is_some_and(|key| !live.contains(&key)) {
+            self.selected_icao = None;
+        }
+        for ac in &self.aircraft {
+            if !positioned.contains(&ac.icao) {
+                continue;
+            }
+            let trail = self.aircraft_trails.entry(ac.icao).or_default();
+            // L24: Use a smaller distance threshold (~11m) for better
+            // trail resolution of slow-moving aircraft.
+            if trail.back().is_none_or(|&(lat, lon)| {
+                (lat - ac.lat).abs() > 0.0001 || (lon - ac.lon).abs() > 0.0001
+            }) {
+                trail.push_back((ac.lat, ac.lon));
+                // L25: Increased from 30 to 300 points (~5 min at 1-2s/update)
+                if trail.len() > 300 {
+                    trail.pop_front();
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn trail_len(&self, key: u32) -> usize {
+        self.aircraft_trails
+            .get(&key)
+            .map_or(0, |trail| trail.len())
     }
 
     /// Compact band selector shared by both real receive paths.
@@ -907,7 +1111,7 @@ impl AdsBPanel {
 
             // Short status-bar flash (picked up by the main loop).
             let msg = match (dist, ac.altitude) {
-                (Some(d), alt) if alt > 0 => {
+                (Some(d), Some(alt)) => {
                     format!("✈ {callsign} spotted — {d:.1} km, {alt} ft")
                 }
                 (Some(d), _) => format!("✈ {callsign} spotted — {d:.1} km"),
@@ -919,7 +1123,7 @@ impl AdsBPanel {
             if self.desktop_notifications {
                 let cs = callsign.clone();
                 let body = match (dist, ac.altitude) {
-                    (Some(d), alt) if alt > 0 => format!("{d:.1} km away, {alt} ft"),
+                    (Some(d), Some(alt)) => format!("{d:.1} km away, {alt} ft"),
                     (Some(d), _) => format!("{d:.1} km away"),
                     _ => "Signal detected".to_string(),
                 };
@@ -1000,10 +1204,14 @@ impl AdsBPanel {
                             address_label(n.icao),
                             n.lat,
                             n.lon,
-                            n.speed
+                            n.speed.map_or("—".into(), |v| v.to_string())
                         )
                     } else {
-                        format!("Address {} · {} kt", address_label(n.icao), n.speed)
+                        format!(
+                            "Address {} · {} kt",
+                            address_label(n.icao),
+                            n.speed.map_or("—".into(), |v| v.to_string())
+                        )
                     };
                     ui.horizontal(|ui| {
                         ui.label(
@@ -1025,17 +1233,17 @@ impl AdsBPanel {
                                 if let Some(b) = n.bearing_deg {
                                     detail.push_str(&format!(" · {b:.0}°"));
                                 }
-                                if n.altitude > 0 {
-                                    detail.push_str(&format!(" · {} ft", n.altitude));
+                                if let Some(altitude) = n.altitude {
+                                    detail.push_str(&format!(" · {altitude} ft"));
                                 }
                             } else {
                                 detail.push_str("Signal detected");
-                                if n.altitude > 0 {
-                                    detail.push_str(&format!(" · {} ft", n.altitude));
+                                if let Some(altitude) = n.altitude {
+                                    detail.push_str(&format!(" · {altitude} ft"));
                                 }
                             }
-                            if n.speed > 0 {
-                                detail.push_str(&format!(" · {} kt", n.speed));
+                            if let Some(speed) = n.speed {
+                                detail.push_str(&format!(" · {speed} kt GS"));
                             }
                             ui.label(
                                 egui::RichText::new(detail)
@@ -1877,8 +2085,10 @@ impl AdsBPanel {
             let y = (f64::from(rect.center().y) + (tiy - self.tile_cy) * 256.0) as f32;
             let color = if self.selected_icao == Some(ac.icao) {
                 egui::Color32::from_rgb(0, 255, 255)
+            } else if ac.altitude.is_none() {
+                egui::Color32::GRAY
             } else {
-                let t = (ac.altitude as f32 / 40_000.0).clamp(0.0, 1.0);
+                let t = (ac.altitude.unwrap() as f32 / 40_000.0).clamp(0.0, 1.0);
                 if t < 0.5 {
                     let u = t * 2.0;
                     egui::Color32::from_rgb(
@@ -1914,7 +2124,9 @@ impl AdsBPanel {
                         color,
                     );
                     mesh.rotate(
-                        egui::emath::Rot2::from_angle((ac.heading as f32).to_radians()),
+                        egui::emath::Rot2::from_angle(
+                            (ac.direction().unwrap_or(0) as f32).to_radians(),
+                        ),
                         marker_rect.center(),
                     );
                     // Clip the marker to the map, including near toolbar edges.
@@ -1924,7 +2136,7 @@ impl AdsBPanel {
                 draw_plane_model(
                     &painter,
                     egui::pos2(x, y),
-                    ac.heading as f32,
+                    ac.direction().unwrap_or(0) as f32,
                     &category,
                     color,
                     model_scale,
@@ -2184,40 +2396,6 @@ impl AdsBPanel {
             }
         }
 
-        // Update trails here so they're ready when ui_map() renders. Kept
-        // outside the collapsible cards below so trail history keeps building
-        // even while a card is collapsed (module_card skips contents when closed).
-        let live: std::collections::HashSet<_> = self.aircraft.iter().map(|ac| ac.icao).collect();
-        let positioned: std::collections::HashSet<_> = self
-            .aircraft
-            .iter()
-            .filter(|ac| self.has_position(ac) && ac.seen.elapsed().as_secs() <= self.max_age_secs)
-            .map(|ac| ac.icao)
-            .collect();
-        self.aircraft_trails
-            .retain(|key, _| positioned.contains(key));
-        self.aircraft_info.retain(|key, _| live.contains(key));
-        if self.selected_icao.is_some_and(|key| !live.contains(&key)) {
-            self.selected_icao = None;
-        }
-        for ac in &self.aircraft {
-            if !self.has_position(ac) {
-                continue;
-            }
-            let trail = self.aircraft_trails.entry(ac.icao).or_default();
-            // L24: Use a smaller distance threshold (~11m) for better
-            // trail resolution of slow-moving aircraft.
-            if trail.back().is_none_or(|&(lat, lon)| {
-                (lat - ac.lat).abs() > 0.0001 || (lon - ac.lon).abs() > 0.0001
-            }) {
-                trail.push_back((ac.lat, ac.lon));
-                // L25: Increased from 30 to 300 points (~5 min at 1-2s/update)
-                if trail.len() > 300 {
-                    trail.pop_front();
-                }
-            }
-        }
-
         // Stats summary — always visible above the cards, like SDR++'s status line.
         let now_inst = std::time::Instant::now();
         let active_count = self
@@ -2275,7 +2453,7 @@ impl AdsBPanel {
                         ui.add(
                             egui::DragValue::new(&mut self.min_altitude_ft)
                                 .speed(500.0)
-                                .range(0..=60_000)
+                                .range(-2_000..=120_000)
                                 .suffix("↑"),
                         );
                         ui.add(
@@ -2380,7 +2558,7 @@ impl AdsBPanel {
                     0 => a.callsign.cmp(&b.callsign),
                     1 => a.altitude.cmp(&b.altitude),
                     2 => a.speed.cmp(&b.speed),
-                    3 => a.heading.cmp(&b.heading),
+                    3 => a.direction().cmp(&b.direction()),
                     4 => {
                         let da = self.haversine_distance(self.observer_lat, self.observer_lon, a.lat, a.lon);
                         let db = self.haversine_distance(self.observer_lat, self.observer_lon, b.lat, b.lon);
@@ -2430,10 +2608,10 @@ impl AdsBPanel {
                         self.selected_icao = Some(ac.icao);
                         fetch_icao = Some(ac.icao);
                     }
-                    ui.label(egui::RichText::new(format!("{}ft", ac.altitude)).color(row_col).small());
-                    ui.label(egui::RichText::new(format!("{}kt", ac.speed)).color(row_col).small());
+                    ui.label(egui::RichText::new(ac.altitude_label()).color(row_col).small());
+                    ui.label(egui::RichText::new(ac.speed_label()).color(row_col).small());
                     // I6: Heading column
-                    let hdg_label = if ac.has_heading { format!("{}°", ac.heading) } else { "—".into() };
+                    let hdg_label = ac.direction_label();
                     ui.label(egui::RichText::new(hdg_label).color(row_col).small());
                     let has_position = self.has_position(&ac);
                     let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
@@ -2444,8 +2622,8 @@ impl AdsBPanel {
                     if ui.add_enabled(has_position, egui::Button::new("🤖").small()).clicked() {
                         let bearing = self.bearing(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
                         self.pending_ai_prompt = Some(format!(
-                            "Aircraft on ADS-B:\nCallsign: {}\nAddress: {}\nAlt: {} ft, Speed: {} kt, Heading: {}°\nPos: {:.4}°N, {:.4}°E\nDist: {:.1} km, Bearing: {:.0}°",
-                            label, address_label(ac.icao), ac.altitude, ac.speed, ac.heading, ac.lat, ac.lon, dist, bearing
+                            "Aircraft on ADS-B:\nCallsign: {}\nAddress: {}\nAltitude: {}, Speed: {}, Direction: {}\nPos: {:.4}°N, {:.4}°E\nDist: {:.1} km, Bearing: {:.0}°",
+                            label, address_label(ac.icao), ac.altitude_label(), ac.speed_label(), ac.direction_label(), ac.lat, ac.lon, dist, bearing
                         ));
                     }
                     ui.end_row();
@@ -2462,6 +2640,35 @@ impl AdsBPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uat_preserves_signed_altitude_and_separate_true_heading_and_track() {
+        let mut panel = AdsBPanel::new(make_shared_state());
+        panel.region = AdsbRegion::Uat978;
+        let report = crate::uat_receiver::parse_report(br#"{"address":"000001","address_qualifier":"adsb_icao","geometric_altitude":-500,"true_heading":120,"true_track":90,"ground_speed":0}"#).unwrap();
+        panel.seed_uat_fixture(report);
+        let ac = &panel.aircraft[0];
+        assert_eq!(ac.altitude, Some(-500));
+        assert_eq!(ac.altitude_type, AltitudeType::Geometric);
+        assert_eq!(ac.heading, Some(120));
+        assert!(ac.heading_true);
+        assert_eq!(ac.ground_track, Some(90));
+        assert_eq!(ac.speed, Some(0));
+        assert!(ac.has_heading);
+        assert!(ac.direction_label().contains("true heading"));
+        assert!(ac.direction_label().contains("track"));
+        panel.seed_uat_fixture(crate::uat_receiver::parse_report(br#"{"address":"000001","address_qualifier":"adsb_icao","airground_state":"airborne","pressure_altitude":35000,"true_track":90,"ground_speed":450}"#).unwrap());
+        panel.seed_uat_fixture(crate::uat_receiver::parse_report(br#"{"address":"000001","address_qualifier":"adsb_icao","airground_state":"ground","magnetic_heading":180,"ground_speed":0}"#).unwrap());
+        let ac = &panel.aircraft[0];
+        assert_eq!(ac.on_ground, Some(true));
+        assert_eq!(ac.altitude, None);
+        assert_eq!(ac.speed, Some(0));
+        assert_eq!(ac.ground_track, None);
+        assert_eq!(ac.heading, Some(180));
+        assert!(!ac.heading_true);
+        assert!(ac.has_heading);
+    }
+
     use crate::test_helpers::make_shared_state;
 
     #[test]
@@ -2537,7 +2744,7 @@ mod tests {
         let ac = AircraftEntry {
             icao: 0x123abc,
             callsign: "TEST123".into(),
-            altitude: 10000,
+            altitude: Some(10000),
             ..Default::default()
         };
         panel.callsign_filter = "test".into();
@@ -2628,10 +2835,10 @@ mod tests {
             callsign: "TEST".into(),
             lat: 51.5,
             lon: -0.1,
-            altitude: 35000,
+            altitude: Some(35000),
             altitude_type: AltitudeType::Barometric,
-            speed: 450,
-            heading: 270,
+            speed: Some(450),
+            heading: Some(270),
             squawk: None,
             vertical_rate: None,
             surface_movement: None,
@@ -2662,8 +2869,8 @@ mod tests {
             callsign: "TEST".into(),
             lat: 51.5,
             lon: -0.1,
-            altitude: 35000,
-            speed: 450,
+            altitude: Some(35000),
+            speed: Some(450),
             distance_km: Some(10.0),
             bearing_deg: Some(45.0),
             timestamp: std::time::Instant::now(),
@@ -2750,15 +2957,15 @@ mod tests {
         assert!(panel.has_position(aircraft));
         assert_eq!((aircraft.lat, aircraft.lon), (40.25, -75.5));
         assert_eq!(
-            (aircraft.altitude, aircraft.speed, aircraft.heading),
-            (12000, 140, 90)
+            (aircraft.altitude, aircraft.speed, aircraft.ground_track),
+            (Some(12000), Some(140), Some(90))
         );
         assert_eq!(aircraft.callsign, "N123AB");
         panel.ingest_uat_report(update(
             br#"{"address":"a1b2c3","address_qualifier":"tisb_icao","ground_speed":142}"#,
         ));
         assert_eq!(panel.aircraft.len(), 1);
-        assert_eq!(panel.aircraft[0].speed, 142);
+        assert_eq!(panel.aircraft[0].speed, Some(142));
         assert!(panel.has_position(&panel.aircraft[0]));
     }
 

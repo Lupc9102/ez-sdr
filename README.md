@@ -105,7 +105,9 @@ are still needed for field validation.
 
 ## Optional daemon
 
-The GUI and daemon must both speak protocol version 2; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state and position decode quality.
+The GUI and daemon must both speak protocol version 3; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate.
+
+For initial surface ADS-B positions, configure the daemon with `--receiver-lat 51.5 --receiver-lon -0.1` using the actual IQ capture site. Without a configured receiver or a fresh aircraft reference, ambiguous surface positions stay unavailable. For replay, the reference must describe the recording location.
 
 The Rust daemon owns source/DSP pipelines and exposes the desktop's binary protocol
 at `127.0.0.1:7890`, plus HTTP/WebSocket APIs on `127.0.0.1:7891`.

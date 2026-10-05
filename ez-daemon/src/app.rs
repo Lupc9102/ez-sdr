@@ -64,6 +64,8 @@ pub struct DaemonConfig {
     /// behavior when the directory doesn't exist.
     pub web_static_dir: PathBuf,
     pub source: SourceConfig,
+    /// Coordinates of the actual capture site, used only to resolve surface CPR.
+    pub receiver_position: Option<(f64, f64)>,
 }
 
 fn build_source(config: &SourceConfig, initial_sample_rate_hz: u32) -> Result<Box<dyn IqSource>> {
@@ -108,6 +110,14 @@ fn build_source(config: &SourceConfig, initial_sample_rate_hz: u32) -> Result<Bo
 /// to a blocking-pool thread so a slow-to-stop hardware source can't stall the async runtime
 /// during shutdown.
 pub async fn run(config: DaemonConfig, running: Arc<AtomicBool>) -> Result<()> {
+    if config.receiver_position.is_some_and(|(lat, lon)| {
+        !lat.is_finite()
+            || !lon.is_finite()
+            || !(-90.0..=90.0).contains(&lat)
+            || !(-180.0..=180.0).contains(&lon)
+    }) {
+        return Err(anyhow::anyhow!("invalid capture-site coordinates"));
+    }
     let mut source = build_source(&config.source, config.initial_sample_rate_hz)?;
     source.set_frequency(config.initial_freq_hz)?;
     source.set_sample_rate(config.initial_sample_rate_hz)?;
@@ -122,6 +132,8 @@ pub async fn run(config: DaemonConfig, running: Arc<AtomicBool>) -> Result<()> {
         config.initial_sample_rate_hz,
         config.recording_dir.clone(),
     ));
+
+    state.set_receiver_position(config.receiver_position)?;
 
     let tcp_listener = TcpListener::bind(config.listen_addr).await?;
     let web_listener = TcpListener::bind(config.web_listen_addr).await?;
@@ -214,6 +226,7 @@ mod tests {
             initial_sample_rate_hz: 2_000_000,
             recording_dir: dir,
             web_static_dir: std::env::temp_dir().join("ez-daemon-app-tests-nonexistent-static"),
+            receiver_position: None,
             source: SourceConfig::Synthetic,
         };
         let running = Arc::new(AtomicBool::new(true));
@@ -255,6 +268,7 @@ mod tests {
             initial_sample_rate_hz: 1_000_000,
             recording_dir: dir,
             web_static_dir: std::env::temp_dir().join("ez-daemon-app-tests-nonexistent-static"),
+            receiver_position: None,
             source: SourceConfig::Replay {
                 path: fixture.to_str().unwrap().to_string(),
                 format: ReplayFormat::Cf32Le,

@@ -60,6 +60,7 @@ impl Harness {
             initial_sample_rate_hz: 2_000_000,
             recording_dir,
             web_static_dir: std::env::temp_dir().join("ez-daemon-web-it-nonexistent-static"),
+            receiver_position: None,
             source: SourceConfig::Synthetic,
         };
         let running = Arc::new(AtomicBool::new(true));

@@ -560,7 +560,7 @@ impl DiscordEmbed {
 }
 
 /// Data representing an aircraft tracked via ADS-B, used to build notification embeds.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AircraftData {
     /// ICAO 24-bit address (hex string).
     pub icao: String,
@@ -571,11 +571,42 @@ pub struct AircraftData {
     /// Longitude in decimal degrees.
     pub lon: f64,
     /// Altitude in feet.
-    pub alt_ft: u32,
+    pub alt_ft: Option<i32>,
     /// Ground speed in knots.
-    pub speed_kts: u32,
+    pub speed_kts: Option<u32>,
     /// Heading in degrees (0–359).
-    pub heading: u32,
+    pub heading: Option<u32>,
+    pub heading_true: bool,
+    pub ground_track: Option<u32>,
+    pub airspeed: Option<u32>,
+    pub airspeed_true: bool,
+    pub altitude_geometric: bool,
+}
+
+/// Retry partial tracks until a current position exists. Deduplication is
+/// independent of the app's first-identity event, so a callsign alone cannot
+/// consume the position-dependent notification.
+pub fn positioned_aircraft_notification(
+    ac: &crate::adsb_panel::AircraftEntry,
+    notified: &mut std::collections::HashSet<u32>,
+) -> Option<AircraftData> {
+    if ac.icao > 0x00ff_ffff || !ac.position_valid() || !notified.insert(ac.icao) {
+        return None;
+    }
+    Some(AircraftData {
+        icao: format!("{:06X}", ac.icao),
+        callsign: ac.callsign.clone(),
+        lat: ac.lat,
+        lon: ac.lon,
+        alt_ft: ac.altitude,
+        speed_kts: ac.speed,
+        heading: ac.heading,
+        heading_true: ac.heading_true,
+        ground_track: ac.ground_track,
+        airspeed: ac.airspeed,
+        airspeed_true: ac.airspeed_true,
+        altitude_geometric: ac.altitude_type == crate::adsb_panel::AltitudeType::Geometric,
+    })
 }
 
 /// Build a Discord embed for a new aircraft detection event.
@@ -592,9 +623,46 @@ pub fn embed_aircraft(ac: &AircraftData, image_url: Option<String>) -> DiscordEm
                 ac.callsign.trim_end().to_string(),
                 true,
             ),
-            ("Altitude".to_string(), format!("{} ft", ac.alt_ft), true),
-            ("Speed".to_string(), format!("{} kts", ac.speed_kts), true),
-            ("Heading".to_string(), format!("{}°", ac.heading), true),
+            (
+                "Altitude".to_string(),
+                ac.alt_ft.map_or("Unavailable".into(), |v| {
+                    format!(
+                        "{v} ft {}",
+                        if ac.altitude_geometric {
+                            "GNSS"
+                        } else {
+                            "baro"
+                        }
+                    )
+                }),
+                true,
+            ),
+            (
+                "Speed".to_string(),
+                ac.speed_kts
+                    .map_or("Unavailable".into(), |v| format!("{v} kt GS")),
+                true,
+            ),
+            (
+                "Ground track".into(),
+                ac.ground_track
+                    .map_or("Unavailable".into(), |v| format!("{v}° true")),
+                true,
+            ),
+            (
+                "Airspeed".into(),
+                ac.airspeed.map_or("Unavailable".into(), |v| {
+                    format!("{v} kt {}", if ac.airspeed_true { "TAS" } else { "IAS" })
+                }),
+                true,
+            ),
+            (
+                "Heading".to_string(),
+                ac.heading.map_or("Unavailable".into(), |v| {
+                    format!("{v}° {}", if ac.heading_true { "true" } else { "magnetic" })
+                }),
+                true,
+            ),
             (
                 "Position".to_string(),
                 format!("{:.4}°, {:.4}°", ac.lat, ac.lon),
@@ -1178,6 +1246,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn partial_and_stale_aircraft_do_not_consume_position_notification() {
+        let mut notified = std::collections::HashSet::new();
+        let mut ac = crate::adsb_panel::AircraftEntry {
+            icao: 1,
+            callsign: "TEST".into(),
+            ..Default::default()
+        };
+        assert!(positioned_aircraft_notification(&ac, &mut notified).is_none());
+        assert!(notified.is_empty());
+        ac.has_position = true;
+        ac.position_seen = Some(Instant::now() - std::time::Duration::from_secs(61));
+        assert!(positioned_aircraft_notification(&ac, &mut notified).is_none());
+        assert!(notified.is_empty());
+        ac.position_seen = Some(Instant::now());
+        let data = positioned_aircraft_notification(&ac, &mut notified).unwrap();
+        assert_eq!((data.lat, data.lon), (0.0, 0.0)); // actual valid zero coordinates
+        assert_eq!(data.alt_ft, None);
+        assert_eq!(data.speed_kts, None);
+        assert_eq!(data.heading, None);
+        let embed = embed_aircraft(&data, None);
+        assert!(embed
+            .fields
+            .iter()
+            .any(|(name, value, _)| name == "Altitude" && value == "Unavailable"));
+        assert!(positioned_aircraft_notification(&ac, &mut notified).is_none());
+    }
+
+    #[test]
     fn categories_not_empty() {
         let cats = categories();
         assert!(!cats.is_empty());
@@ -1297,9 +1393,10 @@ mod tests {
             callsign: "UAL123".into(),
             lat: 37.77,
             lon: -122.42,
-            alt_ft: 35000,
-            speed_kts: 480,
-            heading: 270,
+            alt_ft: Some(35000),
+            speed_kts: Some(480),
+            heading: Some(270),
+            ..Default::default()
         };
 
         let e = embed_aircraft(&ac, None);
@@ -1309,15 +1406,15 @@ mod tests {
         assert!(e
             .fields
             .iter()
-            .any(|(n, v, _)| n == "Altitude" && v == "35000 ft"));
+            .any(|(n, v, _)| n == "Altitude" && v == "35000 ft baro"));
         assert!(e
             .fields
             .iter()
-            .any(|(n, v, _)| n == "Speed" && v == "480 kts"));
+            .any(|(n, v, _)| n == "Speed" && v == "480 kt GS"));
         assert!(e
             .fields
             .iter()
-            .any(|(n, v, _)| n == "Heading" && v == "270°"));
+            .any(|(n, v, _)| n == "Heading" && v == "270° magnetic"));
         assert!(e.image_url.is_none());
 
         let e2 = embed_aircraft(&ac, Some("https://example.com/photo.jpg".into()));
@@ -1488,9 +1585,10 @@ mod tests {
             callsign: "TEST123".into(),
             lat: 51.5,
             lon: -0.1,
-            alt_ft: 35000,
-            speed_kts: 450,
-            heading: 90,
+            alt_ft: Some(35000),
+            speed_kts: Some(450),
+            heading: Some(90),
+            ..Default::default()
         };
         let start = Instant::now();
         n.fire_aircraft(ac);

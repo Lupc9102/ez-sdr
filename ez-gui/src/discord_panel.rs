@@ -331,9 +331,10 @@ impl DiscordPanel {
                         callsign: "TEST123 ".into(),
                         lat: 51.5,
                         lon: -0.1,
-                        alt_ft: 35000,
-                        speed_kts: 450,
-                        heading: 180,
+                        alt_ft: Some(35000),
+                        speed_kts: Some(450),
+                        heading: Some(180),
+                        ..Default::default()
                     },
                     image,
                 );

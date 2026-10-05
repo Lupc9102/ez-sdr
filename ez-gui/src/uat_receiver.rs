@@ -23,8 +23,12 @@ pub struct UatReport {
     pub callsign: Option<String>,
     pub position: Option<(f64, f64)>,
     pub altitude_ft: Option<i32>,
+    pub altitude_geometric: bool,
     pub ground_speed_kt: Option<f64>,
     pub heading_deg: Option<f64>,
+    pub heading_true: bool,
+    pub on_ground: Option<bool>,
+    pub track_deg: Option<f64>,
 }
 
 pub fn address_label(key: u32) -> String {
@@ -107,13 +111,27 @@ pub fn parse_report(line: &[u8]) -> Result<UatReport, String> {
     let geometric = number("geometric_altitude", -2_000.0, 100_000.0)?;
     let track = number("true_track", 0.0, 360.0)?;
     let heading = number("true_heading", 0.0, 360.0)?;
+    let magnetic_heading = number("magnetic_heading", 0.0, 360.0)?;
+    let on_ground = match object.get("airground_state") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(value) => match value.as_str() {
+            Some("ground") => Some(true),
+            Some("airborne" | "supersonic") => Some(false),
+            Some("invalid" | "reserved") => None,
+            _ => return Err("Invalid UAT airground_state".into()),
+        },
+    };
     Ok(UatReport {
         key: (namespace << 24) | address,
         callsign,
         position,
         altitude_ft: pressure.or(geometric).map(|v| v.round() as i32),
+        altitude_geometric: pressure.is_none() && geometric.is_some(),
         ground_speed_kt: number("ground_speed", 0.0, 3_000.0)?,
-        heading_deg: track.or(heading).map(|v| v.rem_euclid(360.0)),
+        heading_deg: heading.or(magnetic_heading).map(|v| v.rem_euclid(360.0)),
+        heading_true: heading.is_some(),
+        on_ground,
+        track_deg: track.map(|v| v.rem_euclid(360.0)),
     })
 }
 
@@ -379,7 +397,9 @@ mod tests {
         assert_eq!(report.position, Some((40.25, -75.5)));
         assert_eq!(report.altitude_ft, Some(12000));
         assert_eq!(report.ground_speed_kt, Some(142.5));
-        assert_eq!(report.heading_deg, Some(90.0));
+        assert_eq!(report.track_deg, Some(90.0));
+        assert_eq!(report.heading_deg, None);
+        assert!(!report.altitude_geometric);
     }
 
     #[test]
@@ -390,6 +410,8 @@ mod tests {
         assert_eq!(report.callsign, None);
         assert_eq!(report.altitude_ft, Some(-100));
         assert_eq!(report.heading_deg, Some(0.0));
+        assert_eq!(report.track_deg, None);
+        assert!(report.altitude_geometric);
     }
 
     #[test]

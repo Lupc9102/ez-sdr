@@ -4,8 +4,8 @@
 //! Unlike [`crate::pipelines::spectrum::SpectrumPipeline`]/[`crate::pipelines::audio::AudioPipeline`]
 //! (continuous per-sample DSP producing output at a fixed cadence), this pipeline is
 //! event-driven and bursty: most blocks decode to zero messages. A snapshot of every
-//! currently-tracked aircraft is republished every `PUBLISH_EVERY_N_BLOCKS` processed
-//! blocks, which also drives stale-aircraft pruning.
+//! currently-tracked aircraft is republished periodically, including while input is
+//! idle, so position and track expiry never depends on receiving another block.
 //!
 //! `dump1090::track::Tracker` is kept as the single source of truth for per-ICAO liveness
 //! and total message count (it sees every framed message, decodable or not); this
@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dump1090::cpr::{CprDecoder, CprFrame, CprType};
 use dump1090::crc::check_crc;
@@ -54,6 +54,8 @@ pub struct PacketPipeline {
     last_block_end_sample: Option<u64>,
     aircraft: HashMap<u32, AircraftTelemetry>,
     blocks_since_publish: u32,
+    last_publish: Instant,
+    receiver_position: Option<(f64, f64)>,
     output: Broadcaster<Vec<AircraftTelemetry>>,
 }
 
@@ -77,6 +79,8 @@ impl PacketPipeline {
             last_block_end_sample: None,
             aircraft: HashMap::new(),
             blocks_since_publish: 0,
+            last_publish: Instant::now(),
+            receiver_position: None,
             output: Broadcaster::new(),
         }
     }
@@ -104,13 +108,29 @@ impl PacketPipeline {
     /// treat a timeout as "the source is gone" (see
     /// [`crate::broadcast::BroadcasterHandle::recv_timeout`]).
     pub fn tick(&mut self, poll_timeout: Duration) -> bool {
-        match self.input.recv_timeout(poll_timeout) {
+        let consumed = match self.input.recv_timeout(poll_timeout) {
             Some(block) => {
                 self.process_block(&block);
                 true
             }
             None => false,
+        };
+        if self.last_publish.elapsed() >= Duration::from_secs(1) {
+            self.prune_and_publish();
         }
+        consumed
+    }
+
+    /// Actual capture-site coordinates; absent unless explicitly configured.
+    /// In particular, a remote viewer's map location is not a receiver reference.
+    pub fn set_receiver_position(&mut self, position: Option<(f64, f64)>) {
+        self.receiver_position = position.filter(|&(lat, lon)| {
+            lat.is_finite()
+                && lon.is_finite()
+                && (-90.0..=90.0).contains(&lat)
+                && (-180.0..=180.0).contains(&lon)
+        });
+        self.cpr = CprDecoder::new();
     }
 
     pub fn run(&mut self, running: &AtomicBool) {
@@ -199,22 +219,39 @@ impl PacketPipeline {
         let prior_position = self
             .aircraft
             .get(&decoded.icao)
+            .filter(|entry| {
+                entry.position_seen_ms.is_some_and(|seen| {
+                    mm.sys_timestamp_msg.saturating_sub(seen) <= STALE_AIRCRAFT_MS
+                })
+            })
             .and_then(|entry| entry.lat.zip(entry.lon));
 
         let cpr_position = if matches!(mm.msgtype, 17 | 18) && check_crc(&mm.msg) {
             let tc = mm.msg[4] >> 3;
-            if (9..=18).contains(&tc) {
+            if (9..=18).contains(&tc) || (20..=22).contains(&tc) {
                 self.cpr.submit(decoded.icao, extract_airborne_cpr(&mm.msg))
             } else if (5..=8).contains(&tc) {
-                prior_position.and_then(|(lat, lon)| {
-                    self.cpr.submit_surface_with_reference(
-                        decoded.icao,
-                        extract_surface_cpr(&mm.msg),
-                        lat,
-                        lon,
-                        std::time::Instant::now(),
-                    )
-                })
+                prior_position
+                    .or(self.receiver_position)
+                    .and_then(|(lat, lon)| {
+                        self.cpr
+                            .submit_surface_with_reference(
+                                decoded.icao,
+                                extract_surface_cpr(&mm.msg),
+                                lat,
+                                lon,
+                                std::time::Instant::now(),
+                            )
+                            .or_else(|| self.cpr.decode_surface_relative(decoded.icao, lat, lon))
+                            .filter(|&(decoded_lat, decoded_lon)| {
+                                dump1090::cpr::surface_within_reference(
+                                    decoded_lat,
+                                    decoded_lon,
+                                    lat,
+                                    lon,
+                                )
+                            })
+                    })
             } else {
                 None
             }
@@ -235,17 +272,50 @@ impl PacketPipeline {
         if let Some(callsign) = decoded.callsign {
             entry.callsign = Some(callsign);
         }
-        if let Some(altitude) = decoded.altitude {
-            entry.altitude_ft = Some(altitude as i32);
-            entry.altitude_geometric =
-                matches!(mm.msgtype, 17 | 18) && (20..=22).contains(&(mm.msg[4] >> 3));
+        if let Some(ground) = decoded.on_ground {
+            if entry.on_ground.is_some_and(|prior| prior != ground) {
+                entry.altitude_ft = None;
+                entry.ground_speed_kt = None;
+                entry.track_deg = None;
+                entry.heading_deg = None;
+                entry.airspeed_kt = None;
+                entry.surface_direction_deg = None;
+            }
+            entry.on_ground = Some(ground);
         }
-        if let Some((speed_kt, heading)) = decoded.velocity {
-            entry.ground_speed_kt = Some(speed_kt);
-            entry.track_deg = Some(heading);
+        let tc = if matches!(decoded.df, 17 | 18) {
+            mm.msg[4] >> 3
+        } else {
+            0
+        };
+        if matches!(tc, 9..=18 | 20..=22) || matches!(decoded.df, 0 | 4 | 16 | 20) {
+            entry.altitude_ft = decoded.altitude;
+            entry.altitude_geometric = (20..=22).contains(&tc);
         }
-        if let Some(vertical_rate) = decoded.vertical_rate {
-            entry.vertical_rate_fpm = Some(vertical_rate);
+        if tc == 19 {
+            match mm.msg[4] & 7 {
+                1 | 2 => {
+                    entry.ground_speed_kt = decoded.velocity.map(|v| v.0);
+                    entry.track_deg = decoded.velocity.map(|v| v.1);
+                }
+                3 | 4 => {
+                    entry.heading_deg = decoded.magnetic_heading;
+                    entry.heading_true = false;
+                    entry.airspeed_kt = decoded.airspeed;
+                    entry.airspeed_true = decoded.airspeed_true;
+                }
+                _ => {}
+            }
+            entry.vertical_rate_fpm = decoded.vertical_rate;
+        }
+        if (5..=8).contains(&tc) {
+            entry.altitude_ft = None;
+            entry.track_deg = None;
+            entry.heading_deg = None;
+            entry.airspeed_kt = None;
+            entry.vertical_rate_fpm = None;
+            entry.ground_speed_kt = decoded.surface_movement;
+            entry.surface_direction_deg = decoded.surface_direction;
         }
         if let Some(emergency) = decoded.emergency {
             entry.emergency = Some(emergency);
@@ -272,7 +342,13 @@ impl PacketPipeline {
     }
 
     fn prune_and_publish(&mut self) {
-        let cutoff_ms = now_ms().saturating_sub(STALE_AIRCRAFT_MS);
+        self.prune_and_publish_at(now_ms());
+    }
+
+    fn prune_and_publish_at(&mut self, timestamp_ms: u64) {
+        self.last_publish = Instant::now();
+        self.blocks_since_publish = 0;
+        let cutoff_ms = timestamp_ms.saturating_sub(STALE_AIRCRAFT_MS);
         self.tracker.prune_older_than(cutoff_ms);
 
         let tracker = &self.tracker;
@@ -281,6 +357,10 @@ impl PacketPipeline {
                 Some(state) => {
                     entry.msg_count = state.msg_count;
                     entry.last_seen_ms = state.last_seen_ms;
+                    if entry.position_seen_ms.is_none_or(|seen| seen < cutoff_ms) {
+                        entry.lat = None;
+                        entry.lon = None;
+                    }
                     true
                 }
                 None => false,
@@ -344,6 +424,159 @@ mod tests {
         let bus = SampleBus::new();
         let handle = bus.subscribe(8, OverflowPolicy::DropIncoming);
         (bus, PacketPipeline::new(handle, 2_400_000))
+    }
+
+    #[test]
+    fn signed_altitude_and_velocity_semantics_survive_daemon_merge() {
+        let (_, mut pipeline) = test_pipeline();
+        let icao = 1;
+        for altitude in [-1000, -500, 0, 35000] {
+            let n = ((altitude + 1000) / 25) as u32;
+            let ac12 = ((n & 0x7f0) << 1) | 0x10 | (n & 15);
+            pipeline.merge_message(&synthetic_df17(
+                icao,
+                [11 << 3, (ac12 >> 4) as u8, (ac12 << 4) as u8, 0, 0, 0, 0],
+            ));
+            assert_eq!(pipeline.aircraft[&icao].altitude_ft, Some(altitude));
+        }
+        for subtype in 1..=4 {
+            let payload = if subtype <= 2 {
+                [(19 << 3) | subtype, 0, 101, 0, 0x20, 0, 0]
+            } else {
+                [
+                    (19 << 3) | subtype,
+                    5,
+                    0,
+                    12 | if subtype == 4 { 0x80 } else { 0 },
+                    0xa0,
+                    0,
+                    0,
+                ]
+            };
+            pipeline.merge_message(&synthetic_df17(icao, payload));
+            let ac = &pipeline.aircraft[&icao];
+            assert_eq!(ac.on_ground, Some(false));
+            assert_eq!(
+                ac.ground_speed_kt,
+                Some(if subtype == 1 { 100.0 } else { 400.0 })
+            );
+            assert_eq!(ac.track_deg, Some(90.0));
+            if subtype <= 2 {
+                assert_eq!(ac.heading_deg, None);
+                assert_eq!(ac.airspeed_kt, None);
+            } else {
+                assert_eq!(ac.heading_deg, Some(90.0));
+                assert!(!ac.heading_true);
+                assert_eq!(
+                    ac.airspeed_kt,
+                    Some(if subtype == 3 { 100.0 } else { 400.0 })
+                );
+                assert_eq!(ac.airspeed_true, subtype == 4);
+            }
+        }
+        pipeline.merge_message(&synthetic_df17(icao, [5 << 3, 0x1c, 0, 0, 0, 0, 0]));
+        let ac = &pipeline.aircraft[&icao];
+        assert_eq!(ac.on_ground, Some(true));
+        assert_eq!(ac.ground_speed_kt, Some(0.0));
+        assert_eq!(ac.surface_direction_deg, Some(180.0));
+        assert_eq!(ac.heading_deg, None);
+        assert_eq!(ac.track_deg, None);
+        assert_eq!(ac.airspeed_kt, None);
+        assert_eq!(ac.altitude_ft, None);
+        pipeline.merge_message(&synthetic_df17(icao, [(5 << 3) | 7, 0xd0, 0, 0, 0, 0, 0]));
+        assert_eq!(pipeline.aircraft[&icao].ground_speed_kt, None);
+        assert_eq!(pipeline.aircraft[&icao].surface_direction_deg, None);
+        pipeline.merge_message(&synthetic_df17(icao, [(19 << 3) | 3, 0, 0, 0, 0, 0, 0]));
+        let ac = &pipeline.aircraft[&icao];
+        assert_eq!(ac.on_ground, Some(false));
+        assert_eq!(ac.surface_direction_deg, None);
+        assert_eq!(ac.heading_deg, None);
+        assert_eq!(ac.airspeed_kt, None);
+    }
+
+    #[test]
+    fn stale_position_expires_during_other_traffic_and_idle_tracks_publish_expiry() {
+        let (bus, mut pipeline) = test_pipeline();
+        let output = pipeline.subscribe(8);
+        let now = now_ms();
+        for payload in [
+            [0x58, 0, 0x02, 0xd6, 0x91, 0xbb, 0xc9],
+            [0x58, 0, 0x06, 0x43, 0x5d, 0xa9, 0xc2],
+        ] {
+            let mut frame = synthetic_df17(1, payload);
+            frame.sys_timestamp_msg = now - 61_000;
+            pipeline.merge_message(&frame);
+        }
+        assert!(pipeline.aircraft[&1].lat.is_some());
+        let mut other = synthetic_df17(1, [0x20, 0x2c, 0xc3, 0x7c, 0xdb, 0x31, 0x57]);
+        other.sys_timestamp_msg = now;
+        pipeline.merge_message(&other);
+        assert!(pipeline.aircraft[&1].lat.is_some());
+        let mut surface = synthetic_df17(1, [5 << 3, 0, 0, 0, 0, 0, 0]);
+        surface.sys_timestamp_msg = now;
+        pipeline.merge_message(&surface);
+        assert_eq!(pipeline.aircraft[&1].position_seen_ms, Some(now - 61_000)); // stale reference cannot refresh
+        pipeline.prune_and_publish_at(now);
+        let snapshot = output.recv_timeout(Duration::from_millis(10)).unwrap();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].lat, None);
+        assert_eq!(snapshot[0].lon, None);
+        assert_eq!(snapshot[0].last_seen_ms, now);
+        pipeline.tracker.aircraft.get_mut(&1).unwrap().last_seen_ms = now - 61_000;
+        pipeline.last_publish = Instant::now() - Duration::from_secs(2);
+        assert!(!pipeline.tick(Duration::from_millis(1))); // no incoming samples
+        assert!(output
+            .recv_timeout(Duration::from_millis(10))
+            .unwrap()
+            .is_empty());
+        assert_eq!(pipeline.tracked_count(), 0);
+        drop(bus);
+    }
+
+    #[test]
+    fn geometric_cpr_and_initial_surface_reference_match_desktop_policy() {
+        for tc in 20..=22 {
+            let (_, mut pipeline) = test_pipeline();
+            pipeline.merge_message(&synthetic_df17(
+                1,
+                [tc << 3, 0, 0x02, 0xd6, 0x91, 0xbb, 0xc9],
+            ));
+            pipeline.merge_message(&synthetic_df17(
+                1,
+                [tc << 3, 0, 0x06, 0x43, 0x5d, 0xa9, 0xc2],
+            ));
+            assert!((pipeline.aircraft[&1].lat.unwrap() - 52.2658).abs() < 0.001);
+            assert!((pipeline.aircraft[&1].lon.unwrap() - 8.5522).abs() < 0.001);
+        }
+        let (_, mut pipeline) = test_pipeline();
+        let lat: f64 = 51.51;
+        let lon: f64 = -0.11;
+        let raw_lat = (lat.rem_euclid(1.5) / 1.5 * 131072.0).round() as u32;
+        let dlon = 90.0 / 37.0;
+        let raw_lon = (lon.rem_euclid(dlon) / dlon * 131072.0).round() as u32;
+        let surface = synthetic_df17(
+            1,
+            [
+                5 << 3,
+                0,
+                (raw_lat >> 15) as u8,
+                (raw_lat >> 7) as u8,
+                (raw_lat << 1) as u8 | (raw_lon >> 16) as u8,
+                (raw_lon >> 8) as u8,
+                raw_lon as u8,
+            ],
+        );
+        pipeline.merge_message(&surface);
+        assert!(pipeline.aircraft[&1].lat.is_none());
+        pipeline.set_receiver_position(Some((51.5, -0.1)));
+        pipeline.merge_message(&surface);
+        assert!((pipeline.aircraft[&1].lat.unwrap() - lat).abs() < 0.001);
+        assert!((pipeline.aircraft[&1].lon.unwrap() - lon).abs() < 0.001);
+        pipeline.set_receiver_position(Some((f64::NAN, 0.0)));
+        assert!(pipeline.receiver_position.is_none());
+        assert!(!dump1090::cpr::surface_within_reference(
+            53.0, 2.0, 51.5, -0.1
+        ));
     }
 
     fn silence_block(len: usize) -> SampleBlock {

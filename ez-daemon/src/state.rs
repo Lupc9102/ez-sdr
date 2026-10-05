@@ -91,6 +91,7 @@ pub struct DaemonState {
     channels: Mutex<HashMap<ChannelId, ActiveChannel>>,
     recordings: Mutex<RecordingManager>,
     started_at: Instant,
+    receiver_position: Mutex<Option<(f64, f64)>>,
 }
 
 impl DaemonState {
@@ -121,6 +122,7 @@ impl DaemonState {
             channels: Mutex::new(HashMap::new()),
             recordings: Mutex::new(RecordingManager::new(recording_dir)),
             started_at: Instant::now(),
+            receiver_position: Mutex::new(None),
         }
     }
 
@@ -270,6 +272,34 @@ impl DaemonState {
             .collect()
     }
 
+    /// Configure coordinates of the IQ capture site for initial surface CPR.
+    pub fn set_receiver_position(&self, position: Option<(f64, f64)>) -> Result<()> {
+        if position.is_some_and(|(lat, lon)| {
+            !lat.is_finite()
+                || !lon.is_finite()
+                || !(-90.0..=90.0).contains(&lat)
+                || !(-180.0..=180.0).contains(&lon)
+        }) {
+            return Err(anyhow!(
+                "receiver coordinates must be finite latitude/longitude"
+            ));
+        }
+        let channels = self.channels.lock().unwrap_or_else(|p| p.into_inner());
+        *self
+            .receiver_position
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = position;
+        for channel in channels.values() {
+            if let ActivePipeline::AdsbPackets(pipeline) = &channel.pipeline {
+                pipeline
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .set_receiver_position(position);
+            }
+        }
+        Ok(())
+    }
+
     /// Ensures a channel exists for `spec.id` (creating its pipeline, and a channelizer
     /// virtual tap if its kind needs one, on first use) and returns the caller's own fresh
     /// output subscription to it. A second `Subscribe` for the same id and kind just returns
@@ -417,7 +447,14 @@ impl DaemonState {
                     .unwrap_or_else(|p| p.into_inner())
                     .channel_output_rate_hz(internal_id)
                     .unwrap_or(spec.bandwidth_hz);
-                let pipeline = Arc::new(Mutex::new(PacketPipeline::new(input, sample_rate_hz)));
+                let mut packet_pipeline = PacketPipeline::new(input, sample_rate_hz);
+                packet_pipeline.set_receiver_position(
+                    *self
+                        .receiver_position
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner()),
+                );
+                let pipeline = Arc::new(Mutex::new(packet_pipeline));
                 let (running, _thread) =
                     spawn_locked_tick_thread("adsb", Arc::clone(&pipeline), PacketPipeline::tick);
                 Ok(ActiveChannel {

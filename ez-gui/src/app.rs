@@ -146,6 +146,7 @@ pub struct CentralApp {
     last_scanner_enabled: bool,
     last_mqtt_connected: bool,
     seen_aircraft: std::collections::HashSet<u32>,
+    notified_aircraft: std::collections::HashSet<u32>,
     last_active_pass_sat: String,
     discord_summary_last: std::time::Instant,
     current_tab: AppTab,
@@ -453,6 +454,7 @@ impl CentralApp {
             last_scanner_enabled: false,
             last_mqtt_connected: false,
             seen_aircraft: std::collections::HashSet::new(),
+            notified_aircraft: std::collections::HashSet::new(),
             last_active_pass_sat: String::new(),
             current_tab: AppTab::Listen,
             discord_summary_last: std::time::Instant::now(),
@@ -576,6 +578,7 @@ impl CentralApp {
             if self.last_adsb_capture.as_ref() != Some(&capture) {
                 self.adsb_decoder = AdsBDecoder::new();
                 self.seen_aircraft.clear();
+                self.notified_aircraft.clear();
                 if self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090 {
                     self.adsb_panel.clear_tracks();
                 }
@@ -627,22 +630,42 @@ impl CentralApp {
             callsign: item.callsign.unwrap_or_default(),
             lat,
             lon,
-            altitude: item.altitude_ft.unwrap_or_default().max(0) as u32,
+            altitude: item.altitude_ft,
             altitude_type: if item.altitude_geometric {
                 crate::adsb_panel::AltitudeType::Geometric
             } else {
                 crate::adsb_panel::AltitudeType::Barometric
             },
-            speed: item.ground_speed_kt.unwrap_or_default().max(0.0) as u32,
-            heading: track.unwrap_or_default().rem_euclid(360.0) as u32,
+            speed: item
+                .ground_speed_kt
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .map(|v| v.round() as u32),
+            airspeed: item
+                .airspeed_kt
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .map(|v| v.round() as u32),
+            airspeed_true: item.airspeed_true,
+            on_ground: item.on_ground,
+            heading_true: item.heading_true,
+            ground_track: track.map(|v| v.round() as u32 % 360),
+            heading: item
+                .heading_deg
+                .filter(|v| v.is_finite())
+                .map(|v| v.rem_euclid(360.0).round() as u32 % 360),
             squawk: item.squawk,
             vertical_rate: item.vertical_rate_fpm,
             emergency: item.emergency,
             surface_movement: None,
-            surface_heading: None,
+            surface_heading: item
+                .surface_direction_deg
+                .filter(|v| v.is_finite())
+                .map(|v| v.rem_euclid(360.0).round() as u32 % 360),
             has_position: position.is_some()
-                && position_seen.is_some_and(|seen| seen.elapsed().as_secs() <= 60),
-            has_heading: track.is_some(),
+                && position_seen
+                    .is_some_and(|seen| seen.elapsed() <= std::time::Duration::from_secs(60)),
+            has_heading: track.is_some()
+                || item.heading_deg.is_some_and(f64::is_finite)
+                || item.surface_direction_deg.is_some_and(f64::is_finite),
             position_seen,
             position_source: item.position_source,
             seen: observation_time(item.last_seen_ms),
@@ -1105,6 +1128,7 @@ impl eframe::App for CentralApp {
 
         // Passive ADS-B: detect newly-arrived aircraft and fire alert toasts + Discord notifications.
         self.adsb_panel.poll_uat();
+        self.adsb_panel.tick_model();
         self.adsb_panel.check_for_new_aircraft();
         if let Some(msg) = self.adsb_panel.pending_status_flash.take() {
             self.status_bar.info(msg);
@@ -1145,18 +1169,11 @@ impl eframe::App for CentralApp {
                             Some(ac.callsign.clone())
                         },
                     });
-                let icao_str = format!("{:06X}", ac.icao);
-                // Offload to the Discord background thread: fetch_aircraft_image
-                // does a blocking HEAD request and must never run in the GUI loop.
-                self.discord.fire_aircraft(crate::discord::AircraftData {
-                    icao: icao_str,
-                    callsign: ac.callsign.clone(),
-                    lat: ac.lat,
-                    lon: ac.lon,
-                    alt_ft: ac.altitude,
-                    speed_kts: ac.speed,
-                    heading: ac.heading,
-                });
+            }
+            if let Some(notification) =
+                crate::discord::positioned_aircraft_notification(ac, &mut self.notified_aircraft)
+            {
+                self.discord.fire_aircraft(notification);
             }
         }
         // Check traffic milestone (every 10 aircraft)
@@ -2309,6 +2326,7 @@ impl CentralApp {
                 if self.adsb_panel.ui_region_picker(ui) {
                     self.adsb_decoder = AdsBDecoder::new();
                     self.seen_aircraft.clear();
+                    self.notified_aircraft.clear();
                 }
                 ui.separator();
                 ui.label(

@@ -140,6 +140,46 @@ mod tests {
     use tokio::io::duplex;
     use tokio_util::codec::Framed;
 
+    #[test]
+    fn aircraft_measurements_round_trip_without_losing_validity_or_reference() {
+        use crate::{AircraftTelemetry, ServerEvent};
+        for altitude in [None, Some(-1000), Some(-500), Some(0), Some(35000)] {
+            let original = AircraftTelemetry {
+                icao: 1,
+                altitude_ft: altitude,
+                altitude_geometric: true,
+                ground_speed_kt: Some(0.0),
+                track_deg: Some(90.0),
+                heading_deg: Some(120.0),
+                heading_true: true,
+                airspeed_kt: Some(300.0),
+                airspeed_true: true,
+                surface_direction_deg: None,
+                on_ground: Some(false),
+                ..Default::default()
+            };
+            let mut codec = MessageCodec::<ServerEvent>::for_data();
+            let mut bytes = BytesMut::new();
+            codec
+                .encode(ServerEvent::Aircraft(vec![original]), &mut bytes)
+                .unwrap();
+            let ServerEvent::Aircraft(received) = codec.decode(&mut bytes).unwrap().unwrap() else {
+                panic!("wrong event");
+            };
+            let item = &received[0];
+            assert_eq!(item.altitude_ft, altitude);
+            assert!(item.altitude_geometric);
+            assert_eq!(item.ground_speed_kt, Some(0.0));
+            assert_eq!(item.track_deg, Some(90.0));
+            assert_eq!(item.heading_deg, Some(120.0));
+            assert!(item.heading_true);
+            assert_eq!(item.airspeed_kt, Some(300.0));
+            assert!(item.airspeed_true);
+            assert_eq!(item.surface_direction_deg, None);
+            assert_eq!(item.on_ground, Some(false));
+        }
+    }
+
     #[tokio::test]
     async fn round_trips_a_message_through_the_codec() {
         let (client, server) = duplex(4096);

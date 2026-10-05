@@ -80,6 +80,15 @@ struct Args {
     #[arg(long, default_value = "./recordings")]
     recording_dir: PathBuf,
 
+    /// Latitude of the actual IQ capture site (also supply --receiver-lon).
+    /// For replay, use the recording's location, never the viewer's location.
+    #[arg(long, requires = "receiver_lon", allow_hyphen_values = true)]
+    receiver_lat: Option<f64>,
+
+    /// Longitude of the actual IQ capture site (also supply --receiver-lat).
+    #[arg(long, requires = "receiver_lat", allow_hyphen_values = true)]
+    receiver_lon: Option<f64>,
+
     /// IQ source to ingest from.
     #[arg(long, value_enum, default_value = "synthetic")]
     source: SourceKind,
@@ -148,6 +157,7 @@ impl Args {
             recording_dir: self.recording_dir,
             web_static_dir: self.web_static_dir,
             source,
+            receiver_position: self.receiver_lat.zip(self.receiver_lon),
         })
     }
 }
@@ -175,4 +185,33 @@ fn main() -> anyhow::Result<()> {
     });
 
     runtime.block_on(ez_daemon::run(config, running))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn receiver_coordinates_require_both_components_and_preserve_signed_values() {
+        assert!(Args::try_parse_from(["ez-daemon", "--receiver-lat", "51.5"]).is_err());
+        assert!(Args::try_parse_from(["ez-daemon", "--receiver-lon", "-0.1"]).is_err());
+        let config = Args::try_parse_from([
+            "ez-daemon",
+            "--receiver-lat",
+            "-51.5",
+            "--receiver-lon",
+            "-0.1",
+        ])
+        .unwrap()
+        .into_daemon_config()
+        .unwrap();
+        assert_eq!(config.receiver_position, Some((-51.5, -0.1)));
+        assert_eq!(
+            Args::try_parse_from(["ez-daemon"])
+                .unwrap()
+                .into_daemon_config()
+                .unwrap()
+                .receiver_position,
+            None
+        );
+    }
 }

@@ -24,7 +24,7 @@ struct AircraftState {
     pub entry: AircraftEntry,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
-    pub altitude: Option<u32>,
+    pub altitude: Option<i32>,
     pub altitude_type: Option<AltitudeType>,
     pub speed: Option<u32>,
     pub heading: Option<u32>,
@@ -91,11 +91,7 @@ impl AdsBDecoder {
     /// Surface CPR is ambiguous without a nearby, actual receiver/aircraft
     /// reference. A configured default is not geolocation for an offsite file.
     fn surface_within_reference(lat: f64, lon: f64, reflat: f64, reflon: f64) -> bool {
-        let dlat = (lat - reflat).to_radians();
-        let dlon = (lon - reflon).to_radians();
-        let a = (dlat / 2.0).sin().powi(2)
-            + lat.to_radians().cos() * reflat.to_radians().cos() * (dlon / 2.0).sin().powi(2);
-        2.0 * 6_371_000.0 * a.clamp(0.0, 1.0).sqrt().asin() <= 45.0 * 1852.0
+        dump1090::cpr::surface_within_reference(lat, lon, reflat, reflon)
     }
 
     pub fn feed_iq(&mut self, iq: &[u8], sample_rate: u32) {
@@ -269,10 +265,15 @@ impl AdsBDecoder {
                 callsign: String::new(),
                 lat: 0.0,
                 lon: 0.0,
-                altitude: 0,
+                altitude: None,
                 altitude_type: AltitudeType::Barometric,
-                speed: 0,
-                heading: 0,
+                speed: None,
+                heading: None,
+                heading_true: false,
+                ground_track: None,
+                airspeed: None,
+                airspeed_true: false,
+                on_ground: None,
                 squawk: None,
                 vertical_rate: None,
                 emergency: None,
@@ -316,7 +317,7 @@ impl AdsBDecoder {
         // Use the crate's decode_mode_s_message for common fields (H4).
         // This provides callsign, altitude, velocity, and vertical_rate in a
         // single call, eliminating ~100 lines of duplicated bit-manipulation.
-        let decoded = dump1090::mode_s::decode_mode_s_message(&msg);
+        let decoded = dump1090::mode_s::decode_validated_mode_s_message(&msg);
         if let Some(ref decoded) = decoded {
             // Callsign (with validation — M2)
             if let Some(callsign) = &decoded.callsign {
@@ -326,143 +327,20 @@ impl AdsBDecoder {
                 }
             }
 
-            // Altitude (with type — M4)
-            if let Some(alt) = decoded.altitude {
-                let tc = msg[4] >> 3;
-                let alt_type = if (20..=22).contains(&tc) {
-                    AltitudeType::Geometric
-                } else {
-                    AltitudeType::Barometric
-                };
-                entry.altitude = Some(alt);
-                entry.entry.altitude = alt;
-                entry.altitude_type = Some(alt_type);
-                entry.entry.altitude_type = alt_type;
-            }
-
-            // Velocity (with rounding — M1)
-            if let Some((speed, heading)) = decoded.velocity {
-                let speed_kt = speed.round() as u32;
-                entry.speed = Some(speed_kt);
-                entry.entry.speed = speed_kt;
-                let heading = heading.round() as u32 % 360;
-                entry.heading = Some(heading);
-                entry.entry.heading = heading;
-                entry.entry.has_heading = true;
-            }
-
-            // Vertical rate (H1)
-            if let Some(vr) = decoded.vertical_rate {
-                entry.vertical_rate = Some(vr);
-                entry.entry.vertical_rate = Some(vr);
-            }
+            entry.entry.apply_measurements(decoded, &msg);
+            entry.altitude = entry.entry.altitude;
+            entry.altitude_type = entry.altitude.map(|_| entry.entry.altitude_type);
+            entry.speed = entry.entry.speed;
+            entry.heading = entry.entry.direction();
+            entry.vertical_rate = entry.entry.vertical_rate;
+            entry.surface_movement = entry.entry.surface_movement;
+            entry.surface_heading = entry.entry.surface_heading;
             if let Some(emergency) = decoded.emergency {
                 entry.entry.emergency = Some(emergency);
             }
             if let Some(squawk) = decoded.squawk {
                 entry.squawk = Some(squawk);
                 entry.entry.squawk = Some(squawk);
-            }
-        } else {
-            // Fallback: decode fields manually when the crate's decoder
-            // rejects the message (e.g., invalid CRC in test vectors).
-            // The demodulator has already validated the CRC, so we can
-            // safely decode fields without re-checking.
-            match msgtype {
-                17 | 18 => {
-                    let tc = msg[4] >> 3;
-                    match tc {
-                        1..=4 => {
-                            // Callsign
-                            let chars = [
-                                ((msg[5] >> 2) & 0x3F),
-                                (((msg[5] & 0x03) << 4) | (msg[6] >> 4)),
-                                (((msg[6] & 0x0F) << 2) | (msg[7] >> 6)),
-                                (msg[7] & 0x3F),
-                                ((msg[8] >> 2) & 0x3F),
-                                (((msg[8] & 0x03) << 4) | (msg[9] >> 4)),
-                                (((msg[9] & 0x0F) << 2) | (msg[10] >> 6)),
-                                (msg[10] & 0x3F),
-                            ];
-                            let callsign: String = chars
-                                .iter()
-                                .map(|&c| {
-                                    if c == 0 {
-                                        return ' ';
-                                    }
-                                    if c < 27 {
-                                        return (b'A' + c - 1) as char;
-                                    }
-                                    if c == 32 {
-                                        return ' ';
-                                    }
-                                    if (48..=57).contains(&c) {
-                                        return (b'0' + c - 48) as char;
-                                    }
-                                    ' '
-                                })
-                                .collect();
-                            let callsign = callsign.trim().to_string();
-                            if is_valid_callsign(&callsign) {
-                                entry.callsign = Some(callsign.clone());
-                                entry.entry.callsign = callsign;
-                            }
-                        }
-                        9..=18 | 20..=22 => {
-                            // Altitude
-                            if let Some(alt) = decode_altitude(&msg, true) {
-                                let alt_type = if (20..=22).contains(&tc) {
-                                    AltitudeType::Geometric
-                                } else {
-                                    AltitudeType::Barometric
-                                };
-                                entry.altitude = Some(alt);
-                                entry.entry.altitude = alt;
-                                entry.altitude_type = Some(alt_type);
-                                entry.entry.altitude_type = alt_type;
-                            }
-                        }
-                        19 => {
-                            // Velocity (subtypes 1-2)
-                            let st = msg[4] & 0x07;
-                            if st == 1 || st == 2 {
-                                let ew_raw = (u32::from(msg[5] & 0x03) << 8) | u32::from(msg[6]);
-                                let ns_raw =
-                                    (u32::from(msg[7] & 0x7F) << 3) | u32::from(msg[8] >> 5);
-                                if ew_raw > 0 && ns_raw > 0 {
-                                    let mul = if st == 2 { 4.0 } else { 1.0 };
-                                    let ew = f64::from(ew_raw - 1)
-                                        * (if (msg[5] & 0x04) == 0 { 1.0 } else { -1.0 })
-                                        * mul;
-                                    let ns = f64::from(ns_raw - 1)
-                                        * (if (msg[7] & 0x80) == 0 { 1.0 } else { -1.0 })
-                                        * mul;
-                                    let speed_kt = (ew * ew + ns * ns).sqrt().round() as u32;
-                                    entry.speed = Some(speed_kt);
-                                    entry.entry.speed = speed_kt;
-                                    let mut heading = ew.atan2(ns).to_degrees();
-                                    if heading < 0.0 {
-                                        heading += 360.0;
-                                    }
-                                    let heading = heading.round() as u32 % 360;
-                                    entry.heading = Some(heading);
-                                    entry.entry.heading = heading;
-                                    entry.entry.has_heading = true;
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                0 | 4 | 16 | 20 => {
-                    if let Some(alt) = decode_altitude(&msg, false) {
-                        entry.altitude = Some(alt);
-                        entry.entry.altitude = alt;
-                        entry.altitude_type = Some(AltitudeType::Barometric);
-                        entry.entry.altitude_type = AltitudeType::Barometric;
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -518,30 +396,6 @@ impl AdsBDecoder {
                     }
                 }
 
-                // TC19 subtypes 3-4 (airspeed/heading) — H2
-                if tc == 19 {
-                    let st = msg[4] & 0x07;
-                    if st == 3 || st == 4 {
-                        // Heading: ME bit 14 = validity, ME bits 15-24 = heading
-                        let heading_valid = (msg[5] & 0x04) != 0;
-                        if heading_valid {
-                            let heading_raw = ((u32::from(msg[5] & 0x03)) << 8) | u32::from(msg[6]);
-                            let heading =
-                                (f64::from(heading_raw) * 360.0 / 1024.0).round() as u32 % 360;
-                            entry.heading = Some(heading);
-                            entry.entry.heading = heading;
-                        }
-                        // Airspeed: ME bits 26-35
-                        let airspeed_raw = (u32::from(msg[7] & 0x7F) << 3) | u32::from(msg[8] >> 5);
-                        if airspeed_raw > 0 {
-                            let mul = if st == 4 { 4.0 } else { 1.0 };
-                            let speed_kt = (f64::from(airspeed_raw - 1) * mul).round() as u32;
-                            entry.speed = Some(speed_kt);
-                            entry.entry.speed = speed_kt;
-                        }
-                    }
-                }
-
                 // Surface position (TC 5-8) with movement/heading — H3
                 if (5..=8).contains(&tc) {
                     let is_even = (msg[6] & 0x04) == 0;
@@ -566,32 +420,13 @@ impl AdsBDecoder {
                         }
                     }
 
-                    // Surface movement: ME bits 6-12 (7-bit exponential scale)
-                    let movement_raw =
-                        (((u32::from(msg[4]) & 0x03) << 5) | u32::from(msg[5]) >> 3) & 0x7F;
-                    if movement_raw > 0 {
-                        let movement = decode_surface_movement(movement_raw);
-                        entry.surface_movement = Some(movement);
-                        entry.entry.surface_movement = Some(movement);
-                    }
-
-                    // Surface heading: ME bit 13 = validity, ME bits 14-20 = heading
-                    let heading_valid = (msg[5] & 0x04) != 0;
-                    if heading_valid {
-                        let heading_raw =
-                            ((u32::from(msg[5] & 0x03) << 5) | u32::from(msg[6]) >> 3) & 0x7F;
-                        let heading = (f64::from(heading_raw) * 360.0 / 128.0).round() as u32 % 360;
-                        entry.surface_heading = Some(heading);
-                        entry.entry.surface_heading = Some(heading);
-                    }
-
                     if let Some((reflat, reflon)) = entry
                         .latitude
                         .zip(entry.longitude)
                         .filter(|_| {
-                            entry
-                                .position_seen
-                                .is_some_and(|seen| now.duration_since(seen).as_secs() <= 60)
+                            entry.position_seen.is_some_and(|seen| {
+                                now.duration_since(seen) <= std::time::Duration::from_secs(60)
+                            })
                         })
                         .or(self.receiver_position)
                     {
@@ -634,28 +469,6 @@ impl AdsBDecoder {
                     }
                 }
             }
-            0 | 4 | 16 | 20 => {
-                // Surveillance altitude replies. DF5 and DF21 carry identity
-                // (squawk), so they must not be interpreted as altitude.
-                if let Some(alt) = decode_altitude(&msg, false) {
-                    entry.altitude = Some(alt);
-                    entry.entry.altitude = alt;
-                    entry.altitude_type = Some(AltitudeType::Barometric);
-                    entry.entry.altitude_type = AltitudeType::Barometric;
-                }
-            }
-            5 | 21 => {
-                // Squawk code from DF5/DF21 surveillance identity replies — M3
-                let id_field = (u32::from(msg[2] & 0x1F) << 8) | u32::from(msg[3]);
-                let squawk = dump1090::mode_ac::decode_id13_field(id_field);
-                // Convert Mode A to octal squawk display
-                let squawk_octal = mode_a_to_squawk(squawk);
-                entry.squawk = Some(squawk_octal);
-                entry.entry.squawk = Some(squawk_octal);
-            }
-            11 => {
-                // All-call reply - already decoded ICAO
-            }
             _ => {}
         }
     }
@@ -667,10 +480,9 @@ impl AdsBDecoder {
             .filter(|ac| now.duration_since(ac.seen).as_secs() <= 600)
             .map(|ac| {
                 let mut entry = ac.entry.clone();
-                if ac
-                    .position_seen
-                    .is_none_or(|seen| now.duration_since(seen).as_secs() > 60)
-                {
+                if ac.position_seen.is_none_or(|seen| {
+                    now.duration_since(seen) > std::time::Duration::from_secs(60)
+                }) {
                     // Callsign/velocity replies must not refresh an old map fix.
                     entry.lat = 0.0;
                     entry.lon = 0.0;
@@ -732,62 +544,8 @@ fn is_valid_callsign(callsign: &str) -> bool {
 
 /// Decode the 7-bit surface movement field to ground speed in knots.
 ///
-/// Uses the piecewise-linear scale from the C reference
-/// (`decodeMovementFieldV0` in mode_s.c). The encoding is exponential:
-/// values 1-8 use 0.125 kt steps, 9-16 use 0.25 kt steps, etc.
-fn decode_surface_movement(raw: u32) -> u32 {
-    if raw == 0 {
-        return 0; // Unavailable
-    }
-    // Simplified piecewise-linear approximation of the C reference.
-    // The exact C table has 15 entries with increasing step sizes.
-    let speed = match raw {
-        1..=8 => (raw as f64 - 1.0) * 0.125,
-        9..=16 => 1.0 + (raw as f64 - 9.0) * 0.25,
-        17..=32 => 3.0 + (raw as f64 - 17.0) * 0.5,
-        33..=64 => 11.0 + (raw as f64 - 33.0) * 1.0,
-        65..=96 => 43.0 + (raw as f64 - 65.0) * 2.0,
-        97..=112 => 107.0 + (raw as f64 - 97.0) * 4.0,
-        113..=124 => 171.0 + (raw as f64 - 113.0) * 8.0,
-        _ => 255.0, // Max value
-    };
-    speed.round() as u32
-}
-
-/// Convert a 16-bit Mode A value to an octal squawk code.
-///
-/// The squawk is displayed as 4 octal digits (e.g., "7700").
-/// Mode A bits: A1 A2 A4 B1 B2 B4 C1 C2 C4 D1 D2 D4
-/// Squawk octal: C1 A1 C2 A2 C4 A4 0 0 B1 D1 B2 D2 B4 D4 0 0
-fn mode_a_to_squawk(mode_a: u32) -> u32 {
-    let a1 = (mode_a >> 12) & 1;
-    let a2 = (mode_a >> 13) & 1;
-    let a4 = (mode_a >> 14) & 1;
-    let b1 = (mode_a >> 8) & 1;
-    let b2 = (mode_a >> 9) & 1;
-    let b4 = (mode_a >> 10) & 1;
-    let c1 = (mode_a >> 4) & 1;
-    let c2 = (mode_a >> 5) & 1;
-    let c4 = (mode_a >> 6) & 1;
-    let d1 = mode_a & 1;
-    let d2 = (mode_a >> 1) & 1;
-    let d4 = (mode_a >> 2) & 1;
-    // Octal squawk: C1 A1 C2 A2 C4 A4 B1 D1 B2 D2 B4 D4
-    (c1 << 15)
-        | (a1 << 14)
-        | (c2 << 13)
-        | (a2 << 12)
-        | (c4 << 11)
-        | (a4 << 10)
-        | (b1 << 9)
-        | (d1 << 8)
-        | (b2 << 7)
-        | (d2 << 6)
-        | (b4 << 5)
-        | (d4 << 4)
-}
-
-fn decode_altitude(msg: &[u8], is_df17: bool) -> Option<u32> {
+#[cfg(test)]
+fn decode_altitude(msg: &[u8], is_df17: bool) -> Option<i32> {
     // Keep the desktop path aligned with the protocol decoder used by the
     // daemon. This handles AC12/AC13 extraction, Q-bit 25-foot encoding,
     // Gillham Gray code, and the metric M-bit consistently.
@@ -828,6 +586,106 @@ fn try_cpr_decode(even: &Option<CprFrame>, odd: &Option<CprFrame>) -> Option<(f6
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_altitude_survives_real_iq_and_partial_values_render_unavailable() {
+        use ez_daemon::hardware::adsb::encode_uc8;
+        for altitude in [-1000, -500, 0, 35000] {
+            let n = ((altitude + 1000) / 25) as u32;
+            let ac12 = ((n & 0x7f0) << 1) | 0x10 | (n & 15);
+            let mut msg = [0; 14];
+            msg[0] = 0x8d;
+            msg[3] = 1;
+            msg[4] = 11 << 3;
+            msg[5] = (ac12 >> 4) as u8;
+            msg[6] = (ac12 << 4) as u8;
+            let mut decoder = AdsBDecoder::new();
+            decoder.feed_iq(&encode_uc8(&[seal(msg)]), 2_400_000);
+            let ac = decoder.get_aircraft().pop().unwrap();
+            assert_eq!(ac.altitude, Some(altitude));
+            assert!(ac.altitude_label().starts_with(&format!("{altitude} ft")));
+            assert_eq!(ac.speed, None);
+            assert_eq!(ac.heading, None);
+            assert_eq!(ac.ground_track, None);
+            assert_eq!(ac.speed_label(), "—");
+            assert_eq!(ac.direction_label(), "—");
+        }
+    }
+
+    #[test]
+    fn all_velocity_subtypes_and_surface_transitions_keep_measurement_types() {
+        use ez_daemon::hardware::adsb::encode_uc8;
+        let mut decoder = AdsBDecoder::new();
+        for subtype in 1..=4 {
+            let mut msg = [0; 14];
+            msg[0] = 0x8d;
+            msg[3] = 1;
+            msg[4] = (19 << 3) | subtype;
+            if subtype <= 2 {
+                msg[6] = 101;
+                msg[8] = 0x20;
+            } else {
+                msg[5] = 5;
+                msg[6] = 0;
+                msg[7] = 12 | if subtype == 4 { 0x80 } else { 0 };
+                msg[8] = 0xa0;
+            }
+            decoder.feed_iq(&encode_uc8(&[seal(msg)]), 2_400_000);
+            let ac = decoder.get_aircraft().pop().unwrap();
+            assert!(ac.has_heading);
+            assert_eq!(ac.on_ground, Some(false));
+            if subtype <= 2 {
+                assert_eq!(ac.speed, Some(if subtype == 1 { 100 } else { 400 }));
+                assert_eq!(ac.ground_track, Some(90));
+                assert_eq!(ac.heading, None);
+                assert_eq!(ac.airspeed, None);
+            } else {
+                assert_eq!(ac.speed, Some(400));
+                assert_eq!(ac.ground_track, Some(90));
+                assert_eq!(ac.heading, Some(90));
+                assert!(!ac.heading_true);
+                assert_eq!(ac.airspeed, Some(if subtype == 3 { 100 } else { 400 }));
+                assert_eq!(ac.airspeed_true, subtype == 4);
+                assert!(ac
+                    .speed_label()
+                    .contains(if subtype == 3 { "IAS" } else { "TAS" }));
+            }
+        }
+        let mut surface = [0; 14];
+        surface[0] = 0x8d;
+        surface[3] = 1;
+        surface[4] = 5 << 3;
+        surface[5] = 0x1c; // movement=1 (stopped), status=1, direction high bits=4
+        decoder.feed_iq(&encode_uc8(&[seal(surface)]), 2_400_000);
+        let ac = decoder.get_aircraft().pop().unwrap();
+        assert_eq!(ac.on_ground, Some(true));
+        assert_eq!(ac.speed, Some(0));
+        assert_eq!(ac.surface_heading, Some(180));
+        assert_eq!(ac.heading, None);
+        assert_eq!(ac.ground_track, None);
+        assert_eq!(ac.airspeed, None);
+        assert_eq!(ac.altitude, None);
+        assert!(ac.has_heading);
+        surface[4] = (5 << 3) | 7;
+        surface[5] = 0xd0; // movement=125 unavailable, heading status=0
+        decoder.feed_iq(&encode_uc8(&[seal(surface)]), 2_400_000);
+        let ac = decoder.get_aircraft().pop().unwrap();
+        assert_eq!(ac.speed, None);
+        assert_eq!(ac.surface_heading, None);
+        assert!(!ac.has_heading);
+        let mut airborne = surface;
+        airborne[4] = (19 << 3) | 3;
+        airborne[5] = 0;
+        airborne[7] = 0;
+        airborne[8] = 0;
+        decoder.feed_iq(&encode_uc8(&[seal(airborne)]), 2_400_000);
+        let ac = decoder.get_aircraft().pop().unwrap();
+        assert_eq!(ac.on_ground, Some(false));
+        assert_eq!(ac.speed, None);
+        assert_eq!(ac.surface_heading, None);
+        assert_eq!(ac.heading, None);
+        assert_eq!(ac.airspeed, None);
+    }
 
     #[test]
     fn adsb_real_iq_decodes_once_across_arbitrary_byte_boundaries() {

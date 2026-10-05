@@ -361,6 +361,7 @@ mod tests {
                 web_static_dir: std::env::temp_dir()
                     .join("ez-gui-daemon-client-nonexistent-static"),
                 source: SourceConfig::Synthetic,
+                receiver_position: None,
             };
             let running = Arc::new(AtomicBool::new(true));
             let run_running = Arc::clone(&running);

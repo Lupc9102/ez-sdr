@@ -20,6 +20,25 @@ pub struct CprFrame {
     pub lon: u32,
 }
 
+/// Surface CPR is ambiguous without a nearby capture-site or current aircraft
+/// reference. Reject resolved positions more than 45 NM from that reference.
+#[must_use]
+pub fn surface_within_reference(lat: f64, lon: f64, reflat: f64, reflon: f64) -> bool {
+    if ![lat, lon, reflat, reflon].iter().all(|v| v.is_finite())
+        || !(-90.0..=90.0).contains(&lat)
+        || !(-90.0..=90.0).contains(&reflat)
+        || !(-180.0..=180.0).contains(&lon)
+        || !(-180.0..=180.0).contains(&reflon)
+    {
+        return false;
+    }
+    let dlat = (lat - reflat).to_radians();
+    let dlon = (lon - reflon).to_radians();
+    let a = (dlat / 2.0).sin().powi(2)
+        + lat.to_radians().cos() * reflat.to_radians().cos() * (dlon / 2.0).sin().powi(2);
+    2.0 * 6_371_000.0 * a.clamp(0.0, 1.0).sqrt().asin() <= 45.0 * 1852.0
+}
+
 /// Always-positive modulo for integers.
 fn cpr_mod(a: i32, b: i32) -> i32 {
     let mut res = a % b;

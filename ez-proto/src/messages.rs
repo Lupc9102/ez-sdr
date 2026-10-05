@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -149,6 +149,12 @@ pub struct AircraftTelemetry {
     pub lon: Option<f64>,
     pub ground_speed_kt: Option<f64>,
     pub track_deg: Option<f64>,
+    pub heading_deg: Option<f64>,
+    pub heading_true: bool,
+    pub airspeed_kt: Option<f64>,
+    pub airspeed_true: bool,
+    pub surface_direction_deg: Option<f64>,
+    pub on_ground: Option<bool>,
     pub vertical_rate_fpm: Option<i32>,
     pub emergency: Option<u8>,
     pub squawk: Option<u32>,

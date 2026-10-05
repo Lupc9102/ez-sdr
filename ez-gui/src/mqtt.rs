@@ -55,6 +55,37 @@ impl Default for MqttPublisher {
     }
 }
 
+pub fn aircraft_payload(ac: &AircraftEntry) -> serde_json::Value {
+    let position_valid = ac.position_valid();
+    serde_json::json!({
+        "icao": (ac.icao <= 0x00ff_ffff).then(|| format!("{:06X}", ac.icao)),
+        "address": format!("{:06X}", ac.icao & 0x00ff_ffff),
+        "track_key": ac.icao,
+        "address_type": ac.address_type,
+        "source": ac.source,
+        "position_source": ac.position_source,
+        "emergency": ac.emergency,
+        "squawk": ac.squawk,
+        "callsign": ac.callsign,
+        "lat": position_valid.then_some(ac.lat),
+        "lon": position_valid.then_some(ac.lon),
+        "altitude": ac.altitude,
+        "speed": ac.speed,
+        "heading": ac.heading,
+        "heading_reference": ac.heading.map(|_| if ac.heading_true { "true" } else { "magnetic" }),
+        "ground_track": ac.ground_track,
+        "airspeed": ac.airspeed,
+        "airspeed_type": ac.airspeed.map(|_| if ac.airspeed_true { "TAS" } else { "IAS" }),
+        "surface_track_or_heading": ac.surface_heading,
+        "on_ground": ac.on_ground,
+        "position_valid": position_valid,
+        "position_age_ms": ac.position_seen.map(|t| t.elapsed().as_millis() as u64),
+        "observation_age_ms": ac.seen.elapsed().as_millis() as u64,
+        "altitude_reference": ac.altitude.map(|_| if ac.altitude_type == crate::adsb_panel::AltitudeType::Geometric { "GNSS" } else { "barometric" }),
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    })
+}
+
 impl MqttPublisher {
     pub fn new() -> Self {
         Self {
@@ -253,23 +284,7 @@ impl MqttPublisher {
 
     pub fn publish_aircraft(&mut self, aircraft: &[AircraftEntry]) {
         for ac in aircraft {
-            let json = serde_json::json!({
-                "icao": (ac.icao <= 0x00ff_ffff).then(|| format!("{:06X}", ac.icao)),
-                "address": format!("{:06X}", ac.icao & 0x00ff_ffff),
-                "track_key": ac.icao,
-                "address_type": ac.address_type,
-                "source": ac.source,
-                "position_source": ac.position_source,
-                "emergency": ac.emergency,
-                "squawk": ac.squawk,
-                "callsign": ac.callsign,
-                "lat": ac.lat,
-                "lon": ac.lon,
-                "altitude": ac.altitude,
-                "speed": ac.speed,
-                "heading": ac.heading,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            });
+            let json = aircraft_payload(ac);
             self.publish("adsb/aircraft", &json.to_string());
         }
     }
@@ -299,6 +314,48 @@ impl Drop for MqttPublisher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn aircraft_exports_distinguish_unknown_stale_and_real_zero_measurements() {
+        let mut ac = AircraftEntry {
+            icao: 1,
+            ..Default::default()
+        };
+        let unknown = aircraft_payload(&ac);
+        for field in [
+            "lat",
+            "lon",
+            "altitude",
+            "speed",
+            "heading",
+            "ground_track",
+            "airspeed",
+        ] {
+            assert!(unknown[field].is_null(), "{field}");
+        }
+        assert_eq!(unknown["position_valid"], false);
+        ac.has_position = true;
+        ac.position_seen = Some(Instant::now() - Duration::from_secs(61));
+        ac.lat = 52.0;
+        ac.lon = 8.0;
+        assert!(aircraft_payload(&ac)["lat"].is_null());
+        ac.position_seen = Some(Instant::now());
+        ac.lat = 0.0;
+        ac.lon = 0.0;
+        ac.altitude = Some(-500);
+        ac.speed = Some(0);
+        ac.heading = Some(0);
+        let positioned = aircraft_payload(&ac);
+        assert_eq!(positioned["lat"], 0.0);
+        assert_eq!(positioned["lon"], 0.0);
+        assert_eq!(positioned["position_valid"], true);
+        assert_eq!(positioned["altitude"], -500);
+        assert_eq!(positioned["speed"], 0);
+        assert_eq!(positioned["heading"], 0);
+        assert_eq!(positioned["heading_reference"], "magnetic");
+        assert!(positioned["position_age_ms"].as_u64().is_some());
+        assert_eq!(positioned["source"], "unknown");
+    }
 
     #[test]
     fn mqtt_new_defaults_disabled() {
