@@ -642,10 +642,24 @@ impl AdsBPanel {
             self.pending_status_flash = Some("Receiver busy; try Start again".into());
             return;
         };
-        if state.adsb_running {
+        if state.adsb_running
+            && state.source.frequency_hz == self.region.frequency_hz()
+            && state.source.sample_rate_hz == self.region.sample_rate_hz()
+            && matches!(
+                state.source.status,
+                crate::source_manager::SourceStatus::Running
+                    | crate::source_manager::SourceStatus::Opening
+            )
+        {
             return;
         }
         state.audio_running = false;
+        if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+            let mode = state.demod_mode;
+            state
+                .source
+                .sync_daemon_workflows(false, false, false, mode);
+        }
         state.last_manual_tune = Some(std::time::Instant::now());
         state
             .source
@@ -672,6 +686,12 @@ impl AdsBPanel {
         self.region = region;
         self.clear_tracks();
         state.audio_running = false;
+        if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+            let mode = state.demod_mode;
+            state
+                .source
+                .sync_daemon_workflows(false, false, false, mode);
+        }
         state.last_manual_tune = Some(std::time::Instant::now());
         if region == AdsbRegion::Uat978 {
             state.adsb_running = false;
@@ -771,7 +791,7 @@ impl AdsBPanel {
         }
     }
 
-    fn stop_receiving(&mut self) {
+    pub(crate) fn stop_receiving(&mut self) {
         let shared = self.shared.clone();
         let Ok(mut state) = shared.try_lock() else {
             self.pending_status_flash = Some("Receiver busy; try Stop again".into());

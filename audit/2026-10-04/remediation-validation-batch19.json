@@ -1,0 +1,32 @@
+{
+  "batch": 19,
+  "findings": [
+    "G08"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1564,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6413 nodes, 13828 edges)",
+  "regressions": [
+    "Actual AI provider-proposal event handler and egui approval widget enqueue before effects; hidden app logic dispatches the real lifecycle and consumes delayed results",
+    "Fake local hardware runs the production open request on a real worker: gain/rate/bias/PPM/tuning change worker generation once, identical controls do not, and device-open errors are reported",
+    "Local and daemon IQ recording creates real files and writes nonzero bytes; stop finalizes exact file length; bad output path and read-only WAV finalization return errors",
+    "Private Synthetic daemon acknowledges tuning/gain/rate and recording; unsupported bias/PPM/demod/WAV and replay RF controls return errors",
+    "1090 MHz / 2.4 MSps ADS-B starts from both active 2.0 MSps audio and an idle initial daemon handshake, waits for its own decoder snapshot and stops the acquisition",
+    "Withheld/stale hardware messages cannot report success or overwrite desired controls; server rejection and five-second timeout restore acknowledged state",
+    "Bounded 32-action/results queues, stream completion and subsequent response chunks preserve result identity; cleared history ignores old results",
+    "Read-only status exposes separate requested and acknowledged capture settings, and a stopped source never claims applied acquisition"
+  ],
+  "limitations": [
+    "Four formal findings (A08, A09, R05, G02) and seven additional experiments remain open or partly verified",
+    "Local configuration acknowledgements use a test adapter with no USB access; physical RF/driver timing and actual-display experiments remain unverified",
+    "No external provider, broker, user recording directory or original audit evidence was modified",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

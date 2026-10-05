@@ -81,6 +81,10 @@ pub(crate) struct RtlOpenSettings {
     pub offset_tuning: bool,
 }
 
+#[cfg(test)]
+type TestHardwareOpen =
+    std::sync::Arc<dyn Fn(RtlOpenSettings) -> Result<Vec<u8>, String> + Send + Sync>;
+
 fn checked_tuner_center(center_hz: u64, frequency_offset_hz: i64) -> Result<u32, String> {
     let physical = if frequency_offset_hz >= 0 {
         center_hz.checked_add(frequency_offset_hz as u64)
@@ -390,7 +394,14 @@ pub struct SourceManager {
     daemon_last_center_hz: u64,
     daemon_last_sample_rate_hz: u32,
     daemon_last_gain_db: f64,
-    daemon_applied_capture: Option<(u64, u32)>,
+    daemon_applied_capture: Option<ez_proto::HardwareStatus>,
+    daemon_adsb_confirmed: bool,
+    daemon_requested_controls: Option<(u64, u32, f64)>,
+    local_capture_accepted: bool,
+    local_open_capture: Option<(u64, u32, f64)>,
+    local_open_settings: Option<RtlOpenSettings>,
+    #[cfg(test)]
+    test_hardware_open: Option<TestHardwareOpen>,
     daemon_audio_mode: Option<ez_proto::DemodMode>,
     daemon_audio_tuning: Option<DaemonAudioTuning>,
     daemon_squelch_applied: Option<ez_proto::SquelchState>,
@@ -493,6 +504,13 @@ impl SourceManager {
             daemon_last_center_hz: 109_000_000,
             daemon_last_sample_rate_hz: 2_048_000,
             daemon_applied_capture: None,
+            daemon_adsb_confirmed: false,
+            daemon_requested_controls: None,
+            local_capture_accepted: false,
+            local_open_capture: None,
+            local_open_settings: None,
+            #[cfg(test)]
+            test_hardware_open: None,
             daemon_last_gain_db: 40.0,
             daemon_audio_mode: None,
             daemon_audio_tuning: None,
@@ -671,6 +689,7 @@ impl SourceManager {
         self.center_frequency_hz = Some(frequency_hz);
         self.sample_rate_hz = sample_rate_hz;
         if self.source_mode == SourceMode::Daemon {
+            self.daemon_requested_controls = Some((frequency_hz, sample_rate_hz, self.gain_db));
             self.sync_daemon_controls();
         } else if self.status == SourceStatus::Running {
             self.stop();
@@ -683,7 +702,8 @@ impl SourceManager {
     /// Start the SDR source.
     ///
     /// Spawns a worker thread that generates or replays IQ samples and sends
-    /// them through the internal channel. Switches status to `Running`.
+    /// them through the internal channel. Hardware remains `Opening` until
+    /// its first accepted sample block confirms acquisition.
     pub fn start(&mut self) {
         if matches!(self.status, SourceStatus::Running | SourceStatus::Opening) {
             return;
@@ -715,6 +735,15 @@ impl SourceManager {
         } else {
             None
         };
+        self.local_capture_accepted = false;
+        self.local_open_capture = Some((
+            self.capture_center_frequency_hz(),
+            self.sample_rate_hz,
+            self.gain_db,
+        ));
+        self.local_open_settings = _rtl_settings.clone();
+        #[cfg(test)]
+        let test_hardware_open = self.test_hardware_open.clone();
         self.status = SourceStatus::Opening;
         // stop() joins the previous local worker before this flag is reused.
         self.running.store(true, Ordering::SeqCst);
@@ -933,7 +962,37 @@ impl SourceManager {
                             rtl_sdr_close(dev);
                         }
                     }
-                    #[cfg(any(not(feature = "rtlsdr"), test))]
+                    #[cfg(test)]
+                    {
+                        if let Some(open) = test_hardware_open {
+                            match open(_rtl_settings.expect("validated hardware request")) {
+                                Ok(samples) if !samples.is_empty() => {
+                                    while running.load(Ordering::SeqCst) {
+                                        if !send_live_samples(&tx, samples.clone(), &dropped_blocks)
+                                        {
+                                            break;
+                                        }
+                                        std::thread::sleep(iq_block_duration(samples.len(), rate));
+                                    }
+                                }
+                                Ok(_) => {
+                                    send_cancellable(
+                                        &tx,
+                                        &running,
+                                        SourceMessage::Error(
+                                            "test hardware returned no samples".into(),
+                                        ),
+                                    );
+                                }
+                                Err(error) => {
+                                    send_cancellable(&tx, &running, SourceMessage::Error(error));
+                                }
+                            }
+                        } else {
+                            send_cancellable(&tx, &running, SourceMessage::Error("This build does not include RTL-SDR support. Use Demo, File Replay, or Daemon mode, or rebuild with --features rtlsdr.".into()));
+                        }
+                    }
+                    #[cfg(all(not(feature = "rtlsdr"), not(test)))]
                     {
                         send_cancellable(&tx, &running, SourceMessage::Error(
                             "This build does not include RTL-SDR support. Use Demo, File Replay, or Daemon mode, or rebuild with --features rtlsdr."
@@ -1019,7 +1078,9 @@ impl SourceManager {
         self.worker_handle = Some(handle);
         self.stream_generation = self.stream_generation.wrapping_add(1);
         self.tx = None; // tx was moved into the worker thread
-        self.status = SourceStatus::Running;
+        if self.source_mode != SourceMode::Hardware {
+            self.status = SourceStatus::Running;
+        }
     }
 
     /// Starts `SourceMode::Daemon`: connects to `self.daemon_addr` in the background and
@@ -1044,10 +1105,12 @@ impl SourceManager {
         let client = crate::daemon_client::DaemonClient::connect(addr, "ez-gui".to_string());
         self.daemon_session_ready = false;
         self.daemon_applied_capture = None;
+        self.daemon_adsb_confirmed = false;
         self.daemon_channel_error = None;
         self.daemon_removals_pending.clear();
         self.daemon_audio_mode = None;
         self.daemon_audio_tuning = None;
+        self.local_capture_accepted = false;
         self.reset_daemon_squelch();
         self.daemon_adsb_subscribed = false;
         self.daemon_lrpt_subscribed = false;
@@ -1066,7 +1129,7 @@ impl SourceManager {
     }
 
     fn sync_daemon_session(&mut self) {
-        if self.daemon_session_ready {
+        if self.daemon_session_ready || self.daemon_applied_capture.is_none() {
             return;
         }
         let Some(channels) = self
@@ -1245,7 +1308,10 @@ impl SourceManager {
         ez_proto::ChannelSpec {
             id: self.daemon_channels.spectrum,
             center_offset_hz: 0,
-            bandwidth_hz: self.sample_rate_hz,
+            bandwidth_hz: self
+                .daemon_applied_capture
+                .as_ref()
+                .map_or(self.sample_rate_hz, |hw| hw.sample_rate_hz),
             kind: ez_proto::PipelineKind::Spectrum,
             demod_mode: None,
         }
@@ -1255,28 +1321,105 @@ impl SourceManager {
     /// the requested geometry. Daemon control sends alone are not acknowledgements.
     pub(crate) fn capture_tuning_applied(&self) -> bool {
         if self.source_mode != SourceMode::Daemon {
-            return self.status != SourceStatus::Opening
-                && !matches!(self.status, SourceStatus::Error(_));
+            if self.status == SourceStatus::Idle {
+                return true;
+            }
+            return self.status == SourceStatus::Running
+                && self.local_capture_accepted
+                && self.local_open_capture.is_some_and(|(center, rate, _)| {
+                    center == self.capture_center_frequency_hz() && rate == self.sample_rate_hz
+                });
         }
-        self.daemon_applied_capture.is_some_and(|(center, rate)| {
+        self.daemon_applied_capture.as_ref().is_some_and(|hw| {
             self.status == SourceStatus::Running
-                && center == self.capture_center_frequency_hz()
-                && rate == self.sample_rate_hz
-                && self.frequency_hz.abs_diff(center) <= u64::from(rate) / 2
+                && hw.connected
+                && hw.frequency_hz == self.capture_center_frequency_hz()
+                && hw.sample_rate_hz == self.sample_rate_hz
+                && self.frequency_hz.abs_diff(hw.frequency_hz) <= u64::from(hw.sample_rate_hz) / 2
         })
     }
 
-    fn apply_daemon_hardware(&mut self, hardware: &ez_proto::HardwareStatus) {
-        self.daemon_applied_capture = hardware
-            .connected
-            .then_some((hardware.frequency_hz, hardware.sample_rate_hz));
-        if self.center_frequency_hz.is_some() {
-            self.center_frequency_hz = Some(hardware.frequency_hz);
-        } else {
-            self.frequency_hz = hardware.frequency_hz;
+    /// Configuration accepted by the running capture, separate from controls
+    /// awaiting application. Local values are the driver-open request accepted
+    /// before the first sample; they are not calibrated RF measurements.
+    pub(crate) fn applied_capture_settings(&self) -> Option<(u64, u32, f64)> {
+        if self.status != SourceStatus::Running {
+            return None;
         }
-        self.sample_rate_hz = hardware.sample_rate_hz;
-        self.gain_db = hardware.gain_db;
+        if self.source_mode == SourceMode::Daemon {
+            return self
+                .daemon_applied_capture
+                .as_ref()
+                .filter(|hw| hw.connected)
+                .map(|hw| (hw.frequency_hz, hw.sample_rate_hz, hw.gain_db));
+        }
+        self.local_capture_accepted
+            .then_some(self.local_open_capture)
+            .flatten()
+    }
+
+    pub(crate) fn gain_request_applied(&self, gain: f64) -> bool {
+        if self.source_mode == SourceMode::Daemon {
+            return self
+                .daemon_applied_capture
+                .as_ref()
+                .is_some_and(|hw| hw.connected && hw.gain_db == gain);
+        }
+        self.local_capture_accepted
+            && self
+                .local_open_capture
+                .is_some_and(|(_, _, value)| value == gain)
+    }
+
+    pub(crate) fn local_hardware_request_applied(&self) -> bool {
+        self.local_capture_accepted
+            && self.local_open_settings.as_ref().is_some_and(|opened| {
+                self.rtl_open_settings()
+                    .is_ok_and(|current| current == *opened)
+            })
+    }
+
+    pub(crate) fn daemon_adsb_ready(&self) -> bool {
+        self.daemon_adsb_confirmed
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_hardware_open(
+        &mut self,
+        open: impl Fn(RtlOpenSettings) -> Result<Vec<u8>, String> + Send + Sync + 'static,
+    ) {
+        self.test_hardware_open = Some(std::sync::Arc::new(open));
+    }
+
+    pub(crate) fn cancel_daemon_control_request(&mut self) {
+        self.daemon_requested_controls = None;
+        if let Some(hardware) = self.daemon_applied_capture.clone() {
+            self.apply_daemon_hardware(&hardware);
+        }
+    }
+
+    fn apply_daemon_hardware(&mut self, hardware: &ez_proto::HardwareStatus) {
+        self.daemon_applied_capture = hardware.connected.then_some(hardware.clone());
+        if self
+            .daemon_requested_controls
+            .is_some_and(|(center, rate, gain)| {
+                hardware.connected
+                    && hardware.frequency_hz == center
+                    && hardware.sample_rate_hz == rate
+                    && hardware.gain_db == gain
+            })
+        {
+            self.daemon_requested_controls = None;
+        }
+        if self.daemon_requested_controls.is_none() {
+            if self.center_frequency_hz.is_some() {
+                self.center_frequency_hz = Some(hardware.frequency_hz);
+            } else {
+                self.frequency_hz = hardware.frequency_hz;
+            }
+            self.sample_rate_hz = hardware.sample_rate_hz;
+            self.gain_db = hardware.gain_db;
+        }
         self.daemon_last_center_hz = hardware.frequency_hz;
         self.daemon_last_sample_rate_hz = hardware.sample_rate_hz;
         self.daemon_last_gain_db = hardware.gain_db;
@@ -1348,6 +1491,10 @@ impl SourceManager {
             if frame.channel_id == self.daemon_channels.audio && self.daemon_audio_mode.is_some() {
                 self.observe_daemon_squelch(frame.squelch);
             }
+        } else if let ez_proto::ServerEvent::Aircraft(snapshot) = &event {
+            if self.daemon_adsb_subscribed && snapshot.channel_id == self.daemon_channels.adsb {
+                self.daemon_adsb_confirmed = true;
+            }
         } else if let ez_proto::ServerEvent::Hardware(hw) = &event {
             self.apply_daemon_hardware(hw);
         } else if let ez_proto::ServerEvent::Recording(status) = &event {
@@ -1406,8 +1553,22 @@ impl SourceManager {
     /// from the per-event [`Self::recv_daemon_event`] drain loop, so a slider edit is sent
     /// exactly once even if several events are drained in the same frame.
     pub fn sync_daemon_controls(&mut self) {
-        if self.daemon_client.is_none() {
+        if self.daemon_client.is_none() || self.daemon_applied_capture.is_none() {
             return;
+        }
+        let wanted = (
+            self.capture_center_frequency_hz(),
+            self.sample_rate_hz,
+            self.gain_db,
+        );
+        if wanted
+            != (
+                self.daemon_last_center_hz,
+                self.daemon_last_sample_rate_hz,
+                self.daemon_last_gain_db,
+            )
+        {
+            self.daemon_requested_controls = Some(wanted);
         }
         let commands = self.daemon_control_commands();
         if let Some(client) = &self.daemon_client {
@@ -1454,8 +1615,17 @@ impl SourceManager {
         if !self.daemon_session_ready || self.daemon_channel_error.is_some() {
             return;
         }
-        let commands =
-            self.daemon_workflow_commands(audio_running, adsb_running, meteor_lrpt, demod_mode);
+        // Wait for the actual wideband capture before constructing ADS-B.
+        // Old workflow removals still advance while hardware is pending.
+        let adsb_ready = self.daemon_applied_capture.as_ref().is_some_and(|hw| {
+            hw.connected && hw.frequency_hz == 1_090_000_000 && hw.sample_rate_hz == 2_400_000
+        });
+        let commands = self.daemon_workflow_commands(
+            audio_running && !adsb_running,
+            adsb_running && adsb_ready,
+            meteor_lrpt,
+            demod_mode,
+        );
         if let Some(client) = &self.daemon_client {
             for command in commands {
                 client.send(command);
@@ -1583,6 +1753,9 @@ impl SourceManager {
                 channel_id: self.daemon_channels.adsb,
             });
         }
+        if self.daemon_adsb_subscribed != adsb_running {
+            self.daemon_adsb_confirmed = false;
+        }
         self.daemon_adsb_subscribed = adsb_running;
 
         if meteor_lrpt && !self.daemon_lrpt_subscribed {
@@ -1629,10 +1802,13 @@ impl SourceManager {
         self.daemon_client = None;
         self.daemon_session_ready = false;
         self.daemon_applied_capture = None;
+        self.daemon_requested_controls = None;
+        self.daemon_adsb_confirmed = false;
         self.daemon_channel_error = None;
         self.daemon_removals_pending.clear();
         self.daemon_audio_mode = None;
         self.daemon_audio_tuning = None;
+        self.local_capture_accepted = false;
         self.reset_daemon_squelch();
         self.daemon_adsb_subscribed = false;
         self.daemon_lrpt_subscribed = false;
@@ -1658,11 +1834,17 @@ impl SourceManager {
     pub fn recv_samples(&mut self) -> Option<Vec<u8>> {
         if let Some(rx) = &self.rx {
             match rx.try_recv() {
-                Ok(SourceMessage::Samples(samples)) => Some(samples),
+                Ok(SourceMessage::Samples(samples)) => {
+                    self.local_capture_accepted = true;
+                    self.status = SourceStatus::Running;
+                    Some(samples)
+                }
                 Ok(SourceMessage::ReplaySamples {
                     samples,
                     file_position,
                 }) => {
+                    self.local_capture_accepted = true;
+                    self.status = SourceStatus::Running;
                     self.replay_position = file_position.min(self.replay_size);
                     Some(samples)
                 }
@@ -2124,11 +2306,18 @@ mod tests {
             crate::daemon_client::tests::TestDaemon::spawn_with_rate("two-gui", 2_400_000).await;
         let mut a = SourceManager::new();
         let mut b = SourceManager::new();
-        for source in [&mut a, &mut b] {
+        for (index, source) in [&mut a, &mut b].into_iter().enumerate() {
             source.source_mode = SourceMode::Daemon;
             source.daemon_addr = daemon.addr.to_string();
             source.start();
             session_event(source, "initial spectrum", |e| matches!(e, E::Spectrum(_))).await;
+            if index == 0 {
+                // Establish the shared RF acquisition before either GUI starts
+                // recording. ADS-B requires real 1090 MHz / 2.4 MSps state.
+                source.tune_and_restart(1_090_000_000, 2_400_000);
+                session_event(source, "ADS-B acquisition", |e|
+                    matches!(e, E::Hardware(hw) if hw.frequency_hz == 1_090_000_000 && hw.sample_rate_hz == 2_400_000)).await;
+            }
             source.sync_daemon_workflows(true, false, false, DemodMode::Fm);
             session_event(source, "initial audio", |e| matches!(e, E::Audio(_))).await;
         }

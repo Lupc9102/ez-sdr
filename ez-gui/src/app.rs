@@ -45,6 +45,12 @@ pub struct ScannerCommand {
     pub run: Option<bool>,
 }
 
+#[path = "app_runtime_actions.rs"]
+mod runtime_actions;
+pub(crate) use runtime_actions::{
+    PendingRuntimeAction, RuntimeAction, RuntimeActionRequest, RUNTIME_ACTION_CAPACITY,
+};
+
 pub struct SharedState {
     pub source: SourceManager,
     pub spectrum: SpectrumAnalyzer,
@@ -76,6 +82,7 @@ pub struct SharedState {
     pub scanner_command: Option<ScannerCommand>,
     /// Every manual tuning route uses the same monotonic scheduler cooldown.
     pub last_manual_tune: Option<Instant>,
+    pub(crate) runtime_actions: VecDeque<RuntimeActionRequest>,
 }
 
 impl SharedState {
@@ -117,6 +124,9 @@ pub struct CentralApp {
     last_adsb_capture: Option<(u64, u32, crate::source_manager::SourceMode, u64, bool)>,
     scanner: crate::scanner::FrequencyScanner,
     last_scheduler_update: std::time::Instant,
+    runtime_action: Option<PendingRuntimeAction>,
+    runtime_error_serial: u64,
+    runtime_last_error: String,
     last_source_status: crate::source_manager::SourceStatus,
     last_auto_tuned_job: Option<(u64, u64, u64, u64)>,
     last_history_freq: u64,
@@ -281,6 +291,7 @@ impl CentralApp {
             bookmarks_modified: true,
             scanner_command: None,
             last_manual_tune: None,
+            runtime_actions: VecDeque::new(),
         }));
 
         let mut web_remote = WebRemote::new();
@@ -405,6 +416,9 @@ impl CentralApp {
             adsb_decoder: AdsBDecoder::new(),
             last_adsb_capture: None,
             scanner: crate::scanner::FrequencyScanner::new(shared.clone()),
+            runtime_action: None,
+            runtime_error_serial: 0,
+            runtime_last_error: String::new(),
             last_scheduler_update: std::time::Instant::now(),
             last_source_status: crate::source_manager::SourceStatus::Idle,
             last_auto_tuned_job: None,
@@ -933,6 +947,8 @@ impl CentralApp {
                     }
                 }
                 Some(ez_proto::ServerEvent::Error { message }) => {
+                    self.runtime_error_serial = self.runtime_error_serial.wrapping_add(1);
+                    self.runtime_last_error.clone_from(&message);
                     self.status_bar.warning(format!("⚠ {message}"));
                 }
                 Some(ez_proto::ServerEvent::Squelch { .. }) => {
@@ -1012,6 +1028,7 @@ impl eframe::App for CentralApp {
         }
 
         self.ai_panel.tick();
+        self.tick_runtime_actions();
         self.recorder_panel.tick();
         self.recorder_panel
             .set_audio_sample_rate(self.audio.sample_rate());
@@ -1540,7 +1557,13 @@ impl eframe::App for CentralApp {
                 );
                 let is_running =
                     state.source.status == crate::source_manager::SourceStatus::Running;
-                if was_running && !is_running {
+                if was_running
+                    && matches!(
+                        state.source.status,
+                        crate::source_manager::SourceStatus::Idle
+                            | crate::source_manager::SourceStatus::Error(_)
+                    )
+                {
                     state.adsb_running = false;
                     self.event_bus.publish(crate::events::AppEvent::SdrStopped);
                 } else if !was_running && is_running {

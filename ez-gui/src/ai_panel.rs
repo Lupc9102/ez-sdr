@@ -4,7 +4,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use crate::app::SharedState;
+use crate::app::{RuntimeAction, RuntimeActionRequest, SharedState, RUNTIME_ACTION_CAPACITY};
 use crate::config::{DEFAULT_AI_MODEL, PROVIDER_PRESETS};
 
 #[derive(Clone, Copy)]
@@ -71,12 +71,12 @@ const DEFAULT_SYSTEM: &str = "You are EZ-SDR AI Agent, an expert radio and satel
 You can control the SDR by responding with a JSON tool call block.
 
 Available tools:
-- tune_frequency(hz: u64) — Set center frequency
-- set_gain(db: f64) — Set tuner gain (0–100)
+- tune_frequency(hz: u64) — Request logical VFO frequency within the available capture
+- set_gain(db: f64) — Request tuner gain (local RTL: 0–49.6 dB; backend limits apply)
 - set_demod(mode: string) — AM, FM, WFM, LSB, USB, RAW
 - set_sample_rate(rate: u32) — Sample rate in Hz
-- toggle_bias_tee(on: bool) — Enable/disable bias tee
-- start_recording() / stop_recording()
+- toggle_bias_tee(on: bool) — Enable/disable bias tee on local RTL hardware only
+- start_recording() / stop_recording() — use the configured Recorder backend and formats
 - select_satellite(name: string) — Meteor-M2-3, Meteor-M2-4, ISS
 - set_squelch(db: f64) — Set squelch threshold in dB (e.g. -60.0)
 - set_volume(level: f64) — Set audio volume 0.0–1.0
@@ -91,7 +91,7 @@ Available tools:
 When you want to call a tool respond with exactly:
 {\"tool\": \"name\", \"args\": {}}
 You may call multiple tools sequentially — include one JSON block per tool call in your response.
-Always explain what you are doing before each tool call.";
+Always explain what you are doing before each tool call. Runtime tools first report a request, then application acknowledgement or an error. Do not claim success from the request. Stopped receiver settings are preferences until acquisition starts.";
 
 // Streaming state sent from worker thread
 enum StreamEvent {
@@ -102,6 +102,13 @@ enum StreamEvent {
     },
     Done(()),
     Error(String),
+}
+
+struct PendingRuntimeResult {
+    tool: String,
+    result: crossbeam_channel::Receiver<Result<String, String>>,
+    message: Option<usize>,
+    history_generation: u64,
 }
 
 pub struct AiPanel {
@@ -124,6 +131,8 @@ pub struct AiPanel {
     pending_tool_calls: Vec<(String, serde_json::Value)>,
     /// Opt-in escape hatch restoring immediate execution (default off).
     auto_approve_tools: bool,
+    runtime_results: Vec<PendingRuntimeResult>,
+    history_generation: u64,
 }
 
 impl AiPanel {
@@ -141,6 +150,8 @@ impl AiPanel {
             web_search_enabled: false,
             pending_tool_calls: Vec::new(),
             auto_approve_tools: false,
+            runtime_results: Vec::new(),
+            history_generation: 0,
         }
     }
 
@@ -666,6 +677,32 @@ impl AiPanel {
         Some(self.execute_tool_call(&tool, &args))
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_propose_tool(&mut self, name: &str, args: serde_json::Value) {
+        self.messages
+            .push(ChatMessage::new("assistant", "Test provider proposal"));
+        let (tx, rx) = crossbeam_channel::unbounded();
+        tx.send(StreamEvent::ToolCallDetected {
+            tool: name.into(),
+            args,
+        })
+        .unwrap();
+        tx.send(StreamEvent::Done(())).unwrap();
+        self.pending_rx = Some(rx);
+        self.tick();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_approve_tool(&mut self) -> String {
+        let result = self.approve_pending(0).expect("pending proposal");
+        self.messages
+            .last_mut()
+            .unwrap()
+            .content
+            .push_str(&format!("\n▶ approved → {result}"));
+        result
+    }
+
     /// Drop a queued tool call by index without executing it.
     fn deny_pending(&mut self, idx: usize) -> bool {
         if idx >= self.pending_tool_calls.len() {
@@ -732,6 +769,33 @@ impl AiPanel {
 
     /// Advance requests and proposed tools even when the response window is hidden.
     pub fn tick(&mut self) {
+        // Operation acknowledgements must advance after the provider stream
+        // finishes and while the AI window is hidden. Keep them attached to
+        // the originating response so later streamed chunks keep their owner.
+        self.runtime_results.retain(|pending| {
+            let result = match pending.result.try_recv() {
+                Ok(result) => result,
+                Err(crossbeam_channel::TryRecvError::Empty) => return true,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    Err("application action was cancelled".into())
+                }
+            };
+            if pending.history_generation == self.history_generation {
+                let text = match result {
+                    Ok(text) => text,
+                    Err(error) => format!("Error: {error}"),
+                };
+                if let Some(message) = pending
+                    .message
+                    .and_then(|index| self.messages.get_mut(index))
+                {
+                    message
+                        .content
+                        .push_str(&format!("\n▶ {} → {text}", pending.tool));
+                }
+            }
+            false
+        });
         let rx = match self.pending_rx.take() {
             Some(rx) => rx,
             None => return,
@@ -806,119 +870,58 @@ impl AiPanel {
     }
 
     fn execute_tool_call(&mut self, name: &str, args: &serde_json::Value) -> String {
+        if let Some(action) = RuntimeAction::from_tool(name, args) {
+            let action = match action {
+                Ok(action) => action,
+                Err(error) => return format!("Error: {error}"),
+            };
+            if self.runtime_results.len() >= RUNTIME_ACTION_CAPACITY {
+                return "Error: application action queue is full; wait for pending results".into();
+            }
+            let Ok(mut state) = self.shared.try_lock() else {
+                return "Error: receiver state is busy".into();
+            };
+            if state.runtime_actions.len() >= RUNTIME_ACTION_CAPACITY {
+                return "Error: application action queue is full; wait for pending results".into();
+            }
+            let description = action.description();
+            let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+            state.runtime_actions.push_back(RuntimeActionRequest {
+                action,
+                result: result_tx,
+            });
+            self.runtime_results.push(PendingRuntimeResult {
+                tool: name.into(),
+                result: result_rx,
+                message: self.messages.len().checked_sub(1),
+                history_generation: self.history_generation,
+            });
+            return format!("Requested {description}; awaiting application");
+        }
         if let Ok(mut state) = self.shared.try_lock() {
             match name {
-                "tune_frequency" => {
-                    if let Some(hz) = args["hz"].as_u64() {
-                        // Clamp to the radio tuning range: an unclamped model
-                        // value (or MHz/Hz confusion) must not park the SDR
-                        // at 0 Hz or 18 EHz.
-                        let hz = hz.clamp(500_000, 1_770_000_000);
-                        crate::radio_ui::tune(&mut state, hz);
-                        return format!("Tuned to {:.3} MHz", hz as f64 / 1e6);
-                    }
-                    return "Error: missing hz argument".to_string();
-                }
-                "set_gain" => {
-                    if let Some(db) = args["db"].as_f64() {
-                        if !db.is_finite() {
-                            return "Error: gain must be finite".to_string();
-                        }
-                        state.source.gain_db = db;
-                        return format!("Gain set to {db:.1} dB");
-                    }
-                    return "Error: missing db argument".to_string();
-                }
-                "set_sample_rate" => {
-                    if let Some(rate) = args["rate"].as_u64() {
-                        if rate == 0 {
-                            return "Error: sample rate must be non-zero".to_string();
-                        }
-                        // Saturate instead of `as u32` truncation past 4 GHz.
-                        let rate = rate.min(u64::from(u32::MAX)) as u32;
-                        state.source.sample_rate_hz = rate;
-                        return format!("Sample rate set to {:.3} MSps", rate as f64 / 1e6);
-                    }
-                    return "Error: missing rate argument".to_string();
-                }
-                "toggle_bias_tee" => {
-                    if let Some(on) = args["on"].as_bool() {
-                        state.source.bias_tee = on;
-                        return format!("Bias tee {}", if on { "ON" } else { "OFF" });
-                    }
-                    return "Error: missing on argument".to_string();
-                }
-                "set_demod" => {
-                    if let Some(mode) = args["mode"].as_str() {
-                        let demod = match mode.to_uppercase().as_str() {
-                            "RAW" => crate::sdr_panel::DemodMode::Raw,
-                            "AM" => crate::sdr_panel::DemodMode::Am,
-                            "FM" | "NFM" => crate::sdr_panel::DemodMode::Fm,
-                            "WFM" => crate::sdr_panel::DemodMode::Wfm,
-                            "LSB" => crate::sdr_panel::DemodMode::Lsb,
-                            "USB" => crate::sdr_panel::DemodMode::Usb,
-                            _ => crate::sdr_panel::DemodMode::Fm,
-                        };
-                        state.demod_mode = demod;
-                        return format!("Demod mode set to {}", mode.to_uppercase());
-                    }
-                    return "Error: missing mode argument".to_string();
-                }
-                "start_recording" => {
-                    state.recording = true;
-                    return "Recording started".to_string();
-                }
-                "stop_recording" => {
-                    state.recording = false;
-                    return "Recording stopped".to_string();
-                }
-                "select_satellite" => {
-                    if let Some(sat) = args["name"].as_str() {
-                        if sat.to_ascii_lowercase().contains("meteor") {
-                            state.selected_satellite = None;
-                            return "Meteor uses offline decoding. Open the Meteor tab and import an existing .cs8, CU8 or CF32 recording.".to_string();
-                        }
-                        state.selected_satellite = Some(sat.to_string());
-                        return format!("Satellite '{sat}' selected");
-                    }
-                    return "Error: missing name argument".to_string();
-                }
-                "start_adsb" => {
-                    state.adsb_running = true;
-                    return "ADS-B tracking started at 1090 MHz".to_string();
-                }
-                "stop_adsb" => {
-                    state.adsb_running = false;
-                    return "ADS-B tracking stopped".to_string();
-                }
-                "set_squelch" => {
-                    if let Some(db) = args["db"].as_f64() {
-                        if !db.is_finite() {
-                            return "Error: squelch must be finite".to_string();
-                        }
-                        if let Err(error) =
-                            crate::radio_ui::set_power_squelch_level(&mut state, db as f32)
-                        {
-                            return format!("Error: {error}");
-                        }
-                        if state.source.daemon_squelch_pending_db().is_some() {
-                            return format!(
-                                "Squelch requested at {db:.1} dB; awaiting daemon acknowledgement"
-                            );
-                        }
-                        return format!("Squelch preference set to {db:.1} dB");
-                    }
-                    return "Error: missing db argument".to_string();
-                }
                 "set_volume" => {
                     if let Some(level) = args["level"].as_f64() {
-                        state.volume = (level as f32).clamp(0.0, 1.0);
-                        return format!("Volume set to {:.0}%", level * 100.0);
+                        if !level.is_finite() {
+                            return "Error: volume must be finite".into();
+                        }
+                        state.volume = level.clamp(0.0, 1.0) as f32;
+                        return format!(
+                            "Audio volume preference set to {:.0}%",
+                            state.volume * 100.0
+                        );
                     }
                     return "Error: missing level argument".to_string();
                 }
                 "get_status" => {
                     return serde_json::json!({
+                        "setting_values": "requested preferences; acknowledged acquisition is in applied_capture",
+                        "applied_capture": state.source.applied_capture_settings().map(|(center, rate, gain)| serde_json::json!({"center_frequency_hz": center, "sample_rate_hz": rate, "gain_request_db": gain})),
+                        "requested_capture_center_hz": state.source.capture_center_frequency_hz(),
+                        "source_mode": format!("{:?}", state.source.source_mode),
+                        "source_status": format!("{:?}", state.source.status),
+                        "capture_tuning_applied": state.source.status == crate::source_manager::SourceStatus::Running && state.source.capture_tuning_applied(),
+                        "pending_ai_actions": self.runtime_results.len(),
                         "frequency_mhz": state.source.frequency_hz as f64 / 1e6,
                         "gain_db": state.source.gain_db,
                         "demod": state.demod_mode.label(),
@@ -971,28 +974,24 @@ impl AiPanel {
                     });
                     state.bookmarks_modified = true;
                     state.spectrum.bookmark_freqs_dirty = true;
-                    return format!("Bookmark '{name}' saved at {freq_mhz:.4} MHz");
+                    return format!(
+                        "Bookmark '{name}' added at {freq_mhz:.4} MHz; persistence pending"
+                    );
                 }
                 "set_lpf_cutoff" => {
+                    if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+                        return "Error: daemon audio does not expose a live LPF cutoff control"
+                            .into();
+                    }
                     if let Some(hz) = args["hz"].as_f64() {
                         if !hz.is_finite() || hz <= 0.0 {
                             return "Error: LPF cutoff must be positive".to_string();
                         }
                         let hz = hz.clamp(50.0, 24_000.0);
                         state.lpf_cutoff = hz as f32;
-                        return format!("Audio LPF cutoff set to {hz:.0} Hz");
+                        return format!("Audio LPF preference set to {hz:.0} Hz");
                     }
                     return "Error: missing hz argument".to_string();
-                }
-                "set_ppm" => {
-                    if let Some(ppm) = args["ppm"].as_i64() {
-                        // Real TCXOs are tens of ppm; clamp generously so a
-                        // hallucinated value can't push tuning math absurd.
-                        let ppm = ppm.clamp(-10_000, 10_000);
-                        state.source.ppm_correction = ppm as i32;
-                        return format!("PPM correction set to {ppm} ppm");
-                    }
-                    return "Error: missing ppm argument".to_string();
                 }
                 "configure_scanner" => {
                     // Merge into any command still pending from an earlier tool
@@ -1033,7 +1032,7 @@ impl AiPanel {
                         return "Error: configure_scanner needs at least one of start_mhz, stop_mhz, step_khz, dwell_ms, threshold_db, run".to_string();
                     }
                     state.scanner_command = Some(cmd);
-                    return format!("Scanner configured: {}", applied.join(", "));
+                    return format!("Scanner configuration requested: {}", applied.join(", "));
                 }
                 _ => return format!("Unknown tool: {name}"),
             }
@@ -1628,7 +1627,10 @@ impl AiPanel {
                 .striped(true)
                 .show(ui, |ui| {
                     let tools = [
-                        ("tune_frequency(hz)", "Set center frequency in Hz"),
+                        (
+                            "tune_frequency(hz)",
+                            "Request logical VFO frequency within the available capture in Hz",
+                        ),
                         ("set_gain(db)", "RF gain 0–49.6 dB"),
                         ("set_demod(mode)", "AM / NFM / WFM / USB / LSB / RAW"),
                         ("set_sample_rate(rate)", "Sample rate in Hz (e.g. 2048000)"),
@@ -1814,6 +1816,8 @@ impl AiPanel {
                 .clicked()
             {
                 self.messages.clear();
+                self.history_generation = self.history_generation.wrapping_add(1);
+                self.pending_tool_calls.clear();
             }
 
             if !self.messages.is_empty()
@@ -2129,5 +2133,100 @@ mod tests {
         let result = AiPanel::base64_encode(data, "text/plain");
         assert!(result.starts_with("data:text/plain;base64,"));
         assert_eq!(&result[23..], "aGVsbG8gd29ybGQ=");
+    }
+}
+
+#[cfg(test)]
+mod runtime_result_tests {
+    use super::*;
+
+    #[test]
+    fn delayed_runtime_results_keep_message_identity_and_queue_bounds_after_stream_done() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut panel = AiPanel::new(Arc::clone(&shared));
+        panel.test_propose_tool("tune_frequency", serde_json::json!({"hz": 100_000_000}));
+        assert!(panel.test_approve_tool().starts_with("Requested"));
+        assert_eq!(
+            shared.lock().unwrap().source.frequency_hz,
+            109_000_000,
+            "approval bypassed app dispatch"
+        );
+        let request = shared.lock().unwrap().runtime_actions.pop_front().unwrap();
+        panel
+            .messages
+            .push(ChatMessage::new("assistant", "later response"));
+        let (tx, rx) = crossbeam_channel::unbounded();
+        panel.pending_rx = Some(rx);
+        request
+            .result
+            .send(Ok("Receiver acknowledged VFO 100.000 MHz".into()))
+            .unwrap();
+        tx.send(StreamEvent::Chunk(" continues".into())).unwrap();
+        tx.send(StreamEvent::Done(())).unwrap();
+        panel.tick();
+        assert!(panel.messages[0]
+            .content
+            .contains("Receiver acknowledged VFO 100.000 MHz"));
+        assert_eq!(panel.messages[1].content, "later response continues");
+        assert!(!panel.thinking);
+        assert!(panel.runtime_results.is_empty());
+
+        panel.test_propose_tool("set_gain", serde_json::json!({"db": 20.0}));
+        panel.test_approve_tool();
+        let request = shared.lock().unwrap().runtime_actions.pop_front().unwrap();
+        panel.messages.clear();
+        panel.history_generation += 1;
+        panel
+            .messages
+            .push(ChatMessage::new("assistant", "new history"));
+        request.result.send(Err("old failure".into())).unwrap();
+        panel.tick();
+        assert_eq!(panel.messages[0].content, "new history");
+        for _ in 0..RUNTIME_ACTION_CAPACITY {
+            assert!(panel
+                .execute_tool_call("set_gain", &serde_json::json!({"db": 20.0}))
+                .starts_with("Requested"));
+        }
+        assert!(panel
+            .execute_tool_call("set_gain", &serde_json::json!({"db": 30.0}))
+            .contains("queue is full"));
+        assert_eq!(
+            shared.lock().unwrap().runtime_actions.len(),
+            RUNTIME_ACTION_CAPACITY
+        );
+        assert_eq!(shared.lock().unwrap().source.gain_db, 40.0);
+        let status: serde_json::Value =
+            serde_json::from_str(&panel.execute_tool_call("get_status", &serde_json::json!({})))
+                .unwrap();
+        assert_eq!(status["capture_tuning_applied"], false);
+        assert!(status["applied_capture"].is_null());
+        let (client, _commands, events) = crate::daemon_client::DaemonClient::test_connection();
+        {
+            let mut state = shared.lock().unwrap();
+            state.source.source_mode = crate::source_manager::SourceMode::Daemon;
+            state.source.set_test_daemon_client(client);
+            events
+                .send(ez_proto::ServerEvent::Hardware(ez_proto::HardwareStatus {
+                    connected: true,
+                    frequency_hz: 100_000_000,
+                    sample_rate_hz: 2_000_000,
+                    gain_db: 20.0,
+                    source_kind: "fake".into(),
+                    error: None,
+                }))
+                .unwrap();
+            let _ = state.source.recv_daemon_event();
+            state.source.gain_db = 30.0;
+            state.source.sample_rate_hz = 2_400_000;
+            state.source.sync_daemon_controls();
+        }
+        let status: serde_json::Value =
+            serde_json::from_str(&panel.execute_tool_call("get_status", &serde_json::json!({})))
+                .unwrap();
+        assert_eq!(status["gain_db"], 30.0);
+        assert_eq!(status["sample_rate_msps"], 2.4);
+        assert_eq!(status["applied_capture"]["gain_request_db"], 20.0);
+        assert_eq!(status["applied_capture"]["sample_rate_hz"], 2_000_000);
+        assert_eq!(status["capture_tuning_applied"], false);
     }
 }

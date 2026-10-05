@@ -1858,3 +1858,6 @@ fn scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state() {
         .unwrap()
         .contains("outside"));
 }
+
+#[path = "app_runtime_action_tests.rs"]
+mod runtime_action_tests;

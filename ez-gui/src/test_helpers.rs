@@ -39,6 +39,7 @@ pub fn make_shared_state() -> Arc<Mutex<SharedState>> {
         bookmarks_modified: true,
         scanner_command: None,
         last_manual_tune: None,
+        runtime_actions: std::collections::VecDeque::new(),
     }))
 }
 

@@ -1292,6 +1292,7 @@ mod tests {
             bookmarks_modified: true,
             scanner_command: None,
             last_manual_tune: None,
+            runtime_actions: std::collections::VecDeque::new(),
         }))
     }
 
