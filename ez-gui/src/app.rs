@@ -1701,7 +1701,10 @@ impl eframe::App for CentralApp {
             if self.mqtt.is_connected() && !self.last_mqtt_connected {
                 let embed = crate::discord::embed_generic(
                     "MQTT Connected",
-                    &format!("Connected to {}", self.mqtt.broker),
+                    &format!(
+                        "Connected to {}",
+                        self.mqtt.connected_endpoint().unwrap_or("unknown endpoint")
+                    ),
                     "🔗",
                     0x00AA00,
                 );

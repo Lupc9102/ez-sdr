@@ -15,6 +15,8 @@ pub struct MqttPublisher {
     pub port: u16,
     pub topic_prefix: String,
     client: Option<Client>,
+    /// Endpoint used by the current attempt, distinct from editable preferences.
+    active_endpoint: Option<String>,
     connected_flag: Arc<AtomicBool>,
     reconnect_after: Option<Instant>,
     // When the current connection attempt started. `tick_reconnect` must not
@@ -94,6 +96,7 @@ impl MqttPublisher {
             port: 1883,
             topic_prefix: "ezsdr".to_string(),
             client: None,
+            active_endpoint: None,
             connected_flag: Arc::new(AtomicBool::new(false)),
             reconnect_after: None,
             connecting_since: None,
@@ -103,6 +106,13 @@ impl MqttPublisher {
     }
 
     pub fn set_enabled(&mut self, enabled: bool, broker: String, topic_prefix: String) {
+        let (host, port) = split_host_port(&broker, self.port);
+        let endpoint = format!("{host}:{port}");
+        if enabled && self.client.is_some() && self.active_endpoint.as_ref() != Some(&endpoint) {
+            // Release the old connection before making the new preferences
+            // active. No post-change publication may use the old socket.
+            self.disconnect();
+        }
         self.enabled = enabled;
         self.broker = broker;
         self.topic_prefix = topic_prefix;
@@ -117,6 +127,7 @@ impl MqttPublisher {
         if !self.enabled || self.client.is_some() {
             return;
         }
+        self.join_drain();
         let (host, port) = split_host_port(&self.broker, self.port);
         // Unique client ID per process + timestamp so two EZ-SDR instances
         // (or a stale session) don't kick each other off the broker.
@@ -132,14 +143,13 @@ impl MqttPublisher {
         opts.set_keep_alive(Duration::from_secs(10));
         let (client, mut connection) = Client::new(opts, 128);
 
+        // Each attempt owns its flags: a retiring worker must never mark a
+        // subsequent connection disconnected or inherit its stop signal.
+        self.connected_flag = Arc::new(AtomicBool::new(false));
+        self.stop_flag = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&self.connected_flag);
         // Only report connected after the broker's CONNACK — never optimistically.
         flag.store(false, Ordering::Relaxed);
-        // Ensure any previously-detached drain thread (from an earlier
-        // connect/disconnect cycle) is signalled and joined so we don't
-        // accumulate one thread + socket per reconnect.
-        self.stop_flag.store(false, Ordering::Relaxed);
-        self.join_drain();
         let stop = Arc::clone(&self.stop_flag);
         let handle = std::thread::spawn(move || {
             // Drain connection events with a bounded poll so we can observe the
@@ -163,6 +173,7 @@ impl MqttPublisher {
         });
 
         self.client = Some(client);
+        self.active_endpoint = Some(format!("{host}:{port}"));
         self.drain_handle = Some(handle);
         self.reconnect_after = None;
         self.connecting_since = Some(Instant::now());
@@ -173,10 +184,9 @@ impl MqttPublisher {
     fn join_drain(&mut self) {
         if let Some(handle) = self.drain_handle.take() {
             self.stop_flag.store(true, Ordering::Relaxed);
-            // The thread polls recv_timeout every 250 ms, so join should return
-            // within ~250 ms. If it somehow hangs (would only happen if
-            // rumqttc's recv_timeout ignored its timeout), drop the handle to
-            // detach rather than block the GUI thread indefinitely.
+            // The connection poll has a 250 ms deadline and drops its socket
+            // before the join completes. Worker-side reconfiguration and UI
+            // latency under backpressure are separate I01 remediation work.
             let _ = handle.join();
         }
     }
@@ -187,10 +197,19 @@ impl MqttPublisher {
         self.reconnect_after = None;
         self.connecting_since = None;
         self.join_drain();
+        self.active_endpoint = None;
     }
 
     pub fn is_connected(&self) -> bool {
         self.enabled && self.client.is_some() && self.connected_flag.load(Ordering::Relaxed)
+    }
+
+    pub fn connected_endpoint(&self) -> Option<&str> {
+        if self.is_connected() {
+            self.active_endpoint.as_deref()
+        } else {
+            None
+        }
     }
 
     #[allow(dead_code)]
@@ -220,6 +239,7 @@ impl MqttPublisher {
                 // instead of leaking one pair per reconnect cycle.
                 self.join_drain();
                 self.client = None;
+                self.active_endpoint = None;
                 self.connecting_since = None;
                 self.reconnect_after = Some(Instant::now() + Duration::from_secs(10));
             }
@@ -314,6 +334,198 @@ impl Drop for MqttPublisher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct FakeBroker {
+        endpoint: String,
+        publications: crossbeam_channel::Receiver<(String, String)>,
+        closed: crossbeam_channel::Receiver<()>,
+        running: Arc<AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeBroker {
+        fn start() -> Self {
+            use std::io::{Read, Write};
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let endpoint = listener.local_addr().unwrap().to_string();
+            let (publication_tx, publications) = crossbeam_channel::bounded(32);
+            let (closed_tx, closed) = crossbeam_channel::bounded(1);
+            let running = Arc::new(AtomicBool::new(true));
+            let active = running.clone();
+            let worker = std::thread::spawn(move || {
+                let mut socket = loop {
+                    if !active.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("loopback MQTT accept failed: {error}"),
+                    }
+                };
+                socket
+                    .set_read_timeout(Some(Duration::from_millis(250)))
+                    .unwrap();
+                socket
+                    .set_write_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                while active.load(Ordering::Relaxed) {
+                    let mut header = [0];
+                    match socket.read_exact(&mut header) {
+                        Ok(()) => {}
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                            ) =>
+                        {
+                            continue
+                        }
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                std::io::ErrorKind::UnexpectedEof
+                                    | std::io::ErrorKind::ConnectionReset
+                            ) =>
+                        {
+                            break
+                        }
+                        Err(error) => panic!("loopback MQTT read failed: {error}"),
+                    }
+                    let mut length = 0_usize;
+                    let mut multiplier = 1;
+                    loop {
+                        let mut byte = [0];
+                        socket.read_exact(&mut byte).unwrap();
+                        length += usize::from(byte[0] & 0x7f) * multiplier;
+                        assert!(length <= 64 * 1024);
+                        if byte[0] & 0x80 == 0 {
+                            break;
+                        }
+                        multiplier *= 128;
+                        assert!(multiplier <= 128 * 128 * 128);
+                    }
+                    let mut body = vec![0; length];
+                    socket.read_exact(&mut body).unwrap();
+                    match header[0] >> 4 {
+                        1 => socket.write_all(&[0x20, 2, 0, 0]).unwrap(), // accepted CONNACK
+                        3 => {
+                            let topic_len = usize::from(u16::from_be_bytes([body[0], body[1]]));
+                            let topic = String::from_utf8(body[2..2 + topic_len].to_vec()).unwrap();
+                            let mut payload_offset = 2 + topic_len;
+                            if header[0] & 0x06 == 0x02 {
+                                socket
+                                    .write_all(&[
+                                        0x40,
+                                        2,
+                                        body[payload_offset],
+                                        body[payload_offset + 1],
+                                    ])
+                                    .unwrap();
+                                payload_offset += 2;
+                            }
+                            let payload =
+                                String::from_utf8(body[payload_offset..].to_vec()).unwrap();
+                            publication_tx.send((topic, payload)).unwrap();
+                        }
+                        12 => socket.write_all(&[0xd0, 0]).unwrap(), // PINGRESP
+                        14 => break,
+                        packet => panic!("unexpected MQTT packet {packet}"),
+                    }
+                }
+                let _ = closed_tx.send(());
+            });
+            Self {
+                endpoint,
+                publications,
+                closed,
+                running,
+                worker: Some(worker),
+            }
+        }
+    }
+
+    impl Drop for FakeBroker {
+        fn drop(&mut self) {
+            self.running.store(false, Ordering::Relaxed);
+            if let Some(worker) = self.worker.take() {
+                worker.join().unwrap();
+            }
+        }
+    }
+
+    fn wait_connected(publisher: &MqttPublisher) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !publisher.is_connected() {
+            assert!(Instant::now() < deadline, "MQTT never received CONNACK");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn changing_enabled_broker_closes_old_socket_and_publishes_only_to_new_endpoint() {
+        let old = FakeBroker::start();
+        let new = FakeBroker::start();
+        let mut publisher = MqttPublisher::new();
+        publisher.set_enabled(true, old.endpoint.clone(), "old".into());
+        wait_connected(&publisher);
+        assert_eq!(publisher.connected_endpoint(), Some(old.endpoint.as_str()));
+        publisher.publish("test", "before change");
+        assert_eq!(
+            old.publications
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap(),
+            ("old/test".into(), "before change".into())
+        );
+        let old_stop = publisher.stop_flag.clone();
+        publisher.set_enabled(true, new.endpoint.clone(), "new".into());
+        old.closed.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(old_stop.load(Ordering::Relaxed));
+        assert!(
+            !publisher.stop_flag.load(Ordering::Relaxed),
+            "new worker inherited the old stop flag"
+        );
+        wait_connected(&publisher);
+        assert_eq!(publisher.connected_endpoint(), Some(new.endpoint.as_str()));
+        publisher.publish("test", "after change");
+        assert_eq!(
+            new.publications
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap(),
+            ("new/test".into(), "after change".into())
+        );
+        assert!(old.publications.try_recv().is_err());
+        assert!(new.closed.try_recv().is_err());
+        publisher.set_enabled(false, new.endpoint.clone(), "new".into());
+        new.closed.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(publisher.connected_endpoint(), None);
+    }
+
+    #[test]
+    fn changing_only_topic_prefix_preserves_connection_and_uses_new_topics() {
+        let broker = FakeBroker::start();
+        let mut publisher = MqttPublisher::new();
+        publisher.set_enabled(true, broker.endpoint.clone(), "one".into());
+        wait_connected(&publisher);
+        let original_stop = publisher.stop_flag.clone();
+        publisher.set_enabled(true, broker.endpoint.clone(), "two".into());
+        assert!(publisher.is_connected());
+        assert!(Arc::ptr_eq(&original_stop, &publisher.stop_flag));
+        publisher.publish("test", "new prefix");
+        assert_eq!(
+            broker
+                .publications
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap(),
+            ("two/test".into(), "new prefix".into())
+        );
+        assert!(broker.closed.try_recv().is_err());
+        publisher.disconnect();
+        broker.closed.recv_timeout(Duration::from_secs(3)).unwrap();
+    }
 
     #[test]
     fn aircraft_exports_distinguish_unknown_stale_and_real_zero_measurements() {
@@ -477,9 +689,11 @@ mod tests {
     #[test]
     fn tick_reconnect_keeps_fresh_attempt_within_grace() {
         // A fresh connect() has flag=false until CONNACK arrives; ticking
-        // immediately must NOT declare loss (no localhost broker in CI, so
-        // CONNACK never comes — exactly the flap scenario).
+        // immediately must not declare loss. This private loopback listener
+        // intentionally never acknowledges, without using a real broker.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut m = MqttPublisher::new();
+        m.broker = listener.local_addr().unwrap().to_string();
         m.enabled = true;
         m.connect();
         assert!(m.client.is_some());
@@ -494,7 +708,9 @@ mod tests {
 
     #[test]
     fn tick_reconnect_drops_stale_attempt_after_grace() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut m = MqttPublisher::new();
+        m.broker = listener.local_addr().unwrap().to_string();
         m.enabled = true;
         m.connect();
         // Simulate an attempt that never got its CONNACK (RTT long over).
