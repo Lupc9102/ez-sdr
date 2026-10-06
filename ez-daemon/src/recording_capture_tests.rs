@@ -42,6 +42,7 @@ fn daemon_files_stop_before_epoch_tuning_rate_rewind_and_loss_boundaries() {
             clock.discontinuous = true;
             let publish = |samples: Vec<Complex32>, start, capture, center, rate| {
                 bus.publish(SampleBlock {
+                    observed_at: None,
                     capture: Some(capture),
                     start_sample: start,
                     sample_rate_hz: rate,

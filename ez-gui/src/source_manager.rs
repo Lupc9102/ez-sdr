@@ -258,6 +258,8 @@ pub(crate) struct CaptureBlock {
     pub samples: Vec<u8>,
     pub clock: ez_proto::CaptureClock,
     pub center_hz: u64,
+    /// When the worker completed this read, before any GUI queue delay.
+    pub observed_at: Instant,
     file_position: Option<u64>,
 }
 
@@ -308,6 +310,7 @@ impl CaptureProducer {
             samples,
             clock,
             center_hz: self.center_hz,
+            observed_at: Instant::now(),
             file_position,
         })
     }
@@ -1495,6 +1498,20 @@ impl SourceManager {
         self.daemon_last_gain_db = hardware.gain_db;
     }
 
+    pub(crate) fn begin_daemon_spectrum_observation(&self, revision: u64) -> bool {
+        self.daemon_session_ready
+            && self.daemon_client.as_ref().is_some_and(|client| {
+                client.try_send(ez_proto::ClientCommand::BeginSpectrumObservation {
+                    channel_id: self.daemon_channels.spectrum,
+                    revision,
+                })
+            })
+    }
+
+    pub(crate) fn daemon_spectrum_received_at(&self) -> Option<Instant> {
+        self.daemon_client.as_ref()?.spectrum_received_at()
+    }
+
     /// Non-blocking pull of one event from the daemon connection (`SourceMode::Daemon` only;
     /// always `None` in other modes). Reflects connection status and daemon-reported hardware
     /// state into this manager's own `status`/`frequency_hz`/`sample_rate_hz`/`gain_db`
@@ -2507,13 +2524,17 @@ mod tests {
             channel_id: b_ids.audio,
             db: 0.0,
         });
-        let mut deletion_rejected = false;
+        observer.send(ez_proto::ClientCommand::BeginSpectrumObservation {
+            channel_id: b_ids.spectrum,
+            revision: 91,
+        });
+        let mut channel_errors = 0;
         let mut squelch_rejected = false;
-        while !deletion_rejected || !squelch_rejected {
+        while channel_errors < 2 || !squelch_rejected {
             match observer.try_recv_event() {
                 Some(E::Error { message }) => {
                     assert!(message.contains("another connection"));
-                    deletion_rejected = true;
+                    channel_errors += 1;
                 }
                 Some(E::Squelch {
                     request_id: 17,
@@ -2632,6 +2653,8 @@ mod tests {
                 sample_rate_hz: 2_000_000,
                 bins: vec![0.0],
                 timestamp_ms: 1,
+                observation_revision: 0,
+                measurement_bins: None,
             }),
             E::Audio(AudioFrame {
                 channel_id: foreign,
@@ -3287,6 +3310,7 @@ mod tests {
             .start_recording(1, ez_proto::RecordingFormat::Cf32, 1_090_000_000, handle)
             .unwrap();
         bus.publish(SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,

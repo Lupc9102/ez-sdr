@@ -623,6 +623,7 @@ mod tests {
         let output = pipeline.subscribe(8);
         let raw = encode_uc8(&[EXAMPLE_DF17_CALLSIGN; 100]);
         pipeline.process_block(&SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
@@ -799,6 +800,7 @@ mod tests {
 
     fn silence_block(len: usize) -> SampleBlock {
         SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
@@ -817,6 +819,7 @@ mod tests {
         assert!(n > 300);
         samples.truncate(n);
         bus.publish(SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,
@@ -844,6 +847,7 @@ mod tests {
             let cut = samples.len() / 2;
             for (start, samples) in [(0, &samples[..cut]), (cut as u64 + gap, &samples[cut..])] {
                 wideband.publish(SampleBlock {
+                    observed_at: None,
                     capture: None,
                     start_sample: start,
                     sample_rate_hz: 2_400_000,
@@ -873,6 +877,7 @@ mod tests {
         let n = source.read_iq(&mut samples).unwrap();
         samples.truncate(n);
         wideband.publish(SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz: 2_400_000,

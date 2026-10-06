@@ -22,6 +22,9 @@ pub struct SampleBlock {
     /// Present on ingested/channelized input. None denotes unannotated callers;
     /// their sample index/rate still supplies a relative clock, without UTC.
     pub capture: Option<ez_proto::CaptureClock>,
+    /// Completion of the source read, retained across downstream queue delay.
+    /// This monotonic processing observation is not acquisition UTC.
+    pub observed_at: Option<std::time::Instant>,
     pub start_sample: u64,
     pub sample_rate_hz: u32,
     pub center_freq_hz: u64,
@@ -83,6 +86,7 @@ mod tests {
 
     fn block(start_sample: u64, tag: f32) -> SampleBlock {
         SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample,
             sample_rate_hz: 2_048_000,
@@ -129,6 +133,7 @@ mod tests {
         assert_eq!(Arc::strong_count(&payload), 1);
 
         bus.publish(SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz: 1,

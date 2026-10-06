@@ -1,6 +1,6 @@
 # Audit remediation progress
 
-Scope: every finding and the follow-up experiments in REPORT.md. The original forensic evidence remains unchanged. An item is complete only after its intended contract is tested; hardware experiments remain explicit until measured.
+Scope: every finding and the follow-up experiments in REPORT.md. The original forensic evidence remains unchanged. An item is complete only after its intended contract is tested; hardware experiments remain explicit until measured or explicitly deferred by the user.
 
 ## Findings
 
@@ -29,7 +29,7 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - [x] R06 (P2): Daemon recording events cannot update shared recording state while the app holds its lock
 - [x] R07 (P2): Recording duration enforcement lives in an unrendered panel
 - [x] G01 (P1): The scanner logs an off-channel signal as a hit at the selected frequency
-- [ ] G02 (P2): The scanner continues making decisions from stale spectra when Listen is hidden or the source is stopped
+- [x] G02 (P2): The scanner continues making decisions from stale spectra when Listen is hidden or the source is stopped
 - [x] G03 (P2): The demodulation control queue discards the newest settings instead of coalescing them
 - [x] G04 (P2): Saved hardware and spectrum controls are not consistently restored or applied
 - [x] G05 (P2): Applying appearance or integration settings retunes the active receiver to the startup default
@@ -49,14 +49,14 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 
 ## Additional experiments
 
-- [ ] Calibrated weak-signal/decode sensitivity comparison
+- [ ] Calibrated weak-signal/decode sensitivity comparison — physical RF/reference-capture validation deferred by the user (no equipment/capture available now)
 - [ ] Vetted position plausibility vectors and surface ambiguity policy
-- [ ] USB unplug/blocking reads and disk failure/shutdown latency
+- [ ] USB unplug/blocking reads and disk failure/shutdown latency — physical USB checks deferred by the user; software/disk checks remain open
 - [ ] Display/capture processing latency at 2.4 MS/s
 - [ ] Saturated mixed daemon streams and loopback MQTT backpressure
 - [ ] Observer/pass recomputation cost
 - [x] Atomic airport database replacement under insert failure
-- [ ] Pinned Rust 1.92 validation and supported hardware/front-end checks
+- [ ] Pinned Rust 1.92 validation and supported hardware/front-end checks — pinned compiler checks pass; physical receiver checks deferred by the user
 
 ## Verification log
 
@@ -165,3 +165,11 @@ Scope: every finding and the follow-up experiments in REPORT.md. The original fo
 - Batch 21: Daemon recordings create metadata for both CU8 and normalized CF32, bind actual frequency/rate to the first accepted block, and use unique session filenames. Completed channels can immediately start separate files. Protocol 7 carries a recording stop reason to the GUI, including hidden workflows and shared state; explicit flush errors remain errors and retain a terminal status for client delivery. Channel removal releases finished recording state.
 - Batch 21 regressions compare exact file bytes across retune/rate/epoch/gap boundaries and independently replay each finalized prefix. A real local fake-device worker changes from 118 MHz / 2.4 MSps to 119 MHz / 2.0 MSps through hidden app logic, stopping both raw/CF32 files before new samples; the next file matches the second capture. A private Synthetic daemon sends the stop reason through the real GUI connection and starts a new file at the acknowledged new geometry. Native fractional clocks, invalid/overflowing indices, writer overflow and explicit flush failure are covered.
 - Batch 21 final gates: Rust 1.92.0 workspace all-target tests pass (1,596 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed (6,490 nodes / 14,106 edges). Forty of 42 formal findings and one of eight additional experiments are complete. A09 and G02 remain open, along with seven open or partly verified experiments; the full goal stays active. One intermediate overlapping verification run failed in an existing loopback Welcome handshake; the subsequent full run passed, and the saturated-stream experiment remains explicit.
+
+
+- Batch 22: G02 separates scanner measurements from spectrum display averaging, rendering and freeze. Local FFT jobs retain source-read observation times, complete-window bounds, stream revision and immutable VFO/capture/passband context. Pending jobs, old queued reads, partial post-settle windows, genuine gaps and changed tuning cannot become a measurement for a new dwell. The untagged legacy display adapter cannot manufacture observation freshness.
+- Batch 22: Range and memory scans require Running plus acknowledged capture settings and matching actual spectrum geometry. A new dwell retires previous observations, applies a 25 ms software settling guard, waits for a complete fresh window through the dwell deadline, and consumes each measurement once. Stopped, stale, unavailable and outside-capture input wait without logging or advancing; stale input releases a hold. Tuning requests survive a temporary shared-lock miss.
+- Batch 22: Daemon scan observations use a private-channel server barrier. It drains only the bounded pending input, clears old FFT/smoothing state, rejects source reads observed before the settling boundary, and labels every complete new FFT with the requested revision. Old network frames cannot satisfy the new dwell, and foreign clients cannot control another connection's observation. Source-read observations survive channelization; GUI network receipt times survive UI queue delay. Duplicate/reordered daemon timestamps do not refresh liveness.
+- Batch 22: Protocol 8 carries the spectrum observation barrier/revision and optional unsmoothed measurement bins. Extra raw bins are sent for requested scan observations; ordinary display subscriptions omit them. A parallel full run exposed a daemon scan failure; a deterministic gap regression demonstrated that display smoothing can suppress the signal after continuity resets. Raw measurement payloads fix that dependency, and the final parallel run passes. GUI and daemon must use matching updated protocol versions.
+- Batch 22 regressions run identical three-channel scans through the real local fake-device worker with Listen visible, Meteor hidden and Planes frozen; frequencies and strengths match. A private Synthetic daemon and real GUI connection repeat a carrier/quiet-channel sweep in all three states. Stopping each source prevents further hits/steps. Tests also cover range/memory acknowledgement, settling/dwell deadlines, duplicate consumption, stale holds, gaps/decimation, VFO/passband changes, pending FFTs, pre-barrier reads, raw versus averaged daemon levels, network queue age, barrier identity/ownership and wire round trips.
+- Batch 22 final gates: Rust 1.92.0 workspace all-target tests pass (1,609 executions, zero failures, eight ignored); strict all-target Clippy and changed-file formatting pass; graphify is refreshed (6,540 nodes / 14,275 edges). Forty-one of 42 formal findings and one of eight additional experiments are complete. A09 and the remaining software experiments stay open; the full goal stays active. The user explicitly deferred physical SDR/USB, calibrated RF and reference-capture validation because equipment/captures are unavailable now; these results remain unverified. The 25 ms guard and read/receipt timestamps are software observations, not a calibrated tuner-settling result or acquisition UTC.

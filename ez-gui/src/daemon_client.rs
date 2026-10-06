@@ -13,7 +13,7 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -50,7 +50,8 @@ pub struct DaemonClient {
     cmd_tx: tokio::sync::mpsc::UnboundedSender<ClientCommand>,
     control_event_rx: crossbeam_channel::Receiver<ServerEvent>,
     stream_event_rx: crossbeam_channel::Receiver<ServerEvent>,
-    spectrum_event_rx: crossbeam_channel::Receiver<ServerEvent>,
+    spectrum_event_rx: crossbeam_channel::Receiver<(ServerEvent, Instant)>,
+    last_spectrum_received_at: Mutex<Option<Instant>>,
     running: Arc<AtomicBool>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
@@ -108,6 +109,7 @@ impl DaemonClient {
             control_event_rx,
             stream_event_rx,
             spectrum_event_rx,
+            last_spectrum_received_at: Mutex::new(None),
             running,
             worker: Some(worker),
         }
@@ -129,6 +131,7 @@ impl DaemonClient {
                 control_event_rx: event_rx,
                 stream_event_rx: crossbeam_channel::never(),
                 spectrum_event_rx: crossbeam_channel::never(),
+                last_spectrum_received_at: Mutex::new(None),
                 running: Arc::new(AtomicBool::new(false)),
                 worker: None,
             },
@@ -172,7 +175,15 @@ impl DaemonClient {
             .try_recv()
             .ok()
             .or_else(|| self.stream_event_rx.try_recv().ok())
-            .or_else(|| self.spectrum_event_rx.try_recv().ok())
+            .or_else(|| {
+                let (event, received_at) = self.spectrum_event_rx.try_recv().ok()?;
+                *self.last_spectrum_received_at.lock().unwrap() = Some(received_at);
+                Some(event)
+            })
+    }
+
+    pub(crate) fn spectrum_received_at(&self) -> Option<Instant> {
+        *self.last_spectrum_received_at.lock().unwrap()
     }
 }
 
@@ -264,7 +275,7 @@ async fn run_connection(
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<ClientCommand>,
     control_event_tx: crossbeam_channel::Sender<ServerEvent>,
     stream_event_tx: crossbeam_channel::Sender<ServerEvent>,
-    spectrum_event_tx: crossbeam_channel::Sender<ServerEvent>,
+    spectrum_event_tx: crossbeam_channel::Sender<(ServerEvent, Instant)>,
     running: Arc<AtomicBool>,
 ) {
     let Some(handshake) = until_stopped(
@@ -329,7 +340,7 @@ async fn run_connection(
                     Some(Ok(event)) => {
                         match event {
                             ServerEvent::Spectrum(_) => {
-                                let _ = spectrum_event_tx.try_send(event);
+                                let _ = spectrum_event_tx.try_send((event, Instant::now()));
                             }
                             ServerEvent::Audio(_)
                             | ServerEvent::Aircraft(_)
@@ -378,6 +389,33 @@ pub(crate) mod tests {
     use std::sync::atomic::AtomicU64;
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn spectrum_observation_keeps_network_receipt_time_across_ui_queue_delay() {
+        let (mut client, _, _) = DaemonClient::test_connection();
+        let (sender, receiver) = crossbeam_channel::bounded(2);
+        client.spectrum_event_rx = receiver;
+        let received_at = Instant::now() - Duration::from_secs(2);
+        sender
+            .send((
+                ServerEvent::Spectrum(ez_proto::SpectrumFrame {
+                    channel_id: 1,
+                    center_hz: 100_000_000,
+                    sample_rate_hz: 2_000_000,
+                    bins: vec![-40.0; 256],
+                    timestamp_ms: 123,
+                    observation_revision: 42,
+                    measurement_bins: None,
+                }),
+                received_at,
+            ))
+            .unwrap();
+        assert!(matches!(
+            client.try_recv_event(),
+            Some(ServerEvent::Spectrum(_))
+        ));
+        assert_eq!(client.spectrum_received_at(), Some(received_at));
+    }
 
     async fn free_addr() -> SocketAddr {
         tokio::net::TcpListener::bind("127.0.0.1:0")

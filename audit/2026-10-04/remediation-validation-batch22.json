@@ -1,0 +1,37 @@
+{
+  "batch": 22,
+  "findings": [
+    "G02"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1609,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6540 nodes, 14275 edges)",
+  "protocol_version": 8,
+  "regressions": [
+    "Real local fake-device worker produces identical scanner frequencies/strengths with Listen visible, Meteor hidden and Planes frozen; stopping the receiver prevents later hits or steps",
+    "Real private Synthetic daemon/GUI connection repeats the same carrier/quiet-channel sweep visible/hidden/frozen and waits after source stop",
+    "Range and memory scans require acknowledged matching capture, a post-settle complete window and an observation through the dwell deadline; cached frames are consumed once and stale holds release",
+    "Local FFT jobs retain source-read observation time, complete-window bounds and tuning/passband/stream revision; pending jobs, queued pre-settle reads, partial windows, gaps and VFO/passband changes cannot be relabelled",
+    "Native input coordinates preserve FFT continuity through RF decimation and reset on deliberate loss; channelizer retains original read observation time",
+    "Private daemon observation barriers retire bounded input/FFT history, reject pre-settle or unknown read observations, and stamp subsequent complete FFTs with the requested revision",
+    "Unsmoothed scan payload preserves measured strength when display averaging resets after gaps; the GUI cannot use display-only frames or the wrong barrier revision",
+    "Network receipt timestamps survive GUI queue delay; duplicate/reordered daemon timestamps cannot renew liveness; foreign barrier mutation is rejected",
+    "Protocol 8 observation commands, revisions and optional raw measurement bins round-trip through the bounded binary codec"
+  ],
+  "limitations": [
+    "A09 and seven additional experiments remain open/partly verified or explicitly deferred; the full goal remains active",
+    "The user explicitly deferred physical SDR/USB, calibrated RF and reference-capture checks while no equipment/capture is available; no physical result is claimed",
+    "The 25 ms software guard is not a calibrated hardware settling time. Read/receipt monotonic observations do not invent acquisition UTC or measure unknown transport delay",
+    "Two-block GUI draining still requires A09 continuous ingestion; these scanner tests do not certify zero loss at controlled 60 Hz / 2.4 MSps",
+    "Protocol 8 requires matching updated GUI and daemon binaries",
+    "An intermediate parallel full run failed the daemon scanner test before raw measurement payloads were added; the final full run passes and deterministic gap regressions verify raw/display separation",
+    "Pre-existing 672 tracked deletions, untracked AGENTS.md and four untouched workspace formatting differences are preserved; original audit evidence is unchanged"
+  ]
+}

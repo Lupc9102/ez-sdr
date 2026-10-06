@@ -11,6 +11,7 @@ use rustfft::FftPlanner;
 // serde imported for potential future use in signal history serialization
 use std::collections::VecDeque;
 use std::f32::consts::PI;
+use std::time::{Duration, Instant};
 
 pub const MIN_FFT_SIZE: usize = 256;
 /// Highest transform resolution exposed by the SDR++-compatible controls.
@@ -32,8 +33,41 @@ fn peak_in_bins(bins: &[f32], first: usize, last: usize) -> f32 {
     bins[first..last].iter().copied().fold(-120.0_f32, f32::max)
 }
 
-/// Spectrum frame received back from the FFT worker.
-pub type SpectrumFrame = Vec<f32>;
+#[derive(Clone, Debug, PartialEq)]
+struct SpectrumContext {
+    center_hz: u64,
+    sample_rate: f64,
+    vfo_hz: u64,
+    bandwidth_hz: u32,
+    mode: String,
+}
+
+#[derive(Clone, Debug)]
+struct ObservationStamp {
+    revision: u64,
+    context: SpectrumContext,
+    window_started_at: Instant,
+    observed_at: Instant,
+}
+
+struct FftInput {
+    samples: Vec<Complex32>,
+    stamp: ObservationStamp,
+}
+
+struct SpectrumFrame {
+    bins: Vec<f32>,
+    stamp: ObservationStamp,
+}
+
+/// Raw selected-passband measurement, independent of display smoothing/freeze.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpectrumMeasurement {
+    pub sequence: u64,
+    pub window_started_at: Instant,
+    pub observed_at: Instant,
+    pub peak_db: f32,
+}
 
 /// Dedicated FFT worker that runs on its own OS thread.
 ///
@@ -42,7 +76,7 @@ pub type SpectrumFrame = Vec<f32>;
 /// The UI thread never blocks on FFT — it uses try_recv and skips
 /// frames that aren't ready yet.
 pub struct SpectrumWorker {
-    iq_sender: crossbeam_channel::Sender<Vec<Complex32>>,
+    iq_sender: crossbeam_channel::Sender<FftInput>,
     spectrum_receiver: crossbeam_channel::Receiver<SpectrumFrame>,
     handle: Option<std::thread::JoinHandle<()>>,
     #[cfg(test)]
@@ -55,7 +89,7 @@ impl SpectrumWorker {
     /// Create a dummy SpectrumWorker without spawning a thread.
     /// Used in test environments where thread spawning may cause hangs.
     pub fn new_uninitialized() -> Self {
-        let (iq_tx, _iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
+        let (iq_tx, _iq_rx) = crossbeam_channel::bounded::<FftInput>(4);
         let (_spectrum_tx, spectrum_rx) = crossbeam_channel::bounded::<SpectrumFrame>(4);
         Self {
             iq_sender: iq_tx,
@@ -72,7 +106,7 @@ impl SpectrumWorker {
     /// Spawns a dedicated OS thread that owns the FftPlanner.
     #[allow(clippy::needless_range_loop)]
     pub fn new(fft_size: usize, window: WindowType) -> Self {
-        let (iq_tx, iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
+        let (iq_tx, iq_rx) = crossbeam_channel::bounded::<FftInput>(4);
         let (spectrum_tx, spectrum_rx) = crossbeam_channel::bounded::<SpectrumFrame>(4);
         #[cfg(test)]
         let completed_windows = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -100,11 +134,11 @@ impl SpectrumWorker {
                         consumed += 1;
                     }
                 }
-                if iq_window.len() != fft_size {
+                if iq_window.samples.len() != fft_size {
                     continue;
                 }
                 for i in 0..fft_size {
-                    input_buf[i] = iq_window[i] * window_cache[i];
+                    input_buf[i] = iq_window.samples[i] * window_cache[i];
                 }
                 fft.process_with_scratch(&mut input_buf, &mut scratch);
                 let mut dbs = vec![-120.0f32; fft_size];
@@ -118,7 +152,10 @@ impl SpectrumWorker {
                     let dst = (i + half) % fft_size;
                     dbs[dst] = db;
                 }
-                let _ = spectrum_tx.try_send(dbs);
+                let _ = spectrum_tx.try_send(SpectrumFrame {
+                    bins: dbs,
+                    stamp: iq_window.stamp,
+                });
                 #[cfg(test)]
                 thread_completed.fetch_add(consumed, std::sync::atomic::Ordering::Release);
             }
@@ -136,7 +173,7 @@ impl SpectrumWorker {
     }
 
     /// Send an IQ window to the worker. Returns false if the channel is full.
-    pub fn try_send_iq(&self, iq: Vec<Complex32>) -> bool {
+    fn try_send_iq(&self, iq: FftInput) -> bool {
         #[cfg(test)]
         self.submitted_windows
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -171,7 +208,7 @@ impl SpectrumWorker {
     /// Try to receive a completed spectrum frame without blocking. If several
     /// frames are queued, retain only the newest one so a slow UI never spends
     /// a frame processing stale display data.
-    pub fn try_recv_spectrum(&self) -> Option<SpectrumFrame> {
+    fn try_recv_spectrum(&self) -> Option<SpectrumFrame> {
         let mut latest = None;
         while let Ok(frame) = self.spectrum_receiver.try_recv() {
             latest = Some(frame);
@@ -256,7 +293,7 @@ fn category_color(category: &str) -> (egui::Color32, egui::Color32) {
 /// frequency markers, bookmark and band-plan overlays, colour maps, signal
 /// history logging, and mouse-driven interaction (click-to-tune, context menus).
 pub struct SpectrumAnalyzer {
-    /// When `true`, `push_iq_samples` skips processing (freeze the display).
+    /// Freeze display updates while acquisition measurements continue.
     pub frozen: bool,
     /// False when an external source owns the FFT resolution and window.
     pub fft_controls_enabled: bool,
@@ -325,6 +362,16 @@ pub struct SpectrumAnalyzer {
     pub wf_max_db: f32,
     worker: Option<SpectrumWorker>,
     iq_ring: Vec<Complex32>,
+    iq_observed_ring: Vec<Instant>,
+    input_observed_at: Instant,
+    stream_revision: u64,
+    input_context: Option<SpectrumContext>,
+    next_capture: Option<ez_proto::CaptureClock>,
+    measurement: Option<(SpectrumContext, SpectrumMeasurement)>,
+    measurement_sequence: u64,
+    earliest_observation: Option<Instant>,
+    expected_daemon_observation: Option<u64>,
+    last_daemon_measurement_timestamp_ms: Option<u64>,
     iq_write: usize,
     iq_filled: usize,
     pending_i_byte: Option<u8>,
@@ -620,6 +667,16 @@ impl SpectrumAnalyzer {
             wf_max_db: -20.0,
             worker: Some(SpectrumWorker::new(fft_size, window_type)),
             iq_ring: vec![Complex32::new(0.0, 0.0); fft_size],
+            iq_observed_ring: vec![Instant::now(); fft_size],
+            input_observed_at: Instant::now(),
+            stream_revision: 0,
+            input_context: None,
+            next_capture: None,
+            measurement: None,
+            measurement_sequence: 0,
+            earliest_observation: None,
+            expected_daemon_observation: None,
+            last_daemon_measurement_timestamp_ms: None,
             iq_write: 0,
             iq_filled: 0,
             pending_i_byte: None,
@@ -712,6 +769,7 @@ impl SpectrumAnalyzer {
         self.peak_hold = vec![-120.0; size];
         self.persist_buf = vec![-100.0; size];
         self.iq_ring = vec![Complex32::new(0.0, 0.0); size];
+        self.iq_observed_ring = vec![Instant::now(); size];
         // Recreate the worker with the new FFT size
         self.worker = Some(SpectrumWorker::new(size, self.window_type));
         self.reset_stream();
@@ -915,7 +973,16 @@ impl SpectrumAnalyzer {
         self.waterfall_dirty = true;
     }
 
+    pub(crate) fn reset_capture_stream(&mut self) {
+        self.next_capture = None;
+        self.last_daemon_measurement_timestamp_ms = None;
+        self.reset_stream();
+    }
+
     pub(crate) fn reset_stream(&mut self) {
+        self.stream_revision = self.stream_revision.wrapping_add(1);
+        self.input_context = Some(self.observation_context());
+        self.measurement = None;
         self.iq_write = 0;
         self.iq_filled = 0;
         self.pending_i_byte = None;
@@ -924,6 +991,92 @@ impl SpectrumAnalyzer {
         self.last_fft_sample = None;
         self.last_daemon_timestamp_ms = None;
         self.smoothed_snr = None;
+    }
+
+    fn observation_context(&self) -> SpectrumContext {
+        SpectrumContext {
+            center_hz: self.center_freq,
+            sample_rate: self.sample_rate,
+            vfo_hz: self.vfo_frequency_hz(),
+            bandwidth_hz: self.vfo_bw_hz,
+            mode: self.demod_mode.clone(),
+        }
+    }
+
+    pub(crate) fn capture_geometry(&self) -> (u64, f64) {
+        (self.center_freq, self.sample_rate)
+    }
+
+    pub(crate) fn synchronize_observation_context(&mut self) {
+        let context = self.observation_context();
+        if self.input_context.as_ref() != Some(&context) {
+            self.reset_stream();
+        }
+    }
+
+    pub(crate) fn observation_revision(&self) -> u64 {
+        self.stream_revision
+    }
+
+    /// Retire pending FFTs and require a complete window read after this boundary.
+    pub(crate) fn begin_scan_observation(&mut self, earliest: Instant) {
+        self.reset_stream();
+        self.earliest_observation = Some(earliest);
+    }
+
+    pub(crate) fn require_daemon_observation(&mut self, revision: Option<u64>) {
+        self.expected_daemon_observation = revision;
+    }
+
+    pub(crate) fn measurement_max_age(&self) -> Duration {
+        // Also support the user-selectable 1 Hz FFT cadence.
+        Duration::from_millis(250).max(Duration::from_secs_f64(2.5 / self.fft_rate as f64))
+    }
+
+    pub(crate) fn scan_measurement(&self) -> Option<SpectrumMeasurement> {
+        let (context, measurement) = self.measurement.as_ref()?;
+        (context == &self.observation_context()).then_some(*measurement)
+    }
+
+    fn observe_frame(&mut self, bins: &[f32], stamp: &ObservationStamp) {
+        if stamp.revision != self.stream_revision
+            || stamp.context != self.observation_context()
+            || self
+                .earliest_observation
+                .is_some_and(|earliest| stamp.window_started_at < earliest)
+        {
+            return;
+        }
+        let (left, right) = self.vfo_band_edges();
+        if left < -self.sample_rate / 2.0 || right > self.sample_rate / 2.0 {
+            return; // A partial/out-of-capture passband cannot measure this channel.
+        }
+        let peak_db = self.passband_peak(bins);
+        self.measurement_sequence = self.measurement_sequence.wrapping_add(1);
+        self.measurement = Some((
+            stamp.context.clone(),
+            SpectrumMeasurement {
+                sequence: self.measurement_sequence,
+                window_started_at: stamp.window_started_at,
+                observed_at: stamp.observed_at,
+                peak_db,
+            },
+        ));
+    }
+
+    fn prepare_input(&mut self, observed_at: Instant) -> bool {
+        let context = self.observation_context();
+        if self
+            .input_context
+            .as_ref()
+            .is_some_and(|previous| previous != &context)
+        {
+            self.reset_stream();
+        }
+        self.input_context = Some(context);
+        self.input_observed_at = observed_at;
+        self.earliest_observation
+            .is_none_or(|earliest| observed_at >= earliest)
     }
 
     fn fft_hop(&self) -> usize {
@@ -1084,8 +1237,12 @@ impl SpectrumAnalyzer {
     /// based squelch detector instead of the average of the entire sampled band.
     /// Other channels cannot open the gate merely by being the global peak.
     pub fn vfo_signal_level(&self) -> f32 {
+        self.passband_peak(&self.spectrum_dbs)
+    }
+
+    fn passband_peak(&self, bins: &[f32]) -> f32 {
         let (left, right) = self.vfo_band_edges();
-        let n = self.spectrum_dbs.len();
+        let n = bins.len();
         if n == 0 || right < left {
             return -120.0;
         }
@@ -1095,7 +1252,7 @@ impl SpectrumAnalyzer {
             .floor()
             .clamp(0.0, n as f64) as usize;
         if first < last {
-            peak_in_bins(&self.spectrum_dbs, first, last)
+            peak_in_bins(bins, first, last)
         } else {
             -120.0
         }
@@ -1232,8 +1389,7 @@ impl SpectrumAnalyzer {
     /// the last one uses the newest real window instead of freezing on old data.
     pub fn push_iq_samples(&mut self, iq: &[u8]) {
         self.try_recv_spectrum();
-        if self.frozen {
-            self.reset_stream();
+        if !self.prepare_input(Instant::now()) {
             return;
         }
         let mut transformed = 0;
@@ -1263,9 +1419,31 @@ impl SpectrumAnalyzer {
     /// Uses the same real-window, cadence and per-call transform budget as u8 IQ.
     /// Switching from raw-byte input discards any unfinished raw I/Q byte pair.
     pub fn push_complex_samples(&mut self, iq: &[Complex32]) {
-        self.try_recv_spectrum();
-        if self.frozen {
+        self.push_complex_samples_at(iq, Instant::now());
+    }
+
+    pub(crate) fn push_capture_samples(
+        &mut self,
+        iq: &[Complex32],
+        clock: ez_proto::CaptureClock,
+        observed_at: Instant,
+        input_samples: usize,
+    ) {
+        let continuous =
+            !clock.discontinuous && self.next_capture.is_some_and(|next| next == clock);
+        if !continuous {
             self.reset_stream();
+        }
+        self.next_capture = clock.offset_samples(input_samples as u64).map(|mut next| {
+            next.discontinuous = false;
+            next
+        });
+        self.push_complex_samples_at(iq, observed_at);
+    }
+
+    fn push_complex_samples_at(&mut self, iq: &[Complex32], observed_at: Instant) {
+        self.try_recv_spectrum();
+        if !self.prepare_input(observed_at) {
             return;
         }
         if iq.is_empty() {
@@ -1295,6 +1473,7 @@ impl SpectrumAnalyzer {
         latest_due: &mut bool,
     ) {
         self.iq_ring[self.iq_write] = sample;
+        self.iq_observed_ring[self.iq_write] = self.input_observed_at;
         self.iq_write = (self.iq_write + 1) % self.fft_size;
         self.iq_filled = (self.iq_filled + 1).min(self.fft_size);
         self.stream_samples = self.stream_samples.wrapping_add(1);
@@ -1319,7 +1498,15 @@ impl SpectrumAnalyzer {
             window_iq.push(self.iq_ring[(self.iq_write + i) % self.fft_size]);
         }
         if let Some(ref worker) = self.worker {
-            worker.try_send_iq(window_iq);
+            worker.try_send_iq(FftInput {
+                samples: window_iq,
+                stamp: ObservationStamp {
+                    revision: self.stream_revision,
+                    context: self.observation_context(),
+                    window_started_at: self.iq_observed_ring[self.iq_write],
+                    observed_at: self.input_observed_at,
+                },
+            });
         }
         self.frame_period_seconds = self
             .last_fft_sample
@@ -1332,46 +1519,113 @@ impl SpectrumAnalyzer {
     /// Applies the spectrum to display state if a frame is available.
     /// Never blocks — skips if no frame is ready yet.
     pub fn try_recv_spectrum(&mut self) {
-        let Some(dbs) = self
+        let Some(frame) = self
             .worker
             .as_ref()
             .and_then(SpectrumWorker::try_recv_spectrum)
         else {
             return;
         };
-        for (dst, &db) in dbs.iter().enumerate() {
-            self.update_bin(dst, db);
+        if frame.stamp.revision != self.stream_revision
+            || frame.stamp.context != self.observation_context()
+            || frame.bins.len() != self.fft_size
+            || frame.bins.iter().any(|value| !value.is_finite())
+        {
+            return;
         }
-        self.finish_spectrum_frame();
+        self.observe_frame(&frame.bins, &frame.stamp);
+        if !self.frozen {
+            for (dst, &db) in frame.bins.iter().enumerate() {
+                self.update_bin(dst, db);
+            }
+            self.finish_spectrum_frame();
+        }
     }
 
-    /// Ingest a precomputed, fftshifted daemon frame. Frame timestamps enforce
-    /// the requested display cadence; a backwards clock resets that cadence.
-    /// Invalid resolutions/nonfinite bins are discarded before any allocation.
-    /// Ingest a raw spectrum frame from the SpectrumWorker. The frame is a
-    /// fftshifted Vec<f32> of dB values matching the current fft_size.
+    /// Legacy display-only adapter. Untagged cached bins cannot become a fresh
+    /// acquisition measurement merely because they are applied again.
     pub fn apply_spectrum_frame(&mut self, frame: &[f32]) {
-        if self.frozen || frame.len() != self.fft_size {
+        if frame.len() != self.fft_size || frame.iter().any(|value| !value.is_finite()) {
             return;
         }
-        if frame.iter().any(|v| !v.is_finite()) {
-            return;
+        if !self.frozen {
+            self.spectrum_dbs.copy_from_slice(frame);
+            self.processed_frames += 1;
         }
-        self.spectrum_dbs.copy_from_slice(frame);
-        self.processed_frames += 1;
     }
 
+    #[cfg(test)]
+    pub(crate) fn apply_spectrum_frame_at(&mut self, frame: &[f32], now: Instant) {
+        if frame.len() != self.fft_size || frame.iter().any(|value| !value.is_finite()) {
+            return;
+        }
+        self.observe_frame(
+            frame,
+            &ObservationStamp {
+                revision: self.stream_revision,
+                context: self.observation_context(),
+                window_started_at: now,
+                observed_at: now,
+            },
+        );
+        self.apply_spectrum_frame(frame);
+    }
+
+    /// Ingest a daemon frame, retaining its measurement separately from display
+    /// averaging and cadence. A backwards daemon clock cannot refresh liveness.
     pub fn push_spectrum_frame(&mut self, frame: &ez_proto::SpectrumFrame) {
-        if self.frozen
+        self.push_spectrum_frame_at(frame, Instant::now());
+    }
+
+    pub(crate) fn push_spectrum_frame_at(
+        &mut self,
+        frame: &ez_proto::SpectrumFrame,
+        observed_at: Instant,
+    ) {
+        if self
+            .expected_daemon_observation
+            .is_some_and(|revision| frame.observation_revision != revision)
             || !Self::valid_fft_size(frame.bins.len())
             || frame.sample_rate_hz == 0
             || frame.bins.iter().any(|v| !v.is_finite())
+            || frame.measurement_bins.as_ref().is_some_and(|bins| {
+                bins.len() != frame.bins.len() || bins.iter().any(|value| !value.is_finite())
+            })
+            || (self.expected_daemon_observation.is_some() && frame.measurement_bins.is_none())
         {
             return;
         }
         let changed = frame.center_hz != self.center_freq
             || f64::from(frame.sample_rate_hz) != self.sample_rate
             || frame.bins.len() != self.fft_size;
+        self.set_fft_size(frame.bins.len());
+        self.update_params(frame.center_hz, frame.sample_rate_hz);
+        self.synchronize_observation_context();
+        if self
+            .last_daemon_measurement_timestamp_ms
+            .is_none_or(|last| frame.timestamp_ms > last)
+        {
+            // Receipt time is an observation of a daemon frame, not acquisition UTC.
+            // Duplicate/reordered frames never refresh measurement liveness.
+            self.observe_frame(
+                frame.measurement_bins.as_deref().unwrap_or(&frame.bins),
+                &ObservationStamp {
+                    revision: self.stream_revision,
+                    context: self.observation_context(),
+                    window_started_at: observed_at,
+                    observed_at,
+                },
+            );
+            self.last_daemon_measurement_timestamp_ms = Some(frame.timestamp_ms);
+        } else if self
+            .last_daemon_measurement_timestamp_ms
+            .is_some_and(|last| frame.timestamp_ms < last)
+        {
+            self.measurement = None;
+        }
+        if self.frozen {
+            return;
+        }
         if !changed {
             if let Some(last) = self.last_daemon_timestamp_ms {
                 if frame.timestamp_ms >= last
@@ -1381,8 +1635,6 @@ impl SpectrumAnalyzer {
                 }
             }
         }
-        self.set_fft_size(frame.bins.len());
-        self.update_params(frame.center_hz, frame.sample_rate_hz);
         self.frame_period_seconds = self
             .last_daemon_timestamp_ms
             .filter(|last| frame.timestamp_ms > *last)
@@ -4179,6 +4431,143 @@ mod tests {
         panic!("FFT worker did not finish {expected} frames before the deadline");
     }
 
+    fn wait_for_fft_completion(spectrum: &SpectrumAnalyzer) {
+        let worker = spectrum.worker.as_ref().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while worker
+            .completed_windows
+            .load(std::sync::atomic::Ordering::Acquire)
+            != worker
+                .submitted_windows
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn scan_fft_freeze_keeps_display_fixed_and_measures_new_input() {
+        let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.set_fft_size(256);
+        spectrum.set_fft_rate(120);
+        spectrum.update_params(100_000_000, 256_000);
+        spectrum.vfo_freq_hz = Some(100_000_000);
+        spectrum.vfo_bw_hz = 12_500;
+        let now = Instant::now();
+        let display = spectrum.spectrum_dbs.clone();
+        spectrum.frozen = true;
+        spectrum.push_complex_samples_at(&vec![Complex32::new(0.5, 0.0); 256], now);
+        wait_for_fft_completion(&spectrum);
+        spectrum.try_recv_spectrum();
+        let measurement = spectrum.scan_measurement().unwrap();
+        assert!((measurement.peak_db + 6.0206).abs() < 0.001);
+        assert_eq!(measurement.observed_at, now);
+        assert_eq!(spectrum.spectrum_dbs, display);
+        assert_eq!(spectrum.processed_frames, 0);
+        assert_eq!(spectrum.frame_counter, 0);
+        spectrum.push_complex_samples_at(
+            &vec![Complex32::new(0.0, 0.0); 2400],
+            now + Duration::from_millis(10),
+        );
+        wait_for_fft_completion(&spectrum);
+        spectrum.try_recv_spectrum();
+        assert_eq!(spectrum.scan_measurement().unwrap().peak_db, -120.0);
+        assert_eq!(spectrum.spectrum_dbs, display);
+    }
+
+    #[test]
+    fn scan_fft_retires_pending_windows_and_requires_a_complete_post_settle_window() {
+        let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.set_fft_size(256);
+        spectrum.update_params(100_000_000, 256_000);
+        spectrum.vfo_freq_hz = Some(100_000_000);
+        let now = Instant::now();
+        let tone = vec![Complex32::new(1.0, 0.0); 256];
+        spectrum.push_complex_samples_at(&tone, now);
+        wait_for_fft_completion(&spectrum); // Result is deliberately left queued.
+        spectrum.begin_scan_observation(now + Duration::from_millis(25));
+        spectrum.try_recv_spectrum();
+        assert!(spectrum.scan_measurement().is_none());
+        assert_eq!(spectrum.processed_frames, 0);
+        // Queued reads from before the tuning boundary cannot form a new window.
+        spectrum.push_complex_samples_at(&tone, now + Duration::from_millis(24));
+        assert_eq!(spectrum.iq_filled, 0);
+        spectrum.push_complex_samples_at(&tone[..128], now + Duration::from_millis(25));
+        assert_eq!(spectrum.iq_filled, 128);
+        assert!(spectrum.scan_measurement().is_none());
+        spectrum.push_complex_samples_at(&tone[..128], now + Duration::from_millis(30));
+        wait_for_fft_completion(&spectrum);
+        spectrum.try_recv_spectrum();
+        let measurement = spectrum.scan_measurement().unwrap();
+        assert_eq!(
+            measurement.window_started_at,
+            now + Duration::from_millis(25)
+        );
+        assert_eq!(measurement.observed_at, now + Duration::from_millis(30));
+        assert!(measurement.peak_db.abs() < 0.001);
+        // A completed window cannot be relabelled by a VFO/passband edit.
+        spectrum.vfo_freq_hz = Some(100_020_000);
+        assert!(spectrum.scan_measurement().is_none());
+        spectrum.synchronize_observation_context();
+        assert_eq!(spectrum.iq_filled, 0);
+    }
+
+    #[test]
+    fn scan_capture_gap_and_decimation_use_original_input_coordinates() {
+        let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.set_fft_size(256);
+        spectrum.update_params(100_000_000, 128_000);
+        let now = Instant::now();
+        let tone = vec![Complex32::new(1.0, 0.0); 256];
+        let clock = ez_proto::CaptureClock::new(25, 0, 256_000, None);
+        spectrum.push_capture_samples(&tone, clock, now, 512);
+        wait_for_fft_completion(&spectrum);
+        spectrum.try_recv_spectrum();
+        assert!(spectrum.scan_measurement().is_some());
+        let revision = spectrum.observation_revision();
+        spectrum.push_capture_samples(&tone[..128], clock.offset_samples(512).unwrap(), now, 256);
+        assert_eq!(spectrum.observation_revision(), revision);
+        let mut gap = clock.offset_samples(1024).unwrap();
+        gap.discontinuous = true;
+        spectrum.push_capture_samples(&tone[..128], gap, now, 256);
+        assert!(spectrum.scan_measurement().is_none());
+        assert_eq!(spectrum.iq_filled, 128); // No pre-gap samples fill the window.
+        let mut next = gap.offset_samples(256).unwrap();
+        next.discontinuous = false;
+        spectrum.push_capture_samples(&tone[..128], next, now, 256);
+        wait_for_fft_completion(&spectrum);
+        spectrum.try_recv_spectrum();
+        assert!(spectrum.scan_measurement().is_some());
+    }
+
+    #[test]
+    fn scan_daemon_measurements_keep_receipt_age_and_ignore_duplicate_frames() {
+        let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.frozen = true;
+        let now = Instant::now();
+        spectrum.begin_scan_observation(now + Duration::from_millis(25));
+        spectrum.push_spectrum_frame_at(&daemon_frame(100, -40.0), now);
+        assert!(spectrum.scan_measurement().is_none());
+        spectrum.push_spectrum_frame_at(&daemon_frame(101, -30.0), now + Duration::from_millis(26));
+        let measurement = spectrum.scan_measurement().unwrap();
+        assert_eq!(measurement.observed_at, now + Duration::from_millis(26));
+        spectrum.push_spectrum_frame_at(&daemon_frame(101, -10.0), now + Duration::from_secs(1));
+        assert_eq!(
+            spectrum.scan_measurement().unwrap().sequence,
+            measurement.sequence
+        );
+        assert_eq!(
+            spectrum.scan_measurement().unwrap().observed_at,
+            measurement.observed_at
+        );
+        spectrum.push_spectrum_frame_at(&daemon_frame(99, -10.0), now + Duration::from_secs(1));
+        assert!(spectrum.scan_measurement().is_none());
+        spectrum.push_spectrum_frame_at(&daemon_frame(100, -10.0), now + Duration::from_secs(1));
+        assert!(spectrum.scan_measurement().is_none());
+        assert_eq!(spectrum.processed_frames, 0);
+    }
+
     // -----------------------------------------------------------------------
     // lerp_color
     // -----------------------------------------------------------------------
@@ -4640,6 +5029,8 @@ mod tests {
             sample_rate_hz: 25_600,
             bins,
             timestamp_ms,
+            observation_revision: 0,
+            measurement_bins: None,
         }
     }
 

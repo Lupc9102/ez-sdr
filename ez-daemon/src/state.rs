@@ -591,6 +591,21 @@ impl DaemonState {
         })
     }
 
+    pub fn begin_spectrum_observation(&self, channel_id: ChannelId, revision: u64) -> Result<()> {
+        let pipeline = {
+            let channels = self.channels.lock();
+            let active = channels
+                .get(&channel_id)
+                .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
+            match &active.pipeline {
+                ActivePipeline::Spectrum(p) => Arc::clone(p),
+                _ => return Err(anyhow!("channel {channel_id} is not a spectrum channel")),
+            }
+        };
+        pipeline.lock().begin_observation(revision);
+        Ok(())
+    }
+
     fn with_audio_pipeline<T>(
         &self,
         channel_id: ChannelId,

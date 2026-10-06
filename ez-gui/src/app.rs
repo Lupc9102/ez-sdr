@@ -670,8 +670,9 @@ impl CentralApp {
     }
 
     fn apply_scanner_tune(&mut self) {
-        if let Some(frequency) = self.scanner.tune_request_hz.take() {
+        if let Some(frequency) = self.scanner.tune_request_hz {
             if let Ok(mut state) = self.shared.try_lock() {
+                self.scanner.tune_request_hz = None;
                 crate::radio_ui::tune(&mut state, frequency);
                 if let Some(mode) = self
                     .scanner
@@ -967,13 +968,16 @@ impl CentralApp {
             }
             match event {
                 Some(ez_proto::ServerEvent::Spectrum(frame)) => {
-                    // The Radio plot is the only consumer of daemon FFT
-                    // frames. Drop hidden-tab frames so switching to ADS-B or
-                    // Meteor does not keep doing display work in the
-                    // background; the daemon will send a fresh frame when
-                    // Radio becomes visible again.
-                    if self.current_tab == AppTab::Listen {
-                        state.spectrum.push_spectrum_frame(&frame);
+                    // Scanner measurements continue independently of tab rendering.
+                    if !self.scanner.enabled {
+                        state.spectrum.require_daemon_observation(None);
+                    }
+                    if self.current_tab == AppTab::Listen || self.scanner.enabled {
+                        let observed_at = state
+                            .source
+                            .daemon_spectrum_received_at()
+                            .unwrap_or_else(std::time::Instant::now);
+                        state.spectrum.push_spectrum_frame_at(&frame, observed_at);
                     }
                 }
                 Some(ez_proto::ServerEvent::Error { message }) => {
@@ -1220,7 +1224,7 @@ impl eframe::App for CentralApp {
             self.constellation
                 .observe_capture(center, rate, &source_mode, stream_generation);
             let mut all_audio_samples: Vec<f32> = Vec::new();
-            let mut spectrum_batch: Vec<Vec<num_complex::Complex32>> = Vec::new();
+            let mut spectrum_batch = Vec::new();
             let capture = (center, source_mode, stream_generation);
             let capture_changed = self.last_radio_capture.as_ref() != Some(&capture);
             if capture_changed {
@@ -1304,8 +1308,16 @@ impl eframe::App for CentralApp {
                     let format = self.shared.lock().unwrap().input_format;
                     self.feed_local_adsb_capture(samples, block.clock, format);
                 }
-                if self.current_tab == AppTab::Listen {
-                    spectrum_batch.push(wideband_iq);
+                if (self.current_tab == AppTab::Listen || self.scanner.enabled)
+                    && block.center_hz == center
+                    && block.clock.exact_sample_rate_hz() == f64::from(rate)
+                {
+                    spectrum_batch.push((
+                        wideband_iq,
+                        block.clock,
+                        block.observed_at,
+                        samples.len() / 2,
+                    ));
                 }
             }
 
@@ -1393,13 +1405,20 @@ impl eframe::App for CentralApp {
                 || !all_audio_samples.is_empty()
             {
                 if let Some(mut state) = self.try_lock_shared("update_spectrum_and_audio") {
-                    if capture_changed || iq_changed {
+                    if capture_changed {
+                        state.spectrum.reset_capture_stream();
+                    } else if iq_changed {
                         state.spectrum.reset_stream();
                     }
                     state.spectrum.update_params_exact(center, radio_rate);
                     state.spectrum.vfo_freq_hz = Some(freq);
-                    for samples in &spectrum_batch {
-                        state.spectrum.push_complex_samples(samples);
+                    for (samples, clock, observed_at, input_samples) in &spectrum_batch {
+                        state.spectrum.push_capture_samples(
+                            samples,
+                            *clock,
+                            *observed_at,
+                            *input_samples,
+                        );
                     }
                     state.spectrum.try_recv_spectrum();
                     if !all_audio_samples.is_empty() {
@@ -1425,7 +1444,7 @@ impl eframe::App for CentralApp {
 
         // Drain an asynchronously completed FFT even on a frame without new IQ,
         // such as the final window arriving as the receiver pauses.
-        if self.current_tab == AppTab::Listen {
+        if self.current_tab == AppTab::Listen || self.scanner.enabled {
             if let Ok(mut state) = self.shared.try_lock() {
                 state.spectrum.try_recv_spectrum();
             }
@@ -1715,7 +1734,24 @@ impl eframe::App for CentralApp {
                     if let Some(cmd) = state.scanner_command.take() {
                         self.scanner.apply_command(&cmd);
                     }
-                    self.scanner.tick_spectrum(&state.spectrum);
+                    let expected_rate =
+                        if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+                            f64::from(state.source.sample_rate_hz)
+                        } else {
+                            self.radio_iq.output_rate()
+                        };
+                    let ready = state.spectrum.capture_geometry()
+                        == (state.source.capture_center_frequency_hz(), expected_rate)
+                        && state.source.status == crate::source_manager::SourceStatus::Running
+                        && state.source.capture_tuning_applied();
+                    self.scanner.daemon_mode =
+                        state.source.source_mode == crate::source_manager::SourceMode::Daemon;
+                    self.scanner.tick_spectrum(&mut state.spectrum, ready);
+                    if let Some(revision) = self.scanner.daemon_observation_request {
+                        if state.source.begin_daemon_spectrum_observation(revision) {
+                            self.scanner.daemon_observation_request = None;
+                        }
+                    }
                 }
                 // Publish any new hits to MQTT + Discord
                 if self.scanner.hits.len() > prev_hits {

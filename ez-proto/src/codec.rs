@@ -141,6 +141,21 @@ mod tests {
     use tokio_util::codec::Framed;
 
     #[test]
+    fn spectrum_observation_barrier_command_round_trip() {
+        let original = crate::ClientCommand::BeginSpectrumObservation {
+            channel_id: 0x8000_0000,
+            revision: 735,
+        };
+        let expected = bincode::serialize(&original).unwrap();
+        let mut codec = MessageCodec::<crate::ClientCommand>::for_commands();
+        let mut bytes = BytesMut::new();
+        codec.encode(original, &mut bytes).unwrap();
+        let decoded = codec.decode(&mut bytes).unwrap().unwrap();
+        assert_eq!(bincode::serialize(&decoded).unwrap(), expected);
+        assert!(bytes.is_empty());
+    }
+
+    #[test]
     fn private_session_and_spectrum_removal_identity_round_trip() {
         use crate::{ClientChannels, ServerEvent, SpectrumFrame};
         let ids = ClientChannels {
@@ -161,6 +176,8 @@ mod tests {
                 sample_rate_hz: 2_400_000,
                 bins: vec![-100.0, -10.0],
                 timestamp_ms: 123,
+                observation_revision: 735,
+                measurement_bins: Some(vec![-10.0, -30.0]),
             }),
             ServerEvent::ChannelRemoved {
                 channel_id: ids.audio,

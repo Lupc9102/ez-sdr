@@ -2144,3 +2144,171 @@ async fn daemon_recording_epoch_stop_reason_reaches_hidden_app_and_allows_a_new_
     daemon.shutdown().await;
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn scan_real_local_worker_has_identical_hits_visible_hidden_and_frozen_then_waits_on_stop() {
+    use crate::source_manager::SourceMode;
+    let iq: Vec<u8> = (0..16_384)
+        .flat_map(|index| {
+            let sample = [(0.0, 0.15), (25_000.0, 0.25), (50_000.0, 0.35)]
+                .into_iter()
+                .map(|(frequency, amplitude)| {
+                    num_complex::Complex32::from_polar(
+                        amplitude,
+                        (std::f64::consts::TAU * frequency * index as f64 / 2_048_000.0) as f32,
+                    )
+                })
+                .sum::<num_complex::Complex32>();
+            [sample.re, sample.im]
+                .map(|value| (127.4 + value * 128.0).round().clamp(0.0, 255.0) as u8)
+        })
+        .collect();
+    let mut reference = None;
+    for (tab, frozen) in [
+        (AppTab::Listen, false),
+        (AppTab::Meteor, false),
+        (AppTab::Planes, true),
+    ] {
+        let mut app = offline_test_app();
+        app.current_tab = tab;
+        app.satellite_panel.selected_sat_index = None;
+        {
+            let mut state = app.shared.lock().unwrap();
+            state.config.advanced.rf_decim = 1;
+            state.config.advanced.rf_dc_remove = false;
+            state.source.source_mode = SourceMode::Hardware;
+            state.source.frequency_hz = 100_000_000;
+            state.source.center_frequency_hz = Some(100_000_000);
+            state.source.sample_rate_hz = 2_048_000;
+            state.spectrum.frozen = frozen;
+            crate::radio_ui::select_demod(&mut state, crate::sdr_panel::DemodMode::Fm);
+            let iq = iq.clone();
+            state.source.test_set_hardware_open(move |_| Ok(iq.clone()));
+            state.source.start();
+        }
+        app.scanner.start_hz = 100_000_000;
+        app.scanner.stop_hz = 100_050_000;
+        app.scanner.step_hz = 25_000;
+        app.scanner.dwell_ms = 20;
+        app.scanner.threshold_db = -35.0;
+        app.scanner.start();
+        app.apply_scanner_tune();
+        let ctx = egui::Context::default();
+        let mut frame = eframe::Frame::_new_kittest();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.scanner.hits.len() < 3 {
+            app.logic(&ctx, &mut frame);
+            assert!(
+                Instant::now() < deadline,
+                "{tab:?}, frozen={frozen}: {} / {:?}",
+                app.scanner.status_text,
+                app.scanner.hits
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let hits: Vec<_> = app
+            .scanner
+            .hits
+            .iter()
+            .map(|hit| (hit.freq_hz, (hit.strength_db * 10.0).round() as i32))
+            .collect();
+        assert_eq!(
+            hits.iter().map(|hit| hit.0).collect::<Vec<_>>(),
+            [100_000_000, 100_025_000, 100_050_000]
+        );
+        if let Some(reference) = &reference {
+            assert_eq!(&hits, reference);
+        } else {
+            reference = Some(hits);
+        }
+        if frozen {
+            assert_eq!(app.shared.lock().unwrap().spectrum.peak_level(), -100.0);
+        }
+        app.shared.lock().unwrap().source.stop();
+        let frequency = app.scanner.current_freq_hz;
+        let counts: Vec<_> = app.scanner.hits.iter().map(|hit| hit.hit_count).collect();
+        for _ in 0..20 {
+            app.logic(&ctx, &mut frame);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(app.scanner.current_freq_hz, frequency);
+        assert_eq!(
+            app.scanner
+                .hits
+                .iter()
+                .map(|hit| hit.hit_count)
+                .collect::<Vec<_>>(),
+            counts
+        );
+        assert!(app.scanner.status_text.contains("Waiting for the receiver"));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scan_real_daemon_frames_work_hidden_and_frozen_then_wait_on_stop() {
+    use crate::daemon_client::tests::TestDaemon;
+    use crate::source_manager::SourceMode;
+    let daemon = TestDaemon::spawn_with_rate("g02-scanner", 2_000_000).await;
+    for (tab, frozen) in [
+        (AppTab::Listen, false),
+        (AppTab::Meteor, false),
+        (AppTab::Planes, true),
+    ] {
+        let mut app = offline_test_app();
+        app.current_tab = tab;
+        {
+            let mut state = app.shared.lock().unwrap();
+            state.source.source_mode = SourceMode::Daemon;
+            state.source.daemon_addr = daemon.addr.to_string();
+            state.source.frequency_hz = 100_250_000;
+            state.source.center_frequency_hz = Some(100_000_000);
+            state.source.sample_rate_hz = 2_000_000;
+            state.spectrum.frozen = frozen;
+            crate::radio_ui::select_demod(&mut state, crate::sdr_panel::DemodMode::Fm);
+            state.source.start();
+        }
+        app.scanner.start_hz = 100_250_000;
+        app.scanner.stop_hz = 100_300_000;
+        app.scanner.step_hz = 50_000;
+        app.scanner.dwell_ms = 20;
+        app.scanner.threshold_db = -30.0;
+        app.scanner.start();
+        app.apply_scanner_tune();
+        let ctx = egui::Context::default();
+        let mut frame = eframe::Frame::_new_kittest();
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while app.scanner.hits.is_empty() || app.scanner.current_freq_hz != 100_250_000 {
+            app.logic(&ctx, &mut frame);
+            assert!(
+                Instant::now() < deadline,
+                "{tab:?}, frozen={frozen}: {} / {:?}",
+                app.scanner.status_text,
+                app.scanner.hits
+            );
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        assert_eq!(app.scanner.hits.len(), 1);
+        assert_eq!(app.scanner.hits[0].freq_hz, 100_250_000);
+        assert!(app.scanner.hits[0].strength_db > -20.0);
+        if frozen {
+            assert_eq!(app.shared.lock().unwrap().spectrum.peak_level(), -100.0);
+        }
+        app.shared.lock().unwrap().source.stop();
+        let counts: Vec<_> = app.scanner.hits.iter().map(|hit| hit.hit_count).collect();
+        for _ in 0..20 {
+            app.logic(&ctx, &mut frame);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(app.scanner.current_freq_hz, 100_250_000);
+        assert_eq!(
+            app.scanner
+                .hits
+                .iter()
+                .map(|hit| hit.hit_count)
+                .collect::<Vec<_>>(),
+            counts
+        );
+        assert!(app.scanner.status_text.contains("Waiting for the receiver"));
+    }
+    daemon.shutdown().await;
+}

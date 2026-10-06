@@ -187,6 +187,11 @@ impl<T> BroadcasterHandle<T> {
         self.rx.recv().ok()
     }
 
+    /// Current pending count for bounded drains.
+    pub fn queued_len(&self) -> usize {
+        self.rx.len()
+    }
+
     /// Returns immediately with `None` if no value is queued.
     pub fn try_recv(&self) -> Option<T> {
         self.rx.try_recv().ok()

@@ -322,6 +322,7 @@ mod tests {
 
     fn block_of(samples: Vec<Complex32>, sample_rate_hz: u32) -> SampleBlock {
         SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz,

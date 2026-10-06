@@ -36,6 +36,7 @@ fn position_messages() -> [ModesMessage; 2] {
 
 fn block(raw: &[u8], start_sample: u64, clock: CaptureClock) -> SampleBlock {
     SampleBlock {
+        observed_at: None,
         capture: Some(clock),
         start_sample,
         sample_rate_hz: 2_400_000,
@@ -250,6 +251,7 @@ fn daemon_replay_positions_and_rewind_boundaries_match_at_all_speeds() {
                     assert_eq!(clock.epoch, epoch);
                 }
                 pipeline.process_block(&SampleBlock {
+                    observed_at: None,
                     capture: Some(clock),
                     start_sample: clock.source_sample_index,
                     sample_rate_hz: 2_400_000,

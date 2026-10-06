@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -135,6 +135,11 @@ pub enum ClientCommand {
     StopRecording {
         channel_id: ChannelId,
     },
+    /// Retire queued FFT windows and begin a fresh post-settle observation.
+    BeginSpectrumObservation {
+        channel_id: ChannelId,
+        revision: u64,
+    },
     Ping {
         nonce: u64,
     },
@@ -152,6 +157,11 @@ pub struct SpectrumFrame {
     /// dB magnitudes, fftshifted to ascending-frequency order (bin 0 = center - fs/2).
     pub bins: Vec<f32>,
     pub timestamp_ms: u64,
+    /// Echoes the observation barrier that precedes this complete FFT window.
+    pub observation_revision: u64,
+    /// Unsmoothed FFT magnitudes for an explicitly requested scan observation.
+    /// Ordinary display subscriptions omit this additional measurement payload.
+    pub measurement_bins: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

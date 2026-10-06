@@ -104,6 +104,8 @@ mod tests {
             sample_rate_hz: 2_000_000,
             bins: vec![-10.0, -20.5, 3.25],
             timestamp_ms: 123_456_789,
+            observation_revision: 0,
+            measurement_bins: None,
         };
         let bytes = encode_spectrum(&frame);
 

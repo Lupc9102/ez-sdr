@@ -3,6 +3,10 @@ use std::time::{Duration, Instant};
 
 use crate::app::SharedState;
 
+/// Require a new, complete observation after acknowledged tuning settles.
+/// This is a software guard; calibrated tuner settling remains a hardware test.
+const SCAN_SETTLE_TIME: Duration = Duration::from_millis(25);
+
 #[derive(Debug, Clone)]
 pub struct SignalHit {
     pub freq_hz: u64,
@@ -43,6 +47,10 @@ pub struct FrequencyScanner {
     pub threshold_db: f32,
     pub current_freq_hz: u64,
     last_step_time: Option<Instant>,
+    observation_boundary: Option<(u64, u64, Instant)>,
+    consumed_measurement: Option<u64>,
+    pub(crate) daemon_mode: bool,
+    pub(crate) daemon_observation_request: Option<u64>,
     pub hits: Vec<SignalHit>,
     pub max_hits: usize,
     pub status_text: String,
@@ -123,6 +131,10 @@ impl FrequencyScanner {
             threshold_db: -60.0,
             current_freq_hz: 100_000_000,
             last_step_time: None,
+            observation_boundary: None,
+            consumed_measurement: None,
+            daemon_mode: false,
+            daemon_observation_request: None,
             hits: Vec::new(),
             max_hits: 200,
             status_text: "Idle".into(),
@@ -169,6 +181,8 @@ impl FrequencyScanner {
         self.memory_freqs = freqs;
         self.memory_idx = 0;
         self.enabled = true;
+        self.observation_boundary = None;
+        self.consumed_measurement = None;
         self.paused = false;
         self.holding = false;
         self.hold_last_active = None;
@@ -560,6 +574,8 @@ impl FrequencyScanner {
         self.mode_request = None;
         self.progress = 0.0;
         self.enabled = true;
+        self.observation_boundary = None;
+        self.consumed_measurement = None;
         self.paused = false;
         if self.reset_on_start {
             self.hits.clear();
@@ -578,12 +594,15 @@ impl FrequencyScanner {
 
     pub fn stop(&mut self) {
         self.enabled = false;
+        self.daemon_observation_request = None;
         self.paused = false;
         self.holding = false;
         self.hold_last_active = None;
         self.tune_request_hz = None;
         self.mode_request = None;
         self.last_step_time = None;
+        self.observation_boundary = None;
+        self.consumed_measurement = None;
         self.status_text = format!("Stopped ({} signals)", self.hits.len());
     }
 
@@ -598,6 +617,8 @@ impl FrequencyScanner {
 
     pub fn resume(&mut self) {
         self.paused = false;
+        self.observation_boundary = None;
+        self.consumed_measurement = None;
         self.last_step_time = Some(Instant::now());
         self.status_text = format!(
             "Scanning {:.3}–{:.3} MHz",
@@ -606,36 +627,102 @@ impl FrequencyScanner {
         );
     }
 
-    /// Measure only the RF passband that is actually selected. The global
-    /// spectrum peak can belong to an entirely different captured channel.
-    pub fn tick_spectrum(&mut self, spectrum: &crate::spectrum::SpectrumAnalyzer) {
-        if spectrum.vfo_frequency_hz() != self.current_freq_hz {
-            self.last_peak_db = -120.0;
-            if self.enabled && !self.paused {
-                self.status_text = "Waiting for the selected scan channel".into();
-            }
-            return;
-        }
-        self.tick(spectrum.vfo_signal_level());
+    /// Make decisions from fresh raw measurements at the acknowledged scan tuning.
+    pub fn tick_spectrum(
+        &mut self,
+        spectrum: &mut crate::spectrum::SpectrumAnalyzer,
+        receiver_ready: bool,
+    ) {
+        self.tick_spectrum_at(spectrum, receiver_ready, Instant::now());
     }
 
-    fn tick(&mut self, spectrum_peak_db: f32) {
-        self.last_peak_db = spectrum_peak_db;
+    fn tick_spectrum_at(
+        &mut self,
+        spectrum: &mut crate::spectrum::SpectrumAnalyzer,
+        receiver_ready: bool,
+        now: Instant,
+    ) {
         if !self.enabled || self.paused {
             return;
         }
+        if !receiver_ready || spectrum.vfo_frequency_hz() != self.current_freq_hz {
+            self.observation_boundary = None;
+            self.last_step_time = None;
+            self.holding = false;
+            self.hold_last_active = None;
+            self.last_peak_db = -120.0;
+            self.status_text = "Waiting for the receiver at the selected scan channel".into();
+            return;
+        }
+        spectrum.synchronize_observation_context();
+        let revision = spectrum.observation_revision();
+        if self
+            .observation_boundary
+            .is_none_or(|(frequency, previous, _)| {
+                frequency != self.current_freq_hz || previous != revision
+            })
+        {
+            let earliest = now + SCAN_SETTLE_TIME;
+            spectrum.begin_scan_observation(earliest);
+            self.daemon_observation_request = self.daemon_mode.then(ez_proto::new_capture_epoch);
+            spectrum.require_daemon_observation(self.daemon_observation_request);
+            self.observation_boundary = Some((
+                self.current_freq_hz,
+                spectrum.observation_revision(),
+                earliest,
+            ));
+            self.consumed_measurement = None;
+            self.last_step_time = Some(earliest);
+            self.holding = false;
+            self.hold_last_active = None;
+            self.last_peak_db = -120.0;
+            self.status_text = "Waiting for a fresh scan observation after tuning".into();
+            return;
+        }
+        let (_, _, earliest) = self.observation_boundary.unwrap();
+        let Some(measurement) = spectrum.scan_measurement() else {
+            self.holding = false;
+            self.hold_last_active = None;
+            self.last_peak_db = -120.0;
+            self.status_text = "Waiting for a fresh scan observation".into();
+            return;
+        };
+        let Some(age) = now.checked_duration_since(measurement.observed_at) else {
+            return;
+        };
+        if age > spectrum.measurement_max_age() {
+            self.last_peak_db = -120.0;
+            self.holding = false;
+            self.hold_last_active = None;
+            self.observation_boundary = None;
+            self.status_text = "Waiting for a fresh scan observation (input is stale)".into();
+            return;
+        }
+        self.last_peak_db = measurement.peak_db;
+        if measurement.window_started_at < earliest
+            || measurement
+                .observed_at
+                .checked_duration_since(earliest)
+                .is_none_or(|elapsed| elapsed < Duration::from_millis(self.dwell_ms))
+            || self.consumed_measurement == Some(measurement.sequence)
+        {
+            return;
+        }
+        self.consumed_measurement = Some(measurement.sequence);
         if self.memory_scan {
-            self.tick_memory(spectrum_peak_db);
+            self.tick_memory(measurement.peak_db, now);
         } else {
-            self.tick_range(spectrum_peak_db);
+            self.tick_range(measurement.peak_db, now);
+        }
+        if !self.holding && self.tune_request_hz.is_some() {
+            self.observation_boundary = None;
         }
     }
 
-    fn tick_memory(&mut self, spectrum_peak_db: f32) {
+    fn tick_memory(&mut self, spectrum_peak_db: f32, now: Instant) {
         if self.memory_freqs.is_empty() {
             return;
         }
-        let now = Instant::now();
         let dwell = Duration::from_millis(self.dwell_ms);
         let elapsed = self.last_step_time.map_or(dwell, |t| now.duration_since(t));
         if elapsed < dwell {
@@ -705,11 +792,10 @@ impl FrequencyScanner {
         self.last_step_time = Some(now);
     }
 
-    fn tick_range(&mut self, spectrum_peak_db: f32) {
+    fn tick_range(&mut self, spectrum_peak_db: f32, now: Instant) {
         if self.step_hz == 0 {
             return;
         }
-        let now = Instant::now();
         let dwell = Duration::from_millis(self.dwell_ms);
         let elapsed = self.last_step_time.map_or(dwell, |t| now.duration_since(t));
         if elapsed < dwell {
@@ -1721,6 +1807,167 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reapplying_untagged_display_bins_cannot_manufacture_a_scan_observation() {
+        let mut scanner = FrequencyScanner::new(crate::test_helpers::make_shared_state());
+        scanner.start_hz = 100_000_000;
+        scanner.stop_hz = 100_100_000;
+        scanner.dwell_ms = 0;
+        scanner.start();
+        scanner.tune_request_hz = None;
+        let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+        let now = Instant::now();
+        scanner.tick_spectrum_at(&mut spectrum, true, now - Duration::from_secs(1));
+        spectrum.apply_spectrum_frame(&vec![-40.0; 2048]);
+        scanner.tick_spectrum_at(&mut spectrum, true, now);
+        assert!(scanner.hits.is_empty());
+        assert!(spectrum.scan_measurement().is_none());
+        assert_eq!(scanner.current_freq_hz, 100_000_000);
+    }
+
+    #[test]
+    fn daemon_scan_requires_its_own_new_server_observation_revision() {
+        let mut scanner = FrequencyScanner::new(crate::test_helpers::make_shared_state());
+        scanner.start_hz = 100_000_000;
+        scanner.stop_hz = 100_100_000;
+        scanner.step_hz = 25_000;
+        scanner.dwell_ms = 0;
+        scanner.start();
+        scanner.daemon_mode = true;
+        scanner.tune_request_hz = None;
+        let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+        let now = Instant::now();
+        scanner.tick_spectrum_at(&mut spectrum, true, now);
+        let revision = scanner.daemon_observation_request.unwrap();
+        let observed = now + SCAN_SETTLE_TIME;
+        let mut frame = ez_proto::SpectrumFrame {
+            channel_id: 1,
+            center_hz: 100_000_000,
+            sample_rate_hz: 2_048_000,
+            bins: vec![-40.0; 2048],
+            timestamp_ms: 123,
+            observation_revision: 0,
+            measurement_bins: None,
+        };
+        spectrum.push_spectrum_frame_at(&frame, observed);
+        scanner.tick_spectrum_at(&mut spectrum, true, observed);
+        assert!(scanner.hits.is_empty());
+        assert_eq!(scanner.current_freq_hz, 100_000_000);
+        frame.observation_revision = revision;
+        frame.measurement_bins = Some(frame.bins.clone());
+        frame.bins.fill(-100.0); // Scan uses raw measurements despite weak display averaging.
+        spectrum.push_spectrum_frame_at(&frame, observed);
+        scanner.tick_spectrum_at(&mut spectrum, true, observed);
+        assert_eq!(scanner.hits.len(), 1);
+        assert_eq!(scanner.current_freq_hz, 100_025_000);
+        scanner.tune_request_hz = None;
+        spectrum.vfo_freq_hz = Some(scanner.current_freq_hz);
+        scanner.tick_spectrum_at(&mut spectrum, true, observed);
+        assert_ne!(scanner.daemon_observation_request, Some(revision));
+        spectrum.push_spectrum_frame_at(&frame, observed + SCAN_SETTLE_TIME);
+        scanner.tick_spectrum_at(&mut spectrum, true, observed + SCAN_SETTLE_TIME);
+        assert_eq!(scanner.hits.len(), 1);
+    }
+
+    #[test]
+    fn scan_observations_wait_for_ack_settling_dwell_and_new_frames_in_both_modes() {
+        for memory in [false, true] {
+            let mut scanner = FrequencyScanner::new(crate::test_helpers::make_shared_state());
+            scanner.start_hz = 100_000_000;
+            scanner.stop_hz = 100_100_000;
+            scanner.step_hz = 25_000;
+            scanner.dwell_ms = 50;
+            scanner.hold_on_active = true;
+            if memory {
+                scanner.memory_scan = true;
+                scanner.memory_freqs =
+                    vec![(100_000_000, "NFM".into()), (100_025_000, "NFM".into())];
+            }
+            scanner.start();
+            scanner.memory_scan = memory;
+            scanner.tune_request_hz = None;
+            let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+            spectrum.update_params(100_000_000, 2_048_000);
+            spectrum.vfo_freq_hz = Some(100_000_000);
+            spectrum.vfo_bw_hz = 12_500;
+            let bins = vec![-40.0; 2048];
+            let now = Instant::now();
+            spectrum.apply_spectrum_frame_at(&bins, now);
+            scanner.tick_spectrum_at(&mut spectrum, false, now);
+            assert!(scanner.hits.is_empty());
+            assert!(!scanner.holding);
+            assert_eq!(scanner.current_freq_hz, 100_000_000);
+            // Acknowledgment starts a new observation; cached data is retired.
+            scanner.tick_spectrum_at(&mut spectrum, true, now);
+            assert!(spectrum.scan_measurement().is_none());
+            for offset in [24, 25, 74] {
+                let observed = now + Duration::from_millis(offset);
+                spectrum.apply_spectrum_frame_at(&bins, observed);
+                scanner.tick_spectrum_at(&mut spectrum, true, observed);
+                assert!(scanner.hits.is_empty());
+            }
+            let observed = now + Duration::from_millis(75);
+            spectrum.apply_spectrum_frame_at(&bins, observed);
+            scanner.tick_spectrum_at(&mut spectrum, true, observed);
+            assert_eq!(scanner.hits.len(), 1);
+            assert!(scanner.holding);
+            // Re-rendering one result cannot accumulate hits or renew its hold.
+            for offset in [100, 150, 200] {
+                scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(offset));
+            }
+            assert_eq!(scanner.hits[0].hit_count, 1);
+            let stale_at = observed + spectrum.measurement_max_age() + Duration::from_millis(1);
+            scanner.tick_spectrum_at(&mut spectrum, true, stale_at);
+            assert!(!scanner.holding);
+            assert_eq!(scanner.current_freq_hz, 100_000_000);
+            assert!(scanner.status_text.contains("stale"));
+            // A stopped receiver cannot decide even with a newly delivered frame.
+            spectrum.apply_spectrum_frame_at(&bins, now + Duration::from_secs(2));
+            scanner.tick_spectrum_at(&mut spectrum, false, now + Duration::from_secs(2));
+            assert_eq!(scanner.hits[0].hit_count, 1);
+            assert_eq!(scanner.current_freq_hz, 100_000_000);
+        }
+    }
+
+    #[test]
+    fn scan_dwell_restarts_after_gap_or_passband_change_and_waits_outside_capture() {
+        let mut scanner = FrequencyScanner::new(crate::test_helpers::make_shared_state());
+        scanner.start_hz = 100_000_000;
+        scanner.stop_hz = 100_100_000;
+        scanner.step_hz = 25_000;
+        scanner.dwell_ms = 100;
+        scanner.start();
+        scanner.tune_request_hz = None;
+        let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+        spectrum.update_params(100_000_000, 2_048_000);
+        let now = Instant::now();
+        scanner.tick_spectrum_at(&mut spectrum, true, now);
+        spectrum.reset_stream(); // Genuine capture gap.
+        scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(100));
+        let bins = vec![-40.0; 2048];
+        spectrum.apply_spectrum_frame_at(&bins, now + Duration::from_millis(150));
+        scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(150));
+        assert!(scanner.hits.is_empty());
+        spectrum.vfo_bw_hz = 25_000;
+        scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(160));
+        spectrum.apply_spectrum_frame_at(&bins, now + Duration::from_millis(280));
+        scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(280));
+        assert!(scanner.hits.is_empty());
+        spectrum.apply_spectrum_frame_at(&bins, now + Duration::from_millis(285));
+        scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(285));
+        assert_eq!(scanner.hits.len(), 1);
+        assert_eq!(scanner.current_freq_hz, 100_025_000);
+        // The selected passband must be completely inside the captured band.
+        spectrum.update_params(90_000_000, 2_048_000);
+        spectrum.vfo_freq_hz = Some(100_025_000);
+        scanner.tune_request_hz = None;
+        scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(300));
+        spectrum.apply_spectrum_frame_at(&bins, now + Duration::from_millis(500));
+        scanner.tick_spectrum_at(&mut spectrum, true, now + Duration::from_millis(500));
+        assert_eq!(scanner.hits.len(), 1);
+        assert_eq!(scanner.current_freq_hz, 100_025_000);
+    }
+
+    #[test]
     fn off_channel_carrier_does_not_log_a_hit_or_hold_the_sweep() {
         let shared = crate::test_helpers::make_shared_state();
         let mut scanner = FrequencyScanner::new(shared);
@@ -1739,8 +1986,12 @@ mod tests {
         spectrum.demod_mode = "NFM".into();
         let mut bins = vec![-120.0; 2048];
         bins[1224] = -10.0; // +200 kHz, outside the selected +/-6.25 kHz.
-        spectrum.apply_spectrum_frame(&bins);
-        scanner.tick_spectrum(&spectrum);
+        let now = Instant::now();
+        scanner.tune_request_hz = None;
+        scanner.tick_spectrum_at(&mut spectrum, true, now);
+        let observed = now + SCAN_SETTLE_TIME;
+        spectrum.apply_spectrum_frame_at(&bins, observed);
+        scanner.tick_spectrum_at(&mut spectrum, true, observed);
         assert!(scanner.hits.is_empty());
         assert!(!scanner.holding);
         assert_eq!(scanner.current_freq_hz, 100_025_000);
@@ -1750,8 +2001,11 @@ mod tests {
         // stronger unrelated peak must not determine its logged strength.
         spectrum.vfo_freq_hz = Some(100_025_000);
         bins[1049] = -40.0;
-        spectrum.apply_spectrum_frame(&bins);
-        scanner.tick_spectrum(&spectrum);
+        scanner.tune_request_hz = None;
+        scanner.tick_spectrum_at(&mut spectrum, true, observed);
+        let observed = observed + SCAN_SETTLE_TIME;
+        spectrum.apply_spectrum_frame_at(&bins, observed);
+        scanner.tick_spectrum_at(&mut spectrum, true, observed);
         assert_eq!(scanner.hits.len(), 1);
         assert_eq!(scanner.hits[0].freq_hz, 100_025_000);
         assert_eq!(scanner.hits[0].strength_db, -40.0);
@@ -1771,7 +2025,7 @@ mod tests {
         spectrum.update_params(100_000_000, 2_048_000);
         spectrum.vfo_freq_hz = Some(100_200_000);
         spectrum.apply_spectrum_frame(&vec![-10.0; 2048]);
-        scanner.tick_spectrum(&spectrum);
+        scanner.tick_spectrum(&mut spectrum, true);
         assert!(scanner.hits.is_empty());
         assert_eq!(scanner.current_freq_hz, 100_000_000);
         assert!(scanner.status_text.contains("Waiting"));

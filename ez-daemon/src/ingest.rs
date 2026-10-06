@@ -193,6 +193,7 @@ fn run(
                 clock.discontinuous |= pending_discontinuity;
                 pending_discontinuity = false;
                 let block = SampleBlock {
+                    observed_at: Some(std::time::Instant::now()),
                     capture: Some(clock),
                     start_sample: sample_counter,
                     sample_rate_hz: source.sample_rate_hz(),

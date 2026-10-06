@@ -275,6 +275,7 @@ impl VirtualChannel {
         self.pending_discontinuity = false;
         self.output_rate_hz = block.sample_rate_hz / decimation as u32;
         Some(SampleBlock {
+            observed_at: block.observed_at,
             capture: Some(output_clock),
             start_sample,
             sample_rate_hz: self.output_rate_hz,
@@ -502,6 +503,7 @@ mod tests {
         samples: Vec<Complex32>,
     ) -> SampleBlock {
         SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz,
@@ -587,6 +589,7 @@ mod tests {
         let mut channel = VirtualChannel::new(1, 100_000, 2_048_003, 100_000, 7);
         let mut input = wideband_block(100_000, 2_048_003, vec![Complex32::new(0.0, 0.0); 73]);
         input.start_sample = 13;
+        input.observed_at = Some(std::time::Instant::now());
         input.capture = Some(ez_proto::CaptureClock::new(
             42,
             13,
@@ -594,6 +597,7 @@ mod tests {
             Some(1_000_000),
         ));
         let first = channel.process(&input).unwrap();
+        assert_eq!(first.observed_at, input.observed_at);
         input.start_sample += 73;
         input.capture = input.capture.unwrap().offset_samples(73);
         let second = channel.process(&input).unwrap();

@@ -265,7 +265,8 @@ pub(crate) async fn apply_command(
         | ClientCommand::Retune { channel_id, .. }
         | ClientCommand::RemoveChannel { channel_id }
         | ClientCommand::StartRecording { channel_id, .. }
-        | ClientCommand::StopRecording { channel_id } => Some(*channel_id),
+        | ClientCommand::StopRecording { channel_id }
+        | ClientCommand::BeginSpectrumObservation { channel_id, .. } => Some(*channel_id),
         _ => None,
     };
     if controlled_channel
@@ -399,6 +400,14 @@ pub(crate) async fn apply_command(
             }
             Err(e) => send_error(event_tx, e.to_string()).await,
         },
+        ClientCommand::BeginSpectrumObservation {
+            channel_id,
+            revision,
+        } => {
+            if let Err(error) = state.begin_spectrum_observation(channel_id, revision) {
+                send_error(event_tx, error.to_string()).await;
+            }
+        }
         ClientCommand::Ping { nonce } => {
             let _ = event_tx.send(ServerEvent::Pong { nonce }).await;
         }

@@ -132,6 +132,7 @@ mod tests {
 
     fn silence_block(len: usize) -> SampleBlock {
         SampleBlock {
+            observed_at: None,
             capture: None,
             start_sample: 0,
             sample_rate_hz: 288_000,
