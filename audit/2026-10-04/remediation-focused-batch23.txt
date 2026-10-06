@@ -1,0 +1,21 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.10s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 2 tests
+test source_manager::tests::preview_overflow_does_not_interrupt_independent_capture_consumers ... ok
+test source_manager::tests::replay_capture_consumers_finish_at_all_speeds_without_gui_reads ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 797 filtered out; finished in 1.60s
+
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.31s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 3 tests
+test local_adsb::tests::terminal_progress_accounts_for_missing_tail_exactly_once ... ok
+test local_adsb::tests::bounded_bus_loss_resets_real_decode_and_survives_restart_with_a_lost_tail ... ok
+A09 stalled preview: 1900544 samples, 116 blocks, 115 cross-block messages, 0 lost samples
+test local_adsb::tests::paced_2400_capture_decodes_cross_block_frames_during_preview_stall ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 796 filtered out; finished in 0.84s

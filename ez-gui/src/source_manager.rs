@@ -260,7 +260,34 @@ pub(crate) struct CaptureBlock {
     pub center_hz: u64,
     /// When the worker completed this read, before any GUI queue delay.
     pub observed_at: Instant,
+    pub source_generation: u64,
+    pub source_mode: SourceMode,
+    /// Sample coordinate across replay rewinds within this source worker.
+    pub stream_sample_index: u64,
+    pub session: Option<Arc<crate::capture_stream::CaptureSession>>,
     file_position: Option<u64>,
+}
+
+#[cfg(test)]
+impl CaptureBlock {
+    pub(crate) fn fixture(
+        samples: Vec<u8>,
+        clock: ez_proto::CaptureClock,
+        generation: u64,
+        stream_sample_index: u64,
+    ) -> Self {
+        Self {
+            samples,
+            clock,
+            center_hz: 1_090_000_000,
+            observed_at: Instant::now(),
+            source_generation: generation,
+            source_mode: SourceMode::Hardware,
+            stream_sample_index,
+            session: None,
+            file_position: None,
+        }
+    }
 }
 
 enum SourceMessage {
@@ -273,6 +300,12 @@ struct CaptureProducer {
     clock: ez_proto::CaptureClock,
     center_hz: u64,
     pending_i: Option<u8>,
+    stream: Option<crate::capture_stream::CaptureStream>,
+    session: Option<Arc<crate::capture_stream::CaptureSession>>,
+    source_generation: u64,
+    source_mode: SourceMode,
+    stream_sample_index: u64,
+    preview_gap: bool,
 }
 
 impl CaptureProducer {
@@ -283,7 +316,26 @@ impl CaptureProducer {
             clock,
             center_hz,
             pending_i: None,
+            stream: None,
+            session: None,
+            source_generation: 0,
+            source_mode: SourceMode::Simulated,
+            stream_sample_index: 0,
+            preview_gap: false,
         }
+    }
+
+    fn attach_stream(
+        mut self,
+        stream: crate::capture_stream::CaptureStream,
+        generation: u64,
+        mode: SourceMode,
+    ) -> Self {
+        self.session = Some(stream.session());
+        self.stream = Some(stream);
+        self.source_generation = generation;
+        self.source_mode = mode;
+        self
     }
 
     fn rewind(&mut self) {
@@ -291,6 +343,12 @@ impl CaptureProducer {
         self.clock.source_sample_index = 0;
         self.clock.discontinuous = true;
         self.pending_i = None;
+    }
+
+    fn finish(&self) {
+        if let Some(session) = &self.session {
+            session.finish();
+        }
     }
 
     fn block(&mut self, mut samples: Vec<u8>, file_position: Option<u64>) -> Option<CaptureBlock> {
@@ -306,13 +364,28 @@ impl CaptureProducer {
         let clock = self.clock;
         self.clock = self.clock.offset_samples((samples.len() / 2) as u64)?;
         self.clock.discontinuous = false;
-        Some(CaptureBlock {
+        let block = CaptureBlock {
             samples,
             clock,
             center_hz: self.center_hz,
             observed_at: Instant::now(),
+            source_generation: self.source_generation,
+            source_mode: self.source_mode.clone(),
+            stream_sample_index: self.stream_sample_index,
+            session: self.session.clone(),
             file_position,
-        })
+        };
+        self.stream_sample_index += (block.samples.len() / 2) as u64;
+        if let Some(stream) = &self.stream {
+            stream.publish(&block);
+        }
+        Some(block)
+    }
+}
+
+impl Drop for CaptureProducer {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 
@@ -335,12 +408,27 @@ fn send_live_samples(
     let Some(block) = capture.block(samples, None) else {
         return true;
     };
+    send_preview_block(tx, capture, block, dropped)
+}
+
+fn send_preview_block(
+    tx: &Sender<SourceMessage>,
+    capture: &mut CaptureProducer,
+    mut block: CaptureBlock,
+    dropped: &std::sync::atomic::AtomicU64,
+) -> bool {
+    // The GUI is a lossy preview consumer. Its loss must not contaminate the
+    // independent decoder/recording stream that was published above.
+    block.clock.discontinuous |= capture.preview_gap;
     match tx.try_send(SourceMessage::Samples(block)) {
-        Ok(()) => true,
+        Ok(()) => {
+            capture.preview_gap = false;
+            true
+        }
         Err(TrySendError::Disconnected(_)) => false,
         Err(TrySendError::Full(_)) => {
             dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            capture.clock.discontinuous = true;
+            capture.preview_gap = true;
             true // not a disconnect; the block is dropped but the source lives on
         }
     }
@@ -479,6 +567,7 @@ pub struct SourceManager {
     running: Arc<AtomicBool>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     stream_generation: u64,
+    capture_stream: crate::capture_stream::CaptureStream,
     /// Number of sample blocks dropped due to queue overflow (UI was behind).
     dropped_blocks: Arc<std::sync::atomic::AtomicU64>,
 }
@@ -589,6 +678,7 @@ impl SourceManager {
             running: Arc::new(AtomicBool::new(false)),
             worker_handle: None,
             stream_generation: 0,
+            capture_stream: crate::capture_stream::CaptureStream::default(),
             dropped_blocks: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
@@ -598,6 +688,10 @@ impl SourceManager {
     /// rejected starts, and VFO-only control changes leave it unchanged.
     pub fn stream_generation(&self) -> u64 {
         self.stream_generation
+    }
+
+    pub(crate) fn capture_stream(&self) -> crate::capture_stream::CaptureStream {
+        self.capture_stream.clone()
     }
 
     pub fn capture_center_frequency_hz(&self) -> u64 {
@@ -836,8 +930,16 @@ impl SourceManager {
                 .map_or(0, |metadata| metadata.len());
         }
 
+        self.stream_generation = self.stream_generation.wrapping_add(1);
+        let generation = self.stream_generation;
+        let stream = self.capture_stream.clone();
+        stream.start(generation);
         let handle = std::thread::spawn(move || {
-            let mut capture = CaptureProducer::new(rate, center_hz);
+            let mut capture = CaptureProducer::new(rate, center_hz).attach_stream(
+                stream,
+                generation,
+                source_mode.clone(),
+            );
             match source_mode {
                 SourceMode::Replay => {
                     let path = if let Some(p) = replay_file {
@@ -932,6 +1034,7 @@ impl SourceManager {
                                     capture.rewind();
                                     continue;
                                 }
+                                capture.finish();
                                 send_cancellable(&tx, &running, SourceMessage::EndOfStream);
                                 break;
                             }
@@ -944,11 +1047,29 @@ impl SourceManager {
 
                                 file_position += n as u64;
                                 if let Some(block) = capture.block(chunk, Some(file_position)) {
-                                    if !send_cancellable(
-                                        &tx,
-                                        &running,
-                                        SourceMessage::Samples(block),
-                                    ) {
+                                    // Production consumers run continuously;
+                                    // a stalled GUI preview must not slow replay.
+                                    // Standalone lossless readers retain their
+                                    // cancellable backpressure contract.
+                                    let delivered = if capture
+                                        .stream
+                                        .as_ref()
+                                        .is_some_and(|stream| stream.has_consumers())
+                                    {
+                                        send_preview_block(
+                                            &tx,
+                                            &mut capture,
+                                            block,
+                                            &dropped_blocks,
+                                        )
+                                    } else {
+                                        send_cancellable(
+                                            &tx,
+                                            &running,
+                                            SourceMessage::Samples(block),
+                                        )
+                                    };
+                                    if !delivered {
                                         break;
                                     }
                                 }
@@ -1149,7 +1270,6 @@ impl SourceManager {
             }
         });
         self.worker_handle = Some(handle);
-        self.stream_generation = self.stream_generation.wrapping_add(1);
         self.tx = None; // tx was moved into the worker thread
         if self.source_mode != SourceMode::Hardware {
             self.status = SourceStatus::Running;
@@ -3547,6 +3667,113 @@ mod tests {
         assert!(!contiguous.clock.discontinuous);
         drop(rx);
         assert!(!send_live_samples(&tx, &mut capture, vec![7, 8], &dropped));
+    }
+
+    #[test]
+    fn preview_overflow_does_not_interrupt_independent_capture_consumers() {
+        let stream = crate::capture_stream::CaptureStream::default();
+        let input = stream.subscribe(8);
+        stream.start(7);
+        let (tx, rx) = bounded(1);
+        let dropped = std::sync::atomic::AtomicU64::new(0);
+        let mut capture = CaptureProducer::new(2_400_000, 1_090_000_000).attach_stream(
+            stream.clone(),
+            7,
+            SourceMode::Hardware,
+        );
+        for sample in 0..4 {
+            assert!(send_live_samples(
+                &tx,
+                &mut capture,
+                vec![sample, 127],
+                &dropped
+            ));
+        }
+        assert_eq!(dropped.load(Ordering::Relaxed), 3);
+        assert_eq!(rx.len(), 1);
+        for index in 0..4 {
+            let block = input.try_recv().unwrap();
+            assert_eq!(block.clock.source_sample_index, index);
+            assert_eq!(block.stream_sample_index, index);
+            assert_eq!(block.clock.discontinuous, index == 0);
+            assert_eq!(block.source_generation, 7);
+            assert_eq!(block.source_mode, SourceMode::Hardware);
+        }
+        assert_eq!(input.dropped_count(), 0);
+        drop(capture);
+        let progress = stream.progress();
+        assert_eq!(
+            (progress.generation, progress.samples, progress.blocks),
+            (7, 4, 4)
+        );
+        assert!(!progress.live);
+    }
+
+    #[test]
+    fn independent_consumer_overflow_is_bounded_and_accounts_for_a_lost_tail() {
+        let stream = crate::capture_stream::CaptureStream::default();
+        let slow = stream.subscribe(1);
+        let fast = stream.subscribe(4);
+        stream.start(8);
+        let mut capture = CaptureProducer::new(2_400_000, 1_090_000_000).attach_stream(
+            stream.clone(),
+            8,
+            SourceMode::Hardware,
+        );
+        for _ in 0..4 {
+            capture.block(vec![127; 8], None).unwrap();
+        }
+        assert_eq!(slow.queued_len(), 1);
+        assert_eq!(slow.dropped_count(), 3);
+        assert_eq!(fast.queued_len(), 4);
+        assert_eq!(fast.dropped_count(), 0);
+        assert_eq!(slow.try_recv().unwrap().stream_sample_index, 0);
+        capture.block(vec![127; 8], None).unwrap();
+        assert_eq!(slow.try_recv().unwrap().stream_sample_index, 16);
+        capture.block(vec![127; 8], None).unwrap();
+        capture.block(vec![127; 8], None).unwrap();
+        assert_eq!(slow.try_recv().unwrap().stream_sample_index, 20);
+        drop(capture);
+        assert_eq!(stream.progress().samples, 28);
+        assert!(!stream.progress().live);
+        assert_eq!(slow.dropped_count(), 4);
+        assert_eq!(slow.queued_len(), 0);
+        // The final 4 missing samples are discoverable without another read.
+        assert_eq!(stream.progress().samples - (20 + 4), 4);
+    }
+
+    #[test]
+    fn replay_capture_consumers_finish_at_all_speeds_without_gui_reads() {
+        let period = crate::local_adsb::tests::crossing_block();
+        let raw = period.repeat(20);
+        let recording = TestRecording::new(&raw);
+        for speed in [0.1, 1.0, 10.0] {
+            let mut source = recording.source(1);
+            source.sample_rate_hz = 2_400_000;
+            source.frequency_hz = 1_090_000_000;
+            source.replay_speed = speed;
+            let stream = source.capture_stream();
+            let decoder = crate::local_adsb::LocalAdsbWorker::new(stream.clone());
+            decoder.configure(true, Some((52.0, 4.0)));
+            source.start();
+            let mut final_snapshot = None;
+            assert!(
+                wait_until(|| {
+                    final_snapshot = decoder.snapshot().filter(|snapshot| snapshot.complete);
+                    final_snapshot.is_some()
+                }),
+                "replay stalled at {speed}x without GUI reads"
+            );
+            let snapshot = final_snapshot.unwrap();
+            assert_eq!(snapshot.received_samples, (raw.len() / 2) as u64);
+            assert_eq!(snapshot.source_samples, snapshot.received_samples);
+            assert_eq!(snapshot.lost_samples, 0);
+            assert_eq!(snapshot.dropped_blocks, 0);
+            assert_eq!(snapshot.receiver.total_messages, 19);
+            assert!(!stream.progress().live);
+            assert!(source.dropped_blocks.load(Ordering::Relaxed) > 0);
+            source.stop();
+        }
     }
 
     #[test]

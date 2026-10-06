@@ -1902,6 +1902,71 @@ fn hidden_local_capture_epoch_and_gap_retire_trails_notifications_and_decoder_st
 }
 
 #[test]
+fn continuous_adsb_keeps_up_with_60_hz_app_and_a_held_shared_state_lock() {
+    use crate::source_manager::SourceMode;
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Meteor;
+    let block = crate::local_adsb::tests::crossing_block();
+    let stream = {
+        let mut state = app.shared.lock().unwrap();
+        state.adsb_running = true;
+        state.source.source_mode = SourceMode::Hardware;
+        state.source.frequency_hz = 1_090_000_000;
+        state.source.sample_rate_hz = 2_400_000;
+        state
+            .source
+            .test_set_hardware_open(move |_| Ok(block.clone()));
+        state.source.capture_stream()
+    };
+    app.sync_adsb_capture();
+    app.shared.lock().unwrap().source.start();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    let started = Instant::now();
+    for tick in 1..=60 {
+        app.logic(&ctx, &mut frame);
+        let next = started + Duration::from_secs_f64(f64::from(tick) / 60.0);
+        std::thread::sleep(next.saturating_duration_since(Instant::now()));
+    }
+    let before = app.local_adsb.snapshot().unwrap().received_samples;
+    {
+        let mut state = app.shared.lock().unwrap();
+        // The capture actor never takes this UI/model mutex.
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(app.local_adsb.snapshot().unwrap().received_samples > before + 300_000);
+        state.source.stop();
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let snapshot = loop {
+        if let Some(snapshot) = app
+            .local_adsb
+            .snapshot()
+            .filter(|snapshot| snapshot.complete)
+        {
+            break snapshot;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    let progress = stream.progress();
+    assert!(progress.samples >= 2_000_000);
+    assert_eq!(snapshot.received_samples, progress.samples);
+    assert_eq!(snapshot.lost_samples, 0);
+    assert_eq!(snapshot.dropped_blocks, 0);
+    assert_eq!(snapshot.receiver.total_messages, progress.blocks - 1);
+    app.logic(&ctx, &mut frame);
+    assert_eq!(
+        app.adsb_panel.total_messages,
+        snapshot.receiver.total_messages
+    );
+    assert_eq!(app.adsb_panel.aircraft.len(), 1);
+    println!(
+        "A09 real app at 60 Hz plus 200 ms shared-lock stall: {} samples, {} cross-block messages, zero lost samples",
+        progress.samples, snapshot.receiver.total_messages,
+    );
+}
+
+#[test]
 fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples() {
     use crate::source_manager::{SourceMode, SourceStatus};
     let mut app = offline_test_app();

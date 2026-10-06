@@ -23,6 +23,7 @@ path = "src/main.rs"
 dump1090 = { path = "../dump1090" }
 lrpt-decode = { path = "../lrpt-decode" }
 ez-proto = { workspace = true }
+ez-daemon = { workspace = true }
 
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.35"
@@ -81,7 +82,6 @@ sgp4 = "2.4"
 libc = "0.2"
 
 [dev-dependencies]
-ez-daemon = { workspace = true }
 tokio-tungstenite = { workspace = true }
 
 [features]

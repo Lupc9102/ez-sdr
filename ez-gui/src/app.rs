@@ -8,6 +8,7 @@ pub struct FreqMemEntry {
     pub label: String,
 }
 
+#[cfg(test)]
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
 use crate::ai_panel::AiPanel;
@@ -120,6 +121,9 @@ pub struct CentralApp {
     rds: crate::radio_rds::RdsDecoder,
     daemon_audio: crate::audio_resampler::AudioResampler,
     audio: AudioOutput,
+    local_adsb: crate::local_adsb::LocalAdsbWorker,
+    last_local_adsb_boundary: Option<(u64, Option<u64>, u64)>,
+    #[cfg(test)]
     adsb_decoder: AdsBDecoder,
     last_local_adsb_epoch: Option<u64>,
     last_adsb_capture: Option<(u64, u32, crate::source_manager::SourceMode, u64, bool)>,
@@ -380,6 +384,11 @@ impl CentralApp {
             }
         }
 
+        let capture_stream = shared
+            .lock()
+            .expect("shared state mutex poisoned")
+            .source
+            .capture_stream();
         let mut app = Self {
             shared: shared.clone(),
             event_bus: crate::events::EventBus::new(),
@@ -414,6 +423,9 @@ impl CentralApp {
             // Keep several source blocks queued so a late GUI repaint does not
             // turn directly into a dropped audio frame.
             demod_worker: crate::demod::DemodWorker::new(16),
+            local_adsb: crate::local_adsb::LocalAdsbWorker::new(capture_stream),
+            last_local_adsb_boundary: None,
+            #[cfg(test)]
             adsb_decoder: AdsBDecoder::new(),
             last_local_adsb_epoch: None,
             last_adsb_capture: None,
@@ -690,6 +702,12 @@ impl CentralApp {
 
     fn sync_adsb_capture(&mut self) {
         let capture = self.shared.try_lock().ok().map(|state| {
+            self.local_adsb.configure(
+                state.adsb_running
+                    && self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090
+                    && state.source.source_mode != crate::source_manager::SourceMode::Daemon,
+                Some((state.config.observer_lat, state.config.observer_lon)),
+            );
             (
                 state.source.capture_center_frequency_hz(),
                 state.source.sample_rate_hz,
@@ -700,8 +718,12 @@ impl CentralApp {
         });
         if let Some(capture) = capture {
             if self.last_adsb_capture.as_ref() != Some(&capture) {
-                self.adsb_decoder = AdsBDecoder::new();
+                #[cfg(test)]
+                {
+                    self.adsb_decoder = AdsBDecoder::new();
+                }
                 self.last_local_adsb_epoch = None;
+                self.last_local_adsb_boundary = None;
                 self.seen_aircraft.clear();
                 self.notified_aircraft.clear();
                 if self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090 {
@@ -712,6 +734,7 @@ impl CentralApp {
         }
     }
 
+    #[cfg(test)]
     fn feed_local_adsb_capture(
         &mut self,
         samples: &[u8],
@@ -737,6 +760,55 @@ impl CentralApp {
         self.adsb_panel.aircraft = self.adsb_decoder.get_aircraft();
         self.adsb_panel
             .apply_receiver_snapshot(self.adsb_decoder.receiver_snapshot());
+    }
+
+    fn apply_local_adsb_snapshot(&mut self) {
+        let Some((generation, enabled)) = self.shared.try_lock().ok().map(|state| {
+            (
+                state.source.stream_generation(),
+                state.adsb_running
+                    && state.source.source_mode != crate::source_manager::SourceMode::Daemon
+                    && self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090,
+            )
+        }) else {
+            return;
+        };
+        if !enabled {
+            return;
+        }
+        let Some(snapshot) = self.local_adsb.snapshot() else {
+            return;
+        };
+        if generation == 0 || snapshot.generation != generation {
+            return;
+        }
+        let boundary = (
+            snapshot.generation,
+            snapshot.epoch,
+            snapshot.discontinuity_revision,
+        );
+        if self.last_local_adsb_boundary != Some(boundary) {
+            self.adsb_panel.clear_tracks();
+            if self.last_local_adsb_epoch != snapshot.epoch {
+                self.seen_aircraft.clear();
+                self.notified_aircraft.clear();
+            }
+            self.last_local_adsb_epoch = snapshot.epoch;
+            self.last_local_adsb_boundary = Some(boundary);
+            if snapshot.total_lost_samples > 0 {
+                self.status_bar.warning(format!(
+                    "ADS-B input overflow: {} samples lost in {} blocks",
+                    snapshot.total_lost_samples, snapshot.dropped_blocks,
+                ));
+            }
+        }
+        if snapshot.sample_rate_mismatch {
+            self.status_bar
+                .warning("⚠ ADS-B: sample rate mismatch (expected 2.4 MHz)".into());
+        }
+        self.adsb_panel.aircraft.clone_from(&snapshot.aircraft);
+        self.adsb_panel
+            .apply_receiver_snapshot(snapshot.receiver.clone());
     }
 
     /// Drain queued daemon events (only produces events in `SourceMode::Daemon`)
@@ -1179,7 +1251,6 @@ impl eframe::App for CentralApp {
                     state.lpf_cutoff,
                     crate::radio_ui::channel_bandwidth(&state),
                     crate::radio_ui::stereo_audio_requested(&state),
-                    state.adsb_running,
                     state.spectrum.vfo_signal_level(),
                 ))
             } else {
@@ -1187,6 +1258,7 @@ impl eframe::App for CentralApp {
             }
         };
 
+        #[cfg(test)]
         if let Ok(state) = self.shared.try_lock() {
             // A replay may have been captured anywhere. Its viewer location is not
             // verified capture metadata and must not disambiguate surface CPR.
@@ -1217,7 +1289,6 @@ impl eframe::App for CentralApp {
             lpf_cutoff,
             channel_bandwidth,
             stereo_audio,
-            adsb_running,
             signal_level,
         )) = source_params
         {
@@ -1299,15 +1370,6 @@ impl eframe::App for CentralApp {
                     self.demod_worker.push_iq(channel_iq);
                 }
 
-                // Feed to ADS-B decoder when tuned to 1090 MHz
-                if adsb_running
-                    && self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090
-                    && (block.center_hz == 1_090_000_000
-                        || (block.center_hz > 1_088_000_000 && block.center_hz < 1_092_000_000))
-                {
-                    let format = self.shared.lock().unwrap().input_format;
-                    self.feed_local_adsb_capture(samples, block.clock, format);
-                }
                 if (self.current_tab == AppTab::Listen || self.scanner.enabled)
                     && block.center_hz == center
                     && block.clock.exact_sample_rate_hz() == f64::from(rate)
@@ -1452,9 +1514,12 @@ impl eframe::App for CentralApp {
 
         // Passive ADS-B: detect newly-arrived aircraft and fire alert toasts + Discord notifications.
         self.adsb_panel.poll_uat();
+        self.apply_local_adsb_snapshot();
+        #[cfg(test)]
         if self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090
             && self.shared.try_lock().ok().is_some_and(|state| {
                 state.source.source_mode != crate::source_manager::SourceMode::Daemon
+                    && state.source.stream_generation() == 0
             })
         {
             self.adsb_panel
@@ -2509,7 +2574,11 @@ impl CentralApp {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Region / band");
                 if self.adsb_panel.ui_region_picker(ui) {
-                    self.adsb_decoder = AdsBDecoder::new();
+                    self.local_adsb.reset();
+                    #[cfg(test)]
+                    {
+                        self.adsb_decoder = AdsBDecoder::new();
+                    }
                     self.seen_aircraft.clear();
                     self.notified_aircraft.clear();
                 }
