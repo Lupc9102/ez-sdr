@@ -1861,3 +1861,41 @@ fn scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state() {
 
 #[path = "app_runtime_action_tests.rs"]
 mod runtime_action_tests;
+
+#[test]
+fn hidden_local_capture_epoch_and_gap_retire_trails_notifications_and_decoder_state() {
+    use crate::adsb_decoder::capture_tests::position_messages;
+    use ez_daemon::hardware::adsb::encode_uc8;
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Meteor;
+    let [odd, even] = position_messages(0x3c4b12);
+    let raw = encode_uc8(&[odd, even]);
+    let single = encode_uc8(&[odd]);
+    let clock = ez_proto::CaptureClock::new(401, 0, 2_400_000, None);
+    app.feed_local_adsb_capture(&raw, clock, dump1090::demod::InputFormat::Uc8);
+    app.adsb_panel.tick_model();
+    assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 1);
+    app.seen_aircraft.insert(0x3c4b12);
+    app.notified_aircraft.insert(0x3c4b12);
+    let mut rewind = clock;
+    rewind.epoch = 402;
+    rewind.discontinuous = true;
+    app.feed_local_adsb_capture(&single, rewind, dump1090::demod::InputFormat::Uc8);
+    app.adsb_panel.tick_model();
+    assert!(!app.adsb_panel.aircraft[0].has_position);
+    assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 0);
+    assert!(app.seen_aircraft.is_empty());
+    assert!(app.notified_aircraft.is_empty());
+    assert_eq!(app.adsb_decoder.total_messages, 1);
+    let mut next = rewind.offset_samples(single.len() as u64 / 2).unwrap();
+    next.discontinuous = false;
+    app.feed_local_adsb_capture(&raw, next, dump1090::demod::InputFormat::Uc8);
+    app.adsb_panel.tick_model();
+    assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 1);
+    let mut gap = next.offset_samples(raw.len() as u64 / 2 + 1).unwrap();
+    gap.discontinuous = true;
+    app.feed_local_adsb_capture(&single, gap, dump1090::demod::InputFormat::Uc8);
+    app.adsb_panel.tick_model();
+    assert!(!app.adsb_panel.aircraft[0].has_position);
+    assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 0);
+}

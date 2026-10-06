@@ -1,0 +1,34 @@
+{
+  "batch": 20,
+  "findings": [
+    "A08"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1588,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6466 nodes, 14035 edges)",
+  "regressions": [
+    "Real local SourceManager replay and daemon FileReplaySource decode the same CU8 CPR capture at 0.1x, 1x and 10x for three loops each: exact equivalent positions; each loop first frame is unpositioned rather than pairing or using a relative fix across rewind",
+    "CPR capture-clock limit accepts exactly 10 seconds and rejects 10 seconds plus one nanosecond; 9-second captured pairs survive simulated 900-second processing delays, and consecutive CPU submissions cannot pair 15-second captured frames",
+    "Local and daemon real IQ split/whole blocks retain identical message clocks with demodulator phase, native 16800003 Hz rate and stride 7; unknown UTC stays absent and known UTC remains checked",
+    "Capture epoch/domain changes, queue overflow, missing samples and rejected input clear CPR/overlap/relative references; split RF messages cannot bridge a missing interval and complete subsequent messages recover",
+    "Capture-relative pruning and position TTL are independent of CPU time; idle visible snapshots expire while bounded captured state survives for delayed replay",
+    "Actual hidden app ingestion resets decoder, trails, notification identity and pending enrichment at rewind and retires trails on explicit gaps",
+    "Partial source read bytes retain complete IQ sample coordinates; live overflow exposes the exact skipped index and marks only the next delivered block discontinuous",
+    "Invalid clocks, negative pre-origin offsets, sample-index/time/UTC overflow fail without wrapping; daemon retained capture state is bounded at 4096 distinct validated addresses"
+  ],
+  "limitations": [
+    "Three formal findings (A09, R05, G02) and seven additional experiments remain open or partly verified; the full goal remains active",
+    "Local GUI still drains two blocks per frame; continuous ingestion and recorder/other DSP gap contracts remain A09/R05 work",
+    "Capture age at sample boundaries uses acquisition time; idle display liveness additionally advances on observation time without expiring internal captured CPR state",
+    "No protocol wire layout changed; decoded CaptureTimestamp is internal and optional unknown acquisition UTC is never manufactured",
+    "No calibrated weak-RF, geographically vetted capture, physical USB/audio or actual-display performance result is claimed by synthetic IQ and private replay tests",
+    "Pre-existing 672 tracked deletions, untracked AGENTS.md and four untouched workspace formatting differences are preserved; original audit evidence is unchanged"
+  ]
+}

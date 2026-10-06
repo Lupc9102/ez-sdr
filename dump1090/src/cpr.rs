@@ -328,11 +328,54 @@ pub fn decode_cpr_relative(
 const MAX_CPR_CACHE_ENTRIES: usize = 2048;
 const CPR_PAIR_TIMEOUT_SECS: f64 = 10.0;
 
+/// CPR time is either an explicit processing instant (legacy callers) or an
+/// acquisition-relative duration in a named epoch. Those domains never pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CprTimestamp {
+    Processing(std::time::Instant),
+    Capture {
+        epoch: u64,
+        elapsed: std::time::Duration,
+    },
+}
+
+impl CprTimestamp {
+    fn same_domain(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Processing(_), Self::Processing(_)) => true,
+            (Self::Capture { epoch: a, .. }, Self::Capture { epoch: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+
+    pub fn checked_duration_since(self, earlier: Self) -> Option<std::time::Duration> {
+        match (self, earlier) {
+            (Self::Processing(now), Self::Processing(seen)) => now.checked_duration_since(seen),
+            (
+                Self::Capture {
+                    epoch: a,
+                    elapsed: now,
+                },
+                Self::Capture {
+                    epoch: b,
+                    elapsed: seen,
+                },
+            ) if a == b => now.checked_sub(seen),
+            _ => None,
+        }
+    }
+
+    fn distance(self, other: Self) -> Option<std::time::Duration> {
+        self.checked_duration_since(other)
+            .or_else(|| other.checked_duration_since(self))
+    }
+}
+
 /// Timestamped CPR frame for TTL pairing.
 #[derive(Debug, Clone, Copy)]
 struct TimedCprFrame {
     frame: CprFrame,
-    time: std::time::Instant,
+    time: CprTimestamp,
 }
 
 /// Per-aircraft CPR cache entry.
@@ -340,13 +383,16 @@ struct TimedCprFrame {
 struct CprCacheEntry {
     even: Option<TimedCprFrame>,
     odd: Option<TimedCprFrame>,
-    last_seen: Option<std::time::Instant>,
+    last_seen: Option<CprTimestamp>,
     last_position: Option<(f64, f64)>,
-    last_position_time: Option<std::time::Instant>,
+    last_position_time: Option<CprTimestamp>,
 }
 
 impl CprCacheEntry {
-    fn prepare(&mut self, frame: CprFrame, now: std::time::Instant) {
+    fn prepare(&mut self, frame: CprFrame, now: CprTimestamp) {
+        if self.last_seen.is_some_and(|seen| !now.same_domain(seen)) {
+            *self = Self::default();
+        }
         if self
             .even
             .or(self.odd)
@@ -361,7 +407,7 @@ impl CprCacheEntry {
         }
         if !self.last_position_time.is_some_and(|seen| {
             now.checked_duration_since(seen)
-                .is_some_and(|age| age.as_secs() <= 60)
+                .is_some_and(|age| age <= std::time::Duration::from_secs(60))
         }) {
             self.last_position = None;
             self.last_position_time = None;
@@ -386,23 +432,24 @@ impl CprDecoder {
 
     /// Prune entries older than `max_age`.
     pub fn prune_older_than(&mut self, max_age: std::time::Duration) {
-        let now = std::time::Instant::now();
+        self.prune_older_than_at(max_age, CprTimestamp::Processing(std::time::Instant::now()));
+    }
+
+    /// Prune in the caller's clock domain. Replay/capture callers must supply
+    /// acquisition time so CPU delays cannot remove otherwise eligible pairs.
+    pub fn prune_older_than_at(&mut self, max_age: std::time::Duration, now: CprTimestamp) {
         self.cache.retain(|_, entry| {
-            entry.last_seen.is_some_and(|t| {
-                let dt = if now >= t {
-                    now.duration_since(t)
-                } else {
-                    t.duration_since(now)
-                };
-                dt <= max_age
-            })
+            entry
+                .last_seen
+                .and_then(|seen| now.distance(seen))
+                .is_some_and(|age| age <= max_age)
         });
     }
 
     /// Evict oldest entries if cache is at or exceeds capacity.
-    fn evict_oldest_if_full(&mut self, icao: u32) {
+    fn evict_oldest_if_full(&mut self, icao: u32, now: CprTimestamp) {
         if self.cache.len() >= MAX_CPR_CACHE_ENTRIES {
-            self.prune_older_than(std::time::Duration::from_secs(60));
+            self.prune_older_than_at(std::time::Duration::from_secs(60), now);
             let max_allowed = if self.cache.contains_key(&icao) {
                 MAX_CPR_CACHE_ENTRIES
             } else {
@@ -428,11 +475,21 @@ impl CprDecoder {
         frame: CprFrame,
         now: std::time::Instant,
     ) -> Option<(f64, f64)> {
+        self.submit_with_timestamp(icao, frame, CprTimestamp::Processing(now))
+    }
+
+    #[must_use]
+    pub fn submit_with_timestamp(
+        &mut self,
+        icao: u32,
+        frame: CprFrame,
+        now: CprTimestamp,
+    ) -> Option<(f64, f64)> {
         if frame.lat >= 131072 || frame.lon >= 131072 {
             return None;
         }
         // Automatic cap enforcement: evict oldest entry rather than clearing entire cache
-        self.evict_oldest_if_full(icao);
+        self.evict_oldest_if_full(icao, now);
 
         let entry = self.cache.entry(icao).or_default();
         entry.prepare(frame, now);
@@ -444,11 +501,7 @@ impl CprDecoder {
                 let global = if frame.odd {
                     entry.odd = Some(timed);
                     entry.even.and_then(|even| {
-                        let dt = if now >= even.time {
-                            now.duration_since(even.time)
-                        } else {
-                            even.time.duration_since(now)
-                        };
+                        let dt = now.distance(even.time)?;
                         (dt.as_secs_f64() <= CPR_PAIR_TIMEOUT_SECS)
                             .then(|| {
                                 decode_cpr_airborne(
@@ -464,11 +517,7 @@ impl CprDecoder {
                 } else {
                     entry.even = Some(timed);
                     entry.odd.and_then(|odd| {
-                        let dt = if now >= odd.time {
-                            now.duration_since(odd.time)
-                        } else {
-                            odd.time.duration_since(now)
-                        };
+                        let dt = now.distance(odd.time)?;
                         (dt.as_secs_f64() <= CPR_PAIR_TIMEOUT_SECS)
                             .then(|| {
                                 decode_cpr_airborne(
@@ -523,6 +572,24 @@ impl CprDecoder {
         reflon: f64,
         now: std::time::Instant,
     ) -> Option<(f64, f64)> {
+        self.submit_surface_with_timestamp(
+            icao,
+            frame,
+            reflat,
+            reflon,
+            CprTimestamp::Processing(now),
+        )
+    }
+
+    #[must_use]
+    pub fn submit_surface_with_timestamp(
+        &mut self,
+        icao: u32,
+        frame: CprFrame,
+        reflat: f64,
+        reflon: f64,
+        now: CprTimestamp,
+    ) -> Option<(f64, f64)> {
         if frame.cpr_type != CprType::Surface
             || frame.lat >= 131072
             || frame.lon >= 131072
@@ -533,7 +600,7 @@ impl CprDecoder {
         {
             return None;
         }
-        self.evict_oldest_if_full(icao);
+        self.evict_oldest_if_full(icao, now);
 
         let entry = self.cache.entry(icao).or_default();
         entry.prepare(frame, now);
@@ -542,11 +609,7 @@ impl CprDecoder {
         let result = if frame.odd {
             entry.odd = Some(timed);
             let even = entry.even?;
-            let dt = if now >= even.time {
-                now.duration_since(even.time)
-            } else {
-                even.time.duration_since(now)
-            };
+            let dt = now.distance(even.time)?;
             if dt.as_secs_f64() > CPR_PAIR_TIMEOUT_SECS {
                 None
             } else {
@@ -563,11 +626,7 @@ impl CprDecoder {
         } else {
             entry.even = Some(timed);
             let odd = entry.odd?;
-            let dt = if now >= odd.time {
-                now.duration_since(odd.time)
-            } else {
-                odd.time.duration_since(now)
-            };
+            let dt = now.distance(odd.time)?;
             if dt.as_secs_f64() > CPR_PAIR_TIMEOUT_SECS {
                 None
             } else {
@@ -650,6 +709,125 @@ impl CprDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn capture(epoch: u64, ns: u64) -> CprTimestamp {
+        CprTimestamp::Capture {
+            epoch,
+            elapsed: std::time::Duration::from_nanos(ns),
+        }
+    }
+
+    fn capture_pair(kind: CprType) -> (CprFrame, CprFrame) {
+        (
+            CprFrame {
+                cpr_type: kind,
+                odd: false,
+                lat: 93000,
+                lon: 113609,
+            },
+            CprFrame {
+                cpr_type: kind,
+                odd: true,
+                lat: 74158,
+                lon: 108994,
+            },
+        )
+    }
+
+    #[test]
+    fn capture_pair_timeout_is_exact_and_independent_of_processing_time() {
+        let (even, odd) = capture_pair(CprType::Airborne);
+        for (offset, eligible) in [
+            (9_000_000_000, true),
+            (10_000_000_000, true),
+            (10_000_000_001, false),
+            (15_000_000_000, false),
+        ] {
+            let mut decoder = CprDecoder::new();
+            assert!(decoder
+                .submit_with_timestamp(1, odd, capture(7, 0))
+                .is_none());
+            // These calls execute consecutively, regardless of the captured interval.
+            assert_eq!(
+                decoder
+                    .submit_with_timestamp(1, even, capture(7, offset))
+                    .is_some(),
+                eligible
+            );
+        }
+    }
+
+    #[test]
+    fn capture_epoch_or_clock_domain_change_removes_pairs_and_relative_references() {
+        let (even, odd) = capture_pair(CprType::Airborne);
+        let mut decoder = CprDecoder::new();
+        assert!(decoder
+            .submit_with_timestamp(1, odd, capture(1, 0))
+            .is_none());
+        assert!(decoder
+            .submit_with_timestamp(1, even, capture(1, 1))
+            .is_some());
+        assert!(decoder
+            .submit_with_timestamp(1, odd, capture(2, 0))
+            .is_none());
+        assert!(decoder
+            .submit_with_timestamp(1, even, CprTimestamp::Processing(std::time::Instant::now()))
+            .is_none());
+        assert!(decoder
+            .submit_with_timestamp(1, odd, capture(2, 1))
+            .is_none());
+        assert!(decoder
+            .submit_with_timestamp(1, even, capture(2, 2))
+            .is_some());
+    }
+
+    #[test]
+    fn capture_pruning_and_reference_expiry_follow_capture_progress() {
+        let (even, odd) = capture_pair(CprType::Airborne);
+        let mut decoder = CprDecoder::new();
+        assert!(decoder
+            .submit_with_timestamp(1, odd, capture(1, 100_000_000_000))
+            .is_none());
+        decoder.prune_older_than_at(
+            std::time::Duration::from_secs(60),
+            capture(1, 109_000_000_000),
+        );
+        assert_eq!(decoder.len(), 1);
+        assert!(decoder
+            .submit_with_timestamp(1, even, capture(1, 109_000_000_000))
+            .is_some());
+        // More than 60 captured seconds after the fix, a single frame cannot
+        // borrow the old relative reference even when processing is immediate.
+        assert!(decoder
+            .submit_with_timestamp(1, odd, capture(1, 169_000_000_001))
+            .is_none());
+        decoder.prune_older_than_at(
+            std::time::Duration::from_secs(60),
+            capture(1, 229_000_000_002),
+        );
+        assert!(decoder.is_empty());
+    }
+
+    #[test]
+    fn surface_capture_pairing_enforces_capture_timeout_and_epoch() {
+        let (even, odd) = capture_pair(CprType::Surface);
+        for (epoch, offset, eligible) in [
+            (1, 9_000_000_000, true),
+            (1, 15_000_000_000, false),
+            (2, 1, false),
+        ] {
+            let mut decoder = CprDecoder::new();
+            assert!(decoder
+                .submit_surface_with_timestamp(1, odd, -77.0, 166.0, capture(1, 0))
+                .is_none());
+            assert_eq!(
+                decoder
+                    .submit_surface_with_timestamp(1, even, -77.0, 166.0, capture(epoch, offset))
+                    .is_some(),
+                eligible
+            );
+        }
+    }
 
     #[test]
     fn cpr_reference_expires_and_surface_airborne_frames_never_pair() {

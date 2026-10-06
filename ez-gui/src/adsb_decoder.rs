@@ -19,6 +19,12 @@ pub struct AdsBDecoder {
     receiver_position: Option<(f64, f64)>,
     discontinuous: bool,
     sample_rate_mismatch: bool,
+    fallback_epoch: u64,
+    next_capture: Option<ez_proto::CaptureClock>,
+    last_capture_clock: Option<ez_proto::CaptureClock>,
+    last_format: Option<InputFormat>,
+    capture_now: Option<dump1090::cpr::CprTimestamp>,
+    capture_observed_at: Option<std::time::Instant>,
 }
 
 struct AircraftState {
@@ -35,6 +41,8 @@ struct AircraftState {
     pub surface_movement: Option<u32>,
     pub surface_heading: Option<u32>,
     position_seen: Option<std::time::Instant>,
+    capture_seen: Option<ez_proto::CaptureTimestamp>,
+    capture_position_seen: Option<ez_proto::CaptureTimestamp>,
     #[cfg(test)]
     pub cpr_even: Option<CprFrame>,
     #[cfg(test)]
@@ -49,6 +57,13 @@ struct CprFrame {
     pub raw_lat: u32,
     pub raw_lon: u32,
     pub timestamp: f64,
+}
+
+fn capture_cpr_time(capture: ez_proto::CaptureTimestamp) -> Option<dump1090::cpr::CprTimestamp> {
+    Some(dump1090::cpr::CprTimestamp::Capture {
+        epoch: capture.epoch,
+        elapsed: std::time::Duration::from_nanos(capture.relative_time_ns()?),
+    })
 }
 
 impl Default for AdsBDecoder {
@@ -79,6 +94,12 @@ impl AdsBDecoder {
             receiver_position: None,
             discontinuous: false,
             sample_rate_mismatch: false,
+            fallback_epoch: ez_proto::new_capture_epoch(),
+            next_capture: None,
+            last_capture_clock: None,
+            last_format: None,
+            capture_now: None,
+            capture_observed_at: None,
         }
     }
 
@@ -103,11 +124,77 @@ impl AdsBDecoder {
     /// Feed IQ bytes with an explicit sample format. Handles arbitrary byte
     /// boundaries by buffering trailing bytes that don't form a complete sample.
     pub fn feed_iq_with_format(&mut self, iq: &[u8], sample_rate: u32, format: InputFormat) {
-        if sample_rate != 2_400_000 {
+        let clock =
+            ez_proto::CaptureClock::new(self.fallback_epoch, self.total_samples, sample_rate, None);
+        self.feed_iq_with_clock(iq, clock, format);
+    }
+
+    /// Continuous capture/replay callers retain the acquisition clock through
+    /// queuing. CPR uses decoded message sample time, including overlap/phase.
+    pub fn feed_iq_with_clock(
+        &mut self,
+        iq: &[u8],
+        clock: ez_proto::CaptureClock,
+        format: InputFormat,
+    ) {
+        if clock.sample_stride == 0
+            || clock.source_sample_rate_hz / clock.sample_stride != 2_400_000
+        {
             self.sample_rate_mismatch = true;
+            self.mark_discontinuous();
             return;
         }
         self.sample_rate_mismatch = false;
+
+        let contiguous = !clock.discontinuous
+            && self.last_format == Some(format)
+            && self.next_capture.is_some_and(|expected| {
+                expected.epoch == clock.epoch
+                    && expected.source_sample_index == clock.source_sample_index
+                    && expected.source_sample_rate_hz == clock.source_sample_rate_hz
+                    && expected.sample_stride == clock.sample_stride
+                    && expected.origin_unix_ns == clock.origin_unix_ns
+            });
+        if !contiguous {
+            let changed_epoch = self.last_capture_clock.is_some_and(|previous| {
+                previous.epoch != clock.epoch
+                    || previous.source_sample_rate_hz != clock.source_sample_rate_hz
+                    || previous.sample_stride != clock.sample_stride
+                    || previous.origin_unix_ns != clock.origin_unix_ns
+            }) || self.last_format.is_some_and(|previous| previous != format);
+            self.overlap_tail.clear();
+            self.pending_i.clear();
+            self.cpr_decoder.clear();
+            if changed_epoch {
+                self.demod.icao_filter = Default::default();
+                self.aircraft.clear();
+            } else {
+                for aircraft in self.aircraft.values_mut() {
+                    aircraft.latitude = None;
+                    aircraft.longitude = None;
+                    aircraft.position_seen = None;
+                    aircraft.capture_position_seen = None;
+                    aircraft.entry.has_position = false;
+                    aircraft.entry.position_seen = None;
+                    aircraft.entry.position_source = None;
+                    aircraft.entry.quality_known = false;
+                    aircraft.entry.lat = 0.0;
+                    aircraft.entry.lon = 0.0;
+                    #[cfg(test)]
+                    {
+                        aircraft.cpr_even = None;
+                        aircraft.cpr_odd = None;
+                    }
+                }
+            }
+        }
+        self.discontinuous |= !contiguous;
+        self.last_format = Some(format);
+        self.last_capture_clock = Some(clock);
+        self.total_samples = clock.source_sample_index / u64::from(clock.sample_stride);
+        self.next_capture = Some(clock);
+        self.capture_now = clock.message_timestamp_2400(0).and_then(capture_cpr_time);
+        self.capture_observed_at = Some(std::time::Instant::now());
 
         let bytes_per_sample = format.bytes_per_sample();
         let mut repaired = Vec::new();
@@ -165,6 +252,7 @@ impl AdsBDecoder {
                 mm.reliable,
                 mm.correctedbits,
                 mm.score,
+                mm.timestamp_msg,
             ));
         });
 
@@ -172,20 +260,38 @@ impl AdsBDecoder {
         let keep = mag.data.len().min(OVERLAP_SAMPLES);
         self.overlap_tail
             .extend_from_slice(&mag.data[mag.data.len() - keep..]);
+        let block_start_ticks = self.total_samples.saturating_mul(5);
         self.total_samples = self.total_samples.saturating_add(nsamples as u64);
+        self.next_capture = clock.offset_samples(nsamples as u64).map(|mut next| {
+            next.discontinuous = false;
+            next
+        });
+        self.capture_now = clock
+            .message_timestamp_2400(nsamples as i128 * 5)
+            .and_then(capture_cpr_time);
         self.frame_count += 1;
 
         // M9: Periodically prune the CPR cache to prevent unbounded growth.
         if self.frame_count.is_multiple_of(100) {
-            self.cpr_decoder
-                .prune_older_than(std::time::Duration::from_secs(60));
+            if let Some(now) = self.capture_now {
+                self.cpr_decoder
+                    .prune_older_than_at(std::time::Duration::from_secs(60), now);
+            }
         }
 
-        for (icao, msgtype, msg, signal_level, reliable, correctedbits, score) in decoded {
+        for (icao, msgtype, msg, signal_level, reliable, correctedbits, score, message_ticks) in
+            decoded
+        {
+            let Some(capture) = clock
+                .message_timestamp_2400(i128::from(message_ticks) - i128::from(block_start_ticks))
+                .filter(|capture| capture.relative_time_ns().is_some())
+            else {
+                continue;
+            };
             self.total_messages += 1;
             self.rate_window
                 .observe_total(self.total_messages, std::time::Instant::now());
-            self.process_decoded(
+            self.process_decoded_at(
                 icao,
                 msgtype,
                 msg,
@@ -193,6 +299,7 @@ impl AdsBDecoder {
                 reliable,
                 correctedbits,
                 score,
+                Some(capture),
             );
         }
     }
@@ -201,6 +308,7 @@ impl AdsBDecoder {
     /// This resets the demodulator's last_message_end state.
     pub fn mark_discontinuous(&mut self) {
         self.discontinuous = true;
+        self.next_capture = None;
     }
 
     /// Returns true if the last feed_iq call had a sample rate mismatch.
@@ -208,6 +316,7 @@ impl AdsBDecoder {
         self.sample_rate_mismatch
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     fn process_decoded(
         &mut self,
@@ -218,6 +327,32 @@ impl AdsBDecoder {
         reliable: bool,
         correctedbits: usize,
         score: dump1090::demod::ScoreRank,
+    ) {
+        self.capture_now = None;
+        self.capture_observed_at = None;
+        self.process_decoded_at(
+            icao,
+            msgtype,
+            msg,
+            signal_level,
+            reliable,
+            correctedbits,
+            score,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn process_decoded_at(
+        &mut self,
+        icao: u32,
+        msgtype: u8,
+        msg: [u8; 14],
+        signal_level: f64,
+        reliable: bool,
+        correctedbits: usize,
+        score: dump1090::demod::ScoreRank,
+        capture: Option<ez_proto::CaptureTimestamp>,
     ) {
         let identity = if msgtype == 18 {
             let Some(identity) = dump1090::mode_s::df18_identity(&msg) else {
@@ -237,17 +372,30 @@ impl AdsBDecoder {
         }
 
         let now = std::time::Instant::now();
+        let cpr_time = capture
+            .and_then(capture_cpr_time)
+            .unwrap_or(dump1090::cpr::CprTimestamp::Processing(now));
 
         // Long-running reception must not retain every ICAO address ever seen.
         // Match the panel's maximum ten-minute age selection and cap bursts.
         if !self.aircraft.contains_key(&icao) && self.aircraft.len() >= 4096 {
-            self.aircraft
-                .retain(|_, ac| now.duration_since(ac.seen).as_secs() <= 600);
+            self.aircraft.retain(|_, ac| {
+                ac.capture_seen
+                    .and_then(capture_cpr_time)
+                    .and_then(|seen| cpr_time.checked_duration_since(seen))
+                    .unwrap_or_else(|| now.saturating_duration_since(ac.seen))
+                    <= std::time::Duration::from_secs(600)
+            });
             if self.aircraft.len() >= 4096 {
                 if let Some(oldest) = self
                     .aircraft
                     .iter()
-                    .min_by_key(|(_, ac)| ac.seen)
+                    .max_by_key(|(_, ac)| {
+                        ac.capture_seen
+                            .and_then(capture_cpr_time)
+                            .and_then(|seen| cpr_time.checked_duration_since(seen))
+                            .unwrap_or_else(|| now.saturating_duration_since(ac.seen))
+                    })
                     .map(|(&key, _)| key)
                 {
                     self.aircraft.remove(&oldest);
@@ -305,6 +453,8 @@ impl AdsBDecoder {
             surface_movement: None,
             surface_heading: None,
             position_seen: None,
+            capture_seen: None,
+            capture_position_seen: None,
             #[cfg(test)]
             cpr_even: None,
             #[cfg(test)]
@@ -313,6 +463,7 @@ impl AdsBDecoder {
         });
 
         entry.seen = now;
+        entry.capture_seen = capture;
         entry.entry.seen = now;
 
         // Quality belongs to the retained position, not to unrelated traffic.
@@ -383,13 +534,17 @@ impl AdsBDecoder {
                         lat: raw_lat,
                         lon: raw_lon,
                     };
-                    if let Some((lat, lon)) = self.cpr_decoder.submit(icao, cpr_frame) {
+                    if let Some((lat, lon)) = self
+                        .cpr_decoder
+                        .submit_with_timestamp(icao, cpr_frame, cpr_time)
+                    {
                         entry.latitude = Some(lat);
                         entry.longitude = Some(lon);
                         entry.entry.lat = lat;
                         entry.entry.lon = lon;
                         entry.entry.has_position = true;
                         entry.position_seen = Some(now);
+                        entry.capture_position_seen = capture;
                         entry.entry.position_seen = Some(now);
                         entry.entry.position_source =
                             Some(identity.map_or("adsb", |identity| identity.source).into());
@@ -429,7 +584,12 @@ impl AdsBDecoder {
                         .zip(entry.longitude)
                         .filter(|_| {
                             entry.position_seen.is_some_and(|seen| {
-                                now.duration_since(seen) <= std::time::Duration::from_secs(60)
+                                let age = entry
+                                    .capture_position_seen
+                                    .and_then(capture_cpr_time)
+                                    .and_then(|position| cpr_time.checked_duration_since(position))
+                                    .unwrap_or_else(|| now.saturating_duration_since(seen));
+                                age <= std::time::Duration::from_secs(60)
                             })
                         })
                         .or(self.receiver_position)
@@ -442,12 +602,8 @@ impl AdsBDecoder {
                         };
                         let position = self
                             .cpr_decoder
-                            .submit_surface_with_reference(
-                                icao,
-                                cpr_frame,
-                                reflat,
-                                reflon,
-                                std::time::Instant::now(),
+                            .submit_surface_with_timestamp(
+                                icao, cpr_frame, reflat, reflon, cpr_time,
                             )
                             .or_else(|| {
                                 self.cpr_decoder
@@ -462,6 +618,7 @@ impl AdsBDecoder {
                             entry.entry.lon = lon;
                             entry.entry.has_position = true;
                             entry.position_seen = Some(now);
+                            entry.capture_position_seen = capture;
                             entry.entry.position_seen = Some(now);
                             entry.entry.position_source =
                                 Some(identity.map_or("adsb", |identity| identity.source).into());
@@ -479,20 +636,45 @@ impl AdsBDecoder {
 
     pub fn get_aircraft(&self) -> Vec<AircraftEntry> {
         let now = std::time::Instant::now();
+        // Capture age is evaluated at the last delivered sample. While input is
+        // idle, the display also ages by elapsed observation time. Retain the
+        // capture state internally so delayed replay does not destroy CPR pairs.
+        let idle_age = self
+            .capture_observed_at
+            .map_or(std::time::Duration::ZERO, |seen| {
+                now.saturating_duration_since(seen)
+            });
+        let capture_age = |timestamp: Option<ez_proto::CaptureTimestamp>| {
+            timestamp
+                .and_then(capture_cpr_time)
+                .zip(self.capture_now)
+                .and_then(|(seen, current)| current.checked_duration_since(seen))
+                .map(|age| age.saturating_add(idle_age))
+        };
         self.aircraft
             .values()
-            .filter(|ac| now.duration_since(ac.seen).as_secs() <= 600)
-            .map(|ac| {
-                let mut entry = ac.entry.clone();
-                if ac.position_seen.is_none_or(|seen| {
-                    now.duration_since(seen) > std::time::Duration::from_secs(60)
-                }) {
-                    // Callsign/velocity replies must not refresh an old map fix.
+            .filter_map(|aircraft| {
+                let age = capture_age(aircraft.capture_seen)
+                    .unwrap_or_else(|| now.saturating_duration_since(aircraft.seen));
+                if age > std::time::Duration::from_secs(600) {
+                    return None;
+                }
+                let position_age = capture_age(aircraft.capture_position_seen).or_else(|| {
+                    aircraft
+                        .position_seen
+                        .map(|seen| now.saturating_duration_since(seen))
+                });
+                let mut entry = aircraft.entry.clone();
+                entry.seen = now.checked_sub(age).unwrap_or(now);
+                if position_age.is_none_or(|age| age > std::time::Duration::from_secs(60)) {
                     entry.lat = 0.0;
                     entry.lon = 0.0;
                     entry.has_position = false;
+                    entry.position_seen = None;
+                } else {
+                    entry.position_seen = position_age.and_then(|age| now.checked_sub(age));
                 }
-                entry
+                Some(entry)
             })
             .collect()
     }
@@ -1259,3 +1441,7 @@ mod tests {
         assert!(!d.aircraft.get(&1).unwrap().entry.has_heading);
     }
 }
+
+#[cfg(test)]
+#[path = "adsb_capture_tests.rs"]
+pub(crate) mod capture_tests;

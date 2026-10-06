@@ -250,14 +250,67 @@ fn enumerate_rtl_devices() -> Result<Vec<RtlDeviceInfo>, String> {
     Err("RTL-SDR discovery requires a hardware-enabled build (--features rtlsdr).".into())
 }
 
+/// A local CU8 block carries its worker's immutable acquisition geometry.
+/// Sample indices advance even when delivery overflows; replay rewinds use a
+/// new epoch and unknown UTC rather than the viewer's wall clock.
+#[derive(Debug, Clone)]
+pub(crate) struct CaptureBlock {
+    pub samples: Vec<u8>,
+    pub clock: ez_proto::CaptureClock,
+    pub center_hz: u64,
+    file_position: Option<u64>,
+}
+
 enum SourceMessage {
-    Samples(Vec<u8>),
-    ReplaySamples {
-        samples: Vec<u8>,
-        file_position: u64,
-    },
+    Samples(CaptureBlock),
     EndOfStream,
     Error(String),
+}
+
+struct CaptureProducer {
+    clock: ez_proto::CaptureClock,
+    center_hz: u64,
+    pending_i: Option<u8>,
+}
+
+impl CaptureProducer {
+    fn new(rate: u32, center_hz: u64) -> Self {
+        let mut clock = ez_proto::CaptureClock::new(ez_proto::new_capture_epoch(), 0, rate, None);
+        clock.discontinuous = true;
+        Self {
+            clock,
+            center_hz,
+            pending_i: None,
+        }
+    }
+
+    fn rewind(&mut self) {
+        self.clock.epoch = ez_proto::new_capture_epoch();
+        self.clock.source_sample_index = 0;
+        self.clock.discontinuous = true;
+        self.pending_i = None;
+    }
+
+    fn block(&mut self, mut samples: Vec<u8>, file_position: Option<u64>) -> Option<CaptureBlock> {
+        if let Some(i) = self.pending_i.take() {
+            samples.insert(0, i);
+        }
+        if !samples.len().is_multiple_of(2) {
+            self.pending_i = samples.pop();
+        }
+        if samples.is_empty() {
+            return None;
+        }
+        let clock = self.clock;
+        self.clock = self.clock.offset_samples((samples.len() / 2) as u64)?;
+        self.clock.discontinuous = false;
+        Some(CaptureBlock {
+            samples,
+            clock,
+            center_hz: self.center_hz,
+            file_position,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,14 +325,19 @@ struct DaemonAudioTuning {
 /// Counts drops so the UI can surface them for diagnosis.
 fn send_live_samples(
     tx: &Sender<SourceMessage>,
+    capture: &mut CaptureProducer,
     samples: Vec<u8>,
     dropped: &std::sync::atomic::AtomicU64,
 ) -> bool {
-    match tx.try_send(SourceMessage::Samples(samples)) {
+    let Some(block) = capture.block(samples, None) else {
+        return true;
+    };
+    match tx.try_send(SourceMessage::Samples(block)) {
         Ok(()) => true,
         Err(TrySendError::Disconnected(_)) => false,
         Err(TrySendError::Full(_)) => {
             dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            capture.clock.discontinuous = true;
             true // not a disconnect; the block is dropped but the source lives on
         }
     }
@@ -760,6 +818,7 @@ impl SourceManager {
         };
 
         let rate = self.sample_rate_hz;
+        let center_hz = self.capture_center_frequency_hz();
         let source_mode = self.source_mode.clone();
         let replay_file = self.replay_file.clone();
         let replay_loop = self.replay_loop;
@@ -775,6 +834,7 @@ impl SourceManager {
         }
 
         let handle = std::thread::spawn(move || {
+            let mut capture = CaptureProducer::new(rate, center_hz);
             match source_mode {
                 SourceMode::Replay => {
                     let path = if let Some(p) = replay_file {
@@ -866,6 +926,7 @@ impl SourceManager {
                                     };
                                     reader = file2;
                                     file_position = 0;
+                                    capture.rewind();
                                     continue;
                                 }
                                 send_cancellable(&tx, &running, SourceMessage::EndOfStream);
@@ -879,15 +940,14 @@ impl SourceManager {
                                 };
 
                                 file_position += n as u64;
-                                if !send_cancellable(
-                                    &tx,
-                                    &running,
-                                    SourceMessage::ReplaySamples {
-                                        samples: chunk,
-                                        file_position,
-                                    },
-                                ) {
-                                    break;
+                                if let Some(block) = capture.block(chunk, Some(file_position)) {
+                                    if !send_cancellable(
+                                        &tx,
+                                        &running,
+                                        SourceMessage::Samples(block),
+                                    ) {
+                                        break;
+                                    }
                                 }
                                 let num_samples = if is_cf32 { n / 8 } else { n / 2 };
                                 let sleep_ms = (num_samples as f64 / f64::from(rate) * 1000.0
@@ -952,7 +1012,13 @@ impl SourceManager {
                                     break;
                                 }
                             };
-                            if n > 0 && !send_live_samples(&tx, buf[..n].to_vec(), &dropped_blocks)
+                            if n > 0
+                                && !send_live_samples(
+                                    &tx,
+                                    &mut capture,
+                                    buf[..n].to_vec(),
+                                    &dropped_blocks,
+                                )
                             {
                                 break;
                             }
@@ -968,8 +1034,12 @@ impl SourceManager {
                             match open(_rtl_settings.expect("validated hardware request")) {
                                 Ok(samples) if !samples.is_empty() => {
                                     while running.load(Ordering::SeqCst) {
-                                        if !send_live_samples(&tx, samples.clone(), &dropped_blocks)
-                                        {
+                                        if !send_live_samples(
+                                            &tx,
+                                            &mut capture,
+                                            samples.clone(),
+                                            &dropped_blocks,
+                                        ) {
                                             break;
                                         }
                                         std::thread::sleep(iq_block_duration(samples.len(), rate));
@@ -1056,7 +1126,7 @@ impl SourceManager {
                             }
                         }
 
-                        if !send_live_samples(&tx, buf.clone(), &dropped_blocks) {
+                        if !send_live_samples(&tx, &mut capture, buf.clone(), &dropped_blocks) {
                             break;
                         }
                         if !wait_cancellable(
@@ -1831,22 +1901,21 @@ impl SourceManager {
     /// Try to receive a pending chunk of IQ samples from the source thread.
     ///
     /// Returns `None` if no samples are available (non-blocking).
+    #[cfg(test)]
     pub fn recv_samples(&mut self) -> Option<Vec<u8>> {
+        self.recv_capture_block().map(|block| block.samples)
+    }
+
+    pub(crate) fn recv_capture_block(&mut self) -> Option<CaptureBlock> {
         if let Some(rx) = &self.rx {
             match rx.try_recv() {
-                Ok(SourceMessage::Samples(samples)) => {
+                Ok(SourceMessage::Samples(block)) => {
                     self.local_capture_accepted = true;
                     self.status = SourceStatus::Running;
-                    Some(samples)
-                }
-                Ok(SourceMessage::ReplaySamples {
-                    samples,
-                    file_position,
-                }) => {
-                    self.local_capture_accepted = true;
-                    self.status = SourceStatus::Running;
-                    self.replay_position = file_position.min(self.replay_size);
-                    Some(samples)
+                    if let Some(file_position) = block.file_position {
+                        self.replay_position = file_position.min(self.replay_size);
+                    }
+                    Some(block)
                 }
                 Ok(SourceMessage::EndOfStream) => {
                     if self.source_mode == SourceMode::Replay {
@@ -2264,6 +2333,101 @@ unsafe fn rtl_sdr_close(dev: *mut std::ffi::c_void) {
 }
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn replay_capture_positions_and_loop_boundaries_are_identical_at_all_speeds() {
+        use crate::adsb_decoder::{capture_tests::position_messages, AdsBDecoder};
+        use ez_daemon::hardware::adsb::encode_uc8;
+        let [odd, even] = position_messages(0x3c4b12);
+        let odd = encode_uc8(&[odd]);
+        let even = encode_uc8(&[even]);
+        let mut raw = vec![127; 2 * 65_536];
+        raw[..odd.len()].copy_from_slice(&odd);
+        let end = raw.len();
+        raw[end - even.len()..].copy_from_slice(&even);
+        let recording = TestRecording::new(&raw);
+        let mut positions = Vec::new();
+        for speed in [0.1, 1.0, 10.0] {
+            let mut source = recording.source(1);
+            source.sample_rate_hz = 2_400_000;
+            source.frequency_hz = 1_090_000_000;
+            source.replay_speed = speed;
+            source.replay_loop = true;
+            source.start();
+            let generation = source.stream_generation();
+            let mut decoder = AdsBDecoder::new();
+            let mut prior_epoch = None;
+            for iteration in 0..3 {
+                let mut epoch = 0;
+                for block_number in 0..2 {
+                    let mut block = None;
+                    assert!(
+                        wait_until(|| {
+                            block = source.recv_capture_block();
+                            block.is_some()
+                        }),
+                        "replay stalled at {speed}x"
+                    );
+                    let block = block.unwrap();
+                    assert_eq!(source.stream_generation(), generation);
+                    assert_eq!(block.center_hz, 1_090_000_000);
+                    assert_eq!(block.clock.source_sample_index, block_number * 32_768);
+                    assert_eq!(block.clock.source_sample_rate_hz, 2_400_000);
+                    assert_eq!(block.clock.sample_stride, 1);
+                    assert_eq!(block.clock.origin_unix_ns, None);
+                    assert_eq!(block.clock.discontinuous, block_number == 0);
+                    assert_eq!(source.replay_position, (block_number + 1) * 65_536);
+                    if block_number == 0 {
+                        epoch = block.clock.epoch;
+                        assert_ne!(Some(epoch), prior_epoch);
+                    } else {
+                        assert_eq!(block.clock.epoch, epoch);
+                    }
+                    decoder.feed_iq_with_clock(
+                        &block.samples,
+                        block.clock,
+                        dump1090::demod::InputFormat::Uc8,
+                    );
+                    let aircraft = decoder.get_aircraft();
+                    assert_eq!(aircraft.len(), 1);
+                    assert_eq!(
+                        aircraft[0].has_position,
+                        block_number == 1,
+                        "a frame crossed a rewind at {speed}x in loop {iteration}"
+                    );
+                    if block_number == 1 {
+                        positions.push((aircraft[0].lat, aircraft[0].lon));
+                        assert!((aircraft[0].lat - 52.2572).abs() < 0.001);
+                        assert!((aircraft[0].lon - 8.6676).abs() < 0.001);
+                    }
+                }
+                prior_epoch = Some(epoch);
+            }
+            assert_eq!(source.dropped_blocks.load(Ordering::Relaxed), 0);
+            source.stop();
+        }
+        assert!(positions.windows(2).all(|pair| pair[0] == pair[1]));
+    }
+
+    #[test]
+    fn capture_producer_retains_partial_samples_and_marks_only_real_boundaries() {
+        let mut producer = CaptureProducer::new(2_400_000, 1090);
+        assert!(producer.block(vec![1], None).is_none());
+        let first = producer.block(vec![2, 3, 4, 5], Some(5)).unwrap();
+        assert_eq!(first.samples, [1, 2, 3, 4]);
+        assert_eq!(first.clock.source_sample_index, 0);
+        assert!(first.clock.discontinuous);
+        let second = producer.block(vec![6], Some(6)).unwrap();
+        assert_eq!(second.samples, [5, 6]);
+        assert_eq!(second.clock.source_sample_index, 2);
+        assert!(!second.clock.discontinuous);
+        assert_eq!(second.clock.epoch, first.clock.epoch);
+        producer.rewind();
+        let rewind = producer.block(vec![7, 8], Some(2)).unwrap();
+        assert_ne!(rewind.clock.epoch, first.clock.epoch);
+        assert_eq!(rewind.clock.source_sample_index, 0);
+        assert!(rewind.clock.discontinuous);
+    }
     use super::*;
 
     async fn session_event(
@@ -3333,12 +3497,31 @@ mod tests {
     fn live_queue_full_discards_a_block_without_disconnect() {
         let (tx, rx) = bounded(1);
         let dropped = std::sync::atomic::AtomicU64::new(0);
-        assert!(send_live_samples(&tx, vec![1, 2], &dropped));
-        assert!(send_live_samples(&tx, vec![3, 4], &dropped));
-        assert!(matches!(rx.try_recv(), Ok(SourceMessage::Samples(samples)) if samples == [1, 2]));
-        assert!(send_live_samples(&tx, vec![5, 6], &dropped));
+        let mut capture = CaptureProducer::new(2_400_000, 1_090_000_000);
+        assert!(send_live_samples(&tx, &mut capture, vec![1, 2], &dropped));
+        assert!(send_live_samples(&tx, &mut capture, vec![3, 4], &dropped));
+        assert!(
+            matches!(rx.try_recv(), Ok(SourceMessage::Samples(block)) if block.samples == [1, 2] && block.clock.source_sample_index == 0)
+        );
+        assert!(send_live_samples(&tx, &mut capture, vec![5, 6], &dropped));
+        let SourceMessage::Samples(next) = rx.try_recv().unwrap() else {
+            panic!("expected recovered sample block")
+        };
+        assert_eq!(next.samples, [5, 6]);
+        assert_eq!(next.clock.source_sample_index, 2);
+        assert!(
+            next.clock.discontinuous,
+            "overflow must reach the decoder as a real sample gap"
+        );
+        assert_eq!(dropped.load(Ordering::Relaxed), 1);
+        assert!(send_live_samples(&tx, &mut capture, vec![7, 8], &dropped));
+        let SourceMessage::Samples(contiguous) = rx.try_recv().unwrap() else {
+            panic!("expected next sample block")
+        };
+        assert_eq!(contiguous.clock.source_sample_index, 3);
+        assert!(!contiguous.clock.discontinuous);
         drop(rx);
-        assert!(!send_live_samples(&tx, vec![7, 8], &dropped));
+        assert!(!send_live_samples(&tx, &mut capture, vec![7, 8], &dropped));
     }
 
     #[test]

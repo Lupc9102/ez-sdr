@@ -121,6 +121,7 @@ pub struct CentralApp {
     daemon_audio: crate::audio_resampler::AudioResampler,
     audio: AudioOutput,
     adsb_decoder: AdsBDecoder,
+    last_local_adsb_epoch: Option<u64>,
     last_adsb_capture: Option<(u64, u32, crate::source_manager::SourceMode, u64, bool)>,
     scanner: crate::scanner::FrequencyScanner,
     last_scheduler_update: std::time::Instant,
@@ -414,6 +415,7 @@ impl CentralApp {
             // turn directly into a dropped audio frame.
             demod_worker: crate::demod::DemodWorker::new(16),
             adsb_decoder: AdsBDecoder::new(),
+            last_local_adsb_epoch: None,
             last_adsb_capture: None,
             scanner: crate::scanner::FrequencyScanner::new(shared.clone()),
             runtime_action: None,
@@ -698,6 +700,7 @@ impl CentralApp {
         if let Some(capture) = capture {
             if self.last_adsb_capture.as_ref() != Some(&capture) {
                 self.adsb_decoder = AdsBDecoder::new();
+                self.last_local_adsb_epoch = None;
                 self.seen_aircraft.clear();
                 self.notified_aircraft.clear();
                 if self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090 {
@@ -706,6 +709,33 @@ impl CentralApp {
                 self.last_adsb_capture = Some(capture);
             }
         }
+    }
+
+    fn feed_local_adsb_capture(
+        &mut self,
+        samples: &[u8],
+        clock: ez_proto::CaptureClock,
+        format: dump1090::demod::InputFormat,
+    ) {
+        if self.last_local_adsb_epoch != Some(clock.epoch) {
+            // Rewinds can occur inside the same source worker. Receiver state,
+            // trails and pending enrichment belong to the new acquisition epoch.
+            self.adsb_decoder = AdsBDecoder::new();
+            self.adsb_panel.clear_tracks();
+            self.seen_aircraft.clear();
+            self.notified_aircraft.clear();
+            self.last_local_adsb_epoch = Some(clock.epoch);
+        } else if clock.discontinuous {
+            self.adsb_panel.clear_tracks();
+        }
+        self.adsb_decoder.feed_iq_with_clock(samples, clock, format);
+        if self.adsb_decoder.sample_rate_mismatch() {
+            self.status_bar
+                .warning("⚠ ADS-B: sample rate mismatch (expected 2.4 MHz)".to_string());
+        }
+        self.adsb_panel.aircraft = self.adsb_decoder.get_aircraft();
+        self.adsb_panel
+            .apply_receiver_snapshot(self.adsb_decoder.receiver_snapshot());
     }
 
     /// Drain queued daemon events (only produces events in `SourceMode::Daemon`)
@@ -1095,7 +1125,7 @@ impl eframe::App for CentralApp {
         }
 
         // Drain samples from source and capture parameters in a single lock
-        let mut sample_batch: Vec<Vec<u8>> = Vec::new();
+        let mut sample_batch: Vec<crate::source_manager::CaptureBlock> = Vec::new();
         let source_params = {
             if let Some(mut state) = self.try_lock_shared("drain_samples") {
                 crate::radio_ui::sync_demod_settings(&mut state);
@@ -1107,12 +1137,11 @@ impl eframe::App for CentralApp {
                     .resolve(state.source.frequency_hz)
                     .label()
                     .into();
-                // RTL-SDR delivers an 8 ms block at the default 2.048 MS/s.
-                // Drain at most 2 batches (16 ms) per frame — enough to keep
-                // up at 60 fps without a 131k-sample catch-up spike that
-                // amplifies stalls. Excess blocks are dropped by the source.
+                // Bound the current UI-frame DSP work. This two-block limit
+                // cannot sustain every supported capture rate; overflow is now
+                // explicit in the next delivered block's capture clock.
                 for _ in 0..2 {
-                    if let Some(samples) = state.source.recv_samples() {
+                    if let Some(samples) = state.source.recv_capture_block() {
                         sample_batch.push(samples);
                     } else {
                         break;
@@ -1234,7 +1263,8 @@ impl eframe::App for CentralApp {
                 0.0
             };
 
-            for samples in &sample_batch {
+            for block in &sample_batch {
+                let samples = &block.samples;
                 self.recorder_panel.write_samples(samples);
                 self.satellite_panel.feed_recording(samples);
                 self.constellation.push_iq_samples(samples);
@@ -1267,20 +1297,11 @@ impl eframe::App for CentralApp {
                 // Feed to ADS-B decoder when tuned to 1090 MHz
                 if adsb_running
                     && self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090
-                    && (center == 1_090_000_000
-                        || (center > 1_088_000_000 && center < 1_092_000_000))
+                    && (block.center_hz == 1_090_000_000
+                        || (block.center_hz > 1_088_000_000 && block.center_hz < 1_092_000_000))
                 {
                     let format = self.shared.lock().unwrap().input_format;
-                    self.adsb_decoder.feed_iq_with_format(samples, rate, format);
-                    if self.adsb_decoder.sample_rate_mismatch() {
-                        self.status_bar.warning(
-                            "⚠ ADS-B: sample rate mismatch (expected 2.4 MHz)".to_string(),
-                        );
-                    }
-                    let ac = self.adsb_decoder.get_aircraft();
-                    self.adsb_panel.aircraft = ac;
-                    self.adsb_panel
-                        .apply_receiver_snapshot(self.adsb_decoder.receiver_snapshot());
+                    self.feed_local_adsb_capture(samples, block.clock, format);
                 }
                 if self.current_tab == AppTab::Listen {
                     spectrum_batch.push(wideband_iq);

@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use dump1090::cpr::{CprDecoder, CprFrame, CprType};
+use dump1090::cpr::{CprDecoder, CprFrame, CprTimestamp, CprType};
 use dump1090::crc::check_crc;
 use dump1090::demod::{
     Demod2400, DemodStats, MagBuf, MagBufFlags, ModesMessage, MAGBUF_DISCONTINUOUS,
@@ -53,6 +53,11 @@ pub struct PacketPipeline {
     overlap_tail: Vec<u16>,
     continuity: crate::bus::SampleContinuity,
     aircraft: HashMap<u32, AircraftTelemetry>,
+    capture_seen: HashMap<u32, ez_proto::CaptureTimestamp>,
+    capture_position_seen: HashMap<u32, ez_proto::CaptureTimestamp>,
+    capture_now: Option<CprTimestamp>,
+    capture_observed_at: Option<Instant>,
+    last_capture_clock: Option<ez_proto::CaptureClock>,
     blocks_since_publish: u32,
     last_publish: Instant,
     receiver_position: Option<(f64, f64)>,
@@ -79,6 +84,11 @@ impl PacketPipeline {
             overlap_tail: Vec::new(),
             continuity: crate::bus::SampleContinuity::default(),
             aircraft: HashMap::new(),
+            capture_seen: HashMap::new(),
+            capture_position_seen: HashMap::new(),
+            capture_now: None,
+            capture_observed_at: None,
+            last_capture_clock: None,
             blocks_since_publish: 0,
             last_publish: Instant::now(),
             receiver_position: None,
@@ -170,11 +180,39 @@ impl PacketPipeline {
         let mut sum_power = 0.0_f64;
         let mut data = std::mem::take(&mut self.mag_buf);
         data.clear();
+        let clock = block.capture_clock();
         let contiguous = self.continuity.observe(block);
         if !contiguous {
             self.overlap_tail.clear();
-            self.cpr = CprDecoder::new();
+            self.cpr.clear();
+            let changed_epoch = self.last_capture_clock.is_some_and(|previous| {
+                previous.epoch != clock.epoch
+                    || previous.source_sample_rate_hz != clock.source_sample_rate_hz
+                    || previous.sample_stride != clock.sample_stride
+                    || previous.origin_unix_ns != clock.origin_unix_ns
+            });
+            if changed_epoch {
+                self.demod.icao_filter = Default::default();
+                self.tracker = Tracker::new();
+                self.aircraft.clear();
+                self.capture_seen.clear();
+                self.capture_position_seen.clear();
+            } else {
+                for aircraft in self.aircraft.values_mut() {
+                    aircraft.lat = None;
+                    aircraft.lon = None;
+                    aircraft.position_seen_ms = None;
+                    aircraft.position_source = None;
+                    aircraft.position_quality = None;
+                }
+                self.capture_position_seen.clear();
+            }
         }
+        self.last_capture_clock = Some(clock);
+        self.capture_observed_at = Some(Instant::now());
+        self.capture_now = clock
+            .message_timestamp_2400(block.samples.len() as i128 * 5)
+            .and_then(capture_cpr_time);
         let overlap = self.overlap_tail.len();
         data.reserve(overlap + block.samples.len());
         data.extend_from_slice(&self.overlap_tail);
@@ -219,7 +257,15 @@ impl PacketPipeline {
             .observe_total(self.stats.demod_accepted.iter().sum(), Instant::now());
 
         for mm in &messages {
-            self.merge_message(mm);
+            let Some(capture) = clock
+                .message_timestamp_2400(
+                    i128::from(mm.timestamp_msg) - i128::from(block.start_sample.saturating_mul(5)),
+                )
+                .filter(|capture| capture.relative_time_ns().is_some())
+            else {
+                continue;
+            };
+            self.merge_message_at(mm, Some(capture));
         }
 
         self.blocks_since_publish += 1;
@@ -229,7 +275,17 @@ impl PacketPipeline {
         }
     }
 
+    #[cfg(test)]
     fn merge_message(&mut self, mm: &ModesMessage) {
+        self.capture_now = None;
+        self.capture_observed_at = None;
+        self.merge_message_at(mm, None);
+    }
+
+    fn merge_message_at(&mut self, mm: &ModesMessage, capture: Option<ez_proto::CaptureTimestamp>) {
+        let cpr_time = capture
+            .and_then(capture_cpr_time)
+            .unwrap_or(CprTimestamp::Processing(Instant::now()));
         let decoded = mode_s::decode_mode_s_message(&mm.msg);
         // Public/test callers may construct ModesMessage directly. Keep the
         // tracker keyed by the same validated namespace as the semantic fields.
@@ -237,7 +293,39 @@ impl PacketPipeline {
         if let Some(decoded) = &decoded {
             tracked.addr = decoded.icao;
         }
+        // Internal capture state survives an idle display expiry, but is bounded
+        // even when a replay is paused or fed a dense burst of distinct addresses.
+        if !self.tracker.aircraft.contains_key(&tracked.addr) && self.tracker.len() >= 4096 {
+            if let Some(oldest) = self
+                .tracker
+                .aircraft
+                .iter()
+                .max_by_key(|(icao, state)| {
+                    self.capture_seen
+                        .get(icao)
+                        .copied()
+                        .and_then(capture_cpr_time)
+                        .and_then(|seen| cpr_time.checked_duration_since(seen))
+                        .unwrap_or_else(|| {
+                            Duration::from_millis(
+                                mm.sys_timestamp_msg.saturating_sub(state.last_seen_ms),
+                            )
+                        })
+                })
+                .map(|(&icao, _)| icao)
+            {
+                self.tracker.aircraft.remove(&oldest);
+                self.aircraft.remove(&oldest);
+                self.capture_seen.remove(&oldest);
+                self.capture_position_seen.remove(&oldest);
+            }
+        }
         self.tracker.update_from_message(&tracked);
+        if let Some(capture) = capture {
+            self.capture_seen.insert(tracked.addr, capture);
+        } else {
+            self.capture_seen.remove(&tracked.addr);
+        }
         let Some(decoded) = decoded else {
             return;
         };
@@ -247,7 +335,15 @@ impl PacketPipeline {
             .get(&decoded.icao)
             .filter(|entry| {
                 entry.position_seen_ms.is_some_and(|seen| {
-                    mm.sys_timestamp_msg.saturating_sub(seen) <= STALE_AIRCRAFT_MS
+                    self.capture_position_seen
+                        .get(&decoded.icao)
+                        .copied()
+                        .and_then(capture_cpr_time)
+                        .and_then(|position| cpr_time.checked_duration_since(position))
+                        .map_or(
+                            mm.sys_timestamp_msg.saturating_sub(seen) <= STALE_AIRCRAFT_MS,
+                            |age| age <= Duration::from_millis(STALE_AIRCRAFT_MS),
+                        )
                 })
             })
             .and_then(|entry| entry.lat.zip(entry.lon));
@@ -255,18 +351,22 @@ impl PacketPipeline {
         let cpr_position = if matches!(mm.msgtype, 17 | 18) && check_crc(&mm.msg) {
             let tc = mm.msg[4] >> 3;
             if (9..=18).contains(&tc) || (20..=22).contains(&tc) {
-                self.cpr.submit(decoded.icao, extract_airborne_cpr(&mm.msg))
+                self.cpr.submit_with_timestamp(
+                    decoded.icao,
+                    extract_airborne_cpr(&mm.msg),
+                    cpr_time,
+                )
             } else if (5..=8).contains(&tc) {
                 prior_position
                     .or(self.receiver_position)
                     .and_then(|(lat, lon)| {
                         self.cpr
-                            .submit_surface_with_reference(
+                            .submit_surface_with_timestamp(
                                 decoded.icao,
                                 extract_surface_cpr(&mm.msg),
                                 lat,
                                 lon,
-                                std::time::Instant::now(),
+                                cpr_time,
                             )
                             .or_else(|| self.cpr.decode_surface_relative(decoded.icao, lat, lon))
                             .filter(|&(decoded_lat, decoded_lon)| {
@@ -358,6 +458,11 @@ impl PacketPipeline {
             entry.lat = Some(lat);
             entry.lon = Some(lon);
             entry.position_seen_ms = Some(mm.sys_timestamp_msg);
+            if let Some(capture) = capture {
+                self.capture_position_seen.insert(decoded.icao, capture);
+            } else {
+                self.capture_position_seen.remove(&decoded.icao);
+            }
             entry.position_source = Some(decoded.source.into());
             entry.position_quality = Some(ez_proto::AircraftQuality {
                 reliable: mm.reliable,
@@ -375,7 +480,18 @@ impl PacketPipeline {
         self.last_publish = Instant::now();
         self.blocks_since_publish = 0;
         let cutoff_ms = timestamp_ms.saturating_sub(STALE_AIRCRAFT_MS);
-        self.tracker.prune_older_than(cutoff_ms);
+        let capture_age = |capture: Option<ez_proto::CaptureTimestamp>| {
+            capture
+                .and_then(capture_cpr_time)
+                .zip(self.capture_now)
+                .and_then(|(seen, current)| current.checked_duration_since(seen))
+        };
+        self.tracker.aircraft.retain(|icao, state| {
+            capture_age(self.capture_seen.get(icao).copied())
+                .map_or(state.last_seen_ms >= cutoff_ms, |age| {
+                    age <= Duration::from_millis(STALE_AIRCRAFT_MS)
+                })
+        });
 
         let tracker = &self.tracker;
         self.aircraft
@@ -383,7 +499,11 @@ impl PacketPipeline {
                 Some(state) => {
                     entry.msg_count = state.msg_count;
                     entry.last_seen_ms = state.last_seen_ms;
-                    if entry.position_seen_ms.is_none_or(|seen| seen < cutoff_ms) {
+                    let position_age = capture_age(self.capture_position_seen.get(icao).copied());
+                    if position_age.map_or(
+                        entry.position_seen_ms.is_none_or(|seen| seen < cutoff_ms),
+                        |age| age > Duration::from_millis(STALE_AIRCRAFT_MS),
+                    ) {
                         entry.lat = None;
                         entry.lon = None;
                     }
@@ -391,14 +511,54 @@ impl PacketPipeline {
                 }
                 None => false,
             });
+        self.capture_seen
+            .retain(|icao, _| tracker.aircraft.contains_key(icao));
+        self.capture_position_seen
+            .retain(|icao, _| tracker.aircraft.contains_key(icao));
 
-        let snapshot: Vec<AircraftTelemetry> = self.aircraft.values().cloned().collect();
+        // Display liveness ages while no input arrives. The retained capture
+        // state uses sample time alone, so a delayed replay block can still pair
+        // with its recorded predecessor. Never invent acquisition UTC.
+        let idle_age = self
+            .capture_observed_at
+            .map_or(Duration::ZERO, |seen| seen.elapsed());
+        let snapshot: Vec<AircraftTelemetry> = self
+            .aircraft
+            .iter()
+            .filter_map(|(icao, entry)| {
+                let mut published = entry.clone();
+                if let Some(age) = capture_age(self.capture_seen.get(icao).copied()) {
+                    let age = age.saturating_add(idle_age);
+                    if age > Duration::from_millis(STALE_AIRCRAFT_MS) {
+                        return None;
+                    }
+                    published.last_seen_ms = timestamp_ms.saturating_sub(age.as_millis() as u64);
+                }
+                if let Some(age) = capture_age(self.capture_position_seen.get(icao).copied()) {
+                    let age = age.saturating_add(idle_age);
+                    published.position_seen_ms =
+                        Some(timestamp_ms.saturating_sub(age.as_millis() as u64));
+                    if age > Duration::from_millis(STALE_AIRCRAFT_MS) {
+                        published.lat = None;
+                        published.lon = None;
+                    }
+                }
+                Some(published)
+            })
+            .collect();
         self.output.publish(ez_proto::AircraftSnapshot {
             channel_id: 0,
             aircraft: snapshot,
             receiver: self.receiver_snapshot(Instant::now()),
         });
     }
+}
+
+fn capture_cpr_time(capture: ez_proto::CaptureTimestamp) -> Option<CprTimestamp> {
+    Some(CprTimestamp::Capture {
+        epoch: capture.epoch,
+        elapsed: Duration::from_nanos(capture.relative_time_ns()?),
+    })
 }
 
 fn now_ms() -> u64 {
@@ -1028,3 +1188,7 @@ mod tests {
         assert_eq!(pipeline.subscriber_count(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "packet_capture_tests.rs"]
+mod capture_tests;
