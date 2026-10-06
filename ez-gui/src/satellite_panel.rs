@@ -117,6 +117,10 @@ impl SatellitePanel {
     }
 
     fn tick_realtime_at(&mut self, now: std::time::Instant, time: f64) {
+        if self.cf32_recording && self.is_meteor_selected() {
+            self.stop_cf32_recording();
+            self.pending_decode_request = None;
+        }
         if self.cf32_recording
             && self
                 .cf32_writer
@@ -544,7 +548,7 @@ impl SatellitePanel {
         );
     }
 
-    fn start_cf32_recording(&mut self) {
+    pub(crate) fn start_cf32_recording(&mut self) {
         if self.is_meteor_selected() {
             self.pending_status = Some(
                 "Meteor is an offline decoder. Open an existing .cs8 or .cf32 recording.".into(),
@@ -559,11 +563,16 @@ impl SatellitePanel {
             self.pending_status = Some("Recorder: source is busy; try again".into());
             return;
         };
+        if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+            self.pending_status = Some("Use Recorder for IQ recordings on the daemon host.".into());
+            return;
+        }
         let (freq_hz, sample_rate, _) = state.source.applied_capture_settings().unwrap_or((
             state.source.capture_center_frequency_hz(),
             state.source.sample_rate_hz,
             state.source.gain_db,
         ));
+        let capture_stream = state.source.capture_stream();
         drop(state);
 
         match Cf32StreamWriter::start(
@@ -575,7 +584,7 @@ impl SatellitePanel {
             self.observer_lon,
         ) {
             Ok(writer) => {
-                self.cf32_writer = Some(writer);
+                self.cf32_writer = Some(writer.with_capture(capture_stream));
                 self.cf32_recording = true;
             }
             Err(e) => {
@@ -584,7 +593,7 @@ impl SatellitePanel {
         }
     }
 
-    fn stop_cf32_recording(&mut self) {
+    pub(crate) fn stop_cf32_recording(&mut self) {
         if let Some(mut w) = self.cf32_writer.take() {
             match w.stop() {
                 Ok(meta) => {
@@ -616,26 +625,6 @@ impl SatellitePanel {
             }
         }
         self.cf32_recording = false;
-    }
-
-    /// Feed IQ samples to cf32 writer. Called from CentralApp::logic().
-    pub(crate) fn feed_recording(&mut self, block: &crate::source_manager::CaptureBlock) {
-        if self.is_meteor_selected() {
-            if self.cf32_recording {
-                self.stop_cf32_recording();
-                self.pending_decode_request = None;
-            }
-            return;
-        }
-        if self.cf32_recording {
-            if let Some(w) = &mut self.cf32_writer {
-                if w.write_capture(&block.samples, block.clock, block.center_hz)
-                    .is_err()
-                {
-                    self.stop_cf32_recording();
-                }
-            }
-        }
     }
 
     // ── Alignment subtab ──────────────────────────────────────────────────
@@ -1062,6 +1051,28 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("offline decoder"));
+    }
+
+    #[test]
+    fn daemon_satellite_recording_requires_daemon_host_recorder_and_creates_no_local_file() {
+        let shared = make_shared_state();
+        shared.lock().unwrap().source.source_mode = crate::source_manager::SourceMode::Daemon;
+        let mut panel = SatellitePanel::new(shared);
+        let directory = std::env::temp_dir().join(format!(
+            "ez-a09-daemon-recording-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        panel.cf32_output_dir = directory.display().to_string();
+        panel.start_cf32_recording();
+        assert!(!panel.cf32_recording);
+        assert!(panel.cf32_writer.is_none());
+        assert!(!directory.exists());
+        assert!(panel
+            .pending_status
+            .as_deref()
+            .unwrap()
+            .contains("daemon host"));
     }
 
     #[test]

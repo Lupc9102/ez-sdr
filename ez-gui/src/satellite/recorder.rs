@@ -17,6 +17,8 @@ pub struct Cf32RecordingMeta {
     pub duration_sec: f64,
     pub bytes_total: u64,
     pub lost_samples: u64,
+    pub capture_input_dropped_blocks: u64,
+    pub capture_input_lost_samples: u64,
     pub complete: bool,
     pub capture: Option<ez_proto::RecordingCapture>,
     pub stop_reason: Option<String>,
@@ -35,6 +37,12 @@ pub struct Cf32StreamWriter {
     dropped_samples: u64,
     error: Arc<Mutex<Option<String>>>,
     meta: Cf32RecordingMeta,
+    capture_recorder: Option<crate::capture_recording::CaptureRecorder<Cf32CaptureResult>>,
+}
+
+pub(crate) struct Cf32CaptureResult {
+    meta: Cf32RecordingMeta,
+    result: Result<(), String>,
 }
 
 impl Cf32StreamWriter {
@@ -107,6 +115,8 @@ impl Cf32StreamWriter {
             duration_sec: 0.0,
             bytes_total: 0,
             lost_samples: 0,
+            capture_input_dropped_blocks: 0,
+            capture_input_lost_samples: 0,
             complete: false,
             capture: None,
             stop_reason: None,
@@ -125,7 +135,27 @@ impl Cf32StreamWriter {
             dropped_samples: 0,
             error,
             meta,
+            capture_recorder: None,
         })
+    }
+
+    pub(crate) fn with_capture(self, stream: crate::capture_stream::CaptureStream) -> Self {
+        let mut frontend = Self {
+            tx: None,
+            handle: None,
+            path: self.path.clone(),
+            start_time: self.start_time,
+            bytes_written: Arc::clone(&self.bytes_written),
+            offered_samples: 0,
+            dropped_samples: 0,
+            error: Arc::clone(&self.error),
+            meta: self.meta.clone(),
+            capture_recorder: None,
+        };
+        frontend.capture_recorder = Some(crate::capture_recording::CaptureRecorder::start(
+            stream, self, None,
+        ));
+        frontend
     }
 
     pub fn write_capture(
@@ -189,6 +219,12 @@ impl Cf32StreamWriter {
     }
 
     pub fn stop(&mut self) -> Result<Cf32RecordingMeta, String> {
+        if let Some(mut recorder) = self.capture_recorder.take() {
+            let result = recorder.finish()?;
+            self.meta = result.meta;
+            result.result?;
+            return Ok(self.meta.clone());
+        }
         self.tx.take();
         if let Some(h) = self.handle.take() {
             let result = h
@@ -248,6 +284,9 @@ impl Cf32StreamWriter {
 
     #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
+        if let Some(recorder) = &self.capture_recorder {
+            return !recorder.progress().stopped && self.error().is_none();
+        }
         self.tx.is_some()
             && self
                 .handle
@@ -286,8 +325,45 @@ impl Cf32StreamWriter {
 
 impl Drop for Cf32StreamWriter {
     fn drop(&mut self) {
-        if self.handle.is_some() {
+        if self.handle.is_some() || self.capture_recorder.is_some() {
             let _ = self.stop();
+        }
+    }
+}
+
+impl crate::capture_recording::CaptureRecordingWriter for Cf32StreamWriter {
+    type Final = Cf32CaptureResult;
+
+    fn write_capture(&mut self, block: &crate::source_manager::CaptureBlock) -> Result<(), String> {
+        Cf32StreamWriter::write_capture(self, &block.samples, block.clock, block.center_hz)
+    }
+
+    fn progress(&self) -> crate::capture_recording::RecordingProgress {
+        crate::capture_recording::RecordingProgress {
+            capture: self.meta.capture.clone(),
+            bytes_written: self.bytes_written(),
+            error: self.error(),
+            stopped: false,
+        }
+    }
+
+    fn fail(&mut self, reason: String) {
+        self.meta.stop_reason.get_or_insert_with(|| reason.clone());
+        if let Ok(mut error) = self.error.lock() {
+            error.get_or_insert(reason);
+        }
+    }
+
+    fn input_overflow(&mut self, blocks: u64, samples: u64) {
+        self.meta.capture_input_dropped_blocks = blocks;
+        self.meta.capture_input_lost_samples = samples;
+    }
+
+    fn finish(&mut self) -> Cf32CaptureResult {
+        let result = self.stop().map(|_| ());
+        Cf32CaptureResult {
+            meta: self.meta.clone(),
+            result,
         }
     }
 }
@@ -352,6 +428,110 @@ fn raw_iq_bytes_to_cf32_le(samples: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_cf32_disk_failures_finalize_the_actual_prefix_and_stop_promptly() {
+        for flush_failure in [false, true] {
+            let dir = temp_dir();
+            let mut writer = Cf32StreamWriter::start(
+                dir.to_str().unwrap(),
+                None,
+                2_400_000,
+                1_090_000_000,
+                0.0,
+                0.0,
+            )
+            .unwrap();
+            // Replace only the filesystem writer with a deterministic fault;
+            // capture ingestion, conversion, metadata and shutdown stay real.
+            writer.tx.take();
+            writer.handle.take().unwrap().join().unwrap().unwrap();
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(writer.path())
+                .unwrap();
+            let fault = crate::test_helpers::FaultFileWriter::new(
+                file,
+                (!flush_failure).then_some(16),
+                flush_failure,
+            );
+            let (tx, rx) = bounded(64);
+            writer.handle = Some(spawn_writer(
+                rx,
+                fault,
+                Arc::clone(&writer.bytes_written),
+                Arc::clone(&writer.error),
+            ));
+            writer.tx = Some(tx);
+            let stream = crate::capture_stream::CaptureStream::default();
+            stream.start(1);
+            let mut writer = writer.with_capture(stream.clone());
+            let raw = [90, 110].repeat(10);
+            let mut block = crate::source_manager::CaptureBlock::fixture(
+                raw.clone(),
+                ez_proto::CaptureClock::new(9, 100, 2_400_000, None),
+                1,
+                0,
+            );
+            block.session = Some(stream.session());
+            stream.publish(&block);
+            let deadline = Instant::now() + std::time::Duration::from_secs(3);
+            while if flush_failure {
+                writer.bytes_written() == 0
+            } else {
+                writer.is_running()
+            } {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let stopped = Instant::now();
+            let error = writer.stop().unwrap_err();
+            let latency = stopped.elapsed();
+            assert!(latency < std::time::Duration::from_millis(500));
+            assert!(error.contains(if flush_failure {
+                "flush failure"
+            } else {
+                "write failure"
+            }));
+            let converted = lrpt_decode::uc8_bytes_to_cf32_le(&raw);
+            let expected = if flush_failure {
+                converted.as_slice()
+            } else {
+                &converted[..16]
+            };
+            assert_eq!(std::fs::read(writer.path()).unwrap(), expected);
+            assert!(!writer.meta.complete);
+            assert_eq!(
+                writer.meta.capture.as_ref().unwrap().samples,
+                expected.len() as u64 / 8
+            );
+            assert_eq!(
+                writer
+                    .meta
+                    .capture
+                    .as_ref()
+                    .unwrap()
+                    .next_source_sample_index,
+                100 + expected.len() as u64 / 8
+            );
+            assert_eq!(writer.meta.lost_samples, 10 - expected.len() as u64 / 8);
+            let meta: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(writer.path().with_extension("json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(meta["bytes_total"], expected.len() as u64);
+            assert_eq!(meta["complete"], false);
+            println!(
+                "A09 native CF32 {} failure: stop/join {} us; {} preserved bytes",
+                if flush_failure { "flush" } else { "write" },
+                latency.as_micros(),
+                writer.meta.bytes_total
+            );
+            drop(writer);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
 
     #[test]
     fn cf32_capture_finalizes_only_the_contiguous_prefix_before_retune_rate_rewind_or_loss() {

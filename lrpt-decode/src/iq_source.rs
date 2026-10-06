@@ -121,16 +121,27 @@ pub fn normalized_component_to_uc8(component: f32) -> u8 {
 
 #[must_use]
 pub fn uc8_bytes_to_cf32_le(bytes: &[u8]) -> Vec<u8> {
-    uc8_bytes_to_normalized(bytes)
+    // There are only 256 possible ADC components. Reuse their exact full-scale
+    // representation and allocate only the on-disk bytes, so real-time writers
+    // don't build an intermediate complex vector or resize an iterator output.
+    const COMPONENTS: [[u8; 4]; 256] = {
+        let mut table = [[0; 4]; 256];
+        let mut index = 0;
+        while index < table.len() {
+            table[index] = ((index as f32 - 127.5) / 127.5).to_le_bytes();
+            index += 1;
+        }
+        table
+    };
+    let complete_bytes = bytes.len() / 2 * 2;
+    let mut output = vec![0; complete_bytes * 4];
+    for (&component, dest) in bytes[..complete_bytes]
         .iter()
-        .flat_map(|sample| {
-            sample
-                .re
-                .to_le_bytes()
-                .into_iter()
-                .chain(sample.im.to_le_bytes())
-        })
-        .collect()
+        .zip(output.chunks_exact_mut(4))
+    {
+        dest.copy_from_slice(&COMPONENTS[usize::from(component)]);
+    }
+    output
 }
 
 #[must_use]
@@ -208,6 +219,16 @@ mod tests {
     fn cf32_units_round_trip_every_adc_value_and_complex_tones() {
         let raw: Vec<u8> = (0..=255).flat_map(|i| [i, 255 - i]).collect();
         let normalized = uc8_bytes_to_cf32_le(&raw);
+        let expected: Vec<u8> = raw
+            .iter()
+            .flat_map(|value| ((f32::from(*value) - 127.5) / 127.5).to_le_bytes())
+            .collect();
+        assert_eq!(normalized, expected);
+        assert_eq!(
+            uc8_bytes_to_cf32_le(&raw[..raw.len() - 1]),
+            expected[..expected.len() - 8]
+        );
+        assert!(uc8_bytes_to_cf32_le(&[]).is_empty());
         assert_eq!(
             cf32_le_bytes_to_uc8(&normalized, Cf32Amplitude::Normalized),
             raw

@@ -1967,6 +1967,103 @@ fn continuous_adsb_keeps_up_with_60_hz_app_and_a_held_shared_state_lock() {
 }
 
 #[test]
+fn native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall() {
+    use crate::source_manager::SourceMode;
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Meteor;
+    let dir = std::env::temp_dir().join(format!(
+        "ez-a09-recording-{}-{}",
+        std::process::id(),
+        ez_proto::new_capture_epoch()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let period: Vec<u8> = (0..16_384)
+        .flat_map(|sample| [(sample % 256) as u8, (255 - sample % 256) as u8])
+        .collect();
+    let stream = {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = SourceMode::Hardware;
+        state.source.frequency_hz = 118_000_000;
+        state.source.center_frequency_hz = Some(118_000_000);
+        state.source.sample_rate_hz = 2_400_000;
+        let input = period.clone();
+        state
+            .source
+            .test_set_hardware_open(move |_| Ok(input.clone()));
+        state.source.capture_stream()
+    };
+    app.recorder_panel.output_dir = dir.display().to_string();
+    app.recorder_panel.filename_template = "native".into();
+    app.satellite_panel.cf32_output_dir = dir.display().to_string();
+    // Arm both independent subscriptions before the first acquisition block.
+    app.recorder_panel.start_recording();
+    app.satellite_panel.start_cf32_recording();
+    assert!(
+        app.recorder_panel.recording,
+        "{}",
+        app.recorder_panel.last_error
+    );
+    assert!(
+        app.satellite_panel.cf32_recording,
+        "{:?}",
+        app.satellite_panel.pending_status
+    );
+    let cf32_path = app
+        .satellite_panel
+        .cf32_writer
+        .as_ref()
+        .unwrap()
+        .path()
+        .to_path_buf();
+    app.shared.lock().unwrap().source.start();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    let started = Instant::now();
+    for tick in 1..=60 {
+        app.logic(&ctx, &mut frame);
+        std::thread::sleep(
+            (started + Duration::from_secs_f64(f64::from(tick) / 60.0))
+                .saturating_duration_since(Instant::now()),
+        );
+    }
+    {
+        let mut state = app.shared.lock().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        state.source.stop();
+    }
+    let source = stream.progress();
+    app.recorder_panel.stop_recording();
+    app.satellite_panel.stop_cf32_recording();
+    assert!(source.samples >= 2_000_000);
+    let expected = period.repeat(source.blocks as usize);
+    let raw = std::fs::read(dir.join("native.iq")).unwrap();
+    let cf32 = std::fs::read(&cf32_path).unwrap();
+    assert_eq!(raw.len() as u64 / 2, source.samples);
+    assert!(raw == expected, "raw recording differs from native input");
+    let converted = lrpt_decode::uc8_bytes_to_cf32_le(&raw);
+    assert_eq!(cf32.len(), converted.len(), "CF32 native sample loss");
+    assert!(
+        cf32 == converted,
+        "CF32 conversion differs from native input"
+    );
+    let raw_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("native.json")).unwrap()).unwrap();
+    let cf32_meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(cf32_path.with_extension("json")).unwrap()).unwrap();
+    assert_eq!(raw_meta["complete"], true);
+    assert_eq!(cf32_meta["complete"], true);
+    assert_eq!(raw_meta["capture"]["samples"], source.samples);
+    assert_eq!(raw_meta["capture"], cf32_meta["capture"]);
+    assert_eq!(raw_meta["capture_input_dropped_blocks"], 0);
+    assert_eq!(cf32_meta["capture_input_dropped_blocks"], 0);
+    assert_eq!(raw_meta["lost_samples"], 0);
+    assert_eq!(cf32_meta["lost_samples"], 0);
+    println!("A09 native recording at 60 Hz + 300 ms GUI/shared-lock stall: {} samples; raw {} bytes, CF32 {} bytes, zero loss", source.samples, raw.len(), cf32.len());
+    drop(app);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples() {
     use crate::source_manager::{SourceMode, SourceStatus};
     let mut app = offline_test_app();
@@ -2022,7 +2119,8 @@ fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples()
     )
     .unwrap();
     let satellite_path = satellite.path().to_path_buf();
-    app.satellite_panel.cf32_writer = Some(satellite);
+    let stream = app.shared.lock().unwrap().source.capture_stream();
+    app.satellite_panel.cf32_writer = Some(satellite.with_capture(stream));
     app.satellite_panel.cf32_recording = true;
     while app.recorder_panel.bytes_written == 0 {
         app.logic(&ctx, &mut frame);
@@ -2043,9 +2141,11 @@ fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples()
     let first = std::fs::read(dir.join("first.iq")).unwrap();
     assert!(!first.is_empty());
     assert!(first.chunks_exact(2).all(|pair| pair == [80, 90]));
+    let satellite_bytes = std::fs::read(&satellite_path).unwrap();
+    assert!(!satellite_bytes.is_empty());
     assert_eq!(
-        std::fs::read(&satellite_path).unwrap(),
-        lrpt_decode::uc8_bytes_to_cf32_le(&first)
+        satellite_bytes,
+        lrpt_decode::uc8_bytes_to_cf32_le(&[80, 90].repeat(satellite_bytes.len() / 8))
     );
     let first_metadata: serde_json::Value =
         serde_json::from_slice(&std::fs::read(dir.join("first.json")).unwrap()).unwrap();
@@ -2055,7 +2155,16 @@ fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples()
     assert_eq!(first_metadata["frequency_hz"], 118_000_000);
     assert_eq!(first_metadata["sample_rate_hz"], 2_400_000);
     assert_eq!(first_metadata["capture"]["samples"], first.len() as u64 / 2);
-    assert_eq!(first_metadata["capture"], satellite_metadata["capture"]);
+    assert_eq!(
+        satellite_metadata["capture"]["samples"],
+        satellite_bytes.len() as u64 / 8
+    );
+    assert_eq!(
+        first_metadata["capture"]["first_clock"]["epoch"],
+        satellite_metadata["capture"]["first_clock"]["epoch"]
+    );
+    assert_eq!(satellite_metadata["frequency_hz"], 118_000_000);
+    assert_eq!(satellite_metadata["sample_rate_hz"], 2_400_000);
     assert!(app.recorder_panel.last_error.contains("Recording stopped"));
     assert!(!app.shared.lock().unwrap().recording);
     assert!(app.satellite_panel.pending_decode_request.is_none());

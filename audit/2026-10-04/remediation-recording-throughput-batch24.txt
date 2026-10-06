@@ -1,0 +1,35 @@
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.32s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+A09 native recording at 60 Hz + 300 ms GUI/shared-lock stall: 3096576 samples; raw 6193152 bytes, CF32 24772608 bytes, zero loss
+test app::app_ui_tests::native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 806 filtered out; finished in 1.53s
+
+     Running unittests src/main.rs (target/debug/deps/ez_gui-658e7383ec02f0a8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/debug/deps/event_bus_integration-69b67175d21a5b49)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/debug/deps/radio_controls-06b14f1c3e8e77b6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/debug/deps/radio_performance-ba25ed5f2f0e68e2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s

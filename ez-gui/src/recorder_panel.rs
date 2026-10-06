@@ -18,11 +18,15 @@ pub struct RecorderPanel {
     pub bytes_written: u64,
     pub iq_writer: Option<std::io::BufWriter<std::fs::File>>,
     pub wav_writer: Option<hound::WavWriter<std::io::BufWriter<std::fs::File>>>,
-    // Async IQ writer: the UI thread only `try_send`s chunks into a bounded
-    // channel (cap 128); a worker thread owns the file and does blocking
-    // writes. Prevents 2.4 MSps disk stalls from freezing the render loop.
+    // The native capture consumer enqueues into a bounded disk writer. These
+    // handles also support direct-input fixtures before transfer to the consumer.
     iq_tx: Option<crossbeam_channel::Sender<Vec<u8>>>,
     iq_worker: Option<std::thread::JoinHandle<Result<u64, String>>>,
+    continuous_iq:
+        Option<crate::capture_recording::CaptureRecorder<crate::raw_recording::RawRecordingResult>>,
+    native_iq_bytes: u64,
+    #[cfg(test)]
+    direct_iq_fixture: bool,
     iq_dropped_chunks: u64,
     capture: Option<ez_proto::RecordingCapture>,
     metadata: Option<(std::path::PathBuf, serde_json::Value)>,
@@ -79,6 +83,10 @@ impl RecorderPanel {
             wav_writer: None,
             iq_tx: None,
             iq_worker: None,
+            continuous_iq: None,
+            native_iq_bytes: 0,
+            #[cfg(test)]
+            direct_iq_fixture: false,
             iq_dropped_chunks: 0,
             capture: None,
             metadata: None,
@@ -108,6 +116,13 @@ impl RecorderPanel {
             peak_hold_time: None,
             daemon_recording: None,
         }
+    }
+
+    #[cfg(test)]
+    fn new_direct(shared: Arc<Mutex<SharedState>>) -> Self {
+        let mut panel = Self::new(shared);
+        panel.direct_iq_fixture = true;
+        panel
     }
 
     pub fn handle_daemon_recording(&mut self, status: ez_proto::RecordingStatus) {
@@ -380,25 +395,35 @@ impl RecorderPanel {
         let ts_str = now.format("%Y%m%d_%H%M%S").to_string();
         let timestamp_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-        let (freq_hz, tuned_hz, offset_hz, sample_rate_hz, gain_db, ppm_correction, demod_label) =
-            if let Ok(state) = self.shared.try_lock() {
-                let (center, rate, gain) = state.source.applied_capture_settings().unwrap_or((
-                    state.source.capture_center_frequency_hz(),
-                    state.source.sample_rate_hz,
-                    state.source.gain_db,
-                ));
-                (
-                    center,
-                    state.source.frequency_hz,
-                    state.source.frequency_offset_hz,
-                    rate,
-                    gain,
-                    state.source.ppm_correction,
-                    state.demod_mode.label().to_string(),
-                )
-            } else {
-                (0, 0, 0, 2_048_000, 0.0, 0, "NFM".to_string())
-            };
+        let (
+            freq_hz,
+            tuned_hz,
+            offset_hz,
+            sample_rate_hz,
+            gain_db,
+            ppm_correction,
+            demod_label,
+            capture_stream,
+        ) = if let Ok(state) = self.shared.try_lock() {
+            let (center, rate, gain) = state.source.applied_capture_settings().unwrap_or((
+                state.source.capture_center_frequency_hz(),
+                state.source.sample_rate_hz,
+                state.source.gain_db,
+            ));
+            (
+                center,
+                state.source.frequency_hz,
+                state.source.frequency_offset_hz,
+                rate,
+                gain,
+                state.source.ppm_correction,
+                state.demod_mode.label().to_string(),
+                state.source.capture_stream(),
+            )
+        } else {
+            self.last_error = "Recorder: source is busy; try again".into();
+            return;
+        };
         let freq_mhz = freq_hz as f64 / 1e6;
 
         let mut iq_filename = String::new();
@@ -449,24 +474,8 @@ impl RecorderPanel {
                 .open(&path)
             {
                 Ok(file) => {
-                    // Hand the file to a worker thread; the UI thread only
-                    // pushes chunks into a bounded channel (never blocks).
-                    let (tx, rx) = crossbeam_channel::bounded::<Vec<u8>>(128);
-                    let handle = std::thread::spawn(move || -> Result<u64, String> {
-                        use std::io::Write;
-                        let mut writer = std::io::BufWriter::new(file);
-                        let mut total: u64 = 0;
-                        for chunk in rx {
-                            if let Err(e) = writer.write_all(&chunk) {
-                                return Err(format!("Write error: {e}"));
-                            }
-                            total += chunk.len() as u64;
-                        }
-                        if let Err(e) = writer.flush() {
-                            return Err(format!("Flush error: {e}"));
-                        }
-                        Ok(total)
-                    });
+                    let (tx, handle) =
+                        crate::raw_recording::spawn_disk_writer(std::io::BufWriter::new(file));
                     self.iq_tx = Some(tx);
                     self.iq_worker = Some(handle);
                     self.iq_dropped_chunks = 0;
@@ -541,6 +550,9 @@ impl RecorderPanel {
             "format": if self.record_iq { "cu8" } else { "wav16" },
             "capture": null,
             "stop_reason": null,
+            "lost_samples": 0,
+            "capture_input_dropped_blocks": 0,
+            "capture_input_lost_samples": 0,
             "frequency_hz": freq_hz,
             "frequency_mhz": freq_mhz,
             "tuned_frequency_hz": tuned_hz,
@@ -571,12 +583,63 @@ impl RecorderPanel {
         self.recording = true;
         self.start_time = Some(std::time::Instant::now());
         self.bytes_written = 0;
+        self.native_iq_bytes = 0;
+        #[cfg(test)]
+        let continuous = !self.direct_iq_fixture;
+        #[cfg(not(test))]
+        let continuous = true;
+        if continuous {
+            if let (Some(tx), Some(disk), Some(path)) = (
+                self.iq_tx.take(),
+                self.iq_worker.take(),
+                self.iq_file_path.clone(),
+            ) {
+                let (sidecar, metadata) =
+                    self.metadata.as_ref().expect("created recording metadata");
+                let writer = crate::raw_recording::RawCaptureWriter::new(
+                    tx,
+                    disk,
+                    path,
+                    sidecar.clone(),
+                    metadata.clone(),
+                    self.wav_writer.is_some(),
+                );
+                self.continuous_iq = Some(crate::capture_recording::CaptureRecorder::start(
+                    capture_stream,
+                    writer,
+                    self.recording_deadline(),
+                ));
+            }
+        }
         if let Ok(mut state) = self.shared.try_lock() {
             state.recording = true;
         }
     }
 
     pub fn stop_recording(&mut self) {
+        if let Some(mut recorder) = self.continuous_iq.take() {
+            match recorder.finish() {
+                Ok(result) => {
+                    self.update_native_iq_bytes(result.bytes_written);
+                    self.capture = result.capture;
+                    self.iq_dropped_chunks = result.dropped_chunks;
+                    if let Some((_, metadata)) = &mut self.metadata {
+                        *metadata = result.metadata;
+                    }
+                    if let Some(error) = result.error {
+                        self.recording_failure = true;
+                        self.stop_reason = Some(error.clone());
+                        self.last_error = error;
+                    }
+                }
+                Err(error) => {
+                    self.capture = recorder.progress().capture.clone();
+                    self.recording_failure = true;
+                    self.stop_reason = Some(error.clone());
+                    self.last_error = error;
+                }
+            }
+        }
         if let Some(mut writer) = self.iq_writer.take() {
             use std::io::Write;
             if let Err(error) = writer.flush() {
@@ -685,6 +748,16 @@ impl RecorderPanel {
 
     /// Lifecycle deadlines run from the model even when controls are hidden.
     pub fn tick(&mut self) {
+        if let Some(recorder) = &self.continuous_iq {
+            recorder.set_deadline(self.recording_deadline());
+            let progress = recorder.progress();
+            self.update_native_iq_bytes(progress.bytes_written);
+            self.capture.clone_from(&progress.capture);
+            if progress.stopped {
+                self.stop_recording();
+                return;
+            }
+        }
         let limit = if self.quick_duration_secs > 0 {
             self.quick_duration_secs
         } else {
@@ -702,6 +775,26 @@ impl RecorderPanel {
         }
     }
 
+    fn update_native_iq_bytes(&mut self, bytes: u64) {
+        self.bytes_written = self
+            .bytes_written
+            .saturating_sub(self.native_iq_bytes)
+            .saturating_add(bytes);
+        self.native_iq_bytes = bytes;
+    }
+
+    fn recording_deadline(&self) -> Option<std::time::Instant> {
+        let limit = if self.quick_duration_secs > 0 {
+            self.quick_duration_secs
+        } else {
+            u64::from(self.max_duration_mins) * 60
+        };
+        self.start_time
+            .filter(|_| limit > 0)?
+            .checked_add(std::time::Duration::from_secs(limit))
+    }
+
+    #[cfg(test)]
     pub(crate) fn write_capture(
         &mut self,
         samples: &[u8],
@@ -749,6 +842,7 @@ impl RecorderPanel {
     }
 
     // The production ingestion path checks the capture contract above first.
+    #[cfg(test)]
     fn write_samples(&mut self, samples: &[u8]) -> bool {
         self.tick();
         if !self.recording || samples.is_empty() {
@@ -1405,6 +1499,143 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_recording_consumers_finalize_each_clock_boundary_without_gui_ticks() {
+        for boundary in 0..6 {
+            let dir = recording_dir(&format!("native-boundary-{boundary}"));
+            let shared = make_shared_state();
+            let stream = {
+                let mut state = shared.lock().unwrap();
+                state.source.frequency_hz = 1_090_000_000;
+                state.source.sample_rate_hz = 2_400_000;
+                state.source.capture_stream()
+            };
+            stream.start(1);
+            let mut panel = RecorderPanel::new(shared);
+            panel.output_dir = dir.display().to_string();
+            panel.filename_template = "native".into();
+            panel.start_recording();
+            let mut cf32 = crate::satellite::recorder::Cf32StreamWriter::start(
+                dir.to_str().unwrap(),
+                None,
+                2_400_000,
+                1_090_000_000,
+                0.0,
+                0.0,
+            )
+            .unwrap()
+            .with_capture(stream.clone());
+            let mut clock = ez_proto::CaptureClock::new(90, 700, 16_800_003, None);
+            clock.sample_stride = 7;
+            clock.discontinuous = true;
+            let publish =
+                |samples: Vec<u8>, clock: ez_proto::CaptureClock, index: u64, center: u64| {
+                    let mut block =
+                        crate::source_manager::CaptureBlock::fixture(samples, clock, 1, index);
+                    block.center_hz = center;
+                    block.session = Some(stream.session());
+                    stream.publish(&block);
+                };
+            let first = [90, 110].repeat(64);
+            let second = [140, 160].repeat(32);
+            publish(first.clone(), clock, 0, 1_090_000_000);
+            let mut next = clock.offset_samples(64).unwrap();
+            next.discontinuous = false;
+            publish(second.clone(), next, 64, 1_090_000_000);
+            let mut bad = next.offset_samples(32).unwrap();
+            let mut center = 1_090_000_000;
+            match boundary {
+                0 => {
+                    bad.epoch += 1;
+                    bad.source_sample_index = 0;
+                }
+                1 => center += 1_000_000,
+                2 => bad.source_sample_rate_hz = 14_000_000,
+                3 => bad.source_sample_index += 7,
+                4 => bad.discontinuous = true,
+                _ => bad.origin_unix_ns = Some(123),
+            }
+            publish([200, 210].repeat(10), bad, 96, center);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while !panel.continuous_iq.as_ref().unwrap().progress().stopped {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            assert!(cf32.stop().unwrap_err().contains("Recording stopped"));
+            // File and sidecar are final before the hidden frontend observes it.
+            let expected = [first, second].concat();
+            assert_eq!(std::fs::read(dir.join("native.iq")).unwrap(), expected);
+            assert_eq!(
+                std::fs::read(cf32.path()).unwrap(),
+                lrpt_decode::uc8_bytes_to_cf32_le(&expected)
+            );
+            let raw_meta: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(dir.join("native.json")).unwrap()).unwrap();
+            let cf_meta: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(cf32.path().with_extension("json")).unwrap())
+                    .unwrap();
+            assert_eq!(raw_meta["capture"], cf_meta["capture"]);
+            assert_eq!(raw_meta["capture"]["samples"], 96);
+            assert_eq!(raw_meta["capture"]["next_source_sample_index"], 1372);
+            assert_eq!(
+                raw_meta["capture"]["first_clock"]["source_sample_rate_hz"],
+                16_800_003
+            );
+            assert_eq!(raw_meta["capture"]["first_clock"]["sample_stride"], 7);
+            assert_eq!(raw_meta["complete"], false);
+            assert_eq!(cf_meta["complete"], false);
+            assert_eq!(raw_meta["lost_samples"], 0);
+            assert_eq!(cf_meta["lost_samples"], 0);
+            assert!(panel.recording);
+            panel.tick();
+            assert!(!panel.recording);
+            drop(panel);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn native_recording_deadline_finalizes_files_without_gui_ticks() {
+        let dir = recording_dir("native-deadline");
+        let shared = make_shared_state();
+        {
+            let mut state = shared.lock().unwrap();
+            state.source.source_mode = crate::source_manager::SourceMode::Hardware;
+            state.source.frequency_hz = 118_000_000;
+            state.source.sample_rate_hz = 2_400_000;
+            state
+                .source
+                .test_set_hardware_open(|_| Ok([90, 110].repeat(16_384)));
+        }
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.output_dir = dir.display().to_string();
+        panel.filename_template = "deadline".into();
+        panel.quick_duration_secs = 1;
+        panel.start_recording();
+        shared.lock().unwrap().source.start();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !panel.continuous_iq.as_ref().unwrap().progress().stopped {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // The backend flushed both file and sidecar while the GUI model stayed
+        // untouched. A later UI tick only observes the completed result.
+        let bytes = std::fs::read(dir.join("deadline.iq")).unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("deadline.json")).unwrap()).unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(metadata["complete"], true);
+        assert_eq!(metadata["capture"]["samples"], bytes.len() as u64 / 2);
+        assert!(metadata["duration_sec"].as_f64().unwrap() > 0.5);
+        assert!(metadata["duration_sec"].as_f64().unwrap() <= 1.1);
+        assert!(panel.recording);
+        panel.tick();
+        assert!(!panel.recording);
+        shared.lock().unwrap().source.stop();
+        drop(panel);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn raw_iq_recording_finalizes_before_any_epoch_geometry_or_gap_boundary() {
         for boundary in 0..6 {
             let dir = recording_dir(&format!("capture-boundary-{boundary}"));
@@ -1414,7 +1645,7 @@ mod tests {
                 state.source.frequency_hz = 1_090_000_000;
                 state.source.sample_rate_hz = 2_400_000;
             }
-            let mut panel = RecorderPanel::new(shared.clone());
+            let mut panel = RecorderPanel::new_direct(shared.clone());
             panel.output_dir = dir.display().to_string();
             panel.filename_template = "prefix".into();
             panel.start_recording();
@@ -1494,7 +1725,7 @@ mod tests {
     fn raw_iq_queue_overflow_ends_the_file_before_later_samples_can_be_appended() {
         let dir = recording_dir("capture-writer-overflow");
         let shared = make_shared_state();
-        let mut panel = RecorderPanel::new(shared.clone());
+        let mut panel = RecorderPanel::new_direct(shared.clone());
         panel.output_dir = dir.display().to_string();
         panel.filename_template = "overflow".into();
         panel.start_recording();
@@ -1574,7 +1805,7 @@ mod tests {
     fn dropping_recorder_flushes_all_queued_iq_before_returning() {
         let dir = recording_dir("drop-flush");
         let shared = make_shared_state();
-        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        let mut panel = RecorderPanel::new_direct(Arc::clone(&shared));
         panel.output_dir = dir.display().to_string();
         panel.filename_template = "shutdown".into();
         panel.start_recording();
@@ -1596,7 +1827,7 @@ mod tests {
     #[test]
     fn repeated_template_preserves_prior_recordings_and_escapes_metadata() {
         let dir = recording_dir("collision");
-        let mut panel = RecorderPanel::new(make_shared_state());
+        let mut panel = RecorderPanel::new_direct(make_shared_state());
         panel.output_dir = dir.display().to_string();
         panel.filename_template = "quoted\"station".into();
         for bytes in [b"first".as_slice(), b"second".as_slice()] {
@@ -1623,7 +1854,7 @@ mod tests {
     #[test]
     fn wav_uses_real_audio_rate_and_finalizes_on_a_rate_change() {
         let dir = recording_dir("wav-rate");
-        let mut panel = RecorderPanel::new(make_shared_state());
+        let mut panel = RecorderPanel::new_direct(make_shared_state());
         panel.output_dir = dir.display().to_string();
         panel.filename_template = "audio".into();
         panel.record_iq = false;
@@ -1655,7 +1886,7 @@ mod tests {
     #[test]
     fn invalid_recording_configuration_and_save_path_do_not_start() {
         let dir = recording_dir("invalid");
-        let mut panel = RecorderPanel::new(make_shared_state());
+        let mut panel = RecorderPanel::new_direct(make_shared_state());
         panel.output_dir = dir.display().to_string();
         panel.record_iq = false;
         panel.record_audio = false;
@@ -1682,7 +1913,7 @@ mod tests {
         let dir = recording_dir("write-error");
         let path = dir.join("read-only-handle");
         std::fs::write(&path, b"unchanged").unwrap();
-        let mut panel = RecorderPanel::new(make_shared_state());
+        let mut panel = RecorderPanel::new_direct(make_shared_state());
         panel.wav_writer = Some(
             hound::WavWriter::new(
                 std::io::BufWriter::new(std::fs::File::open(&path).unwrap()),
@@ -1736,7 +1967,7 @@ mod tests {
 
     #[test]
     fn apply_filename_template_basic() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result =
             panel.apply_filename_template("{date}_{freq}MHz", "20240101_120000", 145.5, "NFM");
         assert_eq!(result, "20240101_120000_145.500MHz");
@@ -1744,7 +1975,7 @@ mod tests {
 
     #[test]
     fn apply_filename_template_all_tokens() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template(
             "{date}_{freq}_{freq1}_{freq0}_{mode}",
             "20240101",
@@ -1756,21 +1987,21 @@ mod tests {
 
     #[test]
     fn apply_filename_template_spaces_replaced() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("{date} test file", "20240101", 100.0, "AM");
         assert_eq!(result, "20240101_test_file");
     }
 
     #[test]
     fn apply_filename_template_no_tokens() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("static_name", "ignored", 0.0, "RAW");
         assert_eq!(result, "static_name");
     }
 
     #[test]
     fn apply_filename_template_empty_template() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("", "ts", 100.0, "FM");
         assert_eq!(result, "");
     }
@@ -1790,42 +2021,42 @@ mod tests {
 
     #[test]
     fn apply_filename_template_only_date() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("{date}", "20240101_120000", 145.5, "NFM");
         assert_eq!(result, "20240101_120000");
     }
 
     #[test]
     fn apply_filename_template_only_freq() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("{freq}", "ignored", 145.5, "NFM");
         assert_eq!(result, "145.500");
     }
 
     #[test]
     fn apply_filename_template_only_mode() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("{mode}", "ignored", 100.0, "WFM");
         assert_eq!(result, "WFM");
     }
 
     #[test]
     fn apply_filename_template_adjacent_tokens() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("{date}{freq}{mode}", "20240101", 145.5, "NFM");
         assert_eq!(result, "20240101145.500NFM");
     }
 
     #[test]
     fn apply_filename_template_strange_chars_in_template() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("!@#$%^&*()", "ts", 100.0, "FM");
         assert_eq!(result, "!@#$%^&*()");
     }
 
     #[test]
     fn apply_filename_template_very_long_template() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let long_template = "a".repeat(500) + "{date}" + &"b".repeat(500);
         let result = panel.apply_filename_template(&long_template, "ts", 100.0, "FM");
         assert_eq!(result.len(), 1002); // 500 + 2 + 500
@@ -1834,21 +2065,21 @@ mod tests {
 
     #[test]
     fn apply_filename_template_repeated_token() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("{freq}_{freq}", "ignored", 100.5, "FM");
         assert_eq!(result, "100.500_100.500");
     }
 
     #[test]
     fn apply_filename_template_case_sensitive_no_match() {
-        let panel = RecorderPanel::new(make_shared_state());
+        let panel = RecorderPanel::new_direct(make_shared_state());
         let result = panel.apply_filename_template("{Date}_{Freq}", "ts", 100.0, "FM");
         assert_eq!(result, "{Date}_{Freq}");
     }
 
     #[test]
     fn write_samples_not_recording_is_noop() {
-        let mut panel = RecorderPanel::new(make_shared_state());
+        let mut panel = RecorderPanel::new_direct(make_shared_state());
         panel.write_samples(&[1, 2, 3, 4]);
         assert_eq!(panel.bytes_written, 0);
     }
@@ -1873,7 +2104,7 @@ mod tests {
             state.source.sample_rate_hz = 2_400_000;
             state.config.advanced.rf_decim = 8;
         }
-        let mut panel = RecorderPanel::new(shared);
+        let mut panel = RecorderPanel::new_direct(shared);
         panel.output_dir = dir.to_string_lossy().to_string();
         panel.record_iq = true;
         panel.record_audio = false;
