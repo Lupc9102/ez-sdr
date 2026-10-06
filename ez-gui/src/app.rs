@@ -1265,8 +1265,9 @@ impl eframe::App for CentralApp {
 
             for block in &sample_batch {
                 let samples = &block.samples;
-                self.recorder_panel.write_samples(samples);
-                self.satellite_panel.feed_recording(samples);
+                self.recorder_panel
+                    .write_capture(&block.samples, block.clock, block.center_hz);
+                self.satellite_panel.feed_recording(block);
                 self.constellation.push_iq_samples(samples);
                 let wideband_iq = self.radio_iq.process(samples);
 

@@ -2658,6 +2658,7 @@ mod tests {
                 frame_locked: false,
             }),
             E::Recording(RecordingStatus {
+                stop_reason: None,
                 channel_id: foreign,
                 active: true,
                 path: None,

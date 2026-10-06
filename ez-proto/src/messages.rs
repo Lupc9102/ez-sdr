@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -251,6 +251,8 @@ pub struct HardwareStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingStatus {
+    /// Why an automatically stopped or failed recording ended.
+    pub stop_reason: Option<String>,
     pub channel_id: ChannelId,
     pub active: bool,
     pub path: Option<String>,

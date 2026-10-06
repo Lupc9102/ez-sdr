@@ -18,6 +18,8 @@ pub struct Cf32RecordingMeta {
     pub bytes_total: u64,
     pub lost_samples: u64,
     pub complete: bool,
+    pub capture: Option<ez_proto::RecordingCapture>,
+    pub stop_reason: Option<String>,
     pub satellite: Option<String>,
     pub observer_lat: f64,
     pub observer_lon: f64,
@@ -106,6 +108,8 @@ impl Cf32StreamWriter {
             bytes_total: 0,
             lost_samples: 0,
             complete: false,
+            capture: None,
+            stop_reason: None,
             satellite,
             observer_lat,
             observer_lon,
@@ -122,6 +126,43 @@ impl Cf32StreamWriter {
             error,
             meta,
         })
+    }
+
+    pub fn write_capture(
+        &mut self,
+        samples: &[u8],
+        clock: ez_proto::CaptureClock,
+        center_hz: u64,
+    ) -> Result<(), String> {
+        if samples.is_empty() {
+            return Ok(());
+        }
+        let rate = clock.source_sample_rate_hz / clock.sample_stride.max(1);
+        let next = if center_hz != self.meta.frequency_hz || rate != self.meta.sample_rate_hz {
+            Err(
+                "Recording stopped: capture tuning or sample rate differs from the file header"
+                    .into(),
+            )
+        } else {
+            ez_proto::RecordingCapture::accept(
+                self.meta.capture.as_ref(),
+                clock,
+                center_hz,
+                rate,
+                samples.len() as u64 / 2,
+            )
+        };
+        let next = next.inspect_err(|reason: &String| {
+            self.meta.stop_reason = Some(reason.clone());
+            if let Ok(mut error) = self.error.lock() {
+                if error.is_none() {
+                    *error = Some(reason.clone());
+                }
+            }
+        })?;
+        self.write(samples)?;
+        self.meta.capture = Some(next);
+        Ok(())
     }
 
     pub fn write(&mut self, samples: &[u8]) -> Result<(), String> {
@@ -171,7 +212,25 @@ impl Cf32StreamWriter {
             .offered_samples
             .saturating_sub(self.meta.bytes_total / 8)
             .max(self.dropped_samples);
-        self.meta.duration_sec = self.offered_samples as f64 / f64::from(self.meta.sample_rate_hz);
+        if let Some(capture) = &mut self.meta.capture {
+            capture.samples = self.meta.bytes_total / 8;
+            capture.next_source_sample_index = capture
+                .first_clock
+                .offset_samples(capture.samples)
+                .map_or(capture.first_clock.source_sample_index, |clock| {
+                    clock.source_sample_index
+                });
+        }
+        self.meta.duration_sec = self.meta.capture.as_ref().map_or(
+            self.offered_samples as f64 / f64::from(self.meta.sample_rate_hz),
+            |capture| {
+                self.meta.bytes_total as f64 / 8.0 * f64::from(capture.first_clock.sample_stride)
+                    / f64::from(capture.first_clock.source_sample_rate_hz)
+            },
+        );
+        if self.meta.stop_reason.is_none() {
+            self.meta.stop_reason = self.error();
+        }
         self.meta.complete = self.error().is_none()
             && self.meta.lost_samples == 0
             && self.meta.bytes_total.is_multiple_of(8);
@@ -293,6 +352,74 @@ fn raw_iq_bytes_to_cf32_le(samples: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cf32_capture_finalizes_only_the_contiguous_prefix_before_retune_rate_rewind_or_loss() {
+        for boundary in 0..5 {
+            let dir = temp_dir();
+            let mut writer =
+                Cf32StreamWriter::start(dir.to_str().unwrap(), None, 2_400_000, 1090, 0.0, 0.0)
+                    .unwrap();
+            let mut clock = ez_proto::CaptureClock::new(5, 700, 16_800_003, None);
+            clock.sample_stride = 7;
+            clock.discontinuous = true;
+            let raw = [90, 110, 140, 160].repeat(32);
+            writer.write_capture(&raw, clock, 1090).unwrap();
+            let mut next = clock.offset_samples(raw.len() as u64 / 2).unwrap();
+            next.discontinuous = false;
+            let mut center = 1090;
+            match boundary {
+                0 => {
+                    next.epoch += 1;
+                    next.source_sample_index = 0;
+                }
+                1 => center += 100,
+                2 => next.source_sample_rate_hz = 14_000_000,
+                3 => next.source_sample_index += 7,
+                _ => next.discontinuous = true,
+            }
+            assert!(writer
+                .write_capture(&[200, 210], next, center)
+                .unwrap_err()
+                .contains("Recording stopped"));
+            assert!(!writer.is_running());
+            assert!(writer.stop().unwrap_err().contains("Recording stopped"));
+            assert_eq!(
+                std::fs::read(writer.path()).unwrap(),
+                lrpt_decode::uc8_bytes_to_cf32_le(&raw)
+            );
+            let metadata: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(writer.path().with_extension("json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(metadata["capture"]["samples"], raw.len() as u64 / 2);
+            assert_eq!(
+                metadata["capture"]["first_clock"]["source_sample_rate_hz"],
+                16_800_003
+            );
+            assert_eq!(metadata["capture"]["first_clock"]["sample_stride"], 7);
+            assert_eq!(metadata["complete"], false);
+            assert_eq!(metadata["lost_samples"], 0); // boundary block was never accepted
+            use ez_daemon::hardware::{
+                replay::{FileReplaySource, ReplayFormat},
+                IqSource,
+            };
+            let mut replay = FileReplaySource::open(
+                writer.path().to_str().unwrap(),
+                ReplayFormat::Cf32Le,
+                2_400_000,
+                false,
+                1000.0,
+            )
+            .unwrap();
+            replay.start().unwrap();
+            let mut samples = vec![num_complex::Complex32::default(); raw.len() / 2];
+            assert_eq!(replay.read_iq(&mut samples).unwrap(), samples.len());
+            assert_eq!(samples, lrpt_decode::uc8_bytes_to_normalized(&raw));
+            replay.stop();
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
 
     fn temp_dir() -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);

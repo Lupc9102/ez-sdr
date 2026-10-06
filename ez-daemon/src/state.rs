@@ -554,7 +554,7 @@ impl DaemonState {
     /// Control transports report removal by channel identity to subscribers.
     /// Active recordings must be stopped first.
     pub fn remove_channel(&self, channel_id: ChannelId) -> Result<()> {
-        let recordings = self.recordings.lock();
+        let mut recordings = self.recordings.lock();
         if recordings
             .status(channel_id)
             .is_some_and(|status| status.active)
@@ -569,6 +569,7 @@ impl DaemonState {
                 .remove(&channel_id)
                 .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?
         };
+        recordings.forget_finished(channel_id);
         active.running.store(false, Ordering::Relaxed);
         if let Some(internal_id) = active.internal_channel_id {
             self.channelizer.lock().remove_channel(internal_id);

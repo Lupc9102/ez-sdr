@@ -559,8 +559,11 @@ impl SatellitePanel {
             self.pending_status = Some("Recorder: source is busy; try again".into());
             return;
         };
-        let freq_hz = state.source.capture_center_frequency_hz();
-        let sample_rate = state.source.sample_rate_hz;
+        let (freq_hz, sample_rate, _) = state.source.applied_capture_settings().unwrap_or((
+            state.source.capture_center_frequency_hz(),
+            state.source.sample_rate_hz,
+            state.source.gain_db,
+        ));
         drop(state);
 
         match Cf32StreamWriter::start(
@@ -616,7 +619,7 @@ impl SatellitePanel {
     }
 
     /// Feed IQ samples to cf32 writer. Called from CentralApp::logic().
-    pub fn feed_recording(&mut self, samples: &[u8]) {
+    pub(crate) fn feed_recording(&mut self, block: &crate::source_manager::CaptureBlock) {
         if self.is_meteor_selected() {
             if self.cf32_recording {
                 self.stop_cf32_recording();
@@ -626,7 +629,9 @@ impl SatellitePanel {
         }
         if self.cf32_recording {
             if let Some(w) = &mut self.cf32_writer {
-                if w.write(samples).is_err() {
+                if w.write_capture(&block.samples, block.clock, block.center_hz)
+                    .is_err()
+                {
                     self.stop_cf32_recording();
                 }
             }

@@ -24,6 +24,11 @@ pub struct RecorderPanel {
     iq_tx: Option<crossbeam_channel::Sender<Vec<u8>>>,
     iq_worker: Option<std::thread::JoinHandle<Result<u64, String>>>,
     iq_dropped_chunks: u64,
+    capture: Option<ez_proto::RecordingCapture>,
+    metadata: Option<(std::path::PathBuf, serde_json::Value)>,
+    iq_file_path: Option<std::path::PathBuf>,
+    recording_failure: bool,
+    stop_reason: Option<String>,
     audio_sample_rate: u32,
     pub last_filename: String,
     pub last_error: String,
@@ -75,6 +80,11 @@ impl RecorderPanel {
             iq_tx: None,
             iq_worker: None,
             iq_dropped_chunks: 0,
+            capture: None,
+            metadata: None,
+            iq_file_path: None,
+            recording_failure: false,
+            stop_reason: None,
             audio_sample_rate: 48_000,
             last_filename: String::new(),
             last_error: String::new(),
@@ -115,8 +125,8 @@ impl RecorderPanel {
         if let Some(path) = &status.path {
             self.last_filename = path.clone();
         }
+        self.last_error = status.stop_reason.clone().unwrap_or_default();
         self.daemon_recording = Some(status);
-        self.last_error.clear();
         if let Ok(mut state) = self.shared.try_lock() {
             state.recording = self.recording;
         }
@@ -324,6 +334,11 @@ impl RecorderPanel {
             return;
         }
         let output_dir = self.output_dir.clone();
+        self.capture = None;
+        self.metadata = None;
+        self.iq_file_path = None;
+        self.recording_failure = false;
+        self.stop_reason = None;
         self.last_error.clear();
         let adv_format = if let Ok(s) = self.shared.try_lock() {
             s.config.advanced.record_format.clone()
@@ -367,12 +382,17 @@ impl RecorderPanel {
 
         let (freq_hz, tuned_hz, offset_hz, sample_rate_hz, gain_db, ppm_correction, demod_label) =
             if let Ok(state) = self.shared.try_lock() {
-                (
+                let (center, rate, gain) = state.source.applied_capture_settings().unwrap_or((
                     state.source.capture_center_frequency_hz(),
-                    state.source.frequency_hz,
-                    state.source.frequency_offset_hz,
                     state.source.sample_rate_hz,
                     state.source.gain_db,
+                ));
+                (
+                    center,
+                    state.source.frequency_hz,
+                    state.source.frequency_offset_hz,
+                    rate,
+                    gain,
                     state.source.ppm_correction,
                     state.demod_mode.label().to_string(),
                 )
@@ -454,6 +474,7 @@ impl RecorderPanel {
                     // field is retained for API compat (always None when the
                     // worker is active).
                     self.iq_writer = None;
+                    self.iq_file_path = Some(path);
                     self.last_filename = filename.clone();
                     iq_filename = filename;
                 }
@@ -516,6 +537,10 @@ impl RecorderPanel {
             files.push(wav_filename);
         }
         let json = serde_json::json!({
+            "complete": false,
+            "format": if self.record_iq { "cu8" } else { "wav16" },
+            "capture": null,
+            "stop_reason": null,
             "frequency_hz": freq_hz,
             "frequency_mhz": freq_mhz,
             "tuned_frequency_hz": tuned_hz,
@@ -542,6 +567,7 @@ impl RecorderPanel {
             return;
         }
 
+        self.metadata = Some((sidecar_path, json));
         self.recording = true;
         self.start_time = Some(std::time::Instant::now());
         self.bytes_written = 0;
@@ -551,7 +577,13 @@ impl RecorderPanel {
     }
 
     pub fn stop_recording(&mut self) {
-        self.iq_writer.take();
+        if let Some(mut writer) = self.iq_writer.take() {
+            use std::io::Write;
+            if let Err(error) = writer.flush() {
+                self.recording_failure = true;
+                self.last_error = format!("IQ flush failed: {error}");
+            }
+        }
         // Shut down the IQ worker: drop the sender so its `for chunk in rx`
         // loop ends, then join to flush/close the file and collect the byte
         // count / error.
@@ -565,6 +597,7 @@ impl RecorderPanel {
                         self.bytes_written = self.bytes_written.max(total);
                     }
                     if self.iq_dropped_chunks > 0 {
+                        self.recording_failure = true;
                         self.last_error = format!(
                             "IQ writer dropped {} chunks (disk too slow)",
                             self.iq_dropped_chunks
@@ -572,16 +605,73 @@ impl RecorderPanel {
                     }
                 }
                 Ok(Err(e)) => {
+                    self.recording_failure = true;
                     self.last_error = e;
                 }
                 Err(_) => {
+                    self.recording_failure = true;
                     self.last_error = "IQ writer thread panicked".to_string();
                 }
             }
         }
         if let Some(w) = self.wav_writer.take() {
             if let Err(e) = w.finalize() {
+                self.recording_failure = true;
                 self.last_error = format!("Failed to finalize WAV: {e}");
+            }
+        }
+        if let Some((path, mut metadata)) = self.metadata.take() {
+            if let Some(iq_path) = &self.iq_file_path {
+                match std::fs::metadata(iq_path) {
+                    Ok(file) => {
+                        let bytes = file.len();
+                        metadata["iq_bytes_total"] = bytes.into();
+                        if let Some(capture) = &mut self.capture {
+                            if capture.samples.saturating_mul(2) != bytes {
+                                self.recording_failure = true;
+                                metadata["lost_samples"] =
+                                    capture.samples.saturating_sub(bytes / 2).into();
+                                capture.samples = bytes / 2;
+                                capture.next_source_sample_index = capture
+                                    .first_clock
+                                    .offset_samples(capture.samples)
+                                    .map_or(capture.first_clock.source_sample_index, |clock| {
+                                        clock.source_sample_index
+                                    });
+                            }
+                        }
+                        if !bytes.is_multiple_of(2) {
+                            self.recording_failure = true;
+                        }
+                    }
+                    Err(error) => {
+                        self.recording_failure = true;
+                        self.last_error = format!("IQ file metadata failed: {error}");
+                    }
+                }
+            }
+            metadata["capture"] =
+                serde_json::to_value(&self.capture).unwrap_or(serde_json::Value::Null);
+            if let Some(capture) = &self.capture {
+                metadata["duration_sec"] = (capture.samples as f64
+                    * f64::from(capture.first_clock.sample_stride)
+                    / f64::from(capture.first_clock.source_sample_rate_hz))
+                .into();
+            }
+            metadata["complete"] = (!self.recording_failure).into();
+            metadata["stop_reason"] = self
+                .stop_reason
+                .clone()
+                .or_else(|| self.recording_failure.then(|| self.last_error.clone()))
+                .into();
+            metadata["end_utc"] = chrono::Utc::now().to_rfc3339().into();
+            let result = std::fs::File::create(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|file| {
+                    serde_json::to_writer_pretty(file, &metadata).map_err(|error| error.to_string())
+                });
+            if let Err(error) = result {
+                self.last_error = format!("Failed to finalize recording metadata: {error}");
             }
         }
         self.recording = false;
@@ -612,38 +702,90 @@ impl RecorderPanel {
         }
     }
 
-    pub fn write_samples(&mut self, samples: &[u8]) {
+    pub(crate) fn write_capture(
+        &mut self,
+        samples: &[u8],
+        clock: ez_proto::CaptureClock,
+        center_hz: u64,
+    ) {
+        if !self.recording || self.iq_tx.is_none() && self.iq_writer.is_none() || samples.is_empty()
+        {
+            return;
+        }
+        let rate = clock.source_sample_rate_hz / clock.sample_stride.max(1);
+        let geometry_matches = self.metadata.as_ref().is_none_or(|(_, metadata)| {
+            metadata["frequency_hz"].as_u64() == Some(center_hz)
+                && metadata["sample_rate_hz"].as_u64() == Some(u64::from(rate))
+        });
+        let next = if !samples.len().is_multiple_of(2) {
+            Err("Recording stopped: incomplete I/Q sample".into())
+        } else if geometry_matches {
+            ez_proto::RecordingCapture::accept(
+                self.capture.as_ref(),
+                clock,
+                center_hz,
+                rate,
+                samples.len() as u64 / 2,
+            )
+        } else {
+            Err(
+                "Recording stopped: capture tuning or sample rate differs from the file header"
+                    .into(),
+            )
+        };
+        match next {
+            Ok(next) => {
+                if self.write_samples(samples) {
+                    self.capture = Some(next);
+                }
+            }
+            Err(reason) => {
+                self.stop_reason = Some(reason.clone());
+                self.recording_failure = true;
+                self.last_error = reason;
+                self.stop_recording();
+            }
+        }
+    }
+
+    // The production ingestion path checks the capture contract above first.
+    fn write_samples(&mut self, samples: &[u8]) -> bool {
         self.tick();
         if !self.recording || samples.is_empty() {
-            return;
+            return false;
         }
-        // Legacy sync path (kept for tests / if worker not started).
         if let Some(writer) = &mut self.iq_writer {
             use std::io::Write;
-            if let Err(e) = writer.write_all(samples) {
-                self.last_error = format!("Write error: {e}");
+            if let Err(error) = writer.write_all(samples) {
+                self.recording_failure = true;
+                self.last_error = format!("Write error: {error}");
                 self.stop_recording();
-            } else {
-                self.bytes_written += samples.len() as u64;
+                return false;
             }
-            return;
+            self.bytes_written += samples.len() as u64;
+            return true;
         }
-        // Fast path: non-blocking push to the worker. Never blocks the UI
-        // thread even at 2.4 MSps; on backpressure drop and count.
         if let Some(tx) = &self.iq_tx {
             match tx.try_send(samples.to_vec()) {
                 Ok(()) => {
                     self.bytes_written += samples.len() as u64;
+                    return true;
                 }
                 Err(crossbeam_channel::TrySendError::Full(_)) => {
                     self.iq_dropped_chunks += 1;
+                    self.recording_failure = true;
+                    self.stop_reason = Some("Recording stopped: IQ writer queue overflow".into());
+                    self.last_error = self.stop_reason.clone().unwrap();
+                    self.stop_recording();
                 }
                 Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                    self.recording_failure = true;
                     self.last_error = "IQ writer disconnected".to_string();
                     self.stop_recording();
                 }
             }
         }
+        false
     }
 
     pub fn write_audio_samples(&mut self, audio: &[f32]) {
@@ -1261,6 +1403,125 @@ fn free_disk_space_with_timeout(path: &str) -> (f64, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_iq_recording_finalizes_before_any_epoch_geometry_or_gap_boundary() {
+        for boundary in 0..6 {
+            let dir = recording_dir(&format!("capture-boundary-{boundary}"));
+            let shared = make_shared_state();
+            {
+                let mut state = shared.lock().unwrap();
+                state.source.frequency_hz = 1_090_000_000;
+                state.source.sample_rate_hz = 2_400_000;
+            }
+            let mut panel = RecorderPanel::new(shared.clone());
+            panel.output_dir = dir.display().to_string();
+            panel.filename_template = "prefix".into();
+            panel.start_recording();
+            let mut clock = ez_proto::CaptureClock::new(9, 700, 2_400_000, None);
+            clock.discontinuous = true;
+            let first = [90, 110].repeat(40);
+            let second = [140, 160].repeat(25);
+            panel.write_capture(&first, clock, 1_090_000_000);
+            let mut next = clock.offset_samples(40).unwrap();
+            next.discontinuous = false;
+            panel.write_capture(&second, next, 1_090_000_000);
+            let mut bad = next.offset_samples(25).unwrap();
+            let mut center = 1_090_000_000;
+            match boundary {
+                0 => {
+                    bad.epoch += 1;
+                    bad.source_sample_index = 0;
+                }
+                1 => center += 1_000_000,
+                2 => bad.source_sample_rate_hz = 2_000_000,
+                3 => bad.source_sample_index += 17,
+                4 => bad.discontinuous = true,
+                _ => bad.origin_unix_ns = Some(123),
+            }
+            panel.write_capture(&[200, 210].repeat(20), bad, center);
+            assert!(!panel.recording);
+            assert!(!shared.lock().unwrap().recording);
+            assert!(panel.last_error.contains("Recording stopped"));
+            panel.write_capture(&[200, 210], bad, center);
+            let expected = [first, second].concat();
+            assert_eq!(std::fs::read(dir.join("prefix.iq")).unwrap(), expected);
+            let metadata: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(dir.join("prefix.json")).unwrap()).unwrap();
+            assert_eq!(metadata["frequency_hz"], 1_090_000_000u64);
+            assert_eq!(metadata["sample_rate_hz"], 2_400_000);
+            assert_eq!(metadata["capture"]["first_clock"]["epoch"], 9);
+            assert_eq!(
+                metadata["capture"]["first_clock"]["source_sample_index"],
+                700
+            );
+            assert_eq!(
+                metadata["capture"]["first_clock"]["origin_unix_ns"],
+                serde_json::Value::Null
+            );
+            assert_eq!(metadata["capture"]["samples"], 65);
+            assert_eq!(metadata["capture"]["next_source_sample_index"], 765);
+            assert_eq!(metadata["complete"], false);
+            assert!(metadata["stop_reason"]
+                .as_str()
+                .unwrap()
+                .contains("Recording stopped"));
+            // Reopen this finalized prefix independently through the production
+            // replay source and compare every byte with its source samples.
+            let mut replay = crate::source_manager::SourceManager::new();
+            replay.source_mode = crate::source_manager::SourceMode::Replay;
+            replay.replay_file = Some(dir.join("prefix.iq").display().to_string());
+            replay.sample_rate_hz = 2_400_000;
+            replay.start();
+            let mut bytes = Vec::new();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while std::time::Instant::now() < deadline {
+                if let Some(block) = replay.recv_capture_block() {
+                    bytes.extend(block.samples);
+                }
+                if replay.status == crate::source_manager::SourceStatus::Idle {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            replay.stop();
+            assert_eq!(bytes, expected);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn raw_iq_queue_overflow_ends_the_file_before_later_samples_can_be_appended() {
+        let dir = recording_dir("capture-writer-overflow");
+        let shared = make_shared_state();
+        let mut panel = RecorderPanel::new(shared.clone());
+        panel.output_dir = dir.display().to_string();
+        panel.filename_template = "overflow".into();
+        panel.start_recording();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        tx.send(vec![1, 2]).unwrap();
+        let old = panel.iq_tx.replace(tx);
+        drop(old); // actual file worker exits; replacement queue is deliberately full
+        let state = shared.lock().unwrap();
+        let center = state.source.capture_center_frequency_hz();
+        let rate = state.source.sample_rate_hz;
+        drop(state);
+        let clock = ez_proto::CaptureClock::new(1, 0, rate, None);
+        panel.write_capture(&[90, 110], clock, center);
+        assert!(!panel.recording);
+        assert_eq!(panel.iq_dropped_chunks, 1);
+        panel.write_capture(&[140, 160], clock.offset_samples(1).unwrap(), center);
+        assert!(std::fs::read(dir.join("overflow.iq")).unwrap().is_empty());
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("overflow.json")).unwrap()).unwrap();
+        assert_eq!(metadata["complete"], false);
+        assert!(metadata["stop_reason"]
+            .as_str()
+            .unwrap()
+            .contains("overflow"));
+        drop(rx);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn make_shared_state() -> Arc<Mutex<crate::app::SharedState>> {
         Arc::new(Mutex::new(crate::app::SharedState {

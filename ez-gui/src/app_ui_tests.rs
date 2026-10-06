@@ -398,6 +398,7 @@ fn daemon_recording_events_update_panel_and_shared_state_under_the_app_lock() {
     for active in [true, false] {
         app.apply_daemon_recording(
             ez_proto::RecordingStatus {
+                stop_reason: None,
                 channel_id: 1,
                 active,
                 path: Some("capture.iq".into()),
@@ -1898,4 +1899,248 @@ fn hidden_local_capture_epoch_and_gap_retire_trails_notifications_and_decoder_st
     app.adsb_panel.tick_model();
     assert!(!app.adsb_panel.aircraft[0].has_position);
     assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 0);
+}
+
+#[test]
+fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples() {
+    use crate::source_manager::{SourceMode, SourceStatus};
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Meteor;
+    app.satellite_panel.selected_sat_index = None;
+    let dir = std::env::temp_dir().join(format!(
+        "ez-r05-app-{}-{}",
+        std::process::id(),
+        ez_proto::new_capture_epoch()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    app.recorder_panel.output_dir = dir.display().to_string();
+    app.recorder_panel.filename_template = "first".into();
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = SourceMode::Hardware;
+        state.source.frequency_hz = 118_000_000;
+        state.source.center_frequency_hz = Some(118_000_000);
+        state.source.sample_rate_hz = 2_400_000;
+        state
+            .source
+            .test_set_hardware_open(|settings: crate::source_manager::RtlOpenSettings| {
+                let pair = if settings.frequency_hz == 118_000_000 {
+                    [80, 90]
+                } else {
+                    [200, 210]
+                };
+                Ok(pair.repeat(16_384))
+            });
+        state.source.start();
+    }
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !app.shared.lock().unwrap().source.capture_tuning_applied() {
+        app.logic(&ctx, &mut frame);
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    app.recorder_panel.start_recording();
+    assert!(
+        app.recorder_panel.recording,
+        "{}",
+        app.recorder_panel.last_error
+    );
+    let satellite = crate::satellite::recorder::Cf32StreamWriter::start(
+        dir.to_str().unwrap(),
+        None,
+        2_400_000,
+        118_000_000,
+        0.0,
+        0.0,
+    )
+    .unwrap();
+    let satellite_path = satellite.path().to_path_buf();
+    app.satellite_panel.cf32_writer = Some(satellite);
+    app.satellite_panel.cf32_recording = true;
+    while app.recorder_panel.bytes_written == 0 {
+        app.logic(&ctx, &mut frame);
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(app.satellite_panel.cf32_recording);
+    app.shared
+        .lock()
+        .unwrap()
+        .source
+        .tune_and_restart(119_000_000, 2_000_000);
+    while app.recorder_panel.recording || app.satellite_panel.cf32_recording {
+        app.logic(&ctx, &mut frame);
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let first = std::fs::read(dir.join("first.iq")).unwrap();
+    assert!(!first.is_empty());
+    assert!(first.chunks_exact(2).all(|pair| pair == [80, 90]));
+    assert_eq!(
+        std::fs::read(&satellite_path).unwrap(),
+        lrpt_decode::uc8_bytes_to_cf32_le(&first)
+    );
+    let first_metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("first.json")).unwrap()).unwrap();
+    let satellite_metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(satellite_path.with_extension("json")).unwrap())
+            .unwrap();
+    assert_eq!(first_metadata["frequency_hz"], 118_000_000);
+    assert_eq!(first_metadata["sample_rate_hz"], 2_400_000);
+    assert_eq!(first_metadata["capture"]["samples"], first.len() as u64 / 2);
+    assert_eq!(first_metadata["capture"], satellite_metadata["capture"]);
+    assert!(app.recorder_panel.last_error.contains("Recording stopped"));
+    assert!(!app.shared.lock().unwrap().recording);
+    assert!(app.satellite_panel.pending_decode_request.is_none());
+    while !app.shared.lock().unwrap().source.capture_tuning_applied() {
+        app.logic(&ctx, &mut frame);
+        assert!(Instant::now() < deadline);
+    }
+    assert_eq!(
+        app.shared.lock().unwrap().source.status,
+        SourceStatus::Running
+    );
+    app.recorder_panel.filename_template = "second".into();
+    app.recorder_panel.start_recording();
+    while app.recorder_panel.bytes_written == 0 {
+        app.logic(&ctx, &mut frame);
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    app.recorder_panel.stop_recording();
+    let second = std::fs::read(dir.join("second.iq")).unwrap();
+    assert!(second.chunks_exact(2).all(|pair| pair == [200, 210]));
+    let second_metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("second.json")).unwrap()).unwrap();
+    assert_eq!(second_metadata["frequency_hz"], 119_000_000);
+    assert_eq!(second_metadata["sample_rate_hz"], 2_000_000);
+    assert_eq!(second_metadata["complete"], true);
+    assert_ne!(
+        second_metadata["capture"]["first_clock"]["epoch"],
+        first_metadata["capture"]["first_clock"]["epoch"]
+    );
+    app.shared.lock().unwrap().source.stop();
+    drop(app);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn daemon_recording_epoch_stop_reason_reaches_hidden_app_and_allows_a_new_file() {
+    use crate::daemon_client::tests::TestDaemon;
+    use crate::source_manager::SourceMode;
+    let daemon = TestDaemon::spawn_with_rate("r05-recording", 2_000_000).await;
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Meteor;
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = SourceMode::Daemon;
+        state.source.daemon_addr = daemon.addr.to_string();
+        state.source.frequency_hz = 100_000_000;
+        state.source.center_frequency_hz = Some(100_000_000);
+        state.source.sample_rate_hz = 2_000_000;
+        state.source.start();
+    }
+    let end = Instant::now() + Duration::from_secs(10);
+    loop {
+        app.drain_daemon_events();
+        if app.shared.lock().unwrap().source.capture_tuning_applied() {
+            break;
+        }
+        assert!(Instant::now() < end, "daemon acquisition did not apply");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    app.recorder_panel.start();
+    loop {
+        app.drain_daemon_events();
+        if app.recorder_panel.recording && app.recorder_panel.bytes_written > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < end,
+            "daemon record did not start: {}",
+            app.recorder_panel.last_error
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let first = std::path::PathBuf::from(&app.recorder_panel.last_filename);
+    app.shared
+        .lock()
+        .unwrap()
+        .source
+        .tune_and_restart(101_000_000, 2_400_000);
+    loop {
+        app.drain_daemon_events();
+        if !app.recorder_panel.recording
+            && app.recorder_panel.last_error.contains("Recording stopped")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < end,
+            "epoch stop was not delivered: {}",
+            app.recorder_panel.last_error
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(!app.shared.lock().unwrap().recording);
+    let first_metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(format!("{}.json", first.display())).unwrap())
+            .unwrap();
+    assert_eq!(first_metadata["frequency_hz"], 100_000_000);
+    assert_eq!(first_metadata["sample_rate_hz"], 2_000_000);
+    assert_eq!(first_metadata["complete"], false);
+    assert_eq!(
+        std::fs::metadata(&first).unwrap().len(),
+        first_metadata["capture"]["samples"].as_u64().unwrap() * 8
+    );
+    while !app.shared.lock().unwrap().source.capture_tuning_applied() {
+        app.drain_daemon_events();
+        assert!(Instant::now() < end);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    app.recorder_panel.start();
+    loop {
+        app.drain_daemon_events();
+        if app.recorder_panel.recording && app.recorder_panel.bytes_written > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < end,
+            "new file did not start: {}",
+            app.recorder_panel.last_error
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let second = std::path::PathBuf::from(&app.recorder_panel.last_filename);
+    assert_ne!(first, second);
+    app.recorder_panel.stop();
+    loop {
+        app.drain_daemon_events();
+        if !app.recorder_panel.recording {
+            break;
+        }
+        assert!(Instant::now() < end);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let second_metadata: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(format!("{}.json", second.display())).unwrap())
+            .unwrap();
+    assert_eq!(second_metadata["frequency_hz"], 101_000_000);
+    assert_eq!(second_metadata["sample_rate_hz"], 2_400_000);
+    assert_eq!(second_metadata["complete"], true);
+    assert_ne!(
+        first_metadata["capture"]["first_clock"]["epoch"],
+        second_metadata["capture"]["first_clock"]["epoch"]
+    );
+    assert_eq!(
+        std::fs::metadata(&second).unwrap().len(),
+        second_metadata["capture"]["samples"].as_u64().unwrap() * 8
+    );
+    let directory = first.parent().unwrap().to_path_buf();
+    app.shared.lock().unwrap().source.stop();
+    drop(app);
+    daemon.shutdown().await;
+    std::fs::remove_dir_all(directory).unwrap();
 }
