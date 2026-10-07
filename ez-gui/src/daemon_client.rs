@@ -3,7 +3,7 @@
 //! never needs to poll an async executor itself. Commands flow out over an unbounded
 //! `tokio::sync::mpsc` channel — `UnboundedSender::send` is synchronous and non-blocking, so
 //! it's callable directly from the egui thread with no `.await`. Events flow back over a
-//! `crossbeam_channel`, matching the same non-blocking `try_recv()` polling shape
+//! bounded control and coalesced stream mailboxes, retaining non-blocking polling
 //! `SourceManager` already uses for its local worker threads (see `crate::source_manager`).
 //!
 //! Modeled directly on `ez_daemon::server`'s own connection handling (handshake sequence,
@@ -40,6 +40,26 @@ pub enum ConnectionStatus {
     Error(String),
 }
 
+#[derive(Default)]
+struct ControlQueue {
+    events: std::collections::VecDeque<ServerEvent>,
+}
+
+impl ControlQueue {
+    fn push(&mut self, event: ServerEvent) -> bool {
+        self.events.retain(|previous| match (&event, previous) {
+            (ServerEvent::Hardware(_), ServerEvent::Hardware(_)) => false,
+            (ServerEvent::Recording(a), ServerEvent::Recording(b)) => a.channel_id != b.channel_id,
+            _ => true,
+        });
+        if self.events.len() >= 64 {
+            return false;
+        }
+        self.events.push_back(event);
+        true
+    }
+}
+
 /// Handle to a background-thread connection to a running `ez-daemon`. Single-owner by design
 /// (not `Clone`) — `SourceManager` holds exactly one at a time. Dropping it signals the worker
 /// to stop, best-effort sends `Detach`, and joins the thread, so no orphaned connection or
@@ -52,6 +72,8 @@ pub struct DaemonClient {
     stream_event_rx: crossbeam_channel::Receiver<ServerEvent>,
     spectrum_event_rx: crossbeam_channel::Receiver<(ServerEvent, Instant)>,
     last_spectrum_received_at: Mutex<Option<Instant>>,
+    control_queue: Arc<Mutex<ControlQueue>>,
+    stream_queue: Arc<Mutex<ez_proto::stream_queue::StreamQueue>>,
     running: Arc<AtomicBool>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
@@ -65,9 +87,10 @@ impl DaemonClient {
         let client_channels = Arc::new(Mutex::new(None));
         let worker_channels = Arc::clone(&client_channels);
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (control_event_tx, control_event_rx) = crossbeam_channel::unbounded();
-        let (stream_event_tx, stream_event_rx) = crossbeam_channel::bounded(64);
-        let (spectrum_event_tx, spectrum_event_rx) = crossbeam_channel::bounded(2);
+        let control_queue = Arc::new(Mutex::new(ControlQueue::default()));
+        let stream_queue = Arc::new(Mutex::new(ez_proto::stream_queue::StreamQueue::default()));
+        let worker_controls = Arc::clone(&control_queue);
+        let worker_streams = Arc::clone(&stream_queue);
         let running = Arc::new(AtomicBool::new(true));
 
         let worker_status = Arc::clone(&status);
@@ -94,9 +117,8 @@ impl DaemonClient {
                     worker_status,
                     worker_channels,
                     cmd_rx,
-                    control_event_tx,
-                    stream_event_tx,
-                    spectrum_event_tx,
+                    worker_controls,
+                    worker_streams,
                     worker_running,
                 ));
             })
@@ -106,9 +128,11 @@ impl DaemonClient {
             status,
             client_channels,
             cmd_tx,
-            control_event_rx,
-            stream_event_rx,
-            spectrum_event_rx,
+            control_event_rx: crossbeam_channel::never(),
+            stream_event_rx: crossbeam_channel::never(),
+            spectrum_event_rx: crossbeam_channel::never(),
+            control_queue,
+            stream_queue,
             last_spectrum_received_at: Mutex::new(None),
             running,
             worker: Some(worker),
@@ -129,6 +153,8 @@ impl DaemonClient {
                 client_channels: Arc::new(Mutex::new(None)),
                 cmd_tx,
                 control_event_rx: event_rx,
+                control_queue: Arc::new(Mutex::new(ControlQueue::default())),
+                stream_queue: Arc::new(Mutex::new(ez_proto::stream_queue::StreamQueue::default())),
                 stream_event_rx: crossbeam_channel::never(),
                 spectrum_event_rx: crossbeam_channel::never(),
                 last_spectrum_received_at: Mutex::new(None),
@@ -167,13 +193,23 @@ impl DaemonClient {
         self.cmd_tx.send(cmd).is_ok()
     }
 
-    /// Non-blocking pull of one queued event, oldest first. Returns `None` if nothing is
+    /// Non-blocking pull with control priority and fair, coalesced live streams. Returns `None` if nothing is
     /// queued right now — callers poll this from their own render/update loop.
     #[must_use]
     pub fn try_recv_event(&self) -> Option<ServerEvent> {
-        self.control_event_rx
-            .try_recv()
-            .ok()
+        self.control_queue
+            .lock()
+            .unwrap()
+            .events
+            .pop_front()
+            .or_else(|| self.control_event_rx.try_recv().ok())
+            .or_else(|| {
+                let (event, observed_at) = self.stream_queue.lock().unwrap().pop()?;
+                if matches!(event, ServerEvent::Spectrum(_)) {
+                    *self.last_spectrum_received_at.lock().unwrap() = Some(observed_at);
+                }
+                Some(event)
+            })
             .or_else(|| self.stream_event_rx.try_recv().ok())
             .or_else(|| {
                 let (event, received_at) = self.spectrum_event_rx.try_recv().ok()?;
@@ -273,9 +309,8 @@ async fn run_connection(
     status: Arc<Mutex<ConnectionStatus>>,
     client_channels: Arc<Mutex<Option<ez_proto::ClientChannels>>>,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<ClientCommand>,
-    control_event_tx: crossbeam_channel::Sender<ServerEvent>,
-    stream_event_tx: crossbeam_channel::Sender<ServerEvent>,
-    spectrum_event_tx: crossbeam_channel::Sender<(ServerEvent, Instant)>,
+    control_queue: Arc<Mutex<ControlQueue>>,
+    stream_queue: Arc<Mutex<ez_proto::stream_queue::StreamQueue>>,
     running: Arc<AtomicBool>,
 ) {
     let Some(handshake) = until_stopped(
@@ -338,18 +373,17 @@ async fn run_connection(
             frame = reader.next() => {
                 match frame {
                     Some(Ok(event)) => {
-                        match event {
-                            ServerEvent::Spectrum(_) => {
-                                let _ = spectrum_event_tx.try_send((event, Instant::now()));
+                        if let ServerEvent::ChannelRemoved { channel_id } = &event {
+                            stream_queue.lock().unwrap().clear(*channel_id);
+                        }
+                        if ez_proto::stream_queue::StreamQueue::is_stream(&event) {
+                            if !stream_queue.lock().unwrap().push(event, Instant::now()) {
+                                *status.lock().unwrap() = ConnectionStatus::Error("daemon stream channel queue limit exceeded; reconnect".into());
+                                return;
                             }
-                            ServerEvent::Audio(_)
-                            | ServerEvent::Aircraft(_)
-                            | ServerEvent::Telemetry(_) => {
-                                let _ = stream_event_tx.try_send(event);
-                            }
-                            _ => {
-                                let _ = control_event_tx.send(event);
-                            }
+                        } else if !control_queue.lock().unwrap().push(event) {
+                            *status.lock().unwrap() = ConnectionStatus::Error("daemon control reply queue is full; reconnect after processing replies".into());
+                            return;
                         }
                     }
                     Some(Err(e)) => {
@@ -389,6 +423,166 @@ pub(crate) mod tests {
     use std::sync::atomic::AtomicU64;
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    #[tokio::test]
+    async fn mixed_stream_loopback_client_coalesces_snapshots_preserves_gaps_and_controls() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let peer = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let (read, write) = socket.into_split();
+            let mut reader = FramedRead::new(read, MessageCodec::<ClientCommand>::for_commands());
+            let mut writer = FramedWrite::new(write, MessageCodec::<ServerEvent>::for_data());
+            assert!(matches!(
+                reader.next().await.unwrap().unwrap(),
+                ClientCommand::Hello {
+                    protocol_version: PROTOCOL_VERSION,
+                    ..
+                }
+            ));
+            writer
+                .send(ServerEvent::Welcome {
+                    protocol_version: PROTOCOL_VERSION,
+                    client_channels: ez_proto::ClientChannels {
+                        spectrum: 1,
+                        audio: 2,
+                        adsb: 3,
+                        lrpt: 4,
+                    },
+                    active_channels: vec![],
+                })
+                .await
+                .unwrap();
+            for n in 0..1000 {
+                writer
+                    .send(ServerEvent::Audio(ez_proto::AudioFrame {
+                        clock: ez_proto::CaptureClock::new(7, n * 16, 48_000, None),
+                        sequence: n + 1,
+                        channel_id: 2,
+                        sample_rate_hz: 48_000,
+                        samples: vec![0.25; 16],
+                        squelch: ez_proto::SquelchState {
+                            db: -120.0,
+                            revision: 0,
+                        },
+                    }))
+                    .await
+                    .unwrap();
+                writer
+                    .send(ServerEvent::Spectrum(ez_proto::SpectrumFrame {
+                        channel_id: 1,
+                        center_hz: 100_000_000,
+                        sample_rate_hz: 2_000_000,
+                        bins: vec![n as f32; 16],
+                        timestamp_ms: n,
+                        observation_revision: 42,
+                        measurement_bins: None,
+                    }))
+                    .await
+                    .unwrap();
+                writer
+                    .send(ServerEvent::Aircraft(ez_proto::AircraftSnapshot {
+                        channel_id: 3,
+                        receiver: ez_proto::ReceiverSnapshot {
+                            total_messages: n,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }))
+                    .await
+                    .unwrap();
+                writer
+                    .send(ServerEvent::Hardware(ez_proto::HardwareStatus {
+                        connected: true,
+                        source_kind: "loopback-fixture".into(),
+                        frequency_hz: 100_000_000 + n,
+                        sample_rate_hz: 2_000_000,
+                        gain_db: 0.0,
+                        error: None,
+                    }))
+                    .await
+                    .unwrap();
+            }
+            assert!(matches!(
+                reader.next().await.unwrap().unwrap(),
+                ClientCommand::Ping { nonce: 77 }
+            ));
+            writer.send(ServerEvent::Pong { nonce: 77 }).await.unwrap();
+            assert!(matches!(
+                reader.next().await.unwrap().unwrap(),
+                ClientCommand::Detach
+            ));
+        });
+        let client = DaemonClient::connect(addr, "mixed-loopback".into());
+        client.send(ClientCommand::Ping { nonce: 77 });
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let replied = client
+                .control_queue
+                .lock()
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| matches!(event, ServerEvent::Pong { nonce: 77 }));
+            if replied {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "loopback client did not receive control reply: {:?}",
+                client.status()
+            );
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        assert_eq!(client.stream_queue.lock().unwrap().queued_frames(), 10);
+        assert_eq!(client.stream_queue.lock().unwrap().skipped_frames(), 2990);
+        assert!(
+            matches!(client.try_recv_event(), Some(ServerEvent::Hardware(status)) if status.frequency_hz == 100_000_999)
+        );
+        assert!(matches!(
+            client.try_recv_event(),
+            Some(ServerEvent::Pong { nonce: 77 })
+        ));
+        let mut losses = std::collections::BTreeMap::new();
+        let mut audio = Vec::new();
+        let mut fresh = 0;
+        while let Some(event) = client.try_recv_event() {
+            match event {
+                ServerEvent::StreamGap {
+                    channel_id,
+                    dropped_frames,
+                } => {
+                    losses.insert(channel_id, dropped_frames);
+                }
+                ServerEvent::Audio(frame) => {
+                    assert_eq!(frame.clock.source_sample_index, (frame.sequence - 1) * 16);
+                    audio.push(frame.sequence);
+                }
+                ServerEvent::Spectrum(frame) => {
+                    assert_eq!(frame.timestamp_ms, 999);
+                    fresh += 1;
+                    assert!(client.spectrum_received_at().is_some());
+                }
+                ServerEvent::Aircraft(snapshot) => {
+                    assert_eq!(snapshot.receiver.total_messages, 999);
+                    fresh += 1;
+                }
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(audio, (993..=1000).collect::<Vec<_>>());
+        assert_eq!(fresh, 2);
+        assert_eq!(
+            losses,
+            std::collections::BTreeMap::from([(1, 999), (2, 992), (3, 999)])
+        );
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), peer)
+            .await
+            .unwrap()
+            .unwrap();
+        println!("Actual loopback GUI client: 3000 stream updates, 1000 hardware snapshots, newest snapshots/eight-frame audio tail, 2990 explicit skipped updates, controls first");
+    }
 
     #[test]
     fn spectrum_observation_keeps_network_receipt_time_across_ui_queue_delay() {

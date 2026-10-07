@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -174,6 +174,9 @@ pub struct SquelchState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioFrame {
+    pub clock: crate::CaptureClock,
+    /// Monotonic for this pipeline lifetime; exposes network/consumer omissions.
+    pub sequence: u64,
     pub squelch: SquelchState,
     pub channel_id: ChannelId,
     pub sample_rate_hz: u32,
@@ -301,5 +304,11 @@ pub enum ServerEvent {
     /// follow this control event and must be rejected by its channel identity.
     ChannelRemoved {
         channel_id: ChannelId,
+    },
+    /// Delivery updates skipped by this connection's bounded stream queues.
+    /// Snapshot coalescing counts here too; this is not a count of lost RF samples.
+    StreamGap {
+        channel_id: ChannelId,
+        dropped_frames: u64,
     },
 }

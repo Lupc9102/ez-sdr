@@ -4,7 +4,7 @@
 //!
 //! Both reuse `crate::server`'s existing primitives rather than re-implementing connection
 //! handling: `apply_command` drives `ClientCommand`s identically to the TCP path, and
-//! `spawn_forward_thread` bridges a pipeline's `BroadcasterHandle` to this connection's
+//! `spawn_forwarder` bridges a pipeline's `BroadcasterHandle` to this connection's
 //! outbound channel exactly like the TCP forwarder does, just wrapping into a WS
 //! [`Message`] instead of a bincode-framed [`ServerEvent`]. Keeping data-plane traffic on
 //! its own route (rather than letting a client `Subscribe` over `/ws/control` the way a TCP
@@ -27,14 +27,13 @@ use tokio::sync::mpsc;
 
 use ez_proto::{ChannelId, ClientCommand, PipelineKind, ServerEvent, PROTOCOL_VERSION};
 
-use crate::server::{apply_command, spawn_forward_thread};
+use crate::server::{apply_command, spawn_forwarder};
 use crate::state::{ChannelSubscription, DaemonState};
 use crate::web::wire;
 
 const CONTROL_EVENT_CHANNEL_CAPACITY: usize = 256;
 const CONTROL_COMMAND_CHANNEL_CAPACITY: usize = 256;
 const CONTROL_HW_TICK: Duration = Duration::from_millis(250);
-const DATA_CHANNEL_CAPACITY: usize = 64;
 
 /// Assembles the `/ws/*` routes. `Router<Arc<DaemonState>>`, same reasoning as
 /// `crate::web::api::router` — left unattached so `crate::web::serve` can merge this with
@@ -79,7 +78,7 @@ async fn data_plane_ws(
 
 /// Streams one channel's pipeline output as binary (or, for `AdsbPackets`, JSON text) frames
 /// until the client closes the socket. One forwarder OS thread bridges the pipeline's
-/// `BroadcasterHandle` into an mpsc channel a plain async task drains into the WS sink —
+/// `BroadcasterHandle` into bounded/coalesced stream slots drained into the WS sink —
 /// identical shape to the TCP path's `spawn_forwarder`/`run_writer` split, just one
 /// subscription per connection instead of a table of them (this route names exactly one
 /// channel in its URL).
@@ -90,27 +89,10 @@ async fn stream_channel(
     state: Arc<DaemonState>,
 ) {
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::channel::<Message>(DATA_CHANNEL_CAPACITY);
-
-    let keep_running = match sub {
-        ChannelSubscription::Spectrum(h) => spawn_forward_thread(channel_id, h, tx.clone(), |f| {
-            Message::Binary(wire::encode_spectrum(&f).into())
-        }),
-        ChannelSubscription::Audio(h) => spawn_forward_thread(channel_id, h, tx.clone(), |f| {
-            Message::Binary(wire::encode_audio(&f).into())
-        }),
-        ChannelSubscription::AdsbPackets(h) => {
-            spawn_forward_thread(channel_id, h, tx.clone(), move |mut f| {
-                f.channel_id = channel_id;
-                Message::Text(serde_json::to_string(&f).unwrap_or_default().into())
-            })
-        }
-        ChannelSubscription::LrptTelemetry(h) => {
-            spawn_forward_thread(channel_id, h, tx.clone(), |f| {
-                Message::Binary(wire::encode_telemetry(&f).into())
-            })
-        }
-    };
+    let (tx, mut rx) = crate::outbound::channel(CONTROL_EVENT_CHANNEL_CAPACITY);
+    let mut forwarders = HashMap::new();
+    spawn_forwarder(channel_id, sub, tx.clone(), &mut forwarders);
+    let keep_running = forwarders.remove(&channel_id).unwrap();
     drop(tx);
 
     let mut writer = tokio::spawn(async move {
@@ -127,7 +109,7 @@ async fn stream_channel(
                 }
                 msg = rx.recv() => {
                     let Some(msg) = msg else { break; };
-                    if sink.send(msg).await.is_err() { break; }
+                    if !matches!(tokio::time::timeout(Duration::from_secs(5), sink.send(stream_message(msg))).await, Ok(Ok(()))) { break; }
                 }
             }
         }
@@ -147,7 +129,22 @@ async fn stream_channel(
     }
 
     keep_running.store(false, Ordering::Relaxed);
+    writer.abort();
     let _ = writer.await;
+}
+
+/// StreamGap is a JSON text notice alongside the unchanged binary data layouts.
+/// Consumers can display omissions and reset playback when audio was skipped.
+fn stream_message(event: ServerEvent) -> Message {
+    match event {
+        ServerEvent::Spectrum(frame) => Message::Binary(wire::encode_spectrum(&frame).into()),
+        ServerEvent::Audio(frame) => Message::Binary(wire::encode_audio(&frame).into()),
+        ServerEvent::Aircraft(frame) => {
+            Message::Text(serde_json::to_string(&frame).unwrap().into())
+        }
+        ServerEvent::Telemetry(frame) => Message::Binary(wire::encode_telemetry(&frame).into()),
+        event => Message::Text(serde_json::to_string(&event).unwrap().into()),
+    }
 }
 
 /// `GET /ws/control`: JSON-over-WebSocket mirror of the TCP control connection
@@ -163,7 +160,7 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
         return;
     };
     let (mut sink, mut stream) = socket.split();
-    let (event_tx, mut event_rx) = mpsc::channel::<ServerEvent>(CONTROL_EVENT_CHANNEL_CAPACITY);
+    let (event_tx, mut event_rx) = crate::outbound::channel(CONTROL_EVENT_CHANNEL_CAPACITY);
 
     if event_tx
         .send(ServerEvent::Welcome {
@@ -189,7 +186,14 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
             let Ok(text) = serde_json::to_string(&event) else {
                 continue;
             };
-            if sink.send(Message::Text(text.into())).await.is_err() {
+            if !matches!(
+                tokio::time::timeout(
+                    Duration::from_secs(5),
+                    sink.send(Message::Text(text.into()))
+                )
+                .await,
+                Ok(Ok(()))
+            ) {
                 break;
             }
         }
@@ -316,6 +320,7 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
     drop(command_tx);
     let _ = command_worker.await;
     drop(event_tx);
+    writer.abort();
     let _ = writer.await;
 }
 

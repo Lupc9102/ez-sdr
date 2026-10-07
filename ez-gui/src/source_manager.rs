@@ -1343,6 +1343,13 @@ impl SourceManager {
 
     fn active_daemon_data(&self, event: &ez_proto::ServerEvent) -> bool {
         match event {
+            ez_proto::ServerEvent::StreamGap { channel_id, .. } => {
+                (*channel_id == self.daemon_channels.spectrum && self.daemon_session_ready)
+                    || (*channel_id == self.daemon_channels.audio
+                        && self.daemon_audio_mode.is_some())
+                    || (*channel_id == self.daemon_channels.adsb && self.daemon_adsb_subscribed)
+                    || (*channel_id == self.daemon_channels.lrpt && self.daemon_lrpt_subscribed)
+            }
             ez_proto::ServerEvent::Spectrum(frame) => {
                 self.daemon_session_ready && frame.channel_id == self.daemon_channels.spectrum
             }
@@ -2777,6 +2784,8 @@ mod tests {
                 measurement_bins: None,
             }),
             E::Audio(AudioFrame {
+                clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
+                sequence: 1,
                 channel_id: foreign,
                 sample_rate_hz: 48000,
                 samples: vec![1.0],
@@ -4089,6 +4098,8 @@ mod tests {
         assert!(commands.try_recv().is_err());
         assert_eq!(source.daemon_squelch_pending_db(), Some(-20.0));
         let audio = AudioFrame {
+            clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
+            sequence: 1,
             channel_id,
             sample_rate_hz: 48_000,
             samples: vec![1.0],

@@ -1,0 +1,298 @@
+//! Bounded live stream buffering shared by network writers and GUI receivers.
+//! Controls use a separate queue. Snapshots replace older snapshots, while
+//! audio keeps a short consecutive tail. Every skipped update is reported.
+
+use crate::{ChannelId, ServerEvent};
+use std::collections::{BTreeMap, VecDeque};
+use std::time::Instant;
+
+pub const STREAM_AUDIO_CAPACITY: usize = 8;
+pub const STREAM_CHANNEL_CAPACITY: usize = 32;
+pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+
+#[derive(Default)]
+struct Slot {
+    frames: VecDeque<(ServerEvent, Instant, usize)>,
+    skipped: u64,
+    observed_at: Option<Instant>,
+}
+
+#[derive(Default)]
+pub struct StreamQueue {
+    channels: BTreeMap<ChannelId, Slot>,
+    last_channel: Option<ChannelId>,
+    bytes: usize,
+    skipped: u64,
+}
+
+impl StreamQueue {
+    pub fn is_stream(event: &ServerEvent) -> bool {
+        matches!(
+            event,
+            ServerEvent::Spectrum(_)
+                | ServerEvent::Audio(_)
+                | ServerEvent::Aircraft(_)
+                | ServerEvent::Telemetry(_)
+                | ServerEvent::StreamGap { .. }
+        )
+    }
+
+    /// False requires an explicit channel-limit error from the caller.
+    pub fn push(&mut self, event: ServerEvent, observed_at: Instant) -> bool {
+        let (id, capacity) = match &event {
+            ServerEvent::Spectrum(frame) => (frame.channel_id, 1),
+            ServerEvent::Audio(frame) => (frame.channel_id, STREAM_AUDIO_CAPACITY),
+            ServerEvent::Aircraft(frame) => (frame.channel_id, 1),
+            ServerEvent::Telemetry(frame) => (frame.channel_id, 1),
+            ServerEvent::StreamGap {
+                channel_id,
+                dropped_frames,
+            } => {
+                return self.note_gap(*channel_id, *dropped_frames, observed_at);
+            }
+            _ => return false,
+        };
+        if !self.channels.contains_key(&id) && self.channels.len() >= STREAM_CHANNEL_CAPACITY {
+            self.skipped = self.skipped.saturating_add(1);
+            return false;
+        }
+        let weight = weight(&event);
+        let slot = self.channels.entry(id).or_default();
+        slot.observed_at = Some(observed_at);
+        while slot.frames.len() >= capacity {
+            self.bytes -= slot.frames.pop_front().unwrap().2;
+            slot.skipped = slot.skipped.saturating_add(1);
+            self.skipped = self.skipped.saturating_add(1);
+        }
+        slot.frames.push_back((event, observed_at, weight));
+        self.bytes += weight;
+        while self.bytes > STREAM_BYTE_CAPACITY {
+            let id = self
+                .channels
+                .iter()
+                .filter_map(|(&id, slot)| slot.frames.front().map(|(_, at, _)| (id, *at)))
+                .min_by_key(|(_, at)| *at)
+                .unwrap()
+                .0;
+            let slot = self.channels.get_mut(&id).unwrap();
+            self.bytes -= slot.frames.pop_front().unwrap().2;
+            slot.skipped = slot.skipped.saturating_add(1);
+            self.skipped = self.skipped.saturating_add(1);
+        }
+        true
+    }
+
+    pub fn note_gap(&mut self, id: ChannelId, frames: u64, observed_at: Instant) -> bool {
+        if frames == 0 {
+            return true;
+        }
+        if !self.channels.contains_key(&id) && self.channels.len() >= STREAM_CHANNEL_CAPACITY {
+            return false;
+        }
+        let slot = self.channels.entry(id).or_default();
+        slot.skipped = slot.skipped.saturating_add(frames);
+        slot.observed_at = Some(observed_at);
+        self.skipped = self.skipped.saturating_add(frames);
+        true
+    }
+
+    /// Fair across channels, with the loss notice preceding retained data.
+    pub fn pop(&mut self) -> Option<(ServerEvent, Instant)> {
+        let id = self
+            .channels
+            .keys()
+            .copied()
+            .find(|id| self.last_channel.is_none_or(|last| *id > last))
+            .or_else(|| self.channels.keys().next().copied())?;
+        self.last_channel = Some(id);
+        let slot = self.channels.get_mut(&id).unwrap();
+        let event = if slot.skipped > 0 {
+            Some((
+                ServerEvent::StreamGap {
+                    channel_id: id,
+                    dropped_frames: std::mem::take(&mut slot.skipped),
+                },
+                slot.observed_at.unwrap(),
+            ))
+        } else {
+            slot.frames.pop_front().map(|(event, at, weight)| {
+                self.bytes -= weight;
+                (event, at)
+            })
+        };
+        if slot.frames.is_empty() && slot.skipped == 0 {
+            self.channels.remove(&id);
+        }
+        event
+    }
+
+    pub fn clear(&mut self, id: ChannelId) {
+        if let Some(slot) = self.channels.remove(&id) {
+            self.bytes -= slot.frames.iter().map(|frame| frame.2).sum::<usize>();
+        }
+    }
+
+    pub fn queued_frames(&self) -> usize {
+        self.channels.values().map(|slot| slot.frames.len()).sum()
+    }
+
+    pub fn buffered_bytes(&self) -> usize {
+        self.bytes
+    }
+    pub fn skipped_frames(&self) -> u64 {
+        self.skipped
+    }
+}
+
+fn weight(event: &ServerEvent) -> usize {
+    std::mem::size_of::<ServerEvent>()
+        + match event {
+            ServerEvent::Audio(frame) => frame.samples.len() * 4,
+            ServerEvent::Spectrum(frame) => {
+                (frame.bins.len() + frame.measurement_bins.as_ref().map_or(0, Vec::len)) * 4
+            }
+            ServerEvent::Telemetry(frame) => frame.pixels.len(),
+            ServerEvent::Aircraft(frame) => frame
+                .aircraft
+                .iter()
+                .map(|aircraft| {
+                    std::mem::size_of_val(aircraft)
+                        + aircraft.address_type.len()
+                        + aircraft.source.len()
+                        + aircraft.callsign.as_ref().map_or(0, String::len)
+                        + aircraft.position_source.as_ref().map_or(0, String::len)
+                })
+                .sum(),
+            _ => 0,
+        }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn audio(n: u64) -> ServerEvent {
+        ServerEvent::Audio(crate::AudioFrame {
+            clock: crate::CaptureClock::new(7, n * 16, 48_000, None),
+            sequence: n + 1,
+            channel_id: 1,
+            sample_rate_hz: 48_000,
+            samples: vec![0.25; 16],
+            squelch: crate::SquelchState {
+                db: -120.0,
+                revision: 0,
+            },
+        })
+    }
+
+    #[test]
+    fn mixed_stream_queue_retains_fresh_snapshots_and_exact_audio_tail_and_gaps() {
+        let mut queue = StreamQueue::default();
+        let observed = Instant::now() - std::time::Duration::from_secs(2);
+        for n in 0..1000 {
+            queue.push(audio(n), observed);
+            queue.push(
+                ServerEvent::Spectrum(crate::SpectrumFrame {
+                    channel_id: 2,
+                    center_hz: 100_000_000,
+                    sample_rate_hz: 2_000_000,
+                    bins: vec![n as f32; 16],
+                    timestamp_ms: n,
+                    observation_revision: 42,
+                    measurement_bins: None,
+                }),
+                observed,
+            );
+            queue.push(
+                ServerEvent::Aircraft(crate::AircraftSnapshot {
+                    channel_id: 3,
+                    receiver: crate::ReceiverSnapshot {
+                        total_messages: n,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+                observed,
+            );
+        }
+        assert_eq!(queue.queued_frames(), 10);
+        assert_eq!(queue.skipped_frames(), 2990);
+        let mut retained = Vec::new();
+        let mut losses = BTreeMap::new();
+        let mut snapshots = 0;
+        while let Some((event, at)) = queue.pop() {
+            assert_eq!(
+                at, observed,
+                "queue delay must not manufacture observation freshness"
+            );
+            match event {
+                ServerEvent::StreamGap {
+                    channel_id,
+                    dropped_frames,
+                } => {
+                    losses.insert(channel_id, dropped_frames);
+                }
+                ServerEvent::Audio(frame) => retained.push(frame.sequence),
+                ServerEvent::Spectrum(frame) => {
+                    assert_eq!(frame.timestamp_ms, 999);
+                    assert_eq!(frame.bins, vec![999.0; 16]);
+                    snapshots += 1;
+                }
+                ServerEvent::Aircraft(frame) => {
+                    assert_eq!(frame.receiver.total_messages, 999);
+                    snapshots += 1;
+                }
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(retained, (993..=1000).collect::<Vec<_>>());
+        assert_eq!(losses, BTreeMap::from([(1, 992), (2, 999), (3, 999)]));
+        assert_eq!(snapshots, 2);
+        assert_eq!(queue.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn mixed_stream_payload_budget_and_channel_retirement_stay_bounded() {
+        let mut queue = StreamQueue::default();
+        for id in 0..32 {
+            queue.push(
+                ServerEvent::Telemetry(crate::TelemetryFrame {
+                    channel_id: id,
+                    apid: 0,
+                    width: 1024,
+                    height: 1024,
+                    pixels: vec![0; 1024 * 1024],
+                    rs_ok: 0,
+                    rs_failed: 0,
+                    costas_locked: false,
+                    frame_locked: false,
+                }),
+                Instant::now(),
+            );
+            assert!(queue.buffered_bytes() <= STREAM_BYTE_CAPACITY);
+        }
+        assert!(queue.skipped_frames() >= 16);
+        let mut extra = audio(0);
+        if let ServerEvent::Audio(frame) = &mut extra {
+            frame.channel_id = 32;
+        }
+        assert!(
+            !queue.push(extra, Instant::now()),
+            "channel limit must be reported to the transport"
+        );
+        queue.clear(31);
+        let mut notices = 0;
+        while let Some((event, _)) = queue.pop() {
+            match event {
+                ServerEvent::StreamGap { channel_id, .. } => {
+                    assert_ne!(channel_id, 31);
+                    notices += 1;
+                }
+                ServerEvent::Telemetry(frame) => assert_ne!(frame.channel_id, 31),
+                _ => unreachable!(),
+            }
+        }
+        assert!(notices >= 16);
+        assert_eq!(queue.buffered_bytes(), 0);
+    }
+}

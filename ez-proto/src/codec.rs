@@ -377,6 +377,8 @@ mod tests {
         }
         data.encode(
             ServerEvent::Audio(AudioFrame {
+                clock: crate::CaptureClock::new(1, 0, 48_000, None),
+                sequence: 1,
                 channel_id: 17,
                 sample_rate_hz: 48_000,
                 samples: vec![0.0; 32],
@@ -393,5 +395,22 @@ mod tests {
             (17, 48_000, applied)
         );
         assert_eq!(frame.samples, vec![0.0; 32]);
+        assert_eq!(frame.clock, crate::CaptureClock::new(1, 0, 48_000, None));
+        assert_eq!(frame.sequence, 1);
+        data.encode(
+            ServerEvent::StreamGap {
+                channel_id: 17,
+                dropped_frames: 123,
+            },
+            &mut bytes,
+        )
+        .unwrap();
+        assert!(matches!(
+            data.decode(&mut bytes).unwrap(),
+            Some(ServerEvent::StreamGap {
+                channel_id: 17,
+                dropped_frames: 123
+            })
+        ));
     }
 }

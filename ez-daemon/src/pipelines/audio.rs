@@ -85,6 +85,8 @@ pub struct AudioPipeline {
     volume: f32,
     squelch_db: f32,
     squelch_revision: u64,
+    sequence: u64,
+    reset_pending: bool,
     output: Broadcaster<AudioFrame>,
 }
 
@@ -108,6 +110,8 @@ impl AudioPipeline {
             volume: 1.0,
             squelch_db: DEFAULT_SQUELCH_DB,
             squelch_revision: 0,
+            sequence: 0,
+            reset_pending: true,
             output: Broadcaster::new(),
         }
     }
@@ -122,6 +126,7 @@ impl AudioPipeline {
     }
 
     fn reset_history(&mut self) {
+        self.reset_pending = true;
         self.dc_prev_x = 0.0;
         self.dc_prev_y = 0.0;
         self.prev_sample = Complex32::new(0.0, 0.0);
@@ -236,7 +241,12 @@ impl AudioPipeline {
                 .for_each(|s| *s = (*s * self.volume).clamp(-1.0, 1.0));
         }
 
+        self.sequence += 1;
+        let mut clock = block.capture_clock();
+        clock.discontinuous |= std::mem::take(&mut self.reset_pending);
         self.output.publish(AudioFrame {
+            clock,
+            sequence: self.sequence,
             squelch: self.squelch_state(),
             channel_id: self.channel_id,
             sample_rate_hz: block.sample_rate_hz,

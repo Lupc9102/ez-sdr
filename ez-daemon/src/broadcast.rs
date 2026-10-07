@@ -151,9 +151,12 @@ impl<T: Clone> Broadcaster<T> {
                 Ok(()) => {}
                 Err(TrySendError::Full(rejected)) => match sub.policy {
                     OverflowPolicy::DropOldest => {
-                        let _ = sub.evict_rx.try_recv();
-                        let _ = sub.tx.try_send(rejected);
-                        sub.dropped.fetch_add(1, Ordering::Relaxed);
+                        let evicted = u64::from(sub.evict_rx.try_recv().is_ok());
+                        let rejected = u64::from(matches!(
+                            sub.tx.try_send(rejected),
+                            Err(TrySendError::Full(_))
+                        ));
+                        sub.dropped.fetch_add(evicted + rejected, Ordering::Relaxed);
                     }
                     OverflowPolicy::DropIncoming => {
                         sub.dropped.fetch_add(1, Ordering::Relaxed);
@@ -224,6 +227,32 @@ impl<T> Drop for BroadcasterHandle<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_stream_concurrent_eviction_accounts_for_every_published_value() {
+        let bus = Broadcaster::new();
+        let input = bus.subscribe(1, OverflowPolicy::DropOldest);
+        let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let producer_done = Arc::clone(&finished);
+        let producer = std::thread::spawn(move || {
+            for n in 0..50_000 {
+                bus.publish(n);
+            }
+            producer_done.store(true, Ordering::Release);
+        });
+        let mut received = 0;
+        loop {
+            if input.try_recv().is_some() {
+                received += 1;
+            } else if finished.load(Ordering::Acquire) && input.queued_len() == 0 {
+                break;
+            } else {
+                std::thread::yield_now();
+            }
+        }
+        producer.join().unwrap();
+        assert_eq!(received + input.dropped_count(), 50_000);
+    }
 
     #[test]
     fn publish_fans_out_to_all_subscribers() {

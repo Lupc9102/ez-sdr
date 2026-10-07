@@ -1,0 +1,38 @@
+{
+  "batch": 27,
+  "findings": [],
+  "experiments_completed": [
+    "Saturated mixed daemon streams and loopback MQTT backpressure"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1643,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 16
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed (fifteen Rust files)",
+  "graphify": "refreshed (6838 nodes, 15105 edges)",
+  "protocol_version": 9,
+  "regressions": [
+    "Retained before-fix failure: three stream forwarders saturate shared data/control FIFO and block Ping enqueue for the full 100 ms gate",
+    "Three real forwarders: latest final audio/spectrum/aircraft data and exact accounting for all 3000 generated updates, with control delivery independent of undrained data",
+    "Actual bincode writer with 64-byte constrained peer: one 16 KiB in-flight frame, then Pong before the 992-frame gap and eight retained newest audio frames",
+    "Stalled socket write has a five-second deadline and closes the writer/control channel",
+    "Real ephemeral loopback TCP GUI client: 3000 stream updates plus 1000 hardware states, ten retained stream frames and exactly 2990 explicit skipped updates, newest hardware/Pong first",
+    "50,000 concurrent DropOldest publications: received plus actual drops equals every published value",
+    "32-channel, 16 MiB payload-weight and eight-audio-frame bounds; freshest snapshots; fair retirement; original spectrum receipt time preserved; exhausted queues error/close explicitly",
+    "Six audio clock/sequence boundary variants reset interpolation; continuous tagged frames equal uninterrupted resampling",
+    "Protocol clock/sequence/loss notices round-trip; existing WebSocket binary offsets unchanged; all existing cross-transport/control/recording/scanner/decoder/UI regressions pass"
+  ],
+  "limitations": [
+    "All 42 formal findings and three of eight additional experiments complete; source/disk/audio shutdown software work remains active",
+    "Physical SDR/USB, calibrated RF and unavailable reference captures are user-deferred; physical audio and actual-display behavior remain unverified",
+    "StreamGap counts delivery updates including snapshot coalescing, not lost RF samples; the stream byte bound is payload weight rather than total process RSS",
+    "An in-flight wire frame must complete before a later control can be serialized; stalled sockets disconnect after the write deadline",
+    "WebSocket binary layouts are retained; consumers may use additive StreamGap JSON notices to display omissions/reset playback",
+    "GUI and daemon must use matching protocol 9 builds",
+    "Original audit evidence, 672 baseline tracked deletions, untracked AGENTS.md and three untouched formatting differences preserved"
+  ]
+}

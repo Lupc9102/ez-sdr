@@ -1055,9 +1055,8 @@ impl CentralApp {
                 Some(ez_proto::ServerEvent::Audio(frame)) => {
                     crate::radio_ui::sync_squelch_level(&mut state);
                     if state.audio_running && state.source.accept_daemon_audio(&frame) {
-                        let samples = self.daemon_audio.process(
-                            &frame.samples,
-                            frame.sample_rate_hz,
+                        let samples = self.daemon_audio.process_frame(
+                            &frame,
                             self.audio.sample_rate(),
                             state.volume,
                         );
@@ -1079,6 +1078,17 @@ impl CentralApp {
                     if let Err(message) = self.decoding_panel.ingest_daemon_telemetry(frame) {
                         self.status_bar.warning(format!("⚠ {message}"));
                     }
+                }
+                Some(ez_proto::ServerEvent::StreamGap {
+                    channel_id,
+                    dropped_frames,
+                }) => {
+                    if channel_id == state.source.daemon_channel_ids().audio {
+                        self.daemon_audio.reset();
+                    }
+                    self.status_bar.warning(format!(
+                        "Daemon channel {channel_id}: {dropped_frames} stream updates skipped"
+                    ));
                 }
                 Some(ez_proto::ServerEvent::Recording(status)) => {
                     self.apply_daemon_recording(status, &mut state);

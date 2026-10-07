@@ -17,6 +17,7 @@ pub mod bus;
 pub mod channelizer;
 pub mod hardware;
 pub mod ingest;
+mod outbound;
 pub mod pipelines;
 pub mod recording;
 pub mod server;

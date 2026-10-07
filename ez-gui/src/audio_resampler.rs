@@ -6,6 +6,7 @@ pub(crate) struct AudioResampler {
     rates: (u32, u32),
     previous: Option<f32>,
     next: f64,
+    expected: Option<(u32, u64, ez_proto::CaptureClock)>,
 }
 
 impl AudioResampler {
@@ -63,11 +64,84 @@ impl AudioResampler {
         }
         output
     }
+
+    pub fn process_frame(
+        &mut self,
+        frame: &ez_proto::AudioFrame,
+        output_rate: u32,
+        gain: f32,
+    ) -> Vec<f32> {
+        let continuous = self.expected.is_some_and(|(id, sequence, clock)| {
+            id == frame.channel_id && sequence == frame.sequence && clock == frame.clock
+        });
+        if !continuous {
+            self.reset();
+        }
+        let output = self.process(&frame.samples, frame.sample_rate_hz, output_rate, gain);
+        self.expected = frame
+            .clock
+            .offset_samples(frame.samples.len() as u64)
+            .map(|mut clock| {
+                clock.discontinuous = false;
+                (frame.channel_id, frame.sequence.saturating_add(1), clock)
+            });
+        output
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation() {
+        let first = ez_proto::AudioFrame {
+            clock: ez_proto::CaptureClock::new(10, 0, 48_000, None),
+            sequence: 1,
+            channel_id: 2,
+            sample_rate_hz: 48_000,
+            samples: vec![0.8; 64],
+            squelch: ez_proto::SquelchState {
+                db: -120.0,
+                revision: 0,
+            },
+        };
+        for boundary in 0..6 {
+            let mut resampler = AudioResampler::default();
+            resampler.process_frame(&first, 44_100, 1.0);
+            let mut second = first.clone();
+            second.clock.source_sample_index = 64;
+            second.sequence = 2;
+            second.samples.fill(-0.8);
+            match boundary {
+                0 => second.sequence += 1,
+                1 => second.clock.source_sample_index += 1,
+                2 => second.clock.epoch += 1,
+                3 => second.clock.discontinuous = true,
+                4 => second.clock.origin_unix_ns = Some(123),
+                _ => second.channel_id += 1,
+            }
+            let expected = AudioResampler::default().process_frame(&second, 44_100, 1.0);
+            assert_eq!(
+                resampler.process_frame(&second, 44_100, 1.0),
+                expected,
+                "boundary {boundary} joined interpolation across a gap"
+            );
+        }
+        let mut resampler = AudioResampler::default();
+        let mut actual = resampler.process_frame(&first, 44_100, 1.0);
+        let mut second = first.clone();
+        second.clock.source_sample_index = 64;
+        second.sequence = 2;
+        second.samples.fill(-0.8);
+        actual.extend(resampler.process_frame(&second, 44_100, 1.0));
+        let mut joined = first.samples.clone();
+        joined.extend_from_slice(&second.samples);
+        assert_eq!(
+            actual,
+            AudioResampler::default().process(&joined, 48_000, 44_100, 1.0)
+        );
+    }
 
     #[test]
     fn rate_conversion_is_independent_of_network_frame_boundaries() {
