@@ -1,0 +1,7 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `release` profile [optimized] target(s) in 9.47s
+     Running `target/release/examples/audit_channelizer`
+channel_min_rate=12500 input_rate=2000000 tone_hz=1000 output_rms=0.499629
+channel_min_rate=12500 input_rate=2000000 tone_hz=13500 output_rms=0.436185
+channel_min_rate=12500 input_rate=2000000 tone_hz=26000 output_rms=0.296863
+channel_min_rate=12500 input_rate=2000000 tone_hz=101000 output_rms=0.002048

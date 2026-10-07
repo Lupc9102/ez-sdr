@@ -1,0 +1,4 @@
+    Checking ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.05s

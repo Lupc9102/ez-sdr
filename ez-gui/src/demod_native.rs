@@ -640,6 +640,8 @@ impl DemodWorker {
 mod tests {
     use super::*;
 
+    include!("demod_native_audit.rs");
+
     fn config(sink: Option<crate::audio_output::AudioSink>) -> (RadioConfig, DemodConfig) {
         (
             RadioConfig {

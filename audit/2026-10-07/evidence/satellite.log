@@ -1,0 +1,27 @@
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `release` profile [optimized] target(s) in 3.72s
+     Running `target/release/examples/audit_logic`
+split_header bytes=3 packets=0
+split_header bytes=6 packets=1
+split_header bytes=9 packets=1
+cross_vcid_same_apid data=["BBAA"]
+oqpsk rate=640000 phase=0 rs_ok=12
+oqpsk rate=640000 phase=15 rs_ok=12
+oqpsk rate=640000 phase=30 rs_ok=12
+oqpsk rate=640000 phase=45 rs_ok=0
+oqpsk rate=640000 phase=60 rs_ok=0
+oqpsk rate=640000 phase=90 rs_ok=0
+oqpsk rate=640000 phase=180 rs_ok=12
+oqpsk rate=2048000 phase=0 rs_ok=12
+oqpsk rate=2048000 phase=15 rs_ok=12
+oqpsk rate=2048000 phase=30 rs_ok=12
+oqpsk rate=2048000 phase=45 rs_ok=0
+oqpsk rate=2048000 phase=60 rs_ok=0
+oqpsk rate=2048000 phase=90 rs_ok=0
+oqpsk rate=2048000 phase=180 rs_ok=12
+zero_input_costas_locked=true
+frame_sync early_marker_2_errors later_marker_perfect extracted=1 expected=2
+phase_slip_180 continuous_6frame_stream rs_ok=12 clean_control_rs_ok=24
+first_segment_sequence_16300 height=Some(3040)
+independent_nonflat_jpeg pixels=896 max_error=5 mean_error=1.956473
+JPEG q50_DC16 expected_uniform_pixel=160 actual_first_pixel=161
