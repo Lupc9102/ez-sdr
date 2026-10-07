@@ -1,8 +1,7 @@
 use super::*;
 use eframe::App;
 
-#[path = "../tests/support/software_renderer.rs"]
-mod software_renderer;
+use super::software_renderer;
 
 /// Render the real application widgets without requiring a display server.
 /// Run explicitly: EZ_SDR_PREVIEW_DIR=/tmp/ez-sdr-previews cargo test -p ez-gui
@@ -2092,6 +2091,7 @@ fn native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall() {
         let mut state = app.shared.lock().unwrap();
         std::thread::sleep(Duration::from_millis(300));
         state.source.stop();
+        state.source.wait_for_shutdown();
     }
     let source = stream.progress();
     app.recorder_panel.stop_and_wait();
@@ -2206,14 +2206,20 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
         let mut state = app.shared.lock().unwrap();
         std::thread::sleep(Duration::from_millis(300));
         state.source.stop();
+        state.source.wait_for_shutdown();
     }
-    app.recorder_panel.stop_and_wait();
     let source = stream.progress();
     let deadline = Instant::now() + Duration::from_secs(5);
     while !app.demod_worker.radio_snapshot().unwrap().complete {
-        assert!(Instant::now() < deadline);
+        assert!(
+            Instant::now() < deadline,
+            "native RF tail did not finish: received {}, capture {}",
+            app.demod_worker.radio_snapshot().unwrap().received_samples,
+            source.samples
+        );
         std::thread::sleep(Duration::from_millis(2));
     }
+    app.recorder_panel.stop_and_wait();
     let snapshot = app.demod_worker.radio_snapshot().unwrap();
     assert!(source.samples >= 2_000_000);
     assert_eq!(snapshot.received_samples, source.samples);

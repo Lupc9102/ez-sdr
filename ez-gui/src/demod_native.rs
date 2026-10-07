@@ -89,6 +89,8 @@ pub(super) struct RadioState {
     output: Arc<ArcSwap<RadioSnapshot>>,
     previews: BroadcasterHandle<Arc<RadioPreview>>,
     audio: RadioAudioStream,
+    #[cfg(test)]
+    timing: Arc<(AtomicBool, Mutex<Vec<u64>>)>,
 }
 
 // A complete native FFT window measures only the selected RF passband. It is
@@ -496,6 +498,10 @@ impl DemodWorker {
         let worker_drops = Arc::clone(&dropped_iq);
         let worker_output = Arc::clone(&output);
         let worker_audio = audio.clone();
+        #[cfg(test)]
+        let timing = Arc::new((AtomicBool::new(false), Mutex::new(Vec::new())));
+        #[cfg(test)]
+        let worker_timing = Arc::clone(&timing);
         let handle = std::thread::spawn(move || {
             struct RunningFlag(Arc<AtomicBool>);
             impl Drop for RunningFlag {
@@ -516,7 +522,17 @@ impl DemodWorker {
                 processor.configure(&desired);
                 worker_applied.store(desired.version, Ordering::Release);
                 if let Some(block) = block {
+                    #[cfg(test)]
+                    let started = worker_timing.0.load(Ordering::Relaxed).then(Instant::now);
                     processor.process(&block, &desired, &previews, &worker_audio);
+                    #[cfg(test)]
+                    if let Some(started) = started {
+                        let elapsed = started.elapsed().as_micros() as u64;
+                        let mut timings = worker_timing.1.lock().unwrap();
+                        if timings.len() < 8192 {
+                            timings.push(elapsed);
+                        }
+                    }
                 }
                 let current = stream.progress();
                 let finished = current.generation > 0 && !current.live && input.queued_len() == 0;
@@ -557,6 +573,8 @@ impl DemodWorker {
                 output,
                 previews: preview_rx,
                 audio,
+                #[cfg(test)]
+                timing,
             }),
             iq_tx: None,
             control,
@@ -587,6 +605,23 @@ impl DemodWorker {
 
     pub(crate) fn radio_snapshot(&self) -> Option<Arc<RadioSnapshot>> {
         self.native.as_ref().map(|native| native.output.load_full())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_start_native_timing(&self) {
+        self.native
+            .as_ref()
+            .unwrap()
+            .timing
+            .0
+            .store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_take_native_timing(&self) -> Vec<u64> {
+        let timing = &self.native.as_ref().unwrap().timing;
+        timing.0.store(false, Ordering::Release);
+        std::mem::take(&mut *timing.1.lock().unwrap())
     }
 
     pub(crate) fn radio_previews(&self) -> Vec<Arc<RadioPreview>> {

@@ -1,0 +1,21 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.91s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+
+thread 'app::app_performance_tests::profile_frames_with_continuous_native_recording' (122606) panicked at ez-gui/src/app_performance_tests.rs:166:17:
+assertion `left == right` failed: capture center changed while rendering dense-aircraft, frame 33
+  left: 145800000
+ right: 118000000
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test app::app_performance_tests::profile_frames_with_continuous_native_recording ... FAILED
+
+failures:
+
+failures:
+    app::app_performance_tests::profile_frames_with_continuous_native_recording
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 829 filtered out; finished in 5.07s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

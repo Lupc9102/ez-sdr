@@ -2569,3 +2569,11 @@ impl CentralApp {
 #[cfg(test)]
 #[path = "app_ui_tests.rs"]
 mod app_ui_tests;
+
+#[cfg(test)]
+#[path = "app_performance_tests.rs"]
+mod app_performance_tests;
+
+#[cfg(test)]
+#[path = "../tests/support/software_renderer.rs"]
+mod software_renderer;

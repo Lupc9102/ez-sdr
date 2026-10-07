@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+A09 native app WAV at 60 Hz + 300 ms GUI/shared-lock stall: 3031040 RF samples, 60620 PCM samples identical to synchronous DSP, zero loss
+test app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 831 filtered out; finished in 2.21s

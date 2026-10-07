@@ -1,0 +1,9 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.30s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 2 tests
+test adsb_panel::tests::crowded_map_keeps_selected_label_and_all_marker_data ... ok
+test adsb_panel::tests::dense_list_only_constructs_visible_rows_and_last_row_remains_selectable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 830 filtered out; finished in 0.10s

@@ -935,6 +935,42 @@ impl AdsBPanel {
         });
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_offline_map(&mut self, ctx: &egui::Context) {
+        // Disconnect this fixture's request sender before any UI frame. Tile
+        // workers exit without fetching; geolocation is already specified.
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        drop(receiver);
+        self.tile_request_tx = sender;
+        self.observer_position_set = true;
+        self.geo_rx = None;
+        self.tile_cx = Self::lon_to_tile_x(self.observer_lon, self.tile_zoom);
+        self.tile_cy = Self::lat_to_tile_y(self.observer_lat, self.tile_zoom);
+        let mut pixels = vec![egui::Color32::from_rgb(30, 40, 46); 256 * 256];
+        for (n, pixel) in pixels.iter_mut().enumerate() {
+            if n % 32 == 0 || (n / 256) % 32 == 0 {
+                *pixel = egui::Color32::from_rgb(58, 72, 77);
+            }
+        }
+        let texture = ctx.load_texture(
+            "offline map grid",
+            egui::ColorImage::new([256, 256], pixels),
+            egui::TextureOptions::LINEAR,
+        );
+        let (cx, cy) = (self.tile_cx.floor() as u32, self.tile_cy.floor() as u32);
+        for x in cx.saturating_sub(4)..=cx + 4 {
+            for y in cy.saturating_sub(4)..=cy + 4 {
+                self.tile_cache
+                    .insert((self.tile_zoom, x, y), texture.clone());
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_map_camera(&self) -> (f64, f64) {
+        (self.tile_cx, self.tile_cy)
+    }
+
     fn has_position(&self, aircraft: &AircraftEntry) -> bool {
         if !aircraft.lat.is_finite()
             || !aircraft.lon.is_finite()
@@ -2082,6 +2118,8 @@ impl AdsBPanel {
 
         // Aircraft
         let plane_texture = self.plane_texture(ui.ctx());
+        let mut labels = Vec::new();
+        let mut hovered_label: Option<(usize, f32)> = None;
         for ac in &self.aircraft {
             if !self.matches_filters(ac) {
                 continue;
@@ -2153,14 +2191,50 @@ impl AdsBPanel {
                 );
             }
             if !ac.callsign.is_empty() {
-                painter.text(
-                    egui::pos2(x + 6.0, y - 9.0),
-                    egui::Align2::LEFT_CENTER,
-                    &ac.callsign,
-                    egui::FontId::proportional(10.0),
-                    color,
-                );
+                let priority = self.selected_icao == Some(ac.icao);
+                if let Some(mouse) = response.hover_pos() {
+                    let distance = mouse.distance_sq(egui::pos2(x, y));
+                    if distance < 100.0
+                        && hovered_label.is_none_or(|(_, closest)| distance < closest)
+                    {
+                        hovered_label = Some((labels.len(), distance));
+                    }
+                }
+                labels.push((priority, egui::pos2(x + 6.0, y - 9.0), &ac.callsign, color));
             }
+        }
+        // Keep every marker interactive, but avoid constructing thousands of
+        // overlapping text galleys. Selected/hovered labels take precedence.
+        if let Some((index, _)) = hovered_label {
+            labels[index].0 = true;
+        }
+        labels.sort_by_key(|label| !label.0);
+        let mut occupied = std::collections::HashSet::new();
+        for (priority, pos, callsign, color) in labels {
+            let width = callsign.chars().count() as f32 * 8.0 + 4.0;
+            let label_rect =
+                egui::Rect::from_min_size(pos - egui::vec2(0.0, 7.0), egui::vec2(width, 14.0));
+            let left = (label_rect.left() / 64.0).floor() as i32;
+            let right = (label_rect.right() / 64.0).floor() as i32;
+            let top = (label_rect.top() / 16.0).floor() as i32;
+            let bottom = (label_rect.bottom() / 16.0).floor() as i32;
+            if !priority
+                && (left..=right).any(|x| (top..=bottom).any(|y| occupied.contains(&(x, y))))
+            {
+                continue;
+            }
+            for x in left..=right {
+                for y in top..=bottom {
+                    occupied.insert((x, y));
+                }
+            }
+            painter.text(
+                pos,
+                egui::Align2::LEFT_CENTER,
+                callsign,
+                egui::FontId::proportional(10.0),
+                color,
+            );
         }
 
         // Altitude color legend
@@ -2534,35 +2608,15 @@ impl AdsBPanel {
 
         ui.separator();
         module_card(ui, &theme, "planes.list", "✈", "Aircraft", true, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
             // I7: Sortable column headers
             let mut sort_col = self.sort_column;
             let mut sort_asc = self.sort_ascending;
-            egui::Grid::new("adsb_list_header").num_columns(7).show(ui, |ui| {
-                for (label, col) in [
-                    ("Flight", 0), ("Alt", 1), ("Spd", 2), ("Hdg", 3), ("Dist", 4), ("Age", 5),
-                ] {
-                    let text = if sort_col == col {
-                        format!("{} {}", label, if sort_asc { "▲" } else { "▼" })
-                    } else {
-                        label.to_string()
-                    };
-                    if ui.button(egui::RichText::new(text).small().strong()).clicked() {
-                        if sort_col == col {
-                            sort_asc = !sort_asc;
-                        } else {
-                            sort_col = col;
-                            sort_asc = true;
-                        }
-                    }
-                }
-                ui.label(egui::RichText::new("").small());
-                ui.end_row();
-            });
-            self.sort_column = sort_col;
-            self.sort_ascending = sort_asc;
-
-            let mut aircraft: Vec<AircraftEntry> = self.aircraft.iter().filter(|ac| self.matches_filters(ac)).cloned().collect();
+            let mut aircraft: Vec<AircraftEntry> = self
+                .aircraft
+                .iter()
+                .filter(|ac| self.matches_filters(ac))
+                .cloned()
+                .collect();
             aircraft.sort_by(|a, b| {
                 let ord = match sort_col {
                     0 => a.callsign.cmp(&b.callsign),
@@ -2570,8 +2624,18 @@ impl AdsBPanel {
                     2 => a.speed.cmp(&b.speed),
                     3 => a.direction().cmp(&b.direction()),
                     4 => {
-                        let da = self.haversine_distance(self.observer_lat, self.observer_lon, a.lat, a.lon);
-                        let db = self.haversine_distance(self.observer_lat, self.observer_lon, b.lat, b.lon);
+                        let da = self.haversine_distance(
+                            self.observer_lat,
+                            self.observer_lon,
+                            a.lat,
+                            a.lon,
+                        );
+                        let db = self.haversine_distance(
+                            self.observer_lat,
+                            self.observer_lon,
+                            b.lat,
+                            b.lon,
+                        );
                         da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
                     }
                     5 => a.seen.cmp(&b.seen),
@@ -2579,14 +2643,53 @@ impl AdsBPanel {
                 };
                 // Secondary sort by ICAO for stable ordering when primary keys are equal.
                 let ord = ord.then_with(|| a.icao.cmp(&b.icao));
-                if sort_asc { ord } else { ord.reverse() }
+                if sort_asc {
+                    ord
+                } else {
+                    ord.reverse()
+                }
             });
 
-            egui::Grid::new("adsb_list_compact").num_columns(7).striped(true).show(ui, |ui| {
+            let row_height = ui
+                .text_style_height(&egui::TextStyle::Small)
+                .max(ui.spacing().interact_size.y);
+            egui::ScrollArea::vertical().id_salt("adsb_aircraft_rows")
+                .show_rows(ui, row_height, aircraft.len() + 1, |ui, rows| {
+            egui::Grid::new("adsb_list_compact").num_columns(7).striped(true)
+                .min_row_height(row_height).start_row(rows.start).show(ui, |ui| {
+                if rows.start == 0 {
+                    for (label, col) in [
+                        ("Flight", 0),
+                        ("Alt", 1),
+                        ("Spd", 2),
+                        ("Hdg", 3),
+                        ("Dist", 4),
+                        ("Age", 5),
+                    ] {
+                        let text = if sort_col == col {
+                            format!("{} {}", label, if sort_asc { "▲" } else { "▼" })
+                        } else {
+                            label.to_string()
+                        };
+                        if ui
+                            .button(egui::RichText::new(text).small().strong())
+                            .clicked()
+                        {
+                            if sort_col == col {
+                                sort_asc = !sort_asc;
+                            } else {
+                                sort_col = col;
+                                sort_asc = true;
+                            }
+                        }
+                    }
+                    ui.label(egui::RichText::new("").small());
+                    ui.end_row();
+                }
                 let now = std::time::Instant::now();
                 let max_age = self.max_age_secs;
                 let mut fetch_icao: Option<u32> = None;
-                for ac in aircraft {
+                for ac in &aircraft[rows.start.saturating_sub(1)..rows.end.saturating_sub(1)] {
                     let age = now.duration_since(ac.seen).as_secs();
                     let is_selected = self.selected_icao == Some(ac.icao);
                     let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
@@ -2613,7 +2716,7 @@ impl AdsBPanel {
                         Some(_) => "Reserved emergency code",
                         None => "Emergency status unavailable",
                     };
-                    if ui.label(egui::RichText::new(&display_label).color(row_col).small())
+                    if ui.add(egui::Label::new(egui::RichText::new(&display_label).color(row_col).small()).sense(egui::Sense::click()))
                         .on_hover_text(format!("{status}\nSquawk: {}\nSource: {} ({})", ac.squawk.map_or("—".into(), |s| format!("{s:04}")), ac.source, ac.address_type)).clicked() {
                         self.selected_icao = Some(ac.icao);
                         fetch_icao = Some(ac.icao);
@@ -2623,7 +2726,7 @@ impl AdsBPanel {
                     // I6: Heading column
                     let hdg_label = ac.direction_label();
                     ui.label(egui::RichText::new(hdg_label).color(row_col).small());
-                    let has_position = self.has_position(&ac);
+                    let has_position = self.has_position(ac);
                     let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
                     let distance_label = if has_position { format!("{dist:.0}km") } else { "—".into() };
                     ui.label(egui::RichText::new(distance_label).color(row_col).small());
@@ -2643,6 +2746,8 @@ impl AdsBPanel {
                 }
             });
             });
+            self.sort_column = sort_col;
+            self.sort_ascending = sort_asc;
         });
     }
 }
@@ -2650,6 +2755,200 @@ impl AdsBPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dense_list_only_constructs_visible_rows_and_last_row_remains_selectable() {
+        let ctx = egui::Context::default();
+        let mut panel = AdsBPanel::new(crate::test_helpers::make_shared_state());
+        panel.aircraft = (0..2000)
+            .map(|n| AircraftEntry {
+                icao: 0xA00000 + n,
+                callsign: format!("AUD{n:04}"),
+                seen: std::time::Instant::now(),
+                ..Default::default()
+            })
+            .collect();
+        panel.max_age_secs = 600;
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut frame_number = 0;
+        let mut render = |panel: &mut AdsBPanel, events| {
+            let mut input = input(events);
+            input.time = Some(f64::from(frame_number) / 60.0);
+            frame_number += 1;
+            ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| panel.ui_list(ui));
+            })
+        };
+        let mut output = render(&mut panel, vec![]);
+        for _ in 0..2 {
+            output = render(&mut panel, vec![]);
+        }
+        let labels = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| {
+                    if let egui::Shape::Text(text) = &shape.shape {
+                        let label = text.galley.text();
+                        if label.starts_with("AUD") {
+                            return Some(label.to_string());
+                        }
+                    }
+                    None
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(labels(&output).len() < 100);
+        assert!(labels(&output).contains(&"AUD0000".into()));
+        let pos = egui::pos2(100.0, 500.0);
+        output = render(
+            &mut panel,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -60_000.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        for _ in 0..120 {
+            if labels(&output).contains(&"AUD1999".into()) {
+                break;
+            }
+            output = render(&mut panel, vec![]);
+        }
+        assert!(labels(&output).len() < 100);
+        let last = output
+            .shapes
+            .iter()
+            .find_map(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    if text.galley.text() == "AUD1999" {
+                        return Some(text.pos + text.galley.rect.center().to_vec2());
+                    }
+                }
+                None
+            })
+            .expect("last aircraft must remain reachable by scrolling");
+        panel.aircraft_info.insert(
+            0xA00000 + 1999,
+            AircraftInfo {
+                model: "Offline fixture".into(),
+                operator: String::new(),
+                registration: String::new(),
+            },
+        );
+        render(
+            &mut panel,
+            vec![
+                egui::Event::PointerMoved(last),
+                egui::Event::PointerButton {
+                    pos: last,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        render(
+            &mut panel,
+            vec![egui::Event::PointerButton {
+                pos: last,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert_eq!(panel.selected_icao, Some(0xA00000 + 1999));
+        assert_eq!(panel.aircraft.len(), 2000);
+    }
+
+    #[test]
+    fn crowded_map_keeps_selected_label_and_all_marker_data() {
+        let ctx = egui::Context::default();
+        let mut panel = AdsBPanel::new(crate::test_helpers::make_shared_state());
+        panel.test_offline_map(&ctx);
+        panel.aircraft = (0..2000)
+            .map(|n| AircraftEntry {
+                icao: 0xA00000 + n,
+                callsign: format!("AUD{n:04}"),
+                lat: panel.observer_lat,
+                lon: panel.observer_lon,
+                has_position: true,
+                seen: std::time::Instant::now(),
+                position_seen: Some(std::time::Instant::now()),
+                ..Default::default()
+            })
+            .collect();
+        panel.selected_icao = Some(0xA00000 + 1999);
+        let mut output = None;
+        for _ in 0..3 {
+            output = Some(ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800.0, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| panel.ui_map(ui));
+                },
+            ));
+        }
+        let output = output.unwrap();
+        let marker = output
+            .shapes
+            .iter()
+            .find_map(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    if text.galley.text() == "AUD1999" {
+                        return Some(text.pos - egui::vec2(6.0, -9.0));
+                    }
+                }
+                None
+            })
+            .expect("selected callsign must remain visible");
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                events: vec![egui::Event::PointerMoved(marker)],
+                ..Default::default()
+            },
+            |ui| {
+                egui::CentralPanel::default().show(ui, |ui| panel.ui_map(ui));
+            },
+        );
+        let names: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    let name = text.galley.text();
+                    if name.starts_with("AUD") {
+                        return Some(name);
+                    }
+                }
+                None
+            })
+            .collect();
+        assert!(names.contains(&"AUD1999"));
+        assert!(names.len() < 10, "overlapping labels were not decluttered");
+        assert_eq!(panel.aircraft.len(), 2000);
+        assert!(panel.aircraft.iter().all(|ac| ac.has_position));
+    }
 
     #[test]
     fn uat_preserves_signed_altitude_and_separate_true_heading_and_track() {
