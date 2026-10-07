@@ -55,6 +55,7 @@ pub struct SatellitePanel {
     // cf32 recorder
     pub cf32_writer: Option<Cf32StreamWriter>,
     pub cf32_recording: bool,
+    cf32_finalization: Option<std::thread::JoinHandle<Cf32Finalized>>,
     pub cf32_output_dir: String,
 
     // Legacy state (tracking, tuning, schedule)
@@ -70,6 +71,18 @@ pub struct SatellitePanel {
     pub pending_status: Option<String>,
     pub pending_decode_request: Option<DecodeRequest>,
     tle_import_status: Option<String>,
+}
+
+struct Cf32Finalized {
+    result: Result<crate::satellite::recorder::Cf32RecordingMeta, String>,
+    path: String,
+    filename: String,
+}
+
+impl Drop for SatellitePanel {
+    fn drop(&mut self) {
+        self.stop_cf32_recording();
+    }
 }
 
 impl SatellitePanel {
@@ -93,6 +106,7 @@ impl SatellitePanel {
             position_update_interval: std::time::Duration::from_secs(1),
             cf32_writer: None,
             cf32_recording: false,
+            cf32_finalization: None,
             cf32_output_dir: "./recordings".to_string(),
             selected_sat: None,
             doppler_hz: 0.0,
@@ -117,6 +131,7 @@ impl SatellitePanel {
     }
 
     fn tick_realtime_at(&mut self, now: std::time::Instant, time: f64) {
+        self.poll_cf32_finalization();
         if self.cf32_recording && self.is_meteor_selected() {
             self.stop_cf32_recording();
             self.pending_decode_request = None;
@@ -487,7 +502,9 @@ impl SatellitePanel {
             true,
             |ui| {
                 let is_rec = self.cf32_recording;
-                let label = if is_rec {
+                let label = if self.is_cf32_finalizing() {
+                    "Finalizing recording…"
+                } else if is_rec {
                     "■  STOP RECORDING"
                 } else {
                     "●  RECORD  (raw cf32 I/Q)"
@@ -519,7 +536,7 @@ impl SatellitePanel {
                 .fill(fill)
                 .stroke(egui::Stroke::new(2.0, stroke_color))
                 .min_size(egui::vec2(ui.available_width(), 56.0));
-                if ui.add(btn).clicked() {
+                if ui.add_enabled(!self.is_cf32_finalizing(), btn).clicked() {
                     if is_rec {
                         self.stop_cf32_recording();
                     } else {
@@ -549,6 +566,10 @@ impl SatellitePanel {
     }
 
     pub(crate) fn start_cf32_recording(&mut self) {
+        self.poll_cf32_finalization();
+        if self.cf32_recording || self.cf32_finalization.is_some() {
+            return;
+        }
         if self.is_meteor_selected() {
             self.pending_status = Some(
                 "Meteor is an offline decoder. Open an existing .cs8 or .cf32 recording.".into(),
@@ -593,38 +614,76 @@ impl SatellitePanel {
         }
     }
 
+    pub(crate) fn is_cf32_finalizing(&self) -> bool {
+        self.cf32_finalization.is_some()
+    }
+
     pub(crate) fn stop_cf32_recording(&mut self) {
-        if let Some(mut w) = self.cf32_writer.take() {
-            match w.stop() {
-                Ok(meta) => {
-                    let mb = meta.bytes_total as f64 / 1_048_576.0;
-                    self.pending_status = Some(format!(
-                        "✅ Recorded {:.1} MB ({:.1}s) → {}",
-                        mb,
-                        meta.duration_sec,
-                        w.filename()
-                    ));
-                    // Old in-progress Meteor captures may still need finalizing,
-                    // but must not become a capture-to-live-decoder workflow.
-                    if !meta
-                        .satellite
-                        .as_deref()
-                        .is_some_and(|name| name.to_ascii_lowercase().contains("meteor"))
-                    {
-                        self.pending_decode_request = Some(DecodeRequest {
-                            file_path: w.path().display().to_string(),
-                            preset: meta.satellite.as_deref().and_then(satellite_to_preset),
-                            sample_rate: meta.sample_rate_hz,
-                            satellite_name: meta.satellite.clone(),
-                        });
+        if let Some(mut writer) = self.cf32_writer.take() {
+            writer.request_stop();
+            self.cf32_finalization = Some(std::thread::spawn(move || Cf32Finalized {
+                result: writer.stop(),
+                path: writer.path().display().to_string(),
+                filename: writer.filename(),
+            }));
+            self.pending_status = Some("Finalizing CF32 recording…".into());
+        }
+        if self.cf32_finalization.is_none() {
+            self.cf32_recording = false;
+        }
+    }
+
+    pub(crate) fn poll_cf32_finalization(&mut self) {
+        if !self
+            .cf32_finalization
+            .as_ref()
+            .is_some_and(|worker| worker.is_finished())
+        {
+            return;
+        }
+        match self.cf32_finalization.take().unwrap().join() {
+            Ok(finished) => {
+                match finished.result {
+                    Ok(meta) => {
+                        let mb = meta.bytes_total as f64 / 1_048_576.0;
+                        self.pending_status = Some(format!(
+                            "✅ Recorded {:.1} MB ({:.1}s) → {}",
+                            mb, meta.duration_sec, finished.filename
+                        ));
+                        // Old in-progress Meteor captures may still need finalizing,
+                        // but must not become a capture-to-live-decoder workflow.
+                        if !meta
+                            .satellite
+                            .as_deref()
+                            .is_some_and(|name| name.to_ascii_lowercase().contains("meteor"))
+                        {
+                            self.pending_decode_request = Some(DecodeRequest {
+                                file_path: finished.path,
+                                preset: meta.satellite.as_deref().and_then(satellite_to_preset),
+                                sample_rate: meta.sample_rate_hz,
+                                satellite_name: meta.satellite.clone(),
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        self.pending_status = Some(format!("❌ Recorder stop error: {e}"));
                     }
                 }
-                Err(e) => {
-                    self.pending_status = Some(format!("❌ Recorder stop error: {e}"));
-                }
             }
+            Err(_) => self.pending_status = Some("Recorder finalization worker panicked".into()),
         }
         self.cf32_recording = false;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stop_cf32_and_wait(&mut self) {
+        self.stop_cf32_recording();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while self.is_cf32_finalizing() && std::time::Instant::now() < deadline {
+            self.poll_cf32_finalization();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(!self.is_cf32_finalizing(), "CF32 finalization timed out");
     }
 
     // ── Alignment subtab ──────────────────────────────────────────────────
@@ -1102,7 +1161,7 @@ mod tests {
         );
         panel.cf32_recording = true;
 
-        panel.stop_cf32_recording();
+        panel.stop_cf32_and_wait();
 
         assert!(!panel.cf32_recording);
         assert!(panel.pending_decode_request.is_none());
@@ -1134,10 +1193,11 @@ mod tests {
         panel.cf32_writer = Some(writer);
         panel.cf32_recording = true;
 
-        panel.stop_cf32_recording();
+        panel.stop_cf32_and_wait();
 
         let req = panel
             .pending_decode_request
+            .take()
             .expect("expected a pending decode request");
         assert_ne!(req.file_path, bare_filename);
         assert!(req.file_path.ends_with(&bare_filename));

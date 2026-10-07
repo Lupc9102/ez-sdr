@@ -531,7 +531,7 @@ impl AudioWorker {
         self.dropped_frames.load(Ordering::Relaxed)
     }
 
-    /// Signal the worker to stop and wait for it to finish.
+    /// Signal the worker to stop without waiting on device-driver teardown.
     pub fn stop(mut self) {
         self.shutdown();
     }
@@ -539,7 +539,7 @@ impl AudioWorker {
     /// Non-consuming variant for call sites that cannot move out of `self`.
     /// Sends stop signal and detaches the thread (non-blocking).
     pub fn shutdown(&mut self) {
-        let _ = self.stop_tx.send(());
+        let _ = self.stop_tx.try_send(());
         if let Some(handle) = self.handle.take() {
             drop(handle);
         }
@@ -576,7 +576,7 @@ impl AudioWorker {
 #[cfg(feature = "audio")]
 impl Drop for AudioWorker {
     fn drop(&mut self) {
-        let _ = self.stop_tx.send(());
+        let _ = self.stop_tx.try_send(());
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
@@ -756,6 +756,28 @@ impl AudioOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "audio")]
+    #[test]
+    fn repeated_audio_shutdown_and_drop_never_wait_for_a_full_stop_queue() {
+        let (stop_tx, stop_rx) = crossbeam_channel::bounded(1);
+        let mut worker = AudioWorker::new_uninitialized();
+        worker.stop_tx = stop_tx;
+        let started = std::time::Instant::now();
+        worker.shutdown();
+        worker.shutdown();
+        drop(worker);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_millis(50),
+            "Audio teardown blocked for {elapsed:?}"
+        );
+        assert_eq!(stop_rx.try_recv(), Ok(()));
+        eprintln!(
+            "Repeated audio cancellation returned in {} us with undrained stop queue",
+            elapsed.as_micros()
+        );
+    }
     #[test]
     fn defaults_and_stop_reset_state() {
         let mut output = AudioOutput::new();

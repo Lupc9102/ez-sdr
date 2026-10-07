@@ -218,6 +218,14 @@ impl Cf32StreamWriter {
         result
     }
 
+    pub fn request_stop(&mut self) {
+        if let Some(recorder) = &self.capture_recorder {
+            recorder.request_stop();
+        } else {
+            self.tx.take();
+        }
+    }
+
     pub fn stop(&mut self) -> Result<Cf32RecordingMeta, String> {
         if let Some(mut recorder) = self.capture_recorder.take() {
             let result = recorder.finish()?;
@@ -326,7 +334,23 @@ impl Cf32StreamWriter {
 impl Drop for Cf32StreamWriter {
     fn drop(&mut self) {
         if self.handle.is_some() || self.capture_recorder.is_some() {
-            let _ = self.stop();
+            self.request_stop();
+            let closed = Self {
+                tx: None,
+                handle: None,
+                path: self.path.clone(),
+                start_time: self.start_time,
+                bytes_written: Arc::clone(&self.bytes_written),
+                offered_samples: self.offered_samples,
+                dropped_samples: self.dropped_samples,
+                error: Arc::clone(&self.error),
+                meta: self.meta.clone(),
+                capture_recorder: None,
+            };
+            let mut writer = std::mem::replace(self, closed);
+            std::thread::spawn(move || {
+                let _ = writer.stop();
+            });
         }
     }
 }
@@ -428,6 +452,131 @@ fn raw_iq_bytes_to_cf32_le(samples: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct BlockedFile {
+        file: std::fs::File,
+        gate: Option<(Sender<()>, Receiver<()>)>,
+        fail_flush: bool,
+    }
+
+    impl Write for BlockedFile {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if let Some((entered, release)) = self.gate.take() {
+                entered.send(()).unwrap();
+                release.recv().unwrap();
+            }
+            self.file.write(bytes)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.fail_flush {
+                Err(std::io::Error::other("injected CF32 final flush failure"))
+            } else {
+                self.file.flush()
+            }
+        }
+    }
+
+    #[test]
+    fn blocked_cf32_stop_keeps_decode_handoff_pending_until_files_finish() {
+        for (drop_panel, fail_flush) in [(false, false), (false, true), (true, false)] {
+            let dir = temp_dir();
+            let mut writer = Cf32StreamWriter::start(
+                dir.to_str().unwrap(),
+                Some("ISS".into()),
+                2_400_000,
+                1_090_000_000,
+                0.0,
+                0.0,
+            )
+            .unwrap();
+            writer.tx.take();
+            writer.handle.take().unwrap().join().unwrap().unwrap();
+            let path = writer.path().to_path_buf();
+            let (entered, entered_rx) = bounded(1);
+            let (release, release_rx) = bounded(1);
+            let (tx, rx) = bounded(64);
+            writer.handle = Some(spawn_writer(
+                rx,
+                BlockedFile {
+                    file: std::fs::OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .open(&path)
+                        .unwrap(),
+                    gate: Some((entered, release_rx)),
+                    fail_flush,
+                },
+                Arc::clone(&writer.bytes_written),
+                Arc::clone(&writer.error),
+            ));
+            writer.tx = Some(tx);
+            let stream = crate::capture_stream::CaptureStream::default();
+            stream.start(1);
+            let mut panel = crate::satellite_panel::SatellitePanel::new(
+                crate::test_helpers::make_shared_state(),
+            );
+            panel.cf32_writer = Some(writer.with_capture(stream.clone()));
+            panel.cf32_recording = true;
+            let raw = [90, 110].repeat(10);
+            let mut block = crate::source_manager::CaptureBlock::fixture(
+                raw.clone(),
+                ez_proto::CaptureClock::new(9, 100, 2_400_000, None),
+                1,
+                0,
+            );
+            block.session = Some(stream.session());
+            stream.publish(&block);
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap();
+            let started = Instant::now();
+            panel.stop_cf32_recording();
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_millis(50),
+                "CF32 Stop blocked for {elapsed:?}"
+            );
+            assert!(panel.cf32_recording && panel.is_cf32_finalizing());
+            assert!(panel.pending_decode_request.is_none());
+            assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+            let mut panel = Some(panel);
+            if drop_panel {
+                let started = Instant::now();
+                drop(panel.take());
+                assert!(started.elapsed() < std::time::Duration::from_millis(50));
+            }
+            release.send(()).unwrap();
+            if let Some(panel) = &mut panel {
+                panel.stop_cf32_and_wait();
+                assert!(!panel.cf32_recording);
+                assert_eq!(panel.pending_decode_request.is_some(), !fail_flush);
+                if fail_flush {
+                    assert!(panel
+                        .pending_status
+                        .as_ref()
+                        .unwrap()
+                        .contains("injected CF32 final flush failure"));
+                }
+            }
+            let deadline = Instant::now() + std::time::Duration::from_secs(3);
+            let metadata = loop {
+                if let Some(metadata) = std::fs::read(path.with_extension("json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                {
+                    break metadata;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            };
+            assert_eq!(metadata["complete"], !fail_flush);
+            assert_eq!(metadata["capture"]["samples"], 10);
+            assert_eq!(metadata["bytes_total"], 80);
+            assert_eq!(std::fs::read(path).unwrap(), raw_iq_bytes_to_cf32_le(&raw));
+            eprintln!("Blocked CF32 Stop: {} us; drop={drop_panel}, flush_error={fail_flush}, finalized 10 RF samples", elapsed.as_micros());
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
 
     #[test]
     fn native_cf32_disk_failures_finalize_the_actual_prefix_and_stop_promptly() {

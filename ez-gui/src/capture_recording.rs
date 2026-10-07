@@ -167,8 +167,8 @@ impl<T: Send + 'static> CaptureRecorder<T> {
 
 impl<T: Send + 'static> Drop for CaptureRecorder<T> {
     fn drop(&mut self) {
-        if self.thread.is_some() {
-            let _ = self.finish();
-        }
+        self.request_stop();
+        // The owned worker still finalizes its files after the UI releases its
+        // observer. Call finish() on a background task to collect the result.
     }
 }

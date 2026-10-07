@@ -169,9 +169,46 @@ pub struct CentralApp {
     #[allow(dead_code)]
     more_menu_open: bool,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
+    close_pending: bool,
 }
 
 impl CentralApp {
+    /// Keep the event loop alive while owned file finalizers finish. A blocked
+    /// driver cannot freeze close handling or imply a completed recording.
+    fn tick_close_request(&mut self, ctx: &egui::Context) -> bool {
+        if !self.close_pending && !ctx.input(|input| input.viewport().close_requested()) {
+            return false;
+        }
+        if !self.close_pending {
+            self.close_pending = true;
+            self.recorder_panel.squelch_record = false;
+            self.recorder_panel.stop_recording();
+            self.satellite_panel.stop_cf32_recording();
+            self.audio.shutdown();
+        }
+        let source_cancelled = if let Ok(mut state) = self.shared.try_lock() {
+            state.source.stop();
+            state.adsb_running = false;
+            true
+        } else {
+            false
+        };
+        self.recorder_panel.tick();
+        self.satellite_panel.poll_cf32_finalization();
+        if !source_cancelled
+            || self.recorder_panel.is_finalizing()
+            || self.satellite_panel.is_cf32_finalizing()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.status_bar
+                .info("Finalizing recordings before closing…".into());
+            ctx.request_repaint_after(Duration::from_millis(16));
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        true
+    }
+
     /// Non-blocking acquisition of SharedState with poison recovery and event publishing.
     #[inline]
     pub fn try_lock_shared(
@@ -421,6 +458,7 @@ impl CentralApp {
             last_adsb_capture: None,
             scanner: crate::scanner::FrequencyScanner::new(shared.clone()),
             runtime_action: None,
+            close_pending: false,
             runtime_error_serial: 0,
             runtime_last_error: String::new(),
             last_scheduler_update: std::time::Instant::now(),
@@ -1102,6 +1140,9 @@ impl CentralApp {
 
 impl eframe::App for CentralApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.tick_close_request(ctx) {
+            return;
+        }
         // Apply config changes triggered from Settings tab
         if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {

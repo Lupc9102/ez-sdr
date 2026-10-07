@@ -306,6 +306,7 @@ struct CaptureProducer {
     source_mode: SourceMode,
     stream_sample_index: u64,
     preview_gap: bool,
+    running: Option<Arc<AtomicBool>>,
 }
 
 impl CaptureProducer {
@@ -322,6 +323,7 @@ impl CaptureProducer {
             source_mode: SourceMode::Simulated,
             stream_sample_index: 0,
             preview_gap: false,
+            running: None,
         }
     }
 
@@ -352,6 +354,15 @@ impl CaptureProducer {
     }
 
     fn block(&mut self, mut samples: Vec<u8>, file_position: Option<u64>) -> Option<CaptureBlock> {
+        // A blocking device/file read can return after Stop. Discard that read
+        // before it reaches either the native stream or GUI preview.
+        if self
+            .running
+            .as_ref()
+            .is_some_and(|running| !running.load(Ordering::Acquire))
+        {
+            return None;
+        }
         if let Some(i) = self.pending_i.take() {
             samples.insert(0, i);
         }
@@ -566,6 +577,7 @@ pub struct SourceManager {
     rx: Option<Receiver<SourceMessage>>,
     running: Arc<AtomicBool>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
+    restart_requested: bool,
     stream_generation: u64,
     capture_stream: crate::capture_stream::CaptureStream,
     /// Number of sample blocks dropped due to queue overflow (UI was behind).
@@ -600,6 +612,8 @@ pub enum SourceStatus {
     Opening,
     /// Source is actively producing IQ samples.
     Running,
+    /// Cancellation was requested; the worker still owns its device or file.
+    Stopping,
     /// Source encountered a fatal error (carries error message).
     Error(String),
 }
@@ -607,6 +621,15 @@ pub enum SourceStatus {
 impl Default for SourceManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for SourceManager {
+    fn drop(&mut self) {
+        self.stop();
+        // JoinHandle drop detaches the cancelled worker. It still owns and
+        // closes its device if the driver returns; destruction cannot force a
+        // synchronous USB call to return.
     }
 }
 
@@ -677,6 +700,7 @@ impl SourceManager {
             rx: Some(rx),
             running: Arc::new(AtomicBool::new(false)),
             worker_handle: None,
+            restart_requested: false,
             stream_generation: 0,
             capture_stream: crate::capture_stream::CaptureStream::default(),
             dropped_blocks: Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -860,15 +884,20 @@ impl SourceManager {
     /// them through the internal channel. Hardware remains `Opening` until
     /// its first accepted sample block confirms acquisition.
     pub fn start(&mut self) {
+        self.poll_shutdown();
         if matches!(self.status, SourceStatus::Running | SourceStatus::Opening) {
-            return;
-        }
-        if self.source_mode == SourceMode::Daemon {
-            self.start_daemon();
             return;
         }
         if self.worker_handle.is_some() {
             self.stop();
+            if self.worker_handle.is_some() {
+                self.restart_requested = true;
+                return;
+            }
+        }
+        if self.source_mode == SourceMode::Daemon {
+            self.start_daemon();
+            return;
         }
         if self.sample_rate_hz == 0
             || (self.source_mode == SourceMode::Replay
@@ -900,8 +929,9 @@ impl SourceManager {
         #[cfg(test)]
         let test_hardware_open = self.test_hardware_open.clone();
         self.status = SourceStatus::Opening;
-        // stop() joins the previous local worker before this flag is reused.
-        self.running.store(true, Ordering::SeqCst);
+        // Each acquisition owns its cancellation flag. A stopped worker can
+        // never be revived by a later start.
+        self.running = Arc::new(AtomicBool::new(true));
         let running = self.running.clone();
         let dropped_blocks = self.dropped_blocks.clone();
 
@@ -940,6 +970,7 @@ impl SourceManager {
                 generation,
                 source_mode.clone(),
             );
+            capture.running = Some(Arc::clone(&running));
             match source_mode {
                 SourceMode::Replay => {
                     let path = if let Some(p) = replay_file {
@@ -1646,6 +1677,7 @@ impl SourceManager {
     /// worker thread is authoritative for them in the other modes.
     #[must_use]
     pub fn recv_daemon_event(&mut self) -> Option<ez_proto::ServerEvent> {
+        self.poll_shutdown();
         self.sync_daemon_session();
         let (status, event) = {
             let client = self.daemon_client.as_ref()?;
@@ -2001,8 +2033,8 @@ impl SourceManager {
 
     /// Stop the SDR source.
     ///
-    /// Signals the worker thread to exit and recreates the sample channel for
-    /// the next `start()` call. Status returns to `Idle`.
+    /// Requests cancellation without waiting for device/network/file I/O.
+    /// Status stays Stopping until the worker releases its resources.
     pub fn stop(&mut self) {
         if self.daemon_recording_active {
             if let Some(client) = &self.daemon_client {
@@ -2011,9 +2043,11 @@ impl SourceManager {
                 });
             }
         }
-        // Dropping tears the connection down (signals the worker, sends Detach, joins it).
-        // Safe to do unconditionally regardless of mode — `None` in every non-Daemon mode.
-        self.daemon_client = None;
+        // Connection teardown can wait on network I/O too. Retain ownership on
+        // a background worker until it has actually closed.
+        if let Some(client) = self.daemon_client.take() {
+            self.worker_handle = Some(std::thread::spawn(move || drop(client)));
+        }
         self.daemon_session_ready = false;
         self.daemon_applied_capture = None;
         self.daemon_requested_controls = None;
@@ -2028,18 +2062,57 @@ impl SourceManager {
         self.daemon_lrpt_subscribed = false;
         self.daemon_recording_active = false;
         self.running.store(false, Ordering::SeqCst);
-        // Wake paced replay/demo immediately; backpressure checks cancellation
-        // every 20 ms. Join before start() reuses the running flag so old local
-        // workers cannot leak across stop/start. RTL exits after its next USB read.
-        if let Some(handle) = self.worker_handle.take() {
+        self.restart_requested = false;
+        if let Some(handle) = &self.worker_handle {
             handle.thread().unpark();
-            let _ = handle.join();
         }
         // Recreate channel for next start()
         let (new_tx, new_rx) = bounded(8);
         self.tx = Some(new_tx);
         self.rx = Some(new_rx);
-        self.status = SourceStatus::Idle;
+        self.status = if self.worker_handle.is_some() {
+            SourceStatus::Stopping
+        } else {
+            SourceStatus::Idle
+        };
+        self.poll_shutdown();
+    }
+
+    /// Join only completed workers. A driver that never returns keeps its
+    /// ownership and Stopping status without blocking the event loop.
+    pub(crate) fn poll_shutdown(&mut self) {
+        if self
+            .worker_handle
+            .as_ref()
+            .is_some_and(|worker| worker.is_finished())
+        {
+            let result = self.worker_handle.take().unwrap().join();
+            if self.status == SourceStatus::Stopping {
+                self.status = if result.is_ok() {
+                    SourceStatus::Idle
+                } else {
+                    SourceStatus::Error("Receiver worker panicked during shutdown".into())
+                };
+            }
+        }
+        if self.restart_requested && self.worker_handle.is_none() {
+            self.restart_requested = false;
+            self.start();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_shutdown(&mut self) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while self.status == SourceStatus::Stopping && Instant::now() < deadline {
+            self.poll_shutdown();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_ne!(
+            self.status,
+            SourceStatus::Stopping,
+            "Source shutdown timed out"
+        );
     }
 
     /// Try to receive a pending chunk of IQ samples from the source thread.
@@ -2051,6 +2124,10 @@ impl SourceManager {
     }
 
     pub(crate) fn recv_capture_block(&mut self) -> Option<CaptureBlock> {
+        self.poll_shutdown();
+        if self.status == SourceStatus::Stopping {
+            return None;
+        }
         if let Some(rx) = &self.rx {
             match rx.try_recv() {
                 Ok(SourceMessage::Samples(block)) => {
@@ -2223,6 +2300,7 @@ impl SourceManager {
                 SourceStatus::Running => (egui::Color32::GREEN, "Running"),
                 SourceStatus::Idle => (egui::Color32::GRAY, "Idle"),
                 SourceStatus::Opening => (egui::Color32::YELLOW, "Opening..."),
+                SourceStatus::Stopping => (egui::Color32::YELLOW, "Stopping..."),
                 SourceStatus::Error(e) => (egui::Color32::RED, e.as_str()),
             };
             ui.colored_label(color, format!("● {label}"));
@@ -2549,6 +2627,7 @@ mod tests {
             }
             assert_eq!(source.dropped_blocks.load(Ordering::Relaxed), 0);
             source.stop();
+            source.wait_for_shutdown();
         }
         assert!(positions.windows(2).all(|pair| pair[0] == pair[1]));
     }
@@ -2879,6 +2958,7 @@ mod tests {
         let previous_worker = source.worker_handle.as_ref().unwrap().thread().id();
 
         source.tune_and_restart(1_090_000_000, 2_000_000);
+        source.wait_for_shutdown();
 
         assert_eq!(source.frequency_hz, 1_090_000_000);
         assert_eq!(source.center_frequency_hz, Some(1_090_000_000));
@@ -2890,6 +2970,7 @@ mod tests {
         );
         assert!(wait_until(|| source.recv_samples().is_some()));
         source.stop();
+        source.wait_for_shutdown();
     }
 
     #[test]
@@ -2935,6 +3016,7 @@ mod tests {
         source.start();
         assert!(wait_until(|| source.recv_samples().is_some()));
         source.stop();
+        source.wait_for_shutdown();
         let file = TestRecording::new(&[12, 34, 56, 78]);
         let mut replay = file.source(2);
         replay.frequency_offset_hz = i64::MIN;
@@ -3264,6 +3346,7 @@ mod tests {
         assert!(!source.rtl_devices_refreshing());
         assert_eq!(source.status, SourceStatus::Running);
         source.stop();
+        source.wait_for_shutdown();
     }
 
     #[test]
@@ -3335,8 +3418,10 @@ mod tests {
         source.offset_tuning = true;
         source.start();
         source.stop();
+        source.wait_for_shutdown();
         source.start();
         source.stop();
+        source.wait_for_shutdown();
         assert!(source.offset_tuning);
         assert_eq!(source.rtl_device.index, 2);
         assert_eq!(source.rtl_device.serial.as_deref(), Some("persist-me"));
@@ -3470,6 +3555,7 @@ mod tests {
                 source.status == SourceStatus::Idle
             }));
             source.stop();
+            source.wait_for_shutdown();
             assert_eq!(replayed, raw);
             let mut decoder = crate::adsb_decoder::AdsBDecoder::new();
             decoder.feed_iq(&replayed, 2_400_000);
@@ -3526,6 +3612,7 @@ mod tests {
             source.status == SourceStatus::Idle
         }));
         source.stop();
+        source.wait_for_shutdown();
         assert_eq!(replayed, original);
         use ez_daemon::hardware::{
             replay::{FileReplaySource, ReplayFormat},
@@ -3592,6 +3679,7 @@ mod tests {
                 source.status == SourceStatus::Idle
             }));
             source.stop();
+            source.wait_for_shutdown();
         }
     }
 
@@ -3610,6 +3698,7 @@ mod tests {
             assert_eq!(source.status, SourceStatus::Running);
         }
         source.stop();
+        source.wait_for_shutdown();
     }
 
     #[test]
@@ -3645,6 +3734,7 @@ mod tests {
         );
         assert_eq!(output, [128, 128, 128, 128, 255, 0, 191, 64]);
         source.stop();
+        source.wait_for_shutdown();
     }
 
     #[test]
@@ -3782,6 +3872,7 @@ mod tests {
             assert!(!stream.progress().live);
             assert!(source.dropped_blocks.load(Ordering::Relaxed) > 0);
             source.stop();
+            source.wait_for_shutdown();
         }
     }
 
@@ -3798,6 +3889,7 @@ mod tests {
         let recovered = wait_until(|| source.recv_samples().is_some());
         let status = source.status.clone();
         source.stop();
+        source.wait_for_shutdown();
         assert!(filled, "demo did not fill the deliberately small queue");
         assert!(recovered, "demo died when the UI stopped draining samples");
         assert_eq!(status, SourceStatus::Running);
@@ -3820,6 +3912,7 @@ mod tests {
         });
         let status = source.status.clone();
         source.stop();
+        source.wait_for_shutdown();
         assert!(filled, "replay did not reach backpressure");
         assert!(completed, "replay never delivered its terminal state");
         assert_eq!(status, SourceStatus::Idle);
@@ -3840,6 +3933,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(60));
             let started = Instant::now();
             source.stop();
+            source.wait_for_shutdown();
             assert!(filled);
             assert!(started.elapsed() < Duration::from_millis(250));
             assert_eq!(source.status, SourceStatus::Idle);
@@ -3858,6 +3952,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(10));
         let started = Instant::now();
         source.stop();
+        source.wait_for_shutdown();
         assert!(filled);
         assert!(started.elapsed() < Duration::from_millis(250));
     }
@@ -3873,6 +3968,7 @@ mod tests {
             matches!(source.status, SourceStatus::Error(_))
         });
         source.stop();
+        source.wait_for_shutdown();
         assert!(reported);
     }
 
@@ -3941,9 +4037,106 @@ mod tests {
     }
 
     #[test]
+    fn stop_does_not_wait_for_blocked_hardware_open() {
+        let mut source = SourceManager::new();
+        source.source_mode = SourceMode::Hardware;
+        let (entered_tx, entered_rx) = crossbeam_channel::bounded(1);
+        let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+        source.test_set_hardware_open(move |_| {
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(vec![127, 127])
+        });
+        source.start();
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let subscription = source.capture_stream().subscribe(4);
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            release_tx.send(()).unwrap();
+        });
+        let started = Instant::now();
+        source.stop();
+        let elapsed = started.elapsed();
+        assert_eq!(source.status, SourceStatus::Stopping);
+        source.source_mode = SourceMode::Simulated;
+        source.start();
+        assert_eq!(source.status, SourceStatus::Stopping);
+        assert_eq!(source.stream_generation(), 1);
+        assert!(subscription.try_recv().is_none());
+        release.join().unwrap();
+        assert!(
+            elapsed < Duration::from_millis(50),
+            "Stop blocked for {elapsed:?}"
+        );
+        source.wait_for_shutdown();
+        assert_eq!(source.stream_generation(), 2);
+        let block = subscription.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(block.source_generation, 2);
+        source.stop();
+        source.wait_for_shutdown();
+        eprintln!(
+            "Blocked receiver Stop returned in {} us; restart waited for ownership release",
+            elapsed.as_micros()
+        );
+    }
+
+    #[test]
+    fn stop_and_drop_discard_a_read_that_returns_after_cancellation() {
+        for drop_source in [false, true] {
+            let mut source = SourceManager::new();
+            source.running = Arc::new(AtomicBool::new(true));
+            source.status = SourceStatus::Running;
+            source.capture_stream.start(1);
+            let stream = source.capture_stream();
+            let subscription = stream.subscribe(4);
+            let mut capture = CaptureProducer::new(2_400_000, 1_090_000_000).attach_stream(
+                stream.clone(),
+                1,
+                SourceMode::Hardware,
+            );
+            capture.running = Some(Arc::clone(&source.running));
+            let (release, release_rx) = bounded(1);
+            let (finished, finished_rx) = bounded(1);
+            source.worker_handle = Some(std::thread::spawn(move || {
+                // Stand in for a synchronous device/file read returning late.
+                release_rx.recv().unwrap();
+                assert!(capture.block(vec![127, 127], None).is_none());
+                drop(capture);
+                finished.send(()).unwrap();
+            }));
+            let started = Instant::now();
+            source.stop();
+            let mut source = Some(source);
+            if drop_source {
+                drop(source.take());
+            }
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < Duration::from_millis(50),
+                "Source cancellation blocked for {elapsed:?}"
+            );
+            assert!(stream.progress().live); // Device ownership remains pending.
+            release.send(()).unwrap();
+            finished_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            if let Some(source) = &mut source {
+                source.wait_for_shutdown();
+            }
+            assert!(!stream.progress().live);
+            assert_eq!(stream.progress().samples, 0);
+            assert_eq!(stream.total_samples(), 0);
+            assert!(subscription.try_recv().is_none());
+            eprintln!(
+                "Late-read cancellation/drop={drop_source}: {} us, no post-cancel RF publication",
+                elapsed.as_micros()
+            );
+        }
+    }
+
+    #[test]
     fn stop_on_idle_does_not_panic() {
         let mut sm = SourceManager::new();
         sm.stop();
+        sm.wait_for_shutdown();
         assert_eq!(sm.status, SourceStatus::Idle);
     }
 
@@ -3962,11 +4155,13 @@ mod tests {
         assert!(sm.worker_handle.is_some());
         assert_eq!(sm.stream_generation(), 1);
         sm.stop();
+        sm.wait_for_shutdown();
         assert_eq!(sm.status, SourceStatus::Idle);
         assert_eq!(sm.stream_generation(), 1);
         sm.start();
         assert_eq!(sm.stream_generation(), 2);
         sm.stop();
+        sm.wait_for_shutdown();
     }
 
     #[test]
@@ -3977,6 +4172,7 @@ mod tests {
         assert_eq!(sm.status, SourceStatus::Running);
         assert_eq!(sm.stream_generation(), 1);
         sm.stop();
+        sm.wait_for_shutdown();
     }
 
     #[test]
@@ -3989,6 +4185,7 @@ mod tests {
         sm.start();
         assert_eq!(sm.stream_generation(), generation);
         sm.stop();
+        sm.wait_for_shutdown();
     }
 
     #[test]
@@ -4014,10 +4211,12 @@ mod tests {
         sm.start();
         assert_eq!(sm.stream_generation(), 1);
         sm.stop();
+        sm.wait_for_shutdown();
         assert_eq!(sm.stream_generation(), 1);
         sm.start();
         assert_eq!(sm.stream_generation(), 2);
         sm.stop();
+        sm.wait_for_shutdown();
     }
 
     #[test]
@@ -4054,6 +4253,7 @@ mod tests {
         );
         assert_eq!(sm.stream_generation(), 0);
         sm.stop();
+        sm.wait_for_shutdown();
     }
 
     #[cfg(not(feature = "rtlsdr"))]

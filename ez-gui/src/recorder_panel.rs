@@ -63,6 +63,212 @@ pub struct RecorderPanel {
     pub peak_level_dbfs: f32,
     peak_hold_time: Option<std::time::Instant>,
     daemon_recording: Option<ez_proto::RecordingStatus>,
+    finalization: Option<std::thread::JoinHandle<RecordingFinalizer>>,
+}
+
+// Finalization owns every file and worker until flush, headers and metadata
+// finish. The GUI only joins this task after is_finished() is true.
+struct RecordingFinalizer {
+    bytes_written: u64,
+    iq_writer: Option<std::io::BufWriter<std::fs::File>>,
+    wav_writer: Option<hound::WavWriter<std::io::BufWriter<std::fs::File>>>,
+    iq_tx: Option<crossbeam_channel::Sender<Vec<u8>>>,
+    iq_worker: Option<std::thread::JoinHandle<Result<u64, String>>>,
+    continuous_iq:
+        Option<crate::capture_recording::CaptureRecorder<crate::raw_recording::RawRecordingResult>>,
+    native_iq_bytes: u64,
+    continuous_audio: Option<crate::audio_recording::AudioRecorder>,
+    native_audio_bytes: u64,
+    iq_dropped_chunks: u64,
+    capture: Option<ez_proto::RecordingCapture>,
+    metadata: Option<(std::path::PathBuf, serde_json::Value)>,
+    iq_file_path: Option<std::path::PathBuf>,
+    recording_failure: bool,
+    stop_reason: Option<String>,
+    last_error: String,
+    record_iq: bool,
+}
+
+impl RecordingFinalizer {
+    fn finish(mut self) -> Self {
+        if let Some(recorder) = &self.continuous_audio {
+            recorder.request_stop();
+        }
+        if let Some(recorder) = &self.continuous_iq {
+            recorder.request_stop();
+        }
+        if let Some(mut recorder) = self.continuous_iq.take() {
+            match recorder.finish() {
+                Ok(result) => {
+                    self.update_native_iq_bytes(result.bytes_written);
+                    self.capture = result.capture;
+                    self.iq_dropped_chunks = result.dropped_chunks;
+                    if let Some((_, metadata)) = &mut self.metadata {
+                        *metadata = result.metadata;
+                    }
+                    if let Some(error) = result.error {
+                        self.recording_failure = true;
+                        self.stop_reason = Some(error.clone());
+                        self.last_error = error;
+                    }
+                }
+                Err(error) => {
+                    self.capture = recorder.progress().capture.clone();
+                    self.recording_failure = true;
+                    self.stop_reason = Some(error.clone());
+                    self.last_error = error;
+                }
+            }
+        }
+        if let Some(mut recorder) = self.continuous_audio.take() {
+            match recorder.finish() {
+                Ok(result) => {
+                    self.update_native_audio_bytes(result.bytes);
+                    if let Some((_, metadata)) = &mut self.metadata {
+                        metadata["audio_capture"] =
+                            serde_json::to_value(result.capture).unwrap_or_default();
+                        for name in [
+                            "audio_samples",
+                            "audio_bytes_total",
+                            "audio_sample_rate_hz",
+                            "audio_duration_sec",
+                            "audio_input_dropped_blocks",
+                            "audio_native_lost_samples",
+                            "audio_input_lost_samples",
+                            "audio_native_partial_frame",
+                            "peak_level_dbfs",
+                        ] {
+                            metadata[name] = result.metadata[name].clone();
+                        }
+                    }
+                    if let Some(error) = result.error {
+                        self.recording_failure = true;
+                        self.stop_reason = Some(error.clone());
+                        self.last_error = error;
+                    }
+                }
+                Err(error) => {
+                    self.recording_failure = true;
+                    self.stop_reason = Some(error.clone());
+                    self.last_error = error;
+                }
+            }
+        }
+        if let Some(mut writer) = self.iq_writer.take() {
+            use std::io::Write;
+            if let Err(error) = writer.flush() {
+                self.recording_failure = true;
+                self.last_error = format!("IQ flush failed: {error}");
+            }
+        }
+        // Shut down the IQ worker: drop the sender so its `for chunk in rx`
+        // loop ends, then join to flush/close the file and collect the byte
+        // count / error.
+        self.iq_tx.take();
+        if let Some(h) = self.iq_worker.take() {
+            match h.join() {
+                Ok(Ok(total)) => {
+                    // Worker byte count is authoritative; bytes_written was
+                    // incremented optimistically on push.
+                    if self.record_iq {
+                        self.bytes_written = self.bytes_written.max(total);
+                    }
+                    if self.iq_dropped_chunks > 0 {
+                        self.recording_failure = true;
+                        self.last_error = format!(
+                            "IQ writer dropped {} chunks (disk too slow)",
+                            self.iq_dropped_chunks
+                        );
+                    }
+                }
+                Ok(Err(e)) => {
+                    self.recording_failure = true;
+                    self.last_error = e;
+                }
+                Err(_) => {
+                    self.recording_failure = true;
+                    self.last_error = "IQ writer thread panicked".to_string();
+                }
+            }
+        }
+        if let Some(w) = self.wav_writer.take() {
+            if let Err(e) = w.finalize() {
+                self.recording_failure = true;
+                self.last_error = format!("Failed to finalize WAV: {e}");
+            }
+        }
+        if let Some((path, mut metadata)) = self.metadata.take() {
+            if let Some(iq_path) = &self.iq_file_path {
+                match std::fs::metadata(iq_path) {
+                    Ok(file) => {
+                        let bytes = file.len();
+                        metadata["iq_bytes_total"] = bytes.into();
+                        if let Some(capture) = &mut self.capture {
+                            if capture.samples.saturating_mul(2) != bytes {
+                                self.recording_failure = true;
+                                metadata["lost_samples"] =
+                                    capture.samples.saturating_sub(bytes / 2).into();
+                                capture.samples = bytes / 2;
+                                capture.next_source_sample_index = capture
+                                    .first_clock
+                                    .offset_samples(capture.samples)
+                                    .map_or(capture.first_clock.source_sample_index, |clock| {
+                                        clock.source_sample_index
+                                    });
+                            }
+                        }
+                        if !bytes.is_multiple_of(2) {
+                            self.recording_failure = true;
+                        }
+                    }
+                    Err(error) => {
+                        self.recording_failure = true;
+                        self.last_error = format!("IQ file metadata failed: {error}");
+                    }
+                }
+            }
+            metadata["capture"] =
+                serde_json::to_value(&self.capture).unwrap_or(serde_json::Value::Null);
+            if let Some(capture) = &self.capture {
+                metadata["duration_sec"] = (capture.samples as f64
+                    * f64::from(capture.first_clock.sample_stride)
+                    / f64::from(capture.first_clock.source_sample_rate_hz))
+                .into();
+            }
+            metadata["complete"] = (!self.recording_failure).into();
+            metadata["stop_reason"] = self
+                .stop_reason
+                .clone()
+                .or_else(|| self.recording_failure.then(|| self.last_error.clone()))
+                .into();
+            metadata["end_utc"] = chrono::Utc::now().to_rfc3339().into();
+            let result = std::fs::File::create(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|file| {
+                    serde_json::to_writer_pretty(file, &metadata).map_err(|error| error.to_string())
+                });
+            if let Err(error) = result {
+                self.last_error = format!("Failed to finalize recording metadata: {error}");
+            }
+        }
+        self
+    }
+
+    fn update_native_iq_bytes(&mut self, bytes: u64) {
+        self.bytes_written = self
+            .bytes_written
+            .saturating_sub(self.native_iq_bytes)
+            .saturating_add(bytes);
+        self.native_iq_bytes = bytes;
+    }
+
+    fn update_native_audio_bytes(&mut self, bytes: u64) {
+        self.bytes_written = self
+            .bytes_written
+            .saturating_sub(self.native_audio_bytes)
+            .saturating_add(bytes);
+        self.native_audio_bytes = bytes;
+    }
 }
 
 #[derive(Clone)]
@@ -121,6 +327,7 @@ impl RecorderPanel {
             peak_level_dbfs: -120.0,
             peak_hold_time: None,
             daemon_recording: None,
+            finalization: None,
         }
     }
 
@@ -355,7 +562,8 @@ impl RecorderPanel {
     }
 
     pub fn start_recording(&mut self) {
-        if self.recording {
+        self.poll_finalization();
+        if self.recording || self.is_finalizing() {
             return;
         }
         let output_dir = self.output_dir.clone();
@@ -640,178 +848,135 @@ impl RecorderPanel {
         }
     }
 
+    pub fn is_finalizing(&self) -> bool {
+        self.finalization.is_some()
+    }
+
     pub fn stop_recording(&mut self) {
+        if self.is_finalizing() {
+            self.poll_finalization();
+            return;
+        }
         if let Some(recorder) = &self.continuous_audio {
             recorder.request_stop();
         }
         if let Some(recorder) = &self.continuous_iq {
             recorder.request_stop();
         }
-        if let Some(mut recorder) = self.continuous_iq.take() {
-            match recorder.finish() {
-                Ok(result) => {
-                    self.update_native_iq_bytes(result.bytes_written);
-                    self.capture = result.capture;
-                    self.iq_dropped_chunks = result.dropped_chunks;
-                    if let Some((_, metadata)) = &mut self.metadata {
-                        *metadata = result.metadata;
+        if self.iq_writer.is_none()
+            && self.wav_writer.is_none()
+            && self.iq_worker.is_none()
+            && self.continuous_iq.is_none()
+            && self.continuous_audio.is_none()
+            && self.metadata.is_none()
+        {
+            self.recording = false;
+            if let Ok(mut state) = self.shared.try_lock() {
+                state.recording = false;
+            }
+            return;
+        }
+        let finalizer = RecordingFinalizer {
+            bytes_written: self.bytes_written,
+            iq_writer: self.iq_writer.take(),
+            wav_writer: self.wav_writer.take(),
+            iq_tx: self.iq_tx.take(),
+            iq_worker: self.iq_worker.take(),
+            continuous_iq: self.continuous_iq.take(),
+            native_iq_bytes: self.native_iq_bytes,
+            continuous_audio: self.continuous_audio.take(),
+            native_audio_bytes: self.native_audio_bytes,
+            iq_dropped_chunks: self.iq_dropped_chunks,
+            capture: self.capture.take(),
+            metadata: self.metadata.take(),
+            iq_file_path: self.iq_file_path.take(),
+            recording_failure: self.recording_failure,
+            stop_reason: self.stop_reason.take(),
+            last_error: self.last_error.clone(),
+            record_iq: self.record_iq,
+        };
+        self.finalization = Some(std::thread::spawn(move || finalizer.finish()));
+        self.recording = true; // Finalized acknowledgement remains pending.
+        self.quick_duration_secs = 0;
+        self.peak_level_dbfs = -120.0;
+        self.peak_hold_time = None;
+    }
+
+    fn poll_finalization(&mut self) {
+        if !self
+            .finalization
+            .as_ref()
+            .is_some_and(|worker| worker.is_finished())
+        {
+            return;
+        }
+        match self.finalization.take().unwrap().join() {
+            Ok(result) => {
+                self.bytes_written = result.bytes_written;
+                self.native_iq_bytes = result.native_iq_bytes;
+                self.native_audio_bytes = result.native_audio_bytes;
+                self.capture = result.capture;
+                self.iq_dropped_chunks = result.iq_dropped_chunks;
+                self.recording_failure = result.recording_failure;
+                self.stop_reason = result.stop_reason;
+                if !result.last_error.is_empty() && !self.last_error.contains(&result.last_error) {
+                    if !self.last_error.is_empty() {
+                        self.last_error.push_str("; ");
                     }
-                    if let Some(error) = result.error {
-                        self.recording_failure = true;
-                        self.stop_reason = Some(error.clone());
-                        self.last_error = error;
-                    }
-                }
-                Err(error) => {
-                    self.capture = recorder.progress().capture.clone();
-                    self.recording_failure = true;
-                    self.stop_reason = Some(error.clone());
-                    self.last_error = error;
+                    self.last_error.push_str(&result.last_error);
                 }
             }
-        }
-        if let Some(mut recorder) = self.continuous_audio.take() {
-            match recorder.finish() {
-                Ok(result) => {
-                    self.update_native_audio_bytes(result.bytes);
-                    if let Some((_, metadata)) = &mut self.metadata {
-                        metadata["audio_capture"] =
-                            serde_json::to_value(result.capture).unwrap_or_default();
-                        for name in [
-                            "audio_samples",
-                            "audio_bytes_total",
-                            "audio_sample_rate_hz",
-                            "audio_duration_sec",
-                            "audio_input_dropped_blocks",
-                            "audio_native_lost_samples",
-                            "audio_input_lost_samples",
-                            "audio_native_partial_frame",
-                            "peak_level_dbfs",
-                        ] {
-                            metadata[name] = result.metadata[name].clone();
-                        }
-                    }
-                    if let Some(error) = result.error {
-                        self.recording_failure = true;
-                        self.stop_reason = Some(error.clone());
-                        self.last_error = error;
-                    }
-                }
-                Err(error) => {
-                    self.recording_failure = true;
-                    self.stop_reason = Some(error.clone());
-                    self.last_error = error;
-                }
-            }
-        }
-        if let Some(mut writer) = self.iq_writer.take() {
-            use std::io::Write;
-            if let Err(error) = writer.flush() {
+            Err(_) => {
                 self.recording_failure = true;
-                self.last_error = format!("IQ flush failed: {error}");
-            }
-        }
-        // Shut down the IQ worker: drop the sender so its `for chunk in rx`
-        // loop ends, then join to flush/close the file and collect the byte
-        // count / error.
-        self.iq_tx.take();
-        if let Some(h) = self.iq_worker.take() {
-            match h.join() {
-                Ok(Ok(total)) => {
-                    // Worker byte count is authoritative; bytes_written was
-                    // incremented optimistically on push.
-                    if self.record_iq {
-                        self.bytes_written = self.bytes_written.max(total);
-                    }
-                    if self.iq_dropped_chunks > 0 {
-                        self.recording_failure = true;
-                        self.last_error = format!(
-                            "IQ writer dropped {} chunks (disk too slow)",
-                            self.iq_dropped_chunks
-                        );
-                    }
-                }
-                Ok(Err(e)) => {
-                    self.recording_failure = true;
-                    self.last_error = e;
-                }
-                Err(_) => {
-                    self.recording_failure = true;
-                    self.last_error = "IQ writer thread panicked".to_string();
-                }
-            }
-        }
-        if let Some(w) = self.wav_writer.take() {
-            if let Err(e) = w.finalize() {
-                self.recording_failure = true;
-                self.last_error = format!("Failed to finalize WAV: {e}");
-            }
-        }
-        if let Some((path, mut metadata)) = self.metadata.take() {
-            if let Some(iq_path) = &self.iq_file_path {
-                match std::fs::metadata(iq_path) {
-                    Ok(file) => {
-                        let bytes = file.len();
-                        metadata["iq_bytes_total"] = bytes.into();
-                        if let Some(capture) = &mut self.capture {
-                            if capture.samples.saturating_mul(2) != bytes {
-                                self.recording_failure = true;
-                                metadata["lost_samples"] =
-                                    capture.samples.saturating_sub(bytes / 2).into();
-                                capture.samples = bytes / 2;
-                                capture.next_source_sample_index = capture
-                                    .first_clock
-                                    .offset_samples(capture.samples)
-                                    .map_or(capture.first_clock.source_sample_index, |clock| {
-                                        clock.source_sample_index
-                                    });
-                            }
-                        }
-                        if !bytes.is_multiple_of(2) {
-                            self.recording_failure = true;
-                        }
-                    }
-                    Err(error) => {
-                        self.recording_failure = true;
-                        self.last_error = format!("IQ file metadata failed: {error}");
-                    }
-                }
-            }
-            metadata["capture"] =
-                serde_json::to_value(&self.capture).unwrap_or(serde_json::Value::Null);
-            if let Some(capture) = &self.capture {
-                metadata["duration_sec"] = (capture.samples as f64
-                    * f64::from(capture.first_clock.sample_stride)
-                    / f64::from(capture.first_clock.source_sample_rate_hz))
-                .into();
-            }
-            metadata["complete"] = (!self.recording_failure).into();
-            metadata["stop_reason"] = self
-                .stop_reason
-                .clone()
-                .or_else(|| self.recording_failure.then(|| self.last_error.clone()))
-                .into();
-            metadata["end_utc"] = chrono::Utc::now().to_rfc3339().into();
-            let result = std::fs::File::create(&path)
-                .map_err(|error| error.to_string())
-                .and_then(|file| {
-                    serde_json::to_writer_pretty(file, &metadata).map_err(|error| error.to_string())
-                });
-            if let Err(error) = result {
-                self.last_error = format!("Failed to finalize recording metadata: {error}");
+                self.last_error = "Recording finalization worker panicked".into();
             }
         }
         self.recording = false;
-        self.peak_level_dbfs = -120.0;
-        self.peak_hold_time = None;
-        self.quick_duration_secs = 0;
         if let Ok(mut state) = self.shared.try_lock() {
             state.recording = false;
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn stop_and_wait(&mut self) {
+        self.stop_recording();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while self.is_finalizing() && std::time::Instant::now() < deadline {
+            self.poll_finalization();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(!self.is_finalizing(), "Recording finalization timed out");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_disk_worker(
+        &mut self,
+        worker: std::thread::JoinHandle<Result<u64, String>>,
+    ) {
+        self.iq_worker = Some(worker);
+        self.recording = true;
+        self.shared.lock().unwrap().recording = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_audio_recorder(
+        &mut self,
+        recorder: crate::audio_recording::AudioRecorder,
+    ) {
+        self.continuous_audio = Some(recorder);
+        self.recording = true;
+        self.shared.lock().unwrap().recording = true;
+    }
+
     /// Lifecycle deadlines run from the model even when controls are hidden.
     pub fn tick(&mut self) {
+        self.poll_finalization();
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.recording = self.recording;
+        }
+        if self.is_finalizing() {
+            return;
+        }
         if let Some(recorder) = &self.continuous_audio {
             recorder.set_deadline(self.recording_deadline());
             let progress = recorder.progress();
@@ -996,8 +1161,10 @@ impl RecorderPanel {
                     self.bytes_written = self.bytes_written.saturating_add(2);
                 }
                 if let Some(error) = error {
-                    self.stop_recording();
+                    self.recording_failure = true;
+                    self.stop_reason = Some(error.clone());
                     self.last_error = error;
+                    self.stop_recording();
                 }
             }
         }
@@ -1027,7 +1194,13 @@ impl RecorderPanel {
             ui.label(format!(
                 "Source: {:.3} MHz — {}",
                 state.source.capture_center_frequency_hz() as f64 / 1e6,
-                if self.recording { "RECORDING" } else { "idle" }
+                if self.is_finalizing() {
+                    "FINALIZING"
+                } else if self.recording {
+                    "RECORDING"
+                } else {
+                    "idle"
+                }
             ));
         }
 
@@ -1524,7 +1697,8 @@ impl RecorderPanel {
 
 impl Drop for RecorderPanel {
     fn drop(&mut self) {
-        // Finish queued IQ and the WAV header before the process can exit.
+        // Keep file ownership on the finalizer; destruction never waits on disk.
+        // The application defers normal window close until finalization ends.
         self.stop_recording();
     }
 }
@@ -1584,6 +1758,151 @@ fn free_disk_space_with_timeout(path: &str) -> (f64, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct BlockedRawFile {
+        file: std::fs::File,
+        gate: Option<(
+            crossbeam_channel::Sender<()>,
+            crossbeam_channel::Receiver<()>,
+        )>,
+        fail_flush: bool,
+    }
+
+    impl std::io::Write for BlockedRawFile {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if let Some((entered, release)) = self.gate.take() {
+                entered.send(()).unwrap();
+                release.recv().unwrap();
+            }
+            self.file.write(bytes)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.fail_flush {
+                Err(std::io::Error::other("injected raw final flush failure"))
+            } else {
+                self.file.flush()
+            }
+        }
+    }
+
+    #[test]
+    fn blocked_native_raw_stop_preserves_final_bytes_and_metadata_errors() {
+        for fail_flush in [false, true] {
+            let dir = recording_dir("blocked-raw");
+            let path = dir.join("capture.iq");
+            let sidecar = dir.join("capture.json");
+            let metadata = serde_json::json!({"frequency_hz":1_090_000_000,"sample_rate_hz":2_400_000,
+                "complete":false,"end_utc":null});
+            std::fs::write(&sidecar, serde_json::to_vec(&metadata).unwrap()).unwrap();
+            let (entered, entered_rx) = crossbeam_channel::bounded(1);
+            let (release, release_rx) = crossbeam_channel::bounded(1);
+            let (tx, disk) = crate::raw_recording::spawn_disk_writer(BlockedRawFile {
+                file: std::fs::File::create(&path).unwrap(),
+                gate: Some((entered, release_rx)),
+                fail_flush,
+            });
+            let stream = crate::capture_stream::CaptureStream::default();
+            stream.start(1);
+            let writer = crate::raw_recording::RawCaptureWriter::new(
+                tx,
+                disk,
+                path.clone(),
+                sidecar.clone(),
+                metadata.clone(),
+                false,
+            );
+            let shared = make_shared_state();
+            let mut panel = RecorderPanel::new(Arc::clone(&shared));
+            panel.continuous_iq = Some(crate::capture_recording::CaptureRecorder::start(
+                stream.clone(),
+                writer,
+                None,
+            ));
+            panel.metadata = Some((sidecar.clone(), metadata));
+            panel.iq_file_path = Some(path.clone());
+            panel.recording = true;
+            shared.lock().unwrap().recording = true;
+            let raw = [90, 110].repeat(10);
+            let mut block = crate::source_manager::CaptureBlock::fixture(
+                raw.clone(),
+                ez_proto::CaptureClock::new(9, 100, 2_400_000, None),
+                1,
+                0,
+            );
+            block.session = Some(stream.session());
+            stream.publish(&block);
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap();
+            let started = std::time::Instant::now();
+            panel.stop();
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_millis(50),
+                "Raw Stop blocked for {elapsed:?}"
+            );
+            assert!(panel.is_finalizing() && panel.recording);
+            let metadata: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&sidecar).unwrap()).unwrap();
+            assert_eq!(metadata["complete"], false);
+            assert!(metadata["end_utc"].is_null());
+            release.send(()).unwrap();
+            panel.stop_and_wait();
+            assert!(!panel.recording && !shared.lock().unwrap().recording);
+            assert_eq!(panel.bytes_written, 20);
+            assert_eq!(std::fs::read(path).unwrap(), raw);
+            let metadata: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(sidecar).unwrap()).unwrap();
+            assert_eq!(metadata["complete"], !fail_flush);
+            assert_eq!(metadata["capture"]["samples"], 10);
+            assert_eq!(metadata["iq_bytes_total"], 20);
+            if fail_flush {
+                assert!(panel
+                    .last_error
+                    .contains("injected raw final flush failure"));
+            }
+            eprintln!(
+                "Blocked raw IQ Stop: {} us; flush_error={fail_flush}, finalized 20 bytes",
+                elapsed.as_micros()
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn stop_does_not_wait_for_blocked_disk_worker() {
+        let shared = make_shared_state();
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+        panel.test_set_disk_worker(std::thread::spawn(move || {
+            release_rx.recv().unwrap();
+            Err("injected final disk flush error".into())
+        }));
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            release_tx.send(()).unwrap();
+        });
+        let started = std::time::Instant::now();
+        panel.stop();
+        let elapsed = started.elapsed();
+        assert!(panel.is_finalizing());
+        assert!(panel.recording && shared.lock().unwrap().recording);
+        assert!(panel.last_error.is_empty());
+        panel.start();
+        assert!(panel.is_finalizing());
+        for _ in 0..8 {
+            panel.tick();
+        }
+        release.join().unwrap();
+        assert!(
+            elapsed < std::time::Duration::from_millis(50),
+            "Stop blocked for {elapsed:?}"
+        );
+        panel.stop_and_wait();
+        assert!(!panel.recording && !shared.lock().unwrap().recording);
+        assert!(panel.last_error.contains("injected final disk flush error"));
+        eprintln!("Blocked disk Stop returned in {} us; pending completion and final flush error preserved", elapsed.as_micros());
+    }
 
     #[test]
     fn native_recording_consumers_finalize_each_clock_boundary_without_gui_ticks() {
@@ -1674,6 +1993,7 @@ mod tests {
             assert_eq!(cf_meta["lost_samples"], 0);
             assert!(panel.recording);
             panel.tick();
+            panel.stop_and_wait();
             assert!(!panel.recording);
             drop(panel);
             std::fs::remove_dir_all(dir).unwrap();
@@ -1716,6 +2036,7 @@ mod tests {
         assert!(metadata["duration_sec"].as_f64().unwrap() <= 1.1);
         assert!(panel.recording);
         panel.tick();
+        panel.stop_and_wait();
         assert!(!panel.recording);
         shared.lock().unwrap().source.stop();
         drop(panel);
@@ -1758,6 +2079,7 @@ mod tests {
                 _ => bad.origin_unix_ns = Some(123),
             }
             panel.write_capture(&[200, 210].repeat(20), bad, center);
+            panel.stop_and_wait();
             assert!(!panel.recording);
             assert!(!shared.lock().unwrap().recording);
             assert!(panel.last_error.contains("Recording stopped"));
@@ -1826,6 +2148,7 @@ mod tests {
         drop(state);
         let clock = ez_proto::CaptureClock::new(1, 0, rate, None);
         panel.write_capture(&[90, 110], clock, center);
+        panel.stop_and_wait();
         assert!(!panel.recording);
         assert_eq!(panel.iq_dropped_chunks, 1);
         panel.write_capture(&[140, 160], clock.offset_samples(1).unwrap(), center);
@@ -1889,7 +2212,7 @@ mod tests {
     }
 
     #[test]
-    fn dropping_recorder_flushes_all_queued_iq_before_returning() {
+    fn dropping_recorder_finalizes_all_queued_iq_in_background() {
         let dir = recording_dir("drop-flush");
         let shared = make_shared_state();
         let mut panel = RecorderPanel::new_direct(Arc::clone(&shared));
@@ -1903,7 +2226,15 @@ mod tests {
         }
         assert_eq!(panel.iq_dropped_chunks, 0);
         drop(panel);
-        assert!(!shared.lock().unwrap().recording);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::fs::read(dir.join("shutdown.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .is_none_or(|metadata| metadata["end_utc"].is_null())
+        {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         assert_eq!(
             std::fs::read(dir.join("shutdown.iq")).unwrap(),
             block.repeat(32)
@@ -1921,7 +2252,7 @@ mod tests {
             panel.start_recording();
             assert!(panel.recording, "{}", panel.last_error);
             panel.write_samples(bytes);
-            panel.stop_recording();
+            panel.stop_and_wait();
         }
         assert_eq!(
             std::fs::read(dir.join("quoted\"station.iq")).unwrap(),
@@ -1951,6 +2282,7 @@ mod tests {
         assert!(panel.recording, "{}", panel.last_error);
         panel.write_audio_samples(&vec![0.25; 44_100]);
         panel.set_audio_sample_rate(48_000);
+        panel.stop_and_wait();
         assert!(!panel.recording);
         assert!(panel.last_error.contains("44100 to 48000"));
         let wav = hound::WavReader::open(dir.join("audio_audio.wav")).unwrap();
@@ -1959,7 +2291,7 @@ mod tests {
         drop(wav);
         panel.start_recording();
         assert!(panel.recording, "{}", panel.last_error);
-        panel.stop_recording();
+        panel.stop_and_wait();
         assert_eq!(
             hound::WavReader::open(dir.join("audio_001_audio.wav"))
                 .unwrap()
@@ -1978,17 +2310,20 @@ mod tests {
         panel.record_iq = false;
         panel.record_audio = false;
         panel.start_recording();
+        panel.stop_and_wait();
         assert!(!panel.recording);
         assert!(panel.last_error.contains("format"));
         panel.record_iq = true;
         panel.filename_template = "../escape".into();
         panel.start_recording();
+        panel.stop_and_wait();
         assert!(!panel.recording);
         assert!(panel.last_error.contains("path separators"));
         let file = dir.join("regular-file");
         std::fs::write(&file, b"preserved").unwrap();
         panel.output_dir = file.display().to_string();
         panel.start_recording();
+        panel.stop_and_wait();
         assert!(!panel.recording);
         assert!(panel.last_error.contains("directory"));
         assert_eq!(std::fs::read(file).unwrap(), b"preserved");
@@ -2015,6 +2350,7 @@ mod tests {
         );
         panel.recording = true;
         panel.write_audio_samples(&vec![0.25; 10_000]);
+        panel.stop_and_wait();
         assert!(!panel.recording);
         assert!(panel.last_error.contains("WAV write error"));
         assert!(panel.bytes_written < 20_000);
@@ -2199,7 +2535,8 @@ mod tests {
         assert!(panel.recording, "should be recording: {}", panel.last_error);
         panel.write_samples(b"hello-iq");
         panel.write_samples(b"more-bytes");
-        panel.stop_recording();
+        panel.stop_and_wait();
+        panel.stop_and_wait();
         assert!(!panel.recording);
         let fname = panel.last_filename.clone();
         assert!(!fname.is_empty());

@@ -260,9 +260,7 @@ impl AudioRecorder {
 
 impl Drop for AudioRecorder {
     fn drop(&mut self) {
-        if self.thread.is_some() {
-            let _ = self.finish();
-        }
+        self.request_stop();
     }
 }
 
@@ -445,6 +443,82 @@ mod tests {
             sample_rate: 48_000,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
+        }
+    }
+
+    #[test]
+    fn blocked_wav_stop_and_panel_drop_are_responsive_and_preserve_finalization() {
+        for (drop_panel, fail_flush) in [(false, false), (false, true), (true, false)] {
+            let (worker, stream, dir) = fixture();
+            let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (entered, entered_rx) = crossbeam_channel::bounded(1);
+            let (release, release_rx) = crossbeam_channel::bounded(1);
+            let flush_error = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let file = GateFile {
+                file: std::fs::File::create(dir.join("audio.wav")).unwrap(),
+                gate: Some((Arc::clone(&armed), entered, release_rx)),
+                limit: None,
+                flush_error: Arc::clone(&flush_error),
+            };
+            let recorder = AudioRecorder::start(
+                stream.clone(),
+                hound::WavWriter::new(file, spec()).unwrap(),
+                dir.join("audio.json"),
+                serde_json::json!({"frequency_hz":100_000_000,"sample_rate_hz":2_400_000}),
+                None,
+            );
+            let mut panel =
+                crate::recorder_panel::RecorderPanel::new(crate::test_helpers::make_shared_state());
+            panel.test_set_audio_recorder(recorder);
+            armed.store(true, Ordering::Release);
+            stream.bus.publish(Arc::new(block(1)));
+            entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let started = Instant::now();
+            panel.stop();
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < Duration::from_millis(50),
+                "WAV Stop blocked for {elapsed:?}"
+            );
+            assert!(panel.is_finalizing() && panel.recording);
+            assert!(!dir.join("audio.json").exists());
+            let mut panel = Some(panel);
+            if drop_panel {
+                let started = Instant::now();
+                drop(panel.take());
+                assert!(started.elapsed() < Duration::from_millis(50));
+            }
+            flush_error.store(fail_flush, Ordering::Release);
+            release.send(()).unwrap();
+            if let Some(panel) = &mut panel {
+                panel.stop_and_wait();
+                assert!(!panel.recording);
+                assert_eq!(!panel.last_error.is_empty(), fail_flush);
+                assert_eq!(panel.bytes_written, 32);
+            }
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let metadata = loop {
+                if let Some(metadata) = std::fs::read(dir.join("audio.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                {
+                    break metadata;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(1));
+            };
+            assert_eq!(metadata["complete"], !fail_flush);
+            assert_eq!(metadata["audio_samples"], 16);
+            assert_eq!(metadata["audio_capture"]["samples"], 1000);
+            assert_eq!(
+                hound::WavReader::open(dir.join("audio.wav"))
+                    .unwrap()
+                    .duration(),
+                16
+            );
+            eprintln!("Blocked WAV Stop: {} us; drop={drop_panel}, flush_error={fail_flush}, finalized 16 PCM samples", elapsed.as_micros());
+            drop(worker);
+            std::fs::remove_dir_all(dir).unwrap();
         }
     }
 

@@ -1,0 +1,59 @@
+{
+  "batch": 28,
+  "findings": [],
+  "experiments_completed": [
+    "Source/disk/audio shutdown responsiveness with physical USB checks explicitly deferred"
+  ],
+  "compiler": "Rust 1.92.0",
+  "workspace_all_targets": {
+    "passed": 1652,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 16
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed (twelve Rust files)",
+  "graphify": "refreshed (6876 nodes, 15292 edges)",
+  "protocol_version": 9,
+  "regressions": [
+    "Retained before-fix blocked source/disk Stop failures: 250 ms wait for callback/writer release",
+    "Cancellation and destruction do not wait for blocked source reads; late reads do not reach native/preview consumers; restart waits for ownership release",
+    "Actual native raw/CF32/WAV gated file writes: Stop stays below 50 ms, exact aligned prefixes and final headers/sidecars survive release, delayed flush errors remain explicit",
+    "WAV and CF32 destruction retains finalization ownership on the background worker",
+    "Real app close/repaint repeatedly cancels close during pending file finalization and permits close only after final result",
+    "AI Stop completion remains pending; AI Start rejects pending finalization; final byte count is authoritative",
+    "Repeated audio cancellation/Drop stays nonblocking with full undrained one-slot stop queue"
+  ],
+  "measurements_us": {
+    "blocked_receiver_stop": 10,
+    "late_read_stop_drop": [
+      25,
+      10
+    ],
+    "blocked_disk_stop": 151,
+    "blocked_native_raw_stop": [
+      178,
+      31
+    ],
+    "blocked_wav_stop": [
+      52,
+      45,
+      40
+    ],
+    "blocked_cf32_stop": [
+      37,
+      39,
+      37
+    ],
+    "repeated_audio_cancel": 41,
+    "eight_close_repaint_ticks_max": 50
+  },
+  "limitations": [
+    "Physical RTL-SDR/USB/calibrated RF and unavailable vetted/reference captures remain user-deferred",
+    "Physical CPAL behavior and actual-display latency are unverified; software faults do not certify arbitrary kernel/driver/filesystem latency",
+    "Uninterruptible receiver reads retain Stopping status and resource ownership; restart waits until the driver returns",
+    "Normal close keeps the UI responsive while recording files finalize; forced process termination cannot guarantee completed files",
+    "All 42 formal findings and four of eight additional experiments complete; further software presentation/performance evidence and final completion audit remain active",
+    "Baseline tracked deletions, untracked AGENTS.md and original forensic evidence preserved"
+  ]
+}

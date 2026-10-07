@@ -166,6 +166,12 @@ impl CentralApp {
     fn apply_runtime_action(&mut self, action: &RuntimeAction) -> Result<(), String> {
         match action {
             RuntimeAction::StartRecording => {
+                if self.recorder_panel.is_finalizing() {
+                    return Err(
+                        "previous recording is still finalizing; wait before starting another"
+                            .into(),
+                    );
+                }
                 let state = self
                     .shared
                     .try_lock()
@@ -370,5 +376,42 @@ impl CentralApp {
             }
         };
         ready.then(|| Ok(format!("Receiver acknowledged {}", action.description())))
+    }
+}
+
+#[cfg(test)]
+mod finalization_tests {
+    use super::*;
+
+    #[test]
+    fn recording_actions_cannot_acknowledge_pending_disk_finalization() {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx);
+        let mut config = crate::config::AppConfig::default();
+        config.mqtt_broker.clear();
+        let mut app = CentralApp::new_with_config(&cc, config);
+        app.recorder_panel.last_filename = "pending.iq".into();
+        let (release, release_rx) = crossbeam_channel::bounded(1);
+        app.recorder_panel
+            .test_set_disk_worker(std::thread::spawn(move || {
+                release_rx.recv().unwrap();
+                Ok(64)
+            }));
+        app.recorder_panel.stop();
+        assert!(app.recorder_panel.is_finalizing());
+        assert!(app
+            .runtime_action_result(&RuntimeAction::StopRecording)
+            .is_none());
+        assert!(app
+            .apply_runtime_action(&RuntimeAction::StartRecording)
+            .unwrap_err()
+            .contains("still finalizing"));
+        release.send(()).unwrap();
+        app.recorder_panel.stop_and_wait();
+        let result = app
+            .runtime_action_result(&RuntimeAction::StopRecording)
+            .unwrap()
+            .unwrap();
+        assert!(result.contains("finalized 64 bytes"), "{result}");
     }
 }

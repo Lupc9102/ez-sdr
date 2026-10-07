@@ -197,6 +197,9 @@ impl RadioUi {
                             SourceStatus::Opening => {
                                 ("Connecting…", egui::Color32::from_rgb(216, 174, 85))
                             }
+                            SourceStatus::Stopping => {
+                                ("Stopping…", egui::Color32::from_rgb(216, 174, 85))
+                            }
                             SourceStatus::Running => {
                                 ("Receiving", egui::Color32::from_rgb(109, 190, 146))
                             }
@@ -2390,8 +2393,10 @@ mod tests {
         assert_eq!(state.source.status, SourceStatus::Running);
         assert!(state.audio_running);
         tune(&mut state, 121_500_000);
+        state.source.wait_for_shutdown();
         assert_eq!(state.source.status, SourceStatus::Running);
         set_receiver_running(&mut state, false, false);
+        state.source.wait_for_shutdown();
         assert_eq!(state.source.status, SourceStatus::Idle);
         assert!(!state.audio_running);
         set_receiver_running(&mut state, true, true);

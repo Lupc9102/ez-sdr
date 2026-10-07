@@ -1,0 +1,40 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.48s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+
+thread 'source_manager::tests::stop_does_not_wait_for_blocked_hardware_open' (84345) panicked at ez-gui/src/source_manager.rs:3964:9:
+Stop blocked for 250.289535ms
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test source_manager::tests::stop_does_not_wait_for_blocked_hardware_open ... FAILED
+
+failures:
+
+failures:
+    source_manager::tests::stop_does_not_wait_for_blocked_hardware_open
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 820 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p ez-gui --lib`
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.82s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+
+thread 'recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker' (85221) panicked at ez-gui/src/recorder_panel.rs:1606:9:
+Stop blocked for 250.242376ms
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker ... FAILED
+
+failures:
+
+failures:
+    recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 821 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

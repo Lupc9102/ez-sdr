@@ -1,0 +1,24 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: method `stop_and_wait` is never used
+   --> ez-gui/src/recorder_panel.rs:938:19
+    |
+281 | impl RecorderPanel {
+    | ------------------ method in this implementation
+...
+938 |     pub(crate) fn stop_and_wait(&mut self) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `stop_cf32_and_wait` is never used
+   --> ez-gui/src/satellite_panel.rs:677:19
+    |
+ 88 | impl SatellitePanel {
+    | ------------------- method in this implementation
+...
+677 |     pub(crate) fn stop_cf32_and_wait(&mut self) {
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: `ez-gui` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.09s
+  Executable unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)

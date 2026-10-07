@@ -337,7 +337,17 @@ pub(crate) mod tests {
         }
         // No GUI reads at all. This fills the legacy preview queue in ~55 ms.
         std::thread::sleep(Duration::from_millis(800));
+        // Loaded test runners may schedule the paced fixture late. Keep the
+        // undrained preview stalled until the original sample threshold too.
+        while stream.progress().samples < 1_500_000 {
+            assert!(
+                Instant::now() < deadline,
+                "capture did not reach its sample target"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
         source.stop();
+        source.wait_for_shutdown();
         let snapshot = wait_for_snapshot(&worker);
         let progress = stream.progress();
         assert!(progress.samples >= 1_500_000);

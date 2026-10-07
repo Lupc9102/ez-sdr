@@ -192,6 +192,63 @@ fn offline_test_app() -> CentralApp {
 }
 
 #[test]
+fn window_close_keeps_repainting_until_recording_finalization_finishes() {
+    let mut app = offline_test_app();
+    let (release, release_rx) = crossbeam_channel::bounded(1);
+    app.recorder_panel
+        .test_set_disk_worker(std::thread::spawn(move || {
+            release_rx.recv().unwrap();
+            Ok(64)
+        }));
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    let mut maximum = Duration::ZERO;
+    for tick in 0..8 {
+        let mut input = egui::RawInput::default();
+        if tick == 0 {
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .events
+                .push(egui::ViewportEvent::Close);
+        }
+        ctx.begin_pass(input);
+        let started = Instant::now();
+        app.logic(&ctx, &mut frame);
+        maximum = maximum.max(started.elapsed());
+        let output = ctx.end_pass();
+        assert!(output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .contains(&egui::ViewportCommand::CancelClose));
+        assert!(app.recorder_panel.is_finalizing());
+        assert!(app.recorder_panel.recording && app.shared.lock().unwrap().recording);
+    }
+    assert!(
+        maximum < Duration::from_millis(50),
+        "Close handling blocked for {maximum:?}"
+    );
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        ctx.begin_pass(egui::RawInput::default());
+        app.logic(&ctx, &mut frame);
+        let output = ctx.end_pass();
+        if output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .contains(&egui::ViewportCommand::Close)
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(!app.recorder_panel.recording && !app.shared.lock().unwrap().recording);
+    assert_eq!(app.recorder_panel.bytes_written, 64);
+    eprintln!("Eight close/repaint ticks with blocked disk: max {} us; close allowed only after final result", maximum.as_micros());
+}
+
+#[test]
 fn utility_tools_render_as_floating_windows() {
     for tool in [
         SecondaryTool::Scanner,
@@ -2037,8 +2094,8 @@ fn native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall() {
         state.source.stop();
     }
     let source = stream.progress();
-    app.recorder_panel.stop_recording();
-    app.satellite_panel.stop_cf32_recording();
+    app.recorder_panel.stop_and_wait();
+    app.satellite_panel.stop_cf32_and_wait();
     assert!(source.samples >= 2_000_000);
     let expected = period.repeat(source.blocks as usize);
     let raw = std::fs::read(dir.join("native.iq")).unwrap();
@@ -2150,7 +2207,7 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
         std::thread::sleep(Duration::from_millis(300));
         state.source.stop();
     }
-    app.recorder_panel.stop_recording();
+    app.recorder_panel.stop_and_wait();
     let source = stream.progress();
     let deadline = Instant::now() + Duration::from_secs(5);
     while !app.demod_worker.radio_snapshot().unwrap().complete {
@@ -2323,7 +2380,7 @@ fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples()
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(1));
     }
-    app.recorder_panel.stop_recording();
+    app.recorder_panel.stop_and_wait();
     let second = std::fs::read(dir.join("second.iq")).unwrap();
     assert!(second.chunks_exact(2).all(|pair| pair == [200, 210]));
     let second_metadata: serde_json::Value =

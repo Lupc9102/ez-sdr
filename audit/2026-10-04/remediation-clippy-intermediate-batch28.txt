@@ -1,0 +1,17 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+error: items after a test module
+   --> ez-gui/src/app_runtime_actions.rs:102:1
+    |
+102 | mod finalization_tests {
+    | ^^^^^^^^^^^^^^^^^^^^^^
+...
+138 | impl CentralApp {
+    | ^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#items_after_test_module
+    = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+    = help: move the items to before the test module was defined
+
+error: could not compile `ez-gui` (lib test) due to 1 previous error

@@ -1,0 +1,24 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: methods `test_set_disk_worker` and `test_set_audio_recorder` are never used
+   --> ez-gui/src/recorder_panel.rs:949:19
+    |
+281 | impl RecorderPanel {
+    | ------------------ methods in this implementation
+...
+949 |     pub(crate) fn test_set_disk_worker(&mut self, worker: std::thread::JoinHandle<Result<u64, String>>) {
+    |                   ^^^^^^^^^^^^^^^^^^^^
+...
+956 |     pub(crate) fn test_set_audio_recorder(&mut self, recorder: crate::audio_recording::AudioRecorder) {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.27s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+A09 native app WAV at 60 Hz + 300 ms GUI/shared-lock stall: 3096576 RF samples, 61931 PCM samples identical to synchronous DSP, zero loss
+test app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 821 filtered out; finished in 1.96s
