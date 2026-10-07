@@ -330,6 +330,11 @@ pub(crate) mod tests {
         let worker = LocalAdsbWorker::new(stream.clone());
         worker.configure(true, None);
         source.start();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while stream.progress().samples == 0 {
+            assert!(Instant::now() < deadline, "capture source did not start");
+            std::thread::sleep(Duration::from_millis(1));
+        }
         // No GUI reads at all. This fills the legacy preview queue in ~55 ms.
         std::thread::sleep(Duration::from_millis(800));
         source.stop();

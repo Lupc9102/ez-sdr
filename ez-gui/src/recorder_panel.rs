@@ -25,6 +25,9 @@ pub struct RecorderPanel {
     continuous_iq:
         Option<crate::capture_recording::CaptureRecorder<crate::raw_recording::RawRecordingResult>>,
     native_iq_bytes: u64,
+    audio_stream: Option<crate::demod::RadioAudioStream>,
+    continuous_audio: Option<crate::audio_recording::AudioRecorder>,
+    native_audio_bytes: u64,
     #[cfg(test)]
     direct_iq_fixture: bool,
     iq_dropped_chunks: u64,
@@ -85,6 +88,9 @@ impl RecorderPanel {
             iq_worker: None,
             continuous_iq: None,
             native_iq_bytes: 0,
+            audio_stream: None,
+            continuous_audio: None,
+            native_audio_bytes: 0,
             #[cfg(test)]
             direct_iq_fixture: false,
             iq_dropped_chunks: 0,
@@ -329,7 +335,7 @@ impl RecorderPanel {
         if sample_rate == 0 || self.audio_sample_rate == sample_rate {
             return;
         }
-        if self.wav_writer.is_some() {
+        if self.wav_writer.is_some() || self.continuous_audio.is_some() {
             self.stop_recording();
             let finalization_message = std::mem::take(&mut self.last_error);
             self.last_error = format!(
@@ -342,6 +348,10 @@ impl RecorderPanel {
             }
         }
         self.audio_sample_rate = sample_rate;
+    }
+
+    pub(crate) fn set_audio_stream(&mut self, stream: Option<crate::demod::RadioAudioStream>) {
+        self.audio_stream = stream;
     }
 
     pub fn start_recording(&mut self) {
@@ -584,6 +594,7 @@ impl RecorderPanel {
         self.start_time = Some(std::time::Instant::now());
         self.bytes_written = 0;
         self.native_iq_bytes = 0;
+        self.native_audio_bytes = 0;
         #[cfg(test)]
         let continuous = !self.direct_iq_fixture;
         #[cfg(not(test))]
@@ -610,6 +621,19 @@ impl RecorderPanel {
                     self.recording_deadline(),
                 ));
             }
+            if let Some(stream) = self.audio_stream.clone() {
+                if let Some(writer) = self.wav_writer.take() {
+                    let (sidecar, metadata) =
+                        self.metadata.as_ref().expect("created recording metadata");
+                    self.continuous_audio = Some(crate::audio_recording::AudioRecorder::start(
+                        stream,
+                        writer,
+                        sidecar.with_extension("wav.json"),
+                        metadata.clone(),
+                        self.recording_deadline(),
+                    ));
+                }
+            }
         }
         if let Ok(mut state) = self.shared.try_lock() {
             state.recording = true;
@@ -617,6 +641,12 @@ impl RecorderPanel {
     }
 
     pub fn stop_recording(&mut self) {
+        if let Some(recorder) = &self.continuous_audio {
+            recorder.request_stop();
+        }
+        if let Some(recorder) = &self.continuous_iq {
+            recorder.request_stop();
+        }
         if let Some(mut recorder) = self.continuous_iq.take() {
             match recorder.finish() {
                 Ok(result) => {
@@ -634,6 +664,40 @@ impl RecorderPanel {
                 }
                 Err(error) => {
                     self.capture = recorder.progress().capture.clone();
+                    self.recording_failure = true;
+                    self.stop_reason = Some(error.clone());
+                    self.last_error = error;
+                }
+            }
+        }
+        if let Some(mut recorder) = self.continuous_audio.take() {
+            match recorder.finish() {
+                Ok(result) => {
+                    self.update_native_audio_bytes(result.bytes);
+                    if let Some((_, metadata)) = &mut self.metadata {
+                        metadata["audio_capture"] =
+                            serde_json::to_value(result.capture).unwrap_or_default();
+                        for name in [
+                            "audio_samples",
+                            "audio_bytes_total",
+                            "audio_sample_rate_hz",
+                            "audio_duration_sec",
+                            "audio_input_dropped_blocks",
+                            "audio_native_lost_samples",
+                            "audio_input_lost_samples",
+                            "audio_native_partial_frame",
+                            "peak_level_dbfs",
+                        ] {
+                            metadata[name] = result.metadata[name].clone();
+                        }
+                    }
+                    if let Some(error) = result.error {
+                        self.recording_failure = true;
+                        self.stop_reason = Some(error.clone());
+                        self.last_error = error;
+                    }
+                }
+                Err(error) => {
                     self.recording_failure = true;
                     self.stop_reason = Some(error.clone());
                     self.last_error = error;
@@ -748,6 +812,20 @@ impl RecorderPanel {
 
     /// Lifecycle deadlines run from the model even when controls are hidden.
     pub fn tick(&mut self) {
+        if let Some(recorder) = &self.continuous_audio {
+            recorder.set_deadline(self.recording_deadline());
+            let progress = recorder.progress();
+            let peak = recorder.peak_level();
+            if peak > self.peak_level_dbfs {
+                self.peak_level_dbfs = peak;
+                self.peak_hold_time = Some(std::time::Instant::now());
+            }
+            self.update_native_audio_bytes(progress.bytes_written);
+            if progress.stopped {
+                self.stop_recording();
+                return;
+            }
+        }
         if let Some(recorder) = &self.continuous_iq {
             recorder.set_deadline(self.recording_deadline());
             let progress = recorder.progress();
@@ -781,6 +859,14 @@ impl RecorderPanel {
             .saturating_sub(self.native_iq_bytes)
             .saturating_add(bytes);
         self.native_iq_bytes = bytes;
+    }
+
+    fn update_native_audio_bytes(&mut self, bytes: u64) {
+        self.bytes_written = self
+            .bytes_written
+            .saturating_sub(self.native_audio_bytes)
+            .saturating_add(bytes);
+        self.native_audio_bytes = bytes;
     }
 
     fn recording_deadline(&self) -> Option<std::time::Instant> {
@@ -882,6 +968,7 @@ impl RecorderPanel {
         false
     }
 
+    #[cfg(test)]
     pub fn write_audio_samples(&mut self, audio: &[f32]) {
         self.tick();
         if self.recording {

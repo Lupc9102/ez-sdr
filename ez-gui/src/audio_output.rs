@@ -59,6 +59,42 @@ pub enum AudioInputReceiver {
     Direct(Receiver<Vec<f32>>),
     Shared(Arc<Mutex<Receiver<Vec<f32>>>>),
 }
+
+/// A cloneable producer for the callback queue; it never owns a CPAL stream.
+#[derive(Clone, Debug)]
+pub(crate) struct AudioSink {
+    tx: crossbeam_channel::Sender<Vec<f32>>,
+    dropped: Arc<AtomicU64>,
+}
+
+impl PartialEq for AudioSink {
+    fn eq(&self, other: &Self) -> bool {
+        self.tx.same_channel(&other.tx)
+    }
+}
+
+impl AudioSink {
+    pub fn push(&self, samples: Vec<f32>) -> bool {
+        if self.tx.try_send(samples).is_ok() {
+            true
+        } else {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            false
+        }
+    }
+
+    #[cfg(test)]
+    pub fn fixture(capacity: usize) -> (Self, Receiver<Vec<f32>>) {
+        let (tx, rx) = crossbeam_channel::bounded(capacity);
+        (
+            Self {
+                tx,
+                dropped: Arc::new(AtomicU64::new(0)),
+            },
+            rx,
+        )
+    }
+}
 impl From<Receiver<Vec<f32>>> for AudioInputReceiver {
     fn from(rx: Receiver<Vec<f32>>) -> Self {
         Self::Direct(rx)
@@ -446,11 +482,7 @@ impl AudioWorker {
                 unsafe {
                     let mut param: libc::sched_param = std::mem::zeroed();
                     param.sched_priority = 50;
-                    libc::pthread_setschedparam(
-                        libc::pthread_self(),
-                        libc::SCHED_FIFO,
-                        &param,
-                    );
+                    libc::pthread_setschedparam(libc::pthread_self(), libc::SCHED_FIFO, &param);
                 }
             }
             match create_cpal_stream(
@@ -646,6 +678,19 @@ impl AudioOutput {
             }
         }
         false
+    }
+
+    pub(crate) fn sink(&self) -> Option<AudioSink> {
+        #[cfg(feature = "audio")]
+        if self.is_running() {
+            if let Some(worker) = &self.worker {
+                return Some(AudioSink {
+                    tx: worker.audio_tx.clone(),
+                    dropped: Arc::clone(&worker.dropped_frames),
+                });
+            }
+        }
+        None
     }
 
     pub fn is_running(&self) -> bool {

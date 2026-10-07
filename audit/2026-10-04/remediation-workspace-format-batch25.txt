@@ -1,0 +1,82 @@
+Diff in /home/lupc/Documents/ez-sdr/dump1090/src/net_io.rs:69:
+         sbs_port: u16,
+         raw_port: u16,
+     ) -> anyhow::Result<()> {
+-        let beast_listener = TcpListener::bind((bind_address, beast_port))
+-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}"))?;
+-        let sbs_listener = TcpListener::bind((bind_address, sbs_port))
+-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}"))?;
+-        let raw_listener = TcpListener::bind((bind_address, raw_port))
+-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}"))?;
++        let beast_listener = TcpListener::bind((bind_address, beast_port)).map_err(|e| {
++            anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}")
++        })?;
++        let sbs_listener = TcpListener::bind((bind_address, sbs_port)).map_err(|e| {
++            anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}")
++        })?;
++        let raw_listener = TcpListener::bind((bind_address, raw_port)).map_err(|e| {
++            anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}")
++        })?;
+
+         Self::spawn_listener_loop(
+             beast_listener,
+Diff in /home/lupc/Documents/ez-sdr/dump1090/src/main.rs:55:
+     net_sbs_port: u16,
+     #[arg(long, default_value = "30002", help = "Raw output port")]
+     net_raw_port: u16,
+-    #[arg(long, default_value = "0.0.0.0", help = "Net output bind address (use 127.0.0.1 for local only)")]
++    #[arg(
++        long,
++        default_value = "0.0.0.0",
++        help = "Net output bind address (use 127.0.0.1 for local only)"
++    )]
+     net_bind_address: String,
+ }
+
+Diff in /home/lupc/Documents/ez-sdr/dump1090/src/main.rs:65:
+ }
+
+ impl NetOutput {
+-    fn new(bind_address: &str, beast_port: u16, sbs_port: u16, raw_port: u16) -> anyhow::Result<Self> {
++    fn new(
++        bind_address: &str,
++        beast_port: u16,
++        sbs_port: u16,
++        raw_port: u16,
++    ) -> anyhow::Result<Self> {
+         let inner = net_io::NetIo::new();
+         inner.start_on(bind_address, beast_port, sbs_port, raw_port)?;
+         Ok(NetOutput { inner })
+Diff in /home/lupc/Documents/ez-sdr/dump1090/src/net_io.rs:69:
+         sbs_port: u16,
+         raw_port: u16,
+     ) -> anyhow::Result<()> {
+-        let beast_listener = TcpListener::bind((bind_address, beast_port))
+-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}"))?;
+-        let sbs_listener = TcpListener::bind((bind_address, sbs_port))
+-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}"))?;
+-        let raw_listener = TcpListener::bind((bind_address, raw_port))
+-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}"))?;
++        let beast_listener = TcpListener::bind((bind_address, beast_port)).map_err(|e| {
++            anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}")
++        })?;
++        let sbs_listener = TcpListener::bind((bind_address, sbs_port)).map_err(|e| {
++            anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}")
++        })?;
++        let raw_listener = TcpListener::bind((bind_address, raw_port)).map_err(|e| {
++            anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}")
++        })?;
+
+         Self::spawn_listener_loop(
+             beast_listener,
+Diff in /home/lupc/Documents/ez-sdr/ez-gui/src/events.rs:121:
+
+     /// Return count of pending events in queue.
+     pub fn pending_count(&self) -> usize {
+-        self.inner.lock().map(|inner| inner.queue.len()).unwrap_or(0)
++        self.inner
++            .lock()
++            .map(|inner| inner.queue.len())
++            .unwrap_or(0)
+     }
+ }

@@ -1962,6 +1962,7 @@ pub struct DemodFrame {
 #[derive(Clone, Default)]
 struct WorkerControl {
     config: DemodConfig,
+    radio: Option<native::RadioConfig>,
     advanced: Option<(AdvancedConfig, DemodMode)>,
     version: u64,
     advanced_version: u64,
@@ -1978,6 +1979,7 @@ struct WorkerControl {
 /// settings with [`DemodWorker::configure_advanced`]; both are coalesced
 /// control messages, never a blocking hand-off.
 pub struct DemodWorker {
+    native: Option<native::RadioState>,
     /// IQ batches waiting to be demodulated. Wrapped in Option so Drop can
     /// take and drop it before joining the worker thread (unblocking recv()).
     iq_tx: Option<crossbeam_channel::Sender<Vec<Complex32>>>,
@@ -2003,6 +2005,7 @@ impl DemodWorker {
         let (control_wake_tx, _control_wake_rx) = crossbeam_channel::bounded(1);
         let (_audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(4);
         Self {
+            native: None,
             iq_tx: Some(iq_tx),
             control: Default::default(),
             control_wake_tx,
@@ -2115,6 +2118,7 @@ impl DemodWorker {
             worker_running.store(false, Ordering::Release);
         });
         Self {
+            native: None,
             iq_tx: Some(iq_tx),
             control,
             control_wake_tx,
@@ -2229,6 +2233,9 @@ impl DemodWorker {
 
 impl Drop for DemodWorker {
     fn drop(&mut self) {
+        if self.native.is_some() {
+            self.running.store(false, Ordering::Release);
+        }
         // Drain pending frames so a worker blocked on a full audio queue can
         // observe the closed IQ channel and exit, then reap the thread.
         while self.audio_rx.try_recv().is_ok() {}
@@ -2240,6 +2247,10 @@ impl Drop for DemodWorker {
         }
     }
 }
+
+#[path = "demod_native.rs"]
+mod native;
+pub(crate) use native::{RadioAudio, RadioAudioStream, RadioConfig};
 
 #[cfg(test)]
 mod tests {

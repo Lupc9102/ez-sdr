@@ -87,9 +87,15 @@ impl HalfBandDecimator {
             return None;
         }
         let samples = &self.history[self.write..self.write + 63];
-        let mut output = samples[31] * self.center_tap;
+        let mut output = Complex32::new(
+            samples[31].re * self.center_tap,
+            samples[31].im * self.center_tap,
+        );
         for (index, &tap) in self.paired_taps.iter().enumerate() {
-            output += (samples[index * 2] + samples[62 - index * 2]) * tap;
+            let left = samples[index * 2];
+            let right = samples[62 - index * 2];
+            output.re += (left.re + right.re) * tap;
+            output.im += (left.im + right.im) * tap;
         }
         Some(output)
     }
@@ -242,6 +248,15 @@ impl VfoMixer {
 
     pub fn reset(&mut self) {
         self.oscillator = Complex64::new(1.0, 0.0);
+        self.normalization_phase = 0;
+    }
+
+    /// Reacquire NCO phase from the native acquisition coordinate after a gap.
+    pub(crate) fn seek_capture(&mut self, clock: ez_proto::CaptureClock) {
+        let cycles = self.offset_hz * clock.source_sample_index as f64
+            / f64::from(clock.source_sample_rate_hz.max(1));
+        self.oscillator =
+            Complex64::from_polar(1.0, -std::f64::consts::TAU * cycles.rem_euclid(1.0));
         self.normalization_phase = 0;
     }
 

@@ -113,12 +113,9 @@ pub struct CentralApp {
     rigctl: RigctlServer,
     mqtt: MqttPublisher,
     demod_worker: DemodWorker,
-    radio_iq: crate::radio_iq::RadioIqProcessor,
-    vfo_mixer: crate::radio_iq::VfoMixer,
-    last_radio_capture: Option<(u64, crate::source_manager::SourceMode, u64)>,
+    last_radio_boundary: Option<(u64, Option<u64>, u64)>,
+    last_radio_lost_samples: u64,
     last_radio_profile: Option<(crate::sdr_panel::DemodMode, crate::config::RadioModeProfile)>,
-    ctcss: crate::radio_squelch::CtcssSquelch,
-    rds: crate::radio_rds::RdsDecoder,
     daemon_audio: crate::audio_resampler::AudioResampler,
     audio: AudioOutput,
     local_adsb: crate::local_adsb::LocalAdsbWorker,
@@ -148,8 +145,6 @@ pub struct CentralApp {
     show_glossary: bool,
     // First strong signal celebration
     first_strong_signal_seen: bool,
-    // Track demod mode changes to reset demodulator and avoid clicks
-    last_demod_mode: crate::sdr_panel::DemodMode,
     last_audio_source: Option<(
         u64,
         u64,
@@ -389,6 +384,9 @@ impl CentralApp {
             .expect("shared state mutex poisoned")
             .source
             .capture_stream();
+        let demod_worker = crate::demod::DemodWorker::new_capture(capture_stream.clone());
+        let mut recorder_panel = RecorderPanel::new(shared.clone());
+        recorder_panel.set_audio_stream(demod_worker.audio_stream());
         let mut app = Self {
             shared: shared.clone(),
             event_bus: crate::events::EventBus::new(),
@@ -398,7 +396,7 @@ impl CentralApp {
             radio_ui: crate::radio_ui::RadioUi::new(shared.clone()),
             satellite_panel: SatellitePanel::new(shared.clone()),
             adsb_panel: AdsBPanel::new(shared.clone()),
-            recorder_panel: RecorderPanel::new(shared.clone()),
+            recorder_panel,
             constellation: ConstellationDisplay::new(),
             decoding_panel: DecodingPanel::default(),
             meteor_decoder: DecodingPanel::default(),
@@ -409,20 +407,12 @@ impl CentralApp {
             rigctl,
             mqtt,
             discord,
-            radio_iq: crate::radio_iq::RadioIqProcessor::new(Default::default()),
-            vfo_mixer: crate::radio_iq::VfoMixer::new(2_048_000.0),
-            last_radio_capture: None,
             last_radio_profile: None,
-            ctcss: crate::radio_squelch::CtcssSquelch::new(),
-            rds: crate::radio_rds::RdsDecoder::new(),
             daemon_audio: crate::audio_resampler::AudioResampler::default(),
             audio: AudioOutput::new(),
-            #[cfg(test)]
-            demod_worker: crate::demod::DemodWorker::new_uninitialized(4),
-            #[cfg(not(test))]
-            // Keep several source blocks queued so a late GUI repaint does not
-            // turn directly into a dropped audio frame.
-            demod_worker: crate::demod::DemodWorker::new(16),
+            demod_worker,
+            last_radio_boundary: None,
+            last_radio_lost_samples: 0,
             local_adsb: crate::local_adsb::LocalAdsbWorker::new(capture_stream),
             last_local_adsb_boundary: None,
             #[cfg(test)]
@@ -446,7 +436,6 @@ impl CentralApp {
             freq_jump_matches: Vec::new(),
             show_glossary: false,
             first_strong_signal_seen: false,
-            last_demod_mode: crate::sdr_panel::DemodMode::Fm,
             last_audio_source: None,
             theme_applied: false,
             recording_start: None,
@@ -1168,9 +1157,9 @@ impl eframe::App for CentralApp {
         if reset_audio {
             self.audio.shutdown();
             self.daemon_audio.reset();
-            self.demod_worker.request_reset();
-            self.ctcss.reset();
-            self.rds.reset();
+            if !self.demod_worker.is_native() {
+                self.demod_worker.request_reset();
+            }
             self.radio_ui.rds = None;
             self.radio_ui.received_tone = None;
         }
@@ -1213,9 +1202,8 @@ impl eframe::App for CentralApp {
                     .resolve(state.source.frequency_hz)
                     .label()
                     .into();
-                // Bound the current UI-frame DSP work. This two-block limit
-                // cannot sustain every supported capture rate; overflow is now
-                // explicit in the next delivered block's capture clock.
+                // This is only a bounded constellation preview. Native radio,
+                // aircraft and recording consumers independently receive RF.
                 for _ in 0..2 {
                     if let Some(samples) = state.source.recv_capture_block() {
                         sample_batch.push(samples);
@@ -1251,7 +1239,6 @@ impl eframe::App for CentralApp {
                     state.lpf_cutoff,
                     crate::radio_ui::channel_bandwidth(&state),
                     crate::radio_ui::stereo_audio_requested(&state),
-                    state.spectrum.vfo_signal_level(),
                 ))
             } else {
                 None
@@ -1289,215 +1276,99 @@ impl eframe::App for CentralApp {
             lpf_cutoff,
             channel_bandwidth,
             stereo_audio,
-            signal_level,
         )) = source_params
         {
             self.constellation
                 .observe_capture(center, rate, &source_mode, stream_generation);
-            let mut all_audio_samples: Vec<f32> = Vec::new();
-            let mut spectrum_batch = Vec::new();
-            let capture = (center, source_mode, stream_generation);
-            let capture_changed = self.last_radio_capture.as_ref() != Some(&capture);
-            if capture_changed {
-                self.radio_iq.reset();
-                self.vfo_mixer.reset();
-                self.demod_worker.request_reset();
-                self.ctcss.reset();
-                self.rds.reset();
-                self.radio_ui.rds = None;
-                self.radio_ui.received_tone = None;
-                self.last_radio_capture = Some(capture);
-            }
-            let iq_changed = self.radio_iq.configure(iq_config);
-            if iq_changed {
-                self.vfo_mixer.reset();
-                self.demod_worker.request_reset();
-                self.ctcss.reset();
-                self.rds.reset();
-                self.radio_ui.rds = None;
-            }
-            let radio_rate = self.radio_iq.output_rate();
-            let offset_hz = (i128::from(freq) - i128::from(center)) as f64;
-            self.vfo_mixer.configure(radio_rate, offset_hz);
-            let resolved_mode = demod_mode.resolve(freq);
-            let has_capture = receiving || !sample_batch.is_empty();
-            let rds_active =
-                has_capture && rds_settings.0 && resolved_mode == crate::sdr_panel::DemodMode::Wfm;
-            let ctcss_active = has_capture
-                && squelch_mode.uses_ctcss()
-                && resolved_mode == crate::sdr_panel::DemodMode::Fm;
-            self.rds.set_incremental(rds_settings.1);
-            self.rds.set_region(rds_settings.2);
-            // Per-tick playback gate (squelch), applied to drained frames below.
-            let gate: f32 = if !crate::radio_ui::mode_has_squelch(resolved_mode)
-                || squelch_mode != crate::radio_squelch::SquelchMode::Power
-                || signal_level > squelch_db
-            {
-                1.0
-            } else {
-                0.0
-            };
-
-            for block in &sample_batch {
-                let samples = &block.samples;
-                self.constellation.push_iq_samples(samples);
-                let wideband_iq = self.radio_iq.process(samples);
-
-                // Queue demodulation on the worker thread. The channelizer and
-                // VFO mixer stay on the UI thread; only the heavy demodulation
-                // and its audio output run off-thread.
-                if audio_running || rds_active || ctcss_active {
-                    if resolved_mode != self.last_demod_mode {
-                        self.demod_worker.request_reset();
-                        self.ctcss.reset();
-                        self.rds.reset();
-                        self.radio_ui.rds = None;
-                        self.radio_ui.received_tone = None;
-                        self.last_demod_mode = resolved_mode;
-                    }
-                    let channel_iq = self.vfo_mixer.process(&wideband_iq);
-                    self.demod_worker.configure(DemodConfig {
-                        mode: resolved_mode,
+            if self.demod_worker.is_native() {
+                let normalized = iq_config.normalized();
+                let radio_rate =
+                    f64::from(normalized.input_rate) / f64::from(normalized.decimation);
+                self.demod_worker.configure_radio(
+                    crate::demod::RadioConfig {
+                        enabled: source_mode != crate::source_manager::SourceMode::Daemon,
+                        preview: self.current_tab == AppTab::Listen || self.scanner.enabled,
+                        measure_power: self.recorder_panel.squelch_record
+                            || self.recorder_panel.signal_monitor,
+                        frequency_hz: freq,
+                        center_hz: center,
+                        generation: stream_generation,
+                        iq: normalized,
+                        audio_running,
+                        volume,
+                        squelch_db,
+                        squelch_mode,
+                        ctcss_tone_hz,
+                        rds_enabled: rds_settings.0,
+                        rds_incremental: rds_settings.1,
+                        rds_region: rds_settings.2,
+                        sink: self.audio.sink(),
+                    },
+                    DemodConfig {
+                        mode: demod_mode.resolve(freq),
                         input_rate: radio_rate,
                         audio_rate: self.audio.sample_rate(),
                         lpf_cutoff,
                         rf_bandwidth: channel_bandwidth,
                         stereo: stereo_audio,
-                    });
-                    self.demod_worker.push_iq(channel_iq);
+                    },
+                );
+                for block in &sample_batch {
+                    self.constellation.push_iq_samples(&block.samples);
                 }
-
-                if (self.current_tab == AppTab::Listen || self.scanner.enabled)
-                    && block.center_hz == center
-                    && block.clock.exact_sample_rate_hz() == f64::from(rate)
-                {
-                    spectrum_batch.push((
-                        wideband_iq,
-                        block.clock,
-                        block.observed_at,
-                        samples.len() / 2,
+                let previews = self.demod_worker.radio_previews();
+                let snapshot = self
+                    .demod_worker
+                    .radio_snapshot()
+                    .expect("native radio snapshot");
+                let current = snapshot.control_version == self.demod_worker.requested_version();
+                if snapshot.lost_samples > self.last_radio_lost_samples {
+                    self.status_bar.warning(format!(
+                        "Radio capture lost {} samples ({} dropped blocks); DSP state reset.",
+                        snapshot.lost_samples, snapshot.dropped_blocks
                     ));
+                    self.last_radio_lost_samples = snapshot.lost_samples;
                 }
-            }
-
-            // Drain finished demod frames (non-blocking; the UI thread never
-            // waits on the worker). Frames still queued from before demod was
-            // paused are discarded so stale audio never plays on resume.
-            let mut last_demod_metrics: Option<(f32, f32)> = None;
-            let demod_active = audio_running || rds_active || ctcss_active;
-            while let Some(frame) = self.demod_worker.try_recv_frame() {
-                if !demod_active || frame.control_version != self.demod_worker.requested_version() {
-                    continue;
-                }
-                if frame.stereo {
-                    self.radio_ui.stereo_locked = frame.stereo_locked;
-                    let mut interleaved = frame.audio;
-                    let mut mono = Vec::with_capacity(interleaved.len() / 2);
-                    for pair in interleaved.chunks_exact_mut(2) {
-                        let left = pair[0] * volume * gate;
-                        let right = pair[1] * volume * gate;
-                        pair[0] = left;
-                        pair[1] = right;
-                        mono.push((left + right) * 0.5);
-                    }
-                    if rds_active {
-                        self.rds
-                            .process_multiplex(&frame.wfm_multiplex, frame.wfm_multiplex_rate);
-                    }
-                    if audio_running {
-                        self.recorder_panel.write_audio_samples(&mono);
-                    }
-                    all_audio_samples.extend_from_slice(&mono);
-                    if audio_running {
-                        let _ = self.audio.push_audio(interleaved);
-                    }
-                } else {
-                    self.radio_ui.stereo_locked = false;
-                    let mut audio = frame.audio;
-                    if frame.mode == crate::sdr_panel::DemodMode::Fm && squelch_mode.uses_ctcss() {
-                        let gains = self.ctcss.process(
-                            &frame.nfm_subaudible,
-                            self.audio.sample_rate(),
-                            ctcss_tone_hz,
-                        );
-                        self.radio_ui.received_tone = self.ctcss.status().detected_tone_hz;
-                        if squelch_mode == crate::radio_squelch::SquelchMode::CtcssMute {
-                            for (index, sample) in audio.iter_mut().enumerate() {
-                                *sample *= gains.get(index).copied().unwrap_or(0.0);
-                            }
-                        }
-                    } else {
-                        self.ctcss.reset();
-                        self.radio_ui.received_tone = None;
-                    }
-                    for sample in &mut audio {
-                        *sample *= volume * gate;
-                    }
-                    if rds_active {
-                        self.rds
-                            .process_multiplex(&frame.wfm_multiplex, frame.wfm_multiplex_rate);
-                    }
-                    if audio_running {
-                        self.recorder_panel.write_audio_samples(&audio);
-                    }
-                    all_audio_samples.extend_from_slice(&audio);
-                    if audio_running {
-                        let _ = self.audio.push_audio(audio);
-                    }
-                }
-                last_demod_metrics = Some((frame.fm_deviation_hz, frame.audio_peak));
-            }
-            if !ctcss_active {
-                self.ctcss.reset();
-                self.radio_ui.received_tone = None;
-            }
-            if rds_active {
-                self.radio_ui.rds = Some(self.rds.snapshot());
-            } else if self.radio_ui.rds.take().is_some() {
-                self.rds.reset();
-            }
-
-            // Update spectrum, waveform, and demod metrics in a single consolidated lock
-            if capture_changed
-                || iq_changed
-                || !sample_batch.is_empty()
-                || !all_audio_samples.is_empty()
-            {
-                if let Some(mut state) = self.try_lock_shared("update_spectrum_and_audio") {
-                    if capture_changed {
+                self.radio_ui.received_tone = current.then_some(snapshot.received_tone).flatten();
+                self.radio_ui.rds = (current && receiving)
+                    .then(|| snapshot.rds.clone())
+                    .flatten();
+                self.radio_ui.stereo_locked = current && snapshot.stereo_locked;
+                let display_shared = Arc::clone(&self.shared);
+                if let Ok(mut state) = display_shared.try_lock() {
+                    let boundary = (
+                        snapshot.generation,
+                        snapshot.epoch,
+                        snapshot.discontinuity_revision,
+                    );
+                    if self.last_radio_boundary != Some(boundary) {
                         state.spectrum.reset_capture_stream();
-                    } else if iq_changed {
-                        state.spectrum.reset_stream();
+                        self.last_radio_boundary = Some(boundary);
                     }
                     state.spectrum.update_params_exact(center, radio_rate);
                     state.spectrum.vfo_freq_hz = Some(freq);
-                    for (samples, clock, observed_at, input_samples) in &spectrum_batch {
-                        state.spectrum.push_capture_samples(
-                            samples,
-                            *clock,
-                            *observed_at,
-                            *input_samples,
-                        );
-                    }
-                    state.spectrum.try_recv_spectrum();
-                    if !all_audio_samples.is_empty() {
-                        let wf = &mut state.spectrum.audio_waveform;
-                        if wf.capacity() < 2048 {
-                            wf.reserve(2048);
-                        }
-                        let step = (all_audio_samples.len() / 800).max(1);
-                        for &s in all_audio_samples.iter().step_by(step) {
-                            if wf.len() >= 2048 {
-                                wf.pop_front();
+                    if self.current_tab == AppTab::Listen || self.scanner.enabled {
+                        for preview in &previews {
+                            if preview.center_hz == center
+                                && preview.rate == radio_rate
+                                && preview.control_version == self.demod_worker.requested_version()
+                            {
+                                state.spectrum.push_capture_samples(
+                                    &preview.samples,
+                                    preview.clock,
+                                    preview.observed_at,
+                                    preview.input_samples,
+                                );
                             }
-                            wf.push_back(s);
                         }
-                        if let Some((deviation, peak)) = last_demod_metrics {
-                            state.fm_deviation_hz = deviation;
-                            state.audio_peak = peak;
-                        }
+                        state.spectrum.try_recv_spectrum();
                     }
-                }
+                    if current {
+                        state.spectrum.audio_waveform = snapshot.waveform.iter().copied().collect();
+                        state.fm_deviation_hz = snapshot.fm_deviation_hz;
+                        state.audio_peak = snapshot.audio_peak;
+                    }
+                };
             }
         }
 
@@ -1769,17 +1640,25 @@ impl eframe::App for CentralApp {
 
             // Squelch-triggered recording tick
             {
-                let (signal_db, squelch_db, freq_hz, mode_label) =
-                    if let Ok(state) = self.shared.try_lock() {
-                        (
-                            state.spectrum.vfo_signal_level(),
-                            state.squelch,
-                            state.source.frequency_hz,
-                            state.demod_mode.label().to_string(),
-                        )
-                    } else {
-                        (-120.0, -50.0, 0u64, "NFM".to_string())
-                    };
+                let (signal_db, squelch_db, freq_hz, mode_label) = if let Ok(state) =
+                    self.shared.try_lock()
+                {
+                    (
+                        self.demod_worker
+                            .radio_snapshot()
+                            .filter(|snapshot| {
+                                snapshot.control_version == self.demod_worker.requested_version()
+                                    && state.source.status
+                                        == crate::source_manager::SourceStatus::Running
+                            })
+                            .map_or(-120.0, |snapshot| snapshot.signal_db),
+                        state.squelch,
+                        state.source.frequency_hz,
+                        state.demod_mode.label().to_string(),
+                    )
+                } else {
+                    (-120.0, -50.0, 0u64, "NFM".to_string())
+                };
                 self.recorder_panel.tick_squelch_record(
                     signal_db,
                     squelch_db,
@@ -1800,7 +1679,8 @@ impl eframe::App for CentralApp {
                         if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
                             f64::from(state.source.sample_rate_hz)
                         } else {
-                            self.radio_iq.output_rate()
+                            let iq = crate::radio_ui::radio_iq_config(&state).normalized();
+                            f64::from(iq.input_rate) / f64::from(iq.decimation)
                         };
                     let ready = state.spectrum.capture_geometry()
                         == (state.source.capture_center_frequency_hz(), expected_rate)

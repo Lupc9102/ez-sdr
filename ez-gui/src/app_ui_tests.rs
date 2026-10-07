@@ -1920,6 +1920,11 @@ fn continuous_adsb_keeps_up_with_60_hz_app_and_a_held_shared_state_lock() {
     };
     app.sync_adsb_capture();
     app.shared.lock().unwrap().source.start();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while stream.progress().samples == 0 {
+        assert!(Instant::now() < deadline, "capture source did not start");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     let ctx = egui::Context::default();
     let mut frame = eframe::Frame::_new_kittest();
     let started = Instant::now();
@@ -2059,6 +2064,141 @@ fn native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall() {
     assert_eq!(raw_meta["lost_samples"], 0);
     assert_eq!(cf32_meta["lost_samples"], 0);
     println!("A09 native recording at 60 Hz + 300 ms GUI/shared-lock stall: {} samples; raw {} bytes, CF32 {} bytes, zero loss", source.samples, raw.len(), cf32.len());
+    drop(app);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall() {
+    use crate::source_manager::SourceMode;
+    let mut app = offline_test_app();
+    app.current_tab = AppTab::Meteor;
+    let dir = std::env::temp_dir().join(format!(
+        "ez-a09-wave-{}-{}",
+        std::process::id(),
+        ez_proto::new_capture_epoch()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let period: Vec<u8> = (0..16_384)
+        .flat_map(|n| {
+            let t = n as f64 / 2_400_000.0;
+            let amplitude = 0.45 * (1.0 + 0.4 * (std::f64::consts::TAU * 1_000.0 * t).sin());
+            let angle = std::f64::consts::TAU * 100_000.0 * t;
+            [angle.cos(), angle.sin()].map(|value| {
+                (value * amplitude * 128.0 + 127.4)
+                    .round()
+                    .clamp(0.0, 255.0) as u8
+            })
+        })
+        .collect();
+    let stream = {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = SourceMode::Hardware;
+        state.source.frequency_hz = 118_100_000;
+        state.source.center_frequency_hz = Some(118_000_000);
+        state.source.sample_rate_hz = 2_400_000;
+        crate::radio_ui::select_demod(&mut state, crate::sdr_panel::DemodMode::Am);
+        state.config.advanced.rf_decim = 8;
+        state.config.advanced.rf_dc_remove = true;
+        state.volume = 0.6;
+        state.audio_running = false; // WAV capture runs without opening a speaker.
+        let input = period.clone();
+        state
+            .source
+            .test_set_hardware_open(move |_| Ok(input.clone()));
+        state.source.capture_stream()
+    };
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.logic(&ctx, &mut frame);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while app.demod_worker.applied_version() < app.demod_worker.requested_version() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let (advanced, iq_config, volume, cutoff, bandwidth) = {
+        let state = app.shared.lock().unwrap();
+        (
+            state.config.advanced.clone(),
+            crate::radio_ui::radio_iq_config(&state),
+            state.volume,
+            state.lpf_cutoff,
+            crate::radio_ui::channel_bandwidth(&state),
+        )
+    };
+    app.recorder_panel.output_dir = dir.display().to_string();
+    app.recorder_panel.filename_template = "native-wave".into();
+    app.recorder_panel.record_iq = false;
+    app.recorder_panel.record_audio = true;
+    app.recorder_panel.start_recording();
+    assert!(
+        app.recorder_panel.recording,
+        "{}",
+        app.recorder_panel.last_error
+    );
+    app.shared.lock().unwrap().source.start();
+    let started = Instant::now();
+    for tick in 1..=60 {
+        app.logic(&ctx, &mut frame);
+        std::thread::sleep(
+            (started + Duration::from_secs_f64(f64::from(tick) / 60.0))
+                .saturating_duration_since(Instant::now()),
+        );
+    }
+    {
+        let mut state = app.shared.lock().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        state.source.stop();
+    }
+    app.recorder_panel.stop_recording();
+    let source = stream.progress();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !app.demod_worker.radio_snapshot().unwrap().complete {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let snapshot = app.demod_worker.radio_snapshot().unwrap();
+    assert!(source.samples >= 2_000_000);
+    assert_eq!(snapshot.received_samples, source.samples);
+    assert_eq!(snapshot.demodulated_samples, source.samples);
+    assert_eq!(snapshot.skipped_samples, 0);
+    assert_eq!(snapshot.lost_samples, 0);
+    assert_eq!(snapshot.dropped_blocks, 0);
+    let mut iq = crate::radio_iq::RadioIqProcessor::new(iq_config);
+    let mut mixer = crate::radio_iq::VfoMixer::new(iq.output_rate());
+    mixer.configure(iq.output_rate(), 100_000.0);
+    let mut demod = crate::demod::Demodulator::new();
+    demod.apply_advanced(&advanced, crate::sdr_panel::DemodMode::Am);
+    demod.set_sample_rates_exact(iq.output_rate(), 48_000);
+    demod.set_lpf_cutoff(cutoff);
+    demod.set_rf_bandwidth(bandwidth);
+    demod.reset();
+    let mut expected = Vec::new();
+    for _ in 0..source.blocks {
+        let channel = mixer.process(&iq.process(&period));
+        expected.extend(
+            demod
+                .demodulate_complex(&channel, crate::sdr_panel::DemodMode::Am)
+                .iter()
+                .map(|sample| ((sample * volume).clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16),
+        );
+    }
+    let mut wav = hound::WavReader::open(dir.join("native-wave_audio.wav")).unwrap();
+    assert_eq!(wav.spec().sample_rate, 48_000);
+    let recorded = wav.samples::<i16>().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(recorded.len(), expected.len());
+    assert!(
+        recorded == expected,
+        "WAV differs from continuous synchronous DSP"
+    );
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("native-wave.wav.json")).unwrap()).unwrap();
+    assert_eq!(meta["complete"], true, "{}", meta["stop_reason"]);
+    assert_eq!(meta["audio_capture"]["samples"], source.samples);
+    assert_eq!(meta["audio_samples"], expected.len() as u64);
+    assert_eq!(meta["audio_native_lost_samples"], 0);
+    assert_eq!(meta["audio_input_dropped_blocks"], 0);
+    println!("A09 native app WAV at 60 Hz + 300 ms GUI/shared-lock stall: {} RF samples, {} PCM samples identical to synchronous DSP, zero loss", source.samples, recorded.len());
     drop(app);
     std::fs::remove_dir_all(dir).unwrap();
 }

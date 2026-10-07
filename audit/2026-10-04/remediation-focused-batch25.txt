@@ -1,0 +1,58 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.67s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 18 tests
+test adsb_decoder::capture_tests::real_iq_message_timestamp_retains_overlap_phase_epoch_and_exact_native_rate ... ok
+A09 native WAV write failure: stop/join 34 us, 8 PCM bytes preserved
+test demod::native::tests::native_power_squelch_uses_selected_rf_without_display_updates ... ok
+A09 native raw write failure: stop/join 13 us; 8 preserved bytes
+test demod::native::tests::native_radio_accounts_for_bounded_overflow_missing_tail_and_lost_generations ... ok
+test audio_recording::tests::native_wav_overflow_keeps_a_prefix_accounts_for_loss_and_isolates_consumers ... ok
+test raw_recording::tests::saturated_native_recorders_account_for_loss_finalize_prefixes_and_unsubscribe ... ok
+test demod::native::tests::native_radio_coalesces_controls_and_acknowledges_without_iq ... ok
+A09 native WAV flush failure: stop/join 10313 us, 32 PCM bytes preserved
+test audio_recording::tests::native_wav_disk_faults_preserve_the_actual_pcm_prefix_and_stop_promptly ... ok
+A09 native CF32 write failure: stop/join 18190 us; 16 preserved bytes
+test recorder_panel::tests::native_recording_consumers_finalize_each_clock_boundary_without_gui_ticks ... ok
+A09 native raw flush failure: stop/join 19917 us; 20 preserved bytes
+test raw_recording::tests::native_raw_disk_failures_finalize_the_actual_prefix_and_stop_promptly ... ok
+A09 native CF32 flush failure: stop/join 18265 us; 80 preserved bytes
+test satellite::recorder::tests::native_cf32_disk_failures_finalize_the_actual_prefix_and_stop_promptly ... ok
+test audio_recording::tests::native_wav_boundaries_finalize_the_valid_prefix_without_gui_ticks ... ok
+test demod::native::tests::native_wav_rejects_capture_geometry_before_radio_controls_catch_up ... ok
+test audio_recording::tests::native_wav_deadline_and_native_loss_finalize_without_gui_ticks ... ok
+test demod::native::tests::native_radio_resets_every_state_at_capture_boundaries ... ok
+A09 native radio/playback: 1966080 RF samples, 39321 audio samples, no GUI drains, zero loss
+test demod::native::tests::native_radio_delivers_all_rf_and_playback_without_gui_reads ... ok
+test recorder_panel::tests::native_recording_deadline_finalizes_files_without_gui_ticks ... ok
+A09 native recording at 60 Hz + 300 ms GUI/shared-lock stall: 3096576 samples; raw 6193152 bytes, CF32 24772608 bytes, zero loss
+test app::app_ui_tests::native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall ... ok
+A09 native app WAV at 60 Hz + 300 ms GUI/shared-lock stall: 3096576 RF samples, 61931 PCM samples identical to synchronous DSP, zero loss
+test app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 800 filtered out; finished in 1.95s
+
+     Running unittests src/main.rs (target/debug/deps/ez_gui-658e7383ec02f0a8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/debug/deps/event_bus_integration-69b67175d21a5b49)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/debug/deps/radio_controls-06b14f1c3e8e77b6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/debug/deps/radio_performance-ba25ed5f2f0e68e2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s

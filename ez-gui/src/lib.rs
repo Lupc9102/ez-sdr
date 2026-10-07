@@ -8,6 +8,7 @@ pub mod airport_db;
 pub mod antenna_checklist;
 pub mod app;
 pub mod audio_output;
+mod audio_recording;
 mod audio_resampler;
 pub mod bookmark_manager;
 pub mod bookmarks;
