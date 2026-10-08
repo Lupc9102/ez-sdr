@@ -14,14 +14,12 @@
 use std::ffi::{c_int, c_void};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
 use num_complex::Complex32;
 
-use super::IqSource;
+use super::{callback_iq, IqSource, ReadPending};
 
 const HACKRF_TRUE: c_int = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +97,7 @@ mod ffi {
 pub use ffi::HackrfTransfer;
 
 struct RxCtx {
-    tx: SyncSender<Vec<u8>>,
+    producer: Arc<callback_iq::CallbackProducer>,
     active: AtomicBool,
 }
 
@@ -113,11 +111,12 @@ unsafe extern "C" fn rx_callback(transfer: *mut ffi::hackrf_transfer) -> c_int {
             return -1;
         }
         // SAFETY: `transfer` was checked non-null above.
-        let (ctx_ptr, buf_ptr, valid_length) = unsafe {
+        let (ctx_ptr, buf_ptr, valid_length, buffer_length) = unsafe {
             (
                 (*transfer).ctx,
                 (*transfer).buffer,
                 (*transfer).valid_length,
+                (*transfer).buffer_length,
             )
         };
         if ctx_ptr.is_null() || buf_ptr.is_null() {
@@ -125,6 +124,9 @@ unsafe extern "C" fn rx_callback(transfer: *mut ffi::hackrf_transfer) -> c_int {
         }
         if valid_length <= 0 {
             return 0;
+        }
+        if valid_length > buffer_length {
+            return -1;
         }
         // SAFETY: `ctx_ptr` points to an `RxCtx` managed via `Arc<RxCtx>` in `HackRfSource`.
         let ctx = unsafe { &*(ctx_ptr as *const RxCtx) };
@@ -134,12 +136,11 @@ unsafe extern "C" fn rx_callback(transfer: *mut ffi::hackrf_transfer) -> c_int {
         // SAFETY: `buf_ptr` is checked non-null and valid for `valid_length` bytes for the
         // duration of this callback, per the libhackrf API contract.
         let bytes = unsafe { std::slice::from_raw_parts(buf_ptr, valid_length as usize) };
-        let mut data = bytes.to_vec();
-        for b in &mut data {
-            *b ^= 0x80;
+        if ctx.producer.push(bytes) {
+            0
+        } else {
+            -1
         }
-        let _ = ctx.tx.try_send(data);
-        0
     })
     .unwrap_or(-1)
 }
@@ -147,18 +148,18 @@ unsafe extern "C" fn rx_callback(transfer: *mut ffi::hackrf_transfer) -> c_int {
 pub struct HackRfSource {
     dev: *mut ffi::hackrf_device,
     ctx: Option<Arc<RxCtx>>,
-    rx: Option<Receiver<Vec<u8>>>,
+    rx: Option<callback_iq::CallbackReader>,
     frequency_hz: u64,
     sample_rate_hz: u32,
     gain_db: f64,
-    byte_buf: Vec<u8>,
+    total_dropped_samples: u64,
 }
 
 // SAFETY: `HackRfSource` only touches its raw pointers through FFI calls made under
 // `&mut self` (the `IqSource` trait is exclusively `&mut self`), so no concurrent access
 // from safe code can occur. The one genuinely concurrent access — `rx_callback` running on
-// libhackrf's internal streaming thread — only ever touches the channel `Sender`, which is
-// itself `Send + Sync` and safe to share this way.
+// libhackrf's internal streaming thread — only touches the synchronized producer and
+// active flag. The producer serializes acquisition indices and never blocks on queue admission.
 unsafe impl Send for HackRfSource {}
 
 impl HackRfSource {
@@ -171,8 +172,18 @@ impl HackRfSource {
             frequency_hz: 1_090_000_000,
             sample_rate_hz: 2_400_000,
             gain_db: 20.0,
-            byte_buf: Vec::new(),
+            total_dropped_samples: 0,
         }
+    }
+
+    /// Callback transfers rejected before publication, counted in complex samples.
+    #[must_use]
+    pub fn acquisition_dropped_samples(&self) -> u64 {
+        self.total_dropped_samples.saturating_add(
+            self.ctx
+                .as_ref()
+                .map_or(0, |ctx| ctx.producer.dropped_samples()),
+        )
     }
 
     fn check(op: &'static str, code: c_int) -> Result<(), HackRfError> {
@@ -248,10 +259,10 @@ impl IqSource for HackRfSource {
             return Err(error);
         }
 
-        let (tx, rx) = sync_channel(64);
+        let (producer, rx) = callback_iq::channel(64, true);
         self.rx = Some(rx);
         let ctx = Arc::new(RxCtx {
-            tx,
+            producer,
             active: AtomicBool::new(true),
         });
         let raw_ctx = Arc::into_raw(Arc::clone(&ctx)) as *mut c_void;
@@ -285,6 +296,9 @@ impl IqSource for HackRfSource {
             self.dev = ptr::null_mut();
         }
         if let Some(ctx) = self.ctx.take() {
+            self.total_dropped_samples = self
+                .total_dropped_samples
+                .saturating_add(ctx.producer.dropped_samples());
             // SAFETY: `raw` was created via `Arc::into_raw(Arc::clone(&ctx))` in `start`.
             // Reclaiming it with `Arc::from_raw` drops that strong reference. Because `ctx`
             // is still in scope, `RxCtx` cannot be deallocated until `ctx` is dropped,
@@ -295,7 +309,6 @@ impl IqSource for HackRfSource {
             }
         }
         self.rx = None;
-        self.byte_buf.clear();
     }
 
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
@@ -330,35 +343,30 @@ impl IqSource for HackRfSource {
     }
 
     fn read_iq(&mut self, buf: &mut [Complex32]) -> Result<usize> {
-        let Some(rx) = self.rx.as_ref() else {
+        let Some(rx) = self.rx.as_mut() else {
             return Ok(0);
         };
-        let want_bytes = buf.len() * 2;
-
-        while self.byte_buf.len() < want_bytes {
-            match rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(chunk) => self.byte_buf.extend_from_slice(&chunk),
-                Err(RecvTimeoutError::Timeout) => {
-                    // SAFETY: `self.dev` is non-null whenever `self.rx` is `Some` — both
-                    // are only ever set together in `start` and cleared together in `stop`.
-                    if unsafe { ffi::hackrf_is_streaming(self.dev) } != HACKRF_TRUE {
-                        break;
-                    }
+        match rx.read(buf, self.sample_rate_hz) {
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<ReadPending>(),
+                    Some(ReadPending::Timeout)
+                ) =>
+            {
+                // SAFETY: RX reader and device are installed/removed together.
+                // Yield even if the driver keeps reporting streaming without data.
+                if unsafe { ffi::hackrf_is_streaming(self.dev) } != HACKRF_TRUE {
+                    Ok(0)
+                } else {
+                    Err(error)
                 }
-                Err(RecvTimeoutError::Disconnected) => break,
             }
+            result => result,
         }
-        if self.byte_buf.is_empty() {
-            return Ok(0);
-        }
+    }
 
-        let samples_available = self.byte_buf.len() / 2;
-        let n = samples_available.min(buf.len());
-        let bytes_consumed = n * 2;
-        let complex = lrpt_decode::uc8_bytes_to_normalized(&self.byte_buf[..bytes_consumed]);
-        buf[..n].copy_from_slice(&complex[..n]);
-        self.byte_buf.drain(..bytes_consumed);
-        Ok(n)
+    fn capture_clock(&self) -> Option<ez_proto::CaptureClock> {
+        self.rx.as_ref().and_then(|rx| rx.capture_clock())
     }
 
     fn frequency_hz(&self) -> u64 {
@@ -451,9 +459,9 @@ mod tests {
         assert_eq!(unsafe { rx_callback(ptr::null_mut()) }, -1);
 
         // Null buffer pointer: returns -1
-        let (tx, rx) = sync_channel(16);
+        let (producer, mut rx) = callback_iq::channel(16, true);
         let ctx = RxCtx {
-            tx,
+            producer,
             active: AtomicBool::new(true),
         };
         let mut transfer = ffi::hackrf_transfer {
@@ -476,9 +484,12 @@ mod tests {
         transfer.ctx = &ctx as *const RxCtx as *mut c_void;
         transfer.valid_length = 64;
         assert_eq!(unsafe { rx_callback(&mut transfer) }, 0);
-        let received = rx.try_recv().expect("data sent to channel");
-        assert_eq!(received.len(), 64);
-        assert_eq!(received[0], 0x00); // 0x80 ^ 0x80 = 0
+        let mut received = [Complex32::default(); 32];
+        assert_eq!(rx.read(&mut received, 2_400_000).unwrap(), 32);
+        assert_eq!(received[0], Complex32::new(-1.0, -1.0)); // 0x80 ^ 0x80 = 0
+        transfer.valid_length = transfer.buffer_length + 1;
+        assert_eq!(unsafe { rx_callback(&mut transfer) }, -1);
+        transfer.valid_length = 64;
 
         // Inactive ctx (e.g. during stop teardown): returns -1
         ctx.active.store(false, Ordering::Release);

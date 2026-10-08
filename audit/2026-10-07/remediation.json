@@ -262,9 +262,14 @@
       "id": "R15",
       "title": "HackRF callback overflow is silently stitched into continuous capture",
       "priority": "P1",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Assign acquisition sample indices before callback queue admission, retain odd components until a complete pair, count rejected complete samples, and return only contiguous transfer ranges with gap/discontinuity clocks. Preserve loss counters through stop/restart. HackRF empty reads yield after 200 ms.",
+      "regressions": [
+        "hardware::callback_iq::tests::overflow_counts_acquired_samples_and_never_stitches_retained_transfers",
+        "hardware::callback_iq::tests::odd_callback_partitions_preserve_sample_pairs_and_signedness",
+        "hardware::callback_iq::tests::silent_callback_queue_returns_to_cancellation_within_one_deadline",
+        "recording::capture_tests::callback_overflow_resets_channel_dsp_and_marks_recording_prefix_incomplete"
+      ],
       "original_repair_gate": "Maintain acquisition sample indices/drop counters at the callback boundary, preserve complete sample pairs, and mark a new discontinuity/gap after loss. Require downstream recording completeness and DSP resets to agree with injected callback overflow."
     },
     {
@@ -342,7 +347,7 @@
       "title": "Read cancellation and timed-out hardware commands lack a terminal contract",
       "priority": "P2",
       "status": "open",
-      "change": null,
+      "change": "Partial: HackRF callback reads and Soapy reads now yield after bounded waits. RTL synchronous cancellation and hardware command timeout lifecycle remain open.",
       "regressions": [],
       "original_repair_gate": "Use a cancellable bounded read contract and correlate command lifecycle through queued/applied/rejected/cancelled states. Ensure shutdown/control latency is bounded even when the driver keeps reporting streaming without data. Test late acknowledgements and avoid releasing hardware ownership before the read actually ends."
     }

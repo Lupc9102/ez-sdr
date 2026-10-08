@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-14 findings have software repairs with passing regressions; 19 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings; public reference captures still need investigation.
+15 findings have software repairs with passing regressions; 18 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings; public reference captures still need investigation.
 
 ## Implemented and software verified
 
@@ -36,6 +36,9 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - **R18 — rtl_tcp gain is a successful no-op**: Send rtl_tcp tuner mode 0x03 and tenths-dB gain 0x04 at startup and during live changes. Validate controls and update cached state only after socket writes. Document that rtl_tcp has no hardware readback/acknowledgement; keep headerless metadata semantics separate.
   Evidence: hardware::tcp_iq::tests::rtl_tcp_gain_wire_commands_cover_startup_manual_and_auto; hardware::tcp_iq::tests::rtl_tcp_start_applies_cached_tuning_and_reads_uc8; hardware::tcp_iq::tests::invalid_tcp_controls_preserve_cached_metadata.
 
+- **R15 — HackRF callback overflow is silently stitched into continuous capture**: Assign acquisition sample indices before callback queue admission, retain odd components until a complete pair, count rejected complete samples, and return only contiguous transfer ranges with gap/discontinuity clocks. Preserve loss counters through stop/restart. HackRF empty reads yield after 200 ms.
+  Evidence: hardware::callback_iq::tests::overflow_counts_acquired_samples_and_never_stitches_retained_transfers; hardware::callback_iq::tests::odd_callback_partitions_preserve_sample_pairs_and_signedness; hardware::callback_iq::tests::silent_callback_queue_returns_to_cancellation_within_one_deadline; recording::capture_tests::callback_overflow_resets_channel_dsp_and_marks_recording_prefix_incomplete.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
@@ -53,7 +56,6 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - [ ] **R10 · P2** — RAW output has the wrong channel count and timebase for playback/WAV
 - [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
 - [ ] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
-- [ ] **R15 · P1** — HackRF callback overflow is silently stitched into continuous capture
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
 - [ ] **R20 · P2** — Scanning can wait forever on a frequency a fixed replay capture cannot contain
 - [ ] **R22 · P2** — Read cancellation and timed-out hardware commands lack a terminal contract
@@ -70,7 +72,7 @@ Graphify was refreshed with the AST-only update command. It skipped HTML because
 
 JPEG integer quantization was checked against [the pinned SatDump mission implementation](https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/instruments/msumr/lrpt/huffman.cpp). Packet-header and idle-frame handling follows [CCSDS AOS 732.0-B-4](https://ccsds.org/Pubs/732x0b4.pdf).
 
-Next priority: R15/R22 acquisition loss and bounded cancellation; then S01/S02/S04 real Meteor transport/carrier reacquisition, followed by remaining selectivity and monitoring repairs.
+Next priority: R22 RTL read cancellation and hardware-command timeout lifecycle; then S01/S02/S04 real Meteor transport/carrier reacquisition, followed by remaining selectivity and monitoring repairs.
 
 ## Receiver-control batch verification
 
@@ -81,3 +83,9 @@ The binary protocol version is now 10 because HardwareStatus carries requested g
 The updated mutation-before-error audit example asserts that rejected/restoration-failed tuning publishes zero unverified blocks and retains the original frequency. The baseline logs remain unchanged. Evidence and source hashes for this batch are in repair-controls-verification.json.
 
 Protocol commands were checked against [upstream rtl_tcp command handling](https://github.com/osmocom/rtl-sdr/blob/master/src/rtl_tcp.c); stream error codes were checked against [SoapySDR Errors.h](https://github.com/pothosware/SoapySDR/blob/master/include/SoapySDR/Errors.h).
+
+## Callback acquisition batch verification
+
+All 207 active daemon library tests pass (two existing socket tests remain opt-in). The callback bridge and real ingestion/channelizer/recording integration test pass. Both recording formats stop before the retained post-overflow transfer, preserve exact accepted bytes, and mark the file incomplete. The post-gap channel output matches a freshly initialized DDC at the acquisition index. Arbitrary odd callback partitions preserve IQ pair alignment and signed conversion. Queue loss is counted before publication, and readers never concatenate across a missing transfer.
+
+Default workspace build, formatting and all-feature daemon Clippy pass. Native HackRF callback safety tests compile under all features, but cannot be linked/run on this host without libhackrf. No physical USB overload or worst-case driver shutdown test was performed. The 200 ms callback receive deadline addresses the silent-stream read loop; RTL sync reads and late control-command cancellation still leave R22 open. Evidence is in repair-callback-verification.json.

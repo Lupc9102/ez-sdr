@@ -8,6 +8,9 @@ pub mod replay;
 pub mod synthetic;
 pub mod tcp_iq;
 
+#[cfg(any(feature = "hackrf", test))]
+pub(crate) mod callback_iq;
+
 #[cfg(feature = "rtlsdr")]
 pub mod rtlsdr;
 
