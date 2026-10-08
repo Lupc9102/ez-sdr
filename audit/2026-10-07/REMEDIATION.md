@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-19 findings have software repairs with passing regressions; 14 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; RF compatibility comparison remains pending; corrected-CADU image comparison now passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+20 findings have software repairs with passing regressions; 13 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
 
@@ -47,10 +47,12 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - **S08 — Received pass bounds and cross-channel alignment**: Store sparse segments on a shared sequence/CDS clock. Crop to common received bounds, preserve holes, handle long gaps and reorderings, and enforce the cap on relative extent. Six permanent off-air fixtures and the complete independent public pass verify alignment and pixels.
 - **S10 — Current lock and honest decoded counts**: Count unique segments and complete scanlines separately from image extent. Publish at quarter-second symbol cadence and on lock transitions. Earlier carrier-energy and frame-expiry repairs remain covered by their regressions.
 
+- **S02 — Absolute-phase-dependent OQPSK recovery**: Correct matched complex samples before projecting staggered branches; scale the second-order loop to its sample clock, retain both deskew directions and isolate their erasure histories.
+  Evidence: all 60 independent pulse-shaped carrier cases recover byte-identical payloads at both tested chunk sizes; permanent frequency/clock-offset fixtures pass. A 20-second public 72k off-air slice yields 175 matching reference CADUs. See repair-carrier-verification.json.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
-- [ ] **S02 · P1** — OQPSK carrier/timing recovery depends on absolute RF phase
 - [ ] **S11 · P2** — Daemon LRPT accepts unusable sampling and cannot select the 72k profile
 - [ ] **R03 · P1** — Daemon narrow-channel decimation aliases strong adjacent signals
 - [ ] **R04 · P2** — Daemon playback downsamples mono PCM without an anti-alias filter
@@ -76,7 +78,7 @@ Graphify was refreshed with the AST-only update command. It skipped HTML because
 
 JPEG integer quantization was checked against [the pinned SatDump mission implementation](https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/instruments/msumr/lrpt/huffman.cpp). Packet-header and idle-frame handling follows [CCSDS AOS 732.0-B-4](https://ccsds.org/Pubs/732x0b4.pdf).
 
-Next priority: S01/S02/S11 mission transport/carrier profiles, then remaining radio selectivity/clocks and monitoring repairs.
+Next priority: S01/S11 mission transport profiles, then remaining radio selectivity/clocks and monitoring repairs.
 
 ## Receiver-control batch verification
 
@@ -125,3 +127,19 @@ Permanent off-air fixtures verify first/last groups across three channels, multi
 Progress uses a quarter-second recovered-symbol cadence, independent of image size. Carrier/frame lock transitions bypass throttling and are emitted at the next caller chunk boundary when queue space is available. The queue remains nonblocking and bounded to two retained snapshots. The GUI labels complete lines and segments explicitly. RF demodulation/mission transport compatibility remains open under S01/S02/S11; this batch validates the packet and product layers using independently corrected off-air CADUs.
 
 The full workspace suite passes with all 97 LRPT tests and the existing GUI/daemon/protocol checks. Default build, workspace Clippy with warnings denied, formatting and AST graph update pass. Evidence is recorded in repair-image-verification.json; original audit baseline evidence remains unchanged.
+
+## Carrier recovery verification
+
+All 60 independently generated carrier cases pass at chunk sizes 997 and 16,384. The phase sweep spans 0–345 degrees in 15-degree steps, both half-symbol stagger directions and pulse-shaped 80k symbols at 640 kS/s. Additional cases cover 2.048 MS/s (25.6 samples/symbol), 288 kS/s with 72k symbols, ±1 kHz carrier offset and ±150 ppm clock drift. Every accepted corrected 892-byte payload equals its transmitted reference, with exactly three CADUs and twelve successful RS codewords per case.
+
+The generator imports no application encoder, filter or waveform code. It builds RS parity with pinned quiet/libfec, constructs NRZ-M/convolutional bits independently and evaluates analytical transmit RRC pulses at fractional sample times. Two complete waveform fixtures and golden payloads are committed, so default tests retain both stagger directions with frequency and clock offsets without requiring an external library. The larger corpus can be regenerated with the documented reference build and command; its hashes and passing log are retained.
+
+Carrier correction now precedes I/Q branch projection and half-symbol pairing. The loop runs on matched complex samples with second-order gains scaled to that sample clock. Both deskew orientations feed continuously advanced sign/swap hypotheses. Missing-energy observations belong to their own pairing, so an erased orientation cannot either renew lock or reject a valid frame from the other orientation. All sixteen hypotheses remain warm; this increases decoding CPU compared with the previous eight-lane implementation.
+
+The public off-air recording supplies an additional independent carrier check: the 180–200-second slice at 288 kS/s/72k yields 175 accepted corrected CADUs and 700 valid RS codewords, with every payload matching the producer's independently decoded reference and no additional frames. This is a slice comparison, not complete-pass RF certification. The earlier full-pass corrected-CADU image oracle remains valid. The public ZIQ has an unfinished compressed tail, and no independently decoded interleaved 80k recording has yet been validated.
+
+The unchanged audit probes now recover twelve RS codewords at every originally tested phase at both sampling rates, including 45, 60 and 90 degrees. The 180-degree slip recovers the same twenty-four codewords as the clean control; zero-input carrier lock is false. Active LRPT regressions also cover noise, silence, fades, lane reacquisition, byte equality and chunk invariance. Software verification records commands, source hashes and limits in repair-carrier-verification.json. S01/S11 and all original field/release gates remain in the active goal.
+
+The recovery-stage ordering was checked against [the pinned independent PSK demodulator](https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/src-core/pipeline/modules/demod/module_psk_demod.cpp). The independent RS fixture library is [quiet/libfec at the pinned revision](https://github.com/quiet/libfec/tree/9750ca0a6d0a786b506e44692776b541f90daa91). No reference implementation code is added to the production decoder.
+
+Final carrier-batch checks pass: the full workspace suite, all 99 active LRPT tests, default build, workspace Clippy with warnings denied, formatting and AST graph refresh. The graph has 7,231 nodes and 16,074 edges. An overlapping test attempt timed out in the unchanged scanner observation test; its isolated recheck and the clean full-suite retry pass. The failed attempt and successful retry are both retained in the carrier evidence, with no scanner timeout or source changes.

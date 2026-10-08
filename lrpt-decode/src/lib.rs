@@ -243,9 +243,9 @@ const FRAME_LOCK_MAX_AGE: u64 = 2 * frame_sync::CADU_LEN_BYTES as u64 * 8;
 const VITERBI_OUTPUT_DELAY: u64 = 63;
 
 /// One phase/axis hypothesis for the QPSK-to-convolutional-code path.
-/// Independent I/Q inversion plus optional axis swap covers all eight
-/// QPSK phase and conjugation ambiguities without applying differential
-/// decoding at the wrong side of the Viterbi decoder.
+/// Independent I/Q inversion and axis exchange cover eight phase/conjugation
+/// ambiguities for each of the two OQPSK branch stagger directions. NRZ-M
+/// decoding remains after the Viterbi decoder.
 struct DecodeLane {
     viterbi: viterbi::ViterbiDecoder,
     plain_framer: frame_sync::FrameSync,
@@ -270,8 +270,13 @@ impl DecodeLane {
     ) -> Vec<frame_sync::LocatedFrame> {
         let mut coded = Vec::with_capacity(symbols.len() * 2);
         for symbol in symbols {
-            let mut first = u8::from(symbol.value.re < 0.0);
-            let mut second = u8::from(symbol.value.im < 0.0);
+            let value = if hypothesis & 8 != 0 {
+                symbol.alternate_value.unwrap_or(symbol.value)
+            } else {
+                symbol.value
+            };
+            let mut first = u8::from(value.re < 0.0);
+            let mut second = u8::from(value.im < 0.0);
             if hypothesis & 0b100 != 0 {
                 std::mem::swap(&mut first, &mut second);
             }
@@ -311,11 +316,11 @@ pub struct LrptDecoder {
     progress_tx: Sender<DecodeProgress>,
 
     demod: qpsk::QpskDemod,
-    lanes: [DecodeLane; 8],
+    lanes: [DecodeLane; 16],
     selected_lane: Option<usize>,
     symbols_received: u64,
     last_valid_frame_end: Option<u64>,
-    low_energy_symbols: std::collections::VecDeque<u64>,
+    low_energy_symbols: [std::collections::VecDeque<u64>; 2],
     reassembler: ccsds::PacketReassembler,
     images: image_builder::ImageBuilder,
 
@@ -347,7 +352,7 @@ impl LrptDecoder {
             selected_lane: None,
             symbols_received: 0,
             last_valid_frame_end: None,
-            low_energy_symbols: std::collections::VecDeque::new(),
+            low_energy_symbols: std::array::from_fn(|_| std::collections::VecDeque::new()),
             reassembler: ccsds::PacketReassembler::new(),
             images: image_builder::ImageBuilder::new(),
             ever_locked: false,
@@ -375,7 +380,9 @@ impl LrptDecoder {
         self.selected_lane = None;
         self.symbols_received = 0;
         self.last_valid_frame_end = None;
-        self.low_energy_symbols.clear();
+        for observations in &mut self.low_energy_symbols {
+            observations.clear();
+        }
         self.reassembler = ccsds::PacketReassembler::new();
         self.progress_interval_symbols = u64::from(symbol_rate).div_ceil(4);
         self.symbols_at_progress = 0;
@@ -429,9 +436,11 @@ impl LrptDecoder {
 
     fn push_symbol_batch(&mut self, symbols: &[qpsk::RecoveredSymbol]) {
         for (offset, symbol) in symbols.iter().enumerate() {
-            if !symbol.value.norm_sqr().is_finite() || symbol.value.norm_sqr() <= 1e-12 {
-                self.low_energy_symbols
-                    .push_back(self.symbols_received + offset as u64);
+            let pairings = [symbol.value, symbol.alternate_value.unwrap_or(symbol.value)];
+            for (observations, value) in self.low_energy_symbols.iter_mut().zip(pairings) {
+                if !value.norm_sqr().is_finite() || value.norm_sqr() <= 1e-12 {
+                    observations.push_back(self.symbols_received + offset as u64);
+                }
             }
         }
         self.symbols_received += symbols.len() as u64;
@@ -453,8 +462,7 @@ impl LrptDecoder {
             let start = frame
                 .end_bit
                 .saturating_sub(frame_sync::CADU_LEN_BYTES as u64 * 8);
-            if self
-                .low_energy_symbols
+            if self.low_energy_symbols[hypothesis / 8]
                 .iter()
                 .any(|&position| position >= start && position < frame.end_bit)
             {
@@ -479,12 +487,13 @@ impl LrptDecoder {
         }
         let recovered_end = self.symbols_received.saturating_sub(VITERBI_OUTPUT_DELAY);
         let oldest_candidate = recovered_end.saturating_sub(frame_sync::CADU_LEN_BYTES as u64 * 8);
-        while self
-            .low_energy_symbols
-            .front()
-            .is_some_and(|&position| position < oldest_candidate)
-        {
-            self.low_energy_symbols.pop_front();
+        for observations in &mut self.low_energy_symbols {
+            while observations
+                .front()
+                .is_some_and(|&position| position < oldest_candidate)
+            {
+                observations.pop_front();
+            }
         }
         if self
             .last_valid_frame_end
@@ -1181,10 +1190,32 @@ mod tests {
                 });
                 qpsk::RecoveredSymbol {
                     value: Complex32::new(values[0], values[1]),
+                    alternate_value: None,
                     costas_locked: true,
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn missing_energy_is_owned_by_the_observed_stagger_pairing() {
+        for alternate in [false, true] {
+            let mut symbols = coded_symbol_frames(3, true);
+            for symbol in &mut symbols {
+                if alternate {
+                    symbol.alternate_value = Some(symbol.value);
+                    symbol.value = Complex32::new(0.0, 0.0);
+                } else {
+                    symbol.alternate_value = Some(Complex32::new(0.0, 0.0));
+                }
+            }
+            let (tx, _rx) = crossbeam_channel::bounded(2);
+            let mut decoder = LrptDecoder::new(8000, 1000, tx);
+            decoder.push_recovered_symbols(&symbols);
+            assert_eq!(decoder.rs_ok, 12);
+            assert_eq!(decoder.validated_payloads.len(), 3);
+            assert_eq!(decoder.selected_lane.unwrap() >= 8, alternate);
+        }
     }
 
     #[test]
@@ -1251,6 +1282,7 @@ mod tests {
         let fade = vec![
             qpsk::RecoveredSymbol {
                 value: Complex32::new(0.0, 0.0),
+                alternate_value: None,
                 costas_locked: false,
             };
             FRAME_LOCK_MAX_AGE as usize
@@ -1349,6 +1381,139 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn independent_oqpsk_fixtures_recover_both_staggers_with_frequency_and_clock_offsets() {
+        let expected: Vec<_> =
+            include_bytes!("../../audit/2026-10-07/fixtures/oqpsk-expected-payloads.bin")
+                .chunks_exact(892)
+                .map(<[u8]>::to_vec)
+                .collect();
+        // Independent analytical RRC/libfec waveforms: opposite staggers,
+        // 123/287-degree phase, +/-1 kHz carrier and -/+150 ppm clock drift.
+        for bytes in [
+            include_bytes!("../../audit/2026-10-07/fixtures/oqpsk-case-55.cf32").as_slice(),
+            include_bytes!("../../audit/2026-10-07/fixtures/oqpsk-case-59.cf32").as_slice(),
+        ] {
+            let iq = cf32_le_bytes_to_complex(bytes);
+            for chunk_size in [997, 16_384] {
+                let (tx, _rx) = crossbeam_channel::bounded(2);
+                let mut decoder = LrptDecoder::new(288_000, 72_000, tx);
+                for chunk in iq.chunks(chunk_size) {
+                    decoder.push_complex(chunk);
+                }
+                assert_eq!(decoder.validated_payloads, expected);
+                assert_eq!(decoder.rs_ok, 12);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires the independent libfec/RRC corpus generated by generate_oqpsk_vectors.py"]
+    fn independent_oqpsk_carrier_corpus_recovers_identical_payloads() {
+        let directory =
+            std::path::PathBuf::from(std::env::var("EZ_OQPSK_VECTORS").expect("EZ_OQPSK_VECTORS"));
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap())
+                .unwrap();
+        let expected = std::fs::read(directory.join("expected-payloads.bin")).unwrap();
+        let expected: Vec<_> = expected.chunks_exact(892).map(<[u8]>::to_vec).collect();
+        let mut failures = Vec::new();
+        for case in manifest["cases"].as_array().unwrap() {
+            let name = case["file"].as_str().unwrap();
+            let bytes = std::fs::read(directory.join(name)).unwrap();
+            let iq = cf32_le_bytes_to_complex(&bytes);
+            for chunk_size in [997, 16_384] {
+                let (tx, _rx) = crossbeam_channel::bounded(2);
+                let mut decoder = LrptDecoder::new(
+                    case["sample_rate"].as_u64().unwrap() as u32,
+                    case["symbol_rate"].as_u64().unwrap() as u32,
+                    tx,
+                );
+                for chunk in iq.chunks(chunk_size) {
+                    decoder.push_complex(chunk);
+                }
+                let good = decoder.validated_payloads == expected && decoder.rs_ok == 12;
+                println!(
+                    "{name} chunk={chunk_size} rs_ok={} payload_equal={good}",
+                    decoder.rs_ok
+                );
+                if !good {
+                    failures.push(format!(
+                        "{case} chunk={chunk_size} rs_ok={} frames={}",
+                        decoder.rs_ok,
+                        decoder.validated_payloads.len()
+                    ));
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "independent OQPSK failures: {failures:#?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the downloaded independent public Meteor IQ and corrected CADUs"]
+    fn public_off_air_carrier_recovers_reference_payload_bytes() {
+        use std::io::{Read, Seek, SeekFrom};
+        let iq_path = std::env::var("EZ_METEOR_CS8").expect("EZ_METEOR_CS8");
+        let reference =
+            std::fs::read(std::env::var("EZ_METEOR_CADU").expect("EZ_METEOR_CADU")).unwrap();
+        let mut expected = std::collections::BTreeMap::new();
+        for cadu in reference.chunks_exact(1024) {
+            assert_eq!(&cadu[..4], &[0x1a, 0xcf, 0xfc, 0x1d]);
+            let payload = &cadu[4..896];
+            let header = ccsds::parse_vcdu_header(payload).unwrap();
+            expected.insert(
+                (header.virtual_channel_id, header.frame_counter),
+                payload.to_vec(),
+            );
+        }
+        let start: u64 = std::env::var("EZ_METEOR_START_SECONDS")
+            .unwrap_or_else(|_| "180".into())
+            .parse()
+            .unwrap();
+        let seconds: u64 = std::env::var("EZ_METEOR_SECONDS")
+            .unwrap_or_else(|_| "20".into())
+            .parse()
+            .unwrap();
+        let mut input = std::fs::File::open(iq_path).unwrap();
+        input.seek(SeekFrom::Start(start * 288_000 * 2)).unwrap();
+        let mut input = input.take(seconds * 288_000 * 2);
+        let (tx, _rx) = crossbeam_channel::bounded(2);
+        let mut decoder = LrptDecoder::new(288_000, 72_000, tx);
+        let mut bytes = [0; 8192];
+        loop {
+            let count = input.read(&mut bytes).unwrap();
+            if count == 0 {
+                break;
+            }
+            assert_eq!(count % 2, 0);
+            decoder.push_samples_cs8(&bytes[..count]);
+        }
+        let mut matched = 0;
+        let mut additional = 0;
+        for payload in &decoder.validated_payloads {
+            let header = ccsds::parse_vcdu_header(payload).unwrap();
+            if let Some(wanted) = expected.get(&(header.virtual_channel_id, header.frame_counter)) {
+                assert_eq!(
+                    payload, wanted,
+                    "VCID {} counter {}",
+                    header.virtual_channel_id, header.frame_counter
+                );
+                matched += 1;
+            } else {
+                additional += 1;
+            }
+        }
+        println!("public off-air start={start}s duration={seconds}s accepted={} matched={matched} additional={additional} rs_ok={}",decoder.validated_payloads.len(),decoder.rs_ok);
+        assert!(matched >= 100, "insufficient independent off-air matches");
+        assert_eq!(
+            additional, 0,
+            "extra CADUs require an independent decoder comparison"
+        );
     }
 
     #[test]

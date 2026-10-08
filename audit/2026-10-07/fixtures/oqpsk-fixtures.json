@@ -1,0 +1,35 @@
+{
+  "libfec_commit": "9750ca0a6d0a786b506e44692776b541f90daa91",
+  "libfec_sha256": "a3a6569a1f3f9f20de15c4aac88e6aaaf0e0a7ca8ee2005843aedf0ee6b63a17",
+  "pulse": "analytical RRC beta=0.5, 12-symbol support, fractional start=0.27",
+  "noise_component_sigma": 0.002,
+  "preamble_symbols": 5000,
+  "expected_payload_sha256": "38ee99a462ff9813ac3f765e276a6a63bc80f7119e63ed9ec0c19ad3860957aa",
+  "cases": [
+    {
+      "file": "oqpsk-case-55.cf32",
+      "sample_rate": 288000,
+      "symbol_rate": 72000,
+      "phase_degrees": 123,
+      "stagger_direction": -1,
+      "frequency_offset_hz": 1000,
+      "clock_drift_ppm": -150,
+      "samples": 120384,
+      "sha256": "f6bb0153f47a44ec67f0245736f524668090cf5740d6e1297dfa4b4588d59e6e"
+    },
+    {
+      "file": "oqpsk-case-59.cf32",
+      "sample_rate": 288000,
+      "symbol_rate": 72000,
+      "phase_degrees": 287,
+      "stagger_direction": 1,
+      "frequency_offset_hz": -1000,
+      "clock_drift_ppm": 150,
+      "samples": 120384,
+      "sha256": "5e5f3119e46cc9d0d9079990d2d8d6fc86e73696f653c091a3beab9fc055d5b7"
+    }
+  ],
+  "generator": "../generate_oqpsk_vectors.py",
+  "expected_payload_file": "oqpsk-expected-payloads.bin",
+  "independence": "No application encoder/filter/waveform code imported; reference RS generated with pinned libfec; analytical transmit RRC."
+}

@@ -21,7 +21,7 @@
     8552
   ],
   "transport_profile_verified": false,
-  "decoder_comparison": "RF transport/carrier comparison remains pending under S01/S02",
+  "decoder_comparison": "72k OQPSK carrier comparison passes for the 180..200-second slice: 175 accepted corrected CADUs equal independent reference payloads byte-for-byte, zero additional. Complete-pass RF and 80k marker-interleaved comparisons remain pending under S01/S11.",
   "pixel_comparison": "passed: independent CDS-time/Pillow oracle, 25,890,816 pixels across three 1568x5504 images, maximum error 1",
   "artifacts": [
     {
@@ -62,5 +62,15 @@
   ],
   "corrected_cadu_product_comparison": "passed: 28,473 image segments; 16,192 complete scanlines; cross-channel shared bounds",
   "independent_product_verification": "public-image-verification.json",
-  "regenerated_satdump_version": "1.2.2"
+  "regenerated_satdump_version": "1.2.2",
+  "carrier_slice_verification": {
+    "symbol_rate_hz": 72000,
+    "start_seconds": 180,
+    "duration_seconds": 20,
+    "accepted_cadus": 175,
+    "reference_payload_matches": 175,
+    "additional_cadus": 0,
+    "successful_rs_codewords": 700,
+    "verification": "repair-carrier-verification.json"
+  }
 }

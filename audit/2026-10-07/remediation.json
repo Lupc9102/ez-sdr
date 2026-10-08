@@ -14,9 +14,16 @@
       "id": "S02",
       "title": "OQPSK carrier/timing recovery depends on absolute RF phase",
       "priority": "P1",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Track the carrier on matched complex samples before branch projection/deskew, use sample-clock-scaled second-order loop gains, and continuously decode both half-symbol stagger directions through 16 ambiguity hypotheses. Keep erasure observations per stagger pairing.",
+      "regressions": [
+        "Independent analytical RRC/libfec corpus: full 0..345-degree sweep in 15-degree steps, both stagger directions, 640 kS/s and 80 ksym/s; byte-identical three-payload recovery across both input partitions.",
+        "Independent fractional 25.6-sample/symbol and 72k/four-sample cases with +/-1 kHz carrier offset and +/-150 ppm clock drift: every payload equal; all 60 cases pass at chunk sizes 997 and 16384.",
+        "tests::independent_oqpsk_fixtures_recover_both_staggers_with_frequency_and_clock_offsets (durable default fixtures)",
+        "tests::missing_energy_is_owned_by_the_observed_stagger_pairing",
+        "Public Meteor-M2-4 off-air slice at 180..200 seconds: 175 corrected CADUs match independent reference byte-for-byte; zero additional CADUs.",
+        "Unchanged audit_logic: every original phase probe returns 12 valid RS codewords; 180-degree phase slip matches 24-codeword clean control; zero-input lock remains false."
+      ],
       "original_repair_gate": "Test a full phase sweep with pulse-shaped independent OQPSK, both stagger orientations, frequency offset, fractional sampling and clock drift. Correct carrier/timing recovery in a way valid for staggered branches. Require payload equality across phases."
     },
     {
@@ -383,6 +390,6 @@
       "original_repair_gate": "Use a cancellable bounded read contract and correlate command lifecycle through queued/applied/rejected/cancelled states. Ensure shutdown/control latency is bounded even when the driver keeps reporting streaming without data. Test late acknowledgements and avoid releasing hardware ownership before the read actually ends."
     }
   ],
-  "off_air_reference_captures": "User has no current recordings (2026-10-08). Search for public independently decoded captures; off-air release evidence remains pending.",
+  "off_air_reference_captures": "User has no current private recordings. Public Meteor-M2-4 IQ and corrected CADUs downloaded; 72k carrier slice and full corrected-CADU images compared independently. Complete RF pass and interleaved 80k mission-profile evidence remain pending.",
   "release_gates": "Keep all field/capture/hardware/audio/disk requirements from REPORT.md. Synthetic tests do not certify them."
 }

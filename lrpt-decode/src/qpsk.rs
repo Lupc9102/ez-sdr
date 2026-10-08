@@ -151,8 +151,7 @@ pub struct QpskConfig {
     pub rrc_beta: f32,
     /// Costas loop bandwidth (normalized), controls lock speed vs jitter.
     pub costas_bandwidth: f32,
-    /// Recombine the half-symbol-staggered I and Q branches used by
-    /// Meteor-M2-3/M2-4 OQPSK before carrier slicing.
+    /// Recombine half-symbol-staggered I/Q after carrier correction.
     pub oqpsk: bool,
 }
 
@@ -160,8 +159,8 @@ impl Default for QpskConfig {
     fn default() -> Self {
         Self {
             sample_rate: 2_048_000.0,
-            // Current Meteor-M2-3/M2-4 LRPT downlinks are commonly operated
-            // at 80 kbaud. Callers may still pass 72 kbaud for older captures.
+            // Primitive default; mission callers must select their actual
+            // 72k or marker-interleaved 80k transport separately.
             symbol_rate: 80_000.0,
             rrc_beta: 0.5,
             costas_bandwidth: 0.02,
@@ -174,6 +173,10 @@ impl Default for QpskConfig {
 #[derive(Debug, Clone, Copy)]
 pub struct RecoveredSymbol {
     pub value: Complex32,
+    /// Opposite half-symbol stagger direction. A quadrant rotation can
+    /// exchange which physical branch leads; sign/swap hypotheses alone
+    /// cannot repair a wrong pairing across symbol instants.
+    pub alternate_value: Option<Complex32>,
     /// Per-symbol Costas lock snapshot. Not currently consumed (callers use
     /// `QpskDemod::is_locked()` for the aggregate state instead), kept for
     /// future per-symbol diagnostics (e.g. highlighting exactly where in a
@@ -230,11 +233,13 @@ impl QpskDemod {
         let lp_taps = lowpass_taps(0.5 / decim_factor as f32, 31);
         let rrc = rrc_taps(config.rrc_beta, sps, 6);
 
-        // Costas loop gains derived from bandwidth (standard 2nd-order PLL
-        // approximation): alpha ~ bandwidth, beta ~ bandwidth^2/damping.
-        let bw = config.costas_bandwidth;
-        let costas_alpha = bw;
-        let costas_beta = bw * bw * 0.25;
+        // Second-order loop, with the configured bandwidth expressed per
+        // symbol and converted to the actual decimated sample clock.
+        let bw = config.costas_bandwidth / sps;
+        let damping = std::f32::consts::FRAC_1_SQRT_2;
+        let denominator = 1.0 + 2.0 * damping * bw + bw * bw;
+        let costas_alpha = 4.0 * damping * bw / denominator;
+        let costas_beta = 4.0 * bw * bw / denominator;
 
         Self {
             config,
@@ -312,7 +317,19 @@ impl QpskDemod {
 
             let matched = self.rrc_filter.push(filtered);
             let write_idx = (self.write_count as usize) % HISTORY_LEN;
-            self.history[write_idx] = matched;
+            // Correct the complex sample before projecting either staggered
+            // branch. Rotating an already deskewed I/Q pair mixes values from
+            // different symbol instants and cannot undo an RF phase rotation.
+            let carrier_corrected = matched * Complex32::from_polar(1.0, -self.costas_phase);
+            let carrier_error = diagonal_phase_error(carrier_corrected);
+            self.costas_freq += self.costas_beta * carrier_error;
+            self.costas_freq = self
+                .costas_freq
+                .clamp(-std::f32::consts::FRAC_PI_4, std::f32::consts::FRAC_PI_4);
+            self.costas_phase =
+                (self.costas_phase + self.costas_freq + self.costas_alpha * carrier_error)
+                    .rem_euclid(std::f32::consts::TAU);
+            self.history[write_idx] = carrier_corrected;
             self.write_count += 1;
 
             // Emit as many symbol decisions as now fall within buffered
@@ -348,17 +365,6 @@ impl QpskDemod {
                     (f64::from(self.sps) - f64::from(self.timing_gain * timing_error)).max(0.5);
                 self.tau += step;
 
-                // 4th-power Costas loop for residual carrier tracking. The
-                // 4th-power error detector's stable equilibria are spaced
-                // every 90 deg starting at 0 deg (i.e. it pulls the
-                // constellation to align with the I/Q *axes*), whereas our
-                // ideal QPSK constellation sits on the *diagonals* (45,
-                // 135, 225, 315 deg) -- see `costas_phase_error`'s doc
-                // comment. Track the loop against the axis-aligned
-                // reference, then rotate the corrected sample by +45 deg
-                // before handing it to the quadrant/differential-decode
-                // stage so it lines up with the diagonal convention that
-                // `diff_decode::symbol_to_quadrant` expects.
                 let decision = if self.config.oqpsk {
                     Complex32::new(
                         current.re,
@@ -368,12 +374,11 @@ impl QpskDemod {
                 } else {
                     current
                 };
-                let loop_corrected = decision * Complex32::from_polar(1.0, -self.costas_phase);
-                let phase_error = costas_phase_error(loop_corrected);
-
-                self.costas_freq += self.costas_beta * phase_error;
-                self.costas_phase += self.costas_freq + self.costas_alpha * phase_error;
-                self.costas_phase = self.costas_phase.rem_euclid(2.0 * std::f32::consts::PI);
+                let alternate = self
+                    .config
+                    .oqpsk
+                    .then(|| Complex32::new(current.re, half_symbol_ago.im));
+                let phase_error = diagonal_phase_error(decision);
 
                 // Lock quality: exponential moving average of |phase error|.
                 self.lock_error_avg = 0.98 * self.lock_error_avg + 0.02 * phase_error.abs();
@@ -392,11 +397,9 @@ impl QpskDemod {
                 };
                 self.locked = self.coherent_symbols >= 64;
 
-                let corrected =
-                    loop_corrected * Complex32::from_polar(1.0, std::f32::consts::FRAC_PI_4);
-
                 out.push(RecoveredSymbol {
-                    value: corrected,
+                    value: decision,
+                    alternate_value: alternate,
                     costas_locked: self.locked,
                 });
             }
@@ -406,24 +409,15 @@ impl QpskDemod {
     }
 }
 
-/// 4th-power Costas phase error detector for QPSK: raise the symbol to the
-/// 4th power to strip the QPSK modulation (leaving only 4x the residual
-/// carrier phase), then take its angle / 4 as the phase error estimate.
-///
-/// Because the 4th power wraps every 90 degrees, this detector's stable
-/// equilibria (error == 0) are spaced every 90 deg starting at 0 deg -- it
-/// pulls its input to align with the I/Q axes, not with the diagonal
-/// (45/135/225/315 deg) points where an ideal `+-1,+-1` QPSK constellation
-/// actually sits. Callers that want output aligned to the diagonal
-/// constellation must rotate the loop's corrected sample by +45 deg
-/// afterward (see `QpskDemod::process`).
-fn costas_phase_error(sample: Complex32) -> f32 {
-    if sample.norm() < 1e-9 {
+/// QPSK fourth moment with its diagonal reference removed. Multiplication
+/// by -1 shifts the equilibria to +/-I,+/-Q rather than the coordinate axes.
+fn diagonal_phase_error(sample: Complex32) -> f32 {
+    if sample.norm_sqr() <= 1e-12 {
         return 0.0;
     }
-    let normalized = sample / sample.norm();
-    let fourth = normalized * normalized * normalized * normalized;
-    fourth.arg() / 4.0
+    let square = sample * sample;
+    let fourth = -(square * square);
+    fourth.arg() * 0.25
 }
 
 #[cfg(test)]
@@ -469,42 +463,28 @@ mod tests {
     }
 
     #[test]
-    fn costas_phase_error_treats_all_four_constellation_points_as_equal_lock_points() {
-        // The 4th-power detector strips QPSK modulation: raising each of
-        // the 4 constellation points (at 45/135/225/315 deg, i.e.
-        // Complex::new(+-1,+-1)) to the 4th power maps all of them to the
-        // *same* residual angle (4*45=180, 4*135=540=180 mod 360, etc.).
-        // The detector output is that residual angle divided by 4, so it
-        // can land on any of 4 branches spaced pi/2 apart depending on
-        // where atan2's branch cut falls -- multiplying back by 4 removes
-        // that arbitrary branch choice and should recover the same
-        // underlying angle (mod 2*pi) for all 4 constellation points. This
-        // 4-fold branch ambiguity is exactly what differential decoding
-        // resolves downstream.
-        let mut quadrupled = Vec::new();
+    fn diagonal_detector_treats_all_four_constellation_points_as_lock_points() {
+        // Each diagonal symbol must have zero residual phase. The downstream
+        // sign/swap hypotheses resolve the remaining quadrant ambiguity.
         for k in 0..4 {
             let phase = std::f32::consts::FRAC_PI_4 + (k as f32) * std::f32::consts::FRAC_PI_2;
-            let err = costas_phase_error(Complex32::from_polar(1.0, phase));
-            quadrupled.push(Complex32::from_polar(1.0, 4.0 * err));
-        }
-        for w in quadrupled.windows(2) {
-            assert!((w[0] - w[1]).norm() < 1e-3, "quadrupled={quadrupled:?}");
+            let err = diagonal_phase_error(Complex32::from_polar(1.0, phase));
+            assert!(err.abs() < 1e-5, "phase={phase} error={err}");
         }
     }
 
     #[test]
-    fn costas_phase_error_has_restoring_force_around_lock_point() {
+    fn diagonal_detector_has_restoring_force_around_lock_point() {
         // Near a lock point, a small clockwise/counter-clockwise
         // perturbation in phase should push the error in a consistent
         // direction (a real restoring force), confirming this is a
         // genuine stable equilibrium and not a flat/degenerate detector.
-        // Use a lock point away from the atan2 branch cut (0 deg, which
-        // 4th-powers to 0 rad with no wraparound nearby) to keep the
-        // comparison simple.
-        let lock_phase = 0.0f32;
-        let base_err = costas_phase_error(Complex32::from_polar(1.0, lock_phase));
-        let plus = costas_phase_error(Complex32::from_polar(1.0, lock_phase + 0.05));
-        let minus = costas_phase_error(Complex32::from_polar(1.0, lock_phase - 0.05));
+        // The diagonal reference maps 45 degrees to zero residual angle,
+        // away from the atan2 branch cut.
+        let lock_phase = std::f32::consts::FRAC_PI_4;
+        let base_err = diagonal_phase_error(Complex32::from_polar(1.0, lock_phase));
+        let plus = diagonal_phase_error(Complex32::from_polar(1.0, lock_phase + 0.05));
+        let minus = diagonal_phase_error(Complex32::from_polar(1.0, lock_phase - 0.05));
         assert!(plus > base_err, "plus={plus} base={base_err}");
         assert!(minus < base_err, "minus={minus} base={base_err}");
     }
