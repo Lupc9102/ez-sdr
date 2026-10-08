@@ -142,6 +142,7 @@ fn soapy_check(op: &'static str, code: c_int) -> Result<(), SoapyError> {
 
 /// Converts interleaved little-endian signed-16-bit I/Q samples (SoapySDR's `"CS16"` stream
 /// format) into phase-preserving, full-scale-normalized `Complex32`.
+#[cfg(test)]
 fn cs16_le_bytes_to_complex(bytes: &[u8]) -> Vec<Complex32> {
     bytes
         .chunks_exact(4)
@@ -182,14 +183,14 @@ impl SoapySource {
         }
     }
 
-    fn apply_gain(&mut self) -> Result<()> {
+    fn apply_gain(&mut self, db: f64) -> Result<()> {
         if self.dev.is_null() {
             return Ok(());
         }
         let dev = self.dev;
         // SAFETY: `dev` checked non-null above.
         let has_gain_mode = unsafe { ffi::SoapySDRDevice_hasGainMode(dev, SOAPY_SDR_RX, 0) };
-        if self.gain_db <= 0.0 {
+        if db <= 0.0 {
             if has_gain_mode {
                 // SAFETY: `dev` checked non-null above.
                 soapy_check("setGainMode", unsafe {
@@ -205,7 +206,7 @@ impl SoapySource {
             }
             // SAFETY: `dev` checked non-null above.
             soapy_check("setGain", unsafe {
-                ffi::SoapySDRDevice_setGain(dev, SOAPY_SDR_RX, 0, self.gain_db)
+                ffi::SoapySDRDevice_setGain(dev, SOAPY_SDR_RX, 0, db)
             })?;
         }
         Ok(())
@@ -260,7 +261,7 @@ impl IqSource for SoapySource {
             self.stop();
             return Err(e.into());
         }
-        if let Err(e) = self.apply_gain() {
+        if let Err(e) = self.apply_gain(self.gain_db) {
             self.stop();
             return Err(e);
         }
@@ -318,77 +319,59 @@ impl IqSource for SoapySource {
     }
 
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
-        self.frequency_hz = hz;
         if !self.dev.is_null() {
             // SAFETY: `self.dev` checked non-null above.
             soapy_check("setFrequency", unsafe {
                 ffi::SoapySDRDevice_setFrequency(self.dev, SOAPY_SDR_RX, 0, hz as f64, ptr::null())
             })?;
         }
+        self.frequency_hz = hz;
         Ok(())
     }
 
     fn set_sample_rate(&mut self, hz: u32) -> Result<()> {
-        self.sample_rate_hz = hz;
+        anyhow::ensure!(hz > 0, "sample rate must be positive");
         if !self.dev.is_null() {
             // SAFETY: `self.dev` checked non-null above.
             soapy_check("setSampleRate", unsafe {
                 ffi::SoapySDRDevice_setSampleRate(self.dev, SOAPY_SDR_RX, 0, hz as f64)
             })?;
         }
+        self.sample_rate_hz = hz;
         Ok(())
     }
 
     fn set_gain(&mut self, db: f64) -> Result<()> {
+        anyhow::ensure!(db.is_finite(), "gain must be finite");
+        self.apply_gain(db)?;
         self.gain_db = db;
-        self.apply_gain()
+        Ok(())
     }
 
     fn read_iq(&mut self, buf: &mut [Complex32]) -> Result<usize> {
         if self.dev.is_null() || self.stream.is_null() {
             return Ok(0);
         }
-        let want_samples = buf.len();
-        self.byte_buf.resize(want_samples * 4, 0);
-
-        // A zero return is a receive timeout (quiet band), not end-of-stream —
-        // and any negative return is a driver error, not EOF. Returning Ok(0)
-        // for either used to stop ingestion silently (ingest treats 0 as EOF).
-        // Retry transient timeouts briefly, then surface a real error so the
-        // failure is visible in status instead of a quiet death.
-        for _ in 0..3 {
-            let mut buf_ptr = self.byte_buf.as_mut_ptr().cast::<c_void>();
+        let dev = self.dev;
+        let stream = self.stream;
+        super::soapy_read::read_once(buf, &mut self.byte_buf, |bytes, count| {
+            let mut buf_ptr = bytes.as_mut_ptr().cast::<c_void>();
             let mut flags: c_int = 0;
             let mut time_ns: i64 = 0;
-
-            // SAFETY: `self.dev`/`self.stream` are checked non-null above. `buf_ptr` points
-            // into `self.byte_buf`, freshly sized to `want_samples * 4` bytes (CS16 = 4
-            // bytes/sample); `SoapySDRDevice_readStream` writes at most `want_samples` elements
-            // through it. `flags`/`time_ns` are stack locals valid for the call.
-            let samples_read = unsafe {
+            // SAFETY: both handles are valid; bytes holds count complete CS16
+            // pairs. The 200 ms deadline bounds each command/shutdown wait.
+            unsafe {
                 ffi::SoapySDRDevice_readStream(
-                    self.dev,
-                    self.stream,
+                    dev,
+                    stream,
                     &mut buf_ptr,
-                    want_samples,
+                    count,
                     &mut flags,
                     &mut time_ns,
-                    500_000,
+                    200_000,
                 )
-            };
-            if samples_read < 0 {
-                anyhow::bail!("soapy readStream failed with code {samples_read}");
             }
-            if samples_read == 0 {
-                continue;
-            }
-            let n_bytes = samples_read as usize * 4;
-            let complex = cs16_le_bytes_to_complex(&self.byte_buf[..n_bytes]);
-            let n = complex.len().min(buf.len());
-            buf[..n].copy_from_slice(&complex[..n]);
-            return Ok(n);
-        }
-        anyhow::bail!("soapy readStream timed out repeatedly (quiet band or stalled device)")
+        })
     }
 
     fn frequency_hz(&self) -> u64 {

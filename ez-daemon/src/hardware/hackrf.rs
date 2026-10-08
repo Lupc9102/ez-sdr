@@ -62,7 +62,6 @@ mod ffi {
     }
 
     #[repr(C)]
-    #[repr(C)]
     pub struct hackrf_transfer {
         pub device: *mut hackrf_device,
         pub buffer: *mut u8,
@@ -184,11 +183,11 @@ impl HackRfSource {
         }
     }
 
-    fn apply_gain(&mut self) -> Result<()> {
+    fn apply_gain(&mut self, db: f64) -> Result<()> {
         if self.dev.is_null() {
             return Ok(());
         }
-        let plan = gain_plan(self.gain_db);
+        let plan = gain_plan(db);
         // SAFETY: `self.dev` checked non-null above.
         Self::check("hackrf_set_amp_enable", unsafe {
             ffi::hackrf_set_amp_enable(self.dev, u8::from(plan.amp_enabled))
@@ -244,7 +243,7 @@ impl IqSource for HackRfSource {
             self.stop();
             return Err(e.into());
         }
-        if let Err(error) = self.apply_gain() {
+        if let Err(error) = self.apply_gain(self.gain_db) {
             self.stop();
             return Err(error);
         }
@@ -300,34 +299,33 @@ impl IqSource for HackRfSource {
     }
 
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
-        self.frequency_hz = hz;
         if !self.dev.is_null() {
             // SAFETY: `self.dev` checked non-null above.
             Self::check("hackrf_set_freq", unsafe {
                 ffi::hackrf_set_freq(self.dev, hz)
             })?;
         }
+        self.frequency_hz = hz;
         Ok(())
     }
 
     fn set_sample_rate(&mut self, hz: u32) -> Result<()> {
-        self.sample_rate_hz = hz;
+        anyhow::ensure!(hz > 0, "sample rate must be positive");
         if !self.dev.is_null() {
             // SAFETY: `self.dev` checked non-null above.
             Self::check("hackrf_set_sample_rate", unsafe {
                 ffi::hackrf_set_sample_rate(self.dev, hz as f64)
             })?;
         }
+        self.sample_rate_hz = hz;
         Ok(())
     }
 
     fn set_gain(&mut self, db: f64) -> Result<()> {
-        let previous = self.gain_db;
-        self.gain_db = db.clamp(0.0, 116.0);
-        if let Err(error) = self.apply_gain() {
-            self.gain_db = previous;
-            return Err(error);
-        }
+        anyhow::ensure!(db.is_finite(), "gain must be finite");
+        self.apply_gain(db)?;
+        let plan = gain_plan(db);
+        self.gain_db = (plan.lna_db + plan.vga_db + if plan.amp_enabled { 14 } else { 0 }) as f64;
         Ok(())
     }
 

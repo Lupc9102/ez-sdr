@@ -65,13 +65,22 @@ fn main() {
     let before = rx.recv_timeout(Duration::from_secs(1)).unwrap();
     let result = handle.set_frequency(101_000_000);
     let status = handle.status();
-    let after = loop {
-        let block = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        if block.center_freq_hz == 101_000_000 {
-            break block;
-        }
-    };
-    running.store(false, Ordering::Relaxed);
+    // The injected source also rejects restoration, so recovery must retire it.
     thread.join().unwrap();
-    println!("rejected_tune_error={} reported_frequency={} next_block_frequency={} capture_epoch_changed={} next_block_discontinuous={}",result.is_err(),status.frequency_hz,after.center_freq_hz,before.capture_clock().epoch!=after.capture_clock().epoch,after.capture_clock().discontinuous);
+    let mut unverified_blocks = 0;
+    while let Some(block) = rx.try_recv() {
+        unverified_blocks += usize::from(block.center_freq_hz != before.center_freq_hz);
+    }
+    running.store(false, Ordering::Relaxed);
+    println!(
+        "rejected_tune_error={} reported_frequency={} connected={} unverified_blocks={}",
+        result.is_err(),
+        status.frequency_hz,
+        status.connected,
+        unverified_blocks
+    );
+    assert!(result.is_err());
+    assert_eq!(status.frequency_hz, before.center_freq_hz);
+    assert!(!status.connected);
+    assert_eq!(unverified_blocks, 0);
 }

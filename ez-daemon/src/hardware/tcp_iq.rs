@@ -17,6 +17,9 @@ use super::IqSource;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_BUF_BYTES: usize = 16 * 16384;
 
+/// In rtl_tcp mode getters report the last command written to the socket. The
+/// protocol supplies no acknowledgement, gain table or hardware readback. In
+/// headerless mode these values describe externally configured capture metadata.
 pub struct TcpIqSource {
     address: SocketAddr,
     expect_rtl_tcp_header: bool,
@@ -26,6 +29,7 @@ pub struct TcpIqSource {
     frequency_hz: u64,
     sample_rate_hz: u32,
     gain_db: f64,
+    requested_gain_db: f64,
 }
 
 impl TcpIqSource {
@@ -40,6 +44,7 @@ impl TcpIqSource {
             frequency_hz: 1_090_000_000,
             sample_rate_hz: 2_400_000,
             gain_db: 40.0,
+            requested_gain_db: 40.0,
         }
     }
 
@@ -69,6 +74,7 @@ impl IqSource for TcpIqSource {
         let mut stream = TcpStream::connect_timeout(&self.address, CONNECT_TIMEOUT)
             .with_context(|| format!("connecting to raw IQ source {}", self.address))?;
         stream.set_read_timeout(Some(CONNECT_TIMEOUT))?;
+        stream.set_write_timeout(Some(CONNECT_TIMEOUT))?;
         if self.expect_rtl_tcp_header {
             let mut header = [0u8; 12];
             stream
@@ -88,6 +94,7 @@ impl IqSource for TcpIqSource {
         if self.expect_rtl_tcp_header {
             self.send_command(0x01, self.frequency_hz as u32)?;
             self.send_command(0x02, self.sample_rate_hz)?;
+            self.set_gain(self.requested_gain_db)?;
         }
         Ok(())
     }
@@ -97,17 +104,37 @@ impl IqSource for TcpIqSource {
     }
 
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
+        let value = u32::try_from(hz).context("rtl_tcp frequency exceeds u32 range")?;
+        self.send_command(0x01, value)?;
         self.frequency_hz = hz;
-        self.send_command(0x01, hz as u32)
+        Ok(())
     }
 
     fn set_sample_rate(&mut self, hz: u32) -> Result<()> {
+        anyhow::ensure!(hz > 0, "sample rate must be positive");
+        self.send_command(0x02, hz)?;
         self.sample_rate_hz = hz;
-        self.send_command(0x02, hz)
+        Ok(())
     }
 
     fn set_gain(&mut self, db: f64) -> Result<()> {
-        self.gain_db = db;
+        anyhow::ensure!(db.is_finite(), "gain must be finite");
+        if self.expect_rtl_tcp_header {
+            // rtl_tcp command_worker: 0x03 selects manual mode; 0x04 supplies
+            // gain in tenths of a dB. <=0 selects tuner AGC, as on local RTL.
+            let tenths = (db * 10.0).round();
+            anyhow::ensure!(tenths <= i32::MAX as f64, "gain exceeds rtl_tcp range");
+            if db <= 0.0 {
+                self.send_command(0x03, 0)?;
+            } else {
+                self.send_command(0x03, 1)?;
+                self.send_command(0x04, tenths as u32)?;
+            }
+            self.gain_db = if db <= 0.0 { 0.0 } else { tenths / 10.0 };
+        } else {
+            self.gain_db = db;
+        }
+        self.requested_gain_db = db;
         Ok(())
     }
 
@@ -152,6 +179,18 @@ impl IqSource for TcpIqSource {
     fn gain_db(&self) -> f64 {
         self.gain_db
     }
+    fn requested_gain_db(&self) -> Option<f64> {
+        self.expect_rtl_tcp_header.then_some(self.requested_gain_db)
+    }
+    fn gain_mode(&self) -> Option<ez_proto::GainMode> {
+        self.expect_rtl_tcp_header
+            .then_some(if self.requested_gain_db <= 0.0 {
+                ez_proto::GainMode::Automatic
+            } else {
+                ez_proto::GainMode::Manual
+            })
+    }
+
     fn kind(&self) -> &'static str {
         "tcp-iq"
     }
@@ -165,6 +204,59 @@ mod tests {
     use std::thread;
 
     #[test]
+    fn rtl_tcp_gain_wire_commands_cover_startup_manual_and_auto() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            peer.write_all(b"RTL0\0\0\0\0\0\0\0\0").unwrap();
+            let expected = [
+                (1, 137_100_000),
+                (2, 1_024_000),
+                (3, 1),
+                (4, 123),
+                (3, 1),
+                (4, 297),
+                (3, 0),
+            ];
+            for (command, value) in expected {
+                let mut packet = [0; 5];
+                peer.read_exact(&mut packet).unwrap();
+                assert_eq!(packet[0], command);
+                assert_eq!(u32::from_be_bytes(packet[1..].try_into().unwrap()), value);
+            }
+        });
+        let mut source = TcpIqSource::new(address, true);
+        source.set_frequency(137_100_000).unwrap();
+        source.set_sample_rate(1_024_000).unwrap();
+        source.set_gain(12.34).unwrap();
+        assert_eq!(source.gain_db(), 12.3);
+        assert_eq!(source.requested_gain_db(), Some(12.34));
+        assert_eq!(source.gain_mode(), Some(ez_proto::GainMode::Manual));
+        source.start().unwrap();
+        source.set_gain(29.68).unwrap();
+        assert_eq!(source.gain_db(), 29.7);
+        source.set_gain(-1.0).unwrap();
+        assert_eq!(source.gain_db(), 0.0);
+        assert_eq!(source.gain_mode(), Some(ez_proto::GainMode::Automatic));
+        server.join().unwrap();
+        source.stop();
+    }
+
+    #[test]
+    fn invalid_tcp_controls_preserve_cached_metadata() {
+        let mut source = TcpIqSource::new("127.0.0.1:1".parse().unwrap(), true);
+        assert!(source.set_frequency(u64::MAX).is_err());
+        assert!(source.set_sample_rate(0).is_err());
+        assert!(source.set_gain(f64::NAN).is_err());
+        assert!(source.set_gain(f64::INFINITY).is_err());
+        assert_eq!(source.frequency_hz(), 1_090_000_000);
+        assert_eq!(source.sample_rate_hz(), 2_400_000);
+        assert_eq!(source.gain_db(), 40.0);
+    }
+
+    #[test]
     #[ignore = "requires loopback TCP sockets; run manually with --ignored"]
     fn rtl_tcp_start_applies_cached_tuning_and_reads_uc8() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -176,12 +268,16 @@ mod tests {
             stream.write_all(&header).unwrap();
 
             // rtl_tcp control packets are command byte + big-endian u32.
-            let mut commands = [0u8; 10];
+            let mut commands = [0u8; 20];
             stream.read_exact(&mut commands).unwrap();
             assert_eq!(commands[0], 0x01);
             assert_eq!(&commands[1..5], &1_090_000_000u32.to_be_bytes());
             assert_eq!(commands[5], 0x02);
             assert_eq!(&commands[6..10], &2_400_000u32.to_be_bytes());
+            assert_eq!(commands[10], 0x03);
+            assert_eq!(&commands[11..15], &1u32.to_be_bytes());
+            assert_eq!(commands[15], 0x04);
+            assert_eq!(&commands[16..20], &400u32.to_be_bytes());
             stream.write_all(&[127, 127, 241, 127]).unwrap();
         });
 

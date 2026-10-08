@@ -249,9 +249,13 @@
       "id": "R14",
       "title": "Rejected hardware tuning changes capture metadata anyway",
       "priority": "P1",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Commit backend caches only after accepted calls. Recover failures by reopening the source at the last verified frequency/rate and original gain request/mode; retire acquisition if restoration fails. Preserve verified terminal status and reset clocks after recovery.",
+      "regressions": [
+        "ingest::tests::mutation_before_error_reopens_at_verified_geometry_or_stops_without_reads",
+        "ingest::tests::unrecoverable_control_errors_retire_source_and_preserve_verified_status",
+        "audit_ingest_control example"
+      ],
       "original_repair_gate": "Commit applied settings only after successful hardware calls; recover/read back actual state after partial failures. Do not publish normal samples with unverified geometry. Test mutation-before-error sources, not just mocks whose rejecting setters preserve state automatically."
     },
     {
@@ -267,27 +271,39 @@
       "id": "R16",
       "title": "Soapy timeout is treated as a fatal driver failure on its first occurrence",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Classify Soapy -1/zero as bounded retry, -4 as an unknown acquisition gap requiring a new epoch, and other negative codes as terminal errors. Each native read has a 200 ms deadline and returns to ingestion controls/shutdown. Decode native-endian CS16 and reject oversized driver counts.",
+      "regressions": [
+        "hardware::soapy_read::tests::documented_timeout_overflow_and_fatal_codes_use_distinct_contracts",
+        "ingest::tests::soapy_timeout_retries_overflow_retires_clock_and_fatal_error_stops",
+        "ingest::tests::endless_timeouts_keep_controls_available_and_shutdown_bounded"
+      ],
       "original_repair_gate": "Handle documented timeout/overflow/error codes separately with bounded cancellation-aware retries and explicit discontinuity policy. Inject -1, -4 and real errors through the backend seam and verify connection, clocks and shutdown."
     },
     {
       "id": "R17",
       "title": "Daemon RTL gain control reports success without checking the hardware result",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Propagate RTL gain-mode/gain errors at startup and during live control. Use supported gain steps without a sentinel. Publish selected gain, original requested gain, and automatic/manual mode separately. Match GUI acknowledgements against the original request while displaying the selected step.",
+      "regressions": [
+        "hardware::rtlsdr::tests::gain_step_and_error_contract_is_shared_by_startup_and_live_control",
+        "source_manager::tests::daemon_selected_gain_step_acknowledges_original_request_and_updates_ui",
+        "messages::hardware_status_tests::hardware_gain_capabilities_are_backward_compatible_and_distinguish_manual_zero"
+      ],
       "original_repair_gate": "Propagate setter errors, expose actual selected gain/mode, and keep requested/applied states separate. Test unsupported steps, zero/auto semantics and failed mode/gain calls during both startup and live changes."
     },
     {
       "id": "R18",
       "title": "rtl_tcp gain is a successful no-op",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Send rtl_tcp tuner mode 0x03 and tenths-dB gain 0x04 at startup and during live changes. Validate controls and update cached state only after socket writes. Document that rtl_tcp has no hardware readback/acknowledgement; keep headerless metadata semantics separate.",
+      "regressions": [
+        "hardware::tcp_iq::tests::rtl_tcp_gain_wire_commands_cover_startup_manual_and_auto",
+        "hardware::tcp_iq::tests::rtl_tcp_start_applies_cached_tuning_and_reads_uc8",
+        "hardware::tcp_iq::tests::invalid_tcp_controls_preserve_cached_metadata"
+      ],
       "original_repair_gate": "Implement the supported rtl_tcp gain mode/value commands with clear lack-of-readback semantics, or reject unsupported gain control. Verify exact wire commands and server behavior with an independent rtl_tcp endpoint."
     },
     {

@@ -20,6 +20,19 @@ pub mod soapy;
 use anyhow::Result;
 use num_complex::Complex32;
 
+/// A bounded live read yielded without samples. This is neither EOF nor a
+/// terminal error: ingestion returns to its command/shutdown check before retry.
+#[derive(Debug, thiserror::Error)]
+pub enum ReadPending {
+    #[error("live IQ read timed out")]
+    Timeout,
+    #[error("live IQ overflow: acquisition gap of unknown duration")]
+    Gap,
+}
+
+#[cfg(any(feature = "soapy", test))]
+pub(crate) mod soapy_read;
+
 /// A source of wideband complex IQ samples.
 ///
 /// Implementations own whatever hardware/file/synthetic state they need. `read_iq` is a
@@ -38,8 +51,9 @@ pub trait IqSource: Send {
     /// Fills normalized full-scale complex samples (CU8 0/255 => -1/+1).
     /// Returns the number of samples written.
     /// A return of `0` means end-of-stream (only expected from finite sources such as a
-    /// non-looping file replay) — live/synthetic sources always block until they have at
-    /// least one sample rather than returning `0`.
+    /// non-looping file replay). Live sources may return `ReadPending` after a
+    /// bounded wait; callers must retry through the command/cancellation loop.
+    /// `ReadPending::Gap` retires the previous capture epoch before the next IQ.
     fn read_iq(&mut self, buf: &mut [Complex32]) -> Result<usize>;
 
     /// Clock of the samples returned by the most recent read, when supplied by
@@ -51,6 +65,12 @@ pub trait IqSource: Send {
     fn frequency_hz(&self) -> u64;
     fn sample_rate_hz(&self) -> u32;
     fn gain_db(&self) -> f64;
+    fn requested_gain_db(&self) -> Option<f64> {
+        None
+    }
+    fn gain_mode(&self) -> Option<ez_proto::GainMode> {
+        None
+    }
 
     /// Short, human-readable identifier for status reporting (`"synthetic"`, `"replay"`,
     /// `"rtlsdr"`, ...).

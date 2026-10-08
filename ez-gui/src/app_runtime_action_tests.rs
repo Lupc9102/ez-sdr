@@ -427,6 +427,8 @@ fn approved_ai_waits_for_daemon_acknowledgement_and_reports_rejection_or_timeout
                 frequency_hz: 100_000_000,
                 sample_rate_hz: 2_000_000,
                 gain_db: 20.0,
+                requested_gain_db: None,
+                gain_mode: None,
                 source_kind: "fake".into(),
                 error: None,
             }))
@@ -456,6 +458,8 @@ fn approved_ai_waits_for_daemon_acknowledgement_and_reports_rejection_or_timeout
                 frequency_hz: 100_000_000,
                 sample_rate_hz: 2_000_000,
                 gain_db: 20.0,
+                requested_gain_db: None,
+                gain_mode: None,
                 source_kind: "fake".into(),
                 error: None,
             }))

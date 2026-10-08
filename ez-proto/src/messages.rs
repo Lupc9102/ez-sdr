@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -252,13 +252,26 @@ pub struct TelemetryFrame {
     pub frame_locked: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GainMode {
+    Automatic,
+    Manual,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareStatus {
     pub connected: bool,
     pub source_kind: String,
     pub frequency_hz: u64,
     pub sample_rate_hz: u32,
+    /// Selected supported gain step (zero is also possible in manual mode).
     pub gain_db: f64,
+    /// Last accepted request, distinct from a hardware-selected gain step.
+    #[serde(default)]
+    pub requested_gain_db: Option<f64>,
+    #[serde(default)]
+    pub gain_mode: Option<GainMode>,
     pub error: Option<String>,
 }
 
@@ -311,4 +324,23 @@ pub enum ServerEvent {
         channel_id: ChannelId,
         dropped_frames: u64,
     },
+}
+
+#[cfg(test)]
+mod hardware_status_tests {
+    use super::*;
+    #[test]
+    fn hardware_gain_capabilities_are_backward_compatible_and_distinguish_manual_zero() {
+        let legacy = r#"{"connected":true,"source_kind":"rtlsdr","frequency_hz":100000000,"sample_rate_hz":2048000,"gain_db":0.0,"error":null}"#;
+        let mut status: HardwareStatus = serde_json::from_str(legacy).unwrap();
+        assert_eq!(status.requested_gain_db, None);
+        assert_eq!(status.gain_mode, None);
+        status.requested_gain_db = Some(0.01);
+        status.gain_mode = Some(GainMode::Manual);
+        let json = serde_json::to_string(&status).unwrap();
+        let decoded: HardwareStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.gain_db, 0.0);
+        assert_eq!(decoded.requested_gain_db, Some(0.01));
+        assert_eq!(decoded.gain_mode, Some(GainMode::Manual));
+    }
 }

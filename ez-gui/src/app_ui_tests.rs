@@ -1809,6 +1809,8 @@ fn scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state() {
             frequency_hz: 145_800_000,
             sample_rate_hz: 2_048_000,
             gain_db: 20.0,
+            requested_gain_db: None,
+            gain_mode: None,
             source_kind: "fake".into(),
             error: None,
         }))

@@ -1645,10 +1645,9 @@ impl SourceManager {
 
     pub(crate) fn gain_request_applied(&self, gain: f64) -> bool {
         if self.source_mode == SourceMode::Daemon {
-            return self
-                .daemon_applied_capture
-                .as_ref()
-                .is_some_and(|hw| hw.connected && hw.gain_db == gain);
+            return self.daemon_applied_capture.as_ref().is_some_and(|hw| {
+                hw.connected && (hw.gain_db == gain || hw.requested_gain_db == Some(gain))
+            });
         }
         self.local_capture_accepted
             && self
@@ -1691,7 +1690,7 @@ impl SourceManager {
                 hardware.connected
                     && hardware.frequency_hz == center
                     && hardware.sample_rate_hz == rate
-                    && hardware.gain_db == gain
+                    && hardware.requested_gain_db.unwrap_or(hardware.gain_db) == gain
             })
         {
             self.daemon_requested_controls = None;
@@ -3194,6 +3193,30 @@ mod tests {
     }
 
     #[test]
+    fn daemon_selected_gain_step_acknowledges_original_request_and_updates_ui() {
+        let mut source = SourceManager::new();
+        source.source_mode = SourceMode::Daemon;
+        source.daemon_requested_controls = Some((100_000_000, 2_048_000, 29.9));
+        source.gain_db = 29.9;
+        let hardware = ez_proto::HardwareStatus {
+            connected: true,
+            source_kind: "rtlsdr".into(),
+            frequency_hz: 100_000_000,
+            sample_rate_hz: 2_048_000,
+            gain_db: 29.7,
+            requested_gain_db: Some(29.9),
+            gain_mode: Some(ez_proto::GainMode::Manual),
+            error: None,
+        };
+        source.apply_daemon_hardware(&hardware);
+        assert!(source.daemon_requested_controls.is_none());
+        assert_eq!(source.gain_db, 29.7);
+        assert!(source.gain_request_applied(29.9));
+        assert!(source.gain_request_applied(29.7));
+        assert!(!source.gain_request_applied(40.0));
+    }
+
+    #[test]
     fn daemon_hardware_updates_preserve_independent_vfo_without_control_echo() {
         let hardware = ez_proto::HardwareStatus {
             connected: true,
@@ -3201,6 +3224,8 @@ mod tests {
             frequency_hz: 118_000_000,
             sample_rate_hz: 2_048_000,
             gain_db: 40.0,
+            requested_gain_db: None,
+            gain_mode: None,
             error: None,
         };
         let mut source = SourceManager::new();

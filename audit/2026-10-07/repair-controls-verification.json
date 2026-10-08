@@ -1,0 +1,203 @@
+{
+  "date": "2026-10-08",
+  "scope": [
+    "R14",
+    "R16",
+    "R17",
+    "R18"
+  ],
+  "commands": [
+    {
+      "name": "controls-workspace",
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/controls-workspace.log",
+      "log_sha256": "d8de3474b9a7e322c22848455c6202047d2feaaa216acacc9f0f41c75e665f7b",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 203,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 830,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 19,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 85,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "hardware-controls",
+      "command": "cargo test -p ez-daemon --features rtlsdr --lib",
+      "exit_code": 0,
+      "log": "repair-evidence/hardware-controls.log",
+      "log_sha256": "470387356f484557bbe20113e38e90b34aed2e8bbf46f3f4426d43fea7270d4f",
+      "test_harnesses": [
+        {
+          "passed": 209,
+          "failed": 0,
+          "ignored": 2
+        }
+      ]
+    },
+    {
+      "name": "tcp-controls",
+      "command": "cargo test -p ez-daemon --no-default-features --lib hardware::tcp_iq::tests -- --include-ignored",
+      "exit_code": 0,
+      "log": "repair-evidence/tcp-controls.log",
+      "log_sha256": "62b8647b314c8c8cdbe53d7a8c6578d29ce67e2db69ad6a12ed2b6dfbc00c147",
+      "test_harnesses": [
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "controls-build",
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/controls-build.log",
+      "log_sha256": "5de3651041d4ddc35cb53700f9955e764c743c457851dc58456189f438fa8dfa",
+      "test_harnesses": []
+    },
+    {
+      "name": "controls-clippy",
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/controls-clippy.log",
+      "log_sha256": "18691ec1078385b8e0db5acf08abd69a968e8cb7eb4e728057af19daf95ecfdf",
+      "test_harnesses": []
+    },
+    {
+      "name": "hardware-controls-clippy",
+      "command": "cargo clippy -p ez-daemon --all-features --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/hardware-controls-clippy.log",
+      "log_sha256": "3c56b8c8c250b8bf5385ccdadbf92a6bc3b66388e94e0cf1cc0d12200bf91c26",
+      "test_harnesses": []
+    },
+    {
+      "name": "controls-reproduction",
+      "command": "cargo run -p ez-daemon --example audit_ingest_control",
+      "exit_code": 0,
+      "log": "repair-evidence/controls-reproduction.log",
+      "log_sha256": "c61b277ad6936187641b703249dfa613433735fe95dcfac0d87f551371c828c3",
+      "test_harnesses": []
+    }
+  ],
+  "source_sha256": {
+    "Cargo.lock": "641c307c8a9371d8308cbb6b46a610624247f2510c1faa2839693ca88dc039dc",
+    "ez-daemon/examples/audit_ingest_control.rs": "0a6071bd9dfed4d6566c3d88bd35c8034bc5a8cb87dfd591df1f50ace4b7d270",
+    "ez-daemon/src/hardware/hackrf.rs": "13c862eba21c3cb9280a14b965ea3729ef8e8d5b91b78a0b543a3c306f7ccc4e",
+    "ez-daemon/src/hardware/mod.rs": "10d44f3029a788c156c0a12a0dfb66a0423a05380b8c0527a866fef257e13bd6",
+    "ez-daemon/src/hardware/rtlsdr.rs": "31834af926683ca0bccb7dd3bd701693fd7bdbb6190a31f3d01dd51ddd24ed09",
+    "ez-daemon/src/hardware/soapy.rs": "9599f78f0164d2a435eb9e68e04c6242fd7bdc87c17507cf8d30b981d8204167",
+    "ez-daemon/src/hardware/tcp_iq.rs": "c6f43f3a9100ad66733edac955d4ca0c26eb6d89065fcaaac05bf9b714ea9b7e",
+    "ez-daemon/src/ingest.rs": "7390424408b3e9b10fe4376bdf22f828392e346d5b9c8442c03460110e2b3fe5",
+    "ez-gui/src/ai_panel.rs": "58505ab370b9e534a8e964b4434b7386aeaadbc52cc91756f6dac823bd89ff7d",
+    "ez-gui/src/app_runtime_action_tests.rs": "1b192a4788146ccb1e183790ab2fcad39712031d25568387c9a6528efa83f640",
+    "ez-gui/src/app_ui_tests.rs": "b52277c1b81f0e54ad68315477d1d3abd7d5b840e248b648970092fd33c19e31",
+    "ez-gui/src/daemon_client.rs": "ea83bc29fa3259b2843c5e4d6756fade0db40a6054d78609962767c46e331a67",
+    "ez-gui/src/source_manager.rs": "cd883a89e835600da68f1807bd6ab841665548cadd119a4a2f42644b316646ee",
+    "ez-proto/Cargo.toml": "a0ffff3d0e2e2babca90975ea35e814ed3902ce87bc796982b134cc2d87fccf2",
+    "ez-proto/src/messages.rs": "18115a0f512224bf535a0c1b5502010498af771d4f142a9bcfb7c0735128029a",
+    "ez-daemon/src/hardware/soapy_read.rs": "9e51dfa526242b75be6f296f9abce7f69e58bb1a070df38fe32c86c88fd748ad"
+  },
+  "format_check_exit_code": 0,
+  "graphify_update_exit_code": 0,
+  "protocol_version": 10,
+  "limits": [
+    "Software and protocol fault-injection verification; no physical SDR opened.",
+    "Native HackRF/Soapy libraries unavailable. All-feature compile/Clippy passes, not physical driver certification.",
+    "rtl_tcp writes have no server acknowledgement/readback; loopback wire contract passed, independent physical endpoint unverified.",
+    "R15 and R22 remain open; this batch does not certify all driver read cancellation."
+  ],
+  "status": "14 of 33 findings software verified; full goal remains active."
+}

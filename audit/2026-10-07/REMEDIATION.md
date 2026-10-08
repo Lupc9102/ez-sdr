@@ -2,12 +2,12 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-10 findings have software repairs with passing regressions; 23 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings; public reference captures still need investigation.
+14 findings have software repairs with passing regressions; 19 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings; public reference captures still need investigation.
 
 ## Implemented and software verified
 
 - **S03 — Viterbi metrics saturate and permanently kill the decoder**: Normalize finite path metrics and retain odd coded bits across chunks.
-  Evidence: viterbi::tests::noisy_aged_paths_recover_clean_bits_and_arbitrary_bit_partitions; 8,192,000-noise-step audit probe: subsequent clean comparison has zero errors..
+  Evidence: viterbi::tests::noisy_aged_paths_recover_clean_bits_and_arbitrary_bit_partitions; 8,192,000-noise-step audit probe: subsequent clean comparison has zero errors.
 - **S05 — Frame search skips an earlier valid marker in favor of a later cleaner one**: Select admissible markers chronologically; validate RS before consuming a candidate boundary.
   Evidence: frame_sync::tests::earlier_imperfect_marker_is_preserved_at_every_chunk_size; frame_sync::tests::invalid_overlapping_candidate_does_not_consume_valid_frame.
 - **S06 — Space-packet headers split across transfer frames are discarded**: Retain incomplete primary headers and bodies across packet zones and idle-only frames.
@@ -27,6 +27,15 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - **R21 — IQ-only recording does not finish when the capture session ends**: Bind pre-armed recorders to their first session, drain EOF without waiting for another block, and finalize before a replacement session. Propagate source-end metadata to the UI finalizer.
   Evidence: raw_recording::tests::iq_only_recorder_drains_eof_and_never_crosses_a_restarted_session; app::app_ui_tests::native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall; app::app_ui_tests::hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples.
 
+- **R14 — Rejected hardware tuning changes capture metadata anyway**: Commit backend caches only after accepted calls. Recover failures by reopening the source at the last verified frequency/rate and original gain request/mode; retire acquisition if restoration fails. Preserve verified terminal status and reset clocks after recovery.
+  Evidence: ingest::tests::mutation_before_error_reopens_at_verified_geometry_or_stops_without_reads; ingest::tests::unrecoverable_control_errors_retire_source_and_preserve_verified_status; audit_ingest_control example.
+- **R16 — Soapy timeout is treated as a fatal driver failure on its first occurrence**: Classify Soapy -1/zero as bounded retry, -4 as an unknown acquisition gap requiring a new epoch, and other negative codes as terminal errors. Each native read has a 200 ms deadline and returns to ingestion controls/shutdown. Decode native-endian CS16 and reject oversized driver counts.
+  Evidence: hardware::soapy_read::tests::documented_timeout_overflow_and_fatal_codes_use_distinct_contracts; ingest::tests::soapy_timeout_retries_overflow_retires_clock_and_fatal_error_stops; ingest::tests::endless_timeouts_keep_controls_available_and_shutdown_bounded.
+- **R17 — Daemon RTL gain control reports success without checking the hardware result**: Propagate RTL gain-mode/gain errors at startup and during live control. Use supported gain steps without a sentinel. Publish selected gain, original requested gain, and automatic/manual mode separately. Match GUI acknowledgements against the original request while displaying the selected step.
+  Evidence: hardware::rtlsdr::tests::gain_step_and_error_contract_is_shared_by_startup_and_live_control; source_manager::tests::daemon_selected_gain_step_acknowledges_original_request_and_updates_ui; messages::hardware_status_tests::hardware_gain_capabilities_are_backward_compatible_and_distinguish_manual_zero.
+- **R18 — rtl_tcp gain is a successful no-op**: Send rtl_tcp tuner mode 0x03 and tenths-dB gain 0x04 at startup and during live changes. Validate controls and update cached state only after socket writes. Document that rtl_tcp has no hardware readback/acknowledgement; keep headerless metadata semantics separate.
+  Evidence: hardware::tcp_iq::tests::rtl_tcp_gain_wire_commands_cover_startup_manual_and_auto; hardware::tcp_iq::tests::rtl_tcp_start_applies_cached_tuning_and_reads_uc8; hardware::tcp_iq::tests::invalid_tcp_controls_preserve_cached_metadata.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
@@ -44,11 +53,7 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - [ ] **R10 · P2** — RAW output has the wrong channel count and timebase for playback/WAV
 - [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
 - [ ] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
-- [ ] **R14 · P1** — Rejected hardware tuning changes capture metadata anyway
 - [ ] **R15 · P1** — HackRF callback overflow is silently stitched into continuous capture
-- [ ] **R16 · P2** — Soapy timeout is treated as a fatal driver failure on its first occurrence
-- [ ] **R17 · P2** — Daemon RTL gain control reports success without checking the hardware result
-- [ ] **R18 · P2** — rtl_tcp gain is a successful no-op
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
 - [ ] **R20 · P2** — Scanning can wait forever on a frequency a fixed replay capture cannot contain
 - [ ] **R22 · P2** — Read cancellation and timed-out hardware commands lack a terminal contract
@@ -65,4 +70,14 @@ Graphify was refreshed with the AST-only update command. It skipped HTML because
 
 JPEG integer quantization was checked against [the pinned SatDump mission implementation](https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/instruments/msumr/lrpt/huffman.cpp). Packet-header and idle-frame handling follows [CCSDS AOS 732.0-B-4](https://ccsds.org/Pubs/732x0b4.pdf).
 
-Next priority: R14/R15/R16/R17/R18/R22 receiver applied-state, loss and bounded cancellation; then S01/S02/S04 real Meteor transport/carrier reacquisition, followed by remaining selectivity and monitoring repairs.
+Next priority: R15/R22 acquisition loss and bounded cancellation; then S01/S02/S04 real Meteor transport/carrier reacquisition, followed by remaining selectivity and monitoring repairs.
+
+## Receiver-control batch verification
+
+The full workspace suite passes again. RTL-feature daemon tests pass without opening a receiver; all four rtl_tcp loopback tests pass, including the previously opt-in wire checks. Default builds and workspace Clippy pass. Clippy also passes with every daemon hardware feature enabled. Hardware fault injection covers mutation-before-error, failed restoration, gain mode/value errors, Soapy timeout/overflow/fatal codes and timeout-only shutdown. Actual HackRF/Soapy libraries and physical error/overload runs remain unavailable; an independent rtl_tcp hardware endpoint was not tested.
+
+The binary protocol version is now 10 because HardwareStatus carries requested gain and mode in addition to selected gain. Rebuild daemon and GUI together; mismatched binary clients are rejected during the existing handshake. JSON clients may omit the new optional fields. The GUI accepts a supported rounded step without retaining a pending exact-value request. rtl_tcp status describes commands written to the peer, not independently confirmed tuner readback.
+
+The updated mutation-before-error audit example asserts that rejected/restoration-failed tuning publishes zero unverified blocks and retains the original frequency. The baseline logs remain unchanged. Evidence and source hashes for this batch are in repair-controls-verification.json.
+
+Protocol commands were checked against [upstream rtl_tcp command handling](https://github.com/osmocom/rtl-sdr/blob/master/src/rtl_tcp.c); stream error codes were checked against [SoapySDR Errors.h](https://github.com/pothosware/SoapySDR/blob/master/include/SoapySDR/Errors.h).

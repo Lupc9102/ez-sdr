@@ -15,7 +15,7 @@ use num_complex::Complex32;
 use ez_proto::HardwareStatus;
 
 use crate::bus::{SampleBlock, SampleBus};
-use crate::hardware::IqSource;
+use crate::hardware::{IqSource, ReadPending};
 
 /// Samples pulled per `read_iq` call. Not a hard limit — sources may return fewer.
 const READ_CHUNK: usize = 8_192;
@@ -121,13 +121,15 @@ fn run(
     let mut pending_discontinuity = true;
     let mut last_source_epoch = None;
 
-    while running.load(Ordering::Relaxed) {
+    'acquisition: while running.load(Ordering::Relaxed) {
         while let Ok(command) = commands.try_recv() {
             let before = (
                 source.frequency_hz(),
                 source.sample_rate_hz(),
                 source.gain_db(),
+                source.gain_mode(),
             );
+            let requested_gain = source.requested_gain_db().unwrap_or(before.2);
             let (result, reply) = match command {
                 HardwareCommand::Frequency { hz, reply } => (source.set_frequency(hz), reply),
                 HardwareCommand::SampleRate { hz, reply } => (source.set_sample_rate(hz), reply),
@@ -140,6 +142,7 @@ fn run(
                             source.frequency_hz(),
                             source.sample_rate_hz(),
                             source.gain_db(),
+                            source.gain_mode(),
                         )
                     {
                         capture_epoch = ez_proto::new_capture_epoch();
@@ -152,12 +155,38 @@ fn run(
                 Err(error) => {
                     let message = error.to_string();
                     tracing::warn!(error = %message, "hardware command failed");
-                    status.store(Arc::new(status_snapshot(
-                        source,
-                        true,
-                        Some(message.clone()),
-                    )));
-                    let _ = reply.send(Err(anyhow::anyhow!(message)));
+                    // A fallible multi-stage hardware call may have changed the
+                    // device even when its getter was left unchanged. Reopen at
+                    // the last verified settings before publishing any more IQ.
+                    let mut verified = (**status.load()).clone();
+                    source.stop();
+                    let recovery = source
+                        .set_frequency(before.0)
+                        .and_then(|()| source.set_sample_rate(before.1))
+                        .and_then(|()| source.set_gain(requested_gain))
+                        .and_then(|()| source.start());
+                    match recovery {
+                        Ok(()) => {
+                            capture_epoch = ez_proto::new_capture_epoch();
+                            sample_counter = 0;
+                            last_source_epoch = None;
+                            pending_discontinuity = true;
+                            status.store(Arc::new(status_snapshot(
+                                source,
+                                true,
+                                Some(message.clone()),
+                            )));
+                            let _ = reply.send(Err(anyhow::anyhow!(message)));
+                        }
+                        Err(recovery_error) => {
+                            let message = format!("{message}; recovery failed: {recovery_error}");
+                            verified.connected = false;
+                            verified.error = Some(message.clone());
+                            status.store(Arc::new(verified));
+                            let _ = reply.send(Err(anyhow::anyhow!(message)));
+                            break 'acquisition;
+                        }
+                    }
                 }
             }
         }
@@ -203,6 +232,19 @@ fn run(
                 sample_counter += n as u64;
                 bus.publish(block);
             }
+            Err(e) if e.downcast_ref::<ReadPending>().is_some() => {
+                if matches!(e.downcast_ref::<ReadPending>(), Some(ReadPending::Gap)) {
+                    // The driver cannot count lost samples. Start a new domain
+                    // rather than inventing a contiguous acquisition clock.
+                    capture_epoch = ez_proto::new_capture_epoch();
+                    sample_counter = 0;
+                    last_source_epoch = None;
+                    pending_discontinuity = true;
+                    tracing::warn!("acquisition overflow: capture epoch retired");
+                }
+                // Some drivers report timeout immediately; avoid a busy loop.
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
             Err(e) => {
                 tracing::error!(error = %e, "ingestion source read failed");
                 status.store(Arc::new(status_snapshot(
@@ -216,8 +258,9 @@ fn run(
     }
     source.stop();
     // A deliberate shutdown is terminal too; retain an existing read failure.
-    let error = status.load().error.clone();
-    status.store(Arc::new(status_snapshot(source, false, error)));
+    let mut terminal = (**status.load()).clone();
+    terminal.connected = false;
+    status.store(Arc::new(terminal));
 }
 
 fn status_snapshot(
@@ -231,6 +274,8 @@ fn status_snapshot(
         frequency_hz: source.frequency_hz(),
         sample_rate_hz: source.sample_rate_hz(),
         gain_db: source.gain_db(),
+        requested_gain_db: source.requested_gain_db(),
+        gain_mode: source.gain_mode(),
         error,
     }
 }
@@ -390,40 +435,232 @@ mod tests {
     }
 
     #[test]
-    fn rejected_hardware_commands_return_backend_errors_and_preserve_status() {
+    fn unrecoverable_control_errors_retire_source_and_preserve_verified_status() {
+        for control in 0..3 {
+            let bus = SampleBus::new();
+            let running = Arc::new(AtomicBool::new(true));
+            let (handle, thread) = spawn(Box::new(RejectingSource::new()), bus, running).unwrap();
+            let initial = handle.status();
+            let error = match control {
+                0 => handle.set_frequency(initial.frequency_hz + 1),
+                1 => handle.set_sample_rate(initial.sample_rate_hz + 1),
+                _ => handle.set_gain(initial.gain_db + 1.0),
+            }
+            .unwrap_err();
+            assert!(error.to_string().contains("rejected"));
+            thread.join().unwrap();
+            let status = handle.status();
+            assert!(!status.connected);
+            assert_eq!(status.frequency_hz, initial.frequency_hz);
+            assert_eq!(status.sample_rate_hz, initial.sample_rate_hz);
+            assert_eq!(status.gain_db, initial.gain_db);
+            assert!(status.error.unwrap().contains("recovery failed"));
+        }
+    }
+
+    struct MutatingFailureSource {
+        inner: SyntheticSource,
+        live: bool,
+        reject_recovery: bool,
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl IqSource for MutatingFailureSource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            self.live = true;
+            self.inner.start()
+        }
+        fn stop(&mut self) {
+            self.live = false;
+            self.inner.stop();
+        }
+        fn set_frequency(&mut self, hz: u64) -> anyhow::Result<()> {
+            self.inner.set_frequency(hz)?;
+            if self.live || self.reject_recovery {
+                anyhow::bail!("mutated before driver rejection");
+            }
+            Ok(())
+        }
+        fn set_sample_rate(&mut self, hz: u32) -> anyhow::Result<()> {
+            self.inner.set_sample_rate(hz)
+        }
+        fn set_gain(&mut self, db: f64) -> anyhow::Result<()> {
+            self.inner.set_gain(db)
+        }
+        fn read_iq(&mut self, buf: &mut [Complex32]) -> anyhow::Result<usize> {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            self.inner.read_iq(buf)
+        }
+        fn frequency_hz(&self) -> u64 {
+            self.inner.frequency_hz()
+        }
+        fn sample_rate_hz(&self) -> u32 {
+            self.inner.sample_rate_hz()
+        }
+        fn gain_db(&self) -> f64 {
+            self.inner.gain_db()
+        }
+        fn kind(&self) -> &'static str {
+            "mutating-failure"
+        }
+    }
+
+    #[test]
+    fn mutation_before_error_reopens_at_verified_geometry_or_stops_without_reads() {
+        for reject_recovery in [false, true] {
+            let bus = SampleBus::new();
+            let sub = bus.subscribe(1024, OverflowPolicy::DropOldest);
+            let running = Arc::new(AtomicBool::new(true));
+            let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let (handle, thread) = spawn(
+                Box::new(MutatingFailureSource {
+                    inner: SyntheticSource::default(),
+                    live: false,
+                    reject_recovery,
+                    reads: Arc::clone(&reads),
+                }),
+                bus,
+                Arc::clone(&running),
+            )
+            .unwrap();
+            let before = sub.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert!(handle.set_frequency(before.center_freq_hz + 12345).is_err());
+            let after_error_reads = reads.load(Ordering::Relaxed);
+            if reject_recovery {
+                thread.join().unwrap();
+                assert!(!handle.status().connected);
+                assert_eq!(reads.load(Ordering::Relaxed), after_error_reads);
+            } else {
+                loop {
+                    let after = sub.recv_timeout(Duration::from_secs(2)).unwrap();
+                    assert_eq!(after.center_freq_hz, before.center_freq_hz);
+                    if after.capture_clock().epoch != before.capture_clock().epoch {
+                        assert!(after.capture_clock().discontinuous);
+                        assert_eq!(after.start_sample, 0);
+                        break;
+                    }
+                }
+                assert!(handle.status().connected);
+                running.store(false, Ordering::Relaxed);
+                thread.join().unwrap();
+            }
+            assert_eq!(handle.status().frequency_hz, before.center_freq_hz);
+            while let Some(block) = sub.try_recv() {
+                assert_eq!(block.center_freq_hz, before.center_freq_hz);
+            }
+        }
+    }
+
+    struct SoapyCodeSource {
+        codes: std::collections::VecDeque<i32>,
+        entered_pending: Arc<AtomicBool>,
+        hold_pending: bool,
+        bytes: Vec<u8>,
+    }
+    impl IqSource for SoapyCodeSource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn stop(&mut self) {}
+        fn set_frequency(&mut self, _: u64) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn set_sample_rate(&mut self, _: u32) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn set_gain(&mut self, _: f64) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn read_iq(&mut self, buf: &mut [Complex32]) -> anyhow::Result<usize> {
+            let code = self
+                .codes
+                .pop_front()
+                .unwrap_or(if self.hold_pending { -1 } else { -2 });
+            if code == -1 {
+                self.entered_pending.store(true, Ordering::Release);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            crate::hardware::soapy_read::read_once(buf, &mut self.bytes, |_, _| code)
+        }
+        fn frequency_hz(&self) -> u64 {
+            100_000_000
+        }
+        fn sample_rate_hz(&self) -> u32 {
+            2_000_000
+        }
+        fn gain_db(&self) -> f64 {
+            0.0
+        }
+        fn kind(&self) -> &'static str {
+            "injected-soapy-codes"
+        }
+    }
+
+    #[test]
+    fn soapy_timeout_retries_overflow_retires_clock_and_fatal_error_stops() {
+        let bus = SampleBus::new();
+        let sub = bus.subscribe(16, OverflowPolicy::DropOldest);
+        let running = Arc::new(AtomicBool::new(true));
+        let (handle, thread) = spawn(
+            Box::new(SoapyCodeSource {
+                codes: [3, -1, 0, 3, -4, -1, 3, -2].into(),
+                entered_pending: Arc::new(AtomicBool::new(false)),
+                hold_pending: false,
+                bytes: vec![],
+            }),
+            bus,
+            running,
+        )
+        .unwrap();
+        thread.join().unwrap();
+        let first = sub.try_recv().unwrap();
+        let after_timeout = sub.try_recv().unwrap();
+        let after_overflow = sub.try_recv().unwrap();
+        assert_eq!(
+            first.capture_clock().epoch,
+            after_timeout.capture_clock().epoch
+        );
+        assert_eq!(after_timeout.start_sample, 3);
+        assert!(!after_timeout.capture_clock().discontinuous);
+        assert_ne!(
+            first.capture_clock().epoch,
+            after_overflow.capture_clock().epoch
+        );
+        assert_eq!(after_overflow.start_sample, 0);
+        assert!(after_overflow.capture_clock().discontinuous);
+        assert!(!handle.status().connected);
+        assert!(handle.status().error.unwrap().contains("code -2"));
+        assert!(sub.try_recv().is_none());
+    }
+
+    #[test]
+    fn endless_timeouts_keep_controls_available_and_shutdown_bounded() {
         let bus = SampleBus::new();
         let running = Arc::new(AtomicBool::new(true));
-        let (handle, thread) =
-            spawn(Box::new(RejectingSource::new()), bus, Arc::clone(&running)).unwrap();
-        let initial = handle.status();
-
-        assert!(handle
-            .set_frequency(initial.frequency_hz + 1)
-            .unwrap_err()
-            .to_string()
-            .contains("frequency rejected"));
-        assert!(handle
-            .set_sample_rate(initial.sample_rate_hz + 1)
-            .unwrap_err()
-            .to_string()
-            .contains("sample rate rejected"));
-        assert!(handle
-            .set_gain(initial.gain_db + 1.0)
-            .unwrap_err()
-            .to_string()
-            .contains("gain rejected"));
-
-        let status = handle.status();
-        assert_eq!(status.frequency_hz, initial.frequency_hz);
-        assert_eq!(status.sample_rate_hz, initial.sample_rate_hz);
-        assert_eq!(status.gain_db, initial.gain_db);
-        assert!(status
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("gain rejected")));
-
+        let entered = Arc::new(AtomicBool::new(false));
+        let (handle, thread) = spawn(
+            Box::new(SoapyCodeSource {
+                codes: [].into(),
+                entered_pending: Arc::clone(&entered),
+                hold_pending: true,
+                bytes: vec![],
+            }),
+            bus,
+            Arc::clone(&running),
+        )
+        .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !entered.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        handle.set_gain(5.0).unwrap();
+        assert!(handle.status().connected);
+        let start = std::time::Instant::now();
         running.store(false, Ordering::Relaxed);
         thread.join().unwrap();
+        assert!(start.elapsed() < Duration::from_millis(500));
+        assert!(!handle.status().connected);
     }
 
     #[test]

@@ -498,6 +498,8 @@ pub(crate) mod tests {
                         frequency_hz: 100_000_000 + n,
                         sample_rate_hz: 2_000_000,
                         gain_db: 0.0,
+                        requested_gain_db: None,
+                        gain_mode: None,
                         error: None,
                     }))
                     .await

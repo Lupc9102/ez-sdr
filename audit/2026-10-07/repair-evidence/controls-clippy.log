@@ -1,0 +1,5 @@
+    Blocking waiting for file lock on build directory
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 33s
