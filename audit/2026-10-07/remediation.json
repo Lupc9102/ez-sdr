@@ -346,9 +346,19 @@
       "id": "R22",
       "title": "Read cancellation and timed-out hardware commands lack a terminal contract",
       "priority": "P2",
-      "status": "open",
-      "change": "Partial: HackRF callback reads and Soapy reads now yield after bounded waits. RTL synchronous cancellation and hardware command timeout lifecycle remain open.",
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Cancel expired queued commands atomically before device setters, with correlated queued/applying/applied/rejected/cancelled receipts. Report an already-started operation as pending with its eventual outcome rather than cancelled. Use shared RTL read_async pumps for daemon and local GUI, bounded 200 ms callback reads, repeated startup-safe cancel_async and join-before-close ownership. Pause/join before live RTL setters, discard old queued geometry, retain acquisition clocks/drop indices, and bound TCP live reads/writes while preserving fragmented pairs.",
+      "regressions": [
+        "ingest::tests::queued_deadline_cancellation_prevents_late_tuning_after_a_stalled_read",
+        "ingest::tests::applying_deadline_returns_correlated_pending_outcome_and_retains_ownership",
+        "ingest::tests::dropping_queued_command_on_shutdown_publishes_cancelled_receipt",
+        "hardware::stream_worker::tests::repeated_cancel_survives_startup_race_and_joins_before_device_release",
+        "hardware::rtl_async::tests::silent_stream_read_yields_and_stop_joins_the_quiet_worker",
+        "hardware::rtl_async::tests::asynchronous_failure_preserves_queued_prefix_then_reports_the_driver_error",
+        "hardware::rtl_async::tests::native_callback_copies_usb_bytes_before_buffer_reuse",
+        "hardware::tcp_iq::tests::stalled_tcp_peer_yields_and_fragmented_iq_keeps_the_first_component",
+        "source_manager::tests::native_callback_acquisition_clock_is_preserved_before_preview_loss_and_stop"
+      ],
       "original_repair_gate": "Use a cancellable bounded read contract and correlate command lifecycle through queued/applied/rejected/cancelled states. Ensure shutdown/control latency is bounded even when the driver keeps reporting streaming without data. Test late acknowledgements and avoid releasing hardware ownership before the read actually ends."
     }
   ],

@@ -19,7 +19,7 @@ fn probe(feature_env: &str, pkg_config_name: &str) {
 }
 
 fn main() {
-    probe("CARGO_FEATURE_RTLSDR", "librtlsdr");
+    probe("CARGO_FEATURE_RTL_ASYNC", "librtlsdr");
     probe("CARGO_FEATURE_HACKRF", "libhackrf");
     probe("CARGO_FEATURE_SOAPY", "SoapySDR");
 }

@@ -12,9 +12,10 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use num_complex::Complex32;
 
-use super::IqSource;
+use super::{IqSource, ReadPending};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const LIVE_TIMEOUT: Duration = Duration::from_millis(200);
 const READ_BUF_BYTES: usize = 16 * 16384;
 
 /// In rtl_tcp mode getters report the last command written to the socket. The
@@ -74,7 +75,7 @@ impl IqSource for TcpIqSource {
         let mut stream = TcpStream::connect_timeout(&self.address, CONNECT_TIMEOUT)
             .with_context(|| format!("connecting to raw IQ source {}", self.address))?;
         stream.set_read_timeout(Some(CONNECT_TIMEOUT))?;
-        stream.set_write_timeout(Some(CONNECT_TIMEOUT))?;
+        stream.set_write_timeout(Some(LIVE_TIMEOUT))?;
         if self.expect_rtl_tcp_header {
             let mut header = [0u8; 12];
             stream
@@ -84,6 +85,7 @@ impl IqSource for TcpIqSource {
                 anyhow::bail!("raw IQ server did not send rtl_tcp RTL0 header");
             }
         }
+        stream.set_read_timeout(Some(LIVE_TIMEOUT))?;
         self.stream = Some(stream);
         self.pending.clear();
         // `DaemonConfig` applies initial tuning before the ingestion thread
@@ -104,8 +106,10 @@ impl IqSource for TcpIqSource {
     }
 
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
-        let value = u32::try_from(hz).context("rtl_tcp frequency exceeds u32 range")?;
-        self.send_command(0x01, value)?;
+        if self.expect_rtl_tcp_header {
+            let value = u32::try_from(hz).context("rtl_tcp frequency exceeds u32 range")?;
+            self.send_command(0x01, value)?;
+        }
         self.frequency_hz = hz;
         Ok(())
     }
@@ -153,16 +157,33 @@ impl IqSource for TcpIqSource {
             self.pending.drain(..n);
             filled = n;
         }
-        while filled < want_bytes {
-            let n = stream.read(&mut self.read_buf[filled..want_bytes])?;
-            if n == 0 {
-                break;
-            }
-            filled += n;
+        let read = stream.read(&mut self.read_buf[filled..want_bytes]);
+        let mut eof = false;
+        match read {
+            Ok(0) => eof = true,
+            Ok(n) => filled += n,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(error.into()),
         }
-        if filled % 2 != 0 {
+        if !filled.is_multiple_of(2) {
             self.pending.push(self.read_buf[filled - 1]);
             filled -= 1;
+        }
+        if filled == 0 {
+            if eof {
+                anyhow::ensure!(
+                    self.pending.is_empty(),
+                    "raw IQ source ended with an incomplete sample pair"
+                );
+                return Ok(0);
+            }
+            return Err(ReadPending::Timeout.into());
         }
         let complex = lrpt_decode::uc8_bytes_to_normalized(&self.read_buf[..filled]);
         let n = complex.len().min(buf.len());
@@ -202,6 +223,42 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    #[test]
+    fn stalled_tcp_peer_yields_and_fragmented_iq_keeps_the_first_component() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (send_more, wait_more) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            peer.write_all(&[12]).unwrap();
+            wait_more.recv().unwrap();
+            peer.write_all(&[34, 56, 78]).unwrap();
+        });
+        let mut source = TcpIqSource::new(address, false);
+        source.start().unwrap();
+        let mut output = [Complex32::default(); 4];
+        let first = source.read_iq(&mut output).unwrap_err();
+        assert!(matches!(
+            first.downcast_ref::<ReadPending>(),
+            Some(ReadPending::Timeout)
+        ));
+        let start = std::time::Instant::now();
+        assert!(source
+            .read_iq(&mut output)
+            .unwrap_err()
+            .downcast_ref::<ReadPending>()
+            .is_some());
+        assert!(start.elapsed() < Duration::from_secs(1));
+        send_more.send(()).unwrap();
+        assert_eq!(source.read_iq(&mut output).unwrap(), 2);
+        assert_eq!(
+            &output[..2],
+            &lrpt_decode::uc8_bytes_to_normalized(&[12, 34, 56, 78])
+        );
+        server.join().unwrap();
+        assert_eq!(source.read_iq(&mut output).unwrap(), 0);
+    }
 
     #[test]
     fn rtl_tcp_gain_wire_commands_cover_startup_manual_and_auto() {

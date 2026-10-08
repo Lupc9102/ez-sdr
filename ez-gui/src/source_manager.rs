@@ -362,6 +362,19 @@ impl CaptureProducer {
         self.block_with_float(samples, None, file_position)
     }
 
+    #[cfg(any(feature = "rtlsdr", test))]
+    fn block_from_acquisition(
+        &mut self,
+        samples: Vec<u8>,
+        clock: ez_proto::CaptureClock,
+    ) -> Option<CaptureBlock> {
+        // The callback bridge assigned this clock before any queue drops. Keep
+        // it through both native consumers and the GUI's separate lossy preview.
+        self.clock = clock;
+        self.pending_i = None;
+        self.block(samples, None)
+    }
+
     fn block_with_float(
         &mut self,
         mut samples: Vec<u8>,
@@ -1210,29 +1223,72 @@ impl SourceManager {
                                 return;
                             }
                         };
+                        // SAFETY: this worker owns dev. It joins the native
+                        // pump before close, including a stop during startup.
+                        let stream =
+                            unsafe { ez_daemon::hardware::rtl_async::RtlAsyncStream::start(dev) };
+                        let mut stream = match stream {
+                            Ok(stream) => stream,
+                            Err(error) => {
+                                unsafe {
+                                    rtl_sdr_close(dev);
+                                }
+                                send_cancellable(
+                                    &tx,
+                                    &running,
+                                    SourceMessage::Error(error.to_string()),
+                                );
+                                return;
+                            }
+                        };
                         let mut buf = vec![0u8; 16384 * 2];
                         while running.load(Ordering::SeqCst) {
-                            // SAFETY: `dev` is checked non-null; `buf` is a
-                            // mutable Vec with a valid pointer and length.
-                            let n = match unsafe { rtl_sdr_read_sync(dev, &mut buf) } {
+                            let n = match stream.read_uc8(&mut buf, rate) {
+                                Ok(0) => {
+                                    send_cancellable(
+                                        &tx,
+                                        &running,
+                                        SourceMessage::Error(
+                                            "RTL-SDR asynchronous stream ended.".into(),
+                                        ),
+                                    );
+                                    break;
+                                }
                                 Ok(n) => n,
+                                Err(error)
+                                    if error
+                                        .downcast_ref::<ez_daemon::hardware::ReadPending>()
+                                        .is_some() =>
+                                {
+                                    continue
+                                }
                                 Err(error) => {
-                                    send_cancellable(&tx, &running, SourceMessage::Error(error));
+                                    send_cancellable(
+                                        &tx,
+                                        &running,
+                                        SourceMessage::Error(error.to_string()),
+                                    );
                                     break;
                                 }
                             };
-                            if n > 0
-                                && !send_live_samples(
-                                    &tx,
-                                    &mut capture,
-                                    buf[..n].to_vec(),
-                                    &dropped_blocks,
-                                )
-                            {
-                                break;
+                            if let Some(block) = capture.block_from_acquisition(
+                                buf[..n].to_vec(),
+                                stream.capture_clock().expect("successful read has clock"),
+                            ) {
+                                if !send_preview_block(&tx, &mut capture, block, &dropped_blocks) {
+                                    break;
+                                }
                             }
                         }
-                        // SAFETY: `dev` is non-null and was opened above.
+                        if let Err(error) = stream.stop() {
+                            send_cancellable(
+                                &tx,
+                                &running,
+                                SourceMessage::Error(error.to_string()),
+                            );
+                        }
+                        drop(stream);
+                        // SAFETY: no read/callback can use dev after the join.
                         unsafe {
                             rtl_sdr_close(dev);
                         }
@@ -2579,25 +2635,6 @@ unsafe fn rtl_sdr_open(
     Ok(dev)
 }
 
-// SAFETY: `dev` must be a valid device handle from `rtl_sdr_open`. `buf` must
-// be a valid mutable slice. The FFI writes `n_read` bytes into the buffer.
-#[cfg(all(feature = "rtlsdr", not(test)))]
-unsafe fn rtl_sdr_read_sync(dev: *mut std::ffi::c_void, buf: &mut [u8]) -> Result<usize, String> {
-    let mut n_read = 0;
-    let result = unsafe {
-        rtlsdr_sys::rtlsdr_read_sync(dev, buf.as_mut_ptr().cast(), buf.len() as i32, &mut n_read)
-    };
-    if result < 0 {
-        return Err(format!(
-            "RTL-SDR USB read failed ({result}); reconnect the receiver and restart."
-        ));
-    }
-    if n_read <= 0 || n_read as usize > buf.len() || n_read % 2 != 0 {
-        return Err("RTL-SDR returned an empty or incomplete I/Q block.".into());
-    }
-    Ok(n_read as usize)
-}
-
 // SAFETY: `dev` must be a non-null handle from `rtl_sdr_open` that has not
 // been closed yet. After this call the handle is invalid.
 #[cfg(all(feature = "rtlsdr", not(test)))]
@@ -2608,6 +2645,36 @@ unsafe fn rtl_sdr_close(dev: *mut std::ffi::c_void) {
 }
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn native_callback_acquisition_clock_is_preserved_before_preview_loss_and_stop() {
+        let stream = crate::capture_stream::CaptureStream::default();
+        stream.start(17);
+        let session = stream.session();
+        let consumer = stream.subscribe(8);
+        let mut producer = CaptureProducer::new(2_400_000, 137_100_000).attach_stream(
+            stream,
+            17,
+            SourceMode::Hardware,
+        );
+        let first = ez_proto::CaptureClock::new(987, 0, 2_400_000, None);
+        producer
+            .block_from_acquisition([128, 129].repeat(64), first)
+            .unwrap();
+        let mut after = first.offset_samples(96).unwrap();
+        after.discontinuous = true;
+        let block = producer
+            .block_from_acquisition([130, 131].repeat(32), after)
+            .unwrap();
+        assert_eq!(block.clock.source_sample_index, 96);
+        assert!(block.clock.discontinuous);
+        let a = consumer.recv_timeout(Duration::from_secs(1)).unwrap();
+        let b = consumer.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(a.clock, first);
+        assert_eq!(b.clock, after);
+        assert_eq!(b.source_generation, 17);
+        session.finish();
+    }
 
     #[test]
     fn replay_capture_positions_and_loop_boundaries_are_identical_at_all_speeds() {

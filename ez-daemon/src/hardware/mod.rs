@@ -8,8 +8,13 @@ pub mod replay;
 pub mod synthetic;
 pub mod tcp_iq;
 
-#[cfg(any(feature = "hackrf", test))]
+#[cfg(any(feature = "hackrf", feature = "rtl-async", test))]
 pub(crate) mod callback_iq;
+
+#[cfg(feature = "rtl-async")]
+pub mod rtl_async;
+#[cfg(any(feature = "rtl-async", test))]
+mod stream_worker;
 
 #[cfg(feature = "rtlsdr")]
 pub mod rtlsdr;

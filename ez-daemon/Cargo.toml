@@ -62,7 +62,8 @@ pkg-config = { workspace = true }
 
 [features]
 default = []
-rtlsdr = []
+rtlsdr = ["rtl-async"]
+rtl-async = []
 hackrf = []
 soapy = []
 

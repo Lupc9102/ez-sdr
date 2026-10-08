@@ -91,7 +91,7 @@ audio = ["dep:cpal"]
 # Exposes the `test_helpers` module to integration tests/benches.
 test-helpers = []
 # RTL-SDR device support
-rtlsdr = ["dep:rtlsdr_sys"]
+rtlsdr = ["dep:rtlsdr_sys", "ez-daemon/rtl-async"]
 
 [lints.rust]
 unsafe_code = "allow"

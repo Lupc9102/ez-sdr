@@ -83,6 +83,24 @@ pub(crate) struct CallbackReader {
 }
 impl CallbackReader {
     pub(crate) fn read(&mut self, output: &mut [Complex32], rate: u32) -> Result<usize> {
+        self.read_with(output.len(), rate, |bytes| {
+            let samples = lrpt_decode::uc8_bytes_to_normalized(bytes);
+            output[..samples.len()].copy_from_slice(&samples);
+        })
+    }
+    #[cfg(any(feature = "rtl-async", test))]
+    pub(crate) fn read_uc8(&mut self, output: &mut [u8], rate: u32) -> Result<usize> {
+        self.read_with(output.len() / 2, rate, |bytes| {
+            output[..bytes.len()].copy_from_slice(bytes)
+        })
+        .map(|n| n * 2)
+    }
+    fn read_with(
+        &mut self,
+        capacity: usize,
+        rate: u32,
+        consume: impl FnOnce(&[u8]),
+    ) -> Result<usize> {
         if self.current.is_none() {
             match self.rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(transfer) => {
@@ -95,11 +113,10 @@ impl CallbackReader {
         }
         let current = self.current.as_ref().unwrap();
         let first_sample = current.first_sample + (self.consumed / 2) as u64;
-        let count = output.len().min((current.bytes.len() - self.consumed) / 2);
+        let count = capacity.min((current.bytes.len() - self.consumed) / 2);
         let bytes = &current.bytes[self.consumed..self.consumed + count * 2];
         // One returned block belongs to one transfer. Never stitch a gap into it.
-        let samples = lrpt_decode::uc8_bytes_to_normalized(bytes);
-        output[..count].copy_from_slice(&samples);
+        consume(bytes);
         let mut clock = CaptureClock::new(self.epoch, first_sample, rate, None);
         clock.discontinuous = self.expected_sample != Some(first_sample);
         self.expected_sample = Some(first_sample + count as u64);
@@ -138,6 +155,25 @@ pub(crate) fn channel(capacity: usize, signed: bool) -> (Arc<CallbackProducer>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unsigned_raw_bridge_keeps_bytes_and_acquisition_clock_across_partial_reads() {
+        let (tx, mut rx) = channel(1, false);
+        let bytes = (0..=255).collect::<Vec<u8>>();
+        assert!(tx.push(&bytes));
+        assert!(tx.push(&[0, 1, 2, 3]));
+        let mut out = [0; 255]; // Keep a complete sample boundary in an odd-sized output.
+        assert_eq!(rx.read_uc8(&mut out, 2_400_000).unwrap(), 254);
+        assert_eq!(&out[..254], &bytes[..254]);
+        assert_eq!(rx.capture_clock().unwrap().source_sample_index, 0);
+        assert_eq!(rx.read_uc8(&mut out, 2_400_000).unwrap(), 2);
+        assert_eq!(&out[..2], &bytes[254..]);
+        assert!(tx.push(&[22, 33]));
+        assert_eq!(rx.read_uc8(&mut out, 2_400_000).unwrap(), 2);
+        assert_eq!(&out[..2], &[22, 33]);
+        assert_eq!(rx.capture_clock().unwrap().source_sample_index, 130);
+        assert!(rx.capture_clock().unwrap().discontinuous);
+    }
+
     #[test]
     fn overflow_counts_acquired_samples_and_never_stitches_retained_transfers() {
         let (tx, mut rx) = channel(1, true);

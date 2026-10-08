@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-15 findings have software repairs with passing regressions; 18 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings; public reference captures still need investigation.
+16 findings have software repairs with passing regressions; 17 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings; public reference captures still need investigation.
 
 ## Implemented and software verified
 
@@ -39,6 +39,9 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - **R15 — HackRF callback overflow is silently stitched into continuous capture**: Assign acquisition sample indices before callback queue admission, retain odd components until a complete pair, count rejected complete samples, and return only contiguous transfer ranges with gap/discontinuity clocks. Preserve loss counters through stop/restart. HackRF empty reads yield after 200 ms.
   Evidence: hardware::callback_iq::tests::overflow_counts_acquired_samples_and_never_stitches_retained_transfers; hardware::callback_iq::tests::odd_callback_partitions_preserve_sample_pairs_and_signedness; hardware::callback_iq::tests::silent_callback_queue_returns_to_cancellation_within_one_deadline; recording::capture_tests::callback_overflow_resets_channel_dsp_and_marks_recording_prefix_incomplete.
 
+- **R22 — Read cancellation and timed-out hardware commands lack a terminal contract**: Cancel expired queued commands atomically before device setters, with correlated queued/applying/applied/rejected/cancelled receipts. Report an already-started operation as pending with its eventual outcome rather than cancelled. Use shared RTL read_async pumps for daemon and local GUI, bounded 200 ms callback reads, repeated startup-safe cancel_async and join-before-close ownership. Pause/join before live RTL setters, discard old queued geometry, retain acquisition clocks/drop indices, and bound TCP live reads/writes while preserving fragmented pairs.
+  Evidence: ingest::tests::queued_deadline_cancellation_prevents_late_tuning_after_a_stalled_read; ingest::tests::applying_deadline_returns_correlated_pending_outcome_and_retains_ownership; ingest::tests::dropping_queued_command_on_shutdown_publishes_cancelled_receipt; hardware::stream_worker::tests::repeated_cancel_survives_startup_race_and_joins_before_device_release; hardware::rtl_async::tests::silent_stream_read_yields_and_stop_joins_the_quiet_worker; hardware::rtl_async::tests::asynchronous_failure_preserves_queued_prefix_then_reports_the_driver_error; hardware::rtl_async::tests::native_callback_copies_usb_bytes_before_buffer_reuse; hardware::tcp_iq::tests::stalled_tcp_peer_yields_and_fragmented_iq_keeps_the_first_component; source_manager::tests::native_callback_acquisition_clock_is_preserved_before_preview_loss_and_stop.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
@@ -58,7 +61,6 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - [ ] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
 - [ ] **R20 · P2** — Scanning can wait forever on a frequency a fixed replay capture cannot contain
-- [ ] **R22 · P2** — Read cancellation and timed-out hardware commands lack a terminal contract
 
 ## Verification and limits
 
@@ -72,7 +74,7 @@ Graphify was refreshed with the AST-only update command. It skipped HTML because
 
 JPEG integer quantization was checked against [the pinned SatDump mission implementation](https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/instruments/msumr/lrpt/huffman.cpp). Packet-header and idle-frame handling follows [CCSDS AOS 732.0-B-4](https://ccsds.org/Pubs/732x0b4.pdf).
 
-Next priority: R22 RTL read cancellation and hardware-command timeout lifecycle; then S01/S02/S04 real Meteor transport/carrier reacquisition, followed by remaining selectivity and monitoring repairs.
+Next priority: S01/S02/S04 mission transport/carrier reacquisition, then remaining radio selectivity/clocks and product/monitoring repairs.
 
 ## Receiver-control batch verification
 
@@ -89,3 +91,11 @@ Protocol commands were checked against [upstream rtl_tcp command handling](https
 All 207 active daemon library tests pass (two existing socket tests remain opt-in). The callback bridge and real ingestion/channelizer/recording integration test pass. Both recording formats stop before the retained post-overflow transfer, preserve exact accepted bytes, and mark the file incomplete. The post-gap channel output matches a freshly initialized DDC at the acquisition index. Arbitrary odd callback partitions preserve IQ pair alignment and signed conversion. Queue loss is counted before publication, and readers never concatenate across a missing transfer.
 
 Default workspace build, formatting and all-feature daemon Clippy pass. Native HackRF callback safety tests compile under all features, but cannot be linked/run on this host without libhackrf. No physical USB overload or worst-case driver shutdown test was performed. The 200 ms callback receive deadline addresses the silent-stream read loop; RTL sync reads and late control-command cancellation still leave R22 open. Evidence is in repair-callback-verification.json.
+
+## Cancellation batch verification
+
+The full workspace suite passes, as do all 222 active RTL-feature daemon library tests, five rtl_tcp socket tests, the local capture-clock bridge regression, default build, workspace/all-feature Clippy, and formatting. Fault injection proves that queued expiry never enters a later setter, an already-applying call retains ownership until terminal completion, startup cancellation is retried after an initial ignored request, silent reads yield, native buffer reuse cannot corrupt published IQ, and asynchronous failure preserves only the accepted prefix. Source/command shutdown discards unconsumed cancelled requests and late reads.
+
+RTL uses librtlsdr's asynchronous cancellation API instead of its synchronous zero-timeout bulk read. The caller joins before closing or retuning; no worker is detached and no device is released while a read still uses it. The inspected upstream event loop has a one-second event wait and drains cancelled transfers; physical USB/driver worst-case cancellation latency and alternate driver forks remain unverified. The 200 ms bound is the IQ consumer wait, not a claimed physical USB shutdown benchmark. See [upstream async read and cancellation](https://github.com/osmocom/rtl-sdr/blob/master/src/librtlsdr.c) and repair-cancellation-verification.json.
+
+The prior callback-batch note about open RTL/command cancellation is historical; R22 now has the software repair above. Other field/release evidence remains unverified, and the full goal is active.

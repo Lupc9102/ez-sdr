@@ -7,15 +7,13 @@
 //! discarding phase into a magnitude table — the daemon's spectrum and LRPT pipelines both
 //! need phase information dump1090's magnitude-only path can't provide.
 
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{c_char, CStr};
 use std::ptr;
 
 use anyhow::Result;
 use num_complex::Complex32;
 
-use super::IqSource;
-
-const READ_BUF_BYTES: usize = 16 * 16384; // 256 kB, matches dump1090's MODES_RTL_BUF_SIZE
+use super::{rtl_async::RtlAsyncStream, IqSource};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RtlSdrError {
@@ -31,7 +29,7 @@ pub enum RtlSdrError {
 
 #[allow(dead_code)]
 mod ffi {
-    use std::ffi::{c_char, c_int, c_void};
+    use std::ffi::{c_char, c_int};
 
     #[repr(C)]
     pub struct rtlsdr_dev {
@@ -55,12 +53,6 @@ mod ffi {
         pub fn rtlsdr_set_tuner_gain_mode(dev: *mut rtlsdr_dev, manual: c_int) -> c_int;
         pub fn rtlsdr_get_tuner_gains(dev: *mut rtlsdr_dev, gains: *mut c_int) -> c_int;
         pub fn rtlsdr_reset_buffer(dev: *mut rtlsdr_dev) -> c_int;
-        pub fn rtlsdr_read_sync(
-            dev: *mut rtlsdr_dev,
-            buf: *mut c_void,
-            len: c_int,
-            n_read: *mut c_int,
-        ) -> c_int;
     }
 }
 
@@ -107,7 +99,8 @@ pub struct RtlSdrSource {
     gain_db: f64,
     requested_gain_db: f64,
     gains: Vec<i32>,
-    read_buf: Vec<u8>,
+    stream: Option<RtlAsyncStream>,
+    total_dropped_samples: u64,
 }
 
 // SAFETY: `RtlSdrSource` only holds a raw device pointer touched through FFI calls that
@@ -156,8 +149,34 @@ impl RtlSdrSource {
             requested_gain_db: 0.0,
             gain_db: 0.0, // <= 0.0 selects tuner AGC, matching dump1090's convention
             gains: Vec::new(),
-            read_buf: Vec::new(),
+            stream: None,
+            total_dropped_samples: 0,
         }
+    }
+
+    fn pause_stream(&mut self) -> Result<()> {
+        if let Some(mut stream) = self.stream.take() {
+            let result = stream.stop();
+            self.total_dropped_samples = self
+                .total_dropped_samples
+                .saturating_add(stream.dropped_samples());
+            result?;
+        }
+        Ok(())
+    }
+    fn resume_stream(&mut self) -> Result<()> {
+        // SAFETY: this source owns the opened device. Every setter pauses and
+        // joins first; stop drops the stream before closing the device.
+        self.stream = Some(unsafe { RtlAsyncStream::start(self.dev.cast()) }?);
+        Ok(())
+    }
+    #[must_use]
+    pub fn acquisition_dropped_samples(&self) -> u64 {
+        self.total_dropped_samples.saturating_add(
+            self.stream
+                .as_ref()
+                .map_or(0, |stream| stream.dropped_samples()),
+        )
     }
 
     fn apply_gain(&mut self, requested: f64) -> Result<f64> {
@@ -178,6 +197,9 @@ impl RtlSdrSource {
 
 impl IqSource for RtlSdrSource {
     fn start(&mut self) -> Result<()> {
+        if !self.dev.is_null() {
+            return Ok(());
+        }
         // SAFETY: no preconditions beyond librtlsdr being linked.
         if unsafe { ffi::rtlsdr_get_device_count() } == 0 {
             return Err(RtlSdrError::NoDevices.into());
@@ -238,10 +260,15 @@ impl IqSource for RtlSdrSource {
             anyhow::bail!("RTL reset buffer failed");
         }
 
+        if let Err(error) = self.resume_stream() {
+            self.stop();
+            return Err(error);
+        }
         Ok(())
     }
 
     fn stop(&mut self) {
+        let _ = self.pause_stream();
         if !self.dev.is_null() {
             // SAFETY: `self.dev` is non-null and was returned by a successful
             // `rtlsdr_open`; `rtlsdr_close` is its matching destructor.
@@ -253,12 +280,14 @@ impl IqSource for RtlSdrSource {
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
         anyhow::ensure!(hz <= u32::MAX as u64, "RTL frequency exceeds u32 range");
         if !self.dev.is_null() {
+            self.pause_stream()?;
             // SAFETY: `self.dev` checked non-null above.
             if unsafe { ffi::rtlsdr_set_center_freq(self.dev, hz as u32) } < 0 {
                 return Err(
                     RtlSdrError::OpenFailed("failed to set center frequency".into()).into(),
                 );
             }
+            self.resume_stream()?;
         }
         self.frequency_hz = hz;
         Ok(())
@@ -267,50 +296,41 @@ impl IqSource for RtlSdrSource {
     fn set_sample_rate(&mut self, hz: u32) -> Result<()> {
         anyhow::ensure!(hz > 0, "sample rate must be positive");
         if !self.dev.is_null() {
+            self.pause_stream()?;
             // SAFETY: `self.dev` checked non-null above.
             if unsafe { ffi::rtlsdr_set_sample_rate(self.dev, hz) } < 0 {
                 return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
             }
+            self.resume_stream()?;
         }
         self.sample_rate_hz = hz;
         Ok(())
     }
 
     fn set_gain(&mut self, db: f64) -> Result<()> {
+        let live = !self.dev.is_null();
+        if live {
+            self.pause_stream()?;
+        }
         let applied = self.apply_gain(db)?;
+        if live {
+            self.resume_stream()?;
+        }
         self.gain_db = applied;
         self.requested_gain_db = db;
         Ok(())
     }
 
     fn read_iq(&mut self, buf: &mut [Complex32]) -> Result<usize> {
-        if self.dev.is_null() {
-            return Ok(0);
+        match self.stream.as_mut() {
+            Some(stream) => stream.read_iq(buf, self.sample_rate_hz),
+            None => Ok(0),
         }
-        let want_bytes = (buf.len() * 2).min(READ_BUF_BYTES);
-        self.read_buf.resize(want_bytes, 0);
-        let mut n_read: c_int = 0;
-
-        // SAFETY: `self.dev` checked non-null above. `self.read_buf` is a freshly sized
-        // `Vec` of `want_bytes` — its pointer is valid and aligned for the duration of the
-        // call. `n_read` is a stack-local `c_int` that outlives the call.
-        let ret = unsafe {
-            ffi::rtlsdr_read_sync(
-                self.dev,
-                self.read_buf.as_mut_ptr().cast(),
-                want_bytes as c_int,
-                &mut n_read,
-            )
-        };
-        if ret < 0 {
-            return Err(RtlSdrError::ReadSyncFailed.into());
-        }
-
-        let bytes_read = (n_read.max(0) as usize).min(self.read_buf.len());
-        let complex = lrpt_decode::uc8_bytes_to_normalized(&self.read_buf[..bytes_read]);
-        let n = complex.len().min(buf.len());
-        buf[..n].copy_from_slice(&complex[..n]);
-        Ok(n)
+    }
+    fn capture_clock(&self) -> Option<ez_proto::CaptureClock> {
+        self.stream
+            .as_ref()
+            .and_then(|stream| stream.capture_clock())
     }
 
     fn frequency_hz(&self) -> u64 {
@@ -413,25 +433,5 @@ mod tests {
     fn is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<RtlSdrSource>();
-    }
-
-    #[test]
-    fn n_read_clamping_prevents_out_of_bounds() {
-        let read_buf_len = 1024usize;
-
-        // Negative n_read clamps to 0
-        let neg_n_read: c_int = -1;
-        let bytes_read = (neg_n_read.max(0) as usize).min(read_buf_len);
-        assert_eq!(bytes_read, 0);
-
-        // Excess n_read clamps to read_buf.len()
-        let excess_n_read: c_int = 2048;
-        let bytes_read = (excess_n_read.max(0) as usize).min(read_buf_len);
-        assert_eq!(bytes_read, 1024);
-
-        // Valid n_read within bounds is preserved
-        let normal_n_read: c_int = 512;
-        let bytes_read = (normal_n_read.max(0) as usize).min(read_buf_len);
-        assert_eq!(bytes_read, 512);
     }
 }

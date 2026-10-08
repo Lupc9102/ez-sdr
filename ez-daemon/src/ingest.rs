@@ -4,9 +4,11 @@
 //! source itself — the hot path (`read_iq` + `publish`) never locks, matching the daemon's
 //! zero-copy/lock-free ingestion requirement exactly as [`crate::broadcast`] does for fan-out.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -35,6 +37,119 @@ enum HardwareCommand {
     },
 }
 
+/// A command has one correlated lifecycle even if its original waiter expires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CommandPhase {
+    Queued,
+    Applying,
+    Applied,
+    Rejected,
+    Cancelled,
+}
+
+#[derive(Debug)]
+struct CommandReceipt {
+    phase: AtomicU8,
+    outcome: Mutex<Option<Result<(), String>>>,
+}
+impl CommandReceipt {
+    fn new() -> Self {
+        Self {
+            phase: AtomicU8::new(CommandPhase::Queued as u8),
+            outcome: Mutex::new(None),
+        }
+    }
+    fn phase(&self) -> CommandPhase {
+        match self.phase.load(Ordering::Acquire) {
+            0 => CommandPhase::Queued,
+            1 => CommandPhase::Applying,
+            2 => CommandPhase::Applied,
+            3 => CommandPhase::Rejected,
+            _ => CommandPhase::Cancelled,
+        }
+    }
+    fn begin(&self) -> bool {
+        self.phase
+            .compare_exchange(
+                CommandPhase::Queued as u8,
+                CommandPhase::Applying as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+    fn cancel_queued(&self) -> bool {
+        self.phase
+            .compare_exchange(
+                CommandPhase::Queued as u8,
+                CommandPhase::Cancelled as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+    fn finish(&self, result: Result<(), String>) {
+        let phase = if result.is_ok() {
+            CommandPhase::Applied
+        } else {
+            CommandPhase::Rejected
+        };
+        *self
+            .outcome
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
+        self.phase.store(phase as u8, Ordering::Release);
+    }
+    fn outcome(&self) -> Option<Result<(), String>> {
+        match self.phase() {
+            CommandPhase::Applied | CommandPhase::Rejected => self
+                .outcome
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
+            CommandPhase::Cancelled => {
+                Some(Err("hardware command cancelled before application".into()))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The device call already started when its acknowledgement deadline expired.
+/// It cannot safely be undone or labelled cancelled. This receipt exposes its
+/// eventual applied/rejected result, while ingestion retains hardware ownership.
+#[derive(Debug, thiserror::Error)]
+#[error("hardware command is still applying; outcome pending, check receiver status")]
+pub struct PendingHardwareCommand {
+    receipt: Arc<CommandReceipt>,
+}
+impl PendingHardwareCommand {
+    #[must_use]
+    pub fn phase(&self) -> CommandPhase {
+        self.receipt.phase()
+    }
+    #[must_use]
+    pub fn outcome(&self) -> Option<Result<(), String>> {
+        self.receipt.outcome()
+    }
+}
+
+struct QueuedCommand {
+    command: HardwareCommand,
+    deadline: Instant,
+    receipt: Arc<CommandReceipt>,
+}
+impl Drop for QueuedCommand {
+    fn drop(&mut self) {
+        if !self.receipt.cancel_queued() && self.receipt.phase() == CommandPhase::Applying {
+            self.receipt.finish(Err(
+                "ingestion ended while applying: hardware outcome unknown".into(),
+            ));
+        }
+    }
+}
+
 const COMMAND_CAPACITY: usize = 64;
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -43,7 +158,7 @@ const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// the source itself (only the ingestion thread ever does that).
 #[derive(Clone)]
 pub struct IngestHandle {
-    commands: Sender<HardwareCommand>,
+    commands: Sender<QueuedCommand>,
     status: Arc<ArcSwap<HardwareStatus>>,
 }
 
@@ -65,13 +180,40 @@ impl IngestHandle {
         &self,
         make_command: impl FnOnce(Sender<anyhow::Result<()>>) -> HardwareCommand,
     ) -> anyhow::Result<()> {
+        self.request_with_timeout(make_command, COMMAND_TIMEOUT)
+    }
+
+    fn request_with_timeout(
+        &self,
+        make_command: impl FnOnce(Sender<anyhow::Result<()>>) -> HardwareCommand,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let deadline = Instant::now() + timeout;
+        let receipt = Arc::new(CommandReceipt::new());
         let (reply_tx, reply_rx) = bounded(1);
         self.commands
-            .send_timeout(make_command(reply_tx), COMMAND_TIMEOUT)
+            .send_timeout(
+                QueuedCommand {
+                    command: make_command(reply_tx),
+                    deadline,
+                    receipt: Arc::clone(&receipt),
+                },
+                timeout,
+            )
             .map_err(|error| anyhow::anyhow!("hardware command queue unavailable: {error}"))?;
-        reply_rx
-            .recv_timeout(COMMAND_TIMEOUT)
-            .map_err(|error| anyhow::anyhow!("hardware command timed out: {error}"))?
+        match reply_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(result) => result,
+            Err(_) => {
+                // This CAS orders timeout against the worker's begin CAS: a
+                // cancelled queued command can never enter the device setter.
+                receipt.cancel_queued();
+                if let Some(result) = receipt.outcome() {
+                    result.map_err(anyhow::Error::msg)
+                } else {
+                    Err(PendingHardwareCommand { receipt }.into())
+                }
+            }
+        }
     }
 
     #[must_use]
@@ -111,7 +253,7 @@ pub fn spawn(
 fn run(
     source: &mut dyn IqSource,
     bus: &SampleBus,
-    commands: &Receiver<HardwareCommand>,
+    commands: &Receiver<QueuedCommand>,
     running: &AtomicBool,
     status: &ArcSwap<HardwareStatus>,
 ) {
@@ -123,6 +265,12 @@ fn run(
 
     'acquisition: while running.load(Ordering::Relaxed) {
         while let Ok(command) = commands.try_recv() {
+            if !running.load(Ordering::Relaxed) || Instant::now() >= command.deadline {
+                command.receipt.cancel_queued();
+            }
+            if !command.receipt.begin() {
+                continue;
+            }
             let before = (
                 source.frequency_hz(),
                 source.sample_rate_hz(),
@@ -130,10 +278,10 @@ fn run(
                 source.gain_mode(),
             );
             let requested_gain = source.requested_gain_db().unwrap_or(before.2);
-            let (result, reply) = match command {
-                HardwareCommand::Frequency { hz, reply } => (source.set_frequency(hz), reply),
-                HardwareCommand::SampleRate { hz, reply } => (source.set_sample_rate(hz), reply),
-                HardwareCommand::Gain { db, reply } => (source.set_gain(db), reply),
+            let (result, reply) = match &command.command {
+                HardwareCommand::Frequency { hz, reply } => (source.set_frequency(*hz), reply),
+                HardwareCommand::SampleRate { hz, reply } => (source.set_sample_rate(*hz), reply),
+                HardwareCommand::Gain { db, reply } => (source.set_gain(*db), reply),
             };
             match result {
                 Ok(()) => {
@@ -150,6 +298,7 @@ fn run(
                         pending_discontinuity = true;
                     }
                     status.store(Arc::new(status_snapshot(source, true, None)));
+                    command.receipt.finish(Ok(()));
                     let _ = reply.send(Ok(()));
                 }
                 Err(error) => {
@@ -176,6 +325,7 @@ fn run(
                                 true,
                                 Some(message.clone()),
                             )));
+                            command.receipt.finish(Err(message.clone()));
                             let _ = reply.send(Err(anyhow::anyhow!(message)));
                         }
                         Err(recovery_error) => {
@@ -183,6 +333,7 @@ fn run(
                             verified.connected = false;
                             verified.error = Some(message.clone());
                             status.store(Arc::new(verified));
+                            command.receipt.finish(Err(message.clone()));
                             let _ = reply.send(Err(anyhow::anyhow!(message)));
                             break 'acquisition;
                         }
@@ -191,7 +342,14 @@ fn run(
             }
         }
 
-        match source.read_iq(&mut buf) {
+        if !running.load(Ordering::Relaxed) {
+            break;
+        }
+        let read = source.read_iq(&mut buf);
+        if !running.load(Ordering::Relaxed) {
+            break;
+        }
+        match read {
             Ok(0) => {
                 // Finite source exhausted (e.g. non-looping replay reaching EOF): stop
                 // cleanly rather than spin on an EOF that will never produce more samples.
@@ -255,6 +413,11 @@ fn run(
                 break;
             }
         }
+    }
+    // Retire every queued command on EOF/error/shutdown; none may escape into
+    // a replacement source. Dropping the envelope publishes Cancelled.
+    while let Ok(command) = commands.try_recv() {
+        drop(command);
     }
     source.stop();
     // A deliberate shutdown is terminal too; retain an existing read failure.
@@ -661,6 +824,180 @@ mod tests {
         thread.join().unwrap();
         assert!(start.elapsed() < Duration::from_millis(500));
         assert!(!handle.status().connected);
+    }
+
+    struct GatedSource {
+        frequency: u64,
+        first_read: bool,
+        read_started: Sender<()>,
+        read_release: Receiver<()>,
+        tune_started: Sender<()>,
+        tune_release: Option<Receiver<()>>,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        stopped: Arc<AtomicBool>,
+    }
+    impl IqSource for GatedSource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn stop(&mut self) {
+            self.stopped.store(true, Ordering::Release);
+        }
+        fn set_frequency(&mut self, hz: u64) -> anyhow::Result<()> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            let _ = self.tune_started.try_send(());
+            if let Some(release) = self.tune_release.take() {
+                release.recv().unwrap();
+            }
+            self.frequency = hz;
+            Ok(())
+        }
+        fn set_sample_rate(&mut self, _: u32) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn set_gain(&mut self, _: f64) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn read_iq(&mut self, _: &mut [Complex32]) -> anyhow::Result<usize> {
+            if self.first_read {
+                self.first_read = false;
+                self.read_started.send(()).unwrap();
+                self.read_release.recv().unwrap();
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(ReadPending::Timeout.into())
+        }
+        fn frequency_hz(&self) -> u64 {
+            self.frequency
+        }
+        fn sample_rate_hz(&self) -> u32 {
+            2_400_000
+        }
+        fn gain_db(&self) -> f64 {
+            0.0
+        }
+        fn kind(&self) -> &'static str {
+            "gated-lifecycle-test"
+        }
+    }
+
+    #[test]
+    fn queued_deadline_cancellation_prevents_late_tuning_after_a_stalled_read() {
+        let (read_started_tx, read_started) = bounded(1);
+        let (read_release, read_release_rx) = bounded(1);
+        let (tune_started_tx, tune_started) = bounded(1);
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let running = Arc::new(AtomicBool::new(true));
+        let (handle, thread) = spawn(
+            Box::new(GatedSource {
+                frequency: 100_000_000,
+                first_read: true,
+                read_started: read_started_tx,
+                read_release: read_release_rx,
+                tune_started: tune_started_tx,
+                tune_release: None,
+                calls: Arc::clone(&calls),
+                stopped: Arc::new(AtomicBool::new(false)),
+            }),
+            SampleBus::new(),
+            Arc::clone(&running),
+        )
+        .unwrap();
+        read_started.recv_timeout(Duration::from_secs(2)).unwrap();
+        let error = handle
+            .request_with_timeout(
+                |reply| HardwareCommand::Frequency {
+                    hz: 101_000_000,
+                    reply,
+                },
+                Duration::from_millis(100),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("cancelled before application"));
+        assert!(error.downcast_ref::<PendingHardwareCommand>().is_none());
+        read_release.send(()).unwrap();
+        assert!(tune_started
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        assert_eq!(handle.status().frequency_hz, 100_000_000);
+        running.store(false, Ordering::Relaxed);
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn applying_deadline_returns_correlated_pending_outcome_and_retains_ownership() {
+        let (read_started_tx, read_started) = bounded(1);
+        let (read_release, read_release_rx) = bounded(1);
+        let (tune_started_tx, tune_started) = bounded(1);
+        let (tune_release, tune_release_rx) = bounded(1);
+        let stopped = Arc::new(AtomicBool::new(false));
+        let running = Arc::new(AtomicBool::new(true));
+        let (handle, thread) = spawn(
+            Box::new(GatedSource {
+                frequency: 100_000_000,
+                first_read: true,
+                read_started: read_started_tx,
+                read_release: read_release_rx,
+                tune_started: tune_started_tx,
+                tune_release: Some(tune_release_rx),
+                calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                stopped: Arc::clone(&stopped),
+            }),
+            SampleBus::new(),
+            Arc::clone(&running),
+        )
+        .unwrap();
+        read_started.recv_timeout(Duration::from_secs(2)).unwrap();
+        let client = handle.clone();
+        let request = std::thread::spawn(move || {
+            client.request_with_timeout(
+                |reply| HardwareCommand::Frequency {
+                    hz: 101_000_000,
+                    reply,
+                },
+                Duration::from_millis(100),
+            )
+        });
+        read_release.send(()).unwrap();
+        tune_started.recv_timeout(Duration::from_secs(2)).unwrap();
+        let pending = request
+            .join()
+            .unwrap()
+            .unwrap_err()
+            .downcast::<PendingHardwareCommand>()
+            .unwrap();
+        assert_eq!(pending.phase(), CommandPhase::Applying);
+        assert!(pending.outcome().is_none());
+        assert_eq!(handle.status().frequency_hz, 100_000_000);
+        running.store(false, Ordering::Relaxed);
+        assert!(!stopped.load(Ordering::Acquire));
+        assert!(!thread.is_finished());
+        tune_release.send(()).unwrap();
+        thread.join().unwrap();
+        assert!(stopped.load(Ordering::Acquire));
+        assert_eq!(pending.phase(), CommandPhase::Applied);
+        assert_eq!(pending.outcome(), Some(Ok(())));
+        assert_eq!(handle.status().frequency_hz, 101_000_000);
+        assert!(!handle.status().connected);
+    }
+
+    #[test]
+    fn dropping_queued_command_on_shutdown_publishes_cancelled_receipt() {
+        let receipt = Arc::new(CommandReceipt::new());
+        let (reply, _) = bounded(1);
+        drop(QueuedCommand {
+            command: HardwareCommand::Gain { db: 1.0, reply },
+            deadline: Instant::now() + Duration::from_secs(1),
+            receipt: Arc::clone(&receipt),
+        });
+        assert_eq!(receipt.phase(), CommandPhase::Cancelled);
+        assert!(receipt
+            .outcome()
+            .unwrap()
+            .unwrap_err()
+            .contains("cancelled"));
     }
 
     #[test]
