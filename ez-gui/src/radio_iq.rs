@@ -178,10 +178,23 @@ impl RadioIqProcessor {
 
     fn push_pair(&mut self, i: u8, q: u8, output: &mut Vec<Complex32>) {
         // Same normalization as the existing byte demodulation and FFT paths.
-        let mut sample = Complex32::new(
+        let sample = Complex32::new(
             (f32::from(i) - 127.4) / 128.0,
             (f32::from(q) - 127.4) / 128.0,
         );
+        self.push_complex(sample, output);
+    }
+
+    /// Native normalized IQ keeps sub-byte signals and headroom intact.
+    pub fn process_complex(&mut self, samples: &[Complex32]) -> Vec<Complex32> {
+        let mut output = Vec::with_capacity(samples.len() / self.config.decimation as usize + 1);
+        for &sample in samples {
+            self.push_complex(sample, &mut output);
+        }
+        output
+    }
+
+    fn push_complex(&mut self, mut sample: Complex32, output: &mut Vec<Complex32>) {
         if self.config.dc_remove {
             let precise = Complex64::new(f64::from(sample.re), f64::from(sample.im));
             self.dc_estimate += (precise - self.dc_estimate) * self.dc_alpha;
@@ -411,6 +424,30 @@ mod tests {
         assert!(amplitude(&uncorrected[24_000..], rate, 0.0) > 0.24);
         assert!(amplitude(&corrected[24_000..], rate, 0.0) < 1e-5);
         assert!(amplitude(&corrected[24_000..], rate, 1200.0) > 0.595);
+    }
+
+    #[test]
+    fn native_float_processing_is_chunk_invariant_at_sub_byte_amplitudes() {
+        let input: Vec<_> = complex_tone(192_003.0, 1700.0, 8197)
+            .into_iter()
+            .map(|sample| sample * 0.0001 + Complex32::new(1.3, -1.2))
+            .collect();
+        for decimation in [1, 2, 8, 32] {
+            let config = RadioIqConfig {
+                input_rate: 192_003,
+                dc_remove: true,
+                invert: true,
+                decimation,
+            };
+            let expected = RadioIqProcessor::new(config).process_complex(&input);
+            let mut processor = RadioIqProcessor::new(config);
+            let actual: Vec<_> = input
+                .chunks(113)
+                .flat_map(|chunk| processor.process_complex(chunk))
+                .collect();
+            assert_eq!(actual, expected);
+            assert_eq!(actual.len(), input.len() / decimation as usize);
+        }
     }
 
     #[test]

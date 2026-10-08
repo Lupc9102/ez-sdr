@@ -2148,6 +2148,7 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
             })
         })
         .collect();
+    let (release_source, source_gate) = crossbeam_channel::bounded(1);
     let stream = {
         let mut state = app.shared.lock().unwrap();
         state.source.source_mode = SourceMode::Hardware;
@@ -2160,9 +2161,10 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
         state.volume = 0.6;
         state.audio_running = false; // WAV capture runs without opening a speaker.
         let input = period.clone();
-        state
-            .source
-            .test_set_hardware_open(move |_| Ok(input.clone()));
+        state.source.test_set_hardware_open(move |_| {
+            source_gate.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(input.clone())
+        });
         state.source.capture_stream()
     };
     let ctx = egui::Context::default();
@@ -2194,6 +2196,14 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
         app.recorder_panel.last_error
     );
     app.shared.lock().unwrap().source.start();
+    // Apply the new capture generation before the device produces its first
+    // block. Old requested generations must not accept the new session.
+    app.logic(&ctx, &mut frame);
+    while app.demod_worker.applied_version() < app.demod_worker.requested_version() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    release_source.send(()).unwrap();
     let started = Instant::now();
     for tick in 1..=60 {
         app.logic(&ctx, &mut frame);
@@ -2368,9 +2378,15 @@ fn hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples()
     );
     assert_eq!(satellite_metadata["frequency_hz"], 118_000_000);
     assert_eq!(satellite_metadata["sample_rate_hz"], 2_400_000);
-    assert!(app.recorder_panel.last_error.contains("Recording stopped"));
+    assert!(app.recorder_panel.last_error.is_empty());
+    assert_eq!(first_metadata["stop_reason"], "capture session ended");
     assert!(!app.shared.lock().unwrap().recording);
-    assert!(app.satellite_panel.pending_decode_request.is_none());
+    // A clean source-end prefix can now be offered for offline decoding.
+    // Any handoff must still describe the old file's immutable geometry.
+    if let Some(request) = &app.satellite_panel.pending_decode_request {
+        assert_eq!(std::path::Path::new(&request.file_path), satellite_path);
+        assert_eq!(request.sample_rate, 2_400_000);
+    }
     while !app.shared.lock().unwrap().source.capture_tuning_applied() {
         app.logic(&ctx, &mut frame);
         assert!(Instant::now() < deadline);

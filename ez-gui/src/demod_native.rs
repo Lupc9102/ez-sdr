@@ -276,6 +276,17 @@ impl Processor {
         self.snapshot.received_samples += samples;
         self.next_stream = block.stream_sample_index + samples;
         self.snapshot.complete = false;
+        if desired
+            .radio
+            .as_ref()
+            .is_some_and(|radio| block.source_generation != radio.generation)
+        {
+            self.snapshot.skipped_samples += samples;
+            self.expected = None;
+            // A stale queue tail must not publish an error into a newly opened
+            // recorder or reset/demodulate under that session's controls.
+            return;
+        }
         let continuous = self
             .expected
             .as_ref()
@@ -323,7 +334,11 @@ impl Processor {
             self.mixer.seek_capture(block.clock);
             self.rf_active = true;
         }
-        let wideband = self.iq.process(&block.samples);
+        let wideband = if let Some(samples) = &block.float_samples {
+            self.iq.process_complex(samples)
+        } else {
+            self.iq.process(&block.samples)
+        };
         let offset = (i128::from(radio.frequency_hz) - i128::from(block.center_hz)) as f64;
         let signal = if radio.measure_power || radio.squelch_mode == SquelchMode::Power {
             self.power.process(
@@ -855,12 +870,77 @@ mod tests {
     }
 
     #[test]
+    fn native_float_replay_reaches_rf_preview_and_audio_at_sub_byte_amplitudes() {
+        let stream = CaptureStream::default();
+        stream.start(1);
+        let (radio, demod_config) = config(None);
+        let desired = WorkerControl {
+            radio: Some(radio.clone()),
+            config: demod_config,
+            ..Default::default()
+        };
+        let previews = Broadcaster::new();
+        let preview = previews.subscribe(4, OverflowPolicy::DropIncoming);
+        let audio = RadioAudioStream {
+            bus: Broadcaster::new(),
+            capture: stream.clone(),
+            handled_samples: Arc::new(AtomicU64::new(0)),
+            lost_samples: Arc::new(AtomicU64::new(0)),
+            running: Arc::new(AtomicBool::new(true)),
+            produced_samples: Arc::new(AtomicU64::new(0)),
+        };
+        let received_audio = audio.bus.subscribe(4, OverflowPolicy::DropIncoming);
+        let samples: Vec<_> = (0..131_072)
+            .map(|n| {
+                let time = n as f64 / 2_400_000.0;
+                Complex32::from_polar(
+                    (0.0001 * (1.0 + 0.4 * (std::f64::consts::TAU * 1000.0 * time).sin())) as f32,
+                    (std::f64::consts::TAU * 100_000.0 * time) as f32,
+                )
+            })
+            .collect();
+        let mut block = CaptureBlock::fixture(
+            vec![128; samples.len() * 2],
+            ez_proto::CaptureClock::new(9, 0, 2_400_000, None),
+            1,
+            0,
+        );
+        block.center_hz = radio.center_hz;
+        block.session = Some(stream.session());
+        block.float_samples = Some(Arc::from(samples.clone()));
+        let mut processor = Processor::new();
+        processor.configure(&desired);
+        processor.process(&block, &desired, &previews, &audio);
+        let rf = preview.try_recv().unwrap();
+        let mut iq = RadioIqProcessor::new(radio.iq);
+        let expected_rf = iq.process_complex(&samples);
+        assert_eq!(rf.samples, expected_rf);
+        assert!(rf.samples[1024..]
+            .iter()
+            .any(|sample| sample.norm() > 0.00005));
+        let mut mixer = VfoMixer::new(iq.output_rate());
+        mixer.configure(iq.output_rate(), 100_000.0);
+        let channel = mixer.process(&expected_rf);
+        let mut demod = Demodulator::new();
+        demod.set_sample_rates_exact(demod_config.input_rate, demod_config.audio_rate);
+        demod.set_lpf_cutoff(demod_config.lpf_cutoff);
+        demod.set_rf_bandwidth(demod_config.rf_bandwidth);
+        let expected: Vec<_> = demod
+            .demodulate_complex(&channel, demod_config.mode)
+            .into_iter()
+            .map(|sample| sample * radio.volume)
+            .collect();
+        assert_eq!(received_audio.try_recv().unwrap().samples, expected);
+        assert!(expected.iter().any(|sample| sample.abs() > 0.00001));
+    }
+
+    #[test]
     fn native_radio_resets_every_state_at_capture_boundaries() {
         for boundary in 0..7 {
             let stream = CaptureStream::default();
             stream.start(1);
             let (radio, demod) = config(None);
-            let desired = WorkerControl {
+            let mut desired = WorkerControl {
                 radio: Some(radio),
                 config: demod,
                 ..Default::default()
@@ -897,7 +977,11 @@ mod tests {
                     block.stream_sample_index += 8;
                 }
                 3 => block.clock.origin_unix_ns = Some(123),
-                4 => block.source_generation += 1,
+                4 => {
+                    block.source_generation += 1;
+                    desired.radio.as_mut().unwrap().generation = block.source_generation;
+                    processor.configure(&desired);
+                }
                 5 => {
                     processor.expected.as_mut().unwrap().1 += 1;
                 }

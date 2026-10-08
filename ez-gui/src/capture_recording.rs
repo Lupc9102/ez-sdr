@@ -23,6 +23,7 @@ pub(crate) trait CaptureRecordingWriter: Send + 'static {
     fn progress(&self) -> RecordingProgress;
     fn fail(&mut self, error: String);
     fn input_overflow(&mut self, blocks: u64, samples: u64);
+    fn source_ended(&mut self) {}
     fn finish(&mut self) -> Self::Final;
 }
 
@@ -54,6 +55,8 @@ impl<T: Send + 'static> CaptureRecorder<T> {
         deadline: Option<Instant>,
     ) -> Self {
         let input = stream.subscribe(128);
+        let initial = stream.session();
+        let mut owner = initial.progress().live.then_some(initial);
         let control = Arc::new(ArcSwap::from_pointee(Control {
             deadline,
             ..Default::default()
@@ -69,6 +72,22 @@ impl<T: Send + 'static> CaptureRecorder<T> {
                 let end = worker_control.load().end();
                 if let Some(block) = block {
                     if end.is_some_and(|end| block.observed_at > end) {
+                        if owner.as_ref().is_some_and(|owner| !owner.progress().live) {
+                            writer.source_ended();
+                        }
+                        break;
+                    }
+                    if owner.is_none() {
+                        owner.clone_from(&block.session);
+                    }
+                    if owner.as_ref().is_some_and(|owner| {
+                        block
+                            .session
+                            .as_ref()
+                            .is_some_and(|session| !Arc::ptr_eq(session, owner))
+                            || block.source_generation != owner.progress().generation
+                    }) {
+                        writer.source_ended();
                         break;
                     }
                     if first.is_none() {
@@ -82,6 +101,14 @@ impl<T: Send + 'static> CaptureRecorder<T> {
                         break;
                     }
                 } else if end.is_some_and(|end| Instant::now() >= end) {
+                    if owner.as_ref().is_some_and(|owner| !owner.progress().live) {
+                        writer.source_ended();
+                    }
+                    break;
+                } else if owner.as_ref().is_some_and(|owner| !owner.progress().live) {
+                    // A timeout means the accepted session's queue is drained.
+                    // EOF needs no subsequent block to trigger finalization.
+                    writer.source_ended();
                     break;
                 }
                 if input.dropped_count() > 0 {

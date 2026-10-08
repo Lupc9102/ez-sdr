@@ -1,11 +1,11 @@
 //! VCDU/M-PDU header parsing and CCSDS Space Packet reassembly.
 //!
-//! Implements the generic CCSDS 132.0-B "TM Space Data Link Protocol"
+//! Implements the CCSDS 732.0-B AOS Space Data Link Protocol
 //! header layouts (VCDU + M-PDU) and the CCSDS Space Packet primary header
 //! (a separate, widely-published generic standard), applied to the
 //! RS-corrected transport frame payload.
 //!
-//! VCDU header (6 bytes, per CCSDS 132.0-B):
+//! VCDU header (6 bytes, per CCSDS 732.0-B):
 //! - byte 0: 2 bits TF version + 6 bits spacecraft ID (high bits)
 //! - byte 1: 2 bits spacecraft ID (low bits) + 6 bits virtual channel ID
 //! - bytes 2..5 (3 bytes, 24 bits): VCDU frame counter
@@ -135,7 +135,7 @@ pub fn parse_space_packet_header(bytes: &[u8]) -> Option<SpacePacketHeader> {
     })
 }
 
-// Sequence flags per CCSDS 132.0-B Space Packet primary header. Current
+// Sequence flags per CCSDS 732.0-B Space Packet primary header. Current
 // reassembly (`PacketReassembler`) segments purely on the M-PDU
 // `first_header_pointer`, so these aren't consulted internally yet, but
 // they're kept as documented, spec-accurate constants for callers that
@@ -179,39 +179,63 @@ pub struct SpacePacket {
     pub data: Vec<u8>,
 }
 
-/// Per-APID reassembly state: accumulates M-PDU payload bytes into
-/// complete Space Packets, since a packet's data can span multiple VCDUs.
+/// One in-progress packet per virtual channel, including a partial primary
+/// header whose APID and length are not yet available.
 #[derive(Debug, Default)]
-struct ApidBuffer {
-    /// Bytes accumulated so far for the packet currently being assembled.
-    buf: Vec<u8>,
-    /// Expected total length of the packet currently being assembled, once
-    /// known from its primary header.
-    expected_len: Option<usize>,
+struct PacketBuffer {
+    bytes: Vec<u8>,
+    header: Option<SpacePacketHeader>,
+}
+
+impl PacketBuffer {
+    /// Consume only this packet's remaining header/body, never subsequent data.
+    fn append(&mut self, bytes: &[u8]) -> Option<(usize, Option<SpacePacket>)> {
+        let mut consumed = 0;
+        if self.header.is_none() {
+            consumed = bytes.len().min(SPACE_PACKET_HEADER_LEN - self.bytes.len());
+            self.bytes.extend_from_slice(&bytes[..consumed]);
+            if self.bytes.len() < SPACE_PACKET_HEADER_LEN {
+                return Some((consumed, None));
+            }
+            let header = parse_space_packet_header(&self.bytes)?;
+            if header.version != 0 {
+                return None;
+            }
+            self.header = Some(header);
+        }
+        let header = self.header.unwrap();
+        let take = (header.total_len() - self.bytes.len()).min(bytes.len() - consumed);
+        self.bytes
+            .extend_from_slice(&bytes[consumed..consumed + take]);
+        consumed += take;
+        let packet = (self.bytes.len() == header.total_len()).then(|| SpacePacket {
+            apid: header.apid,
+            header,
+            data: self.bytes[SPACE_PACKET_HEADER_LEN..].to_vec(),
+        });
+        Some((consumed, packet))
+    }
 }
 
 #[derive(Debug, Default)]
 struct VcidContext {
     expected_frame_counter: Option<u32>,
-    active_apid: Option<u16>,
+    pending: Option<PacketBuffer>,
 }
 
-/// Reassembles CCSDS Space Packets from a stream of M-PDU payloads (the
-/// VCDU payload minus VCDU+M-PDU headers), tracking partial packets
-/// per-APID across many VCDUs.
+/// Reassembles M-PDU packets with independent state for each virtual channel.
+/// APID identifies the delivered packet, never the owner of partial bytes.
 #[derive(Debug, Default)]
 pub struct PacketReassembler {
-    apid_buffers: BTreeMap<u16, ApidBuffer>,
     vcid_contexts: BTreeMap<u8, VcidContext>,
-    /// Fully reassembled packets ready to be drained by the caller.
     completed: Vec<SpacePacket>,
 }
 
-/// Upper bounds against hostile/junk input. A real LRPT stream uses a
-/// handful of APIDs; thousands of distinct APIDs (or an undrained
-/// completion queue) means garbage, not data.
-pub const MAX_TRACKED_APIDS: usize = 64;
+/// AOS VCIDs are six bits. Each can retain at most one 65,542-byte packet.
+pub const MAX_VIRTUAL_CHANNELS: usize = 64;
 pub const MAX_COMPLETED_PACKETS: usize = 4096;
+/// An idle-only M-PDU does not interrupt an in-progress packet (AOS §4.1.4.2).
+pub const IDLE_ONLY: u16 = 0x7FE;
 
 impl PacketReassembler {
     #[must_use]
@@ -219,21 +243,9 @@ impl PacketReassembler {
         Self::default()
     }
 
-    /// Feed one VCDU's M-PDU payload (after VCDU+M-PDU headers are
-    /// stripped) plus the M-PDU header's `first_header_pointer`, which
-    /// tells us where (if anywhere) a new Space Packet header starts
-    /// within `payload`.
-    ///
-    /// Reassembly strategy: if `first_header_pointer` is
-    /// `NO_PACKET_START`, the entire payload is a continuation of
-    /// whichever APID packet is already in progress -- but since M-PDU
-    /// payloads interleave multiple virtual channels' worth of packet data
-    /// without per-byte APID tagging until a new header appears, we track
-    /// a single "current APID" continuation context per call site. This
-    /// matches the standard M-PDU model: at most one packet is "in
-    /// progress" per virtual channel at any time, so continuation bytes
-    /// append to whichever packet was last opened on this same virtual
-    /// channel.
+    /// Feed a packet zone. FHP marks its first new header; bytes before it
+    /// continue the previous packet. Header and body fragmentation both persist
+    /// across frames. Gaps invalidate only the affected virtual channel.
     pub fn push_mpdu_payload(
         &mut self,
         payload: &[u8],
@@ -241,127 +253,70 @@ impl PacketReassembler {
         vcid: u8,
         frame_counter: u32,
     ) {
-        let vcid_ctx = self.vcid_contexts.entry(vcid).or_default();
-        if let Some(expected) = vcid_ctx.expected_frame_counter {
-            if expected != frame_counter {
-                eprintln!(
-                    "WARNING: Frame gap on VCID {}: expected {}, got {}",
-                    vcid, expected, frame_counter
-                );
-                if let Some(apid) = vcid_ctx.active_apid {
-                    // discard in-progress partial packet
-                    if let Some(entry) = self.apid_buffers.get_mut(&apid) {
-                        entry.buf.clear();
-                        entry.expected_len = None;
-                    }
-                    vcid_ctx.active_apid = None;
-                }
-            }
-        }
-        vcid_ctx.expected_frame_counter = Some((frame_counter + 1) & 0xFFFFFF);
-
-        let mut cursor = 0usize;
-        let mut current_apid: Option<u16> = vcid_ctx.active_apid;
-
-        // Ensure the active apid actually has an open buffer
-        if let Some(apid) = current_apid {
-            if let Some(b) = self.apid_buffers.get(&apid) {
-                if !matches!(b.expected_len, Some(len) if b.buf.len() < len) {
-                    current_apid = None;
-                }
-            } else {
-                current_apid = None;
-            }
-        }
-
-        if first_header_pointer == NO_PACKET_START {
-            // Entire payload continues whatever packet is open.
-            if let Some(apid) = current_apid {
-                self.append_and_try_complete(apid, vcid, payload);
-            }
+        if usize::from(vcid) >= MAX_VIRTUAL_CHANNELS {
             return;
         }
-
+        let context = self.vcid_contexts.entry(vcid).or_default();
+        if context
+            .expected_frame_counter
+            .is_some_and(|expected| expected != frame_counter)
+        {
+            context.pending = None;
+        }
+        context.expected_frame_counter = Some(frame_counter.wrapping_add(1) & 0xFFFFFF);
+        if first_header_pointer == IDLE_ONLY {
+            return;
+        }
         let pointer = usize::from(first_header_pointer);
-        if pointer > payload.len() {
+        if first_header_pointer != NO_PACKET_START && pointer > payload.len() {
+            context.pending = None;
             return;
         }
-        if pointer > 0 {
-            // Bytes before the pointer are continuation of the previously
-            // open packet.
-            if let Some(apid) = current_apid {
-                self.append_and_try_complete(apid, vcid, &payload[..pointer]);
-            }
-            cursor = pointer;
-        }
-
-        // From `cursor` onward: one or more new packet headers may start
-        // back-to-back if multiple small packets fit in this VCDU.
-        while cursor + SPACE_PACKET_HEADER_LEN <= payload.len() {
-            let Some(header) = parse_space_packet_header(&payload[cursor..]) else {
-                break;
-            };
-            let apid = header.apid;
-            let remaining = &payload[cursor..];
-            let take = remaining.len().min(header.total_len());
-            if self.buffer_for(apid).is_some() {
-                self.vcid_contexts.get_mut(&vcid).unwrap().active_apid = Some(apid);
-                let entry = self.apid_buffers.get_mut(&apid).unwrap();
-                entry.buf.clear();
-                entry.expected_len = Some(header.total_len());
-                entry.buf.extend_from_slice(&remaining[..take]);
-                self.try_complete(apid, vcid);
-            }
-            cursor += take;
-        }
-    }
-
-    /// Mutable reassembly buffer for `apid`, refusing to track new APIDs
-    /// past [`MAX_TRACKED_APIDS`] (junk input could otherwise open thousands
-    /// of 64 KB buffers — see the `total_len` field sizing).
-    fn buffer_for(&mut self, apid: u16) -> Option<&mut ApidBuffer> {
-        if !self.apid_buffers.contains_key(&apid) && self.apid_buffers.len() >= MAX_TRACKED_APIDS {
-            return None;
-        }
-        Some(self.apid_buffers.entry(apid).or_default())
-    }
-
-    fn append_and_try_complete(&mut self, apid: u16, vcid: u8, bytes: &[u8]) {
-        let Some(entry) = self.buffer_for(apid) else {
-            return;
+        let continuation_end = if first_header_pointer == NO_PACKET_START {
+            payload.len()
+        } else {
+            pointer
         };
-        entry.buf.extend_from_slice(bytes);
-        self.try_complete(apid, vcid);
-    }
-
-    fn try_complete(&mut self, apid: u16, vcid: u8) {
-        let is_complete = self
-            .apid_buffers
-            .get(&apid)
-            .is_some_and(|entry| matches!(entry.expected_len, Some(len) if entry.buf.len() >= len));
-        if !is_complete {
+        if let Some(pending) = &mut context.pending {
+            match pending.append(&payload[..continuation_end]) {
+                Some((_, Some(packet))) => {
+                    context.pending = None;
+                    Self::complete(&mut self.completed, packet);
+                }
+                None => context.pending = None,
+                _ => {}
+            }
+        }
+        if first_header_pointer == NO_PACKET_START {
             return;
         }
-        if let Some(entry) = self.apid_buffers.get_mut(&apid) {
-            let len = entry.expected_len.unwrap();
-            let packet_bytes: Vec<u8> = entry.buf.drain(0..len).collect();
-            entry.expected_len = None;
-            if let Some(ctx) = self.vcid_contexts.get_mut(&vcid) {
-                if ctx.active_apid == Some(apid) {
-                    ctx.active_apid = None;
+        // A known new-header boundary supersedes any unfinished packet.
+        context.pending = None;
+        let mut cursor = pointer;
+        while cursor < payload.len() {
+            let mut pending = PacketBuffer::default();
+            match pending.append(&payload[cursor..]) {
+                Some((consumed, Some(packet))) => {
+                    cursor += consumed;
+                    Self::complete(&mut self.completed, packet);
                 }
-            }
-            if let Some(header) = parse_space_packet_header(&packet_bytes) {
-                let data = packet_bytes[SPACE_PACKET_HEADER_LEN..].to_vec();
-                // Bound the queue for callers that never drain: in-pipeline
-                // use drains every push, so this only bites direct API users
-                // feeding junk without draining.
-                if self.completed.len() >= MAX_COMPLETED_PACKETS {
-                    self.completed.remove(0);
+                Some((_, None)) => {
+                    context.pending = Some(pending);
+                    break;
                 }
-                self.completed.push(SpacePacket { apid, header, data });
+                None => break,
             }
         }
+    }
+
+    fn complete(completed: &mut Vec<SpacePacket>, packet: SpacePacket) {
+        if packet.apid == 0x7FF {
+            return; // CCSDS idle packet
+        }
+        if completed.len() >= MAX_COMPLETED_PACKETS {
+            completed.remove(0);
+        }
+        completed.push(packet);
     }
 
     /// Drain all packets completed so far.
@@ -498,6 +453,81 @@ mod tests {
     }
 
     #[test]
+    fn every_header_and_body_split_survives_continuations_and_idle_frames() {
+        let packet = build_space_packet(64, 16383, b"split header and body");
+        for split in 1..packet.len() {
+            let mut assembler = PacketReassembler::new();
+            assembler.push_mpdu_payload(&packet[..split], 0, 1, 0xFFFFFE);
+            assert!(assembler.drain_completed().is_empty());
+            assembler.push_mpdu_payload(&[0xFF; 20], IDLE_ONLY, 1, 0xFFFFFF);
+            for (index, byte) in packet[split..].iter().enumerate() {
+                assembler.push_mpdu_payload(&[*byte], NO_PACKET_START, 1, index as u32);
+            }
+            let result = assembler.drain_completed();
+            assert_eq!(result.len(), 1, "split {split}");
+            assert_eq!(result[0].header.sequence_count, 16383);
+            assert_eq!(result[0].data, b"split header and body");
+        }
+    }
+
+    #[test]
+    fn split_header_continuation_ends_at_new_header_pointer() {
+        let first = build_space_packet(64, 1, b"AAAA");
+        let second = build_space_packet(65, 2, b"BBBB");
+        for split in 1..first.len() {
+            let mut assembler = PacketReassembler::new();
+            assembler.push_mpdu_payload(&first[..split], 0, 1, 0);
+            let tail = [&first[split..], &second].concat();
+            assembler.push_mpdu_payload(&tail, (first.len() - split) as u16, 1, 1);
+            let result = assembler.drain_completed();
+            assert_eq!(result.len(), 2, "split {split}");
+            assert_eq!(result[0].data, b"AAAA");
+            assert_eq!(result[1].data, b"BBBB");
+        }
+    }
+
+    #[test]
+    fn same_apid_on_two_channels_keeps_bytes_and_frame_gaps_isolated() {
+        let first = build_space_packet(64, 1, b"AAAA");
+        let second = build_space_packet(64, 2, b"BBBB");
+        for split in 1..first.len() {
+            for gap in [false, true] {
+                let mut assembler = PacketReassembler::new();
+                assembler.push_mpdu_payload(&first[..split], 0, 1, 100);
+                assembler.push_mpdu_payload(&second[..split], 0, 2, 200);
+                assembler.push_mpdu_payload(
+                    &first[split..],
+                    NO_PACKET_START,
+                    1,
+                    if gap { 102 } else { 101 },
+                );
+                assembler.push_mpdu_payload(&second[split..], NO_PACKET_START, 2, 201);
+                let result = assembler.drain_completed();
+                if gap {
+                    assert_eq!(result.len(), 1, "split {split}");
+                    assert_eq!(result[0].data, b"BBBB");
+                } else {
+                    assert_eq!(result.len(), 2, "split {split}");
+                    assert_eq!(result[0].data, b"AAAA");
+                    assert_eq!(result[1].data, b"BBBB");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gap_discards_partial_header_until_a_known_new_header() {
+        let first = build_space_packet(64, 1, b"AAAA");
+        let second = build_space_packet(65, 2, b"BBBB");
+        let mut assembler = PacketReassembler::new();
+        assembler.push_mpdu_payload(&first[..3], 0, 1, 0);
+        assembler.push_mpdu_payload(&first[3..], NO_PACKET_START, 1, 2);
+        assert!(assembler.drain_completed().is_empty());
+        assembler.push_mpdu_payload(&second, 0, 1, 3);
+        assert_eq!(assembler.drain_completed()[0].data, b"BBBB");
+    }
+
+    #[test]
     fn reassembles_multiple_small_packets_in_one_vcdu() {
         let data_a = vec![1u8; 10];
         let data_b = vec![2u8; 10];
@@ -528,7 +558,7 @@ mod tests {
         assert!(reassembler
             .vcid_contexts
             .get(&0)
-            .is_none_or(|c| c.active_apid.is_none()));
+            .is_none_or(|c| c.pending.is_none()));
     }
 
     #[test]
@@ -540,7 +570,11 @@ mod tests {
             let packet = build_space_packet(apid, 1, &[0xAAu8; 4]);
             reassembler.push_mpdu_payload(&packet, 0, 0, apid as u32);
         }
-        assert!(reassembler.apid_buffers.len() <= MAX_TRACKED_APIDS);
+        assert!(reassembler.vcid_contexts.len() <= MAX_VIRTUAL_CHANNELS);
+        assert!(reassembler
+            .vcid_contexts
+            .values()
+            .all(|context| context.pending.is_none()));
         let _ = reassembler.drain_completed();
     }
 
@@ -555,7 +589,13 @@ mod tests {
         // First VCDU opens APID 64
         reassembler.push_mpdu_payload(p1_a, 0, 0, 0);
         assert_eq!(
-            reassembler.vcid_contexts.get(&0).unwrap().active_apid,
+            reassembler
+                .vcid_contexts
+                .get(&0)
+                .unwrap()
+                .pending
+                .as_ref()
+                .and_then(|packet| packet.header.map(|header| header.apid)),
             Some(64)
         );
         assert!(reassembler.drain_completed().is_empty());
@@ -566,6 +606,15 @@ mod tests {
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].apid, 64);
         assert_eq!(completed[0].data, data1);
-        assert_eq!(reassembler.vcid_contexts.get(&0).unwrap().active_apid, None);
+        assert_eq!(
+            reassembler
+                .vcid_contexts
+                .get(&0)
+                .unwrap()
+                .pending
+                .as_ref()
+                .and_then(|packet| packet.header.map(|header| header.apid)),
+            None
+        );
     }
 }

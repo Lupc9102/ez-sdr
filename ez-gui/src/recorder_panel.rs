@@ -103,6 +103,10 @@ impl RecordingFinalizer {
                     self.update_native_iq_bytes(result.bytes_written);
                     self.capture = result.capture;
                     self.iq_dropped_chunks = result.dropped_chunks;
+                    if self.stop_reason.is_none() {
+                        self.stop_reason =
+                            result.metadata["stop_reason"].as_str().map(str::to_owned);
+                    }
                     if let Some((_, metadata)) = &mut self.metadata {
                         *metadata = result.metadata;
                     }
@@ -1206,7 +1210,8 @@ impl RecorderPanel {
 
         ui.add_enabled_ui(!daemon_mode, |ui| {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.record_iq, "Record IQ");
+                ui.checkbox(&mut self.record_iq, "Record IQ (CU8)")
+                    .on_hover_text("8-bit IQ export. Float replay is quantized and clipped in this export; native listening retains float precision.");
                 ui.checkbox(&mut self.record_audio, "Record audio (WAV)");
             })
         });

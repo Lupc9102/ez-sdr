@@ -276,7 +276,12 @@ impl DecodeLane {
             coded.extend_from_slice(&[first, second]);
         }
         let recovered = self.viterbi.push_bits(&coded);
-        let mut frames = self.plain_framer.push_bits(&recovered);
+        let validate = |cadu: &[u8]| {
+            let transport = randomizer::derandomize(&cadu[4..]);
+            let result = reed_solomon::decode_interleaved(&transport);
+            result.codewords_failed == 0 && result.codewords_ok == 4
+        };
+        let mut frames = self.plain_framer.push_bits_checked(&recovered, validate);
 
         let mut nrzm = Vec::with_capacity(recovered.len());
         for bit in recovered {
@@ -285,7 +290,7 @@ impl DecodeLane {
             }
             self.nrzm_previous = Some(bit);
         }
-        frames.extend(self.nrzm_framer.push_bits(&nrzm));
+        frames.extend(self.nrzm_framer.push_bits_checked(&nrzm, validate));
         frames
     }
 }

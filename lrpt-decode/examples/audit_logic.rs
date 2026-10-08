@@ -53,7 +53,7 @@ fn coding(frame_count: usize) -> Vec<[f32; 2]> {
             let register: u8 = (bit << 6) | state;
             state = register >> 1;
             [0o171, 0o133].map(|generator| {
-                if (register & generator).count_ones() % 2 == 0 {
+                if (register & generator).count_ones().is_multiple_of(2) {
                     -1.0
                 } else {
                     1.0

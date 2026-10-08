@@ -121,7 +121,10 @@ impl EventBus {
 
     /// Return count of pending events in queue.
     pub fn pending_count(&self) -> usize {
-        self.inner.lock().map(|inner| inner.queue.len()).unwrap_or(0)
+        self.inner
+            .lock()
+            .map(|inner| inner.queue.len())
+            .unwrap_or(0)
     }
 }
 

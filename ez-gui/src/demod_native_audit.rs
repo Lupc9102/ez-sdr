@@ -1,7 +1,7 @@
-// Deliberately ignored acceptance probes for the 2026-10-07 audit.
-// Run explicitly with `cargo test -p ez-gui --no-default-features --lib
-// audit_ -- --ignored --nocapture`. They assert the desired invariant and
-// currently fail; they are not evidence that these defects have been fixed.
+// Acceptance probes from the 2026-10-07 audit. R01 and R08 are active
+// regressions; R06 and R07 remain ignored until their repairs land.
+// Run the remaining probes with `cargo test -p ez-gui --no-default-features
+// --lib audit_ -- --ignored --nocapture`.
 
 fn audit_tone(rate: f64, frequency: f64) -> Vec<Complex32> {
     (0..4096)
@@ -15,7 +15,6 @@ fn audit_tone(rate: f64, frequency: f64) -> Vec<Complex32> {
 }
 
 #[test]
-#[ignore = "R01: CS8 file source preserves signed bytes but declares CU8"]
 fn audit_signed_file_replay() {
     let path = std::env::temp_dir().join(format!("ez-audit-signed-{}.cs8", std::process::id()));
     let signed = [0i8, 1, -1, 64, -64, 127, -128, 0];
@@ -77,7 +76,6 @@ fn audit_narrow_cw_power_meter() {
 }
 
 #[test]
-#[ignore = "R08: old capture generations are processed under new controls"]
 fn audit_reject_old_capture_generation() {
     let stream = CaptureStream::default();
     stream.start(2);
@@ -108,7 +106,9 @@ fn audit_reject_old_capture_generation() {
     );
     block.center_hz = 100_000_000;
     processor.process(&block, &desired, &previews, &audio);
-    let accepted = rx.try_recv().map_or(0, |frame| frame.samples.len());
+    let frame = rx.try_recv();
+    assert!(frame.is_none(), "stale capture must not publish into the new recording");
+    let accepted = 0;
     println!("requested_generation=2 block_generation=1 accepted_audio_samples={accepted} skipped_rf_samples={}", processor.snapshot.skipped_samples);
     assert_eq!(
         processor.snapshot.skipped_samples, 16_384,

@@ -359,7 +359,49 @@ impl crate::capture_recording::CaptureRecordingWriter for Cf32StreamWriter {
     type Final = Cf32CaptureResult;
 
     fn write_capture(&mut self, block: &crate::source_manager::CaptureBlock) -> Result<(), String> {
-        Cf32StreamWriter::write_capture(self, &block.samples, block.clock, block.center_hz)
+        let Some(samples) = &block.float_samples else {
+            return Cf32StreamWriter::write_capture(
+                self,
+                &block.samples,
+                block.clock,
+                block.center_hz,
+            );
+        };
+        let rate = block.clock.source_sample_rate_hz / block.clock.sample_stride.max(1);
+        if block.center_hz != self.meta.frequency_hz || rate != self.meta.sample_rate_hz {
+            return Err(
+                "Recording stopped: capture tuning or sample rate differs from the file header"
+                    .into(),
+            );
+        }
+        let next = ez_proto::RecordingCapture::accept(
+            self.meta.capture.as_ref(),
+            block.clock,
+            block.center_hz,
+            rate,
+            samples.len() as u64,
+        )?;
+        self.offered_samples += samples.len() as u64;
+        let bytes = samples
+            .iter()
+            .flat_map(|sample| {
+                [sample.re, sample.im]
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes)
+            })
+            .collect();
+        let result = self
+            .tx
+            .as_ref()
+            .ok_or_else(|| "Recorder is stopped".to_string())?
+            .try_send(bytes)
+            .map_err(|error| format!("CF32 writer unavailable: {error}"));
+        if result.is_err() {
+            self.dropped_samples += samples.len() as u64;
+        }
+        result?;
+        self.meta.capture = Some(next);
+        Ok(())
     }
 
     fn progress(&self) -> crate::capture_recording::RecordingProgress {
@@ -369,6 +411,12 @@ impl crate::capture_recording::CaptureRecordingWriter for Cf32StreamWriter {
             error: self.error(),
             stopped: false,
         }
+    }
+
+    fn source_ended(&mut self) {
+        self.meta
+            .stop_reason
+            .get_or_insert_with(|| "capture session ended".into());
     }
 
     fn fail(&mut self, reason: String) {
@@ -393,12 +441,15 @@ impl crate::capture_recording::CaptureRecordingWriter for Cf32StreamWriter {
 }
 
 fn enqueue_chunk(tx: &Sender<Vec<u8>>, samples: &[u8]) -> Result<(), String> {
-    tx.try_send(samples.to_vec()).map_err(|error| match error {
-        TrySendError::Full(_) => {
-            "Recorder queue overflow: samples were lost; recording is incomplete".into()
-        }
-        TrySendError::Disconnected(_) => "Recorder worker stopped before accepting samples".into(),
-    })
+    tx.try_send(raw_iq_bytes_to_cf32_le(samples))
+        .map_err(|error| match error {
+            TrySendError::Full(_) => {
+                "Recorder queue overflow: samples were lost; recording is incomplete".into()
+            }
+            TrySendError::Disconnected(_) => {
+                "Recorder worker stopped before accepting samples".into()
+            }
+        })
 }
 
 fn spawn_writer<W: Write + Send + 'static>(
@@ -428,11 +479,10 @@ fn write_chunks<W: Write>(
     let flush_interval = std::time::Duration::from_millis(100);
     let mut last_flush = Instant::now();
     while let Ok(chunk) = rx.recv() {
-        let converted = raw_iq_bytes_to_cf32_le(&chunk);
         writer
-            .write_all(&converted)
+            .write_all(&chunk)
             .map_err(|error| format!("Recorder write failed: {error}"))?;
-        bytes_written.fetch_add(converted.len() as u64, Ordering::Relaxed);
+        bytes_written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
         if last_flush.elapsed() >= flush_interval {
             writer
                 .flush()
@@ -829,7 +879,7 @@ mod tests {
             Cf32StreamWriter::start(dir.to_str().unwrap(), None, 2_400_000, 1, 0.0, 0.0).unwrap();
         // A controlled full queue makes overflow independent of disk speed.
         let (tx, rx) = bounded(1);
-        tx.send(vec![127, 127]).unwrap();
+        tx.send(raw_iq_bytes_to_cf32_le(&[127, 127])).unwrap();
         let old_tx = writer.tx.replace(tx);
         drop(old_tx);
         assert!(writer
@@ -871,7 +921,7 @@ mod tests {
             [(true, false, "write failed"), (false, true, "flush failed")]
         {
             let (tx, rx) = bounded(1);
-            tx.send(vec![90, 110]).unwrap();
+            tx.send(raw_iq_bytes_to_cf32_le(&[90, 110])).unwrap();
             drop(tx);
             let count = AtomicU64::new(0);
             let error = write_chunks(

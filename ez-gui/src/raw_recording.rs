@@ -75,6 +75,10 @@ impl CaptureRecordingWriter for RawCaptureWriter {
     type Final = RawRecordingResult;
 
     fn write_capture(&mut self, block: &CaptureBlock) -> Result<(), String> {
+        if block.float_samples.is_some() {
+            self.metadata["input_format"] = "cf32_normalized".into();
+            self.metadata["conversion"] = "cu8_compatibility_quantized_clipped".into();
+        }
         if block.samples.is_empty() {
             return Ok(());
         }
@@ -143,6 +147,10 @@ impl CaptureRecordingWriter for RawCaptureWriter {
         self.metadata["capture_input_lost_samples"] = samples.into();
     }
 
+    fn source_ended(&mut self) {
+        self.metadata["stop_reason"] = "capture session ended".into();
+    }
+
     fn finish(&mut self) -> RawRecordingResult {
         self.tx.take();
         if let Some(disk) = self.disk.take() {
@@ -200,7 +208,9 @@ impl CaptureRecordingWriter for RawCaptureWriter {
             .into();
         }
         self.metadata["complete"] = (self.error.is_none() && !self.audio_pending).into();
-        self.metadata["stop_reason"] = self.error.clone().into();
+        if let Some(error) = &self.error {
+            self.metadata["stop_reason"] = error.clone().into();
+        }
         self.metadata["end_utc"] = chrono::Utc::now().to_rfc3339().into();
         let sidecar = std::fs::File::create(&self.sidecar)
             .map_err(|error| error.to_string())
@@ -353,9 +363,119 @@ mod tests {
         fn input_overflow(&mut self, blocks: u64, samples: u64) {
             self.writer.input_overflow(blocks, samples);
         }
+        fn source_ended(&mut self) {
+            self.writer.source_ended();
+        }
         fn finish(&mut self) -> Self::Final {
             self.writer.finish()
         }
+    }
+
+    #[test]
+    fn iq_only_recorder_drains_eof_and_never_crosses_a_restarted_session() {
+        for (empty, restart) in [(false, false), (true, false), (false, true), (true, true)] {
+            let dir =
+                std::env::temp_dir().join(format!("ez-iq-eof-{}", ez_proto::new_capture_epoch()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("raw.iq");
+            let (tx, disk) = spawn_disk_writer(std::fs::File::create(&path).unwrap());
+            let sink = RawCaptureWriter::new(
+                tx,
+                disk,
+                path.clone(),
+                dir.join("raw.json"),
+                serde_json::json!({ "frequency_hz": 1_090_000_000u64, "sample_rate_hz": 2_400_000u32 }),
+                false,
+            );
+            let stream = CaptureStream::default();
+            stream.start(1);
+            let owner = stream.session();
+            let mut recorder = CaptureRecorder::start(stream.clone(), sink, None);
+            if !empty {
+                for index in 0..4 {
+                    let mut block = CaptureBlock::fixture(
+                        vec![90, 110],
+                        ez_proto::CaptureClock::new(9, index, 2_400_000, None),
+                        1,
+                        index,
+                    );
+                    block.session = Some(owner.clone());
+                    stream.publish(&block);
+                }
+            }
+            owner.finish();
+            // Restart immediately, with identical tuning. Its data is excluded.
+            if restart {
+                stream.start(2);
+                let mut replacement = CaptureBlock::fixture(
+                    vec![255, 0],
+                    ez_proto::CaptureClock::new(10, 0, 2_400_000, None),
+                    2,
+                    0,
+                );
+                replacement.session = Some(stream.session());
+                stream.publish(&replacement);
+            }
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while !recorder.progress().stopped {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "EOF did not finalize IQ recording"
+                );
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let result = recorder.finish().unwrap();
+            assert_eq!(
+                std::fs::read(path).unwrap(),
+                if empty { vec![] } else { [90, 110].repeat(4) }
+            );
+            assert!(result.error.is_none(), "{:?}", result.error);
+            assert_eq!(result.metadata["stop_reason"], "capture session ended");
+            assert_eq!(result.metadata["complete"], true);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn cf32_recording_keeps_native_float_precision_and_headroom() {
+        let dir =
+            std::env::temp_dir().join(format!("ez-native-cf32-{}", ez_proto::new_capture_epoch()));
+        let mut writer = crate::satellite::recorder::Cf32StreamWriter::start(
+            dir.to_str().unwrap(),
+            None,
+            2_400_000,
+            1_090_000_000,
+            0.0,
+            0.0,
+        )
+        .unwrap();
+        let samples = [
+            num_complex::Complex32::new(0.0001, -0.0002),
+            num_complex::Complex32::new(1.2, -1.3),
+        ];
+        let mut block = CaptureBlock::fixture(
+            vec![128, 128, 255, 0],
+            ez_proto::CaptureClock::new(9, 0, 2_400_000, None),
+            1,
+            0,
+        );
+        block.float_samples = Some(std::sync::Arc::from(samples));
+        CaptureRecordingWriter::write_capture(&mut writer, &block).unwrap();
+        let meta = writer.stop().unwrap();
+        let bytes = std::fs::read(writer.path()).unwrap();
+        let expected: Vec<_> = samples
+            .into_iter()
+            .flat_map(|sample| {
+                [sample.re, sample.im]
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes)
+            })
+            .collect();
+        assert_eq!(bytes, expected);
+        assert_eq!(meta.capture.unwrap().samples, 2);
+        assert!(meta.complete);
+        drop(writer);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

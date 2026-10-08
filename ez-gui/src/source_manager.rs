@@ -250,12 +250,16 @@ fn enumerate_rtl_devices() -> Result<Vec<RtlDeviceInfo>, String> {
     Err("RTL-SDR discovery requires a hardware-enabled build (--features rtlsdr).".into())
 }
 
-/// A local CU8 block carries its worker's immutable acquisition geometry.
+/// A local capture block carries its worker's immutable acquisition geometry.
 /// Sample indices advance even when delivery overflows; replay rewinds use a
 /// new epoch and unknown UTC rather than the viewer's wall clock.
 #[derive(Debug, Clone)]
 pub(crate) struct CaptureBlock {
+    /// CU8 compatibility data for byte-only previews and ADS-B.
     pub samples: Vec<u8>,
+    /// Native normalized CF32 replay. Radio DSP and CF32 recording consume
+    /// these samples without clipping or quantizing through the preview bytes.
+    pub float_samples: Option<Arc<[num_complex::Complex32]>>,
     pub clock: ez_proto::CaptureClock,
     pub center_hz: u64,
     /// When the worker completed this read, before any GUI queue delay.
@@ -278,6 +282,7 @@ impl CaptureBlock {
     ) -> Self {
         Self {
             samples,
+            float_samples: None,
             clock,
             center_hz: 1_090_000_000,
             observed_at: Instant::now(),
@@ -353,7 +358,16 @@ impl CaptureProducer {
         }
     }
 
-    fn block(&mut self, mut samples: Vec<u8>, file_position: Option<u64>) -> Option<CaptureBlock> {
+    fn block(&mut self, samples: Vec<u8>, file_position: Option<u64>) -> Option<CaptureBlock> {
+        self.block_with_float(samples, None, file_position)
+    }
+
+    fn block_with_float(
+        &mut self,
+        mut samples: Vec<u8>,
+        float_samples: Option<Arc<[num_complex::Complex32]>>,
+        file_position: Option<u64>,
+    ) -> Option<CaptureBlock> {
         // A blocking device/file read can return after Stop. Discard that read
         // before it reaches either the native stream or GUI preview.
         if self
@@ -377,6 +391,7 @@ impl CaptureProducer {
         self.clock.discontinuous = false;
         let block = CaptureBlock {
             samples,
+            float_samples,
             clock,
             center_hz: self.center_hz,
             observed_at: Instant::now(),
@@ -991,6 +1006,7 @@ impl SourceManager {
                         .unwrap_or_default()
                         .to_ascii_lowercase();
                     let is_cf32 = matches!(extension.as_str(), "cf32" | "fc32");
+                    let is_cs8 = extension == "cs8";
                     let amplitude = if is_cf32 {
                         match lrpt_decode::cf32_amplitude_for_path(
                             std::path::Path::new(&path),
@@ -1069,15 +1085,53 @@ impl SourceManager {
                                 send_cancellable(&tx, &running, SourceMessage::EndOfStream);
                                 break;
                             }
-                            Ok(n) => {
-                                let chunk = if is_cf32 {
-                                    lrpt_decode::cf32_le_bytes_to_uc8(&buf[..n], amplitude)
+                            Ok(mut n) => {
+                                let remainder = n % sample_bytes as usize;
+                                if remainder != 0 {
+                                    let aligned = n + sample_bytes as usize - remainder;
+                                    if let Err(error) = reader.read_exact(&mut buf[n..aligned]) {
+                                        send_cancellable(
+                                            &tx,
+                                            &running,
+                                            SourceMessage::Error(format!(
+                                                "Incomplete IQ sample: {error}"
+                                            )),
+                                        );
+                                        break;
+                                    }
+                                    n = aligned;
+                                }
+                                let float_samples = if is_cf32 {
+                                    Some(Arc::<[num_complex::Complex32]>::from(
+                                        lrpt_decode::cf32_le_bytes_to_normalized(
+                                            &buf[..n],
+                                            amplitude,
+                                        ),
+                                    ))
+                                } else {
+                                    None
+                                };
+                                let chunk = if let Some(samples) = &float_samples {
+                                    samples
+                                        .iter()
+                                        .flat_map(|sample| {
+                                            [sample.re, sample.im]
+                                                .map(lrpt_decode::normalized_component_to_uc8)
+                                        })
+                                        .collect()
+                                } else if is_cs8 {
+                                    // XOR moves the signed two's-complement midpoint to CU8.
+                                    buf[..n].iter().map(|byte| byte ^ 0x80).collect()
                                 } else {
                                     buf[..n].to_vec()
                                 };
 
                                 file_position += n as u64;
-                                if let Some(block) = capture.block(chunk, Some(file_position)) {
+                                if let Some(block) = capture.block_with_float(
+                                    chunk,
+                                    float_samples,
+                                    Some(file_position),
+                                ) {
                                     // Production consumers run continuously;
                                     // a stalled GUI preview must not slow replay.
                                     // Standalone lossless readers retain their
@@ -3588,6 +3642,46 @@ mod tests {
             daemon_reader.stop();
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn native_float_replay_preserves_weak_iq_headroom_and_clock() {
+        let values = [0.0001_f32, 0.0002, 1.2, -1.3, -0.0003, 0.0004];
+        let bytes: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
+        let mut recording = TestRecording::new(&bytes);
+        let path = recording.0.with_extension("cf32");
+        std::fs::rename(&recording.0, &path).unwrap();
+        recording.0 = path;
+        let mut source = recording.source(1);
+        source.replay_loop = false;
+        let stream = source.capture_stream();
+        let consumer = stream.subscribe(8);
+        source.start();
+        let mut block = None;
+        assert!(wait_until(|| {
+            block = consumer.try_recv();
+            block.is_some()
+        }));
+        let block = block.unwrap();
+        source.stop();
+        source.wait_for_shutdown();
+        let expected: Vec<_> = values
+            .chunks_exact(2)
+            .map(|pair| num_complex::Complex32::new(pair[0], pair[1]))
+            .collect();
+        assert_eq!(block.float_samples.as_deref().unwrap(), expected);
+        assert_eq!(block.clock.source_sample_index, 0);
+        assert_eq!(block.stream_sample_index, 0);
+        let mut dsp = crate::radio_iq::RadioIqProcessor::new(crate::radio_iq::RadioIqConfig {
+            input_rate: block.clock.source_sample_rate_hz,
+            ..Default::default()
+        });
+        assert_eq!(
+            dsp.process_complex(block.float_samples.as_deref().unwrap()),
+            expected
+        );
+        assert_eq!(block.samples, [128, 128, 255, 0, 127, 128]);
+        assert!(!block.session.as_ref().unwrap().progress().live);
     }
 
     #[test]

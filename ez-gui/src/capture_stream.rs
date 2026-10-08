@@ -67,6 +67,7 @@ impl CaptureStream {
     }
 
     pub fn start(&self, generation: u64) {
+        self.session.load().finish();
         self.session.store(Arc::new(CaptureSession {
             progress: ArcSwap::from_pointee(CaptureProgress {
                 generation,

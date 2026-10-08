@@ -1863,7 +1863,7 @@ impl Demodulator {
         self.am_dc_prev_y = 0.0;
         self.hpf_state = 0.0;
         self.hpf_x_prev = 0.0;
-        self.hpf_alpha_computed = 0.0;
+        // Reset delay state while retaining configured HPF coefficients.
         self.dc_block_state = 0.0;
         self.dc_block_x_prev = 0.0;
         self.notch.reset();
@@ -3557,6 +3557,32 @@ mod tests {
         let _wfm = d.demodulate(&iq, DemodMode::Wfm);
         let _lsb = d.demodulate(&iq, DemodMode::Lsb);
         let _usb = d.demodulate(&iq, DemodMode::Usb);
+    }
+
+    #[test]
+    fn reset_preserves_configured_highpass_from_the_first_block() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |time| {
+            (
+                0.6 + 0.1 * (std::f64::consts::TAU * 200.0 * time).cos(),
+                0.0,
+            )
+        });
+        let make = || {
+            let mut demod = configured_demod(rate, 8_000.0);
+            demod.set_audio_hpf(1_000.0);
+            demod
+        };
+        let mut reset = make();
+        reset.demodulate(&iq, DemodMode::Am);
+        reset.reset();
+        let actual = reset.demodulate(&iq, DemodMode::Am);
+        let expected = make().demodulate(&iq, DemodMode::Am);
+        assert_eq!(actual, expected);
+        assert!(tone_amplitude(&actual[2400..], 200.0, 48_000) < 0.025);
+        let mut disabled = configured_demod(rate, 8_000.0);
+        let control = disabled.demodulate(&iq, DemodMode::Am);
+        assert!(tone_amplitude(&control[2400..], 200.0, 48_000) > 0.075);
     }
 
     #[test]

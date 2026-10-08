@@ -55,7 +55,11 @@ struct Args {
     net_sbs_port: u16,
     #[arg(long, default_value = "30002", help = "Raw output port")]
     net_raw_port: u16,
-    #[arg(long, default_value = "0.0.0.0", help = "Net output bind address (use 127.0.0.1 for local only)")]
+    #[arg(
+        long,
+        default_value = "0.0.0.0",
+        help = "Net output bind address (use 127.0.0.1 for local only)"
+    )]
     net_bind_address: String,
 }
 
@@ -65,7 +69,12 @@ struct NetOutput {
 }
 
 impl NetOutput {
-    fn new(bind_address: &str, beast_port: u16, sbs_port: u16, raw_port: u16) -> anyhow::Result<Self> {
+    fn new(
+        bind_address: &str,
+        beast_port: u16,
+        sbs_port: u16,
+        raw_port: u16,
+    ) -> anyhow::Result<Self> {
         let inner = net_io::NetIo::new();
         inner.start_on(bind_address, beast_port, sbs_port, raw_port)?;
         Ok(NetOutput { inner })

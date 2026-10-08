@@ -69,12 +69,15 @@ impl NetIo {
         sbs_port: u16,
         raw_port: u16,
     ) -> anyhow::Result<()> {
-        let beast_listener = TcpListener::bind((bind_address, beast_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}"))?;
-        let sbs_listener = TcpListener::bind((bind_address, sbs_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}"))?;
-        let raw_listener = TcpListener::bind((bind_address, raw_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}"))?;
+        let beast_listener = TcpListener::bind((bind_address, beast_port)).map_err(|e| {
+            anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}")
+        })?;
+        let sbs_listener = TcpListener::bind((bind_address, sbs_port)).map_err(|e| {
+            anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}")
+        })?;
+        let raw_listener = TcpListener::bind((bind_address, raw_port)).map_err(|e| {
+            anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}")
+        })?;
 
         Self::spawn_listener_loop(
             beast_listener,

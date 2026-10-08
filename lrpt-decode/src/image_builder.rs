@@ -250,7 +250,7 @@ fn quantization_table(quality: u8) -> [f64; 64] {
     } else {
         200.0 - 2.0 * quality
     };
-    std::array::from_fn(|i| ((scale / 100.0 * QTABLE[i]) + 0.5).max(1.0))
+    std::array::from_fn(|i| ((scale / 100.0 * QTABLE[i]) + 0.5).floor().max(1.0))
 }
 
 fn idct(coefficients: &[f64; 64]) -> [u8; 64] {
@@ -360,6 +360,57 @@ mod tests {
             payload.push(byte);
         }
         payload
+    }
+
+    #[test]
+    fn mission_quantizers_are_integers_on_both_quality_branches() {
+        assert_eq!(quantization_table(50), QTABLE);
+        assert_eq!(quantization_table(20)[0], 40.0);
+        assert_eq!(quantization_table(80)[0], 6.0);
+        assert_eq!(quantization_table(100), [1.0; 64]);
+        for quality in 0..=255 {
+            assert!(quantization_table(quality)
+                .iter()
+                .all(|value| *value >= 1.0 && value.fract() == 0.0));
+        }
+    }
+
+    #[test]
+    fn nonflat_independent_libjpeg_pixels_match_with_one_level_idct_tolerance() {
+        let payload = include_bytes!("../../audit/2026-10-07/fixtures/nonflat-q50.segment");
+        let expected = include_bytes!("../../audit/2026-10-07/fixtures/nonflat-q50.pixels");
+        let decoded = decode_segment(payload).unwrap();
+        assert_eq!(decoded.pixels.len(), expected.len());
+        let max_error = decoded
+            .pixels
+            .iter()
+            .zip(expected)
+            .map(|(actual, expected)| actual.abs_diff(*expected))
+            .max()
+            .unwrap();
+        assert!(max_error <= 1, "independent JPEG max error: {max_error}");
+    }
+
+    #[test]
+    fn nonzero_dc_exact_vector_decodes_uniform_pixel_160() {
+        let mut payload = vec![0; 14];
+        payload[11..14].copy_from_slice(&[0xff, 0xf0, 50]);
+        // First MCU: category-5 DC +16 then EOB. Remaining MCUs: DC delta
+        // zero + EOB. This is a standard Huffman vector, not our encoder.
+        let mut bits = vec![1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0];
+        for _ in 1..14 {
+            bits.extend([0, 0, 1, 0, 1, 0]);
+        }
+        for chunk in bits.chunks(8) {
+            payload.push(
+                chunk
+                    .iter()
+                    .enumerate()
+                    .fold(0, |byte, (index, bit)| byte | (bit << (7 - index))),
+            );
+        }
+        let decoded = decode_segment(&payload).unwrap();
+        assert!(decoded.pixels.iter().all(|pixel| *pixel == 160));
     }
 
     #[test]

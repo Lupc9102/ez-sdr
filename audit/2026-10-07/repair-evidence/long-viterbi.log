@@ -1,0 +1,26 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+warning: constant `MAX_TRACKED_APIDS` is never used
+   --> lrpt-decode/src/ccsds.rs:237:11
+    |
+237 | pub const MAX_TRACKED_APIDS: usize = MAX_VIRTUAL_CHANNELS;
+    |           ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `push_bits` is never used
+   --> lrpt-decode/src/frame_sync.rs:137:12
+    |
+121 | impl FrameSync {
+    | -------------- method in this implementation
+...
+137 |     pub fn push_bits(&mut self, bits: &[u8]) -> Vec<Vec<u8>> {
+    |            ^^^^^^^^^
+
+warning: `lrpt-decode` (lib) generated 2 warnings
+    Finished `release` profile [optimized] target(s) in 5.59s
+     Running `target/release/examples/audit_logic`
+viterbi fresh_control_errors=0 fresh_output_ones=851
+viterbi after_noise_trellis_steps=8192000 clean_comparison_bits=1920 errors=0 output_ones=871
