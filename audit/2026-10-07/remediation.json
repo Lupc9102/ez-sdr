@@ -35,9 +35,14 @@
       "id": "S04",
       "title": "First successful ambiguity lane is selected forever",
       "priority": "P1",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Continuously advance every ambiguity hypothesis, merge located candidates chronologically, suppress equivalent observations by bit position, reject frames containing missing-energy decisions, and expire current frame lock after two CADUs without validation.",
+      "regressions": [
+        "tests::hypotheses_reacquire_polarity_conjugation_and_axis_changes_in_stream_order (plain and NRZ-M, byte-identical payloads across partitions)",
+        "tests::frame_lock_expires_during_fade_and_later_frames_reacquire_without_reset",
+        "tests::repeated_identical_frames_are_distinct_but_equivalent_lanes_are_not",
+        "audit_logic: 180-degree slip recovers 24 RS codewords, identical to clean six-frame control"
+      ],
       "original_repair_gate": "Expire lane selection on a defined loss/BER criterion and rebuild or continuously advance alternative hypotheses. Test phase slips, fades, polarity/conjugation changes and valid later frames without an external reset. Publish current frame synchronization, not historical selection."
     },
     {
@@ -103,8 +108,12 @@
       "title": "Lock and decoded-line diagnostics can report success without current reception",
       "priority": "P2",
       "status": "open",
-      "change": null,
-      "regressions": [],
+      "change": "Partial repair: carrier lock now requires real input/matched energy and 64 sustained coherent symbols; frame lock expires using recent validation. Sparse-image/decoded-line counting remains open with S08.",
+      "regressions": [
+        "qpsk::tests::silence_cannot_acquire_carrier_lock_and_withdraws_previous_lock",
+        "qpsk::tests::white_noise_and_silence_after_noise_do_not_report_carrier_lock",
+        "tests::frame_lock_expires_during_fade_and_later_frames_reacquire_without_reset"
+      ],
       "original_repair_gate": "Gate carrier lock on energy/SNR and sustained valid loop behavior; expire frame lock on recent validation; count actual valid scanlines/segments separately from output extent. Test noise, silence, stale lock and sparse images with explicit time/observation bounds."
     },
     {

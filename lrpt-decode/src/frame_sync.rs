@@ -107,6 +107,14 @@ pub fn find_sync(bits: &[u8]) -> Option<SyncMatch> {
 pub struct FrameSync {
     bit_buffer: Vec<u8>,
     locked: bool,
+    bits_received: u64,
+}
+
+/// A candidate's position in the recovered bitstream, independent of input
+/// chunk boundaries. The caller still decides whether its transport is valid.
+pub struct LocatedFrame {
+    pub end_bit: u64,
+    pub bytes: Vec<u8>,
 }
 
 /// Total bits in one CADU (marker + transport frame).
@@ -148,8 +156,20 @@ impl FrameSync {
     pub fn push_bits_checked(
         &mut self,
         bits: &[u8],
-        mut validate: impl FnMut(&[u8]) -> bool,
+        validate: impl FnMut(&[u8]) -> bool,
     ) -> Vec<Vec<u8>> {
+        self.push_bits_located(bits, validate)
+            .into_iter()
+            .map(|frame| frame.bytes)
+            .collect()
+    }
+
+    pub fn push_bits_located(
+        &mut self,
+        bits: &[u8],
+        mut validate: impl FnMut(&[u8]) -> bool,
+    ) -> Vec<LocatedFrame> {
+        self.bits_received += bits.len() as u64;
         self.bit_buffer.extend_from_slice(bits);
         let mut frames = Vec::new();
         loop {
@@ -176,7 +196,10 @@ impl FrameSync {
             }
             let candidate = bits_to_bytes_msb(&self.bit_buffer[..CADU_BITS]);
             self.locked = validate(&candidate);
-            frames.push(candidate);
+            frames.push(LocatedFrame {
+                end_bit: self.bits_received - self.bit_buffer.len() as u64 + CADU_BITS as u64,
+                bytes: candidate,
+            });
             let consumed = if self.locked { CADU_BITS } else { 1 };
             self.bit_buffer.drain(..consumed);
         }

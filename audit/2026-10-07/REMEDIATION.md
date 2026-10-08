@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-16 findings have software repairs with passing regressions; 17 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings; public reference captures still need investigation.
+17 findings have software repairs with passing regressions; 16 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; compatibility comparison remains pending, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
 
@@ -42,11 +42,12 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - **R22 — Read cancellation and timed-out hardware commands lack a terminal contract**: Cancel expired queued commands atomically before device setters, with correlated queued/applying/applied/rejected/cancelled receipts. Report an already-started operation as pending with its eventual outcome rather than cancelled. Use shared RTL read_async pumps for daemon and local GUI, bounded 200 ms callback reads, repeated startup-safe cancel_async and join-before-close ownership. Pause/join before live RTL setters, discard old queued geometry, retain acquisition clocks/drop indices, and bound TCP live reads/writes while preserving fragmented pairs.
   Evidence: ingest::tests::queued_deadline_cancellation_prevents_late_tuning_after_a_stalled_read; ingest::tests::applying_deadline_returns_correlated_pending_outcome_and_retains_ownership; ingest::tests::dropping_queued_command_on_shutdown_publishes_cancelled_receipt; hardware::stream_worker::tests::repeated_cancel_survives_startup_race_and_joins_before_device_release; hardware::rtl_async::tests::silent_stream_read_yields_and_stop_joins_the_quiet_worker; hardware::rtl_async::tests::asynchronous_failure_preserves_queued_prefix_then_reports_the_driver_error; hardware::rtl_async::tests::native_callback_copies_usb_bytes_before_buffer_reuse; hardware::tcp_iq::tests::stalled_tcp_peer_yields_and_fragmented_iq_keeps_the_first_component; source_manager::tests::native_callback_acquisition_clock_is_preserved_before_preview_loss_and_stop.
 
+- **S04 — Permanent ambiguity lane selection**: Advance every lane through fades and mapping changes, merge candidates by recovered-bit position, reject missing-energy candidates, suppress equivalent observations, and expire current frame lock after two missing CADUs. Plain/NRZ-M regressions compare recovered payload bytes and chronology across partitions. The original full-IQ 180° slip now recovers all six frames.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
 - [ ] **S02 · P1** — OQPSK carrier/timing recovery depends on absolute RF phase
-- [ ] **S04 · P1** — First successful ambiguity lane is selected forever
 - [ ] **S08 · P2** — Image origin is the satellite's sequence zero rather than the received pass
 - [ ] **S10 · P2** — Lock and decoded-line diagnostics can report success without current reception
 - [ ] **S11 · P2** — Daemon LRPT accepts unusable sampling and cannot select the 72k profile
@@ -99,3 +100,13 @@ The full workspace suite passes, as do all 222 active RTL-feature daemon library
 RTL uses librtlsdr's asynchronous cancellation API instead of its synchronous zero-timeout bulk read. The caller joins before closing or retuning; no worker is detached and no device is released while a read still uses it. The inspected upstream event loop has a one-second event wait and drains cancelled transfers; physical USB/driver worst-case cancellation latency and alternate driver forks remain unverified. The 200 ms bound is the IQ consumer wait, not a claimed physical USB shutdown benchmark. See [upstream async read and cancellation](https://github.com/osmocom/rtl-sdr/blob/master/src/librtlsdr.c) and repair-cancellation-verification.json.
 
 The prior callback-batch note about open RTL/command cancellation is historical; R22 now has the software repair above. Other field/release evidence remains unverified, and the full goal is active.
+
+## Lane reacquisition and lock verification
+
+All 90 LRPT tests pass. Mapping-change tests include inversion of both branches, conjugation and axis exchange in plain and NRZ-M streams; every accepted payload matches its transmitted bytes, remains in chronological order and matches across input partitions. Repeated identical transmitted frames count separately; equivalent observations from different lanes count once. Zero-energy symbol intervals cannot renew frame lock even if hard decisions form algebraically valid RS payloads. Current frame lock expires after 16,384 recovered-symbol observations without a valid frame; completed images and historical decode success remain available. All hypotheses remain warm, increasing decoding CPU relative to the prior permanently selected single lane.
+
+Carrier lock now requires normalized input power above 1e-12, matched-symbol power above 0.01 after AGC, average fourth-power error below 0.2 and 64 consecutive qualifying symbols. Silence withdraws lock on the next symbol observation. The deterministic white-noise and silence controls pass. These checks measure observed loop coherence; they do not claim a calibrated SNR estimate or fix S02's absolute-phase recovery. S10 remains open because allocated image extent still overstates decoded scanlines.
+
+The unchanged synthetic RF audit probe reports 24 RS codewords after a 180° slip, matching its six-frame clean control, and zero-input Costas lock is false. Other phase/fractional-rate probes still demonstrate S02. The public capture is independent evidence for upcoming comparison, not a passing mission-compatibility result.
+
+Full workspace tests, default build, workspace Clippy with warnings denied, formatting and AST graph update pass for this batch. Command logs and source hashes are in repair-lane-verification.json. The graph contains 7,189 nodes and 15,965 edges; the existing user-deleted graph sidecars remain deleted.

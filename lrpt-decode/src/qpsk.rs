@@ -216,6 +216,7 @@ pub struct QpskDemod {
     costas_beta: f32,
     locked: bool,
     lock_error_avg: f32,
+    coherent_symbols: u32,
 }
 
 impl QpskDemod {
@@ -255,6 +256,7 @@ impl QpskDemod {
             costas_beta,
             locked: false,
             lock_error_avg: 1.0,
+            coherent_symbols: 0,
         }
     }
 
@@ -375,7 +377,20 @@ impl QpskDemod {
 
                 // Lock quality: exponential moving average of |phase error|.
                 self.lock_error_avg = 0.98 * self.lock_error_avg + 0.02 * phase_error.abs();
-                self.locked = self.lock_error_avg < 0.2;
+                // A zero sample has zero fourth-power phase error. Require
+                // real input energy, matched-symbol energy and sustained loop
+                // quality rather than treating that arithmetic zero as lock.
+                // The input floor is -120 dB relative to normalized full scale;
+                // the matched floor rejects silence/filter ring-down after AGC.
+                let coherent = raw.norm_sqr() > 1e-12
+                    && decision.norm_sqr() > 0.01
+                    && self.lock_error_avg < 0.2;
+                self.coherent_symbols = if coherent {
+                    self.coherent_symbols.saturating_add(1)
+                } else {
+                    0
+                };
+                self.locked = self.coherent_symbols >= 64;
 
                 let corrected =
                     loop_corrected * Complex32::from_polar(1.0, std::f32::consts::FRAC_PI_4);
@@ -554,6 +569,62 @@ mod tests {
         }
 
         assert_eq!(whole.len(), chunked.len());
+    }
+
+    #[test]
+    fn silence_cannot_acquire_carrier_lock_and_withdraws_previous_lock() {
+        for oqpsk in [false, true] {
+            let config = QpskConfig {
+                sample_rate: 8000.0,
+                symbol_rate: 1000.0,
+                oqpsk,
+                ..QpskConfig::default()
+            };
+            let mut demod = QpskDemod::new(config);
+            let silence = vec![Complex32::new(0.0, 0.0); 10_000];
+            for chunk in silence.chunks(97) {
+                assert!(demod
+                    .process(chunk)
+                    .iter()
+                    .all(|symbol| !symbol.costas_locked));
+            }
+            assert!(!demod.is_locked());
+            let carrier = vec![Complex32::new(0.4, 0.0); 8000];
+            demod.process(&carrier);
+            assert!(demod.is_locked(), "energized stable loop should acquire");
+            let observations = demod.process(&silence[..128]);
+            assert!(observations.iter().all(|symbol| !symbol.costas_locked));
+            assert!(!demod.is_locked());
+        }
+    }
+
+    #[test]
+    fn white_noise_and_silence_after_noise_do_not_report_carrier_lock() {
+        let config = QpskConfig {
+            sample_rate: 8000.0,
+            symbol_rate: 1000.0,
+            ..QpskConfig::default()
+        };
+        let mut seed = 0x91a0f538u32;
+        let noise: Vec<_> = (0..40_000)
+            .map(|_| {
+                let mut component = || {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    seed as i32 as f32 / i32::MAX as f32
+                };
+                Complex32::new(component(), component())
+            })
+            .collect();
+        let mut demod = QpskDemod::new(config);
+        assert!(demod
+            .process(&noise)
+            .iter()
+            .all(|symbol| !symbol.costas_locked));
+        assert!(!demod.is_locked());
+        demod.process(&[Complex32::new(0.0, 0.0); 1000]);
+        assert!(!demod.is_locked());
     }
 
     #[test]

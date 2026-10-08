@@ -238,6 +238,12 @@ fn decode_cf32_reader_with_amplitude(
 /// flooded on high-rate streams while still feeling "live".
 const PROGRESS_EVERY_N_FRAMES: u32 = 5;
 
+// Two missing CADUs are sufficient to withdraw current frame lock. This is
+// measured in recovered symbols, so silence and different caller chunk sizes
+// cannot indefinitely preserve a previously selected hypothesis.
+const FRAME_LOCK_MAX_AGE: u64 = 2 * frame_sync::CADU_LEN_BYTES as u64 * 8;
+const VITERBI_OUTPUT_DELAY: u64 = 63;
+
 /// One phase/axis hypothesis for the QPSK-to-convolutional-code path.
 /// Independent I/Q inversion plus optional axis swap covers all eight
 /// QPSK phase and conjugation ambiguities without applying differential
@@ -263,7 +269,7 @@ impl DecodeLane {
         &mut self,
         symbols: &[qpsk::RecoveredSymbol],
         hypothesis: usize,
-    ) -> Vec<Vec<u8>> {
+    ) -> Vec<frame_sync::LocatedFrame> {
         let mut coded = Vec::with_capacity(symbols.len() * 2);
         for symbol in symbols {
             let mut first = u8::from(symbol.value.re < 0.0);
@@ -281,7 +287,7 @@ impl DecodeLane {
             let result = reed_solomon::decode_interleaved(&transport);
             result.codewords_failed == 0 && result.codewords_ok == 4
         };
-        let mut frames = self.plain_framer.push_bits_checked(&recovered, validate);
+        let mut frames = self.plain_framer.push_bits_located(&recovered, validate);
 
         let mut nrzm = Vec::with_capacity(recovered.len());
         for bit in recovered {
@@ -290,7 +296,13 @@ impl DecodeLane {
             }
             self.nrzm_previous = Some(bit);
         }
-        frames.extend(self.nrzm_framer.push_bits_checked(&nrzm, validate));
+        let mut nrzm_frames = self.nrzm_framer.push_bits_located(&nrzm, validate);
+        // NRZ-M drops the first information bit while establishing its initial
+        // level. Align both framers to the same recovered-information clock.
+        for frame in &mut nrzm_frames {
+            frame.end_bit += 1;
+        }
+        frames.extend(nrzm_frames);
         frames
     }
 }
@@ -303,6 +315,9 @@ pub struct LrptDecoder {
     demod: qpsk::QpskDemod,
     lanes: [DecodeLane; 8],
     selected_lane: Option<usize>,
+    symbols_received: u64,
+    last_valid_frame_end: Option<u64>,
+    low_energy_symbols: std::collections::VecDeque<u64>,
     reassembler: ccsds::PacketReassembler,
     images: image_builder::ImageBuilder,
 
@@ -310,6 +325,8 @@ pub struct LrptDecoder {
     rs_ok: u32,
     rs_failed: u32,
     frames_since_progress: u32,
+    #[cfg(test)]
+    validated_payloads: Vec<Vec<u8>>,
 }
 
 impl LrptDecoder {
@@ -328,12 +345,17 @@ impl LrptDecoder {
             demod: qpsk::QpskDemod::new(config),
             lanes: std::array::from_fn(|_| DecodeLane::new()),
             selected_lane: None,
+            symbols_received: 0,
+            last_valid_frame_end: None,
+            low_energy_symbols: std::collections::VecDeque::new(),
             reassembler: ccsds::PacketReassembler::new(),
             images: image_builder::ImageBuilder::new(),
             ever_locked: false,
             rs_ok: 0,
             rs_failed: 0,
             frames_since_progress: 0,
+            #[cfg(test)]
+            validated_payloads: Vec::new(),
         }
     }
 
@@ -349,6 +371,9 @@ impl LrptDecoder {
         });
         self.lanes = std::array::from_fn(|_| DecodeLane::new());
         self.selected_lane = None;
+        self.symbols_received = 0;
+        self.last_valid_frame_end = None;
+        self.low_energy_symbols.clear();
         self.reassembler = ccsds::PacketReassembler::new();
         self.frames_since_progress = 0;
     }
@@ -388,50 +413,81 @@ impl LrptDecoder {
             return;
         }
 
-        let mut frames = Vec::new();
-        if let Some(selected) = self.selected_lane {
-            frames.extend(
-                self.lanes[selected]
-                    .push_symbols(&symbols, selected)
-                    .into_iter()
-                    .map(|frame| (selected, frame)),
-            );
-        } else {
-            for (hypothesis, lane) in self.lanes.iter_mut().enumerate() {
-                frames.extend(
-                    lane.push_symbols(&symbols, hypothesis)
-                        .into_iter()
-                        .map(|frame| (hypothesis, frame)),
-                );
+        self.push_recovered_symbols(&symbols);
+        self.maybe_send_progress();
+    }
+
+    fn push_recovered_symbols(&mut self, symbols: &[qpsk::RecoveredSymbol]) {
+        for chunk in symbols.chunks(1024) {
+            self.push_symbol_batch(chunk);
+        }
+    }
+
+    fn push_symbol_batch(&mut self, symbols: &[qpsk::RecoveredSymbol]) {
+        for (offset, symbol) in symbols.iter().enumerate() {
+            if !symbol.value.norm_sqr().is_finite() || symbol.value.norm_sqr() <= 1e-12 {
+                self.low_energy_symbols
+                    .push_back(self.symbols_received + offset as u64);
             }
         }
-        if frames.is_empty() {
-            self.maybe_send_progress();
-            return;
+        self.symbols_received += symbols.len() as u64;
+        // Keep every hypothesis current through fades and mapping changes.
+        // A selected lane is a diagnostic hint, never a reason to discard
+        // independently validated frames from another hypothesis.
+        let mut frames = Vec::new();
+        for (hypothesis, lane) in self.lanes.iter_mut().enumerate() {
+            frames.extend(
+                lane.push_symbols(symbols, hypothesis)
+                    .into_iter()
+                    .map(|frame| (hypothesis, frame)),
+            );
         }
-
-        // NOTE: finding a sync-marker match (a drained frame) is not by
-        // itself proof of a genuine lock -- at ~9.6e-6 probability per
-        // 32-bit window, a long enough run of pure noise will eventually
-        // produce a spurious marker match too. `ever_locked` (and thus
-        // disabling the mapping-fallback search / the `NoSync` error) is
-        // only set once a frame actually RS-decodes successfully, inside
-        // `process_cadu_frame` -- RS(255,223) correcting real data by
-        // chance on random bytes is astronomically less likely than a
-        // 32-bit marker coincidence, making it a trustworthy lock signal.
+        // Merge in stream order rather than lane order, including when one
+        // input call covers multiple frames and a polarity change.
+        frames.sort_by_key(|(lane, frame)| (frame.end_bit, Some(*lane) != self.selected_lane));
         for (hypothesis, frame) in frames {
+            let start = frame
+                .end_bit
+                .saturating_sub(frame_sync::CADU_LEN_BYTES as u64 * 8);
             if self
-                .selected_lane
-                .is_some_and(|selected| selected != hypothesis)
+                .low_energy_symbols
+                .iter()
+                .any(|&position| position >= start && position < frame.end_bit)
+            {
+                // Missing-energy decisions are erasures, not evidence of a
+                // received frame. In particular, constant hard decisions can
+                // produce algebraically valid RS payloads during silence.
+                continue;
+            }
+            // Equivalent convolutional hypotheses can produce the same CADU.
+            // Suppress duplicate observations by position, not payload bytes:
+            // successive identical transmitted frames remain distinct.
+            if self
+                .last_valid_frame_end
+                .is_some_and(|end| frame.end_bit <= end)
             {
                 continue;
             }
-            if self.process_cadu_frame(&frame) {
+            if self.process_cadu_frame(&frame.bytes) {
+                self.last_valid_frame_end = Some(frame.end_bit);
                 self.selected_lane = Some(hypothesis);
             }
         }
-
-        self.maybe_send_progress();
+        let recovered_end = self.symbols_received.saturating_sub(VITERBI_OUTPUT_DELAY);
+        let oldest_candidate = recovered_end.saturating_sub(frame_sync::CADU_LEN_BYTES as u64 * 8);
+        while self
+            .low_energy_symbols
+            .front()
+            .is_some_and(|&position| position < oldest_candidate)
+        {
+            self.low_energy_symbols.pop_front();
+        }
+        if self
+            .last_valid_frame_end
+            .is_none_or(|end| recovered_end.saturating_sub(end) >= FRAME_LOCK_MAX_AGE)
+        {
+            self.selected_lane = None;
+        }
     }
 
     /// Process one fully-extracted CADU frame: derandomize, RS-decode,
@@ -474,6 +530,9 @@ impl LrptDecoder {
             return false;
         };
         let mpdu_payload = &payload[mpdu_start + ccsds::MPDU_HEADER_LEN..];
+
+        #[cfg(test)]
+        self.validated_payloads.push(payload.clone());
 
         self.reassembler.push_mpdu_payload(
             mpdu_payload,
@@ -1070,6 +1129,151 @@ mod tests {
             "large blocks must not discard CADUs"
         );
         assert_eq!(actual.images, expected.images);
+    }
+
+    // Build symbols without the RF demodulator so mapping reacquisition is
+    // tested independently of the carrier-recovery defect tracked as S02.
+    fn coded_symbol_frames(frame_count: usize, nrzm: bool) -> Vec<qpsk::RecoveredSymbol> {
+        let mut information = vec![0; 256];
+        for counter in 0..frame_count {
+            let mut payload = build_synthetic_vcdu_payload(66, &[counter as u8; 40]);
+            payload[4] = counter as u8;
+            let mut cadu = frame_sync::SYNC_MARKER.to_be_bytes().to_vec();
+            cadu.extend(randomizer::derandomize(&reed_solomon::encode_interleaved(
+                &payload,
+            )));
+            information.extend(diff_decode::bytes_to_bits(&cadu));
+        }
+        information.extend([0; 256]);
+        let mut level = 0;
+        let mut state = 0;
+        information
+            .into_iter()
+            .map(|bit| {
+                let input = if nrzm {
+                    level ^= bit;
+                    level
+                } else {
+                    bit
+                };
+                let register: u8 = (input << 6) | state;
+                state = register >> 1;
+                let values = [0o171, 0o133].map(|polynomial| {
+                    if (register & polynomial).count_ones().is_multiple_of(2) {
+                        -1.0
+                    } else {
+                        1.0
+                    }
+                });
+                qpsk::RecoveredSymbol {
+                    value: Complex32::new(values[0], values[1]),
+                    costas_locked: true,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn hypotheses_reacquire_polarity_conjugation_and_axis_changes_in_stream_order() {
+        for nrzm in [false, true] {
+            let mut symbols = coded_symbol_frames(16, nrzm);
+            // Change mappings between frames, including inversion of both
+            // axes (a 180-degree slip), conjugation and exchange of branches.
+            for (index, symbol) in symbols.iter_mut().enumerate() {
+                let frame = index.saturating_sub(256) / 8192;
+                let mapping = [0, 3, 2, 4][(frame / 4).min(3)];
+                if mapping & 4 != 0 {
+                    symbol.value = Complex32::new(symbol.value.im, symbol.value.re);
+                }
+                if mapping & 1 != 0 {
+                    symbol.value.re = -symbol.value.re;
+                }
+                if mapping & 2 != 0 {
+                    symbol.value.im = -symbol.value.im;
+                }
+            }
+            let mut expected = None;
+            for chunk_size in [97, 4096, symbols.len()] {
+                let (tx, _rx) = crossbeam_channel::unbounded();
+                let mut decoder = LrptDecoder::new(8000, 1000, tx);
+                for chunk in symbols.chunks(chunk_size) {
+                    decoder.push_recovered_symbols(chunk);
+                }
+                assert!(decoder.rs_ok >= 13 * 4, "failed to recover later mappings");
+                assert!(decoder.selected_lane.is_some());
+                let mut previous = None;
+                for payload in &decoder.validated_payloads {
+                    let counter = payload[4];
+                    let mut wanted = build_synthetic_vcdu_payload(66, &[counter; 40]);
+                    wanted[4] = counter;
+                    assert_eq!(payload, &wanted, "reacquired payload changed");
+                    assert!(previous.is_none_or(|old| counter > old));
+                    previous = Some(counter);
+                }
+                assert_eq!(previous, Some(15), "final mapping failed to reacquire");
+                let observed = (
+                    decoder.rs_ok,
+                    decoder.last_valid_frame_end,
+                    decoder.validated_payloads,
+                );
+                if let Some(expected) = &expected {
+                    assert_eq!(&observed, expected, "NRZ-M={nrzm}, chunk={chunk_size}");
+                } else {
+                    expected = Some(observed);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn frame_lock_expires_during_fade_and_later_frames_reacquire_without_reset() {
+        let symbols = coded_symbol_frames(8, true);
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut decoder = LrptDecoder::new(8000, 1000, tx);
+        let cut = 256 + 3 * 8192 + 128;
+        decoder.push_recovered_symbols(&symbols[..cut]);
+        assert_eq!(decoder.rs_ok, 12);
+        assert!(decoder.selected_lane.is_some());
+        let fade = vec![
+            qpsk::RecoveredSymbol {
+                value: Complex32::new(0.0, 0.0),
+                costas_locked: false,
+            };
+            FRAME_LOCK_MAX_AGE as usize
+        ];
+        decoder.push_recovered_symbols(&fade);
+        assert!(
+            decoder.selected_lane.is_none(),
+            "symbols={} last_valid={:?} rs_ok={}",
+            decoder.symbols_received,
+            decoder.last_valid_frame_end,
+            decoder.rs_ok
+        );
+        for _ in 0..PROGRESS_EVERY_N_FRAMES {
+            decoder.maybe_send_progress();
+        }
+        assert!(!rx.recv().unwrap().frame_locked);
+        decoder.push_recovered_symbols(&symbols[cut..]);
+        assert!(decoder.rs_ok >= 7 * 4);
+        assert!(decoder.selected_lane.is_some());
+        assert!(
+            decoder.finish().is_some(),
+            "historical result remains available"
+        );
+    }
+
+    #[test]
+    fn repeated_identical_frames_are_distinct_but_equivalent_lanes_are_not() {
+        let payload = build_synthetic_vcdu_payload(66, &[7; 40]);
+        let iq = build_coded_oqpsk_iq_frames(&payload, 0, true, 8000.0, 1000.0, 6);
+        for chunk_size in [4096, iq.len()] {
+            let (tx, _rx) = crossbeam_channel::unbounded();
+            let mut decoder = LrptDecoder::new(8000, 1000, tx);
+            for chunk in iq.chunks(chunk_size) {
+                decoder.push_samples(chunk);
+            }
+            assert_eq!(decoder.rs_ok, 24);
+        }
     }
 
     #[test]
