@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-17 findings have software repairs with passing regressions; 16 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; compatibility comparison remains pending, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+19 findings have software repairs with passing regressions; 14 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; RF compatibility comparison remains pending; corrected-CADU image comparison now passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
 
@@ -44,12 +44,13 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 
 - **S04 — Permanent ambiguity lane selection**: Advance every lane through fades and mapping changes, merge candidates by recovered-bit position, reject missing-energy candidates, suppress equivalent observations, and expire current frame lock after two missing CADUs. Plain/NRZ-M regressions compare recovered payload bytes and chronology across partitions. The original full-IQ 180° slip now recovers all six frames.
 
+- **S08 — Received pass bounds and cross-channel alignment**: Store sparse segments on a shared sequence/CDS clock. Crop to common received bounds, preserve holes, handle long gaps and reorderings, and enforce the cap on relative extent. Six permanent off-air fixtures and the complete independent public pass verify alignment and pixels.
+- **S10 — Current lock and honest decoded counts**: Count unique segments and complete scanlines separately from image extent. Publish at quarter-second symbol cadence and on lock transitions. Earlier carrier-energy and frame-expiry repairs remain covered by their regressions.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
 - [ ] **S02 · P1** — OQPSK carrier/timing recovery depends on absolute RF phase
-- [ ] **S08 · P2** — Image origin is the satellite's sequence zero rather than the received pass
-- [ ] **S10 · P2** — Lock and decoded-line diagnostics can report success without current reception
 - [ ] **S11 · P2** — Daemon LRPT accepts unusable sampling and cannot select the 72k profile
 - [ ] **R03 · P1** — Daemon narrow-channel decimation aliases strong adjacent signals
 - [ ] **R04 · P2** — Daemon playback downsamples mono PCM without an anti-alias filter
@@ -75,7 +76,7 @@ Graphify was refreshed with the AST-only update command. It skipped HTML because
 
 JPEG integer quantization was checked against [the pinned SatDump mission implementation](https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/instruments/msumr/lrpt/huffman.cpp). Packet-header and idle-frame handling follows [CCSDS AOS 732.0-B-4](https://ccsds.org/Pubs/732x0b4.pdf).
 
-Next priority: S01/S02/S04 mission transport/carrier reacquisition, then remaining radio selectivity/clocks and product/monitoring repairs.
+Next priority: S01/S02/S11 mission transport/carrier profiles, then remaining radio selectivity/clocks and monitoring repairs.
 
 ## Receiver-control batch verification
 
@@ -105,8 +106,22 @@ The prior callback-batch note about open RTL/command cancellation is historical;
 
 All 90 LRPT tests pass. Mapping-change tests include inversion of both branches, conjugation and axis exchange in plain and NRZ-M streams; every accepted payload matches its transmitted bytes, remains in chronological order and matches across input partitions. Repeated identical transmitted frames count separately; equivalent observations from different lanes count once. Zero-energy symbol intervals cannot renew frame lock even if hard decisions form algebraically valid RS payloads. Current frame lock expires after 16,384 recovered-symbol observations without a valid frame; completed images and historical decode success remain available. All hypotheses remain warm, increasing decoding CPU relative to the prior permanently selected single lane.
 
-Carrier lock now requires normalized input power above 1e-12, matched-symbol power above 0.01 after AGC, average fourth-power error below 0.2 and 64 consecutive qualifying symbols. Silence withdraws lock on the next symbol observation. The deterministic white-noise and silence controls pass. These checks measure observed loop coherence; they do not claim a calibrated SNR estimate or fix S02's absolute-phase recovery. S10 remains open because allocated image extent still overstates decoded scanlines.
+Carrier lock now requires normalized input power above 1e-12, matched-symbol power above 0.01 after AGC, average fourth-power error below 0.2 and 64 consecutive qualifying symbols. Silence withdraws lock on the next symbol observation. The deterministic white-noise and silence controls pass. These checks measure observed loop coherence; they do not claim a calibrated SNR estimate or fix S02's absolute-phase recovery. At this checkpoint S10 remained open because allocated image extent still overstated decoded scanlines; the following image-placement batch repairs that remaining portion.
 
 The unchanged synthetic RF audit probe reports 24 RS codewords after a 180° slip, matching its six-frame clean control, and zero-input Costas lock is false. Other phase/fractional-rate probes still demonstrate S02. The public capture is independent evidence for upcoming comparison, not a passing mission-compatibility result.
 
 Full workspace tests, default build, workspace Clippy with warnings denied, formatting and AST graph update pass for this batch. Command logs and source hashes are in repair-lane-verification.json. The graph contains 7,189 nodes and 15,965 edges; the existing user-deleted graph sidecars remain deleted.
+
+## Image placement and progress verification
+
+The public corrected CADUs contain 7,338 frames, 28,473 image packets and 678 telemetry packets. The repaired packet/image path accepts every image segment and reconstructs three channels at 1,568 × 5,504 on common CDS-time/sequence pass bounds. It reports 16,192 complete scanlines separately from partial segments and output extent. A single late segment now produces an eight-row image, one segment and zero complete full-width scanlines. Missing groups stay black; duplicates do not inflate counts.
+
+An independent Python CCSDS parser and Pillow/libjpeg entropy decoder reconstruct the entire pass using CDS timestamps rather than application sequence placement. All 25,890,816 pixels match with maximum error 1; channel mean errors are 0.01780–0.01802 gray levels. The source spans JPEG quality 36–100, covering both mission quantization branches. Exact mission integer DQT values are supplied to libjpeg because its quality convenience API truncates the scale before rounding table entries. This also strengthens S09 beyond the earlier q50 vector.
+
+The installed SatDump v1.2.2 independently regenerates images from the same corrected CADUs. Its per-channel crops omit the final eight-row groups and differ at a small number of partial/missing segments; it is supporting evidence, while the full CDS/libjpeg oracle checks every retained pixel and mask. The older image in the public share has an 8,552-row extent caused by its known initial-counter alignment issue, so that extent is not used as the repair target. The received packet timestamps and independent full-pass oracle prove the corrected bounds.
+
+Permanent off-air fixtures verify first/last groups across three channels, multiple counter wraps, reverse arrival order and non-flat pixels. Additional tests cover missing groups, late starts, partial/full-line counts, duplicates, daily timestamp rollover, reordered old segments, long gaps and cap rejection without clock poisoning. The nominal 1.231142-second group interval is corroborated by this independent pass and refined by adjacent observed timestamps; absent timestamps use nearest modular sequence observations, whose epoch is inherently ambiguous after a gap longer than half a sequence cycle.
+
+Progress uses a quarter-second recovered-symbol cadence, independent of image size. Carrier/frame lock transitions bypass throttling and are emitted at the next caller chunk boundary when queue space is available. The queue remains nonblocking and bounded to two retained snapshots. The GUI labels complete lines and segments explicitly. RF demodulation/mission transport compatibility remains open under S01/S02/S11; this batch validates the packet and product layers using independently corrected off-air CADUs.
+
+The full workspace suite passes with all 97 LRPT tests and the existing GUI/daemon/protocol checks. Default build, workspace Clippy with warnings denied, formatting and AST graph update pass. Evidence is recorded in repair-image-verification.json; original audit baseline evidence remains unchanged.

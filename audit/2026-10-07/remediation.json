@@ -85,9 +85,17 @@
       "id": "S08",
       "title": "Image origin is the satellite's sequence zero rather than the received pass",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Retain sparse segments on a shared unwrapped sequence/time clock, align channel-cycle phases, crop all channels to common received pass bounds, and cap relative span. Use CDS-time anchors to survive multiple wraps, long gaps, midnight and old reordered packets.",
+      "regressions": [
+        "image_builder::tests::late_start_sparse_groups_and_duplicates_count_only_received_segments",
+        "image_builder::tests::shared_epoch_aligns_channels_straddling_zero_and_reordered_old_packets",
+        "image_builder::tests::timestamps_keep_large_gaps_multiple_rollovers_and_old_reordering_in_one_pass",
+        "image_builder::tests::daily_timestamps_cross_midnight_and_reordering_without_false_epoch_growth",
+        "image_builder::tests::pass_cap_is_relative_and_rejects_growth_without_poisoning_the_clock",
+        "image_builder::tests::off_air_segments_align_across_channels_rollovers_and_reverse_order",
+        "Independent full-pass CDS/Pillow oracle: 28,473 segments; all 25,890,816 pixels match within one level across three aligned 1568x5504 channels."
+      ],
       "original_repair_gate": "Retain absolute sequence/time identities for placement but render relative to the received pass bounds. Track valid segments separately from allocated height. Verify late starts, rollover, missing packets, reordering and cross-channel row alignment with an independently decoded pass."
     },
     {
@@ -99,7 +107,8 @@
       "regressions": [
         "image_builder::tests::mission_quantizers_are_integers_on_both_quality_branches",
         "image_builder::tests::nonflat_independent_libjpeg_pixels_match_with_one_level_idct_tolerance",
-        "image_builder::tests::nonzero_dc_exact_vector_decodes_uniform_pixel_160"
+        "image_builder::tests::nonzero_dc_exact_vector_decodes_uniform_pixel_160",
+        "Independent off-air full-pass libjpeg comparison covers quality 36..100 with exact mission integer DQT values: maximum pixel error 1."
       ],
       "original_repair_gate": "Use the mission's integer quantization convention. Test nonzero DC/AC, quality values on both scale branches, run-length/ZRL/EOB cases and orientation against independent JPEG vectors. Retain a stated pixel-rounding tolerance for differing IDCT implementations."
     },
@@ -107,12 +116,15 @@
       "id": "S10",
       "title": "Lock and decoded-line diagnostics can report success without current reception",
       "priority": "P2",
-      "status": "open",
-      "change": "Partial repair: carrier lock now requires real input/matched energy and 64 sustained coherent symbols; frame lock expires using recent validation. Sparse-image/decoded-line counting remains open with S08.",
+      "status": "software_verified",
+      "change": "Require energized matched symbols and 64 sustained coherent loop observations for carrier lock; expire frame lock after two missing CADUs. Count unique segments and complete scanlines independently of raster height. Publish at quarter-second symbol cadence and immediately on lock transitions at caller chunk boundaries.",
       "regressions": [
         "qpsk::tests::silence_cannot_acquire_carrier_lock_and_withdraws_previous_lock",
         "qpsk::tests::white_noise_and_silence_after_noise_do_not_report_carrier_lock",
-        "tests::frame_lock_expires_during_fade_and_later_frames_reacquire_without_reset"
+        "tests::frame_lock_expires_during_fade_and_later_frames_reacquire_without_reset",
+        "tests::sparse_progress_counts_segments_and_obeys_observation_cadence",
+        "image_builder::tests::late_start_sparse_groups_and_duplicates_count_only_received_segments",
+        "Independent public pass: 28,473 unique segments and 16,192 complete scanlines; holes and incomplete rows do not count as complete lines."
       ],
       "original_repair_gate": "Gate carrier lock on energy/SNR and sustained valid loop behavior; expire frame lock on recent validation; count actual valid scanlines/segments separately from output extent. Test noise, silence, stale lock and sparse images with explicit time/observation bounds."
     },

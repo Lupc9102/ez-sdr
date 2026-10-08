@@ -43,7 +43,10 @@ pub enum LrptError {
 /// GUI can render a live meter/preview without blocking on the full decode.
 #[derive(Debug, Clone, Default)]
 pub struct DecodeProgress {
+    /// Complete scanlines, requiring all fourteen horizontal image segments.
     pub lines_decoded: u32,
+    /// Unique decoded image segments, including partially received scanlines.
+    pub segments_decoded: u32,
     pub rs_ok: u32,
     pub rs_failed: u32,
     pub costas_locked: bool,
@@ -51,8 +54,8 @@ pub struct DecodeProgress {
     /// marker (distinct from `costas_locked`, which reflects the QPSK
     /// carrier loop rather than frame-level lock).
     pub frame_locked: bool,
-    /// Scanlines refused by the image builder's anti-DoS caps. Rising on a
-    /// live pass means junk/oversize input, not image growth.
+    /// Segments refused by the image builder (legacy field name). Rising on a
+    /// live pass means invalid/oversize input, not image growth.
     pub dropped_scanlines: u64,
     /// Downsampled/latest preview of the image(s) being built, keyed by APID.
     pub preview: Vec<(u16, image::GrayImage)>,
@@ -233,11 +236,6 @@ fn decode_cf32_reader_with_amplitude(
     decoder.finish().ok_or(LrptError::NoSync)
 }
 
-/// How often (in newly-produced CADU frames) to emit a `DecodeProgress`
-/// update and refresh the image preview. Keeps the channel from being
-/// flooded on high-rate streams while still feeling "live".
-const PROGRESS_EVERY_N_FRAMES: u32 = 5;
-
 // Two missing CADUs are sufficient to withdraw current frame lock. This is
 // measured in recovered symbols, so silence and different caller chunk sizes
 // cannot indefinitely preserve a previously selected hypothesis.
@@ -324,7 +322,9 @@ pub struct LrptDecoder {
     ever_locked: bool,
     rs_ok: u32,
     rs_failed: u32,
-    frames_since_progress: u32,
+    progress_interval_symbols: u64,
+    symbols_at_progress: u64,
+    last_progress_lock: Option<(bool, bool)>,
     #[cfg(test)]
     validated_payloads: Vec<Vec<u8>>,
 }
@@ -353,7 +353,9 @@ impl LrptDecoder {
             ever_locked: false,
             rs_ok: 0,
             rs_failed: 0,
-            frames_since_progress: 0,
+            progress_interval_symbols: u64::from(symbol_rate).div_ceil(4),
+            symbols_at_progress: 0,
+            last_progress_lock: None,
             #[cfg(test)]
             validated_payloads: Vec::new(),
         }
@@ -375,7 +377,9 @@ impl LrptDecoder {
         self.last_valid_frame_end = None;
         self.low_energy_symbols.clear();
         self.reassembler = ccsds::PacketReassembler::new();
-        self.frames_since_progress = 0;
+        self.progress_interval_symbols = u64::from(symbol_rate).div_ceil(4);
+        self.symbols_at_progress = 0;
+        self.last_progress_lock = None;
     }
 
     /// Feed a chunk of raw interleaved u8 IQ bytes (RTL-SDR `Uc8` convention).
@@ -551,18 +555,25 @@ impl LrptDecoder {
     }
 
     fn maybe_send_progress(&mut self) {
-        self.frames_since_progress += 1;
-        let interval = std::cmp::max(PROGRESS_EVERY_N_FRAMES, self.images.total_line_count() / 50);
-        if self.frames_since_progress < interval {
+        let lock = (self.demod.is_locked(), self.selected_lane.is_some());
+        // Quarter-second observation cadence, independent of image extent and
+        // input chunk count. Lock transitions bypass throttling. Publication
+        // occurs at the next caller chunk boundary; a full queue never blocks.
+        if self.last_progress_lock == Some(lock)
+            && self
+                .symbols_received
+                .saturating_sub(self.symbols_at_progress)
+                < self.progress_interval_symbols
+        {
             return;
         }
-        self.frames_since_progress = 0;
         if self.progress_tx.is_full() || self.progress_tx.len() >= 2 {
             return;
         }
 
         let progress = DecodeProgress {
             lines_decoded: self.images.total_line_count(),
+            segments_decoded: self.images.total_segment_count(),
             rs_ok: self.rs_ok,
             rs_failed: self.rs_failed,
             costas_locked: self.demod.is_locked(),
@@ -570,7 +581,10 @@ impl LrptDecoder {
             dropped_scanlines: self.images.dropped_scanlines(),
             preview: self.images.render_previews(1_024),
         };
-        let _ = self.progress_tx.try_send(progress);
+        if self.progress_tx.try_send(progress).is_ok() {
+            self.symbols_at_progress = self.symbols_received;
+            self.last_progress_lock = Some(lock);
+        }
     }
 
     /// Finalize the decode and return whatever images were reconstructed.
@@ -1249,9 +1263,7 @@ mod tests {
             decoder.last_valid_frame_end,
             decoder.rs_ok
         );
-        for _ in 0..PROGRESS_EVERY_N_FRAMES {
-            decoder.maybe_send_progress();
-        }
+        decoder.maybe_send_progress();
         assert!(!rx.recv().unwrap().frame_locked);
         decoder.push_recovered_symbols(&symbols[cut..]);
         assert!(decoder.rs_ok >= 7 * 4);
@@ -1305,6 +1317,38 @@ mod tests {
             decoder.push_complex(&[Complex32::new(0.0, 0.0); 64]);
         }
         assert_eq!(rx.len(), 2);
+    }
+
+    #[test]
+    fn sparse_progress_counts_segments_and_obeys_observation_cadence() {
+        for chunk_size in [1, 97] {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            let mut decoder = LrptDecoder::new(8000, 1000, tx);
+            decoder.images.push_packet(
+                64,
+                16_300,
+                include_bytes!("../../audit/2026-10-07/fixtures/nonflat-q50.segment"),
+            );
+            let samples = vec![Complex32::new(0.0, 0.0); 8000];
+            let mut observed_at = Vec::new();
+            for chunk in samples.chunks(chunk_size) {
+                decoder.push_complex(chunk);
+                for progress in rx.try_iter() {
+                    assert_eq!(progress.lines_decoded, 0);
+                    assert_eq!(progress.segments_decoded, 1);
+                    assert!(!progress.costas_locked && !progress.frame_locked);
+                    assert_eq!(progress.preview[0].1.height(), 4); // bounded 1568->784 width
+                    observed_at.push(decoder.symbols_received);
+                }
+            }
+            assert!(observed_at.len() >= 3, "progress stalled: {observed_at:?}");
+            for pair in observed_at.windows(2) {
+                assert!(
+                    (250..=263).contains(&(pair[1] - pair[0])),
+                    "cadence={pair:?}"
+                );
+            }
+        }
     }
 
     #[test]

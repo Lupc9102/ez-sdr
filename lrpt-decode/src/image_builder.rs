@@ -27,18 +27,111 @@ pub fn apid_channel_label(apid: u16) -> Option<&'static str> {
     }
 }
 
+// MSU-MR transmits fourteen segments for each of three channels, then
+// telemetry, in a shared 43-packet cycle. Sequence counters wrap at 16384.
+const PACKETS_PER_GROUP: i64 = 43;
+const SEQUENCE_MODULUS: i64 = 16_384;
+const DAY_US: i64 = 86_400_000_000;
+// Nominal eight-scanline interval, corroborated by the public M2-4 capture.
+// Adjacent observed groups refine this estimate for long-gap unwrapping.
+const GROUP_PERIOD_US: f64 = 1_231_142.0;
+
+#[derive(Debug)]
+struct ScanGroup {
+    segments: [Option<Vec<u8>>; SEGMENTS_PER_LINE],
+}
+
+impl Default for ScanGroup {
+    fn default() -> Self {
+        Self {
+            segments: std::array::from_fn(|_| None),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct ChannelImage {
-    pixels: Vec<u8>,
-    height: usize,
-    offset: Option<u32>,
-    rollover: u32,
-    last_sequence: u16,
+    groups: BTreeMap<i64, ScanGroup>,
+    phase: i64,
+    latest_timed_base: Option<(i64, i64)>,
+}
+
+#[derive(Debug)]
+struct SequenceClock {
+    highest: Option<i64>,
+    latest_time: Option<i64>,
+    timed_anchors: BTreeMap<i64, i64>,
+    group_period_us: f64,
+}
+
+impl Default for SequenceClock {
+    fn default() -> Self {
+        Self {
+            highest: None,
+            latest_time: None,
+            timed_anchors: BTreeMap::new(),
+            group_period_us: GROUP_PERIOD_US,
+        }
+    }
+}
+
+fn nearest_sequence(sequence: u16, reference: i64) -> i64 {
+    reference
+        + (i64::from(sequence) - reference + SEQUENCE_MODULUS / 2).rem_euclid(SEQUENCE_MODULUS)
+        - SEQUENCE_MODULUS / 2
+}
+
+impl SequenceClock {
+    fn timestamp(&self, payload: &[u8]) -> Option<i64> {
+        let days = u16::from_be_bytes([payload[0], payload[1]]);
+        let millis = u32::from_be_bytes(payload[2..6].try_into().ok()?);
+        let micros = u16::from_be_bytes([payload[6], payload[7]]);
+        if millis >= 86_400_000 || micros >= 1000 || (days == 0 && millis == 0 && micros == 0) {
+            return None;
+        }
+        let raw = i64::from(days) * DAY_US + i64::from(millis) * 1000 + i64::from(micros);
+        if days == 0 {
+            // Older Meteor timestamps contain time-of-day only. Reordered
+            // packets on either side of midnight must retain their own day.
+            if let Some(latest) = self.latest_time {
+                return Some(latest + (raw - latest + DAY_US / 2).rem_euclid(DAY_US) - DAY_US / 2);
+            }
+        }
+        Some(raw)
+    }
+
+    fn locate(&self, sequence: u16, timestamp: Option<i64>) -> i64 {
+        if let Some(time) = timestamp {
+            let anchor = self
+                .timed_anchors
+                .range(..=time)
+                .next_back()
+                .or_else(|| self.timed_anchors.range(time..).next());
+            if let Some((&anchor_time, &anchor_sequence)) = anchor {
+                let elapsed_groups =
+                    ((time - anchor_time) as f64 / self.group_period_us).round() as i64;
+                return nearest_sequence(
+                    sequence,
+                    anchor_sequence + elapsed_groups * PACKETS_PER_GROUP,
+                );
+            }
+        }
+        nearest_sequence(sequence, self.highest.unwrap_or(i64::from(sequence)))
+    }
+
+    fn accept(&mut self, absolute: i64, time: Option<i64>) {
+        self.highest = Some(self.highest.map_or(absolute, |old| old.max(absolute)));
+        if let Some(time) = time {
+            self.latest_time = Some(self.latest_time.map_or(time, |old| old.max(time)));
+            self.timed_anchors.entry(time).or_insert(absolute);
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct ImageBuilder {
     channels: BTreeMap<u16, ChannelImage>,
+    clock: SequenceClock,
     dropped_segments: u64,
 }
 
@@ -48,9 +141,8 @@ impl ImageBuilder {
         Self::default()
     }
 
-    /// Decode one complete image Space Packet and place its 14 JPEG MCUs in
-    /// the 1568-pixel MSU-MR channel raster. The packet sequence counter and
-    /// MCUN field jointly identify the segment's line and horizontal slot.
+    /// Decode a segment and retain its absolute shared sequence/time identity.
+    /// Missing segments remain absent; output is cropped to received pass bounds.
     pub fn push_packet(&mut self, apid: u16, sequence: u16, payload: &[u8]) {
         if !IMAGE_APIDS.contains(&apid) {
             return;
@@ -59,98 +151,187 @@ impl ImageBuilder {
             self.dropped_segments = self.dropped_segments.saturating_add(1);
             return;
         };
-        let channel = self.channels.entry(apid).or_default();
-        if channel.last_sequence > sequence && channel.last_sequence > 13_926 && sequence < 2_458 {
-            channel.rollover = channel.rollover.saturating_add(16_384);
-        }
-        let mcu_count = u32::from(segment.mcu_number) / BLOCKS_PER_SEGMENT as u32;
-        if mcu_count >= SEGMENTS_PER_LINE as u32 {
+        let column = usize::from(segment.mcu_number) / BLOCKS_PER_SEGMENT;
+        if sequence >= SEQUENCE_MODULUS as u16
+            || !usize::from(segment.mcu_number).is_multiple_of(BLOCKS_PER_SEGMENT)
+            || column >= SEGMENTS_PER_LINE
+        {
             self.dropped_segments = self.dropped_segments.saturating_add(1);
             return;
         }
-        let offset = *channel.offset.get_or_insert_with(|| {
-            let sequence = u32::from(sequence);
-            let adjusted = sequence + u32::from(mcu_count > sequence) * 16_384;
-            adjusted.saturating_sub(mcu_count) % 43
-        });
-        let absolute_sequence = u32::from(sequence) + channel.rollover;
-        if absolute_sequence < offset {
+        let time = self.clock.timestamp(payload);
+        let absolute = self.clock.locate(sequence, time);
+        let base = absolute - column as i64;
+        let phase = base.rem_euclid(PACKETS_PER_GROUP);
+        if self
+            .channels
+            .get(&apid)
+            .is_some_and(|channel| channel.phase != phase)
+        {
             self.dropped_segments = self.dropped_segments.saturating_add(1);
             return;
         }
-        let segment_id = ((absolute_sequence - offset) / 43) * SEGMENTS_PER_LINE as u32 + mcu_count;
-        let line = segment_id as usize / SEGMENTS_PER_LINE;
-        let column = segment_id as usize % SEGMENTS_PER_LINE;
-        let required_height = (line + 1) * SEGMENT_HEIGHT;
-        if required_height > MAX_CHANNEL_HEIGHT
-            || required_height
+        let raw_group = base.div_euclid(PACKETS_PER_GROUP);
+        // The lowest transmitted APID begins each instrument channel cycle.
+        // Channels whose modulo phase wraps before it belong to the preceding
+        // numerical sequence group. Recompute shifts when an earlier APID arrives.
+        let first_phase = self
+            .channels
+            .first_key_value()
+            .filter(|(first_apid, _)| **first_apid < apid)
+            .map_or(phase, |(_, channel)| channel.phase);
+        let candidate_group = raw_group - i64::from(phase < first_phase);
+        let mut first = candidate_group;
+        let mut last = candidate_group;
+        for channel in self.channels.values() {
+            let shift = i64::from(channel.phase < first_phase);
+            if let Some((&group, _)) = channel.groups.first_key_value() {
+                first = first.min(group - shift);
+            }
+            if let Some((&group, _)) = channel.groups.last_key_value() {
+                last = last.max(group - shift);
+            }
+        }
+        let span_height = (last - first + 1) as usize * SEGMENT_HEIGHT;
+        if span_height > MAX_CHANNEL_HEIGHT
+            || span_height
                 .checked_mul(IMAGE_WIDTH)
                 .is_none_or(|pixels| pixels > MAX_CHANNEL_PIXELS)
         {
             self.dropped_segments = self.dropped_segments.saturating_add(1);
             return;
         }
-        if required_height > channel.height {
-            channel.pixels.resize(required_height * IMAGE_WIDTH, 0);
-            channel.height = required_height;
+        let channel = self.channels.entry(apid).or_insert_with(|| ChannelImage {
+            phase,
+            ..ChannelImage::default()
+        });
+        let group = channel.groups.entry(raw_group).or_default();
+        if group.segments[column].is_some() {
+            return;
         }
-        let x = column * SEGMENT_WIDTH;
-        let y = line * SEGMENT_HEIGHT;
-        for row in 0..SEGMENT_HEIGHT {
-            let dst = (y + row) * IMAGE_WIDTH + x;
-            channel.pixels[dst..dst + SEGMENT_WIDTH]
-                .copy_from_slice(&segment.pixels[row * SEGMENT_WIDTH..(row + 1) * SEGMENT_WIDTH]);
+        group.segments[column] = Some(segment.pixels);
+        if let Some(time) = time {
+            if let Some((old_time, old_base)) = channel.latest_timed_base {
+                let cycles = (base - old_base) / PACKETS_PER_GROUP;
+                if cycles > 0 && time > old_time {
+                    let observed = (time - old_time) as f64 / cycles as f64;
+                    if (1_000_000.0..1_500_000.0).contains(&observed) {
+                        self.clock.group_period_us = observed;
+                    }
+                }
+            }
+            if channel
+                .latest_timed_base
+                .is_none_or(|(old_time, _)| time > old_time)
+            {
+                channel.latest_timed_base = Some((time, base));
+            }
         }
-        channel.last_sequence = sequence;
+        self.clock.accept(absolute, time);
+    }
+
+    fn bounds(&self) -> Option<(i64, i64, i64)> {
+        let first_phase = self.channels.first_key_value()?.1.phase;
+        let mut first = i64::MAX;
+        let mut last = i64::MIN;
+        for channel in self.channels.values() {
+            let shift = i64::from(channel.phase < first_phase);
+            first = first.min(*channel.groups.first_key_value()?.0 - shift);
+            last = last.max(*channel.groups.last_key_value()?.0 - shift);
+        }
+        Some((first, last, first_phase))
+    }
+
+    fn pixel(channel: &ChannelImage, group: i64, x: usize, row: usize) -> u8 {
+        channel
+            .groups
+            .get(&group)
+            .and_then(|group| group.segments[x / SEGMENT_WIDTH].as_ref())
+            .map_or(0, |segment| {
+                segment[row * SEGMENT_WIDTH + x % SEGMENT_WIDTH]
+            })
     }
 
     #[must_use]
     pub fn render(&self, apid: u16) -> Option<GrayImage> {
         let channel = self.channels.get(&apid)?;
-        if channel.height == 0 {
-            return None;
-        }
-        GrayImage::from_raw(
+        let (first, last, first_phase) = self.bounds()?;
+        let height = (last - first + 1) as usize * SEGMENT_HEIGHT;
+        let shift = i64::from(channel.phase < first_phase);
+        Some(GrayImage::from_fn(
             IMAGE_WIDTH as u32,
-            channel.height as u32,
-            channel.pixels.clone(),
-        )
+            height as u32,
+            |x, y| {
+                image::Luma([Self::pixel(
+                    channel,
+                    first + i64::from(y / SEGMENT_HEIGHT as u32) + shift,
+                    x as usize,
+                    y as usize % SEGMENT_HEIGHT,
+                )])
+            },
+        ))
     }
 
     #[must_use]
     pub fn render_all(&self) -> Vec<(u16, GrayImage)> {
         self.channels
-            .iter()
-            .filter_map(|(&apid, _)| self.render(apid).map(|image| (apid, image)))
+            .keys()
+            .filter_map(|&apid| self.render(apid).map(|image| (apid, image)))
             .collect()
     }
 
-    /// Bounded display snapshots without cloning the growing full-pass rasters.
-    /// Full-resolution pixels stay available through `render_all` at completion.
+    /// Sample sparse groups directly, without allocating full-pass rasters.
     #[must_use]
     pub fn render_previews(&self, max_side: usize) -> Vec<(u16, GrayImage)> {
+        let Some((first, last, first_phase)) = self.bounds() else {
+            return Vec::new();
+        };
+        let full_height = (last - first + 1) as usize * SEGMENT_HEIGHT;
+        let step = IMAGE_WIDTH.max(full_height).div_ceil(max_side.max(1));
+        let width = IMAGE_WIDTH.div_ceil(step);
+        let height = full_height.div_ceil(step);
         self.channels
             .iter()
-            .filter(|(_, channel)| channel.height > 0)
             .map(|(&apid, channel)| {
-                let step = IMAGE_WIDTH.max(channel.height).div_ceil(max_side.max(1));
-                let width = IMAGE_WIDTH.div_ceil(step);
-                let height = channel.height.div_ceil(step);
+                let shift = i64::from(channel.phase < first_phase);
                 let preview = GrayImage::from_fn(width as u32, height as u32, |x, y| {
-                    let source_x = (x as usize * step).min(IMAGE_WIDTH - 1);
-                    let source_y = (y as usize * step).min(channel.height - 1);
-                    image::Luma([channel.pixels[source_y * IMAGE_WIDTH + source_x]])
+                    let source_y = y as usize * step;
+                    image::Luma([Self::pixel(
+                        channel,
+                        first + (source_y / SEGMENT_HEIGHT) as i64 + shift,
+                        x as usize * step,
+                        source_y % SEGMENT_HEIGHT,
+                    )])
                 });
                 (apid, preview)
             })
             .collect()
     }
 
+    /// Number of complete decoded scanlines. A group contributes eight only
+    /// after all fourteen horizontal segments are present; holes never count.
     #[must_use]
     pub fn total_line_count(&self) -> u32 {
         self.channels
             .values()
-            .map(|channel| channel.height as u32)
+            .flat_map(|channel| channel.groups.values())
+            .filter(|group| group.segments.iter().all(Option::is_some))
+            .count() as u32
+            * SEGMENT_HEIGHT as u32
+    }
+
+    #[must_use]
+    pub fn total_segment_count(&self) -> u32 {
+        self.channels
+            .values()
+            .flat_map(|channel| channel.groups.values())
+            .map(|group| {
+                group
+                    .segments
+                    .iter()
+                    .filter(|segment| segment.is_some())
+                    .count() as u32
+            })
             .sum()
     }
 
@@ -444,12 +625,205 @@ mod tests {
     fn preview_is_bounded_without_changing_full_resolution_image() {
         let mut builder = ImageBuilder::new();
         builder.push_packet(64, 16_000, &zero_segment(0));
+        builder.push_packet(64, ((16_000 + 43 * 140) % 16_384) as u16, &zero_segment(0));
         let full = builder.render(64).unwrap();
         assert!(full.height() > 1_024);
         let preview = builder.render_previews(1_024);
         assert_eq!(preview.len(), 1);
         assert!(preview[0].1.width() <= 1_024 && preview[0].1.height() <= 1_024);
         assert_eq!(builder.render(64).unwrap(), full);
+    }
+
+    #[test]
+    fn late_start_sparse_groups_and_duplicates_count_only_received_segments() {
+        let mut builder = ImageBuilder::new();
+        builder.push_packet(64, 16_300, &zero_segment(0));
+        assert_eq!(builder.render(64).unwrap().height(), 8);
+        assert_eq!(builder.total_line_count(), 0);
+        assert_eq!(builder.total_segment_count(), 1);
+        builder.push_packet(64, 16_300, &zero_segment(0));
+        assert_eq!(builder.total_segment_count(), 1);
+        // Two entirely missing groups remain black; complete received groups
+        // count sixteen scanlines even though their output spans thirty-two.
+        for column in 0..14 {
+            for base in [16_300, 16_300 + 3 * 43] {
+                builder.push_packet(
+                    64,
+                    ((base + column) % 16_384) as u16,
+                    &zero_segment((column * 14) as u8),
+                );
+            }
+        }
+        let image = builder.render(64).unwrap();
+        assert_eq!(image.height(), 32);
+        assert_eq!(builder.total_line_count(), 16);
+        assert_eq!(builder.total_segment_count(), 28);
+        assert!(image.as_raw()[8 * IMAGE_WIDTH..24 * IMAGE_WIDTH]
+            .iter()
+            .all(|&pixel| pixel == 0));
+        assert_eq!(builder.dropped_scanlines(), 0);
+    }
+
+    #[test]
+    fn shared_epoch_aligns_channels_straddling_zero_and_reordered_old_packets() {
+        let mut builder = ImageBuilder::new();
+        // One scan: channel 1 then 2 then 3. Channel 2 wraps mid-row.
+        for (apid, base) in [(65, 16_372), (66, 16_386), (64, 16_358)] {
+            for column in 0..14 {
+                builder.push_packet(
+                    apid,
+                    ((base + column) % 16_384) as u16,
+                    &zero_segment((column * 14) as u8),
+                );
+            }
+        }
+        let images = builder.render_all();
+        assert_eq!(images.len(), 3);
+        assert!(images
+            .iter()
+            .all(|(_, image)| image.height() == 8
+                && image.as_raw().iter().all(|&pixel| pixel == 128)));
+        assert_eq!(builder.total_segment_count(), 42);
+        assert_eq!(builder.total_line_count(), 24);
+        // A delayed pre-wrap duplicate must not increment the epoch again.
+        builder.push_packet(65, 16_383, &zero_segment(154));
+        builder.push_packet(65, 0, &zero_segment(168));
+        assert_eq!(builder.render_all(), images);
+        assert_eq!(builder.total_segment_count(), 42);
+    }
+
+    fn timed_segment(mcu: u8, time_us: i64, days: u16) -> Vec<u8> {
+        let mut payload = zero_segment(mcu);
+        payload[..2].copy_from_slice(&days.to_be_bytes());
+        payload[2..6].copy_from_slice(&((time_us / 1000) as u32).to_be_bytes());
+        payload[6..8].copy_from_slice(&((time_us % 1000) as u16).to_be_bytes());
+        payload
+    }
+
+    #[test]
+    fn timestamps_keep_large_gaps_multiple_rollovers_and_old_reordering_in_one_pass() {
+        let mut builder = ImageBuilder::new();
+        let first_base = 16_000;
+        let time = 10_000_000;
+        for group in [0, 1, 400, 800, 1200] {
+            let sequence = ((first_base + group * 43) % 16_384) as u16;
+            let timestamp = time + (GROUP_PERIOD_US * f64::from(group)).round() as i64;
+            builder.push_packet(64, sequence, &timed_segment(0, timestamp, 9000));
+        }
+        assert_eq!(builder.render(64).unwrap().height(), 1201 * 8);
+        assert_eq!(builder.total_segment_count(), 5);
+        // Reorder a previously missing segment of the first group after three
+        // wraps. Timestamp association prevents moving it to the latest epoch.
+        builder.push_packet(64, 16_001, &timed_segment(14, time, 9000));
+        let image = builder.render(64).unwrap();
+        assert_eq!(image.height(), 1201 * 8);
+        assert_eq!(image.get_pixel(112, 0).0, [128]);
+        assert_eq!(image.get_pixel(112, 1200 * 8).0, [0]);
+        assert_eq!(builder.total_segment_count(), 6);
+    }
+
+    #[test]
+    fn daily_timestamps_cross_midnight_and_reordering_without_false_epoch_growth() {
+        let mut builder = ImageBuilder::new();
+        let before = DAY_US - 1_000_000;
+        let after = (before + GROUP_PERIOD_US.round() as i64) % DAY_US;
+        builder.push_packet(64, 16_380, &timed_segment(0, before, 0));
+        builder.push_packet(
+            64,
+            ((16_380 + 43) % 16_384) as u16,
+            &timed_segment(0, after, 0),
+        );
+        builder.push_packet(64, 16_381, &timed_segment(14, before, 0));
+        assert_eq!(builder.render(64).unwrap().height(), 16);
+        assert_eq!(builder.total_segment_count(), 3);
+        assert_eq!(builder.dropped_scanlines(), 0);
+    }
+
+    #[test]
+    fn pass_cap_is_relative_and_rejects_growth_without_poisoning_the_clock() {
+        let mut builder = ImageBuilder::new();
+        let time = 1_000_000;
+        builder.push_packet(64, 16_300, &timed_segment(0, time, 9000));
+        let too_far = MAX_CHANNEL_HEIGHT as i64 / 8;
+        builder.push_packet(
+            64,
+            ((16_300 + too_far * 43) % 16_384) as u16,
+            &timed_segment(
+                0,
+                time + (GROUP_PERIOD_US * too_far as f64).round() as i64,
+                9000,
+            ),
+        );
+        assert_eq!(builder.dropped_scanlines(), 1);
+        assert_eq!(builder.total_segment_count(), 1);
+        builder.push_packet(
+            64,
+            16_343,
+            &timed_segment(0, time + GROUP_PERIOD_US.round() as i64, 9000),
+        );
+        assert_eq!(builder.render(64).unwrap().height(), 16);
+        assert_eq!(builder.total_segment_count(), 2);
+    }
+
+    #[test]
+    fn off_air_segments_align_across_channels_rollovers_and_reverse_order() {
+        let fixture = include_bytes!("../../audit/2026-10-07/fixtures/public-meteor-segments.bin");
+        let mut records = Vec::new();
+        let mut cursor = 0;
+        while cursor < fixture.len() {
+            let read = |offset| {
+                u16::from_le_bytes([fixture[cursor + offset], fixture[cursor + offset + 1]])
+            };
+            let (apid, sequence, group, length) = (read(0), read(2), read(4), usize::from(read(6)));
+            cursor += 8;
+            let payload = &fixture[cursor..cursor + length];
+            cursor += length;
+            let expected = &fixture[cursor..cursor + SEGMENT_WIDTH * SEGMENT_HEIGHT];
+            cursor += expected.len();
+            records.push((apid, sequence, group, payload, expected));
+        }
+        let mut first_render = None;
+        for reverse in [false, true] {
+            let mut builder = ImageBuilder::new();
+            for index in 0..records.len() {
+                let index = if reverse {
+                    records.len() - 1 - index
+                } else {
+                    index
+                };
+                let (apid, sequence, _, payload, _) = records[index];
+                builder.push_packet(apid, sequence, payload);
+            }
+            assert_eq!(builder.total_segment_count(), 6);
+            assert_eq!(builder.total_line_count(), 0);
+            assert_eq!(builder.dropped_scanlines(), 0);
+            let images = builder.render_all();
+            assert_eq!(images.len(), 3);
+            assert!(images.iter().all(|(_, image)| image.height() == 5504));
+            for (apid, _, group, payload, expected) in &records {
+                let image = &images
+                    .iter()
+                    .find(|(channel, _)| channel == apid)
+                    .unwrap()
+                    .1;
+                let x = usize::from(payload[8] / 14) * SEGMENT_WIDTH;
+                let y = usize::from(*group) * SEGMENT_HEIGHT;
+                for row in 0..SEGMENT_HEIGHT {
+                    for column in 0..SEGMENT_WIDTH {
+                        let actual = image.get_pixel((x + column) as u32, (y + row) as u32).0[0];
+                        assert!(
+                            actual.abs_diff(expected[row * SEGMENT_WIDTH + column]) <= 1,
+                            "APID={apid} group={group} pixel=({column},{row})"
+                        );
+                    }
+                }
+            }
+            if let Some(first) = &first_render {
+                assert_eq!(&images, first);
+            } else {
+                first_render = Some(images);
+            }
+        }
     }
 
     #[test]

@@ -1,0 +1,179 @@
+{
+  "date": "2026-10-08",
+  "scope": [
+    "S08",
+    "S10",
+    "S09 additional independent full-pass verification"
+  ],
+  "commands": [
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/image-workspace-tests.log",
+      "log_sha256": "8deb32f7c7f65d6c6d3633e5f245418ac0bb158e19fe53c118be44cd15133625",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 214,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 831,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 19,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 97,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/image-workspace-clippy.log",
+      "log_sha256": "24598006ec9cf414e02e2c823ab57c1d13c57e614568e732333b2e67766f1759"
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/image-workspace-build.log",
+      "log_sha256": "bf5c5338808b63e17d87c578dc9319ecb0b3a977b683a2d4f46b722bff785aef"
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/image-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "log": "repair-evidence/image-graphify.log",
+      "log_sha256": "2b8fe3756eddc1627f89b381924e46e33323981889517fba12801154a038d96d"
+    },
+    {
+      "command": "cargo run -p lrpt-decode --release --example audit_image_reference -- /tmp/ez-sdr-public-meteor-reference.cadu /tmp/ez-sdr-repaired-image-reference",
+      "exit_code": 0,
+      "log": "repair-evidence/image-public-decode.log",
+      "log_sha256": "a22f38a8ff63a1af2ec28be301df204c250398361b02ab2908d4b815d1d78aec"
+    },
+    {
+      "command": "python3 audit/2026-10-07/verify_public_image.py /tmp/ez-sdr-public-meteor-reference.cadu /tmp/ez-sdr-repaired-image-reference /tmp/ez-sdr-libjpeg-image-oracle",
+      "exit_code": 0,
+      "log": "repair-evidence/image-public-oracle.log",
+      "log_sha256": "e32e469b71769202a93fd39b584d7558e8dc7a26532ef1aa889d6444a96383f7"
+    },
+    {
+      "command": "satdump meteor_m2-x_lrpt cadu /tmp/ez-sdr-public-meteor-reference.cadu /tmp/ez-sdr-satdump-reference --fill_missing false",
+      "exit_code": 0,
+      "log": "repair-evidence/image-satdump-reference.log",
+      "log_sha256": "20d08983ed63eb18a8a78bcdfd73460ee4fea17abff0a87107e2caede887402d"
+    }
+  ],
+  "sources": {
+    "lrpt-decode/src/lib.rs": "4ef1eb265f77b2b1913a97cf04a33c55a0600ffc5f8f6381695c5f3bdc09f158",
+    "lrpt-decode/src/image_builder.rs": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+    "lrpt-decode/examples/audit_image_reference.rs": "4575fc8b4bd3f038f7ce991d58c5b2e0ced61c50af3f95ead2eec4170b2a230a",
+    "ez-gui/src/decoding_panel.rs": "d0d6db329813fdeb87f2e0886b6d32e1351cb056c0995a1553246997de3218e8",
+    "audit/2026-10-07/verify_public_image.py": "2eedafc599e3445855bf36f2870e26a5518c7f4672dc1b2c550dc13e47a51fe6",
+    "audit/2026-10-07/fixtures/public-meteor-segments.bin": "34bb97dccf69a1894d3fdc2d4b80049940242f87e1c4889bbd7acaa74f02f881"
+  },
+  "independent_pixel_verification": "public-image-verification.json",
+  "public_source": "public-meteor-reference.json",
+  "oracle_runtime": {
+    "Pillow": "12.3.0",
+    "libjpeg": "6.2",
+    "numpy": "2.5.0"
+  },
+  "limits": [
+    "RF demodulation/mission transport compatibility remains open under S01/S02/S11; this batch consumes independently corrected off-air CADUs.",
+    "Missing timestamps use nearest modular sequence observations: gaps longer than half a counter cycle cannot be uniquely unwrapped without time evidence.",
+    "Quarter-second progress is measured in recovered symbols and emitted at caller chunk boundaries. Full queues retain at most two snapshots and never block.",
+    "The public compressed IQ file has an unfinished tail; no complete-recording or physical SDR acceptance is claimed."
+  ],
+  "satdump_binary_sha256": "a85668d3fda04cf3b9eb46b91d1aa1c33bcf7fd36f5b4e3e3f69935c208ba546",
+  "satdump_core_sha256": "fd7bda4cb275262bbd6395f45b029cda23c3e93fe35f7721918f46fb9349cc5e",
+  "log_normalization": "Trailing blank lines removed; SatDump ANSI color sequences and trailing ASCII whitespace removed."
+}

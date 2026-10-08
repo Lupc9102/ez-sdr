@@ -766,8 +766,11 @@ impl DecodingPanel {
             )));
             if let Some(progress) = &self.progress {
                 ui.label(format!(
-                    "{} lines · RS {} ok / {} failed",
-                    progress.lines_decoded, progress.rs_ok, progress.rs_failed
+                    "{} complete lines · {} segments · RS {} ok / {} failed",
+                    progress.lines_decoded,
+                    progress.segments_decoded,
+                    progress.rs_ok,
+                    progress.rs_failed
                 ));
                 ui.label(format!(
                     "Carrier {} · frame {}",
