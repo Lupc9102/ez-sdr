@@ -9,6 +9,7 @@
 pub mod capture;
 pub mod codec;
 pub mod messages;
+pub mod meteor;
 pub mod receiver;
 pub mod recording_capture;
 pub mod stream_queue;
@@ -16,6 +17,7 @@ pub mod stream_queue;
 pub use capture::{new_capture_epoch, CaptureClock, CaptureTimestamp};
 pub use codec::{CodecError, MessageCodec, MAX_CONTROL_FRAME_LEN, MAX_DATA_FRAME_LEN};
 pub use messages::*;
+pub use meteor::MeteorProfile;
 pub use receiver::{unix_time_ms, MessageRateWindow, MESSAGE_RATE_WINDOW_SECONDS};
 
 pub use recording_capture::RecordingCapture;

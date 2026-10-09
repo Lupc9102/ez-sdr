@@ -1,0 +1,264 @@
+{
+  "date": "2026-10-09",
+  "scope": [
+    "S01 implementation and independent generated transport verification",
+    "S02 continuous clock recovery through long interleaver startup",
+    "R08 native capture generation snapshot regression"
+  ],
+  "commands": [
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-workspace-tests.log",
+      "log_sha256": "3c848e4ede6d08b818c1c5f9bf44e877809c268e373f6e7cdb44ad2cbdf4ee5f",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 214,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 832,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 19,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 3
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p lrpt-decode --release -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-lrpt-final.log",
+      "log_sha256": "77252efef5c906ae2230c9633281426c7191b5ccf623162dd24b4b15211f5f7f",
+      "test_harnesses": [
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 3
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "EZ_INTERLEAVER_VECTORS=/tmp/ez-sdr-interleaver-vectors cargo test -p lrpt-decode --release independent_interleaved_iq -- --ignored --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-independent-iq-final.log",
+      "log_sha256": "6f841be4c841724042e0982579656db0e1c4edadfa4da3b998a0ad635db797d1",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "EZ_OQPSK_VECTORS=/tmp/ez-sdr-oqpsk-vectors cargo test -p lrpt-decode --release independent_oqpsk_carrier_corpus -- --ignored --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-carrier-final.log",
+      "log_sha256": "de47a465af95b41eed9aa80e1a60db8eb9184e3447f7c43a3f8bca81e8ef576f",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "EZ_METEOR_CS8=/tmp/ez-sdr-public-meteor-prefix.cs8 EZ_METEOR_CADU=/tmp/ez-sdr-public-meteor-reference.cadu cargo test -p lrpt-decode --release public_off_air_carrier -- --ignored --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-public-72k.log",
+      "log_sha256": "49a20462831b7bf1b56dfe16302fea90335a1d397a1ce4dd3962df511eb3d8b2",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-clippy-fixed.log",
+      "log_sha256": "cc3b3ce71526b36fe038906ffdc0d9f04a89ea731b1a810d3072a9e73bd7580b",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-build-fixed.log",
+      "log_sha256": "6819f58a4b11b262ba8e91bbea6a6e8009c1a359181638f4ede3cf629a46f4ab",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo run -p lrpt-decode --release --example audit_logic",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-audit-logic.log",
+      "log_sha256": "aa7ca7131da132bbc2a4abcbdbd586b9c9d26e11eb6b10317a11fcc1053c2dd4",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-fmt-fixed.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_harnesses": []
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "log": "repair-evidence/transport-graphify.log",
+      "log_sha256": "a44d0d582e85ac3752bfec858a630b89935dc2a2103add64a1ae674c41561f14",
+      "note": "AST-only refresh; user-deleted eight tracked graph sidecars removed again after refresh."
+    }
+  ],
+  "source_sha256": {
+    "Cargo.lock": "0ff3fab993fbbc00c50896077b5d4be64ee46e7ff6af5678f9d834340448158f",
+    "ez-proto/src/lib.rs": "e6c0719988e434430beb48949d6393138a23defe1b54163f2b91e0b2f94a8628",
+    "ez-proto/src/meteor.rs": "9674f0154bd2942a660966597cc2f824581e8d3c99dcfb8709de776d00fd8252",
+    "lrpt-decode/Cargo.toml": "678c1c2b129e6dcef40849523aad6aa699bc9ce108b19badab025249e0f93197",
+    "lrpt-decode/src/lib.rs": "f7a8160ead747e62e97508ef8f77bb4c16e8200f4e5983c9f3c9d2e780b5f844",
+    "lrpt-decode/src/qpsk.rs": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+    "lrpt-decode/src/interleaver.rs": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+    "ez-gui/src/decoding_panel.rs": "fb31396a4aa83df51f19388b9dcabdce6d1e97f9296670dde49e0e740b270edd",
+    "audit/2026-10-07/generate_interleaver_fixture.py": "f45d4f7402485af6105b6d08ef3a33914cff641b91a7351c908e9d908afd2287",
+    "audit/2026-10-07/generate_oqpsk_vectors.py": "5a2d67b186deaab184a85d1a75699de0b5c9c90f886aef1747718ad50c91303b",
+    "ez-gui/src/demod_native.rs": "e7f5e3cfb81e92a0106be20e5caed22e3d4684afecc2d06f1653e3c8e958bfd3"
+  },
+  "independent_80k": {
+    "fixture_manifest": "fixtures/meteor-80k-fixture.json",
+    "reference": "https://github.com/dbdexter-dev/meteor_decode/tree/e7ca456ea969dc4834b5544c3789de1dd5d2f663",
+    "bit_comparison": "Every deinterleaved coded bit agrees with the native C reference across chunks 61,4096,whole. Unknown FIFO history remains unobserved.",
+    "iq_comparison": "Both analytical RRC stagger directions, 37 degrees phase, 137 Hz CFO, +70 ppm clock drift, 320k sampling: exactly three corrected byte-identical 892-byte payloads at chunks 997 and 16384; no duplicate opposite-stagger observations.",
+    "reference_independence": "The native C oracle and libfec are external generator dependencies; no third-party transport code is imported into the production decoder. IQ uses analytical RRC evaluation and a closed-form transmitter permutation."
+  },
+  "clock_rate": "A bounded second-order Gardner period loop follows persistent sample-clock drift; phase-only timing accumulated marker slips during the roughly 18-second deinterleaver startup.",
+  "minimum_sampling": {
+    "samples_per_symbol": 4,
+    "72k_minimum_hz": 288000,
+    "80k_minimum_hz": 320000,
+    "probe_exit_code": 101,
+    "probe_log": "repair-evidence/transport-low-rate-probe.log",
+    "probe_manifest": "repair-evidence/transport-low-rate-manifest.json",
+    "reason": "The additional 36 independent 2, 2.5 and 3 samples/symbol cases do not all recover three payloads at +/-1 kHz and +/-150 ppm. Four samples/symbol is the verified mission entry-point envelope; lower rates are rejected before starting an offline worker."
+  },
+  "public_72k": {
+    "mission_profile": "Oqpsk72 (explicit NRZ-M)",
+    "slice_seconds": [
+      180,
+      200
+    ],
+    "accepted_cadus": 175,
+    "reference_matched_payloads": 175,
+    "additional_cadus": 0,
+    "rs_ok": 700,
+    "reference_sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90",
+    "prefix_metadata": "repair-evidence/transport-public-prefix.json",
+    "note": "A public HTTP range provides a complete IQ-pair prefix covering the tested interval. The compressed stream ends at the requested range and is deliberately truncated; this batch does not claim a complete RF-pass decode."
+  },
+  "limits": [
+    "S01 remains open: an independently decoded off-air 80k IQ recording and image comparison have not been obtained. Generated independent IQ and the native coded-bit oracle do not fulfill that field gate.",
+    "S11 remains open: the daemon still uses a fixed-rate legacy primitive; this batch adds shared profiles and product reset APIs but has not wired the daemon.",
+    "Full RF-pass, physical receiver, audio sink and disk-failure release gates remain as recorded in the original audit."
+  ],
+  "protocol": "No serialized ChannelSpec field changes in this batch; binary protocol remains version 10.",
+  "discovered_native_race": {
+    "failing_run_exit_code": 101,
+    "log": "repair-evidence/transport-workspace-before-snapshot-fix.log",
+    "failure": "A skipped generation-2 block could update snapshot generation without clearing generation-1 epoch/radio state (epoch Some(10) instead of None).",
+    "isolated_before_fix_retry": "The same scheduling-sensitive test passed in isolation; the retry does not establish correctness.",
+    "repair": "Retire expected continuity, epoch, waveform, power, tone, stereo and RDS state at every processed capture generation change before stale-control rejection.",
+    "deterministic_regression": "demod::native::tests::skipped_new_generation_retires_previous_epoch_and_radio_snapshot",
+    "targeted_regression_log": "repair-evidence/transport-generation-boundaries.log"
+  }
+}

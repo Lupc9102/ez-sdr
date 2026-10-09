@@ -211,6 +211,8 @@ pub struct QpskDemod {
     sps: f32, // samples per symbol at the decimated rate
     tau: f64,
     timing_gain: f32,
+    timing_period: f64,
+    timing_rate_gain: f64,
 
     // Costas loop (4th power) state.
     costas_phase: f32,
@@ -255,6 +257,8 @@ impl QpskDemod {
             // the interpolator always has real history to look back on.
             tau: f64::from(sps) * 2.0,
             timing_gain: 0.02,
+            timing_period: f64::from(sps),
+            timing_rate_gain: 0.0001,
             costas_phase: 0.0,
             costas_freq: 0.0,
             costas_alpha,
@@ -361,8 +365,15 @@ impl QpskDemod {
                     half_symbol_ago.re * diff.re + half_symbol_ago.im * diff.im
                 };
                 let timing_error = timing_error.clamp(-1.0, 1.0);
+                // Track clock rate as well as sampling phase. A phase-only
+                // correction leaves persistent drift when the interleaver's
+                // long startup has sparse transitions between markers.
+                self.timing_period -= self.timing_rate_gain * f64::from(timing_error);
+                self.timing_period = self
+                    .timing_period
+                    .clamp(f64::from(self.sps) * 0.995, f64::from(self.sps) * 1.005);
                 let step =
-                    (f64::from(self.sps) - f64::from(self.timing_gain * timing_error)).max(0.5);
+                    (self.timing_period - f64::from(self.timing_gain * timing_error)).max(0.5);
                 self.tau += step;
 
                 let decision = if self.config.oqpsk {

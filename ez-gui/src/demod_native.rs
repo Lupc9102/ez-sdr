@@ -267,6 +267,9 @@ impl Processor {
         let samples = (block.samples.len() / 2) as u64;
         if self.snapshot.generation != block.source_generation {
             self.account_tail();
+            self.reset();
+            self.expected = None;
+            self.snapshot.epoch = None;
             self.next_stream = 0;
             self.session.clone_from(&block.session);
             self.snapshot.generation = block.source_generation;
@@ -1034,6 +1037,54 @@ mod tests {
             meter.process(&vec![Complex32::default(); 4096], rate, 0.0, 12_500.0),
             -120.0
         );
+    }
+
+    #[test]
+    fn skipped_new_generation_retires_previous_epoch_and_radio_snapshot() {
+        let stream = CaptureStream::default();
+        stream.start(1);
+        let (radio, demod) = config(None);
+        let desired = WorkerControl {
+            radio: Some(radio),
+            config: demod,
+            ..Default::default()
+        };
+        let audio = RadioAudioStream {
+            bus: Broadcaster::new(),
+            capture: stream.clone(),
+            handled_samples: Arc::new(AtomicU64::new(0)),
+            lost_samples: Arc::new(AtomicU64::new(0)),
+            running: Arc::new(AtomicBool::new(true)),
+            produced_samples: Arc::new(AtomicU64::new(0)),
+        };
+        let mut processor = Processor::new();
+        processor.configure(&desired);
+        let previews = Broadcaster::new();
+        let mut block = CaptureBlock::fixture(
+            input(16_384, 0),
+            ez_proto::CaptureClock::new(10, 0, 2_400_000, None),
+            1,
+            0,
+        );
+        block.center_hz = 100_000_000;
+        block.session = Some(stream.session());
+        processor.process(&block, &desired, &previews, &audio);
+        assert_eq!(processor.snapshot.epoch, Some(10));
+        assert!(!processor.snapshot.waveform.is_empty());
+        stream.session().finish();
+        stream.start(2);
+        block.source_generation = 2;
+        block.clock.epoch = 11;
+        block.session = Some(stream.session());
+        // The control plane still refers to generation 1. This block is
+        // counted but skipped; no epoch or radio state can survive from 1.
+        processor.process(&block, &desired, &previews, &audio);
+        assert_eq!(processor.snapshot.generation, 2);
+        assert_eq!(processor.snapshot.epoch, None);
+        assert!(processor.snapshot.waveform.is_empty());
+        assert_eq!(processor.snapshot.signal_db, -120.0);
+        assert!(processor.expected.is_none());
+        assert_eq!(processor.snapshot.skipped_samples, 16_384);
     }
 
     #[test]

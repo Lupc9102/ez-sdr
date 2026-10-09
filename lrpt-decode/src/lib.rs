@@ -1,10 +1,13 @@
 //! Clean-room Meteor-M2 LRPT (Low Rate Picture Transmission) decoder.
 //!
-//! Pipeline: raw IQ bytes -> QPSK demod -> differential decode -> CCSDS CADU
-//! frame sync -> derandomize -> Reed-Solomon(255,223) correction -> VCDU/M-PDU
+//! Pipeline: IQ -> profile-specific QPSK/OQPSK -> optional 80k marker removal/
+//! convolutional deinterleaving -> Viterbi -> optional NRZ-M -> CADU sync ->
+//! derandomize -> Reed-Solomon(255,223) correction -> VCDU/M-PDU
 //! Space Packet reassembly -> per-APID scanline image reconstruction.
 //!
-//! Implemented from public CCSDS 131.0-B / 132.0-B specifications only.
+//! File helpers with only a symbol-rate argument retain the uninterleaved
+//! experimental coding primitive. Mission receivers select `for_mission`.
+//! Implemented from public CCSDS specifications and Meteor transport parameters.
 //! Scope: Meteor-M2-3 and Meteor-M2-4 LRPT downlinks. No APT/NOAA support.
 
 mod ccsds;
@@ -12,6 +15,7 @@ mod ccsds;
 mod diff_decode;
 mod frame_sync;
 mod image_builder;
+mod interleaver;
 mod iq_source;
 mod qpsk;
 mod randomizer;
@@ -22,6 +26,7 @@ use crossbeam_channel::Sender;
 use num_complex::Complex32;
 use std::path::Path;
 
+pub use ez_proto::MeteorProfile;
 pub use image_builder::apid_channel_label;
 pub use iq_source::{
     cf32_amplitude_for_path, cf32_le_bytes_to_complex, cf32_le_bytes_to_normalized,
@@ -37,6 +42,25 @@ pub enum LrptError {
     NoSync,
     #[error("invalid CF32 metadata: {0}")]
     InvalidMetadata(String),
+    #[error("invalid Meteor configuration: {0}")]
+    InvalidConfiguration(String),
+}
+
+/// Supported mission receiver envelope. Four input samples per symbol keep
+/// staggered-branch timing and sample interpolation inside the independently
+/// verified carrier operating range; the mission RRC occupies 1.5 * Rs.
+pub fn validate_mission_sampling(
+    sample_rate: u32,
+    profile: MeteorProfile,
+) -> Result<(), LrptError> {
+    let minimum = profile.symbol_rate_hz() * 4;
+    if sample_rate < minimum {
+        return Err(LrptError::InvalidConfiguration(format!(
+            "{} requires at least {minimum} samples/s (four samples per symbol); got {sample_rate}",
+            profile.label()
+        )));
+    }
+    Ok(())
 }
 
 /// Snapshot of decode progress, sent periodically over `progress_tx` so the
@@ -251,6 +275,11 @@ struct DecodeLane {
     plain_framer: frame_sync::FrameSync,
     nrzm_framer: frame_sync::FrameSync,
     nrzm_previous: Option<u8>,
+    profile: Option<MeteorProfile>,
+    interleaver: Option<interleaver::MeteorDeinterleaver>,
+    transport_generation: u64,
+    transport_bits_received: u64,
+    transport_erasures: std::collections::VecDeque<u64>,
 }
 
 impl DecodeLane {
@@ -260,7 +289,21 @@ impl DecodeLane {
             plain_framer: frame_sync::FrameSync::new(),
             nrzm_framer: frame_sync::FrameSync::new(),
             nrzm_previous: None,
+            profile: None,
+            interleaver: None,
+            transport_generation: 0,
+            transport_bits_received: 0,
+            transport_erasures: std::collections::VecDeque::new(),
         }
+    }
+
+    fn for_profile(profile: Option<MeteorProfile>) -> Self {
+        let mut lane = Self::new();
+        lane.profile = profile;
+        lane.interleaver = profile
+            .filter(|profile| profile.interleaved())
+            .map(|_| interleaver::MeteorDeinterleaver::new());
+        lane
     }
 
     fn push_symbols(
@@ -284,13 +327,44 @@ impl DecodeLane {
             second ^= (hypothesis & 0b010 != 0) as u8;
             coded.extend_from_slice(&[first, second]);
         }
-        let recovered = self.viterbi.push_bits(&coded);
+        if let Some(stage) = &mut self.interleaver {
+            let bits: Vec<_> = coded
+                .iter()
+                .enumerate()
+                .map(|(index, &value)| {
+                    let symbol = symbols[index / 2];
+                    let observed = if hypothesis & 8 != 0 {
+                        symbol.alternate_value.unwrap_or(symbol.value)
+                    } else {
+                        symbol.value
+                    };
+                    interleaver::ChannelBit {
+                        value,
+                        valid: observed.norm_sqr().is_finite() && observed.norm_sqr() > 1e-12,
+                    }
+                })
+                .collect();
+            let blocks = stage.push_bits(&bits);
+            return self.push_transport_blocks(blocks);
+        }
+        self.push_coded_bits(&coded)
+    }
+
+    fn push_coded_bits(&mut self, coded: &[u8]) -> Vec<frame_sync::LocatedFrame> {
+        let recovered = self.viterbi.push_bits(coded);
         let validate = |cadu: &[u8]| {
             let transport = randomizer::derandomize(&cadu[4..]);
             let result = reed_solomon::decode_interleaved(&transport);
             result.codewords_failed == 0 && result.codewords_ok == 4
         };
-        let mut frames = self.plain_framer.push_bits_located(&recovered, validate);
+        let mut frames = if self.profile.is_none_or(|profile| !profile.nrzm()) {
+            self.plain_framer.push_bits_located(&recovered, validate)
+        } else {
+            Vec::new()
+        };
+        if self.profile.is_some_and(|profile| !profile.nrzm()) {
+            return frames;
+        }
 
         let mut nrzm = Vec::with_capacity(recovered.len());
         for bit in recovered {
@@ -308,6 +382,60 @@ impl DecodeLane {
         frames.extend(nrzm_frames);
         frames
     }
+
+    fn push_transport_blocks(
+        &mut self,
+        blocks: Vec<interleaver::TransportBlock>,
+    ) -> Vec<frame_sync::LocatedFrame> {
+        let mut frames = Vec::new();
+        for block in blocks {
+            if block.generation != self.transport_generation {
+                self.transport_generation = block.generation;
+                self.viterbi = viterbi::ViterbiDecoder::new();
+                self.plain_framer = frame_sync::FrameSync::new();
+                self.nrzm_framer = frame_sync::FrameSync::new();
+                self.nrzm_previous = None;
+                self.transport_bits_received = 0;
+                self.transport_erasures.clear();
+            }
+            for (index, bit) in block.bits.iter().enumerate() {
+                if !bit.valid {
+                    self.transport_erasures
+                        .push_back((self.transport_bits_received + index as u64) / 2);
+                }
+            }
+            self.transport_bits_received += block.bits.len() as u64;
+            let bits = block.bits.map(|bit| bit.value);
+            let recovered = self.push_coded_bits(&bits);
+            for mut frame in recovered {
+                let start = frame
+                    .end_bit
+                    .saturating_sub(frame_sync::CADU_LEN_BYTES as u64 * 8);
+                if self
+                    .transport_erasures
+                    .iter()
+                    .any(|&index| index >= start && index < frame.end_bit)
+                {
+                    continue;
+                }
+                frame.end_bit = interleaver::MeteorDeinterleaver::observed_symbol_end(
+                    block.first_wire_bit,
+                    frame.end_bit + VITERBI_OUTPUT_DELAY,
+                );
+                frames.push(frame);
+            }
+            let oldest = (self.transport_bits_received / 2)
+                .saturating_sub(VITERBI_OUTPUT_DELAY + frame_sync::CADU_LEN_BYTES as u64 * 8);
+            while self
+                .transport_erasures
+                .front()
+                .is_some_and(|&index| index < oldest)
+            {
+                self.transport_erasures.pop_front();
+            }
+        }
+        frames
+    }
 }
 
 /// Streaming decoder driven incrementally with IQ byte chunks, for live
@@ -316,6 +444,7 @@ pub struct LrptDecoder {
     progress_tx: Sender<DecodeProgress>,
 
     demod: qpsk::QpskDemod,
+    profile: Option<MeteorProfile>,
     lanes: [DecodeLane; 16],
     selected_lane: Option<usize>,
     symbols_received: u64,
@@ -348,6 +477,7 @@ impl LrptDecoder {
         Self {
             progress_tx,
             demod: qpsk::QpskDemod::new(config),
+            profile: None,
             lanes: std::array::from_fn(|_| DecodeLane::new()),
             selected_lane: None,
             symbols_received: 0,
@@ -366,17 +496,55 @@ impl LrptDecoder {
         }
     }
 
+    /// Construct a real mission transport. `new` remains an uninterleaved
+    /// coding primitive for experiments; an arbitrary symbol rate is not a
+    /// substitute for selecting the actual mission's interleaver/NRZ-M chain.
+    pub fn for_mission(
+        sample_rate: u32,
+        profile: MeteorProfile,
+        progress_tx: Sender<DecodeProgress>,
+    ) -> Result<Self, LrptError> {
+        validate_mission_sampling(sample_rate, profile)?;
+        let mut decoder = Self::new(sample_rate, profile.symbol_rate_hz(), progress_tx);
+        decoder.profile = Some(profile);
+        decoder.reset_stream(sample_rate, profile.symbol_rate_hz());
+        Ok(decoder)
+    }
+
+    /// A capture gap resets partial transport state but retains this product.
+    pub fn reset_mission_stream(&mut self, sample_rate: u32) -> Result<(), LrptError> {
+        let profile = self.profile.ok_or_else(|| {
+            LrptError::InvalidConfiguration("mission reset requires a mission profile".into())
+        })?;
+        validate_mission_sampling(sample_rate, profile)?;
+        self.reset_stream(sample_rate, profile.symbol_rate_hz());
+        Ok(())
+    }
+
+    /// A different pass/source/tuning begins a fresh product and fresh counts.
+    pub fn start_new_product(
+        &mut self,
+        sample_rate: u32,
+        profile: MeteorProfile,
+    ) -> Result<(), LrptError> {
+        *self = Self::for_mission(sample_rate, profile, self.progress_tx.clone())?;
+        Ok(())
+    }
+
     /// Discard partial RF, convolutional, CADU and packet state after missing
     /// samples. Completed image data and lifetime RS counts remain available.
     pub fn reset_stream(&mut self, sample_rate: u32, symbol_rate: u32) {
         assert!(sample_rate > 0 && symbol_rate > 0);
+        assert!(self
+            .profile
+            .is_none_or(|profile| profile.symbol_rate_hz() == symbol_rate));
         self.demod = qpsk::QpskDemod::new(qpsk::QpskConfig {
             sample_rate: sample_rate as f32,
             symbol_rate: symbol_rate as f32,
-            oqpsk: true,
+            oqpsk: self.profile.is_none_or(MeteorProfile::oqpsk),
             ..qpsk::QpskConfig::default()
         });
-        self.lanes = std::array::from_fn(|_| DecodeLane::new());
+        self.lanes = std::array::from_fn(|_| DecodeLane::for_profile(self.profile));
         self.selected_lane = None;
         self.symbols_received = 0;
         self.last_valid_frame_end = None;
@@ -462,9 +630,10 @@ impl LrptDecoder {
             let start = frame
                 .end_bit
                 .saturating_sub(frame_sync::CADU_LEN_BYTES as u64 * 8);
-            if self.low_energy_symbols[hypothesis / 8]
-                .iter()
-                .any(|&position| position >= start && position < frame.end_bit)
+            if !self.profile.is_some_and(MeteorProfile::interleaved)
+                && self.low_energy_symbols[hypothesis / 8]
+                    .iter()
+                    .any(|&position| position >= start && position < frame.end_bit)
             {
                 // Missing-energy decisions are erasures, not evidence of a
                 // received frame. In particular, constant hard decisions can
@@ -474,9 +643,15 @@ impl LrptDecoder {
             // Equivalent convolutional hypotheses can produce the same CADU.
             // Suppress duplicate observations by position, not payload bytes:
             // successive identical transmitted frames remain distinct.
+            // Marker alignment can correct a one-coded-bit offset between
+            // opposite stagger/axis hypotheses. Their frame observations
+            // can therefore differ by one recovered symbol. Real successive
+            // CADUs are thousands of symbols apart, including identical ones.
+            let position_tolerance =
+                u64::from(self.profile.is_some_and(MeteorProfile::interleaved));
             if self
                 .last_valid_frame_end
-                .is_some_and(|end| frame.end_bit <= end)
+                .is_some_and(|end| frame.end_bit <= end.saturating_add(position_tolerance))
             {
                 continue;
             }
@@ -485,7 +660,11 @@ impl LrptDecoder {
                 self.selected_lane = Some(hypothesis);
             }
         }
-        let recovered_end = self.symbols_received.saturating_sub(VITERBI_OUTPUT_DELAY);
+        let recovered_end = if self.profile.is_some_and(MeteorProfile::interleaved) {
+            self.symbols_received
+        } else {
+            self.symbols_received.saturating_sub(VITERBI_OUTPUT_DELAY)
+        };
         let oldest_candidate = recovered_end.saturating_sub(frame_sync::CADU_LEN_BYTES as u64 * 8);
         for observations in &mut self.low_energy_symbols {
             while observations
@@ -495,9 +674,14 @@ impl LrptDecoder {
                 observations.pop_front();
             }
         }
+        let max_frame_age = if self.profile.is_some_and(MeteorProfile::interleaved) {
+            (FRAME_LOCK_MAX_AGE * 10).div_ceil(9) // 8 marker bits per 72 data bits
+        } else {
+            FRAME_LOCK_MAX_AGE
+        };
         if self
             .last_valid_frame_end
-            .is_none_or(|end| recovered_end.saturating_sub(end) >= FRAME_LOCK_MAX_AGE)
+            .is_none_or(|end| recovered_end.saturating_sub(end) >= max_frame_age)
         {
             self.selected_lane = None;
         }
@@ -1384,6 +1568,142 @@ mod tests {
     }
 
     #[test]
+    fn interleaved_mission_recovers_independent_payloads_and_observation_positions() {
+        let expected: Vec<_> =
+            include_bytes!("../../audit/2026-10-07/fixtures/meteor-80k-payloads.bin")
+                .chunks_exact(892)
+                .map(<[u8]>::to_vec)
+                .collect();
+        let bytes = include_bytes!("../../audit/2026-10-07/fixtures/meteor-80k-wire.bits");
+        let bits: Vec<_> = bytes
+            .iter()
+            .flat_map(|&byte| (0..8).map(move |bit| (byte >> (7 - bit)) & 1))
+            .collect();
+        let symbols: Vec<_> = bits
+            .chunks_exact(2)
+            .map(|pair| qpsk::RecoveredSymbol {
+                value: Complex32::new(1.0 - 2.0 * pair[0] as f32, 1.0 - 2.0 * pair[1] as f32),
+                alternate_value: None,
+                costas_locked: true,
+            })
+            .collect();
+        let mut wanted_end = None;
+        for chunk_size in [997, 16_384] {
+            let (tx, _rx) = crossbeam_channel::bounded(2);
+            let mut decoder =
+                LrptDecoder::for_mission(320_000, MeteorProfile::Oqpsk80Interleaved, tx).unwrap();
+            for chunk in symbols.chunks(chunk_size) {
+                decoder.push_recovered_symbols(chunk);
+            }
+            assert_eq!(decoder.validated_payloads, expected);
+            assert_eq!(decoder.rs_ok, 12);
+            assert!(decoder.last_valid_frame_end.unwrap() <= decoder.symbols_received);
+            if let Some(end) = wanted_end {
+                assert_eq!(decoder.last_valid_frame_end, end);
+            }
+            wanted_end = Some(decoder.last_valid_frame_end);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires independent interleaved/RRC IQ generated by generate_interleaver_fixture.py --iq"]
+    fn independent_interleaved_iq_recovers_both_staggers_and_identical_payloads() {
+        let directory = std::path::PathBuf::from(std::env::var("EZ_INTERLEAVER_VECTORS").unwrap());
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.join("meteor-80k-fixture.json")).unwrap(),
+        )
+        .unwrap();
+        let bytes = std::fs::read(directory.join("meteor-80k-payloads.bin")).unwrap();
+        let expected: Vec<_> = bytes.chunks_exact(892).map(<[u8]>::to_vec).collect();
+        for case in manifest["iq_cases"].as_array().unwrap() {
+            let iq = cf32_le_bytes_to_complex(
+                &std::fs::read(directory.join(case["file"].as_str().unwrap())).unwrap(),
+            );
+            for chunk_size in [997, 16_384] {
+                let (tx, _rx) = crossbeam_channel::bounded(2);
+                let mut decoder =
+                    LrptDecoder::for_mission(320_000, MeteorProfile::Oqpsk80Interleaved, tx)
+                        .unwrap();
+                for chunk in iq.chunks(chunk_size) {
+                    decoder.push_complex(chunk);
+                }
+                println!(
+                    "interleaved {} chunk={chunk_size} frames={} rs_ok={}",
+                    case["file"],
+                    decoder.validated_payloads.len(),
+                    decoder.rs_ok
+                );
+                assert!(
+                    decoder.validated_payloads == expected,
+                    "interleaved payload mismatch"
+                );
+                assert_eq!(decoder.rs_ok, 12);
+            }
+        }
+    }
+
+    #[test]
+    fn mission_gap_preserves_product_but_new_product_retires_images_and_counts() {
+        let (tx, _rx) = crossbeam_channel::bounded(2);
+        let mut decoder = LrptDecoder::for_mission(288_000, MeteorProfile::Oqpsk72, tx).unwrap();
+        let segment = include_bytes!("../../audit/2026-10-07/fixtures/nonflat-q50.segment");
+        let payload = build_synthetic_vcdu_payload(64, segment);
+        let mut cadu = frame_sync::SYNC_MARKER.to_be_bytes().to_vec();
+        cadu.extend(randomizer::derandomize(&reed_solomon::encode_interleaved(
+            &payload,
+        )));
+        assert!(decoder.process_cadu_frame(&cadu));
+        let rs_ok = decoder.rs_ok;
+        assert_eq!(decoder.images.total_segment_count(), 1);
+        let received_image = decoder.images.render(64).unwrap();
+        decoder.reset_mission_stream(576_000).unwrap();
+        assert_eq!(decoder.rs_ok, rs_ok);
+        assert_eq!(decoder.images.total_segment_count(), 1);
+        assert_eq!(decoder.images.render(64).unwrap(), received_image);
+        assert!(decoder.ever_locked);
+        decoder
+            .start_new_product(320_000, MeteorProfile::Oqpsk80Interleaved)
+            .unwrap();
+        assert_eq!(decoder.rs_ok, 0);
+        assert!(!decoder.ever_locked);
+        assert_eq!(decoder.images.total_line_count(), 0);
+        assert_eq!(decoder.images.total_segment_count(), 0);
+    }
+
+    #[test]
+    fn interleaved_profile_never_accepts_a_plain_uninterleaved_transport() {
+        let symbols = coded_symbol_frames(3, true);
+        let (tx, _rx) = crossbeam_channel::bounded(2);
+        let mut decoder =
+            LrptDecoder::for_mission(320_000, MeteorProfile::Oqpsk80Interleaved, tx).unwrap();
+        decoder.push_recovered_symbols(&symbols);
+        assert_eq!(decoder.rs_ok, 0);
+        assert!(decoder.validated_payloads.is_empty());
+    }
+
+    #[test]
+    fn mission_profile_rejects_unsupported_rates_and_preserves_explicit_transport_on_gap() {
+        for profile in MeteorProfile::ALL {
+            let (tx, _rx) = crossbeam_channel::bounded(2);
+            assert!(LrptDecoder::for_mission(
+                profile.symbol_rate_hz() * 4 - 1,
+                profile,
+                tx.clone()
+            )
+            .is_err());
+            let mut decoder =
+                LrptDecoder::for_mission(profile.symbol_rate_hz() * 4, profile, tx).unwrap();
+            decoder.reset_mission_stream(2_048_000).unwrap();
+            assert_eq!(decoder.profile, Some(profile));
+            assert!(decoder
+                .lanes
+                .iter()
+                .all(|lane| lane.profile == Some(profile)
+                    && lane.interleaver.is_some() == profile.interleaved()));
+        }
+    }
+
+    #[test]
     fn independent_oqpsk_fixtures_recover_both_staggers_with_frequency_and_clock_offsets() {
         let expected: Vec<_> =
             include_bytes!("../../audit/2026-10-07/fixtures/oqpsk-expected-payloads.bin")
@@ -1399,7 +1719,8 @@ mod tests {
             let iq = cf32_le_bytes_to_complex(bytes);
             for chunk_size in [997, 16_384] {
                 let (tx, _rx) = crossbeam_channel::bounded(2);
-                let mut decoder = LrptDecoder::new(288_000, 72_000, tx);
+                let mut decoder =
+                    LrptDecoder::for_mission(288_000, MeteorProfile::Oqpsk72, tx).unwrap();
                 for chunk in iq.chunks(chunk_size) {
                     decoder.push_complex(chunk);
                 }
@@ -1483,7 +1804,7 @@ mod tests {
         input.seek(SeekFrom::Start(start * 288_000 * 2)).unwrap();
         let mut input = input.take(seconds * 288_000 * 2);
         let (tx, _rx) = crossbeam_channel::bounded(2);
-        let mut decoder = LrptDecoder::new(288_000, 72_000, tx);
+        let mut decoder = LrptDecoder::for_mission(288_000, MeteorProfile::Oqpsk72, tx).unwrap();
         let mut bytes = [0; 8192];
         loop {
             let count = input.read(&mut bytes).unwrap();

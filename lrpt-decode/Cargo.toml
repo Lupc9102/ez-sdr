@@ -9,6 +9,7 @@ authors = ["Lupc9102"]
 repository = "https://github.com/Lupc9102/ez-sdr"
 
 [dependencies]
+ez-proto = { path = "../ez-proto" }
 num-complex = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

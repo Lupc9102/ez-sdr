@@ -66,28 +66,19 @@ struct FileOperation {
     receiver: Receiver<Result<Option<FileOperationOutcome>, String>>,
 }
 
-fn validate_rates(sample_rate: u32, symbol_rate: u32) -> Result<(), String> {
-    if sample_rate == 0 || symbol_rate == 0 {
-        return Err("Sample and symbol rates must be greater than zero.".into());
-    }
-    if u64::from(sample_rate) < u64::from(symbol_rate) * 2 {
-        return Err("Sample rate must be at least twice the symbol rate.".into());
-    }
-    Ok(())
-}
-
 /// Stream regular files in small, sample-aligned blocks so Cancel remains responsive.
 /// Decoder snapshots are forwarded without blocking or accumulating full-size images.
 fn decode_recording(
     path: &Path,
     format: RecordingFormat,
     sample_rate: u32,
-    symbol_rate: u32,
+    profile: ez_proto::MeteorProfile,
     progress_tx: crossbeam_channel::Sender<lrpt_decode::DecodeProgress>,
     cancel: &AtomicBool,
     bytes_read: &AtomicU64,
 ) -> Result<FileDecodeOutcome, String> {
-    validate_rates(sample_rate, symbol_rate)?;
+    lrpt_decode::validate_mission_sampling(sample_rate, profile)
+        .map_err(|error| error.to_string())?;
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if !metadata.is_file() {
@@ -106,7 +97,8 @@ fn decode_recording(
         lrpt_decode::Cf32Amplitude::Normalized
     };
     let (decoder_tx, decoder_rx) = crossbeam_channel::bounded(1);
-    let mut decoder = lrpt_decode::LrptDecoder::new(sample_rate, symbol_rate, decoder_tx);
+    let mut decoder = lrpt_decode::LrptDecoder::for_mission(sample_rate, profile, decoder_tx)
+        .map_err(|error| error.to_string())?;
     let mut reader = std::io::BufReader::new(file);
     let mut chunk = vec![0; 16_384 * sample_bytes];
     let mut remaining = metadata.len();
@@ -206,9 +198,6 @@ impl DecodePreset {
     pub fn sample_rate(&self) -> u32 {
         2_048_000
     }
-    pub fn symbol_rate(&self) -> u32 {
-        80_000
-    }
     pub fn label(&self) -> &'static str {
         match self {
             Self::MeteorM2_3 => "Meteor-M2-3 (137.9 MHz, LRPT)",
@@ -247,7 +236,7 @@ pub struct DecodingPanel {
     pub file_path: String,
     pub preset: DecodePreset,
     pub sample_rate: u32,
-    pub symbol_rate: u32,
+    pub mission_profile: ez_proto::MeteorProfile,
     pub satellite_name: Option<String>,
     pub running: bool,
     pub progress: Option<lrpt_decode::DecodeProgress>,
@@ -324,10 +313,7 @@ impl DecodingPanel {
         self.file_path = req.file_path;
         self.satellite_name = req.satellite_name;
         self.sample_rate = req.sample_rate;
-        self.symbol_rate = req
-            .preset
-            .map(|preset| preset.symbol_rate())
-            .unwrap_or_default();
+        self.mission_profile = ez_proto::MeteorProfile::default();
         self.no_decoder_reason = None;
         match req.preset {
             Some(preset) => {
@@ -361,13 +347,9 @@ impl DecodingPanel {
         } else {
             self.sample_rate
         };
-        let symbol_rate = if self.symbol_rate == 0 {
-            self.preset.symbol_rate()
-        } else {
-            self.symbol_rate
-        };
-        if let Err(error) = validate_rates(sample_rate, symbol_rate) {
-            self.error = Some(error);
+        let profile = self.mission_profile;
+        if let Err(error) = lrpt_decode::validate_mission_sampling(sample_rate, profile) {
+            self.error = Some(error.to_string());
             return;
         }
         self.cancel = Arc::new(AtomicBool::new(false));
@@ -383,7 +365,7 @@ impl DecodingPanel {
                 Path::new(&path),
                 format,
                 sample_rate,
-                symbol_rate,
+                profile,
                 progress_tx,
                 &cancel,
                 &bytes_read,
@@ -654,16 +636,13 @@ impl DecodingPanel {
                             .changed()
                         {
                             self.sample_rate = preset.sample_rate();
-                            self.symbol_rate = preset.symbol_rate();
+                            self.mission_profile = ez_proto::MeteorProfile::default();
                             input_changed = true;
                         }
                     }
                 });
             if self.sample_rate == 0 {
                 self.sample_rate = self.preset.sample_rate();
-            }
-            if self.symbol_rate == 0 {
-                self.symbol_rate = self.preset.symbol_rate();
             }
             ui.horizontal(|ui| {
                 ui.label("Sample");
@@ -676,17 +655,19 @@ impl DecodingPanel {
                     )
                     .changed();
             });
-            ui.horizontal(|ui| {
-                ui.label("Symbol");
-                input_changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut self.symbol_rate)
-                            .speed(100.0)
-                            .range(10_000..=500_000)
-                            .suffix(" sps"),
-                    )
-                    .changed();
-            });
+            egui::ComboBox::from_label("Transport")
+                .selected_text(self.mission_profile.label())
+                .show_ui(ui, |ui| {
+                    for profile in ez_proto::MeteorProfile::ALL {
+                        input_changed |= ui
+                            .selectable_value(&mut self.mission_profile, profile, profile.label())
+                            .changed();
+                    }
+                });
+            ui.label(format!(
+                "Symbol rate: {} sps",
+                self.mission_profile.symbol_rate_hz()
+            ));
             ui.label(
                 egui::RichText::new("Use the sample rate of your recording.")
                     .small()
@@ -1041,8 +1022,8 @@ mod tests {
         let outcome = decode_recording(
             &path,
             format,
-            8_000,
-            1_000,
+            576_000,
+            ez_proto::MeteorProfile::Oqpsk72,
             tx,
             &AtomicBool::new(false),
             &bytes_read,
@@ -1095,16 +1076,21 @@ mod tests {
             "invalid input must not retain a previous pass"
         );
         assert!(panel.error.as_deref().unwrap().contains(".cs8 or .cf32"));
-        for (sample, symbol) in [(0, 1), (1, 0), (1_000, 800), (u32::MAX, u32::MAX)] {
-            assert!(validate_rates(sample, symbol).is_err());
+        for profile in ez_proto::MeteorProfile::ALL {
+            for sample in [0, 100_000, profile.symbol_rate_hz() * 4 - 1] {
+                assert!(lrpt_decode::validate_mission_sampling(sample, profile).is_err());
+            }
+            assert!(
+                lrpt_decode::validate_mission_sampling(profile.symbol_rate_hz() * 4, profile)
+                    .is_ok()
+            );
         }
-        assert!(validate_rates(160_000, 80_000).is_ok());
         panel.file_path = "capture.cs8".into();
         panel.sample_rate = 100_000;
-        panel.symbol_rate = 80_000;
+        panel.mission_profile = ez_proto::MeteorProfile::Oqpsk80Interleaved;
         panel.start_decode();
         assert!(!panel.running);
-        assert!(panel.error.as_deref().unwrap().contains("twice"));
+        assert!(panel.error.as_deref().unwrap().contains("four samples"));
     }
 
     #[test]
@@ -1120,8 +1106,8 @@ mod tests {
             let error = decode_recording(
                 &path,
                 format,
-                8_000,
-                1_000,
+                576_000,
+                ez_proto::MeteorProfile::Oqpsk72,
                 tx,
                 &AtomicBool::new(false),
                 &AtomicU64::new(0),
@@ -1140,8 +1126,8 @@ mod tests {
         let outcome = decode_recording(
             &path,
             RecordingFormat::Cs8,
-            8_000,
-            1_000,
+            576_000,
+            ez_proto::MeteorProfile::Oqpsk72,
             tx,
             &AtomicBool::new(true),
             &read,
@@ -1273,8 +1259,8 @@ mod tests {
         let error = decode_recording(
             &path,
             RecordingFormat::Cf32,
-            8_000,
-            1_000,
+            576_000,
+            ez_proto::MeteorProfile::Oqpsk72,
             progress_tx,
             &AtomicBool::new(false),
             &bytes_read,

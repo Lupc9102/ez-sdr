@@ -1,0 +1,16 @@
+{
+  "url": "https://cloud.a-where.com/api/public/dl/5LJfxV3S/2026-09-02_13-32-03_288000SPS_137900000Hz.ziq",
+  "request_range": "bytes=0-119999999",
+  "status": 206,
+  "content_range": "bytes 0-119999999/382999018",
+  "content_length": "120000000",
+  "bytes": 120000000,
+  "sha256": "acb9827e2e63ecf673c26228f767e31825c8f7bce1f92071b86f0b086d64dbfe",
+  "decompression": {
+    "exit_code": 1,
+    "bytes": 177340416,
+    "sha256": "81650741cc45c067959cba30e8ef59c19acfb33b22bb8f785054f1f514b9eca3",
+    "complete_pair_prefix": true,
+    "reason": "Intentionally range-limited ZIQ has an unfinished zstd frame; retained prefix contains the entire selected 180..200-second slice."
+  }
+}

@@ -5,7 +5,7 @@ NumPy and a shared libfec containing init_rs_char/encode_rs_char. The reference
 build used quiet/libfec at 9750ca0a6d0a786b506e44692776b541f90daa91:
   cc -O2 -shared -fPIC -o /tmp/ez-sdr-libfec.so init_rs_char.c encode_rs_char.c
 
-Usage: python generate_oqpsk_vectors.py LIBFEC.so OUTPUT_DIR
+Usage: python generate_oqpsk_vectors.py LIBFEC.so OUTPUT_DIR [--sampling]
 These are carrier/CCSDS primitives, not a marker-interleaved 80k mission profile.
 """
 
@@ -85,7 +85,7 @@ def branch(symbols, time):
 
 
 def main():
-    library, output = map(Path, sys.argv[1:])
+    library, output = map(Path, sys.argv[1:3])
     output.mkdir(parents=True, exist_ok=True)
     symbols, payloads = reference_frames(library)
     (output / "expected-payloads.bin").write_bytes(payloads)
@@ -98,6 +98,11 @@ def main():
                  for rate, baud in [(2048000, 80000), (288000, 72000)]
                  for direction in (-1, 1)
                  for phase, offset, ppm in [(37, 0, 150), (123, 1000, -150), (287, -1000, 150)]]
+    if "--sampling" in sys.argv[3:]:
+        settings = [(int(baud * sps), baud, phase, direction, offset, ppm)
+                    for baud in (72000, 80000) for sps in (2, 2.5, 3)
+                    for direction in (-1, 1)
+                    for phase, offset, ppm in [(37, 0, 150), (123, 1000, -150), (287, -1000, 150)]]
     for index, (rate, baud, phase, direction, offset, ppm) in enumerate(settings):
         count = int((len(symbols) + 8) * rate / baud)
         seconds = np.arange(count, dtype=np.float64) / rate

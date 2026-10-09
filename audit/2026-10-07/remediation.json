@@ -6,8 +6,18 @@
       "title": "Advertised interleaved 80 ksym/s Meteor transport is missing",
       "priority": "P1",
       "status": "open",
-      "change": null,
-      "regressions": [],
+      "change": "Implement explicit shared OQPSK72/NRZ-M and OQPSK80/interleaved NRZ-M profiles, streaming 0x27 marker acquisition and 36-branch delayed-bit transport before Viterbi. Carry missing-history flags through the permutation, reset on marker-phase loss, merge equivalent frame observations, and expose the actual mission selection in offline decoding. Software checks pass; independent off-air 80k CADU/image validation remains outstanding.",
+      "regressions": [
+        "interleaver::tests::every_reference_bit_matches_the_independent_c_receiver_across_partitions",
+        "interleaver::tests::missing_input_follows_its_branch_delay_and_startup_is_unobserved",
+        "interleaver::tests::isolated_marker_errors_preserve_data_but_shifted_alignment_reacquires_empty_history",
+        "tests::interleaved_mission_recovers_independent_payloads_and_observation_positions",
+        "tests::independent_interleaved_iq_recovers_both_staggers_and_identical_payloads (external generated IQ; four strict comparisons)",
+        "tests::mission_profile_rejects_unsupported_rates_and_preserves_explicit_transport_on_gap",
+        "tests::interleaved_profile_never_accepts_a_plain_uninterleaved_transport",
+        "tests::mission_gap_preserves_product_but_new_product_retires_images_and_counts",
+        "Explicit Oqpsk72 public off-air slice: 175 byte-identical reference CADUs."
+      ],
       "original_repair_gate": "Add explicit mission/transport profiles. Decode marker-bearing interleaved symbols with streaming state and validate the resulting CADUs against an independently decoded 80k recording. Also validate the separate 72k NRZ-M profile. Compare packet bytes and images, not just lock flags."
     },
     {
@@ -15,14 +25,15 @@
       "title": "OQPSK carrier/timing recovery depends on absolute RF phase",
       "priority": "P1",
       "status": "software_verified",
-      "change": "Track the carrier on matched complex samples before branch projection/deskew, use sample-clock-scaled second-order loop gains, and continuously decode both half-symbol stagger directions through 16 ambiguity hypotheses. Keep erasure observations per stagger pairing.",
+      "change": "Track the carrier on matched complex samples before branch projection/deskew, use sample-clock-scaled second-order loop gains, and continuously decode both half-symbol stagger directions through 16 ambiguity hypotheses. Keep erasure observations per stagger pairing. Integrate bounded Gardner timing period to track continuous clock-rate error through the long interleaver startup.",
       "regressions": [
         "Independent analytical RRC/libfec corpus: full 0..345-degree sweep in 15-degree steps, both stagger directions, 640 kS/s and 80 ksym/s; byte-identical three-payload recovery across both input partitions.",
         "Independent fractional 25.6-sample/symbol and 72k/four-sample cases with +/-1 kHz carrier offset and +/-150 ppm clock drift: every payload equal; all 60 cases pass at chunk sizes 997 and 16384.",
         "tests::independent_oqpsk_fixtures_recover_both_staggers_with_frequency_and_clock_offsets (durable default fixtures)",
         "tests::missing_energy_is_owned_by_the_observed_stagger_pairing",
         "Public Meteor-M2-4 off-air slice at 180..200 seconds: 175 corrected CADUs match independent reference byte-for-byte; zero additional CADUs.",
-        "Unchanged audit_logic: every original phase probe returns 12 valid RS codewords; 180-degree phase slip matches 24-codeword clean control; zero-input lock remains false."
+        "Unchanged audit_logic: every original phase probe returns 12 valid RS codewords; 180-degree phase slip matches 24-codeword clean control; zero-input lock remains false.",
+        "Long analytical interleaved 80k IQ with +70 ppm clock drift: both stagger directions recover exactly three identical payloads in two chunk sizes; original 60-case corpus and public 72k slice still pass."
       ],
       "original_repair_gate": "Test a full phase sweep with pulse-shaped independent OQPSK, both stagger orientations, frequency offset, fractional sampling and clock drift. Correct carrier/timing recovery in a way valid for staggered branches. Require payload equality across phases."
     },
@@ -219,10 +230,11 @@
       "title": "Old capture generations are accepted under a new receiver session's controls",
       "priority": "P2",
       "status": "software_verified",
-      "change": "Reject stale capture generations before DSP/publication, without sending errors to new-session audio recorders.",
+      "change": "Reject stale capture generations before DSP/publication, without sending errors to new-session audio recorders. Retire epoch and radio snapshot state at the processed generation boundary, even when the new block is rejected under stale controls.",
       "regressions": [
         "demod::native::tests::audit_reject_old_capture_generation",
-        "demod::native::tests::native_radio_resets_every_state_at_capture_boundaries"
+        "demod::native::tests::native_radio_resets_every_state_at_capture_boundaries",
+        "demod::native::tests::skipped_new_generation_retires_previous_epoch_and_radio_snapshot"
       ],
       "original_repair_gate": "Reject blocks that do not belong to the active requested capture generation before demodulation/publication. Account for the rejected tail separately. Test rapid same-frequency restarts, format/source changes and simultaneous recorder/audio reopening."
     },
