@@ -231,9 +231,17 @@
       "id": "R05",
       "title": "Local FM loudness changes with RF sample rate and RF decimation",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Normalize local NFM/WFM audio and taps to physical 5 kHz/75 kHz deviation at the actual RF/IF discriminator clock. Share the mono/stereo frequency meter, ignore initial phase/carrier offset and retire readings at capture/clock resets. Preserve clean IF modulation, correct sample-interval averaging and use linear-phase RF decimation so changing source rate, RF decimation, IF presets or stereo does not change calibrated gain.",
+      "regressions": [
+        "216 independent analytical tone cases at three source rates, RF factors 1/2/4, all IF presets, NFM/WFM mono/stereo fallback and 44.1/48 kHz playback: <=0.046177 dB gain error, <0.84% deviation error, pitch/count gates pass.",
+        "12 independent continuous stereo-MPX cases: <=0.104252 dB L/R gain error, <2.10% deviation error; 24 downmix comparisons <=0.007001 dB; mono/stereo deviation readings exactly equal.",
+        "demod::tests::physical_nfm_gain_and_deviation_survive_rf_decimation_and_all_if_presets",
+        "demod::tests::physical_fm_meter_is_partition_invariant_and_retires_on_gaps_and_clock_changes",
+        "demod::tests::physical_fm_meter_ignores_initial_phase_carrier_offset_and_no_energy",
+        "demod::tests::physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks",
+        "All 75 demodulator tests and full workspace suite pass; default build, all-target Clippy with warnings denied, formatting and AST refresh pass. See repair-fm-verification.json."
+      ],
       "original_repair_gate": "Define a physical deviation-to-audio scale and normalize with the actual discriminator clock. Require constant gain, pitch and reported deviation across source rates, RF decimation, IF noise reduction and mono/stereo paths."
     },
     {

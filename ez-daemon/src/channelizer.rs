@@ -217,7 +217,8 @@ impl PhaseFilter {
 /// n*D even when D is not divisible by the half-band product. This keeps
 /// sample counts, source clock stride and caller-chunk independence intact.
 /// Coefficient/history storage stays bounded for large and prime D.
-struct FirDecimator {
+/// Shared by daemon DDC and local GUI RF processing.
+pub struct FirDecimator {
     decimation: usize,
     skip: usize,
     stages: Vec<HalfBandStage>,
@@ -227,7 +228,8 @@ struct FirDecimator {
 }
 
 impl FirDecimator {
-    fn new(decimation: usize) -> Self {
+    /// Create an integer decimator; factor one is exact passthrough.
+    pub fn new(decimation: usize) -> Self {
         assert!(decimation > 0);
         if decimation == 1 {
             return Self {
@@ -259,7 +261,8 @@ impl FirDecimator {
         }
     }
 
-    fn reset(&mut self, first_offset: usize) {
+    /// Clear history and emit the first output at this offset in the new input.
+    pub fn reset(&mut self, first_offset: usize) {
         self.skip = first_offset;
         self.output_phase = first_offset % self.stage_factor;
         self.stages.iter_mut().for_each(HalfBandStage::reset);
@@ -268,7 +271,7 @@ impl FirDecimator {
         }
     }
 
-    fn process(&mut self, input: &[Complex32]) -> Vec<Complex32> {
+    pub fn process(&mut self, input: &[Complex32]) -> Vec<Complex32> {
         let Some(filter) = &mut self.final_filter else {
             return input.to_vec();
         };

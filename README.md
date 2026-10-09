@@ -40,6 +40,10 @@ without speaker playback, use `--no-default-features`.
   RF channel filter. **Bandwidth** controls RF selection independently of **Audio cutoff**.
   WFM **Stereo** decodes the pilot/multiplex and falls back to mono without a usable pilot;
   optional **RDS** decoding exposes station text and metadata.
+- FM audio uses physical deviation: unit amplitude represents 5 kHz in NFM and
+  75 kHz in WFM, before volume and audio processing. The deviation readout measures
+  half the received frequency span over completed 100 ms windows, ignoring carrier
+  offset and the first 10 ms of filter acquisition. Stereo and mono share this scale.
 - Choose the output device and sample rate under **Audio**. An unavailable saved device
   produces an error; it is not silently replaced by another device.
 - Display controls support streaming FFT sizes through 65,536, FFT rate, waterfall

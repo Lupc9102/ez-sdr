@@ -2,9 +2,12 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-23 findings have software repairs with passing regressions; 10 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+24 findings have software repairs with passing regressions; 9 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
+
+- **R05 — Local FM loudness changes with RF sample rate and RF decimation**: Use physical 5 kHz NFM / 75 kHz WFM amplitude units at the actual discriminator clock. Correct interval averaging, RF filter phase distortion and IF interpolation/reconstruction loss; share mono/stereo deviation measurements and reset semantics.
+  Evidence: 216 independent tone cases, 12 continuous stereo-MPX cases and 24 stereo-downmix comparisons pass strict gain/pitch/count/deviation gates. See repair-fm-verification.json.
 
 - **S03 — Viterbi metrics saturate and permanently kill the decoder**: Normalize finite path metrics and retain odd coded bits across chunks.
   Evidence: viterbi::tests::noisy_aged_paths_recover_clean_bits_and_arbitrary_bit_partitions; 8,192,000-noise-step audit probe: subsequent clean comparison has zero errors.
@@ -196,3 +199,15 @@ The original unchanged radio probe now reports the 49k-to-1k alias near 0.000003
 All twelve focused playback tests and the full workspace pass: 841 GUI, 223 daemon, 20 protocol and 107 LRPT tests, plus integration and remaining workspace suites. Default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. Source hashes, exact commands and preserved intermediate results are in repair-playback-verification.json. The graph has 7,339 nodes and 16,393 edges; HTML export was skipped at its configured size limit. No physical receiver/audio device was opened. Original field/audio/disk and independent off-air release gates remain unverified.
 
 There are now 23 software-verified findings and 10 open findings. Next priority: R05 physical FM gain normalization across source/IF clocks and mono/stereo paths.
+
+## Physical FM gain and deviation verification
+
+Local NFM and WFM now use the same physical amplitude conventions as daemon producers: unit amplitude represents 5 kHz or 75 kHz deviation before audio controls. Normalization uses the actual RF-decimated or IF-resampled clock. The shared frequency meter excludes initial absolute phase and carrier offset, refines between-sample peaks, publishes completed 100 ms spans and retires its history at capture/clock resets. Stereo and mono report exactly the same observed deviation.
+
+The independent analytical 1 kHz sweep covers 216 cases: three source rates (including fractional RF clocks), RF factors 1/2/4, all IF presets, NFM and WFM mono/stereo fallback, and 44.1/48 kHz playback. Maximum gain error is 0.046177 dB and maximum relative deviation error is below 0.84%; every duration and pitch assertion passes. An additional NFM regression covers RF factor eight. AGC and intentional audio filtering/deemphasis are disabled for calibration, with their existing behavior checked separately.
+
+A continuous stereo fixture analytically integrates a seven-component multiplex with independently specified L/R amplitudes and 13.5 kHz peak deviation. This avoids the sampling-dependent gain of the older discrete phase-integrator fixture. Twelve source/RF/IF/playback combinations recover both channel amplitudes within 0.104252 dB and deviation within 2.10%. Twenty-four downmix comparisons differ from mono by at most 0.007001 dB. Final gates remain 0.15 dB for gain and 3% for deviation.
+
+The failed development checks exposed real attenuation from single-bin IF reconstruction, sample-interval averaging, RF IIR phase distortion and linear IF interpolation. The repair preserves clean FM through envelope-informed reconstruction, uses a bounded symmetric frequency equalizer, shares the verified linear-phase FIR RF decimator and applies causal four-point IQ interpolation. The IF channel filter is applied once. The original strongest-bin reference and noisy-NFM SNR-improvement regression still pass. Failed logs remain alongside the final evidence.
+
+All 75 demodulator tests and the full workspace suite pass, including 845 GUI, 223 daemon, 20 protocol and 107 LRPT tests. Default workspace build, all-target Clippy with warnings denied and formatting pass. The AST graph refresh passes with 7,359 nodes and 16,472 edges; the eight user-deleted tracked graph sidecars remain deleted. Commands, logs, measured cases and source hashes are recorded in repair-fm-verification.json. No physical receiver/audio device was opened, and all original field and off-air release gates remain unverified where independent evidence is still missing. The goal remains active.

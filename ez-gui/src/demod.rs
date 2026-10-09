@@ -388,13 +388,17 @@ struct FmIfNoiseReducer {
     history: Vec<Complex32>,
     spectrum: Vec<Complex32>,
     write: usize,
+    envelope_sum: f64,
+    envelope_squared_sum: f64,
+    observations: usize,
+    window_gain: f32,
 }
 
 impl FmIfNoiseReducer {
     fn new(bins: usize) -> Self {
         let mut planner = rustfft::FftPlanner::new();
         let fft = planner.plan_fft_forward(bins);
-        let window = (0..bins)
+        let window: Vec<f32> = (0..bins)
             .map(|index| {
                 let angle = std::f64::consts::TAU * index as f64 / (bins - 1) as f64;
                 (0.355768 - 0.487396 * angle.cos() + 0.144232 * (2.0 * angle).cos()
@@ -409,6 +413,7 @@ impl FmIfNoiseReducer {
                 )
             })
             .collect();
+        let window_gain = window.iter().sum();
         Self {
             scratch: vec![Complex32::new(0.0, 0.0); fft.get_inplace_scratch_len()],
             fft,
@@ -417,11 +422,21 @@ impl FmIfNoiseReducer {
             history: vec![Complex32::new(0.0, 0.0); bins * 2],
             spectrum: vec![Complex32::new(0.0, 0.0); bins],
             write: 0,
+            envelope_sum: 0.0,
+            envelope_squared_sum: 0.0,
+            observations: 0,
+            window_gain,
         }
     }
 
     fn push(&mut self, sample: Complex32) -> Complex32 {
         let bins = self.window.len();
+        let magnitude = f64::from(sample.re).hypot(f64::from(sample.im));
+        let old = self.history[self.write];
+        let old_magnitude = f64::from(old.re).hypot(f64::from(old.im));
+        self.envelope_sum += magnitude - old_magnitude;
+        self.envelope_squared_sum += magnitude * magnitude - old_magnitude * old_magnitude;
+        self.observations = (self.observations + 1).min(bins);
         self.history[self.write] = sample;
         self.history[self.write + bins] = sample;
         self.write = (self.write + 1) % bins;
@@ -448,6 +463,31 @@ impl FmIfNoiseReducer {
         // amplitude-independent, so preserve that scaling rather than clip IQ.
         self.spectrum[best] * self.center_phase[best]
     }
+
+    fn push_preserving_clean_fm(&mut self, sample: Complex32) -> Complex32 {
+        let reconstructed = self.push(sample) / self.window_gain;
+        let bins = self.window.len();
+        if self.observations < bins {
+            return reconstructed;
+        }
+        // Clean FM has a constant RF envelope. Single-bin reconstruction
+        // smooths its phase modulation even without noise, changing physical
+        // deviation when NR is toggled. Blend with the original center sample
+        // using the measured envelope variation, with identical time alignment
+        // and carrier units on both branches. No empirical audio gain boost.
+        let mean = self.envelope_sum / bins as f64;
+        let variance = (self.envelope_squared_sum / bins as f64 - mean * mean).max(0.0);
+        let variation = variance.sqrt() / mean.max(f64::MIN_POSITIVE);
+        let strength = ((variation - 0.01) / 0.09).clamp(0.0, 1.0) as f32;
+        let original = self.history[self.write + bins / 2];
+        if strength == 0.0 || !reconstructed.re.is_finite() || !reconstructed.im.is_finite() {
+            return original;
+        }
+        if strength == 1.0 {
+            return reconstructed;
+        }
+        original + (reconstructed - original) * strength
+    }
 }
 
 /// Bring the channel to its real IF clock before sliding FFT processing. A
@@ -456,7 +496,7 @@ struct FmIfStage {
     filter: ComplexChannelLowpass,
     reducer: FmIfNoiseReducer,
     rate: f64,
-    previous: Option<Complex32>,
+    history: [Complex32; 4],
     input_index: u64,
     next_output: f64,
 }
@@ -484,7 +524,7 @@ impl FmIfStage {
             filter: ComplexChannelLowpass::default(),
             reducer: FmIfNoiseReducer::new(bins),
             rate,
-            previous: None,
+            history: [Complex32::new(0.0, 0.0); 4],
             input_index: 0,
             next_output: 0.0,
         }
@@ -504,18 +544,30 @@ impl FmIfStage {
                 .filter
                 .process(sample.re, sample.im, cutoff, input_rate);
             let sample = Complex32::new(i, q);
-            if let Some(previous) = self.previous {
-                self.input_index += 1;
-                while self.next_output <= self.input_index as f64 {
-                    let fraction = (self.next_output - (self.input_index - 1) as f64) as f32;
-                    output.push(self.reducer.push(previous + (sample - previous) * fraction));
-                    self.next_output += step;
-                }
-            } else {
-                output.push(self.reducer.push(sample));
-                self.next_output = step;
+            self.history.rotate_left(1);
+            self.history[3] = sample;
+            while self.next_output <= self.input_index as f64 {
+                // Four-point Lagrange interpolation with one input-sample
+                // causal delay. Linear IQ interpolation bends the received
+                // phase and attenuates the stereo difference channel. The
+                // extra history preserves the complex waveform's curvature.
+                let x = (self.next_output - self.input_index as f64 + 1.0) as f32;
+                let weights = [
+                    -x * (x - 1.0) * (x - 2.0) / 6.0,
+                    (x + 1.0) * (x - 1.0) * (x - 2.0) / 2.0,
+                    -(x + 1.0) * x * (x - 2.0) / 2.0,
+                    (x + 1.0) * x * (x - 1.0) / 6.0,
+                ];
+                let interpolated = self
+                    .history
+                    .iter()
+                    .zip(weights)
+                    .map(|(&sample, weight)| sample * weight)
+                    .sum();
+                output.push(self.reducer.push_preserving_clean_fm(interpolated));
+                self.next_output += step;
             }
-            self.previous = Some(sample);
+            self.input_index += 1;
         }
         output
     }
@@ -540,10 +592,132 @@ fn envelope_gain(
     (f64::from(target) / envelope.max(1e-9)).clamp(0.01, 40.0) as f32
 }
 
+/// Unit audio amplitude represents this physical peak deviation. These are
+/// the same conventions as the daemon FM producers, before user audio gain.
+const NFM_DEVIATION_HZ: f32 = 5_000.0;
+const WFM_DEVIATION_HZ: f32 = 75_000.0;
+
+/// Undo the sample-interval averaging of a phase difference over the FM
+/// passband. H(w) = (w/2)/sin(w/2); expand arcsin(x)/x through x^16, where
+/// x=sin(w/2). Each power of x^2 is the symmetric FIR [-1/4,1/2,-1/4].
+/// This gives a fixed 17-tap FIR, exact DC gain and bounded high-frequency
+/// gain, rather than a noisy ideal differentiator. Essential for preserving
+/// the 38 kHz stereo difference channel at lower discriminator clocks.
+struct FmFrequencyEqualizer {
+    history: [f32; 34],
+    write: usize,
+}
+
+impl Default for FmFrequencyEqualizer {
+    fn default() -> Self {
+        Self {
+            history: [0.0; 34],
+            write: 0,
+        }
+    }
+}
+
+impl FmFrequencyEqualizer {
+    fn taps() -> &'static [f32; 17] {
+        static TAPS: std::sync::OnceLock<[f32; 17]> = std::sync::OnceLock::new();
+        TAPS.get_or_init(|| {
+            let mut taps = [0.0_f64; 17];
+            taps[8] = 1.0;
+            let mut power = vec![1.0_f64];
+            let mut coefficient = 1.0;
+            for k in 1..=8 {
+                coefficient *= ((2 * k - 1) * (2 * k - 1)) as f64 / (2 * k * (2 * k + 1)) as f64;
+                let mut next = vec![0.0; power.len() + 2];
+                for (n, &value) in power.iter().enumerate() {
+                    for (offset, weight) in [-0.25, 0.5, -0.25].into_iter().enumerate() {
+                        next[n + offset] += value * weight;
+                    }
+                }
+                for (n, &value) in next.iter().enumerate() {
+                    taps[8 - k + n] += coefficient * value;
+                }
+                power = next;
+            }
+            taps.map(|x| x as f32)
+        })
+    }
+
+    fn process(&mut self, sample: f32) -> f32 {
+        self.history[self.write] = sample;
+        self.history[self.write + 17] = sample;
+        self.write = (self.write + 1) % 17;
+        self.history[self.write..self.write + 17]
+            .iter()
+            .zip(Self::taps())
+            .map(|(&x, &tap)| f64::from(x) * f64::from(tap))
+            .sum::<f64>() as f32
+    }
+}
+
+/// Half of the instantaneous-frequency span in completed 100 ms windows.
+/// A carrier offset does not masquerade as modulation deviation. Ignore the
+/// initial 10 ms of filter acquisition; timing and publication are independent
+/// of caller block sizes. Values are observations, not nominal mode widths.
+#[derive(Default)]
+struct FmDeviationMeter {
+    rate: f64,
+    warmup: usize,
+    window: usize,
+    count: usize,
+    minimum: f32,
+    maximum: f32,
+    value: f32,
+    previous: [f32; 2],
+}
+
+impl FmDeviationMeter {
+    fn observe(&mut self, frequency_hz: f32, rate: f64) -> f32 {
+        if self.rate != rate {
+            *self = Self {
+                rate,
+                warmup: (rate * 0.01).ceil() as usize,
+                window: (rate * 0.1).ceil().max(1.0) as usize,
+                ..Self::default()
+            };
+        }
+        let [a, b] = self.previous;
+        self.previous = [b, frequency_hz];
+        if self.warmup > 0 {
+            self.warmup -= 1;
+            return self.value;
+        }
+        if self.count == 0 {
+            self.minimum = frequency_hz;
+            self.maximum = frequency_hz;
+        } else {
+            self.minimum = self.minimum.min(frequency_hz);
+            self.maximum = self.maximum.max(frequency_hz);
+        }
+        self.count += 1;
+        // MPX extrema can lie between capture samples. Refine only a local
+        // extremum with the bounded vertex of its three-point parabola; a
+        // raw sample maximum otherwise underreports the same pilot/stereo
+        // waveform at lower clocks. Units and time windows stay unchanged.
+        let curvature = a - 2.0 * b + frequency_hz;
+        if curvature != 0.0 && ((b >= a && b >= frequency_hz) || (b <= a && b <= frequency_hz)) {
+            let phase = (0.5 * (a - frequency_hz) / curvature).clamp(-0.5, 0.5);
+            let peak = b - 0.25 * (a - frequency_hz) * phase;
+            self.minimum = self.minimum.min(peak);
+            self.maximum = self.maximum.max(peak);
+        }
+        if self.count == self.window {
+            self.value = (self.maximum - self.minimum) * 0.5;
+            self.count = 0;
+        }
+        self.value
+    }
+}
+
 pub struct Demodulator {
-    prev_i: f32,
-    prev_q: f32,
     prev_phase: f32,
+    fm_previous_valid: bool,
+    fm_deviation: FmDeviationMeter,
+    fm_frequency_eq: FmFrequencyEqualizer,
     decimation: usize,
     decim_counter: usize,
     audio_sample_rate: u32,
@@ -635,8 +809,7 @@ pub struct Demodulator {
     rf_notch: bool,
     rf_notch_hz: f32,
     rf_decim: u32,
-    rf_decim_counter: u32,
-    rf_decim_filter: ComplexChannelLowpass,
+    rf_decim_filter: ez_daemon::channelizer::FirDecimator,
     rf_dc_estimate: [f64; 2],
     rf_nb_avg: f32,
     rf_notch_b: (f32, f32, f32, f32, f32),
@@ -655,9 +828,10 @@ impl Default for Demodulator {
 impl Demodulator {
     pub fn new() -> Self {
         Self {
-            prev_i: 0.0,
-            prev_q: 0.0,
             prev_phase: 0.0,
+            fm_previous_valid: false,
+            fm_deviation: FmDeviationMeter::default(),
+            fm_frequency_eq: FmFrequencyEqualizer::default(),
             decimation: 1,
             decim_counter: 0,
             audio_sample_rate: 48000,
@@ -737,8 +911,7 @@ impl Demodulator {
             rf_notch: false,
             rf_notch_hz: 10_000.0,
             rf_decim: 1,
-            rf_decim_counter: 0,
-            rf_decim_filter: ComplexChannelLowpass::default(),
+            rf_decim_filter: ez_daemon::channelizer::FirDecimator::new(1),
             rf_dc_estimate: [0.0; 2],
             rf_nb_avg: 0.0,
             rf_notch_b: (1.0, 0.0, 0.0, 0.0, 0.0),
@@ -980,6 +1153,9 @@ impl Demodulator {
         if self.fm_if_enabled != enabled || self.fm_if_preset != preset {
             self.fm_if_stage = None;
             self.fm_if_settings = None;
+            self.reset_fm_discriminator();
+            self.wfm_deemph_state = 0.0;
+            self.fm_channel_lpf.reset();
             self.fm_audio_antialias.reset();
             self.decim_counter = 0;
             self.resampler = AudioResampler::default();
@@ -1148,19 +1324,7 @@ impl Demodulator {
             self.rf_notch_y2 = (y2, y2q);
         }
         if self.rf_decim > 1 {
-            let mut output = Vec::with_capacity(samples.len() / self.rf_decim as usize + 1);
-            let cutoff = self.source_rate as f32 / self.rf_decim as f32 * 0.35;
-            for sample in samples {
-                let (i, q) =
-                    self.rf_decim_filter
-                        .process(sample.re, sample.im, cutoff, self.source_rate);
-                self.rf_decim_counter += 1;
-                if self.rf_decim_counter >= self.rf_decim {
-                    self.rf_decim_counter = 0;
-                    output.push(Complex32::new(i, q));
-                }
-            }
-            samples = output;
+            samples = self.rf_decim_filter.process(&samples);
         }
         Cow::Owned(samples)
     }
@@ -1300,6 +1464,8 @@ impl Demodulator {
                 bandwidth,
             ));
             self.fm_if_settings = Some(settings);
+            self.reset_fm_discriminator();
+            self.wfm_deemph_state = 0.0;
             self.decim_counter = 0;
             self.resampler = AudioResampler::default();
             self.nfm_subaudible_resampler = AudioResampler::default();
@@ -1342,7 +1508,10 @@ impl Demodulator {
         self.wfm_multiplex_rate = 0.0;
         let iq = self.iq_preprocess(iq);
         let (iq, previous_clock) = self.prepare_fm_if(iq, mode);
-        let mut samples = match mode {
+        if !matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
+            self.reset_fm_discriminator();
+        }
+        let samples = match mode {
             // Auto should be resolved to a concrete mode before reaching here
             // (see `DemodMode::resolve`); pass through if it ever slips by.
             DemodMode::Auto | DemodMode::Raw => self.demod_raw(&iq),
@@ -1354,14 +1523,6 @@ impl Demodulator {
             DemodMode::Dsb => self.demod_product(&iq, false),
             DemodMode::Cw => self.demod_product(&iq, true),
         };
-        if let Some((source_clock, _, _)) = previous_clock {
-            // Phase increments grow when IF is downsampled. Preserve the
-            // established discriminator loudness when toggling FMIF.
-            let scale = (self.input_rate / source_clock) as f32;
-            for sample in samples.iter_mut().chain(&mut self.nfm_subaudible_audio) {
-                *sample *= scale;
-            }
-        }
         let filtered = if matches!(mode, DemodMode::Fm | DemodMode::Wfm) && !self.fm_lowpass_enabled
         {
             samples
@@ -1413,24 +1574,20 @@ impl Demodulator {
         let iq = self.iq_preprocess(iq);
         let (iq, previous_clock) = self.prepare_fm_if(iq, mode);
         let cutoff = self.rf_bandwidth(DemodMode::Wfm) / 2.0;
-        let discriminator_scale = self.input_rate as f32 / (std::f32::consts::TAU * 75_000.0);
+        let frequency_scale = self.input_rate as f32 / std::f32::consts::TAU;
         let mut multiplex = Vec::with_capacity(iq.len());
         for sample in iq.iter() {
             let i = sample.re;
             let q = sample.im;
-            let (i, q) = self.fm_channel_lpf.process(i, q, cutoff, self.input_rate);
-            let dot = i * self.prev_i + q * self.prev_q;
-            let cross = q * self.prev_i - i * self.prev_q;
-            multiplex.push(cross.atan2(dot) * discriminator_scale);
-            self.prev_i = i;
-            self.prev_q = q;
+            let (i, q) = self.fm_channel_sample(i, q, cutoff);
+            multiplex.push(self.fm_frequency_hz(i, q, frequency_scale) / WFM_DEVIATION_HZ);
         }
         if self.rds_tap_enabled {
             self.wfm_multiplex.clone_from(&multiplex);
             self.wfm_multiplex_rate = self.input_rate;
         }
         let mut decoder = self.stereo.take().unwrap_or_default();
-        let (mut left, mut right, rate) = decoder.process(
+        let (left, right, rate) = decoder.process(
             &multiplex,
             self.input_rate,
             self.audio_sample_rate,
@@ -1438,14 +1595,7 @@ impl Demodulator {
         );
         self.last_stereo_locked = decoder.locked;
         self.stereo = Some(decoder);
-        // Keep the established mono-WFM gain when the user toggles stereo.
-        // MPX decoding uses normalized deviation for a consistent pilot lock
-        // threshold, then restores the mono discriminator's output scale.
-        let discriminator_clock = previous_clock.map_or(self.input_rate, |clock| clock.0);
-        let mono_gain = std::f32::consts::TAU * 75_000.0 / discriminator_clock as f32 * 0.8;
-        for sample in left.iter_mut().chain(&mut right) {
-            *sample *= mono_gain;
-        }
+        // Stereo MPX and mono WFM share deviation / 75 kHz units.
         self.effective_output_rate = rate;
         self.set_lpf_cutoff(self.lpf_cutoff);
         self.recompute_audio_filters();
@@ -1611,9 +1761,53 @@ impl Demodulator {
         out
     }
 
+    fn fm_channel_sample(&mut self, i: f32, q: f32, cutoff: f32) -> (f32, f32) {
+        if self.fm_if_enabled && self.fm_if_stage.is_some() {
+            // The IF stage already applies the configured RF channel filter
+            // before resampling/reconstruction. Applying it a second time
+            // changes modulation shape and deviation when NR is toggled.
+            (i, q)
+        } else {
+            self.fm_channel_lpf.process(i, q, cutoff, self.input_rate)
+        }
+    }
+
+    fn reset_fm_discriminator(&mut self) {
+        self.prev_phase = 0.0;
+        self.fm_previous_valid = false;
+        self.fm_deviation = FmDeviationMeter::default();
+        self.fm_frequency_eq = FmFrequencyEqualizer::default();
+        self.last_fm_deviation_hz = 0.0;
+    }
+
+    fn fm_frequency_hz(&mut self, i: f32, q: f32, scale: f32) -> f32 {
+        if !i.is_finite() || !q.is_finite() || (i == 0.0 && q == 0.0) {
+            self.reset_fm_discriminator();
+            return 0.0;
+        }
+        let phase = q.atan2(i);
+        let frequency = if self.fm_previous_valid {
+            let mut diff = phase - self.prev_phase;
+            if diff > std::f32::consts::PI {
+                diff -= std::f32::consts::TAU;
+            }
+            if diff < -std::f32::consts::PI {
+                diff += std::f32::consts::TAU;
+            }
+            let frequency = self.fm_frequency_eq.process(diff * scale);
+            self.last_fm_deviation_hz = self.fm_deviation.observe(frequency, self.input_rate);
+            frequency
+        } else {
+            0.0
+        };
+        self.prev_phase = phase;
+        self.fm_previous_valid = true;
+        frequency
+    }
+
     fn demod_fm(&mut self, iq: &[Complex32]) -> Vec<f32> {
         let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
-        let mut max_diff: f32 = 0.0;
+        let frequency_scale = self.input_rate as f32 / std::f32::consts::TAU;
         let mut subaudible = Vec::with_capacity(out.capacity());
         let cutoff = self.audio_sample_rate as f32 * 0.4;
         let dt = 1.0 / self.input_rate as f32;
@@ -1625,37 +1819,18 @@ impl Demodulator {
 
             // A complex channel filter must precede the non-linear discriminator and
             // decimator; an audio LPF after raw subsampling is too late to prevent aliasing.
-            let (i, q) = self
-                .fm_channel_lpf
-                .process(i, q, channel_cutoff, self.input_rate);
-            let phase = q.atan2(i);
-            let mut diff = phase - self.prev_phase;
-
-            // Phase unwrap
-            while diff > std::f32::consts::PI {
-                diff -= 2.0 * std::f32::consts::PI;
-            }
-            while diff < -std::f32::consts::PI {
-                diff += 2.0 * std::f32::consts::PI;
-            }
-
-            if diff.abs() > max_diff {
-                max_diff = diff.abs();
-            }
-
-            self.prev_i = i;
-            self.prev_q = q;
-            self.prev_phase = phase;
+            let (i, q) = self.fm_channel_sample(i, q, channel_cutoff);
+            let normalized = self.fm_frequency_hz(i, q, frequency_scale) / NFM_DEVIATION_HZ;
             let filtered = self
                 .fm_audio_antialias
-                .process(diff, 0.0, cutoff, self.input_rate)
+                .process(normalized, 0.0, cutoff, self.input_rate)
                 .0;
             self.wfm_deemph_state += deemph_alpha * (filtered - self.wfm_deemph_state);
             self.decim_counter += 1;
             if self.decim_counter >= self.decimation {
                 self.decim_counter = 0;
-                subaudible.push(filtered * 0.5);
-                out.push(self.wfm_deemph_state * 0.5);
+                subaudible.push(filtered);
+                out.push(self.wfm_deemph_state);
             }
         }
         self.nfm_subaudible_audio = self.nfm_subaudible_resampler.process(
@@ -1663,11 +1838,6 @@ impl Demodulator {
             self.effective_output_rate,
             self.audio_sample_rate,
         );
-        // FM deviation = max_phase_diff * sample_rate / (2π)
-        if self.input_rate > 0.0 {
-            self.last_fm_deviation_hz =
-                max_diff * self.input_rate as f32 / (2.0 * std::f32::consts::PI);
-        }
         // Track audio peak
         if let Some(&p) = out.iter().max_by(|a, b| {
             a.abs()
@@ -1684,6 +1854,7 @@ impl Demodulator {
         // user-selectable (50 µs EU / 75 µs US). τ = 1/(2π·f_c).
         // Discrete IIR: alpha = dt/(τ + dt) where dt = 1/sample_rate
         let tau = self.deemph_tau_us * 1e-6_f32;
+        let frequency_scale = self.input_rate as f32 / std::f32::consts::TAU;
         // The de-emphasis IIR advances once per input IQ pair, so dt must use
         // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
         // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
@@ -1702,29 +1873,17 @@ impl Demodulator {
             let i = sample.re;
             let q = sample.im;
 
-            let (i, q) = self
-                .fm_channel_lpf
-                .process(i, q, channel_cutoff, self.input_rate);
+            let (i, q) = self.fm_channel_sample(i, q, channel_cutoff);
 
-            let phase = q.atan2(i);
-            let mut diff = phase - self.prev_phase;
-            while diff > std::f32::consts::PI {
-                diff -= 2.0 * std::f32::consts::PI;
-            }
-            while diff < -std::f32::consts::PI {
-                diff += 2.0 * std::f32::consts::PI;
-            }
-
-            self.prev_phase = phase;
+            let normalized = self.fm_frequency_hz(i, q, frequency_scale) / WFM_DEVIATION_HZ;
             if self.rds_tap_enabled {
-                self.wfm_multiplex
-                    .push(diff * self.input_rate as f32 / (std::f32::consts::TAU * 75_000.0));
+                self.wfm_multiplex.push(normalized);
             }
 
             // 1st-order IIR low-pass de-emphasis: y[n] = y[n-1] + α*(x[n] - y[n-1]).
             // State persists across chunks (field) to avoid a settling transient
             // at every source-buffer boundary.
-            self.wfm_deemph_state += alpha * (diff - self.wfm_deemph_state);
+            self.wfm_deemph_state += alpha * (normalized - self.wfm_deemph_state);
             let audio = self
                 .fm_audio_antialias
                 .process(
@@ -1738,7 +1897,7 @@ impl Demodulator {
             self.decim_counter += 1;
             if self.decim_counter >= self.decimation {
                 self.decim_counter = 0;
-                out.push(audio * 0.8);
+                out.push(audio);
             }
         }
         out
@@ -1833,9 +1992,7 @@ impl Demodulator {
     }
 
     pub fn reset(&mut self) {
-        self.prev_i = 0.0;
-        self.prev_q = 0.0;
-        self.prev_phase = 0.0;
+        self.reset_fm_discriminator();
         self.decim_counter = 0;
         self.lpf_state_l = 0.0;
         self.wfm_deemph_state = 0.0;
@@ -1875,8 +2032,9 @@ impl Demodulator {
         self.pitch_write_idx = 0;
         self.rf_nb_avg = 0.0;
         self.rf_dc_estimate = [0.0; 2];
-        self.rf_decim_counter = 0;
-        self.rf_decim_filter.reset();
+        self.rf_decim_filter = ez_daemon::channelizer::FirDecimator::new(self.rf_decim as usize);
+        // Preserve the local RF path's original sample grid: first output at D-1.
+        self.rf_decim_filter.reset(self.rf_decim as usize - 1);
         self.rf_notch_x1 = (0.0, 0.0);
         self.rf_notch_x2 = (0.0, 0.0);
         self.rf_notch_y1 = (0.0, 0.0);
@@ -2382,6 +2540,185 @@ mod tests {
             alias < bypass * 0.02,
             "LPF bypass admitted aliased multiplex: {alias}/{bypass}"
         );
+    }
+
+    #[test]
+    fn physical_nfm_gain_and_deviation_survive_rf_decimation_and_all_if_presets() {
+        for (rate, decimation) in [(192003, 4), (2048003, 8)] {
+            let input = complex_fm(
+                f64::from(rate),
+                (f64::from(rate) * 0.24) as usize,
+                1000.0,
+                2500.0,
+            );
+            for preset in [
+                None,
+                Some(FmIfPreset::NoaaApt),
+                Some(FmIfPreset::Voice),
+                Some(FmIfPreset::NarrowBand),
+            ] {
+                let mut demod = configured_demod(rate, 15000.0);
+                demod.set_rf_decim(decimation);
+                demod.set_deemph_tau(0.0);
+                demod.set_fm_lowpass_enabled(false);
+                demod.set_fm_if_noise_reduction(preset.is_some(), preset.unwrap_or_default());
+                let audio = demod.demodulate_complex(&input, DemodMode::Fm);
+                let gain = tone_amplitude(&audio[7200..], 1000.0, 48000) / 0.5;
+                let db = 20.0 * gain.log10();
+                assert!(
+                    db.abs() <= 0.15,
+                    "rate={rate} RF={decimation} preset={preset:?} gain={db} dB"
+                );
+                assert!(
+                    (demod.last_fm_deviation_hz / 2500.0 - 1.0).abs() <= 0.03,
+                    "physical deviation {:?}: {}",
+                    preset,
+                    demod.last_fm_deviation_hz
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn physical_fm_meter_is_partition_invariant_and_retires_on_gaps_and_clock_changes() {
+        let rate = 192003;
+        let input = complex_fm(f64::from(rate), 48000, 1000.0, 2500.0);
+        for mode in [DemodMode::Fm, DemodMode::Wfm] {
+            for nr in [false, true] {
+                let create = || {
+                    let mut d = configured_demod(rate, 25000.0);
+                    d.set_deemph_tau(0.0);
+                    d.set_fm_if_noise_reduction(nr, FmIfPreset::Voice);
+                    d
+                };
+                let mut whole = create();
+                let expected = whole.demodulate_complex(&input, mode);
+                let mut split = create();
+                let actual: Vec<_> = input
+                    .chunks(137)
+                    .flat_map(|x| split.demodulate_complex(x, mode))
+                    .collect();
+                assert_eq!(actual, expected);
+                assert_eq!(split.last_fm_deviation_hz, whole.last_fm_deviation_hz);
+                assert!((split.last_fm_deviation_hz / 2500.0 - 1.0).abs() < 0.03);
+                split.reset();
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+                split.demodulate_complex(&input, mode);
+                split.demodulate_complex(&[Complex32::new(0.0, 0.0); 4096], mode);
+                // A channel filter can ring briefly into missing RF input;
+                // explicitly reset at the acquisition gap, as native capture does.
+                split.reset();
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+                split.demodulate_complex(&input, mode);
+                split.set_sample_rates(384000, 48000);
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+                split.demodulate_complex(&input[..100], DemodMode::Am);
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn physical_fm_meter_ignores_initial_phase_carrier_offset_and_no_energy() {
+        let rate = 192000;
+        let input: Vec<_> = (0..rate / 4)
+            .map(|n| {
+                let time = f64::from(n) / f64::from(rate);
+                let phase = 2.7
+                    + std::f64::consts::TAU * 1200.0 * time
+                    + 2.5 * (std::f64::consts::TAU * 1000.0 * time).sin();
+                Complex32::new((0.5 * phase.cos()) as f32, (0.5 * phase.sin()) as f32)
+            })
+            .collect();
+        let mut demod = configured_demod(rate, 25000.0);
+        demod.demodulate_complex(&input, DemodMode::Fm);
+        assert!((demod.last_fm_deviation_hz / 2500.0 - 1.0).abs() < 0.03);
+        demod.reset();
+        let silence = vec![Complex32::new(0.0, 0.0); rate as usize / 4];
+        assert!(demod
+            .demodulate_complex(&silence, DemodMode::Fm)
+            .iter()
+            .all(|x| *x == 0.0));
+        assert_eq!(demod.last_fm_deviation_hz, 0.0);
+    }
+
+    fn independent_float_stereo_fm(rate: u32, count: usize) -> Vec<Complex32> {
+        let components = [
+            (1000.0, 0.04),
+            (2000.0, 0.02),
+            (39000.0, 0.02),
+            (37000.0, 0.02),
+            (40000.0, -0.01),
+            (36000.0, -0.01),
+            (19000.0, 0.1),
+        ];
+        (0..count)
+            .map(|n| {
+                let time = n as f64 / f64::from(rate);
+                let phase = 75000.0
+                    * components
+                        .iter()
+                        .map(|&(f, a)| a / f * (std::f64::consts::TAU * f * time).sin())
+                        .sum::<f64>();
+                Complex32::new((0.5 * phase.cos()) as f32, (0.5 * phase.sin()) as f32)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks() {
+        for (rate, decimation) in [(192000, 1), (384000, 2), (2048003, 4)] {
+            let input = independent_float_stereo_fm(rate, (f64::from(rate) * 0.4) as usize);
+            for audio_rate in [44_100, 48_000] {
+                for nr in [false, true] {
+                    let create = || {
+                        let mut d = configured_demod(rate, 150000.0);
+                        d.set_sample_rates(rate, audio_rate);
+                        d.set_rf_decim(decimation);
+                        d.set_fm_if_noise_reduction(nr, FmIfPreset::Voice);
+                        d.set_fm_lowpass_enabled(false);
+                        d.set_deemph_tau(0.0);
+                        d
+                    };
+                    let mut stereo = create();
+                    let frames = stereo.demodulate_stereo_complex(&input, DemodMode::Wfm);
+                    assert!(stereo.last_stereo_locked);
+                    let skip = audio_rate as usize / 4;
+                    let left: Vec<_> = frames[skip..].iter().map(|x| x[0]).collect();
+                    let right: Vec<_> = frames[skip..].iter().map(|x| x[1]).collect();
+                    let levels = [
+                        tone_amplitude(&left, 1000.0, audio_rate) / 0.08,
+                        tone_amplitude(&right, 2000.0, audio_rate) / 0.04,
+                    ];
+                    println!("physical_stereo audio_rate={audio_rate} rate={rate} rf_decim={decimation} nr={nr} left_gain={} right_gain={} deviation={}", levels[0], levels[1], stereo.last_fm_deviation_hz);
+                    for gain in levels {
+                        assert!(
+                        (20.0 * gain.log10()).abs() <= 0.15,
+                        "stereo gain audio={audio_rate} rate={rate} RF={decimation} NR={nr} levels={levels:?}"
+                    );
+                    }
+                    let mut mono = create();
+                    let mono_audio = mono.demodulate_complex(&input, DemodMode::Wfm);
+                    let downmix: Vec<_> =
+                        frames[skip..].iter().map(|x| (x[0] + x[1]) * 0.5).collect();
+                    for f in [1000.0, 2000.0] {
+                        let ratio = tone_amplitude(&downmix, f, audio_rate)
+                            / tone_amplitude(&mono_audio[skip..], f, audio_rate);
+                        println!("physical_downmix audio_rate={audio_rate} rate={rate} rf_decim={decimation} nr={nr} frequency={f} ratio={ratio}");
+                        assert!(
+                            (20.0 * ratio.log10()).abs() <= 0.15,
+                            "stereo toggle changed gain {ratio}"
+                        );
+                    }
+                    assert_eq!(stereo.last_fm_deviation_hz, mono.last_fm_deviation_hz);
+                    assert!(
+                    (stereo.last_fm_deviation_hz / 13500.0 - 1.0).abs() < 0.03,
+                    "stereo physical deviation audio={audio_rate} rate={rate} RF={decimation} NR={nr}: {}",
+                    stereo.last_fm_deviation_hz
+                );
+                }
+            }
+        }
     }
 
     #[test]
@@ -3123,9 +3460,8 @@ mod tests {
             let skip = audio_rate as usize / 5;
             let left: Vec<_> = frames[skip..].iter().map(|frame| frame[0]).collect();
             let right: Vec<_> = frames[skip..].iter().map(|frame| frame[1]).collect();
-            let gain = std::f64::consts::TAU * 75_000.0 / f64::from(rate) * 0.8;
-            assert!(tone_amplitude(&left, 1_000.0, audio_rate) > 0.3 * gain);
-            assert!(tone_amplitude(&right, 2_000.0, audio_rate) > 0.2 * gain);
+            assert!(tone_amplitude(&left, 1_000.0, audio_rate) > 0.3);
+            assert!(tone_amplitude(&right, 2_000.0, audio_rate) > 0.2);
         }
     }
 
@@ -3408,13 +3744,15 @@ mod tests {
     #[test]
     fn reset_clears_state() {
         let mut d = Demodulator::new();
-        d.prev_i = 0.5;
-        d.prev_q = -0.3;
+        d.fm_previous_valid = true;
+        d.fm_deviation.value = 1234.0;
+        d.last_fm_deviation_hz = 1234.0;
         d.prev_phase = 1.2;
         d.decim_counter = 42;
         d.reset();
-        assert_eq!(d.prev_i, 0.0);
-        assert_eq!(d.prev_q, 0.0);
+        assert!(!d.fm_previous_valid);
+        assert_eq!(d.fm_deviation.value, 0.0);
+        assert_eq!(d.last_fm_deviation_hz, 0.0);
         assert_eq!(d.prev_phase, 0.0);
         assert_eq!(d.decim_counter, 0);
     }
@@ -3506,8 +3844,9 @@ mod tests {
     #[test]
     fn test_demod_new_defaults() {
         let d = Demodulator::new();
-        assert_eq!(d.prev_i, 0.0);
-        assert_eq!(d.prev_q, 0.0);
+        assert!(!d.fm_previous_valid);
+        assert_eq!(d.fm_deviation.value, 0.0);
+        assert_eq!(d.last_fm_deviation_hz, 0.0);
         assert_eq!(d.prev_phase, 0.0);
         assert_eq!(d.decimation, 1);
         assert_eq!(d.decim_counter, 0);
@@ -3519,10 +3858,10 @@ mod tests {
     #[test]
     fn test_demod_reset() {
         let mut d = Demodulator::new();
-        d.prev_i = 0.7;
+        d.fm_previous_valid = true;
         d.lpf_state_l = 0.5;
         d.reset();
-        assert_eq!(d.prev_i, 0.0);
+        assert!(!d.fm_previous_valid);
         assert_eq!(d.lpf_state_l, 0.0);
     }
 

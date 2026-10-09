@@ -1,0 +1,136 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.32s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 75 tests
+test demod::tests::agc_attack_on_loud_signal ... ok
+test demod::tests::agc_clamps_gain_and_output ... ok
+test demod::tests::agc_decay_on_quiet_signal ... ok
+test demod::tests::apply_lpf_bypass_when_alpha_near_one ... ok
+test demod::tests::apply_lpf_filters_when_alpha_small ... ok
+test demod::tests::am_and_nfm_channel_filters_reject_out_of_band_iq_before_decimation ... ok
+test demod::tests::cw_offset_200_produces_tone_at_cw_tone_hz_plus_200 ... ok
+test demod::tests::cw_squelch_strong_signal_passes_audio ... ok
+test demod::tests::cw_volume_full_produces_reference_amplitude ... ok
+test demod::tests::cw_offset_zero_produces_tone_at_cw_tone_hz ... ok
+test demod::tests::demod_controls_report_a_missing_worker_instead_of_success ... ok
+test demod::tests::demod_control_flood_coalesces_config_and_profile_and_acknowledges_without_iq ... ok
+test demod::tests::demod_fm_constant_phase_near_zero ... ok
+test demod::tests::demod_am_constant_carrier_is_dc_blocked_by_default ... ok
+test demod::tests::demod_lsb_produces_finite_output ... ok
+test demod::tests::demod_raw_output_length ... ok
+test demod::tests::demod_usb_produces_finite_output ... ok
+test demod::tests::demod_wfm_produces_output ... ok
+test demod::tests::cw_squelch_weak_signal_gates_to_silence ... ok
+test demod::tests::demod_worker_round_trips_iq_to_audio ... ok
+test demod::tests::demod_worker_reconfigures_mode_and_resets ... ok
+test demod::tests::cw_volume_zero_produces_silence ... ok
+test demod::tests::cw_volume_half_produces_half_amplitude ... ok
+test demod::tests::dsb_recovers_signed_modulation_without_envelope_frequency_doubling ... ok
+test demod::tests::empty_iq_returns_empty ... ok
+test demod::tests::cw_rejects_adjacent_carriers_before_beat_mixing ... ok
+test demod::tests::dsb_sideband_lower_selects_lower_sideband ... ok
+test demod::tests::dsb_sideband_upper_selects_upper_sideband ... ok
+test demod::tests::fmif_uses_reference_presets_and_single_bin_inverse_center ... ok
+test demod::tests::dsb_sideband_both_recovers_signed_modulation ... ok
+test demod::tests::cw_tone_is_added_after_narrow_rf_filter_and_honors_setting ... ok
+test demod::tests::demod_frame_versions_identify_latest_controls_under_iq_backlog ... ok
+test demod::tests::complex_input_preserves_signals_far_below_an_eight_bit_quantization_step ... ok
+test demod::tests::fractional_source_clock_preserves_exact_audio_counts_pitch_and_chunk_state ... ok
+test demod::tests::physical_fm_meter_ignores_initial_phase_carrier_offset_and_no_energy ... ok
+test demod::tests::demod_wfm_deemph_runs_at_input_rate ... ok
+test demod::tests::carrier_agc_tracks_rf_strength_but_preserves_am_modulation_depth ... ok
+test demod::tests::carrier_agc_is_rate_independent_and_preserves_stream_state ... ok
+test demod::tests::reset_clears_state ... ok
+test demod::tests::reset_preserves_configured_highpass_from_the_first_block ... ok
+physical_stereo audio_rate=44100 rate=192000 rf_decim=1 nr=false left_gain=0.9902609172622945 right_gain=0.9887554324885559 deviation=13287.586
+test demod::tests::rf_bandwidth_and_audio_cutoff_independently_reject_tones ... ok
+test demod::tests::rf_blanker_level_controls_real_impulse_suppression_before_demodulation ... ok
+test demod::tests::optional_rf_decimation_rejects_a_signal_that_would_alias_into_audio ... ok
+physical_downmix audio_rate=44100 rate=192000 rf_decim=1 nr=false frequency=1000 ratio=1.000135075693101
+physical_downmix audio_rate=44100 rate=192000 rf_decim=1 nr=false frequency=2000 ratio=1.0004334369465266
+test demod::tests::product_modes_keep_exact_audio_clock_and_chunk_continuity_at_noninteger_rates ... ok
+test demod::tests::set_lpf_cutoff_clamps ... ok
+test demod::tests::set_lpf_cutoff_computes_alpha ... ok
+test demod::tests::set_sample_rates_decimation ... ok
+test demod::tests::ssb_selects_requested_sideband_without_pitch_translation ... ok
+test demod::tests::fm_lowpass_bypass_is_real_and_keeps_antialias_protection ... ok
+test demod::tests::rds_tap_preserves_57khz_before_audio_filters_and_reports_exact_clock ... ok
+test demod::tests::rf_dc_notch_blanker_and_decimator_preserve_stream_state_across_chunks ... ok
+test demod::tests::complex_and_byte_apis_match_for_every_mode_and_stereo ... ok
+test demod::tests::fm_deemphasis_supports_none_22_50_and_75_microseconds ... ok
+test demod::tests::stereo_fm_low_iq_rate_falls_back_without_pilot_alias_lock ... ok
+test demod::tests::stereo_fm_falls_back_to_identical_mono_without_pilot ... ok
+test demod::tests::fmif_improves_noisy_nfm_and_keeps_tone_gain_when_enabled ... ok
+physical_stereo audio_rate=44100 rate=192000 rf_decim=1 nr=true left_gain=0.9900210060731253 right_gain=0.9882481491894392 deviation=13287.586
+test demod::tests::stereo_fm_chunk_boundaries_preserve_pll_filters_and_channel_clocks ... ok
+test demod::tests::test_demod_mode_switch_does_not_panic ... ok
+test demod::tests::test_demod_new_defaults ... ok
+test demod::tests::test_demod_process_empty_iq ... ok
+test demod::tests::test_demod_reset ... ok
+test demod::tests::test_pitch_shift_multiple_chunks_continuity ... ok
+test demod::tests::test_pitch_shift_preserves_sample_count ... ok
+test demod::tests::rf_decimation_retains_exact_audio_duration_and_cw_pitch ... ok
+test demod::tests::stereo_fm_agc_links_channel_gain_without_changing_balance ... ok
+physical_downmix audio_rate=44100 rate=192000 rf_decim=1 nr=true frequency=1000 ratio=0.9998684644804234
+physical_downmix audio_rate=44100 rate=192000 rf_decim=1 nr=true frequency=2000 ratio=1.0002689853782436
+test demod::tests::new_fm_controls_and_taps_preserve_chunk_counts_reset_and_precision ... ok
+test demod::tests::stereo_fm_deemphasis_audio_lpf_and_gain_apply_to_both_channels ... ok
+physical_stereo audio_rate=48000 rate=192000 rf_decim=1 nr=false left_gain=0.991809445004942 right_gain=0.9944214252598343 deviation=13287.586
+test demod::tests::stereo_fm_losing_pilot_blends_back_to_mono_and_rejects_weak_pilot ... ok
+physical_downmix audio_rate=48000 rate=192000 rf_decim=1 nr=false frequency=1000 ratio=1.000001453897108
+physical_downmix audio_rate=48000 rate=192000 rf_decim=1 nr=false frequency=2000 ratio=1.0000047889921138
+test demod::tests::physical_fm_meter_is_partition_invariant_and_retires_on_gaps_and_clock_changes ... ok
+physical_stereo audio_rate=48000 rate=192000 rf_decim=1 nr=true left_gain=0.9913023442551535 right_gain=0.9939121445630822 deviation=13287.586
+test demod::tests::stereo_fm_recovers_left_and_right_with_pilot_phase_and_frequency_offsets ... ok
+physical_downmix audio_rate=48000 rate=192000 rf_decim=1 nr=true frequency=1000 ratio=1.0000014532401897
+physical_downmix audio_rate=48000 rate=192000 rf_decim=1 nr=true frequency=2000 ratio=1.0000047870402142
+test demod::tests::stereo_toggle_preserves_mono_downmix_loudness ... ok
+test demod::tests::wfm_stereo_if_reduction_preserves_clock_taps_and_chunk_state ... ok
+test demod::tests::stereo_fm_resamples_each_channel_to_exact_audio_clock ... ok
+physical_stereo audio_rate=44100 rate=384000 rf_decim=2 nr=false left_gain=0.9904924404605504 right_gain=0.9886831557916547 deviation=13217.492
+physical_downmix audio_rate=44100 rate=384000 rf_decim=2 nr=false frequency=1000 ratio=0.9997732454828705
+physical_downmix audio_rate=44100 rate=384000 rf_decim=2 nr=false frequency=2000 ratio=0.9995070178475566
+physical_stereo audio_rate=44100 rate=384000 rf_decim=2 nr=true left_gain=0.9895931484906294 right_gain=0.9880693516368824 deviation=13217.492
+physical_downmix audio_rate=44100 rate=384000 rf_decim=2 nr=true frequency=1000 ratio=1.0002283855850869
+physical_downmix audio_rate=44100 rate=384000 rf_decim=2 nr=true frequency=2000 ratio=0.999994125373041
+test demod::tests::physical_nfm_gain_and_deviation_survive_rf_decimation_and_all_if_presets ... ok
+physical_stereo audio_rate=48000 rate=384000 rf_decim=2 nr=false left_gain=0.9917639258760873 right_gain=0.9943509774392049 deviation=13217.492
+physical_downmix audio_rate=48000 rate=384000 rf_decim=2 nr=false frequency=1000 ratio=1.0000015111815328
+physical_downmix audio_rate=48000 rate=384000 rf_decim=2 nr=false frequency=2000 ratio=1.0000047486966954
+physical_stereo audio_rate=48000 rate=384000 rf_decim=2 nr=true left_gain=0.9911513942082263 right_gain=0.9937315811054973 deviation=13217.492
+physical_downmix audio_rate=48000 rate=384000 rf_decim=2 nr=true frequency=1000 ratio=1.0000015133246858
+physical_downmix audio_rate=48000 rate=384000 rf_decim=2 nr=true frequency=2000 ratio=1.0000047498092197
+physical_stereo audio_rate=44100 rate=2048003 rf_decim=4 nr=false left_gain=0.9943108923040282 right_gain=0.9917163894460533 deviation=13366.455
+physical_downmix audio_rate=44100 rate=2048003 rf_decim=4 nr=false frequency=1000 ratio=1.0001978494092887
+physical_downmix audio_rate=44100 rate=2048003 rf_decim=4 nr=false frequency=2000 ratio=1.0008062717287511
+physical_stereo audio_rate=44100 rate=2048003 rf_decim=4 nr=true left_gain=0.9940599667039083 right_gain=0.991526443506863 deviation=13362.836
+physical_downmix audio_rate=44100 rate=2048003 rf_decim=4 nr=true frequency=1000 ratio=0.9995448262519511
+physical_downmix audio_rate=44100 rate=2048003 rf_decim=4 nr=true frequency=2000 ratio=0.9999751542229876
+physical_stereo audio_rate=48000 rate=2048003 rf_decim=4 nr=false left_gain=0.9943126267545004 right_gain=0.9917151510335996 deviation=13366.455
+physical_downmix audio_rate=48000 rate=2048003 rf_decim=4 nr=false frequency=1000 ratio=1.000004767330245
+physical_downmix audio_rate=48000 rate=2048003 rf_decim=4 nr=false frequency=2000 ratio=0.9999756998213721
+physical_stereo audio_rate=48000 rate=2048003 rf_decim=4 nr=true left_gain=0.9935636185705545 right_gain=0.9911966425562909 deviation=13362.836
+physical_downmix audio_rate=48000 rate=2048003 rf_decim=4 nr=true frequency=1000 ratio=0.9992457956225189
+physical_downmix audio_rate=48000 rate=2048003 rf_decim=4 nr=true frequency=2000 ratio=0.9993900508714733
+test demod::tests::physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks ... ok
+
+test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 777 filtered out; finished in 29.30s
