@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-22 findings have software repairs with passing regressions; 11 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+23 findings have software repairs with passing regressions; 10 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
 
@@ -53,10 +53,12 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - **R03 — Daemon narrow-channel decimation aliases strong adjacent signals**: Use bounded half-band stages and an output-phase FIR designed from actual passband/transition/stopband requirements. Production frequency and strong-adjacent mixture sweeps exceed the 80 dB rejection gate. Prime-factor, exact source-clock, chunk and reset regressions pass.
   Evidence: repair-channelizer-verification.json and channelizer evidence logs.
 
+- **R04 — Daemon playback downsamples mono PCM without an anti-alias filter**: Filter PCM with a streaming fractional-delay FIR before converting to the exact playback clock. Real WFM MPX, AM/NFM aliases, rational capture rates and arbitrary network splits pass known-rejection and phase/count checks.
+  Evidence: repair-playback-verification.json and playback evidence logs.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
-- [ ] **R04 · P2** — Daemon playback downsamples mono PCM without an anti-alias filter
 - [ ] **R05 · P2** — Local FM loudness changes with RF sample rate and RF decimation
 - [ ] **R06 · P2** — USB/LSB power squelch measures a symmetric band instead of the selected sideband
 - [ ] **R07 · P2** — Narrow power measurements can return silence because no FFT bin fits
@@ -182,3 +184,15 @@ Permanent regressions add Nyquist/folding-tone and mixture checks at D=4093, exe
 Final full-workspace tests pass: 223 daemon, 833 GUI, 20 protocol and 107 LRPT tests, plus integration and remaining workspace suites. All 37 focused release channelizer/state tests pass. Default build, all-target Clippy with warnings denied, formatting, hardware-feature compilation and AST graph refresh pass. Command logs and source hashes are in repair-channelizer-verification.json. The graph has 7,318 nodes and 16,333 edges; HTML export was skipped at its configured size limit. No receiver was opened. Physical hardware/audio/disk and independent 80k off-air gates remain unverified.
 
 There are now 22 software-verified findings and 11 open findings. Next priority: R04 playback anti-alias resampling, followed by the remaining radio gain/selectivity/timebase/monitoring findings.
+
+## Playback anti-alias and clock verification
+
+R04 is software-verified. Playback now uses a streaming Blackman-Harris fractional-delay FIR before rational output sampling. The passband reaches 0.4 of the lower input/output rate, transitions to 0.5 and requires at least 80 dB rejection there and above. Exact integer phase uses the capture root rate and stride rather than its rounded display rate. Network splits preserve output samples; missing frames, changed clocks/rates/channels and corrupt geometry retire history. Gain is applied after filtering, including when muted. Equal-rate playback remains sanitized passthrough. The causal FIR contributes a known delay of about 1 ms at the usual 200k-to-48k geometry; startup samples and exact stream duration are retained.
+
+There are 122 independent PCM frequency measurements across seven source rates and both 44.1/48 kHz destinations, with minimum rejection 112.350624 dB. Analytic wanted-tone phase and amplitude checks verify constant filter delay. Actual SampleBus/daemon WFM production feeds 32 stereo/RDS-range MPX cases at four input rates into playback, with minimum rejection 115.348143 dB. Eight mixtures retain wanted audio with relative error at most 0.000000738; whole and split frames produce identical output. Real AM/NFM 49k audio cannot fold into 4.9/1k output. Additional checks cover 204800.3 S/s exact capture time, single-sample/empty partitions, 48:1 and 1:48 ratios, volume, nonfinite samples and history retirement.
+
+The original unchanged radio probe now reports the 49k-to-1k alias near 0.000003 rather than 0.410990; that aggregate retains FIR startup. Its real WFM 57k-to-9k case rounds to zero at six decimal places. Remaining FM gain, RAW, local AM and SSB probes still demonstrate their separate open findings. The first gain/pitch test assumptions and first AM measurement included startup behavior; the failed results are retained alongside final settled checks. AM's own DC-blocker is allowed 100 ms to settle before its alias projection. The converter's frequency-response checks exclude only finite FIR startup, and the 80 dB threshold is unchanged.
+
+All twelve focused playback tests and the full workspace pass: 841 GUI, 223 daemon, 20 protocol and 107 LRPT tests, plus integration and remaining workspace suites. Default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. Source hashes, exact commands and preserved intermediate results are in repair-playback-verification.json. The graph has 7,339 nodes and 16,393 edges; HTML export was skipped at its configured size limit. No physical receiver/audio device was opened. Original field/audio/disk and independent off-air release gates remain unverified.
+
+There are now 23 software-verified findings and 10 open findings. Next priority: R05 physical FM gain normalization across source/IF clocks and mono/stereo paths.

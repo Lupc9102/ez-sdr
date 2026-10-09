@@ -1,0 +1,47 @@
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.36s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 4 tests
+test audio_resampler::tests::rejects_invalid_rates_and_cleans_nonfinite_samples ... ok
+
+thread 'audio_resampler::tests::gain_applies_at_equal_and_different_rates' (121516) panicked at ez-gui/src/audio_resampler.rs:285:13:
+assertion failed: resampler.process(&[0.8; 64], 48_000, rate,
+            0.5).iter().all(|value| (*value - 0.4).abs() < 1e-6)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test audio_resampler::tests::gain_applies_at_equal_and_different_rates ... FAILED
+test audio_resampler::tests::mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation ... ok
+
+thread 'audio_resampler::tests::rate_conversion_is_independent_of_network_frame_boundaries' (121518) panicked at ez-gui/src/audio_resampler.rs:271:9:
+tone pitch changed: 1020
+test audio_resampler::tests::rate_conversion_is_independent_of_network_frame_boundaries ... FAILED
+
+failures:
+
+failures:
+    audio_resampler::tests::gain_applies_at_equal_and_different_rates
+    audio_resampler::tests::rate_conversion_is_independent_of_network_frame_boundaries
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 836 filtered out; finished in 0.27s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

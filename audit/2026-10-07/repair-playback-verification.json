@@ -1,0 +1,313 @@
+{
+  "date": "2026-10-09",
+  "scope": [
+    "R04"
+  ],
+  "verification_state": "software_verified",
+  "commands": [
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib audio_resampler -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-focused-final.log",
+      "log_sha256": "b02d68b038d76a04548a4673babc7638f05015389688db749f6c2fa5a88aaf8a",
+      "raw_log_sha256": "bddcea685428b7b833b1084ea481719a9554e769a1273244868b4332a399053c",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-workspace-tests.log",
+      "log_sha256": "e50af2fce7435b8dcd9d1ad2f0f67eec285465798bd9674a50d7520db49258a8",
+      "raw_log_sha256": "834c3348d91d9641e8885d6aa7ced59b32afdefefa41c47a9a1eb449e8c3feba",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 223,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 841,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 20,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 3
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo run -p ez-gui --no-default-features --example audit_radio_logic",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-original-probe.log",
+      "log_sha256": "9b36443403d7cb9f1fd1c84a33c5d39ed5918c2b31ee9275603498fb018cb337",
+      "raw_log_sha256": "9b36443403d7cb9f1fd1c84a33c5d39ed5918c2b31ee9275603498fb018cb337",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-clippy.log",
+      "log_sha256": "45355713d47a9cb25f2d8a55111cf71c0d84f65e51744672823a2409d760b0a7",
+      "raw_log_sha256": "45355713d47a9cb25f2d8a55111cf71c0d84f65e51744672823a2409d760b0a7",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-build.log",
+      "log_sha256": "9ce83c4f4bee6f60a81ffad3863a73717d13d51930887b7740a4450c0dfdd17d",
+      "raw_log_sha256": "9ce83c4f4bee6f60a81ffad3863a73717d13d51930887b7740a4450c0dfdd17d",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-graphify.log",
+      "log_sha256": "af1947248a2d01273f7a4d8ba57225c9ccf4d947a78f4ec3193a763fc14ddcb1",
+      "raw_log_sha256": "af1947248a2d01273f7a4d8ba57225c9ccf4d947a78f4ec3193a763fc14ddcb1",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    }
+  ],
+  "source_sha256": {
+    "ez-gui/src/audio_resampler.rs": "0d778eaa9a10bb240605e9e0f8b7b2c15bf167fb453285c6c5c2e9f1c5c27022",
+    "ez-gui/examples/audit_radio_logic.rs": "de2e93bacded8c36b1f10216d06e2ef965c6b1a0808b7218affefc4ff0cdf82a",
+    "ez-daemon/src/pipelines/audio.rs": "a852cdb7e60052b63a69865cc2c2eb328a8dde3db8dbcaa82266d7dd138dde69"
+  },
+  "filter_contract": {
+    "passband_fraction_of_lower_sample_rate": 0.4,
+    "stopband_fraction_of_lower_sample_rate": 0.5,
+    "maximum_passband_error_db": 0.02,
+    "minimum_alias_rejection_db": 80,
+    "phase_intervals": 256,
+    "design": "Own streaming Blackman-Harris windowed-sinc fractional-delay FIR. Select/interpolate coefficients before output sampling; no interpolation of unfiltered PCM.",
+    "taps": "ceil(100 * max(input Fs / output Fs, 1)) made odd",
+    "source_rate": "Use source_sample_rate_hz / sample_stride exactly; validate the declared integer rate against its floor.",
+    "cadence": "ceil(total_input_samples * output_rate_hz * source_stride / source_sample_rate_hz); bounded integer phase accumulator.",
+    "group_delay": "(taps - 1)/2 input samples; causal startup is retained and no output tail is artificially flushed.",
+    "equal_rate": "Exact sanitized/gained passthrough; no filter delay.",
+    "supported_rates_hz": [
+      8000,
+      384000
+    ],
+    "maximum_filter_taps": 4801,
+    "maximum_coefficient_bytes": 4935428,
+    "gain": "Apply after filtering; muted frames still advance filter history. Sanitize nonfinite input and clamp playback output."
+  },
+  "measurements": {
+    "pcm_source_rates_hz": [
+      48000,
+      96000,
+      192000,
+      200000,
+      204800,
+      240000,
+      384000
+    ],
+    "playback_rates_hz": [
+      44100,
+      48000
+    ],
+    "pcm_frequency_measurements": 122,
+    "minimum_pcm_rejection_db": 112.350624,
+    "maximum_pointwise_wanted_tone_error_limit": 0.0001,
+    "wfm_source_rates_hz": [
+      192000,
+      200000,
+      204800,
+      240000
+    ],
+    "wfm_mpx_stop_frequencies_hz": [
+      26000,
+      38000,
+      50000,
+      57000
+    ],
+    "wfm_stop_cases": 32,
+    "minimum_wfm_rejection_db": 115.348143,
+    "wfm_mixture_cases": 8,
+    "maximum_wfm_mixture_relative_error": 7.38e-07,
+    "wfm_mixture_deviations_hz": {
+      "wanted": 1500,
+      "each_mpx_component": 5000
+    },
+    "wfm_note": "The real producer includes its existing de-emphasis before playback conversion. No independently off-air stereo/RDS claim is made.",
+    "am_nfm_alias_cases": 4,
+    "am_pcm_fir_alias_settling": "100 ms for AM DC-blocker settling; 256 outputs for NFM. Standalone FIR response excludes only 128 startup outputs.",
+    "original_probe_49khz_to_1khz_amplitude": 3e-06,
+    "original_probe_57khz_wfm_to_9khz_amplitude": "0.000000 at six printed decimal places"
+  },
+  "regressions": [
+    "passband_phase_and_stopband_rejection_hold_at_production_playback_rates: independent analytic sine phase/amplitude and stop tones at destination Nyquist, its edge and MPX frequencies.",
+    "real_daemon_wfm_mpx_and_strong_mixtures_do_not_alias_into_playback: real SampleBus -> AudioPipeline -> AudioFrame -> playback conversion, both destination rates, four input rates; identical full/split outputs and wanted-versus-MPX mixtures.",
+    "real_daemon_am_and_nfm_destination_rate_conversion_rejects_out_of_band_audio: 49 kHz producer audio cannot fold into 4.9/1 kHz playback.",
+    "fractional_capture_rate_controls_playback_phase_and_arbitrary_frame_splits: 204800.3 S/s physical input clock with integer display rate 204800, exact output counts and independently predicted 17 kHz phase.",
+    "upsampling_and_extreme_ratios_keep_exact_counts_and_filter_delay: input/output boundaries through 48:1 and 1:48.",
+    "empty_and_single_sample_partitions_preserve_rational_cadence_and_samples: byte-identical chunks 1/37/997 including empty input.",
+    "mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation: existing epoch/index/sequence/channel/origin/gap regression now verifies FIR history retirement.",
+    "rate_changes_retire_history_including_equal_rate_passthrough; corrupt_frame_geometry_retires_history_before_next_valid_audio; gain and nonfinite regressions."
+  ],
+  "development_verification": [
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib audio_resampler -- --nocapture",
+      "exit_code": 101,
+      "log": "repair-evidence/playback-initial-tests.log",
+      "log_sha256": "bcfb41d8fd2af190e863eb2d41d27ffb53eb63e7905b1ed964795f53b23035a3",
+      "raw_log_sha256": "bcfb41d8fd2af190e863eb2d41d27ffb53eb63e7905b1ed964795f53b23035a3",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 2,
+          "failed": 2,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib audio_resampler -- --nocapture",
+      "exit_code": 101,
+      "log": "repair-evidence/playback-focused-tests.log",
+      "log_sha256": "54dae7047fbb97e21d9cddbaf437d6e61edef187dd3ac95cf61749efb8a4c4cb",
+      "raw_log_sha256": "54dae7047fbb97e21d9cddbaf437d6e61edef187dd3ac95cf61749efb8a4c4cb",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 8,
+          "failed": 1,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib audio_resampler -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/playback-focused-verified.log",
+      "log_sha256": "850858a94f0392391ef9ba30899330c5f474630e2cd8a78faac941d1512b9dcc",
+      "raw_log_sha256": "c047e73cf13be13fc7cd9be0f316a09bd4e3fee067b70622a7e1be19bc944808",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "development_notes": [
+    "The initial historical gain/pitch checks assumed zero-latency interpolation. They were updated to measure settled pitch/gain after the causal FIR startup; source counts and partition equality remain strict. Independent physical tone-phase checks cover the delay explicitly.",
+    "The first real AM Fourier measurement included its legitimate DC-blocker startup. The final test allows that separate 5 ms time constant to settle for 100 ms before measuring a folded carrier; the 80 dB threshold was not changed. Both failed runs and subsequent passing results are retained."
+  ],
+  "primary_design_references": [
+    "https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.upfirdn.html",
+    "https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.windows.blackmanharris.html"
+  ],
+  "limits": [
+    "These are analytical PCM/IQ and actual software pipeline measurements, not a physical sound-device listening test.",
+    "No receiver, audio device or external recording was opened. Original physical hardware/audio/disk and off-air release gates remain active.",
+    "Local AM pre-decimation (R09), native RAW timebase/channels (R10), FM gain (R05) and daemon RF selectivity (R12/R19) remain separate open findings.",
+    "AST graph update passed: 7339 nodes, 16393 edges. HTML export skipped its size limit; user-deleted tracked sidecars removed again."
+  ]
+}

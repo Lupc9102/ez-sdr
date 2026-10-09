@@ -212,9 +212,19 @@
       "id": "R04",
       "title": "Daemon playback downsamples mono PCM without an anti-alias filter",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Replace linear interpolation of unfiltered mono PCM with a streaming phase-selected Blackman-Harris FIR. Low-pass before rate conversion with a declared passband/transition and >=80 dB rejection. Use bounded integer phase with the exact rational capture rate and retire history at invalid geometry, rate changes or frame gaps; preserve output cadence and post-filter gain.",
+      "regressions": [
+        "passband_phase_and_stopband_rejection_hold_at_production_playback_rates: independent analytic sine phase/amplitude and stop tones at destination Nyquist, its edge and MPX frequencies.",
+        "real_daemon_wfm_mpx_and_strong_mixtures_do_not_alias_into_playback: real SampleBus -> AudioPipeline -> AudioFrame -> playback conversion, both destination rates, four input rates; identical full/split outputs and wanted-versus-MPX mixtures.",
+        "real_daemon_am_and_nfm_destination_rate_conversion_rejects_out_of_band_audio: 49 kHz producer audio cannot fold into 4.9/1 kHz playback.",
+        "fractional_capture_rate_controls_playback_phase_and_arbitrary_frame_splits: 204800.3 S/s physical input clock with integer display rate 204800, exact output counts and independently predicted 17 kHz phase.",
+        "upsampling_and_extreme_ratios_keep_exact_counts_and_filter_delay: input/output boundaries through 48:1 and 1:48.",
+        "empty_and_single_sample_partitions_preserve_rational_cadence_and_samples: byte-identical chunks 1/37/997 including empty input.",
+        "mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation: existing epoch/index/sequence/channel/origin/gap regression now verifies FIR history retirement.",
+        "rate_changes_retire_history_including_equal_rate_passthrough; corrupt_frame_geometry_retires_history_before_next_valid_audio; gain and nonfinite regressions.",
+        "122 production PCM measurements: minimum rejection 112.350624 dB; 32 real WFM MPX cases: minimum rejection 115.348143 dB. See repair-playback-verification.json."
+      ],
       "original_repair_gate": "Low-pass to the destination audio passband before decimation, using a streaming rational-rate converter with known rejection. Test real demodulator output, stereo/RDS-range MPX components, source rates, 44.1/48 kHz output and arbitrary frame splits."
     },
     {
