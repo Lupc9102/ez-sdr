@@ -1,0 +1,51 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.08s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 26 tests
+test scanner::tests::a_different_selected_vfo_cannot_be_logged_under_the_scan_frequency ... ok
+test scanner::tests::daemon_scan_requires_its_own_new_server_observation_revision ... ok
+test scanner::tests::off_channel_carrier_does_not_log_a_hit_or_hold_the_sweep ... ok
+test scanner::tests::parse_json_f32_missing ... ok
+test scanner::tests::parse_json_f32_valid ... ok
+test scanner::tests::parse_json_u32_missing ... ok
+test scanner::tests::parse_json_u32_valid ... ok
+test scanner::tests::parse_json_u64_missing ... ok
+test scanner::tests::parse_json_u64_valid ... ok
+test scanner::tests::parse_json_value_empty_line ... ok
+test scanner::tests::parse_json_value_key_at_end ... ok
+test scanner::tests::parse_json_value_key_in_middle ... ok
+test scanner::tests::parse_json_value_malformed ... ok
+test scanner::tests::parse_json_value_missing_key ... ok
+test scanner::tests::parse_json_value_valid_f32 ... ok
+test scanner::tests::parse_json_value_valid_i32 ... ok
+test scanner::tests::parse_json_value_valid_u64 ... ok
+test scanner::tests::reapplying_untagged_display_bins_cannot_manufacture_a_scan_observation ... ok
+test scanner::tests::replay_scan_auto_resolution_validates_actual_grid_at_mode_boundaries ... replay_scan range_edges=4 bookmark_profiles=passed transitions=passed auto_grid=passed
+ok
+test scanner::tests::replay_scan_bookmarks_use_their_profiles_before_edge_tuning ... ok
+test scanner::tests::replay_scan_rejects_out_of_span_ranges_before_tuning_or_cached_hits ... ok
+test scanner::tests::replay_scan_source_and_decimation_changes_revalidate_pending_coverage ... ok
+test scanner::tests::scan_consumes_shared_ssb_geometry_at_both_vfo_offsets_without_opposite_hits ... power_scan_consumers cases=12 shared_sided_passband=passed
+ok
+test scanner::tests::scan_dwell_restarts_after_gap_or_passband_change_and_waits_outside_capture ... ok
+test scanner::tests::scan_observations_wait_for_ack_settling_dwell_and_new_frames_in_both_modes ... ok
+test scanner::tests::test_parse_hits_json_array_and_minified ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 839 filtered out; finished in 0.30s

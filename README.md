@@ -48,6 +48,9 @@ without speaker playback, use `--no-default-features`.
   RF channel, in dBFS; they do not integrate total RF power. USB/LSB use their
   selected sideband. Narrow CW measurements need a complete window (up to 200 ms);
   retunes and capture gaps clear the previous reading. Display FFT settings are independent.
+- Replay scans validate the requested scan grid and bookmark passbands against the
+  file's fixed coverage. An unavailable channel stops the scan with its frequency
+  and available tuning range; valid scans still require fresh observations after tuning.
 - Choose the output device and sample rate under **Audio**. An unavailable saved device
   produces an error; it is not silently replaced by another device.
 - Display controls support streaming FFT sizes through 65,536, FFT rate, waterfall

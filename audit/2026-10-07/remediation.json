@@ -405,9 +405,12 @@
       "id": "R20",
       "title": "Scanning can wait forever on a frequency a fixed replay capture cannot contain",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Validate complete fixed-file scan grids and mode-profile bookmark passbands against the same exact, sided VFO limits used by tuning. Reject unsupported scans with an explicit frequency/available-range result before tuning or consuming observations. Revalidate source and geometry changes, select bookmark mode before tuning, and retain all freshness/settle guards.",
+      "regressions": [
+        "Five new replay_scan regressions: 32 edge tunes; range/bookmark rejection; actual Auto grid boundaries; sample-rate/decimation/bandwidth/center and source transitions; unchanged replay position/epoch and no cached hits after rejection.",
+        "All 26 scanner, 23 radio_ui and 31 sdr_panel tests pass. GUI default build, all-target Clippy, formatting and AST graph refresh pass under a strict 20%-of-one-CPU quota. See repair-scan-verification.json."
+      ],
       "original_repair_gate": "Validate scan geometry against fixed capture bounds before starting or skip unavailable bookmarks with an explicit result. Test out-of-span, edge-passband and source-transition cases while preserving fresh-measurement requirements."
     },
     {

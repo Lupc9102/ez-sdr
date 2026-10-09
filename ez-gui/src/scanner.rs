@@ -627,6 +627,92 @@ impl FrequencyScanner {
         );
     }
 
+    /// Reject impossible fixed-file coverage before tuning or consuming a
+    /// measurement, including changes to source, decimation or mode profiles.
+    /// A whole scan is rejected rather than silently omitting its channels.
+    pub(crate) fn validate_fixed_capture(&mut self, state: &SharedState) -> bool {
+        if !self.enabled || state.source.source_mode != crate::source_manager::SourceMode::Replay {
+            return true;
+        }
+        let mut channels = Vec::new();
+        if self.memory_scan {
+            channels.extend(self.memory_freqs.iter().map(|(frequency, label)| {
+                (*frequency, crate::sdr_panel::DemodMode::from_label(label))
+            }));
+        } else {
+            if self.step_hz == 0 || self.start_hz > self.stop_hz {
+                self.stop();
+                self.status_text =
+                    "Choose an ordered frequency range and a nonzero scan step.".into();
+                return false;
+            }
+            let last = self.start_hz + (self.stop_hz - self.start_hz) / self.step_hz * self.step_hz;
+            channels.extend([
+                (self.start_hz, None),
+                (last, None),
+                (self.current_freq_hz, None),
+            ]);
+            if state.demod_mode == crate::sdr_panel::DemodMode::Auto {
+                // Within a mode interval the bounds are constant, so only its
+                // first/last scan-grid positions can be closest to an edge.
+                for &(edge, _) in crate::sdr_panel::DemodMode::auto_mode_bands() {
+                    if edge > self.start_hz && edge <= last {
+                        let before = self.start_hz
+                            + (edge - 1 - self.start_hz) / self.step_hz * self.step_hz;
+                        channels.push((before, None));
+                        if let Some(after) = before.checked_add(self.step_hz).filter(|&f| f <= last)
+                        {
+                            channels.push((after, None));
+                        }
+                    }
+                }
+            }
+        }
+        for (frequency, mode) in channels {
+            let bounds = crate::radio_ui::scan_channel_bounds(state, frequency, mode);
+            if bounds.is_none_or(|(low, high)| !(low..=high).contains(&frequency)) {
+                self.stop();
+                self.last_peak_db = -120.0;
+                let coverage = bounds.map_or_else(
+                    || "the selected passband cannot fit in this file".to_owned(),
+                    |(low, high)| {
+                        format!(
+                            "available VFO range {:.6}–{:.6} MHz",
+                            low as f64 / 1e6,
+                            high as f64 / 1e6
+                        )
+                    },
+                );
+                self.status_text = format!(
+                    "Cannot scan fixed capture at {:.6} MHz: {coverage}. Choose a range/bookmarks inside the file.",
+                    frequency as f64 / 1e6,
+                );
+                return false;
+            }
+        }
+        true
+    }
+
+    pub(crate) fn apply_tune_request(&mut self, state: &mut SharedState) {
+        let Some(frequency) = self.tune_request_hz else {
+            self.mode_request = None;
+            return;
+        };
+        if !self.validate_fixed_capture(state) {
+            return;
+        }
+        self.tune_request_hz = None;
+        if let Some(mode) = self
+            .mode_request
+            .take()
+            .and_then(|label| crate::sdr_panel::DemodMode::from_label(&label))
+        {
+            // The new profile must be selected before tuning clamps its VFO.
+            crate::radio_ui::select_demod(state, mode);
+        }
+        crate::radio_ui::tune(state, frequency);
+    }
+
     /// Make decisions from fresh raw measurements at the acknowledged scan tuning.
     pub fn tick_spectrum(
         &mut self,
@@ -1805,6 +1891,178 @@ impl FrequencyScanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixed_scan_state() -> Arc<Mutex<SharedState>> {
+        let shared = crate::test_helpers::make_shared_state();
+        {
+            let mut state = shared.lock().unwrap();
+            state.source.source_mode = crate::source_manager::SourceMode::Replay;
+            state.source.center_frequency_hz = Some(100_000_000);
+            state.source.frequency_hz = 100_000_000;
+            state.source.sample_rate_hz = 200_000;
+            state.source.replay_position = 12345;
+            crate::radio_ui::select_demod(&mut state, crate::sdr_panel::DemodMode::Fm);
+        }
+        shared
+    }
+
+    #[test]
+    fn replay_scan_rejects_out_of_span_ranges_before_tuning_or_cached_hits() {
+        for (start, stop, valid) in [
+            (99_911_250, 100_088_750, true),
+            (99_911_249, 100_000_000, false),
+            (100_000_000, 100_088_751, false),
+            (99_000_000, 101_000_000, false),
+        ] {
+            let shared = fixed_scan_state();
+            let mut scanner = FrequencyScanner::new(Arc::clone(&shared));
+            scanner.start_hz = start;
+            scanner.stop_hz = stop;
+            scanner.step_hz = 1;
+            scanner.start();
+            let mut state = shared.lock().unwrap();
+            scanner.apply_tune_request(&mut state);
+            assert_eq!(scanner.enabled, valid);
+            assert_eq!(
+                state.source.frequency_hz,
+                if valid { start } else { 100_000_000 }
+            );
+            assert_eq!(state.source.capture_center_frequency_hz(), 100_000_000);
+            assert_eq!(state.source.replay_position, 12345);
+            assert_eq!(state.source.stream_generation(), 0);
+            if !valid {
+                assert!(scanner.status_text.contains("Cannot scan fixed capture"));
+                assert!(scanner.tune_request_hz.is_none());
+                assert!(scanner.mode_request.is_none());
+                let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+                spectrum.update_params(100_000_000, 200_000);
+                spectrum.apply_spectrum_frame_at(&vec![-10.0; 2048], Instant::now());
+                scanner.tick_spectrum(&mut spectrum, true);
+                assert!(scanner.hits.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn replay_scan_bookmarks_use_their_profiles_before_edge_tuning() {
+        let shared = fixed_scan_state();
+        let mut scanner = FrequencyScanner::new(Arc::clone(&shared));
+        // The second channel fits NFM but not the WFM profile it requests.
+        scanner.start_memory_scan(vec![
+            (100_000_000, "CW".into()),
+            (100_080_000, "WFM".into()),
+        ]);
+        {
+            let mut state = shared.lock().unwrap();
+            scanner.apply_tune_request(&mut state);
+            assert!(!scanner.enabled);
+            assert!(scanner.status_text.contains("100.080000"));
+            assert_eq!(state.demod_mode, crate::sdr_panel::DemodMode::Fm);
+            assert_eq!(state.source.frequency_hz, 100_000_000);
+            crate::radio_ui::select_demod(&mut state, crate::sdr_panel::DemodMode::Wfm);
+            for mode in ["USB", "LSB"] {
+                state.config.radio_profiles.insert(
+                    mode.into(),
+                    crate::config::RadioModeProfile {
+                        radio_bandwidth_hz: 3000.0,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+        scanner.start_memory_scan(vec![
+            (99_905_000, "USB".into()),
+            (100_095_000, "LSB".into()),
+        ]);
+        let mut state = shared.lock().unwrap();
+        scanner.apply_tune_request(&mut state);
+        assert!(scanner.enabled);
+        assert_eq!(state.demod_mode, crate::sdr_panel::DemodMode::Usb);
+        assert_eq!(
+            state.source.frequency_hz, 99_905_000,
+            "apply USB before the former wide WFM bounds can clamp it"
+        );
+        scanner.current_freq_hz = 100_095_000;
+        scanner.tune_request_hz = Some(100_095_000);
+        scanner.mode_request = Some("LSB".into());
+        scanner.apply_tune_request(&mut state);
+        assert!(scanner.enabled);
+        assert_eq!(state.demod_mode, crate::sdr_panel::DemodMode::Lsb);
+        assert_eq!(state.source.frequency_hz, 100_095_000);
+        assert_eq!(state.source.replay_position, 12345);
+    }
+
+    #[test]
+    fn replay_scan_source_and_decimation_changes_revalidate_pending_coverage() {
+        let shared = fixed_scan_state();
+        let mut scanner = FrequencyScanner::new(Arc::clone(&shared));
+        scanner.start_hz = 100_000_000;
+        scanner.stop_hz = 110_000_000;
+        scanner.start();
+        let mut state = shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Hardware;
+        assert!(
+            scanner.validate_fixed_capture(&state),
+            "retunable idle source is unrestricted; no hardware opened"
+        );
+        state.source.source_mode = crate::source_manager::SourceMode::Replay;
+        assert!(!scanner.validate_fixed_capture(&state));
+        assert!(!scanner.enabled);
+        scanner.stop_hz = 100_050_000;
+        scanner.step_hz = 25_000;
+        scanner.start();
+        assert!(scanner.validate_fixed_capture(&state));
+        state.source.sample_rate_hz = 192_003;
+        state.config.advanced.rf_decim = 8;
+        assert!(!scanner.validate_fixed_capture(&state));
+        assert!(scanner.tune_request_hz.is_none());
+        assert!(scanner.observation_boundary.is_none());
+        assert!(scanner.consumed_measurement.is_none());
+        assert_eq!(state.source.frequency_hz, 100_000_000);
+        assert_eq!(state.source.replay_position, 12345);
+        state.source.sample_rate_hz = 200_000;
+        state.config.advanced.rf_decim = 1;
+        scanner.stop_hz = 100_080_000;
+        scanner.step_hz = 20_000;
+        scanner.start();
+        assert!(scanner.validate_fixed_capture(&state));
+        state.config.advanced.radio_bandwidth_hz = 50_000.0;
+        assert!(!scanner.validate_fixed_capture(&state));
+        state.config.advanced.radio_bandwidth_hz = 12_500.0;
+        scanner.start();
+        assert!(scanner.validate_fixed_capture(&state));
+        state.source.center_frequency_hz = Some(101_000_000);
+        assert!(!scanner.validate_fixed_capture(&state));
+    }
+
+    #[test]
+    fn replay_scan_auto_resolution_validates_actual_grid_at_mode_boundaries() {
+        let shared = fixed_scan_state();
+        let mut scanner = FrequencyScanner::new(Arc::clone(&shared));
+        scanner.start_hz = 87_420_000;
+        scanner.stop_hz = 87_600_000;
+        scanner.step_hz = 200_000;
+        scanner.start();
+        let mut state = shared.lock().unwrap();
+        state.source.center_frequency_hz = Some(87_500_000);
+        crate::radio_ui::select_demod(&mut state, crate::sdr_panel::DemodMode::Auto);
+        assert!(
+            scanner.validate_fixed_capture(&state),
+            "only AM at the start is on this sparse scan grid"
+        );
+        scanner.step_hz = 80_000;
+        scanner.start();
+        assert!(
+            !scanner.validate_fixed_capture(&state),
+            "the stepped WFM channel at +80 kHz cannot fit"
+        );
+        assert!(scanner.status_text.contains("87.580000"));
+        for &(edge, below) in crate::sdr_panel::DemodMode::auto_mode_bands() {
+            assert_eq!(crate::sdr_panel::DemodMode::for_frequency(edge - 1), below);
+            assert_ne!(crate::sdr_panel::DemodMode::for_frequency(edge), below);
+        }
+        eprintln!("replay_scan range_edges=4 bookmark_profiles=passed transitions=passed auto_grid=passed");
+    }
 
     #[test]
     fn scan_consumes_shared_ssb_geometry_at_both_vfo_offsets_without_opposite_hits() {

@@ -1,0 +1,265 @@
+{
+  "date": "2026-10-09",
+  "scope": [
+    "R20"
+  ],
+  "verification_state": "software_verified",
+  "resource_policy": {
+    "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r20-verification.service",
+    "cpu_max": "20000 100000",
+    "nice": 19,
+    "build_jobs": 1,
+    "test_threads": 1,
+    "observed_cpu_stat": "usage_usec 43497668\nuser_usec 36843510\nsystem_usec 6654157\nnice_usec 38021000\ncore_sched.force_idle_usec 0\nnr_periods 2175\nnr_throttled 2175\nthrottled_usec 198320901\nnr_bursts 0\nburst_usec 0\n"
+  },
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "replay_scan",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-focused-final.log",
+      "log_sha256": "4183e0cc85cf54121976c4ebb5517585b55cd70c51a13b7f7a263facb7fc6ae3",
+      "raw_log_sha256": "63b150c55b7fe9e375ab2b6c57898abc0d5e39c2ec573abdd9932761a190cda6",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "scanner::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-scanner.log",
+      "log_sha256": "0f8b816f99011e46f87ae07daf610167d203866fabb9c06bbe72ee1dad3d54ce",
+      "raw_log_sha256": "3106cf69e9e1f08115e3afa4d41a1dd2e9416a5e9c6d04fe5b462058c4375b70",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 26,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "radio_ui::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-radio-ui.log",
+      "log_sha256": "d602d411a838c016d3dffde1e7755de88e7ce1975af2ece9f72641406aede368",
+      "raw_log_sha256": "faba2b66170a244f94952665f538b2cfa3695c54d396fd094b40bfded21b57d8",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 23,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "sdr_panel::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-modes.log",
+      "log_sha256": "e18f720ec04fbc631866709d607a1e369c35f50ea40ed6afe7bdc2cc75938f5d",
+      "raw_log_sha256": "d0b7e9d02565aa39827c77e6ec3dcc4caa4b498a360fc078dc42e03da52b03a3",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 31,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "ez-gui",
+        "--all-targets",
+        "-j",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-clippy.log",
+      "log_sha256": "38d4a55a32a5a410c3fb91a9c23281dd22e2143bff2773ba18844106a1c04a98",
+      "raw_log_sha256": "38d4a55a32a5a410c3fb91a9c23281dd22e2143bff2773ba18844106a1c04a98",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "ez-gui",
+        "-j",
+        "1"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-build.log",
+      "log_sha256": "08afb7e7d80c4c63037ea8053dac8caaf20cc321207ed43e2ccc54b0a5abb2fb",
+      "raw_log_sha256": "08afb7e7d80c4c63037ea8053dac8caaf20cc321207ed43e2ccc54b0a5abb2fb",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "graphify",
+        "update",
+        "."
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/scan-graph-update.log",
+      "log_sha256": "2f4fbe69ae15301621cbe2233e3415cf9faa38064629665266c1ecd1360be041",
+      "raw_log_sha256": "2f4fbe69ae15301621cbe2233e3415cf9faa38064629665266c1ecd1360be041",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    }
+  ],
+  "verification_runner": {
+    "log": "repair-evidence/scan-capped-runner.log",
+    "log_sha256": "f903e18d918fd93c78a6fd0e34efcfdbcf78b7876b8eade60c0a7d5e1d7fc367",
+    "raw_log_sha256": "f903e18d918fd93c78a6fd0e34efcfdbcf78b7876b8eade60c0a7d5e1d7fc367",
+    "log_normalization": "Only terminal blank lines removed.",
+    "test_harnesses": []
+  },
+  "source_sha256": {
+    "README.md": "3742625d0095322efdccdd1f3b3d1e7db6434b4c41c0c9eca4a3f914c4fe8b4a",
+    "ez-gui/src/app.rs": "862b5960987843d75920eec3ca45ff858245d7a36203834d2c6ecb9245ad641c",
+    "ez-gui/src/radio_ui.rs": "fd22cbcc6ce42394cb897867cb97b1f0e6210ccf51e6a990faffe3c316e40f01",
+    "ez-gui/src/scanner.rs": "17f80dfef4a85a49ad4554fdf2a0e5fc8fde1be8f14a002a75719bb576b61e0f",
+    "ez-gui/src/sdr_panel.rs": "278db83357dc7b17802d57a300a4e98b7c64bc548bb6108a864af2b109851598",
+    "ez-gui/src/radio_power.rs": "e4a979a153465d448b38c156bc1d6fb9c2816d155fcd38b578eb8ff11a1a8d9c"
+  },
+  "behavior": {
+    "fixed_capture_scans": "Reject the complete requested range scan grid or bookmark list before any scan tune or measurement if a nominal channel cannot fit in the file. The error identifies the unavailable frequency and usable VFO interval. The scan disables and clears pending tuning/observation/hold requests rather than waiting at an impossible frequency.",
+    "capture_geometry": "The same VFO interval calculation drives tuning reconciliation and scan validation: exact effective clock, RF-decimator edge reserve, shared USB/LSB/DSB/CW nominal passband geometry, mode-profile width and logical frequency limits. File center and replay position stay fixed.",
+    "memory_profiles": "Preview each requested mode profile before validating. Apply the selected bookmark mode before tuning, preventing the previous wider mode from clamping an otherwise available edge channel.",
+    "range_grid": "Only positions on the requested scan grid count. Auto resolution and validation share exact mode boundaries; first/last grid positions in each mode interval suffice without iterating an unbounded frequency range.",
+    "transitions": "Revalidate on every active replay scan tick and before applying pending tuning, including source, sample-rate, RF-decimation, center, mode and bandwidth changes.",
+    "freshness": "Existing acknowledged-tuning, settle, complete-observation, dwell, sequence and stale-input guards remain active. Fixed-file rejection is restricted to Replay; retunable sources can still retune their capture center."
+  },
+  "regressions": {
+    "new_tests": 5,
+    "edge_tunes": 32,
+    "covered_geometries": [
+      "NFM",
+      "AM",
+      "USB",
+      "LSB",
+      "DSB Both",
+      "DSB Upper",
+      "DSB Lower",
+      "CW"
+    ],
+    "fractional_rate": "192003 / 8 = 24000.375 S/s; integer VFO limits retain complete passbands without rounding outside coverage.",
+    "unavailable_full_band": "RAW full-capture nominal width cannot fit in the reserved usable band and is rejected for scanning; RAW playback remains a separate open finding.",
+    "cases": [
+      "In-span exact edges, one Hz beyond either edge, and both endpoints outside fixed capture.",
+      "Reject a bookmark list containing an unavailable WFM channel although its NFM geometry would fit; allow complete USB/LSB edge passbands after switching from WFM.",
+      "Retunable idle source to replay; subsequent sample-rate/RF-decimation, configured bandwidth and capture-center changes; no hardware opened.",
+      "Sparse scan grid whose stop value is not visited; grid that crosses an Auto-mode boundary; every exact Auto boundary resolves consistently.",
+      "No tuning, stream-generation or replay-position change on rejected scan; cached high-level frames cannot generate hits after rejection.",
+      "All 26 scanner tests, 23 radio UI tests and 31 mode tests pass, including the original acknowledgment/settle/dwell/stale-frame guards."
+    ]
+  },
+  "development_verification": [
+    {
+      "attempt": "Initial focused tests",
+      "exit_code": 101,
+      "log": "repair-evidence/scan-focused-initial.log",
+      "log_sha256": "226d6d10a65446bd33c397df75c8fc9bfa5a4cc10cc3443485abce8ec96efa23",
+      "raw_log_sha256": "b0872a136881658883c023e756ee9564083e588e13227c5e23b07febe5608586",
+      "log_normalization": "Only terminal blank lines and per-line trailing horizontal whitespace removed.",
+      "test_harnesses": [
+        {
+          "passed": 4,
+          "failed": 1,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "development_notes": [
+    "Initial focused attempt passed four tests and failed a transition fixture whose default 100 kHz scan step never reached its 50 kHz stop value. Validation correctly accepted that single-channel grid. Set the intended 25 kHz step so the out-of-span channel is actually visited, then added bandwidth and capture-center transition cases. All five focused tests pass; no production gate or threshold was weakened."
+  ],
+  "limits": [
+    "Verification was serialized within a cgroup quota of 20000 microseconds per 100000 microseconds (20% of one CPU), nice 19, one Cargo build job and one test thread. Captured CPU policy/stats confirm the quota.",
+    "Only affected modules, GUI all-target Clippy, GUI default build, formatting and AST refresh were run. The CPU-heavy full workspace suite remains off following the user request.",
+    "Original independent off-air and physical hardware/audio/disk release gates remain unchanged. No physical receiver or audio device was opened."
+  ]
+}

@@ -86,21 +86,22 @@ impl DemodMode {
     /// band knowledge that powers [`identify_frequency`]. Used both to resolve
     /// [`DemodMode::Auto`] and to drive the "Auto → WFM" chip in Listen.
     pub fn for_frequency(freq_hz: u64) -> Self {
-        let mhz = freq_hz as f64 / 1e6;
-        match mhz {
-            // HF: SSB voice — USB above 10 MHz, LSB below (amateur convention).
-            f if f < 0.5 => DemodMode::Am,   // LF / longwave
-            f if f < 1.71 => DemodMode::Am,  // AM broadcast (MW)
-            f if f < 10.0 => DemodMode::Lsb, // 160/80/40m SSB, lower SW
-            f if f < 30.0 => DemodMode::Usb, // 20m and up SSB / SW
-            // VHF/UHF.
-            f if f < 87.5 => DemodMode::Am, // 6m / aircraft edge / misc AM
-            f if f < 108.0 => DemodMode::Wfm, // FM broadcast
-            f if f < 137.0 => DemodMode::Am, // Aviation VHF (AM)
-            f if f < 300.0 => DemodMode::Fm, // 2m, marine, weather, land mobile (NFM)
-            f if f < 1000.0 => DemodMode::Fm, // 70cm / UHF land mobile (NFM)
-            _ => DemodMode::Fm,             // default narrowband
-        }
+        Self::auto_mode_bands()
+            .iter()
+            .find_map(|&(upper, mode)| (freq_hz < upper).then_some(mode))
+            .unwrap_or(Self::Fm)
+    }
+
+    /// Exclusive upper edges shared by Auto resolution and scan validation.
+    pub(crate) fn auto_mode_bands() -> &'static [(u64, Self)] {
+        &[
+            (1_710_000, Self::Am),
+            (10_000_000, Self::Lsb),
+            (30_000_000, Self::Usb),
+            (87_500_000, Self::Am),
+            (108_000_000, Self::Wfm),
+            (137_000_000, Self::Am),
+        ]
     }
 
     /// Resolve to a concrete mode for demodulation. Concrete modes pass through

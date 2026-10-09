@@ -709,21 +709,8 @@ impl CentralApp {
     }
 
     fn apply_scanner_tune(&mut self) {
-        if let Some(frequency) = self.scanner.tune_request_hz {
-            if let Ok(mut state) = self.shared.try_lock() {
-                self.scanner.tune_request_hz = None;
-                crate::radio_ui::tune(&mut state, frequency);
-                if let Some(mode) = self
-                    .scanner
-                    .mode_request
-                    .take()
-                    .and_then(|mode| crate::sdr_panel::DemodMode::from_label(&mode))
-                {
-                    crate::radio_ui::select_demod(&mut state, mode);
-                }
-            }
-        } else {
-            self.scanner.mode_request = None;
+        if let Ok(mut state) = self.shared.try_lock() {
+            self.scanner.apply_tune_request(&mut state);
         }
     }
 
@@ -1730,6 +1717,7 @@ impl eframe::App for CentralApp {
                     if let Some(cmd) = state.scanner_command.take() {
                         self.scanner.apply_command(&cmd);
                     }
+                    self.scanner.validate_fixed_capture(&state);
                     let expected_rate =
                         if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
                             f64::from(state.source.sample_rate_hz)

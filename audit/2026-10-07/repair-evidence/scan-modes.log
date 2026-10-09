@@ -1,0 +1,54 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.11s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 31 tests
+test sdr_panel::tests::demod_mode_debug_and_clone ... ok
+test sdr_panel::tests::demod_mode_from_label_case_sensitive ... ok
+test sdr_panel::tests::demod_mode_from_label_unknown ... ok
+test sdr_panel::tests::demod_mode_from_label_whitespace ... ok
+test sdr_panel::tests::demod_mode_label_all_variants ... ok
+test sdr_panel::tests::demod_mode_roundtrip ... ok
+test sdr_panel::tests::dsb_cw_labels_and_independent_channel_widths ... ok
+test sdr_panel::tests::identify_frequency_adsb ... ok
+test sdr_panel::tests::identify_frequency_airband ... ok
+test sdr_panel::tests::identify_frequency_amateur_2m ... ok
+test sdr_panel::tests::identify_frequency_aviation_info ... ok
+test sdr_panel::tests::identify_frequency_fm_broadcast ... ok
+test sdr_panel::tests::identify_frequency_fm_broadcast_info ... ok
+test sdr_panel::tests::identify_frequency_marine_vhf ... ok
+test sdr_panel::tests::identify_frequency_noaa_wx ... ok
+test sdr_panel::tests::identify_frequency_unknown_range ... ok
+test sdr_panel::tests::suggest_demod_for_freq_adsb ... ok
+test sdr_panel::tests::suggest_demod_for_freq_airband ... ok
+test sdr_panel::tests::suggest_demod_for_freq_amateur_70cm ... ok
+test sdr_panel::tests::suggest_demod_for_freq_cb_radio ... ok
+test sdr_panel::tests::suggest_demod_for_freq_fm_broadcast ... ok
+test sdr_panel::tests::suggest_demod_for_freq_hf_lsb ... ok
+test sdr_panel::tests::suggest_demod_for_freq_hf_usb ... ok
+test sdr_panel::tests::suggest_demod_for_freq_marine ... ok
+test sdr_panel::tests::suggest_demod_for_freq_noaa_sat ... ok
+test sdr_panel::tests::suggest_demod_for_freq_unknown ... ok
+test sdr_panel::tests::test_demod_mode_all_methods ... ok
+test sdr_panel::tests::test_demod_mode_from_label_correctness ... ok
+test sdr_panel::tests::test_identify_frequency_band_categories ... ok
+test sdr_panel::tests::test_suggest_demod_for_freq_entire_map ... ok
+test sdr_panel::tests::test_suggest_demod_for_freq_more ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 834 filtered out; finished in 0.00s

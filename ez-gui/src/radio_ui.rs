@@ -1623,40 +1623,74 @@ pub(crate) fn effective_radio_rate(state: &SharedState) -> f64 {
     f64::from(config.input_rate) / f64::from(config.decimation)
 }
 
+/// Available VFO positions with the complete nominal passband and the capture
+/// filter's edge transition reserved. Used by tuning and fixed-file scans.
+fn capture_vfo_bounds(state: &SharedState, mode: DemodMode, width: f32) -> Option<(u64, u64)> {
+    let center = state.source.capture_center_frequency_hz() as f64;
+    let half_span = effective_radio_rate(state)
+        * if radio_iq_config(state).decimation > 1 {
+            0.40
+        } else {
+            0.475
+        };
+    let band =
+        crate::radio_power::RfPassband::for_mode(mode, width, state.config.advanced.dsb_sideband);
+    let (mut lower, mut upper) = (band.lower_hz, band.upper_hz);
+    if state.source.source_mode == SourceMode::Daemon {
+        // Until mode-specific daemon selection is available, reserve the
+        // complete subscribed transport channel as well as the nominal band.
+        let remote_half_width = f64::from(state.source.sample_rate_hz.min(200_000)) / 2.0;
+        lower = lower.min(-remote_half_width);
+        upper = upper.max(remote_half_width);
+    }
+    let low = (center - half_span - lower).ceil().max(0.0);
+    let high = (center + half_span - upper)
+        .floor()
+        .min(MAX_FREQUENCY as f64);
+    (low <= high && high >= 0.0).then_some((low as u64, high as u64))
+}
+
+/// Preview the mode profile a bookmark will select, without changing tuning
+/// or discarding live settings in the current profile.
+pub(crate) fn scan_channel_bounds(
+    state: &SharedState,
+    frequency: u64,
+    requested_mode: Option<DemodMode>,
+) -> Option<(u64, u64)> {
+    let selected = requested_mode.unwrap_or(state.demod_mode);
+    let configured_width =
+        if requested_mode.is_none() || selected.label() == state.config.last_session_demod {
+            state.config.advanced.radio_bandwidth_hz
+        } else {
+            state
+                .config
+                .radio_profiles
+                .get(selected.label())
+                .map_or(0.0, |profile| profile.radio_bandwidth_hz)
+        };
+    let mode = selected.resolve(frequency);
+    let width = channel_bandwidth_for(state, mode, configured_width);
+    capture_vfo_bounds(state, mode, width)
+}
+
 /// Reconcile direct bookmark/remote edits, capture-rate changes and mode width.
 /// Only changing the capture center restarts a running local worker.
 pub(crate) fn reconcile_tuning(state: &mut SharedState) {
     let center = state.source.capture_center_frequency_hz();
     let vfo = state.source.frequency_hz;
-    let rate = effective_radio_rate(state);
-    let decimation = radio_iq_config(state).decimation;
-    // Cascaded antialias filters reserve their transition band at each edge.
-    let half_span = rate * if decimation > 1 { 0.40 } else { 0.475 };
     let mode = state.demod_mode.resolve(vfo);
-    let mut reserve = f64::from(channel_bandwidth(state))
-        * if matches!(mode, DemodMode::Usb | DemodMode::Lsb) {
-            1.0
-        } else {
-            0.5
-        };
-    if state.source.source_mode == SourceMode::Daemon {
-        // The daemon currently subscribes a fixed 200 kHz audio channel.
-        reserve = reserve.max(f64::from(state.source.sample_rate_hz.min(200_000)) / 2.0);
-    }
-    let usable = (half_span - reserve).max(0.0);
+    let (low, high) =
+        capture_vfo_bounds(state, mode, channel_bandwidth(state)).unwrap_or((center, center));
     if state.source.source_mode == SourceMode::Replay {
         // Replaying bytes cannot acquire new RF coverage. Keep the file's
         // declared capture center fixed and constrain digital tuning to it.
-        let span = usable.floor() as u64;
-        state.source.frequency_hz =
-            vfo.clamp(center.saturating_sub(span), center.saturating_add(span));
+        state.source.frequency_hz = vfo.clamp(low, high);
         state.source.center_frequency_hz = Some(center);
         state.config.last_session_center_hz = Some(center);
         return;
     }
     let next_center =
-        if state.config.center_tuning || state.adsb_running || center.abs_diff(vfo) as f64 > usable
-        {
+        if state.config.center_tuning || state.adsb_running || !(low..=high).contains(&vfo) {
             vfo
         } else {
             center
@@ -1816,24 +1850,28 @@ pub(crate) fn sync_demod_settings(state: &mut SharedState) {
 
 pub(crate) fn channel_bandwidth(state: &SharedState) -> f32 {
     let mode = state.demod_mode.resolve(state.source.frequency_hz);
+    channel_bandwidth_for(state, mode, state.config.advanced.radio_bandwidth_hz)
+}
+
+fn channel_bandwidth_for(state: &SharedState, mode: DemodMode, configured: f32) -> f32 {
     if mode == DemodMode::Raw {
         return effective_radio_rate(state) as f32;
     }
-    let configured = state.config.advanced.radio_bandwidth_hz;
     let width = if configured.is_finite() && configured > 0.0 {
         configured
     } else {
-        state
-            .demod_mode
-            .resolve(state.source.frequency_hz)
-            .default_rf_bandwidth_hz()
+        mode.default_rf_bandwidth_hz()
     };
-    let (min, max) = channel_bandwidth_bounds(state);
+    let (min, max) = channel_bandwidth_bounds_for(state, mode);
     width.clamp(min, max)
 }
 
 fn channel_bandwidth_bounds(state: &SharedState) -> (f32, f32) {
-    let bounds: (f32, f32) = match state.demod_mode.resolve(state.source.frequency_hz) {
+    channel_bandwidth_bounds_for(state, state.demod_mode.resolve(state.source.frequency_hz))
+}
+
+fn channel_bandwidth_bounds_for(state: &SharedState, mode: DemodMode) -> (f32, f32) {
+    let bounds: (f32, f32) = match mode {
         DemodMode::Fm | DemodMode::Auto => (1_000.0, 50_000.0),
         DemodMode::Wfm => (50_000.0, 250_000.0),
         DemodMode::Am => (1_000.0, 15_000.0),
@@ -2361,6 +2399,109 @@ mod tests {
         assert_eq!(state.source.rtl_center_frequency_hz(), Ok(750_000_000));
         assert_eq!(converter_label(-9_750_000_000), "Ku LNB (9750MHz)");
         assert_eq!(converter_label(123), "Manual");
+    }
+
+    #[test]
+    fn replay_scan_bounds_keep_complete_sided_passbands_and_fractional_decimation() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut state = shared.lock().unwrap();
+        state.source.source_mode = SourceMode::Replay;
+        state.source.center_frequency_hz = Some(100_000_000);
+        state.source.sample_rate_hz = 200_000;
+        let mut cases = 0;
+        for (mode, side, width, low, high) in [
+            (
+                DemodMode::Fm,
+                crate::demod::DsbSideband::Both,
+                12_500.0,
+                -88_750,
+                88_750,
+            ),
+            (
+                DemodMode::Am,
+                crate::demod::DsbSideband::Both,
+                15_000.0,
+                -87_500,
+                87_500,
+            ),
+            (
+                DemodMode::Usb,
+                crate::demod::DsbSideband::Both,
+                3_000.0,
+                -95_000,
+                92_000,
+            ),
+            (
+                DemodMode::Lsb,
+                crate::demod::DsbSideband::Both,
+                3_000.0,
+                -92_000,
+                95_000,
+            ),
+            (
+                DemodMode::Dsb,
+                crate::demod::DsbSideband::Upper,
+                3_000.0,
+                -95_000,
+                92_000,
+            ),
+            (
+                DemodMode::Dsb,
+                crate::demod::DsbSideband::Lower,
+                3_000.0,
+                -92_000,
+                95_000,
+            ),
+            (
+                DemodMode::Dsb,
+                crate::demod::DsbSideband::Both,
+                3_000.0,
+                -93_500,
+                93_500,
+            ),
+            (
+                DemodMode::Cw,
+                crate::demod::DsbSideband::Both,
+                200.0,
+                -94_900,
+                94_900,
+            ),
+        ] {
+            select_demod(&mut state, mode);
+            state.config.advanced.radio_bandwidth_hz = width;
+            state.config.advanced.dsb_sideband = side;
+            let expected = (
+                (100_000_000_i64 + low) as u64,
+                (100_000_000_i64 + high) as u64,
+            );
+            assert_eq!(
+                scan_channel_bounds(&state, 100_000_000, None),
+                Some(expected)
+            );
+            for (request, actual) in [
+                (expected.0 - 1, expected.0),
+                (expected.0, expected.0),
+                (expected.1, expected.1),
+                (expected.1 + 1, expected.1),
+            ] {
+                tune(&mut state, request);
+                assert_eq!(state.source.frequency_hz, actual);
+                assert_eq!(state.source.capture_center_frequency_hz(), 100_000_000);
+                cases += 1;
+            }
+        }
+        select_demod(&mut state, DemodMode::Fm);
+        state.config.advanced.radio_bandwidth_hz = 12_500.0;
+        state.source.sample_rate_hz = 192_003;
+        state.config.advanced.rf_decim = 8;
+        assert_eq!(effective_radio_rate(&state), 24_000.375);
+        assert_eq!(
+            scan_channel_bounds(&state, 100_000_000, None),
+            Some((99_996_650, 100_003_350))
+        );
+        select_demod(&mut state, DemodMode::Raw);
+        assert_eq!(scan_channel_bounds(&state, 100_000_000, None), None);
+        eprintln!("replay_scan_bounds edge_tunes={cases} fractional_clock=passed unavailable_full_band=passed");
     }
 
     #[test]

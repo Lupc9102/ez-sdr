@@ -2,9 +2,12 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-26 findings have software repairs with passing regressions; 7 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+27 findings have software repairs with passing regressions; 6 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
+
+- **R20 — Scanning can wait forever on a frequency a fixed replay capture cannot contain**: Validate complete scan grids and bookmark mode profiles against shared, sided capture bounds before tuning. Reject unsupported coverage with an explicit frequency/range result and revalidate source/rate/decimation/center/bandwidth changes.
+  Evidence: five new regressions, 32 edge tuning checks and all 80 affected scanner/tuning/mode tests pass. Existing fresh-observation guards remain active. See repair-scan-verification.json.
 
 - **R06 — USB/LSB power squelch measures a symmetric band instead of the selected sideband**: Share actual nominal RF geometry with demodulation, native measurement and scanner selection, including DSB upper/lower.
   Evidence: 810 sideband cases, 12 native squelch/recording-monitor cases and 12 scanner cases pass. Maximum wanted gain error is 0.00156 dB; maximum opposite reading is −95.37 dBFS. See repair-power-verification.json.
@@ -73,7 +76,6 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
 - [ ] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
-- [ ] **R20 · P2** — Scanning can wait forever on a frequency a fixed replay capture cannot contain
 
 ## Verification and limits
 
@@ -218,3 +220,7 @@ All 75 demodulator tests and the full workspace suite pass, including 845 GUI, 2
 ## Carrier-power repair verification (R06/R07)
 
 All focused DSP and native/scanner-consumer regressions pass, as do the default workspace build, all-target Clippy with warnings denied and formatting. The AST refresh passes with 7,385 nodes and 16,553 edges; the eight user-deleted graph sidecars remain deleted. The full workspace test attempt was stopped at the user request to stop pegging CPU (SIGTERM, exit 143); it is incomplete and is not counted as passing. Command logs, failed development compilations, source hashes, acquisition limits and every measured sweep are retained in repair-power-verification.json. No additional CPU-heavy checks were started after that request. Original hardware/off-air/audio/disk gates remain unchanged, and the goal remains active.
+
+## Fixed-capture scan repair verification (R20)
+
+All five focused regressions and all 80 affected-module tests pass; GUI all-target Clippy with warnings denied, GUI default build, formatting and AST refresh pass. Verification was serialized under a verified 20%-of-one-CPU cgroup quota, nice 19, one build job and one test thread. The full workspace suite remains off after the user CPU request. The graph has 7,399 nodes and 16,609 edges; user-deleted graph sidecars remain deleted. The initial test-fixture failure and corrected final results, commands, resource policy and source hashes are retained in repair-scan-verification.json. All 33 original repair gates and all original off-air/hardware/audio/disk release requirements remain intact. The goal remains active.
