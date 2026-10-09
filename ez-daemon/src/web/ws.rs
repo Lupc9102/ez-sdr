@@ -489,6 +489,7 @@ mod tests {
         let (base, state) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
+                meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
                 bandwidth_hz: 2_000_000,
@@ -506,6 +507,7 @@ mod tests {
         let (base, state) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
+                meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
                 bandwidth_hz: 2_000_000,
@@ -542,6 +544,7 @@ mod tests {
         let (base, state) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
+                meteor_profile: None,
                 id: 5,
                 center_offset_hz: 10_000,
                 bandwidth_hz: 200_000,

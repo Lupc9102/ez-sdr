@@ -156,6 +156,38 @@ mod tests {
     }
 
     #[test]
+    fn explicit_meteor_profiles_and_product_command_round_trip() {
+        for profile in crate::MeteorProfile::ALL {
+            for command in [
+                crate::ClientCommand::Subscribe {
+                    channel: crate::ChannelSpec {
+                        meteor_profile: Some(profile),
+                        id: 7,
+                        center_offset_hz: 0,
+                        bandwidth_hz: 400_000,
+                        kind: crate::PipelineKind::LrptTelemetry,
+                        demod_mode: None,
+                    },
+                },
+                crate::ClientCommand::StartTelemetryProduct { channel_id: 7 },
+            ] {
+                let json = serde_json::to_string(&command).unwrap();
+                let decoded_json: crate::ClientCommand = serde_json::from_str(&json).unwrap();
+                assert_eq!(
+                    bincode::serialize(&decoded_json).unwrap(),
+                    bincode::serialize(&command).unwrap()
+                );
+                let mut codec = MessageCodec::<crate::ClientCommand>::for_commands();
+                let mut bytes = BytesMut::new();
+                let original = bincode::serialize(&command).unwrap();
+                codec.encode(command, &mut bytes).unwrap();
+                let decoded = codec.decode(&mut bytes).unwrap().unwrap();
+                assert_eq!(bincode::serialize(&decoded).unwrap(), original);
+            }
+        }
+    }
+
+    #[test]
     fn private_session_and_spectrum_removal_identity_round_trip() {
         use crate::{ClientChannels, ServerEvent, SpectrumFrame};
         let ids = ClientChannels {
@@ -259,6 +291,7 @@ mod tests {
 
         let msg = ClientCommand::Subscribe {
             channel: crate::messages::ChannelSpec {
+                meteor_profile: None,
                 id: 7,
                 center_offset_hz: -25_000,
                 bandwidth_hz: 12_500,

@@ -289,6 +289,7 @@ mod tests {
             })
             .collect();
         SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample: 0,
@@ -300,6 +301,7 @@ mod tests {
 
     fn silence_block(n: usize, sample_rate_hz: u32, center_hz: u64) -> SampleBlock {
         SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample: 0,

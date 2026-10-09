@@ -427,6 +427,7 @@ async fn private_web_sessions_protect_controls_recordings_and_report_deletion() 
             ws,
             ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    meteor_profile: None,
                     id: ids.spectrum,
                     center_offset_hz: 0,
                     bandwidth_hz: 2_000_000,
@@ -447,6 +448,7 @@ async fn private_web_sessions_protect_controls_recordings_and_report_deletion() 
         &mut a,
         ClientCommand::Subscribe {
             channel: ez_proto::ChannelSpec {
+                meteor_profile: None,
                 id: bid.spectrum,
                 center_offset_hz: 0,
                 bandwidth_hz: 2_000_000,

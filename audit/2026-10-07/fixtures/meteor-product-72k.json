@@ -1,0 +1,21 @@
+{
+  "profile": "Oqpsk72",
+  "sample_rate": 288000,
+  "symbol_rate": 72000,
+  "carrier_phase_degrees": 37,
+  "carrier_offset_hz": 137,
+  "clock_drift_ppm": 70,
+  "stagger_direction": 1,
+  "cadus": 3,
+  "image_apid": 64,
+  "image_segments": 3,
+  "packet_sequences": [
+    0,
+    43,
+    86
+  ],
+  "libfec_commit": "9750ca0a6d0a786b506e44692776b541f90daa91",
+  "iq_sha256": "a9b9a4a156f4ebb62b6ceb40ff5cec86d9c9607af172e0d776a7adbca2c26911",
+  "payloads_sha256": "0863de83627e4fdf2a9c8dc7ef26a3357acb8ef61608224c50881d1cce83b920",
+  "instrument_segment_sha256": "fdcf99fc2eabcc2bd296b8c09f88784adc57496466a0502a219f864c8a741b7e"
+}

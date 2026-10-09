@@ -260,6 +260,7 @@ fn run(
     let mut buf = vec![Complex32::new(0.0, 0.0); READ_CHUNK];
     let mut sample_counter: u64 = 0;
     let mut capture_epoch = ez_proto::new_capture_epoch();
+    let mut product_session = ez_proto::new_capture_epoch();
     let mut pending_discontinuity = true;
     let mut last_source_epoch = None;
 
@@ -297,6 +298,12 @@ fn run(
                         sample_counter = 0;
                         pending_discontinuity = true;
                     }
+                    if before.0 != source.frequency_hz() || before.1 != source.sample_rate_hz() {
+                        product_session = ez_proto::new_capture_epoch();
+                    }
+                    // Setters can restart a native pump. Its next epoch is
+                    // already accounted for above; gain changes keep the product.
+                    last_source_epoch = None;
                     status.store(Arc::new(status_snapshot(source, true, None)));
                     command.receipt.finish(Ok(()));
                     let _ = reply.send(Ok(()));
@@ -360,6 +367,9 @@ fn run(
             Ok(n) => {
                 let mut clock = if let Some(clock) = source.capture_clock() {
                     if last_source_epoch != Some(clock.epoch) {
+                        if last_source_epoch.is_some() {
+                            product_session = ez_proto::new_capture_epoch();
+                        }
                         capture_epoch = ez_proto::new_capture_epoch();
                         pending_discontinuity = true;
                         last_source_epoch = Some(clock.epoch);
@@ -380,6 +390,7 @@ fn run(
                 clock.discontinuous |= pending_discontinuity;
                 pending_discontinuity = false;
                 let block = SampleBlock {
+                    product_session,
                     observed_at: Some(std::time::Instant::now()),
                     capture: Some(clock),
                     start_sample: sample_counter,
@@ -531,6 +542,36 @@ mod tests {
     }
 
     #[test]
+    fn each_replay_loop_has_a_new_product_session() {
+        use crate::hardware::replay::{FileReplaySource, ReplayFormat};
+        let path = std::env::temp_dir().join(format!(
+            "ez-s11-replay-{}.iq",
+            ez_proto::new_capture_epoch()
+        ));
+        std::fs::write(&path, [127u8; 512]).unwrap();
+        let source = FileReplaySource::open(
+            path.to_str().unwrap(),
+            ReplayFormat::RawU8,
+            288_000,
+            true,
+            1.0,
+        )
+        .unwrap();
+        let bus = SampleBus::new();
+        let sub = bus.subscribe(8, OverflowPolicy::DropIncoming);
+        let running = Arc::new(AtomicBool::new(true));
+        let (_, thread) = spawn(Box::new(source), bus, Arc::clone(&running)).unwrap();
+        let first = sub.recv_timeout(Duration::from_secs(2)).unwrap();
+        let second = sub.recv_timeout(Duration::from_secs(2)).unwrap();
+        running.store(false, Ordering::Relaxed);
+        thread.join().unwrap();
+        assert_ne!(first.product_session, second.product_session);
+        assert_eq!(first.start_sample, 0);
+        assert_eq!(second.start_sample, 0);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn set_frequency_is_applied_and_reflected_in_status() {
         let bus = SampleBus::new();
         let sub = bus.subscribe(8, OverflowPolicy::DropOldest);
@@ -566,6 +607,7 @@ mod tests {
             let after = sub.recv_timeout(Duration::from_secs(2)).unwrap();
             if after.center_freq_hz == 101_000_000 {
                 let after_clock = after.capture.unwrap();
+                assert_ne!(after.product_session, before.product_session);
                 assert_ne!(after_clock.epoch, before_clock.epoch);
                 assert_eq!(after_clock.source_sample_index, after.start_sample);
                 if after.start_sample == 0 {
@@ -783,6 +825,8 @@ mod tests {
             first.capture_clock().epoch,
             after_timeout.capture_clock().epoch
         );
+        assert_eq!(first.product_session, after_timeout.product_session);
+        assert_eq!(first.product_session, after_overflow.product_session);
         assert_eq!(after_timeout.start_sample, 3);
         assert!(!after_timeout.capture_clock().discontinuous);
         assert_ne!(

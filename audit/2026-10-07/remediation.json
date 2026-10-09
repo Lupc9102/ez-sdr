@@ -6,7 +6,7 @@
       "title": "Advertised interleaved 80 ksym/s Meteor transport is missing",
       "priority": "P1",
       "status": "open",
-      "change": "Implement explicit shared OQPSK72/NRZ-M and OQPSK80/interleaved NRZ-M profiles, streaming 0x27 marker acquisition and 36-branch delayed-bit transport before Viterbi. Carry missing-history flags through the permutation, reset on marker-phase loss, merge equivalent frame observations, and expose the actual mission selection in offline decoding. Software checks pass; independent off-air 80k CADU/image validation remains outstanding.",
+      "change": "Implement explicit shared OQPSK72/NRZ-M and OQPSK80/interleaved NRZ-M profiles, streaming 0x27 marker acquisition and 36-branch delayed-bit transport before Viterbi. Carry missing-history flags through the permutation, reset on marker-phase loss, merge equivalent frame observations, and expose the actual mission selection in offline decoding. Software checks pass; independent off-air 80k CADU/image validation remains outstanding. Daemon channels now select the same complete profiles; sampling and product lifecycles are enforced under S11. Only the independent off-air 80k comparison remains unverified for this finding.",
       "regressions": [
         "interleaver::tests::every_reference_bit_matches_the_independent_c_receiver_across_partitions",
         "interleaver::tests::missing_input_follows_its_branch_delay_and_startup_is_unobserved",
@@ -150,9 +150,21 @@
       "id": "S11",
       "title": "Daemon LRPT accepts unusable sampling and cannot select the 72k profile",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Require an explicit shared Meteor transport profile in ChannelSpec and TelemetryConfig; validate occupied bandwidth and the actual integer-decimated sample rate before allocation and retuning. Carry a stable source product session through ingestion/channelization, independent of gap epochs. Preserve received images/counts across gaps; retire them on source session, RF retune or explicit StartTelemetryProduct. Tag every preview with product_id, announce boundaries and clear retired APID images in GUI. Bump binary protocol to 11 and document the 36-byte raw telemetry header.",
+      "regressions": [
+        "state::tests::lrpt_profiles_and_actual_channel_rates_are_validated_before_allocation",
+        "state::tests::resubscribing_an_lrpt_channel_cannot_silently_change_its_transport",
+        "pipelines::telemetry::tests::received_images_survive_gap_epochs_but_retire_on_real_product_boundaries (three independently generated image CADUs, nonempty pixels and RS counters)",
+        "pipelines::telemetry::tests::invalid_dynamic_sampling_cannot_consume_or_complete_a_frame",
+        "ingest::tests::each_replay_loop_has_a_new_product_session",
+        "ingest::tests::set_frequency_is_applied_and_reflected_in_status (new source-product session)",
+        "ingest::tests::soapy_timeout_retries_overflow_retires_clock_and_fatal_error_stops (overflow preserves product session)",
+        "channelizer::tests::missing_input_remains_visible_after_decimation_and_filter_state_resets (gap epochs preserve source-product session)",
+        "codec::tests::explicit_meteor_profiles_and_product_command_round_trip",
+        "decoding_panel::tests::daemon_product_boundary_clears_all_apids_and_rejects_old_queued_images",
+        "web::wire::tests::telemetry_layout_matches_the_documented_byte_offsets_and_packs_flags"
+      ],
       "original_repair_gate": "Make transport/symbol rate explicit in telemetry configuration, enforce the demodulator's real sampling and occupied-band requirements, and distinguish capture gaps from new satellite/product sessions. Reject unsupported subscriptions before allocating threads."
     },
     {

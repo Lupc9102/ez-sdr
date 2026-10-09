@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-20 findings have software repairs with passing regressions; 13 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+21 findings have software repairs with passing regressions; 12 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
 
@@ -53,7 +53,6 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
-- [ ] **S11 · P2** — Daemon LRPT accepts unusable sampling and cannot select the 72k profile
 - [ ] **R03 · P1** — Daemon narrow-channel decimation aliases strong adjacent signals
 - [ ] **R04 · P2** — Daemon playback downsamples mono PCM without an anti-alias filter
 - [ ] **R05 · P2** — Local FM loudness changes with RF sample rate and RF decimation
@@ -157,3 +156,15 @@ S01 remains open until independent off-air 80k CADUs and images are compared. S1
 The full workspace rerun exposed a scheduling-sensitive native-radio snapshot failure: a skipped new-generation block retained the prior epoch. Clearing epoch and radio/DSP snapshot state at the processed generation boundary fixes it. A deterministic processor regression covers the interleaving, and the failing run is preserved alongside subsequent verification.
 
 Final workspace verification passes after the snapshot fix: 832 GUI tests and 107 LRPT tests pass, along with the daemon/protocol/integration suites. Default workspace build, all-target Clippy with warnings denied, formatting and the AST graph refresh pass. The three external LRPT comparisons were also run explicitly and passed; their ignored status in routine tests records their external inputs.
+
+## Daemon Meteor profile and product verification
+
+S11 is software-verified. LRPT ChannelSpec requests require an explicit Oqpsk72 or Oqpsk80Interleaved profile; the selected profile controls the entire mission transport. Before allocating a channel/tap/thread, the daemon validates the occupied band and computes the actual integer-decimated output rate against the four-samples-per-symbol receiver requirement. Invalid retunes leave the live spec unchanged, and resubscription cannot silently select another transport.
+
+A stable source-product session is carried separately from the capture epoch. The independent 72k nonflat-image IQ fixture produces three received segments and twelve valid RS codewords. Deep pixel/counter comparisons verify preservation across a gap/new epoch and retirement on a source change, frequency retune or explicit same-frequency product start. Automatic source changes retain queued new-session IQ; explicit product boundaries drain the old queue. Injected driver overflow preserves source-product identity; actual replay loops and frequency control changes retire it.
+
+Every telemetry preview carries product_id. A zero-size APID-zero update announces the boundary; clients also detect a new ID on any subsequent image if the notice was coalesced. The GUI clears all retired APID images and ignores old queued IDs; Welcome retires IDs from a previous daemon process. The binary protocol is version 11, so rebuild daemon and GUI together. The raw telemetry WebSocket header adds a little-endian product ID at offset 28 and starts pixels at offset 36. README.md documents the profile fields and StartTelemetryProduct command.
+
+Final workspace verification passes: 219 daemon, 833 GUI, 20 protocol and 107 LRPT tests, plus integration/remaining workspace suites. Default build, all-target Clippy, formatting, all daemon hardware-feature compilation and AST graph refresh pass. No receiver was opened; missing HackRF/Soapy libraries and original field/audio/disk gates remain unverified. The initial rerun's error-text compatibility failure and the passing final run are retained in repair-mission-verification.json and its evidence logs.
+
+There are now 21 software-verified findings and 12 open findings. S01 retains its independent off-air 80k CADU/image gate. Next priority: R03 channelizer anti-alias filtering and the remaining radio clocks/selectivity/monitoring findings.

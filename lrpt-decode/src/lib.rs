@@ -764,7 +764,16 @@ impl LrptDecoder {
             return;
         }
 
-        let progress = DecodeProgress {
+        let progress = self.progress_snapshot();
+        if self.progress_tx.try_send(progress).is_ok() {
+            self.symbols_at_progress = self.symbols_received;
+            self.last_progress_lock = Some(lock);
+        }
+    }
+
+    /// Current counters, lock and previews without consuming the receiver.
+    pub fn progress_snapshot(&self) -> DecodeProgress {
+        DecodeProgress {
             lines_decoded: self.images.total_line_count(),
             segments_decoded: self.images.total_segment_count(),
             rs_ok: self.rs_ok,
@@ -773,10 +782,6 @@ impl LrptDecoder {
             frame_locked: self.selected_lane.is_some(),
             dropped_scanlines: self.images.dropped_scanlines(),
             preview: self.images.render_previews(1_024),
-        };
-        if self.progress_tx.try_send(progress).is_ok() {
-            self.symbols_at_progress = self.symbols_received;
-            self.last_progress_lock = Some(lock);
         }
     }
 

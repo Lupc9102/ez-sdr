@@ -761,6 +761,7 @@ pub(crate) mod tests {
 
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
                 bandwidth_hz: 2_000_000,
@@ -799,6 +800,7 @@ pub(crate) mod tests {
 
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
                 bandwidth_hz: 2_000_000,
@@ -975,6 +977,7 @@ pub(crate) mod tests {
         wait_for_status(&client, |s| *s == ConnectionStatus::Connected, "connection").await;
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                meteor_profile: None,
                 id: 71,
                 center_offset_hz: 0,
                 bandwidth_hz: 200_000,
@@ -984,6 +987,7 @@ pub(crate) mod tests {
         });
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                meteor_profile: None,
                 id: 72,
                 center_offset_hz: 0,
                 bandwidth_hz: 2_000_000,

@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 11;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -70,6 +70,9 @@ pub enum RecordingFormat {
 /// exactly one pipeline kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChannelSpec {
+    /// Required for LRPT telemetry; absent for other pipeline kinds.
+    #[serde(default)]
+    pub meteor_profile: Option<crate::MeteorProfile>,
     pub id: ChannelId,
     /// Offset in Hz from the wideband center frequency. Positive = above center.
     pub center_offset_hz: i64,
@@ -133,6 +136,10 @@ pub enum ClientCommand {
         format: RecordingFormat,
     },
     StopRecording {
+        channel_id: ChannelId,
+    },
+    /// Begin a fresh LRPT image product at the current tuning.
+    StartTelemetryProduct {
         channel_id: ChannelId,
     },
     /// Retire queued FFT windows and begin a fresh post-settle observation.
@@ -240,6 +247,9 @@ pub struct AircraftSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryFrame {
+    /// A new identifier retires the entire previous image product. APID zero
+    /// with empty dimensions/pixels announces a boundary before any image.
+    pub product_id: u64,
     pub channel_id: ChannelId,
     pub apid: u16,
     pub width: u32,

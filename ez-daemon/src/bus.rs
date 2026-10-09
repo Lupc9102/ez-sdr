@@ -19,6 +19,10 @@ use crate::broadcast::{Broadcaster, BroadcasterHandle};
 /// subscriber to reconstruct absolute time/frequency without consulting the daemon state.
 #[derive(Debug, Clone)]
 pub struct SampleBlock {
+    /// Stable source/product session, distinct from a continuity epoch. Gaps
+    /// retain it; a source restart, replay loop or RF tuning change retires it.
+    /// Zero denotes callers without annotated source-session provenance.
+    pub product_session: u64,
     /// Present on ingested/channelized input. None denotes unannotated callers;
     /// their sample index/rate still supplies a relative clock, without UTC.
     pub capture: Option<ez_proto::CaptureClock>,
@@ -86,6 +90,7 @@ mod tests {
 
     fn block(start_sample: u64, tag: f32) -> SampleBlock {
         SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample,
@@ -133,6 +138,7 @@ mod tests {
         assert_eq!(Arc::strong_count(&payload), 1);
 
         bus.publish(SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample: 0,

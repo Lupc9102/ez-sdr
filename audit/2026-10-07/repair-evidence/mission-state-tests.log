@@ -1,0 +1,13 @@
+   Compiling dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `release` profile [optimized] target(s) in 47.55s
+     Running unittests src/lib.rs (target/release/deps/ez_daemon-8916b2a6a9dc3118)
+
+running 2 tests
+test state::tests::resubscribing_an_lrpt_channel_cannot_silently_change_its_transport ... ok
+test state::tests::lrpt_profiles_and_actual_channel_rates_are_validated_before_allocation ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 218 filtered out; finished in 0.00s
+

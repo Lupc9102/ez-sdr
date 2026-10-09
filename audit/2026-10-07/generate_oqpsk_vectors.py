@@ -18,7 +18,7 @@ import sys
 import numpy as np
 
 
-def reference_frames(library):
+def reference_frames(library, instrument_segment=None):
     fec = ctypes.CDLL(str(library))
     fec.init_rs_char.argtypes = [ctypes.c_int] * 6
     fec.init_rs_char.restype = ctypes.c_void_p
@@ -40,6 +40,15 @@ def reference_frames(library):
     for counter in range(100, 103):
         payload = bytearray(rng.integers(0, 256, 892, dtype=np.uint8).tobytes())
         payload[:10] = bytes([0x40, 5]) + counter.to_bytes(3, "big") + bytes([0, 0, 0, 7, 255])
+        if instrument_segment is not None:
+            # One independent image segment per 43-packet instrument cycle.
+            sequence = (counter - 100) * 43
+            packet = bytes.fromhex("0040") + (0xc000 | sequence).to_bytes(2, "big") + (len(instrument_segment) - 1).to_bytes(2, "big") + instrument_segment
+            idle_length = 892 - 10 - len(packet) - 6
+            assert idle_length > 0
+            idle = bytes.fromhex("07ffc000") + (idle_length - 1).to_bytes(2, "big") + bytes(idle_length)
+            payload = bytearray(bytes([0x40, 5]) + counter.to_bytes(3, "big") + bytes(5) + packet + idle)
+            assert len(payload) == 892
         payloads.append(bytes(payload))
         transport = np.zeros((255, 4), dtype=np.uint8)
         for channel in range(4):

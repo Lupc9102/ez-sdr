@@ -1647,6 +1647,7 @@ impl SourceManager {
 
     fn daemon_spectrum_spec(&self) -> ez_proto::ChannelSpec {
         ez_proto::ChannelSpec {
+            meteor_profile: None,
             id: self.daemon_channels.spectrum,
             center_offset_hz: 0,
             bandwidth_hz: self
@@ -2049,6 +2050,7 @@ impl SourceManager {
         match (self.daemon_audio_mode, wanted_audio_mode) {
             (None, Some(mode)) => commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    meteor_profile: None,
                     id: self.daemon_channels.audio,
                     center_offset_hz: wanted_audio_tuning.map_or(0, |tuning| tuning.offset_hz),
                     bandwidth_hz: wanted_audio_tuning.map_or(0, |tuning| tuning.bandwidth_hz),
@@ -2093,6 +2095,7 @@ impl SourceManager {
         if adsb_running && !self.daemon_adsb_subscribed {
             commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    meteor_profile: None,
                     id: self.daemon_channels.adsb,
                     center_offset_hz: 0,
                     bandwidth_hz: 2_400_000,
@@ -2116,6 +2119,7 @@ impl SourceManager {
         if meteor_lrpt && !self.daemon_lrpt_subscribed {
             commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
                     id: self.daemon_channels.lrpt,
                     center_offset_hz: 0,
                     bandwidth_hz: 288_000,
@@ -2998,6 +3002,7 @@ mod tests {
                 ..Default::default()
             }),
             E::Telemetry(TelemetryFrame {
+                product_id: 1,
                 channel_id: foreign,
                 apid: 1,
                 width: 1,
@@ -3212,6 +3217,7 @@ mod tests {
             commands,
             vec![ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    meteor_profile: None,
                     id: DAEMON_AUDIO_CHANNEL_ID,
                     center_offset_hz: 500_000,
                     bandwidth_hz: 200_000,
@@ -3670,6 +3676,7 @@ mod tests {
             .start_recording(1, ez_proto::RecordingFormat::Cf32, 1_090_000_000, handle)
             .unwrap();
         bus.publish(SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample: 0,

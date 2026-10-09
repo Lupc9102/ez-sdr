@@ -1112,6 +1112,9 @@ impl CentralApp {
                         .filter_map(Self::map_daemon_aircraft)
                         .collect();
                 }
+                Some(ez_proto::ServerEvent::Welcome { .. }) => {
+                    self.decoding_panel.clear_daemon_telemetry();
+                }
                 Some(ez_proto::ServerEvent::Telemetry(frame)) => {
                     if let Err(message) = self.decoding_panel.ingest_daemon_telemetry(frame) {
                         self.status_bar.warning(format!("⚠ {message}"));

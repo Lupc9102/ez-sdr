@@ -24,6 +24,7 @@ fn main() {
             })
             .collect();
         bus.publish(SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample: 0,

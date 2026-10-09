@@ -440,6 +440,7 @@ mod tests {
 
     fn block(samples: Vec<Complex32>) -> SampleBlock {
         SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample: 0,

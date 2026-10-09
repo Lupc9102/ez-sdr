@@ -114,7 +114,24 @@ to its JSON sidecar before a Meteor import. Units are never guessed from signal 
 
 ## Optional daemon
 
-The GUI and daemon must both speak protocol version 6; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate. Aircraft snapshots include their channel identity, receiver counters and a fixed five-second message rate that expires during idle reception. Welcome allocates connection-owned GUI channel IDs; all streamed data carries channel identity and control subscribers receive explicit removal events. Active recordings prevent channel deletion. Daemon squelch commands have correlated applied/error replies, and audio frames carry the applied threshold and revision so queued audio cannot undo a newer setting.
+The GUI and daemon must both speak protocol version 11; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate. Aircraft snapshots include their channel identity, receiver counters and a fixed five-second message rate that expires during idle reception. Welcome allocates connection-owned GUI channel IDs; all streamed data carries channel identity and control subscribers receive explicit removal events. Active recordings prevent channel deletion. Daemon squelch commands have correlated applied/error replies, and audio frames carry the applied threshold and revision so queued audio cannot undo a newer setting.
+
+LRPT subscriptions require `meteor_profile: "Oqpsk72"` or
+`meteor_profile: "Oqpsk80Interleaved"`. These select the complete transport,
+including NRZ-M and the 80k marker/deinterleaver stage. Other pipeline kinds
+leave this field absent. The actual channel output rate must provide at least
+four samples per symbol (288 kS/s or 320 kS/s), and the requested RF window must
+contain the occupied 108 kHz or 120 kHz band. Unsupported requests and retunes
+fail before the live channel changes.
+
+Capture gaps discard partial decoding but preserve the current image product.
+A source session change, replay loop or frequency retune starts a fresh product.
+To begin another pass at the same tuning, send
+`{"StartTelemetryProduct":{"channel_id":7}}` over either control transport.
+Telemetry previews carry `product_id`; a zero-sized APID-zero preview announces
+a product boundary, and clients must retire images from its prior ID. The raw
+telemetry WebSocket header is now 36 bytes: the product ID is a little-endian
+u64 at offset 28, followed by pixels at offset 36.
 
 For initial surface ADS-B positions, configure the daemon with `--receiver-lat 51.5 --receiver-lon -0.1` using the actual IQ capture site. Without a configured receiver or a fresh aircraft reference, ambiguous surface positions stay unavailable. For replay, the reference must describe the recording location.
 

@@ -390,6 +390,7 @@ mod tests {
 
     fn spectrum_spec(id: ChannelId) -> ChannelSpec {
         ChannelSpec {
+            meteor_profile: None,
             id,
             center_offset_hz: 0,
             bandwidth_hz: 2_000_000,
@@ -400,6 +401,7 @@ mod tests {
 
     fn audio_spec(id: ChannelId) -> ChannelSpec {
         ChannelSpec {
+            meteor_profile: None,
             id,
             center_offset_hz: 10_000,
             bandwidth_hz: 200_000,

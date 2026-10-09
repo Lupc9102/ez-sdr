@@ -1126,6 +1126,7 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     let audio_id = app.shared.lock().unwrap().source.daemon_channel_ids().audio;
     monitor.send(ClientCommand::Subscribe {
         channel: ez_proto::ChannelSpec {
+            meteor_profile: None,
             id: audio_id,
             center_offset_hz: 250_000,
             bandwidth_hz: 200_000,

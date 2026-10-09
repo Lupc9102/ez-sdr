@@ -257,6 +257,7 @@ mod tests {
         for id in 0..32 {
             queue.push(
                 ServerEvent::Telemetry(crate::TelemetryFrame {
+                    product_id: 1,
                     channel_id: id,
                     apid: 0,
                     width: 1024,

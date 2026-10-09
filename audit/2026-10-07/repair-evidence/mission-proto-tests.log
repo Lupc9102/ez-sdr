@@ -1,0 +1,44 @@
+    Blocking waiting for file lock on build directory
+   Compiling libc v0.2.189
+   Compiling serde_derive v1.0.229
+   Compiling tokio-macros v2.7.2
+   Compiling futures-macro v0.3.34
+   Compiling tokio v1.53.1
+   Compiling futures-util v0.3.34
+   Compiling serde v1.0.229
+   Compiling bincode v1.3.3
+   Compiling tokio-util v0.7.19
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 19s
+     Running unittests src/lib.rs (target/debug/deps/ez_proto-c76591d86ece09d5)
+
+running 20 tests
+test capture::tests::decimated_clock_retains_exact_acquisition_times_and_unknown_utc ... ok
+test capture::tests::invalid_or_overflowing_message_clocks_fail_without_wrapping_or_inventing_utc ... ok
+test capture::tests::message_capture_time_preserves_signed_overlap_phase_and_native_stride ... ok
+test codec::tests::command_frame_limit_rejects_oversized_payload ... ok
+test codec::tests::constructors_pin_the_documented_bounds ... ok
+test codec::tests::aircraft_measurements_round_trip_without_losing_validity_or_reference ... ok
+test codec::tests::explicit_meteor_profiles_and_product_command_round_trip ... ok
+test codec::tests::oversized_frame_is_rejected_not_panicking ... ok
+test codec::tests::private_session_and_spectrum_removal_identity_round_trip ... ok
+test codec::tests::spectrum_observation_barrier_command_round_trip ... ok
+test codec::tests::round_trips_a_message_through_the_codec ... ok
+test codec::tests::squelch_command_reply_and_audio_applied_metadata_round_trip ... ok
+test codec::tests::truncated_tail_at_eof_is_an_error_not_silent_none ... ok
+test receiver::tests::received_rate_tracks_known_cadence_and_expires_without_new_messages ... ok
+test messages::hardware_status_tests::hardware_gain_capabilities_are_backward_compatible_and_distinguish_manual_zero ... ok
+test receiver::tests::receiver_restart_and_clock_rewind_retire_previous_rate ... ok
+test recording_capture::tests::immutable_recording_accepts_only_contiguous_same_epoch_geometry ... ok
+test recording_capture::tests::invalid_recording_clocks_fail_without_wrapping ... ok
+test stream_queue::tests::mixed_stream_payload_budget_and_channel_retirement_stay_bounded ... ok
+test stream_queue::tests::mixed_stream_queue_retains_fresh_snapshots_and_exact_audio_tail_and_gaps ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ez_proto
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

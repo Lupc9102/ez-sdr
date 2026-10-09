@@ -275,6 +275,7 @@ impl VirtualChannel {
         self.pending_discontinuity = false;
         self.output_rate_hz = block.sample_rate_hz / decimation as u32;
         Some(SampleBlock {
+            product_session: block.product_session,
             observed_at: block.observed_at,
             capture: Some(output_clock),
             start_sample,
@@ -443,6 +444,13 @@ impl Channelizer {
             .map(|c| c.output_rate_hz)
     }
 
+    pub fn channel_center_hz(&self, id: u64) -> Option<u64> {
+        self.channels
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.center_freq_hz)
+    }
+
     /// Re-centers the wideband capture (e.g. the hardware source retuned), recomputing every
     /// active virtual channel's NCO offset against the new center. The next input
     /// resets NCO/FIR history and publishes a new discontinuous output epoch.
@@ -503,6 +511,7 @@ mod tests {
         samples: Vec<Complex32>,
     ) -> SampleBlock {
         SampleBlock {
+            product_session: 0,
             observed_at: None,
             capture: None,
             start_sample: 0,
@@ -525,13 +534,17 @@ mod tests {
     fn missing_input_remains_visible_after_decimation_and_filter_state_resets() {
         for decimation in [1, 4, 7] {
             let mut channel = VirtualChannel::new(1, 100_000, 2_048_003, 100_000, decimation);
-            let first = wideband_block(100_000, 2_048_003, vec![Complex32::new(1.0, 0.0); 70]);
+            let mut first = wideband_block(100_000, 2_048_003, vec![Complex32::new(1.0, 0.0); 70]);
+            first.product_session = 42;
             let previous = channel.process(&first).unwrap();
             let mut next = wideband_block(100_000, 2_048_003, vec![Complex32::new(0.0, 0.0); 70]);
             next.start_sample = 1000;
+            next.product_session = 42;
             let current = channel.process(&next).unwrap();
             assert_eq!(current.start_sample, 1000_u64.div_ceil(decimation as u64));
             assert!(current.capture.unwrap().discontinuous);
+            assert_eq!(previous.product_session, 42);
+            assert_eq!(current.product_session, 42);
             assert_ne!(
                 current.capture.unwrap().epoch,
                 previous.capture.unwrap().epoch

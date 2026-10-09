@@ -34,9 +34,6 @@ use crate::pipelines::spectrum::{SpectrumConfig, SpectrumPipeline};
 use crate::pipelines::telemetry::{TelemetryConfig, TelemetryPipeline};
 use crate::recording::RecordingManager;
 
-/// LRPT's standard symbol rate. Fixed by the format, independent of whatever bandwidth a
-/// client happens to request for the channel (see [`DaemonState::create_channel`]).
-const LRPT_SYMBOL_RATE_HZ: u32 = 80_000;
 const PIPELINE_POLL: Duration = Duration::from_millis(100);
 const DEFAULT_SUBSCRIBE_CAPACITY: usize = 32;
 const RECORDING_SUBSCRIBE_CAPACITY: usize = 64;
@@ -190,6 +187,23 @@ impl DaemonState {
                 wideband_rate
             );
         }
+        if spec.kind == PipelineKind::LrptTelemetry {
+            let profile = spec
+                .meteor_profile
+                .ok_or_else(|| anyhow!("LRPT requires an explicit meteor_profile"))?;
+            if spec.bandwidth_hz < profile.occupied_bandwidth_hz() {
+                anyhow::bail!(
+                    "LRPT {} occupies {} Hz; channel bandwidth {} is too narrow",
+                    profile.label(),
+                    profile.occupied_bandwidth_hz(),
+                    spec.bandwidth_hz
+                );
+            }
+            let decimation = (wideband_rate / spec.bandwidth_hz).max(1);
+            lrpt_decode::validate_mission_sampling(wideband_rate / decimation, profile)?;
+        } else if spec.meteor_profile.is_some() {
+            anyhow::bail!("meteor_profile is only supported on LRPT channels");
+        }
         let half = wideband_rate as i64 / 2;
         let offset_abs = spec.center_offset_hz.checked_abs().unwrap_or(i64::MAX);
         if offset_abs.saturating_add(spec.bandwidth_hz as i64 / 2) > half {
@@ -311,12 +325,11 @@ impl DaemonState {
         {
             let channels = self.channels.lock();
             if let Some(existing) = channels.get(&id) {
-                if existing.spec.kind != spec.kind {
+                if existing.spec.kind != spec.kind
+                    || existing.spec.meteor_profile != spec.meteor_profile
+                {
                     return Err(anyhow!(
-                        "channel {} already exists as {:?}, cannot resubscribe as {:?}",
-                        id,
-                        existing.spec.kind,
-                        spec.kind
+                        "channel {id} already exists with a different kind or Meteor profile; cannot resubscribe with these settings. Remove it or use another channel ID"
                     ));
                 }
                 return Ok((subscription_for(existing), false));
@@ -348,9 +361,11 @@ impl DaemonState {
             if let Some(internal_id) = active.internal_channel_id {
                 self.channelizer.lock().remove_channel(internal_id);
             }
-            if existing.spec.kind != active.spec.kind {
+            if existing.spec.kind != active.spec.kind
+                || existing.spec.meteor_profile != active.spec.meteor_profile
+            {
                 return Err(anyhow!(
-                    "channel {id} already exists with a different pipeline kind"
+                    "channel {id} already exists with a different kind or Meteor profile"
                 ));
             }
             return Ok((subscription_for(existing), false));
@@ -467,14 +482,27 @@ impl DaemonState {
                     .lock()
                     .channel_output_rate_hz(internal_id)
                     .unwrap_or(spec.bandwidth_hz);
-                let pipeline = Arc::new(Mutex::new(TelemetryPipeline::new(
+                let telemetry = TelemetryPipeline::new(
                     input,
                     TelemetryConfig {
                         channel_id: spec.id,
                         sample_rate_hz,
-                        symbol_rate_hz: LRPT_SYMBOL_RATE_HZ,
+                        profile: spec.meteor_profile.expect("validated LRPT profile"),
+                        center_freq_hz: self
+                            .channelizer
+                            .lock()
+                            .channel_center_hz(internal_id)
+                            .expect("new channel"),
                     },
-                )));
+                );
+                let telemetry = match telemetry {
+                    Ok(pipeline) => pipeline,
+                    Err(error) => {
+                        self.channelizer.lock().remove_channel(internal_id);
+                        return Err(error.into());
+                    }
+                };
+                let pipeline = Arc::new(Mutex::new(telemetry));
                 let (running, _thread) = spawn_locked_tick_thread(
                     "telemetry",
                     Arc::clone(&pipeline),
@@ -530,13 +558,28 @@ impl DaemonState {
             let active = channels
                 .get(&channel_id)
                 .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
-            active.internal_channel_id
+            let mut proposed = active.spec.clone();
+            proposed.center_offset_hz = center_offset_hz;
+            proposed.bandwidth_hz = bandwidth_hz;
+            let telemetry = match &active.pipeline {
+                ActivePipeline::LrptTelemetry(p) => Some(Arc::clone(p)),
+                _ => None,
+            };
+            (active.internal_channel_id, proposed, telemetry)
         };
+        let (internal_id, proposed, telemetry) = internal_id;
+        self.validate_spec(&proposed)?;
         if let Some(internal_id) = internal_id {
             let mut chan = self.channelizer.lock();
             let center_freq_hz =
                 ((chan.wideband_center_hz() as i64).saturating_add(center_offset_hz)).max(0) as u64;
             chan.retune_channel(internal_id, center_freq_hz, bandwidth_hz)?;
+            let rate = chan
+                .channel_output_rate_hz(internal_id)
+                .expect("retuned channel");
+            if let Some(pipeline) = telemetry {
+                pipeline.lock().retune(rate, center_freq_hz)?;
+            }
         }
         let mut channels = self.channels.lock();
         if let Some(active) = channels.get_mut(&channel_id) {
@@ -574,6 +617,21 @@ impl DaemonState {
         if let Some(internal_id) = active.internal_channel_id {
             self.channelizer.lock().remove_channel(internal_id);
         }
+        Ok(())
+    }
+
+    pub fn start_telemetry_product(&self, channel_id: ChannelId) -> Result<()> {
+        let pipeline = {
+            let channels = self.channels.lock();
+            let active = channels
+                .get(&channel_id)
+                .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
+            match &active.pipeline {
+                ActivePipeline::LrptTelemetry(p) => Arc::clone(p),
+                _ => anyhow::bail!("channel {channel_id} is not an LRPT channel"),
+            }
+        };
+        pipeline.lock().start_new_product()?;
         Ok(())
     }
 
@@ -776,12 +834,72 @@ mod tests {
 
     fn audio_spec(id: ChannelId, offset_hz: i64) -> ChannelSpec {
         ChannelSpec {
+            meteor_profile: None,
             id,
             center_offset_hz: offset_hz,
             bandwidth_hz: 200_000,
             kind: PipelineKind::Audio,
             demod_mode: Some(DemodMode::Fm),
         }
+    }
+
+    #[test]
+    fn lrpt_profiles_and_actual_channel_rates_are_validated_before_allocation() {
+        let state = test_state();
+        let mut spec = ChannelSpec {
+            meteor_profile: None,
+            id: 15,
+            center_offset_hz: 0,
+            bandwidth_hz: 400_000,
+            kind: PipelineKind::LrptTelemetry,
+            demod_mode: None,
+        };
+        assert!(state
+            .subscribe(spec.clone())
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("explicit meteor_profile"));
+        for profile in ez_proto::MeteorProfile::ALL {
+            spec.meteor_profile = Some(profile);
+            for bandwidth in [100_000, 250_000, 285_000] {
+                spec.bandwidth_hz = bandwidth;
+                assert!(state.subscribe(spec.clone()).is_err());
+                assert!(state.active_channels().is_empty());
+                assert_eq!(state.channelizer.lock().channel_count(), 0);
+            }
+            spec.bandwidth_hz = 400_000;
+            let (_, created) = state.subscribe(spec.clone()).unwrap();
+            assert!(created);
+            assert_eq!(state.active_channels()[0].meteor_profile, Some(profile));
+            // Invalid retunes leave the existing channel/product untouched.
+            assert!(state.retune(15, 0, 100_000).is_err());
+            assert_eq!(state.active_channels()[0], spec);
+            state.start_telemetry_product(15).unwrap();
+            state.remove_channel(15).unwrap();
+        }
+        spec.kind = PipelineKind::Audio;
+        assert!(state.subscribe(spec).is_err());
+        assert_eq!(state.channelizer.lock().channel_count(), 0);
+    }
+
+    #[test]
+    fn resubscribing_an_lrpt_channel_cannot_silently_change_its_transport() {
+        let state = test_state();
+        let spec = ChannelSpec {
+            meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
+            id: 15,
+            center_offset_hz: 0,
+            bandwidth_hz: 400_000,
+            kind: PipelineKind::LrptTelemetry,
+            demod_mode: None,
+        };
+        let (_, _) = state.subscribe(spec.clone()).unwrap();
+        let mut other = spec.clone();
+        other.meteor_profile = Some(ez_proto::MeteorProfile::Oqpsk80Interleaved);
+        assert!(state.subscribe(other).is_err());
+        assert_eq!(state.active_channels(), vec![spec]);
+        assert_eq!(state.channelizer.lock().channel_count(), 1);
     }
 
     #[test]
@@ -859,6 +977,7 @@ mod tests {
         state.subscribe(audio_spec(ids.audio, 0)).unwrap();
         state
             .subscribe(ChannelSpec {
+                meteor_profile: None,
                 id: ids.spectrum,
                 kind: PipelineKind::Spectrum,
                 bandwidth_hz: 2_000_000,
@@ -923,6 +1042,7 @@ mod tests {
         let state = test_state();
         let _a = state.subscribe(audio_spec(1, 0)).unwrap();
         let spectrum_spec = ChannelSpec {
+            meteor_profile: None,
             id: 1,
             center_offset_hz: 0,
             bandwidth_hz: 2_000_000,
@@ -939,6 +1059,7 @@ mod tests {
     fn spectrum_channel_has_no_internal_virtual_channel() {
         let state = test_state();
         let spec = ChannelSpec {
+            meteor_profile: None,
             id: 5,
             center_offset_hz: 0,
             bandwidth_hz: 2_000_000,
@@ -960,6 +1081,7 @@ mod tests {
     fn set_volume_on_non_audio_channel_is_an_error() {
         let state = test_state();
         let spec = ChannelSpec {
+            meteor_profile: None,
             id: 9,
             center_offset_hz: 0,
             bandwidth_hz: 2_000_000,
@@ -1051,6 +1173,7 @@ mod tests {
     fn set_sample_rate_updates_channelizer_with_only_spectrum_active() {
         let state = test_state();
         let spectrum = ChannelSpec {
+            meteor_profile: None,
             id: 5,
             center_offset_hz: 0,
             bandwidth_hz: 2_000_000,
@@ -1063,6 +1186,7 @@ mod tests {
 
         assert_eq!(state.channelizer.lock().wideband_rate_hz(), 2_400_000);
         let adsb = ChannelSpec {
+            meteor_profile: None,
             id: 6,
             center_offset_hz: 0,
             bandwidth_hz: 2_400_000,

@@ -255,6 +255,7 @@ pub struct DecodingPanel {
     file_operation: Option<FileOperation>,
     preview_textures: Vec<(u16, egui::TextureHandle, egui::Vec2)>,
     preview_dirty: bool,
+    daemon_product: Option<(ez_proto::ChannelId, u64)>,
     daemon_telemetry: BTreeMap<u16, ez_proto::TelemetryFrame>,
     daemon_textures: BTreeMap<u16, egui::TextureHandle>,
 }
@@ -275,6 +276,11 @@ impl DecodingPanel {
         &mut self,
         frame: ez_proto::TelemetryFrame,
     ) -> Result<(), String> {
+        if self.daemon_product.is_some_and(|(channel, product)| {
+            channel == frame.channel_id && frame.product_id < product
+        }) {
+            return Ok(());
+        }
         let expected = usize::try_from(frame.width)
             .ok()
             .and_then(|width| {
@@ -292,9 +298,24 @@ impl DecodingPanel {
                 frame.pixels.len()
             ));
         }
+        if self.daemon_product != Some((frame.channel_id, frame.product_id)) {
+            self.clear_daemon_telemetry();
+            self.daemon_product = Some((frame.channel_id, frame.product_id));
+        }
+        if frame.apid == 0 && expected == 0 {
+            self.daemon_telemetry.clear();
+            self.daemon_textures.clear();
+            return Ok(());
+        }
         self.daemon_textures.remove(&frame.apid);
         self.daemon_telemetry.insert(frame.apid, frame);
         Ok(())
+    }
+
+    pub fn clear_daemon_telemetry(&mut self) {
+        self.daemon_product = None;
+        self.daemon_telemetry.clear();
+        self.daemon_textures.clear();
     }
 
     /// Called from the app's per-frame pending-request poll. Populates
@@ -1460,6 +1481,7 @@ mod tests {
         panel.no_decoder_reason = Some("No decoder for this selected satellite".into());
         panel
             .ingest_daemon_telemetry(ez_proto::TelemetryFrame {
+                product_id: 1,
                 channel_id: 4,
                 apid: 65,
                 width: 2,
@@ -1561,10 +1583,54 @@ mod tests {
     }
 
     #[test]
+    fn daemon_product_boundary_clears_all_apids_and_rejects_old_queued_images() {
+        let mut panel = DecodingPanel::default();
+        let frame = ez_proto::TelemetryFrame {
+            product_id: 10,
+            channel_id: 7,
+            apid: 64,
+            width: 1,
+            height: 1,
+            pixels: vec![123],
+            rs_ok: 4,
+            rs_failed: 0,
+            costas_locked: true,
+            frame_locked: true,
+        };
+        panel.ingest_daemon_telemetry(frame.clone()).unwrap();
+        let mut second = frame.clone();
+        second.apid = 65;
+        panel.ingest_daemon_telemetry(second).unwrap();
+        assert_eq!(panel.daemon_telemetry.len(), 2);
+        let reset = ez_proto::TelemetryFrame {
+            product_id: 11,
+            apid: 0,
+            width: 0,
+            height: 0,
+            pixels: vec![],
+            ..frame.clone()
+        };
+        panel.ingest_daemon_telemetry(reset).unwrap();
+        assert!(panel.daemon_telemetry.is_empty());
+        panel.ingest_daemon_telemetry(frame.clone()).unwrap();
+        assert!(panel.daemon_telemetry.is_empty());
+        // Connection Welcome retires IDs from a previous daemon process.
+        panel.clear_daemon_telemetry();
+        panel
+            .ingest_daemon_telemetry(ez_proto::TelemetryFrame {
+                product_id: 1,
+                ..frame
+            })
+            .unwrap();
+        assert_eq!(panel.daemon_telemetry.len(), 1);
+    }
+
+    #[test]
     fn daemon_telemetry_is_retained_by_apid() {
         let mut panel = DecodingPanel::default();
         panel
             .ingest_daemon_telemetry(ez_proto::TelemetryFrame {
+                product_id: 1,
                 channel_id: 4,
                 apid: 65,
                 width: 2,
@@ -1587,6 +1653,7 @@ mod tests {
         let mut panel = DecodingPanel::default();
         let err = panel
             .ingest_daemon_telemetry(ez_proto::TelemetryFrame {
+                product_id: 1,
                 channel_id: 4,
                 apid: 65,
                 width: 2,

@@ -71,14 +71,15 @@ pub fn encode_audio(frame: &AudioFrame) -> Vec<u8> {
 /// | 16     | 4    | rs_ok (u32)        |
 /// | 20     | 4    | rs_failed (u32)    |
 /// | 24     | 4    | pixel_count (u32)  |
-/// | 28     | N    | pixels (u8 * pixel_count) |
+/// | 28     | 8    | product_id (u64) |
+/// | 36     | N    | pixels (u8 * pixel_count) |
 ///
 /// The two bools are packed into one `u16` (rather than two trailing bytes) purely to keep
 /// every field up to `pixel_count` at a 4-byte-aligned offset for the JS side's `DataView`
 /// reads; it costs nothing since a `u16` was already the natural size for `apid`'s neighbor.
 #[must_use]
 pub fn encode_telemetry(frame: &TelemetryFrame) -> Vec<u8> {
-    let mut out = Vec::with_capacity(28 + frame.pixels.len());
+    let mut out = Vec::with_capacity(36 + frame.pixels.len());
     out.extend_from_slice(&frame.channel_id.to_le_bytes());
     out.extend_from_slice(&frame.apid.to_le_bytes());
     let flags: u16 = (frame.costas_locked as u16) | ((frame.frame_locked as u16) << 1);
@@ -88,6 +89,7 @@ pub fn encode_telemetry(frame: &TelemetryFrame) -> Vec<u8> {
     out.extend_from_slice(&frame.rs_ok.to_le_bytes());
     out.extend_from_slice(&frame.rs_failed.to_le_bytes());
     out.extend_from_slice(&(frame.pixels.len() as u32).to_le_bytes());
+    out.extend_from_slice(&frame.product_id.to_le_bytes());
     out.extend_from_slice(&frame.pixels);
     out
 }
@@ -154,6 +156,7 @@ mod tests {
     #[test]
     fn telemetry_layout_matches_the_documented_byte_offsets_and_packs_flags() {
         let frame = TelemetryFrame {
+            product_id: 1,
             channel_id: 3,
             apid: 65,
             width: 4,
@@ -166,7 +169,7 @@ mod tests {
         };
         let bytes = encode_telemetry(&frame);
 
-        assert_eq!(bytes.len(), 28 + 8);
+        assert_eq!(bytes.len(), 36 + 8);
         assert_eq!(u32::from_le_bytes(bytes[0..4].try_into().unwrap()), 3);
         assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 65);
         assert_eq!(u16::from_le_bytes(bytes[6..8].try_into().unwrap()), 0b01);
@@ -175,12 +178,14 @@ mod tests {
         assert_eq!(u32::from_le_bytes(bytes[16..20].try_into().unwrap()), 10);
         assert_eq!(u32::from_le_bytes(bytes[20..24].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), 8);
-        assert_eq!(&bytes[28..36], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(u64::from_le_bytes(bytes[28..36].try_into().unwrap()), 1);
+        assert_eq!(&bytes[36..44], &[1, 2, 3, 4, 5, 6, 7, 8]);
     }
 
     #[test]
     fn telemetry_flags_pack_both_bits_when_both_locked() {
         let frame = TelemetryFrame {
+            product_id: 1,
             channel_id: 0,
             apid: 0,
             width: 0,

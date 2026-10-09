@@ -1,0 +1,22 @@
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `release` profile [optimized] target(s) in 1m 38s
+     Running unittests src/lib.rs (target/release/deps/ez_daemon-8916b2a6a9dc3118)
+
+running 12 tests
+test ingest::tests::dropping_queued_command_on_shutdown_publishes_cancelled_receipt ... ok
+test ingest::tests::each_replay_loop_has_a_new_product_session ... ok
+test ingest::tests::mutation_before_error_reopens_at_verified_geometry_or_stops_without_reads ... ok
+test ingest::tests::endless_timeouts_keep_controls_available_and_shutdown_bounded ... ok
+test ingest::tests::set_frequency_is_applied_and_reflected_in_status ... ok
+test ingest::tests::soapy_timeout_retries_overflow_retires_clock_and_fatal_error_stops ... ok
+test ingest::tests::spawn_publishes_blocks_and_reports_connected_status ... ok
+test ingest::tests::stops_promptly_when_running_flag_clears ... ok
+test ingest::tests::unrecoverable_control_errors_retire_source_and_preserve_verified_status ... ok
+test ingest::tests::command_requests_are_acknowledged_without_growing_unbounded ... ok
+test ingest::tests::applying_deadline_returns_correlated_pending_outcome_and_retains_ownership ... ok
+test ingest::tests::queued_deadline_cancellation_prevents_late_tuning_after_a_stalled_read ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 209 filtered out; finished in 0.21s
+

@@ -270,6 +270,7 @@ pub(crate) async fn apply_command(
         | ClientCommand::RemoveChannel { channel_id }
         | ClientCommand::StartRecording { channel_id, .. }
         | ClientCommand::StopRecording { channel_id }
+        | ClientCommand::StartTelemetryProduct { channel_id }
         | ClientCommand::BeginSpectrumObservation { channel_id, .. } => Some(*channel_id),
         _ => None,
     };
@@ -405,6 +406,11 @@ pub(crate) async fn apply_command(
             }
             Err(e) => send_error(event_tx, e.to_string()).await,
         },
+        ClientCommand::StartTelemetryProduct { channel_id } => {
+            if let Err(error) = state.start_telemetry_product(channel_id) {
+                send_error(event_tx, error.to_string()).await;
+            }
+        }
         ClientCommand::BeginSpectrumObservation {
             channel_id,
             revision,
@@ -659,6 +665,7 @@ mod tests {
 
     fn spectrum_spec(id: ChannelId) -> ChannelSpec {
         ChannelSpec {
+            meteor_profile: None,
             id,
             center_offset_hz: 0,
             bandwidth_hz: 2_000_000,
@@ -1069,6 +1076,7 @@ mod tests {
             rx,
         ));
         tx.stream(ServerEvent::Telemetry(ez_proto::TelemetryFrame {
+            product_id: 1,
             channel_id: 1,
             apid: 0,
             width: 1024,

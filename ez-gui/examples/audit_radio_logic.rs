@@ -163,6 +163,7 @@ fn daemon_pcm(mode: ez_proto::DemodMode, rate: u32, iq: Vec<Complex32>) -> Vec<f
     );
     let output = pipeline.subscribe(4);
     bus.publish(SampleBlock {
+        product_session: 0,
         observed_at: None,
         capture: None,
         start_sample: 0,
