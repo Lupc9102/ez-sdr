@@ -1,0 +1,44 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `release` profile [optimized] target(s) in 2m 14s
+     Running unittests src/lib.rs (target/release/deps/ez_daemon-8916b2a6a9dc3118)
+
+running 37 tests
+test channelizer::tests::channelizer_run_exits_promptly_when_running_flag_clears ... ok
+test channelizer::tests::channelizer_preserves_acquisition_origin_and_continuous_fractional_clock ... ok
+test channelizer::tests::actual_wideband_queue_overflow_reaches_every_channel_as_a_gap ... ok
+test channelizer::tests::design_lowpass_has_unity_dc_gain ... ok
+test channelizer::tests::channel_output_rate_hz_returns_none_for_unknown_channel ... ok
+test channelizer::tests::channelizer_add_channel_rejects_out_of_nyquist_frequency ... ok
+test channelizer::tests::channelizer_add_channel_rejects_zero_output_rate ... ok
+test channelizer::tests::fir_decimator_downsamples_by_expected_factor ... ok
+test channelizer::tests::fir_decimator_is_continuous_across_chunk_boundaries ... ok
+test channelizer::tests::missing_input_remains_visible_after_decimation_and_filter_state_resets ... ok
+test channelizer::tests::nco_mix_preserves_magnitude_over_many_samples ... ok
+test channelizer::tests::nco_mix_removes_matching_offset_tone_to_near_dc ... ok
+test channelizer::tests::nco_phase_follows_the_acquisition_index_after_a_gap ... ok
+test channelizer::tests::retune_channel_rejects_unknown_id ... ok
+test channelizer::tests::source_epoch_and_channel_retune_are_visible_even_with_adjacent_indices ... ok
+test channelizer::tests::retune_updates_nco_offset_so_channel_still_tracks_its_absolute_frequency ... ok
+test channelizer::tests::retune_preserves_channel_count_and_registry ... ok
+test channelizer::tests::retune_channel_recenters_while_preserving_the_same_bus_subscribers ... ok
+test channelizer::tests::sub_decimation_gap_has_an_explicit_marker_even_when_output_indices_are_adjacent ... ok
+test channelizer::tests::channelizer_remove_channel_drops_it_from_registry ... ok
+test channelizer::tests::channel_output_rate_hz_reports_actual_decimated_rate ... ok
+test channelizer::tests::fir_lowpass_attenuates_out_of_band_tone ... ok
+test channelizer::tests::wideband_center_hz_reflects_construction_and_retune ... ok
+test pipelines::packet::tests::rtl_sdr_style_adsb_iq_survives_the_wideband_channelizer ... ok
+test channelizer::tests::subscribe_returns_none_for_an_unknown_channel_id ... ok
+test channelizer::tests::channelizer_tick_times_out_cleanly_when_idle ... ok
+test channelizer::tests::channelizer_tick_routes_wideband_block_to_subscribed_channel ... ok
+test channelizer::tests::channelizer_supports_multiple_independently_tuned_channels ... ok
+test channelizer::tests::virtual_channel_process_shifts_and_decimates ... ok
+test pipelines::packet::tests::upstream_missing_input_cannot_form_a_packet_across_the_channelizer ... ok
+test channelizer::tests::extreme_decimation_does_not_allocate_a_source_rate_sized_fir ... ok
+test channelizer::tests::subscribe_gives_an_additional_independent_handle_to_a_live_channel ... ok
+test state::tests::set_frequency_retunes_the_channelizer ... ok
+test state::tests::set_sample_rate_updates_channelizer_with_only_spectrum_active ... ok
+test channelizer::tests::staged_and_prime_decimations_preserve_counts_partitions_and_reset_alignment ... ok
+test channelizer::tests::rational_output_phases_follow_the_source_clock_with_constant_filter_delay ... ok
+test channelizer::tests::streamed_filters_reject_aliases_and_strong_mixtures_including_interpolated_prime_phases ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 188 filtered out; finished in 46.80s

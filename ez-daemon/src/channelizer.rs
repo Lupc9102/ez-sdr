@@ -15,12 +15,6 @@ use num_complex::Complex32;
 
 use crate::bus::{OverflowPolicy, SampleBlock, SampleBus, SampleBusHandle};
 
-const FIR_TAPS: usize = 63;
-/// Fraction of the ideal brick-wall cutoff actually used when designing the anti-alias
-/// filter, leaving transition-band headroom so a modest tap count doesn't already attenuate
-/// the passband edge (the decimated Nyquist).
-const CUTOFF_GUARD: f32 = 0.8;
-
 /// A numerically controlled oscillator: generates `e^{-j*2*pi*f*n/fs}` incrementally so a
 /// wideband block can be mixed to baseband one sample at a time, with phase carried
 /// correctly across successive blocks.
@@ -77,98 +71,234 @@ impl Nco {
     }
 }
 
-/// Windowed-sinc low-pass FIR design (Hamming window, unity DC gain). `cutoff_fraction` is
-/// the cutoff as a fraction of Nyquist, in `(0, 1)`. `num_taps` must be odd (Type-I linear
-/// phase, symmetric around a single center tap).
-fn design_lowpass(num_taps: usize, cutoff_fraction: f32) -> Vec<f32> {
-    assert!(num_taps % 2 == 1, "num_taps must be odd, got {num_taps}");
-    let m = (num_taps - 1) as f32;
-    let mut taps: Vec<f32> = (0..num_taps)
-        .map(|n| {
-            let x = n as f32 - m / 2.0;
-            let sinc = if x == 0.0 {
-                cutoff_fraction
-            } else {
-                (std::f32::consts::PI * cutoff_fraction * x).sin() / (std::f32::consts::PI * x)
-            };
-            let window = 0.54 - 0.46 * (2.0 * std::f32::consts::PI * n as f32 / m).cos();
-            sinc * window
-        })
-        .collect();
-    let dc_gain: f32 = taps.iter().sum();
-    for t in &mut taps {
-        *t /= dc_gain;
-    }
-    taps
+/// Minimum four-term Blackman-Harris window, evaluated in double precision.
+fn blackman_harris(position: f64) -> f64 {
+    let angle = std::f64::consts::TAU * position;
+    0.35875 - 0.48829 * angle.cos() + 0.14128 * (2.0 * angle).cos() - 0.01168 * (3.0 * angle).cos()
 }
 
-/// Streaming FIR filter + integer decimator. Carries both filter history and decimation
-/// phase across calls, so feeding it the same samples in different-sized chunks produces the
-/// same output — required since wideband blocks arrive at whatever size the ingestion
-/// thread happened to read, not aligned to any particular decimation boundary.
-struct FirDecimator {
-    taps: Vec<f32>,
-    decimation: usize,
-    /// Tail of the previous call's (history ++ input), length `taps.len() - 1`, that seeds
-    /// this call's convolution window so filtering is continuous across block boundaries.
+/// Causal fractional-delay low-pass. Cutoff is a fraction of input Nyquist.
+/// Double-precision design and DC normalization precede coefficient storage.
+fn design_lowpass(num_taps: usize, cutoff: f64, phase: f64) -> Vec<f32> {
+    let middle = (num_taps - 1) as f64 / 2.0;
+    let mut taps: Vec<f64> = (0..num_taps)
+        .map(|n| {
+            let x = n as f64 - middle - phase;
+            let sinc = if x.abs() < 1e-12 {
+                cutoff
+            } else {
+                (std::f64::consts::PI * cutoff * x).sin() / (std::f64::consts::PI * x)
+            };
+            sinc * blackman_harris(n as f64 / (num_taps - 1) as f64)
+        })
+        .collect();
+    let gain: f64 = taps.iter().sum();
+    taps.iter_mut().for_each(|tap| *tap /= gain);
+    taps.into_iter().map(|tap| tap as f32).collect()
+}
+
+const HALF_BAND_TAPS: usize = 63;
+const FILTER_PHASES: usize = 256;
+/// Pass through 0.4 * output Fs, stop from 0.5 * output Fs. The midpoint
+/// cutoff is 0.45 * output Fs; 100 input taps per remaining rate ratio
+/// leave five window bins on either side of that midpoint. Sweep tests
+/// verify <=0.02 dB passband error and >=80 dB stopband rejection.
+const TAPS_PER_RATIO: f64 = 100.0;
+
+struct HalfBandStage {
+    paired: [f32; 16],
+    center: f32,
+    history: [Complex32; 2 * HALF_BAND_TAPS],
+    write: usize,
+    emit: bool,
+}
+
+impl HalfBandStage {
+    fn new() -> Self {
+        let mut taps = design_lowpass(HALF_BAND_TAPS, 0.5, 0.0);
+        // Half-band symmetry: every second coefficient except the center
+        // is exactly zero. Keep these zeros exact, then normalize again.
+        for n in (1..HALF_BAND_TAPS).step_by(2) {
+            if n != HALF_BAND_TAPS / 2 {
+                taps[n] = 0.0;
+            }
+        }
+        let gain: f64 = taps.iter().map(|&tap| f64::from(tap)).sum();
+        Self {
+            paired: std::array::from_fn(|n| (f64::from(taps[2 * n]) / gain) as f32),
+            center: (f64::from(taps[HALF_BAND_TAPS / 2]) / gain) as f32,
+            history: [Complex32::new(0.0, 0.0); 2 * HALF_BAND_TAPS],
+            write: 0,
+            emit: true,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.history.fill(Complex32::new(0.0, 0.0));
+        self.write = 0;
+        self.emit = true;
+    }
+
+    fn push(&mut self, sample: Complex32) -> Option<Complex32> {
+        self.history[self.write] = sample;
+        self.history[self.write + HALF_BAND_TAPS] = sample;
+        self.write = (self.write + 1) % HALF_BAND_TAPS;
+        let emit = self.emit;
+        self.emit = !self.emit;
+        if !emit {
+            return None;
+        }
+        let window = &self.history[self.write..self.write + HALF_BAND_TAPS];
+        let mut output = window[HALF_BAND_TAPS / 2] * self.center;
+        for (n, &tap) in self.paired.iter().enumerate() {
+            output += (window[2 * n] + window[HALF_BAND_TAPS - 1 - 2 * n]) * tap;
+        }
+        Some(output)
+    }
+}
+
+struct PhaseFilter {
+    banks: Vec<Vec<f32>>,
     history: Vec<Complex32>,
-    /// How many samples into the *next* call's input the next output sample falls, carrying
-    /// the decimation phase across calls so uneven block lengths never introduce jitter.
+    write: usize,
+    len: usize,
+}
+
+impl PhaseFilter {
+    fn new(ratio: f64, phases: usize) -> Self {
+        let len = (TAPS_PER_RATIO * ratio).ceil() as usize | 1;
+        Self {
+            banks: (0..=phases)
+                .map(|n| design_lowpass(len, 0.9 / ratio, n as f64 / phases.max(1) as f64))
+                .collect(),
+            history: vec![Complex32::new(0.0, 0.0); 2 * len],
+            write: 0,
+            len,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.history.fill(Complex32::new(0.0, 0.0));
+        self.write = 0;
+    }
+
+    fn push(&mut self, sample: Complex32) {
+        self.history[self.write] = sample;
+        self.history[self.write + self.len] = sample;
+        self.write = (self.write + 1) % self.len;
+    }
+
+    fn output(&self, phase: f64) -> Complex32 {
+        let coordinate = phase * (self.banks.len() - 1) as f64;
+        let bank = coordinate.floor() as usize;
+        let blend = (coordinate - bank as f64) as f32;
+        let window = &self.history[self.write..self.write + self.len];
+        if blend == 0.0 {
+            return window
+                .iter()
+                .zip(&self.banks[bank])
+                .map(|(&x, &tap)| x * tap)
+                .sum();
+        }
+        // Interpolate coefficients, never already-aliased input samples.
+        // Exact phases are used through factor 256. At higher factors the
+        // bank interpolation error is included in the measured response.
+        window
+            .iter()
+            .zip(&self.banks[bank])
+            .zip(&self.banks[bank + 1])
+            .map(|((&x, &a), &b)| x * (a + (b - a) * blend))
+            .sum()
+    }
+}
+
+/// Streaming multistage/polyphase decimator. Half-band stages reduce the
+/// working rate; the final phase-selected FIR emits at exact source offsets
+/// n*D even when D is not divisible by the half-band product. This keeps
+/// sample counts, source clock stride and caller-chunk independence intact.
+/// Coefficient/history storage stays bounded for large and prime D.
+struct FirDecimator {
+    decimation: usize,
     skip: usize,
-    extended: Vec<Complex32>,
+    stages: Vec<HalfBandStage>,
+    stage_factor: usize,
+    output_phase: usize,
+    final_filter: Option<PhaseFilter>,
 }
 
 impl FirDecimator {
-    fn new(taps: Vec<f32>, decimation: usize) -> Self {
-        let history = vec![Complex32::new(0.0, 0.0); taps.len() - 1];
+    fn new(decimation: usize) -> Self {
+        assert!(decimation > 0);
+        if decimation == 1 {
+            return Self {
+                decimation,
+                skip: 0,
+                stages: Vec::new(),
+                stage_factor: 1,
+                output_phase: 0,
+                final_filter: None,
+            };
+        }
+        let stages = if decimation < 8 {
+            0
+        } else {
+            (decimation / 4).ilog2() as usize
+        };
+        let stage_factor = 1usize << stages;
+        let phases = if stages == 0 { 0 } else { FILTER_PHASES };
         Self {
-            taps,
-            decimation: decimation.max(1),
-            history,
+            decimation,
             skip: 0,
-            extended: Vec::new(),
+            stages: (0..stages).map(|_| HalfBandStage::new()).collect(),
+            stage_factor,
+            output_phase: 0,
+            final_filter: Some(PhaseFilter::new(
+                decimation as f64 / stage_factor as f64,
+                phases,
+            )),
+        }
+    }
+
+    fn reset(&mut self, first_offset: usize) {
+        self.skip = first_offset;
+        self.output_phase = first_offset % self.stage_factor;
+        self.stages.iter_mut().for_each(HalfBandStage::reset);
+        if let Some(filter) = &mut self.final_filter {
+            filter.reset();
         }
     }
 
     fn process(&mut self, input: &[Complex32]) -> Vec<Complex32> {
-        let taps_len = self.taps.len();
-        self.extended.clear();
-        self.extended.reserve(self.history.len() + input.len());
-        self.extended.extend_from_slice(&self.history);
-        self.extended.extend_from_slice(input);
-
+        let Some(filter) = &mut self.final_filter else {
+            return input.to_vec();
+        };
         let mut output = Vec::with_capacity(input.len() / self.decimation + 1);
-        let mut i = self.skip;
-        while i < input.len() {
-            let window = &self.extended[i..i + taps_len];
-            let acc: Complex32 = window
-                .iter()
-                .zip(self.taps.iter())
-                .map(|(s, t)| *s * *t)
-                .sum();
-            output.push(acc);
-            i += self.decimation;
+        let mut next = self.skip;
+        for (n, &sample) in input.iter().enumerate() {
+            let mut value = Some(sample);
+            for stage in &mut self.stages {
+                value = value.and_then(|sample| stage.push(sample));
+                if value.is_none() {
+                    break;
+                }
+            }
+            if let Some(sample) = value {
+                filter.push(sample);
+            }
+            if n == next {
+                output.push(filter.output(self.output_phase as f64 / self.stage_factor as f64));
+                self.output_phase =
+                    (self.output_phase + self.decimation % self.stage_factor) % self.stage_factor;
+                next += self.decimation;
+            }
         }
-        self.skip = i - input.len();
-
-        let new_history_start = self.extended.len() - (taps_len - 1);
-        self.history.clear();
-        self.history
-            .extend_from_slice(&self.extended[new_history_start..]);
-
+        self.skip = next - input.len();
         output
     }
 }
 
 fn make_decimator(decimation: usize) -> FirDecimator {
-    if decimation == 1 {
-        // A full-bandwidth virtual channel must preserve every input sample.
-        // Applying the guarded anti-alias filter here attenuates the high-frequency
-        // energy that Mode S pulse-position modulation needs at 2.4 MSPS.
-        return FirDecimator::new(vec![1.0], 1);
-    }
-    let cutoff = (CUTOFF_GUARD / decimation as f32).clamp(0.01, 0.99);
-    FirDecimator::new(design_lowpass(FIR_TAPS, cutoff), decimation)
+    FirDecimator::new(decimation)
 }
 
 /// One tuned narrowband tap on the wideband stream: an independent DDC chain plus the
@@ -243,9 +373,9 @@ impl VirtualChannel {
         if !contiguous {
             self.output_epoch = ez_proto::new_capture_epoch();
             self.pending_discontinuity = true;
-            self.decimator.history.fill(Complex32::new(0.0, 0.0));
-            self.decimator.skip =
+            let first_offset =
                 ((decimation - block.start_sample % decimation) % decimation) as usize;
+            self.decimator.reset(first_offset);
             self.nco = Nco::new(
                 self.center_freq_hz as f64 - block.center_freq_hz as f64,
                 clock.exact_sample_rate_hz(),
@@ -733,16 +863,178 @@ mod tests {
     }
 
     #[test]
+    fn staged_and_prime_decimations_preserve_counts_partitions_and_reset_alignment() {
+        for d in [1, 2, 7, 10, 17, 160, 163, 4093] {
+            let input: Vec<_> = (0..d * 8 + 97)
+                .map(|n| {
+                    let angle = std::f64::consts::TAU * n as f64 * 0.08 / d as f64;
+                    Complex32::new(angle.cos() as f32, angle.sin() as f32)
+                })
+                .collect();
+            let mut whole = make_decimator(d);
+            let expected = whole.process(&input);
+            assert_eq!(expected.len(), input.len().div_ceil(d));
+            if d == 1 {
+                assert_eq!(expected, input);
+            }
+            for chunk in [1, 37, 997] {
+                let mut divided = make_decimator(d);
+                let actual: Vec<_> = input
+                    .chunks(chunk)
+                    .flat_map(|chunk| divided.process(chunk))
+                    .collect();
+                assert_eq!(actual, expected, "d={d} chunk={chunk}");
+            }
+            // A discontinuity may start off the previous decimation grid.
+            let first = (d - 3 % d) % d;
+            whole.reset(first);
+            let reset = whole.process(&input);
+            let mut fresh = make_decimator(d);
+            fresh.reset(first);
+            assert_eq!(reset, fresh.process(&input));
+            assert_eq!(reset.len(), input.len().saturating_sub(first).div_ceil(d));
+        }
+    }
+
+    #[test]
+    fn extreme_decimation_does_not_allocate_a_source_rate_sized_fir() {
+        for d in [2_048_003, u32::MAX as usize] {
+            let mut filter = make_decimator(d);
+            let final_filter = filter.final_filter.as_ref().unwrap();
+            assert!(final_filter.len <= 801);
+            assert!(final_filter.banks.len() <= FILTER_PHASES + 1);
+            let bytes = final_filter.len * final_filter.banks.len() * size_of::<f32>();
+            assert!(
+                bytes < 1024 * 1024,
+                "unbounded coefficient allocation {bytes}"
+            );
+            assert_eq!(
+                filter.process(&vec![Complex32::new(0.1, 0.0); 1000]).len(),
+                1
+            );
+        }
+    }
+
+    fn streamed_response(d: usize, components: &[(f64, f64)], chunk: usize) -> Vec<Complex32> {
+        let rate = 2_048_003;
+        let offset = 128_000;
+        let out_rate = f64::from(rate) / d as f64;
+        let count = 256 * d;
+        let mut channel = VirtualChannel::new(1, 100_000_000, rate, 100_128_000, d);
+        let mut output = Vec::new();
+        for first in (0..count).step_by(chunk) {
+            let samples = (first..(first + chunk).min(count))
+                .map(|n| {
+                    components.iter().fold(
+                        Complex32::new(0.0, 0.0),
+                        |sum, &(relative, amplitude)| {
+                            let angle = std::f64::consts::TAU
+                                * (relative * out_rate + f64::from(offset))
+                                * n as f64
+                                / f64::from(rate);
+                            sum + Complex32::new(
+                                (angle.cos() * amplitude) as f32,
+                                (angle.sin() * amplitude) as f32,
+                            )
+                        },
+                    )
+                })
+                .collect();
+            let mut block = wideband_block(100_000_000, rate, samples);
+            block.start_sample = first as u64;
+            block.product_session = 42;
+            if let Some(block) = channel.process(&block) {
+                assert_eq!(
+                    block.capture_clock().source_sample_index,
+                    output.len() as u64 * d as u64
+                );
+                assert_eq!(block.capture_clock().sample_stride, d as u32);
+                output.extend_from_slice(&block.samples);
+            }
+        }
+        assert_eq!(output.len(), 256);
+        output
+    }
+
+    fn response_rms(samples: &[Complex32]) -> f64 {
+        (samples.iter().map(|x| f64::from(x.norm_sqr())).sum::<f64>() / samples.len() as f64).sqrt()
+    }
+
+    #[test]
+    fn rational_output_phases_follow_the_source_clock_with_constant_filter_delay() {
+        for d in [2, 7, 17, 163, 4093] {
+            let stages = if d < 8 { 0 } else { (d / 4usize).ilog2() };
+            let factor = 1usize << stages;
+            let taps = (100.0 * d as f64 / factor as f64).ceil() as usize | 1;
+            // Half-band stages contribute 31 input samples each. The final
+            // FIR contributes its midpoint at the reduced rate. Fractional
+            // output phases must preserve this single physical delay.
+            let delay = 31 * (factor - 1) + (taps - 1) / 2 * factor;
+            for relative in [-0.4, -0.08, 0.08, 0.4] {
+                let output = streamed_response(d, &[(relative, 0.5)], 997);
+                for (n, actual) in output.iter().enumerate().skip(128) {
+                    let angle =
+                        std::f64::consts::TAU * relative * (n as f64 - delay as f64 / d as f64);
+                    let expected =
+                        Complex32::new((0.5 * angle.cos()) as f32, (0.5 * angle.sin()) as f32);
+                    assert!((actual - expected).norm() < 0.0001,
+                        "d={d} frequency={relative} sample={n} actual={actual:?} expected={expected:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn streamed_filters_reject_aliases_and_strong_mixtures_including_interpolated_prime_phases() {
+        for d in [2, 10, 163, 4093] {
+            for fraction in [0.0, 0.4, 0.5, 1.08] {
+                // D=2 cannot physically contain the beyond-Nyquist 1.08*Fsout tone.
+                if fraction > 1.0 && d == 2 {
+                    continue;
+                }
+                let output = streamed_response(d, &[(fraction, 0.5)], 4093);
+                let db = 20.0 * (response_rms(&output[128..]) / 0.5).log10();
+                if fraction <= 0.4 {
+                    assert!(db.abs() < 0.02, "d={d} pass={db}");
+                } else {
+                    assert!(db < -80.0, "d={d} rejection={db}");
+                }
+            }
+            if d == 2 {
+                continue;
+            }
+            let reference = streamed_response(d, &[(0.08, 0.01)], 997);
+            let actual = streamed_response(
+                d,
+                &[
+                    (0.08, 0.01),
+                    (1.08, 0.24),
+                    (-0.92, 0.24),
+                    (2.08, 0.24),
+                    (-1.92, 0.24),
+                ],
+                4093,
+            );
+            let difference: Vec<_> = actual[128..]
+                .iter()
+                .zip(&reference[128..])
+                .map(|(&a, &b)| a - b)
+                .collect();
+            let error = response_rms(&difference) / response_rms(&reference[128..]);
+            assert!(error < 0.005, "d={d} relative mixture error={error}");
+        }
+    }
+
+    #[test]
     fn design_lowpass_has_unity_dc_gain() {
-        let taps = design_lowpass(63, 0.2);
+        let taps = design_lowpass(63, 0.2, 0.0);
         let dc_gain: f32 = taps.iter().sum();
         assert!((dc_gain - 1.0).abs() < 1e-5, "DC gain was {dc_gain}");
     }
 
     #[test]
     fn fir_decimator_downsamples_by_expected_factor() {
-        let taps = design_lowpass(31, 0.5);
-        let mut dec = FirDecimator::new(taps, 4);
+        let mut dec = make_decimator(4);
         let input = vec![Complex32::new(1.0, 0.0); 4_000];
         let out = dec.process(&input);
         // 4000 / 4 = 1000, +/-1 for warm-up/decimation-phase rounding at the boundary.
@@ -755,13 +1047,12 @@ mod tests {
 
     #[test]
     fn fir_decimator_is_continuous_across_chunk_boundaries() {
-        let taps = design_lowpass(31, 0.3);
         let full_input: Vec<Complex32> = tone(2_000, 10.0, 1_000.0);
 
-        let mut whole = FirDecimator::new(taps.clone(), 5);
+        let mut whole = make_decimator(5);
         let out_whole = whole.process(&full_input);
 
-        let mut chunked = FirDecimator::new(taps, 5);
+        let mut chunked = make_decimator(5);
         let mut out_chunks = Vec::new();
         for chunk in full_input.chunks(37) {
             out_chunks.extend(chunked.process(chunk));
@@ -776,14 +1067,13 @@ mod tests {
     #[test]
     fn fir_lowpass_attenuates_out_of_band_tone() {
         let sample_rate = 1_000.0;
-        let taps = design_lowpass(63, 0.1); // passband up to ~50 Hz
-        let mut dec = FirDecimator::new(taps, 1);
+        let mut dec = make_decimator(10); // output Nyquist 50 Hz
 
         let in_band = tone(2_000, 10.0, sample_rate);
         let out_of_band = tone(2_000, 400.0, sample_rate);
 
         let passed = dec.process(&in_band);
-        let mut dec2 = FirDecimator::new(design_lowpass(63, 0.1), 1);
+        let mut dec2 = make_decimator(10);
         let rejected = dec2.process(&out_of_band);
 
         let tail_rms = |v: &[Complex32]| {

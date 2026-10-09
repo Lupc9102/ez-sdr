@@ -196,9 +196,16 @@
       "id": "R03",
       "title": "Daemon narrow-channel decimation aliases strong adjacent signals",
       "priority": "P1",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Replace the fixed 63-tap/clamped-cutoff decimator with bounded half-band stages and a phase-selected Blackman-Harris FIR designed from actual output rate. Specify <=0.02 dB passband error through 0.4 Fsout and >=80 dB rejection from 0.5 Fsout. Preserve exact source-grid counts, rational phase, chunks and reset alignment, including prime/large decimation.",
+      "regressions": [
+        "streamed_filters_reject_aliases_and_strong_mixtures_including_interpolated_prime_phases: D=2/10/163/4093; wanted, band edge, Nyquist, folding tones and four strong adjacent interferers.",
+        "rational_output_phases_follow_the_source_clock_with_constant_filter_delay: analytic complex tone phase/amplitude against exact physical group delay, both frequency signs through passband edge.",
+        "staged_and_prime_decimations_preserve_counts_partitions_and_reset_alignment: D=1/2/7/10/17/160/163/4093; bit-identical output under chunks 1/37/997; aligned reset counts.",
+        "extreme_decimation_does_not_allocate_a_source_rate_sized_fir: D=2048003 and u32::MAX; final coefficients below 1 MiB.",
+        "Existing source-clock, gap, retune, packet and product regressions pass in the full workspace suite.",
+        "Production SampleBus/DDC sweep: 622 frequencies across 15 geometries, minimum rejection 111.150040 dB, maximum passband error 0.000041 dB, four-interferer mixture relative error <=0.000004545. See repair-channelizer-verification.json."
+      ],
       "original_repair_gate": "Design filtering from actual passband, transition width and stopband rejection; use staged/polyphase decimation where needed. Sweep frequencies and source rates, and assert the rejection requirement before downsampling. Test adjacent-channel mixtures, not only wanted tones."
     },
     {

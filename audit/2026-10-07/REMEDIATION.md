@@ -2,7 +2,7 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-21 findings have software repairs with passing regressions; 12 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+22 findings have software repairs with passing regressions; 11 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
 
@@ -50,10 +50,12 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - **S02 — Absolute-phase-dependent OQPSK recovery**: Correct matched complex samples before projecting staggered branches; scale the second-order loop to its sample clock, retain both deskew directions and isolate their erasure histories.
   Evidence: all 60 independent pulse-shaped carrier cases recover byte-identical payloads at both tested chunk sizes; permanent frequency/clock-offset fixtures pass. A 20-second public 72k off-air slice yields 175 matching reference CADUs. See repair-carrier-verification.json.
 
+- **R03 — Daemon narrow-channel decimation aliases strong adjacent signals**: Use bounded half-band stages and an output-phase FIR designed from actual passband/transition/stopband requirements. Production frequency and strong-adjacent mixture sweeps exceed the 80 dB rejection gate. Prime-factor, exact source-clock, chunk and reset regressions pass.
+  Evidence: repair-channelizer-verification.json and channelizer evidence logs.
+
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
-- [ ] **R03 · P1** — Daemon narrow-channel decimation aliases strong adjacent signals
 - [ ] **R04 · P2** — Daemon playback downsamples mono PCM without an anti-alias filter
 - [ ] **R05 · P2** — Local FM loudness changes with RF sample rate and RF decimation
 - [ ] **R06 · P2** — USB/LSB power squelch measures a symmetric band instead of the selected sideband
@@ -168,3 +170,15 @@ Every telemetry preview carries product_id. A zero-size APID-zero update announc
 Final workspace verification passes: 219 daemon, 833 GUI, 20 protocol and 107 LRPT tests, plus integration/remaining workspace suites. Default build, all-target Clippy, formatting, all daemon hardware-feature compilation and AST graph refresh pass. No receiver was opened; missing HackRF/Soapy libraries and original field/audio/disk gates remain unverified. The initial rerun's error-text compatibility failure and the passing final run are retained in repair-mission-verification.json and its evidence logs.
 
 There are now 21 software-verified findings and 12 open findings. S01 retains its independent off-air 80k CADU/image gate. Next priority: R03 channelizer anti-alias filtering and the remaining radio clocks/selectivity/monitoring findings.
+
+## Channelizer anti-alias verification
+
+R03 is software-verified. The decimator now preserves a passband through 0.4 of the exact output sample rate, uses 0.4–0.5 as its transition band and rejects from output Nyquist onward. Half-band stages reduce the working rate before an output-phase Blackman-Harris FIR. Integer source-grid cadence is preserved even for prime factors; fractional coefficient selection keeps physical group delay constant. Decimation one remains exact full-band passthrough. Final coefficient memory stays below 1 MiB even at the largest u32 decimation.
+
+The real SampleBus/DDC sweep covers 622 signed-frequency measurements at source rates 2 MS/s, 2,048,003 S/s and 2.4 MS/s, with requested output rates 12.5k, 25k, 200k, 288k and 320k. Maximum passband error is 0.000041 dB and minimum stopband rejection is 111.150040 dB, against limits of 0.02 dB and 80 dB. Fifteen mixtures each contain four interferers 27.604 dB above the wanted carrier, with a bounded peak below clipping. Maximum wanted-normalized mixture error is 0.000004545. Different chunk sizes are used for reference and mixture streams.
+
+Permanent regressions add Nyquist/folding-tone and mixture checks at D=4093, exercising interpolated phase banks; independent analytic tone phase is compared against the exact source-clock/filter delay. Counts, partitions, off-grid gap resets, capture strides and bounded memory are checked separately. The original coarse probe is retained: its f32 phase generator and 50-output exclusion include generated in-band phase noise and new-filter startup. A separately labelled f64/fully settled probe reports the ideal carrier response. Neither the historical audit evidence nor those coarse results were replaced to obtain a rejection claim.
+
+Final full-workspace tests pass: 223 daemon, 833 GUI, 20 protocol and 107 LRPT tests, plus integration and remaining workspace suites. All 37 focused release channelizer/state tests pass. Default build, all-target Clippy with warnings denied, formatting, hardware-feature compilation and AST graph refresh pass. Command logs and source hashes are in repair-channelizer-verification.json. The graph has 7,318 nodes and 16,333 edges; HTML export was skipped at its configured size limit. No receiver was opened. Physical hardware/audio/disk and independent 80k off-air gates remain unverified.
+
+There are now 22 software-verified findings and 11 open findings. Next priority: R04 playback anti-alias resampling, followed by the remaining radio gain/selectivity/timebase/monitoring findings.
