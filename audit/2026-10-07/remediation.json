@@ -248,18 +248,22 @@
       "id": "R06",
       "title": "USB/LSB power squelch measures a symmetric band instead of the selected sideband",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Share nominal RF passband geometry between the demodulator, selected-channel carrier-peak measurement and scanner/spectrum selection, including DSB side selection. USB and LSB reject opposite-sideband peaks while retaining weak wanted carriers in stronger mixtures.",
+      "regressions": [
+        "810 wanted/opposite/mixed SSB cases across rates, widths and VFO offsets; 12 actual native squelch/recording-monitor cases and 12 scanner-consumer cases; active original audit_ssb_power_meter_passband. See repair-power-verification.json."
+      ],
       "original_repair_gate": "Share the demodulator's actual passband geometry with power measurement. Test wanted and opposite tones throughout both SSB sidebands, combined signals, VFO offsets and recording/scanning consumers."
     },
     {
       "id": "R07",
       "title": "Narrow power measurements can return silence because no FFT bin fits",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Use adaptive complete-window FFT observations with Blackman-Harris sidelobe control, fractional-peak frequency inference and calibrated scalloping correction after bounded antialias downconversion. Explicitly document carrier peak amplitude in dBFS rather than integrated RF power, and retire incomplete/history observations on context changes.",
+      "regressions": [
+        "Every integer CW width 50..500 Hz (451 cases), 72 edge/fractional-clock cases at 8 kS/s through 20 MS/s, arbitrary chunks/whole-stream equality and resets, complete-window counting, invalid geometry; active original half-old-bin carrier probe with acquisition length extended to a complete adaptive observation. See repair-power-verification.json."
+      ],
       "original_repair_gate": "Measure a filtered/time-domain channel or account for partial bins with suitable resolution and leakage control. Validate off-bin carriers at every supported narrow width, and state whether the metric is peak-bin amplitude or integrated RF power."
     },
     {

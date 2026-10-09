@@ -40,6 +40,7 @@ struct SpectrumContext {
     vfo_hz: u64,
     bandwidth_hz: u32,
     mode: String,
+    sideband: crate::demod::DsbSideband,
 }
 
 #[derive(Clone, Debug)]
@@ -427,6 +428,7 @@ pub struct SpectrumAnalyzer {
     show_vfo_b: bool,
     /// Current demodulation mode label (e.g. "NFM", "WFM", "AM").
     pub demod_mode: String,
+    pub dsb_sideband: crate::demod::DsbSideband,
     /// Scanner sweep position marker frequency (None when not scanning).
     pub scan_marker: Option<u64>,
     /// Squelch threshold in dBFS.
@@ -717,6 +719,7 @@ impl SpectrumAnalyzer {
             vfo_b_freq: 0,
             show_vfo_b: true,
             demod_mode: "NFM".to_string(),
+            dsb_sideband: crate::demod::DsbSideband::Both,
             frozen: false,
             fft_controls_enabled: true,
             scan_marker: None,
@@ -845,14 +848,11 @@ impl SpectrumAnalyzer {
 
     /// RF passband edges measured relative to the source capture center.
     fn vfo_band_edges(&self) -> (f64, f64) {
-        let bandwidth = self.vfo_bw_hz as f64;
         let offset = self.vfo_frequency_hz() as f64 - self.center_freq as f64;
-        let (left, right) = match self.demod_mode.as_str() {
-            "USB" => (0.0, bandwidth),
-            "LSB" => (-bandwidth, 0.0),
-            _ => (-bandwidth / 2.0, bandwidth / 2.0),
-        };
-        (left + offset, right + offset)
+        let mode = crate::sdr_panel::DemodMode::from_label(&self.demod_mode)
+            .unwrap_or(crate::sdr_panel::DemodMode::Fm);
+        crate::radio_power::RfPassband::for_mode(mode, self.vfo_bw_hz as f32, self.dsb_sideband)
+            .shifted(offset)
     }
 
     /// Frequency under a normalized plot position. Both plots share the
@@ -1000,6 +1000,7 @@ impl SpectrumAnalyzer {
             vfo_hz: self.vfo_frequency_hz(),
             bandwidth_hz: self.vfo_bw_hz,
             mode: self.demod_mode.clone(),
+            sideband: self.dsb_sideband,
         }
     }
 
@@ -5542,6 +5543,11 @@ mod tests {
         assert_eq!(s.vfo_band_edges(), (-2400.0, 0.0));
         s.demod_mode = "AM".into();
         assert_eq!(s.vfo_band_edges(), (-1200.0, 1200.0));
+        s.demod_mode = "DSB".into();
+        s.dsb_sideband = crate::demod::DsbSideband::Upper;
+        assert_eq!(s.vfo_band_edges(), (0.0, 2400.0));
+        s.dsb_sideband = crate::demod::DsbSideband::Lower;
+        assert_eq!(s.vfo_band_edges(), (-2400.0, 0.0));
     }
 
     #[test]

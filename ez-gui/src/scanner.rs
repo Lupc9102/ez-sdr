@@ -1807,6 +1807,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scan_consumes_shared_ssb_geometry_at_both_vfo_offsets_without_opposite_hits() {
+        let mut cases = 0;
+        for mode in ["USB", "LSB"] {
+            for offset in [-12000_i64, 0, 12000] {
+                for wanted in [false, true] {
+                    let mut scanner =
+                        FrequencyScanner::new(crate::test_helpers::make_shared_state());
+                    scanner.start_hz = (100000000_i64 + offset) as u64;
+                    scanner.stop_hz = scanner.start_hz + 50000;
+                    scanner.step_hz = 25000;
+                    scanner.dwell_ms = 0;
+                    scanner.threshold_db = -45.0;
+                    scanner.start();
+                    scanner.tune_request_hz = None;
+                    let mut spectrum = crate::spectrum::SpectrumAnalyzer::new();
+                    spectrum.set_fft_size(4096);
+                    spectrum.update_params(100000000, 409600);
+                    spectrum.vfo_freq_hz = Some(scanner.start_hz);
+                    spectrum.vfo_bw_hz = 3000;
+                    spectrum.demod_mode = mode.into();
+                    let now = Instant::now();
+                    scanner.tick_spectrum_at(&mut spectrum, true, now);
+                    let mut bins = vec![-120.0; 4096];
+                    let sign = if mode == "USB" { 1 } else { -1 };
+                    bins[(2048 + (offset - sign * 2200) / 100) as usize] = -3.0;
+                    if wanted {
+                        bins[(2048 + (offset + sign * 2200) / 100) as usize] = -26.0206;
+                    }
+                    let observed = now + SCAN_SETTLE_TIME + Duration::from_millis(40);
+                    let frame = ez_proto::SpectrumFrame {
+                        channel_id: 1,
+                        center_hz: 100000000,
+                        sample_rate_hz: 409600,
+                        bins: bins.clone(),
+                        timestamp_ms: 123,
+                        observation_revision: 0,
+                        measurement_bins: Some(bins),
+                    };
+                    spectrum.push_spectrum_frame_at(&frame, observed);
+                    scanner.tick_spectrum_at(&mut spectrum, true, observed);
+                    assert_eq!(
+                        scanner.hits.len(),
+                        usize::from(wanted),
+                        "{mode} offset={offset}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+        println!("power_scan_consumers cases={cases} shared_sided_passband=passed");
+    }
+
+    #[test]
     fn reapplying_untagged_display_bins_cannot_manufacture_a_scan_observation() {
         let mut scanner = FrequencyScanner::new(crate::test_helpers::make_shared_state());
         scanner.start_hz = 100_000_000;

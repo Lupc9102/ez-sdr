@@ -44,6 +44,10 @@ without speaker playback, use `--no-default-features`.
   75 kHz in WFM, before volume and audio processing. The deviation readout measures
   half the received frequency span over completed 100 ms windows, ignoring carrier
   offset and the first 10 ms of filter acquisition. Stereo and mono share this scale.
+- Native signal measurements estimate the strongest carrier peak in the selected
+  RF channel, in dBFS; they do not integrate total RF power. USB/LSB use their
+  selected sideband. Narrow CW measurements need a complete window (up to 200 ms);
+  retunes and capture gaps clear the previous reading. Display FFT settings are independent.
 - Choose the output device and sample rate under **Audio**. An unavailable saved device
   produces an error; it is not silently replaced by another device.
 - Display controls support streaming FFT sizes through 65,536, FFT rate, waterfall

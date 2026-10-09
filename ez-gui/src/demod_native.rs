@@ -4,6 +4,9 @@
 use super::*;
 use crate::capture_stream::{CaptureSession, CaptureStream};
 use crate::radio_iq::{RadioIqConfig, RadioIqProcessor, VfoMixer};
+use crate::radio_power::PowerMeter;
+#[cfg(test)]
+use crate::radio_power::RfPassband;
 use crate::radio_rds::{RdsDecoder, RdsRegion, RdsSnapshot};
 use crate::radio_squelch::{CtcssSquelch, SquelchMode};
 use crate::source_manager::CaptureBlock;
@@ -91,70 +94,6 @@ pub(super) struct RadioState {
     audio: RadioAudioStream,
     #[cfg(test)]
     timing: Arc<(AtomicBool, Mutex<Vec<u64>>)>,
-}
-
-// A complete native FFT window measures only the selected RF passband. It is
-// independent of display averaging and GUI pacing, including squelch updates.
-struct PowerMeter {
-    fft: Arc<dyn rustfft::Fft<f32>>,
-    samples: Vec<Complex32>,
-    scratch: Vec<Complex32>,
-    window: Vec<f32>,
-    normalization: f32,
-    level: f32,
-}
-
-impl PowerMeter {
-    fn new() -> Self {
-        let size = 4096;
-        let fft = rustfft::FftPlanner::<f32>::new().plan_fft_forward(size);
-        let window: Vec<_> = (0..size)
-            .map(|n| 0.5 - 0.5 * (std::f32::consts::TAU * n as f32 / size as f32).cos())
-            .collect();
-        let normalization = window.iter().sum::<f32>().recip();
-        Self {
-            scratch: vec![Complex32::default(); fft.get_inplace_scratch_len()],
-            fft,
-            samples: Vec::with_capacity(size),
-            window,
-            normalization,
-            level: -120.0,
-        }
-    }
-
-    fn reset(&mut self) {
-        self.samples.clear();
-        self.level = -120.0;
-    }
-
-    fn process(&mut self, samples: &[Complex32], rate: f64, offset: f64, bandwidth: f32) -> f32 {
-        let needed = self.window.len() - self.samples.len();
-        self.samples
-            .extend_from_slice(&samples[..samples.len().min(needed)]);
-        if self.samples.len() != self.window.len() {
-            return self.level;
-        }
-        for (sample, window) in self.samples.iter_mut().zip(&self.window) {
-            *sample *= window;
-        }
-        self.fft
-            .process_with_scratch(&mut self.samples, &mut self.scratch);
-        let size = self.samples.len();
-        let mut amplitude = 0.0_f32;
-        for (index, sample) in self.samples.iter().enumerate() {
-            let bin = if index < size / 2 {
-                index as f64
-            } else {
-                index as f64 - size as f64
-            };
-            if (bin * rate / size as f64 - offset).abs() <= f64::from(bandwidth) / 2.0 {
-                amplitude = amplitude.max(sample.norm() * self.normalization);
-            }
-        }
-        self.level = (20.0 * amplitude.max(1e-6).log10()).max(-120.0);
-        self.samples.clear();
-        self.level
-    }
 }
 
 struct Processor {
@@ -348,7 +287,7 @@ impl Processor {
                 &wideband,
                 self.iq.output_rate(),
                 offset,
-                desired.config.rf_bandwidth,
+                self.demod.rf_passband(desired.config.mode),
             )
         } else {
             -120.0
@@ -1019,7 +958,7 @@ mod tests {
         let mut meter = PowerMeter::new();
         let rate = 2_400_000.0;
         let tone = |frequency: f64, amplitude: f32| {
-            (0..4096)
+            (0..240_000)
                 .map(|n| {
                     let phase = std::f64::consts::TAU * frequency * n as f64 / rate;
                     Complex32::new(
@@ -1030,13 +969,144 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let off = tone(rate / 4096.0 * 341.0, 0.5);
-        assert!(meter.process(&off, rate, 0.0, 12_500.0) < -80.0);
+        assert!(
+            meter.process(
+                &off,
+                rate,
+                0.0,
+                RfPassband::for_mode(DemodMode::Fm, 12500.0, DsbSideband::Both)
+            ) < -80.0
+        );
         let selected = tone(0.0, 0.1);
-        assert!((meter.process(&selected, rate, 0.0, 12_500.0) + 20.0).abs() < 0.01);
+        assert!(
+            (meter.process(
+                &selected,
+                rate,
+                0.0,
+                RfPassband::for_mode(DemodMode::Fm, 12500.0, DsbSideband::Both)
+            ) + 20.0)
+                .abs()
+                < 0.01
+        );
         assert_eq!(
-            meter.process(&vec![Complex32::default(); 4096], rate, 0.0, 12_500.0),
+            meter.process(
+                &vec![Complex32::default(); 240_000],
+                rate,
+                0.0,
+                RfPassband::for_mode(DemodMode::Fm, 12500.0, DsbSideband::Both)
+            ),
             -120.0
         );
+    }
+
+    #[test]
+    fn native_ssb_gate_and_recording_monitor_follow_wanted_sideband_at_vfo_offsets() {
+        let mut cases = 0;
+        for mode in [DemodMode::Usb, DemodMode::Lsb] {
+            for offset in [-25000_i64, 0, 25000] {
+                for wanted in [false, true] {
+                    let stream = CaptureStream::default();
+                    stream.start(1);
+                    let (mut radio, mut demod) = config(None);
+                    radio.center_hz = 100_000_000;
+                    radio.frequency_hz = (100_000_000_i64 + offset) as u64;
+                    radio.iq = RadioIqConfig {
+                        input_rate: 384000,
+                        decimation: 1,
+                        dc_remove: false,
+                        invert: false,
+                    };
+                    radio.preview = false;
+                    radio.measure_power = true;
+                    radio.squelch_mode = SquelchMode::Power;
+                    radio.squelch_db = -45.0;
+                    radio.volume = 1.0;
+                    demod.mode = mode;
+                    demod.input_rate = 384000.0;
+                    demod.rf_bandwidth = 3000.0;
+                    let desired = WorkerControl {
+                        radio: Some(radio),
+                        config: demod,
+                        ..Default::default()
+                    };
+                    let previews = Broadcaster::new();
+                    let audio = RadioAudioStream {
+                        bus: Broadcaster::new(),
+                        capture: stream,
+                        handled_samples: Arc::new(AtomicU64::new(0)),
+                        lost_samples: Arc::new(AtomicU64::new(0)),
+                        running: Arc::new(AtomicBool::new(true)),
+                        produced_samples: Arc::new(AtomicU64::new(0)),
+                    };
+                    let rx = audio.bus.subscribe(32, OverflowPolicy::DropIncoming);
+                    let mut processor = Processor::new();
+                    processor.configure(&desired);
+                    processor.demod.set_agc_enabled(false);
+                    let sign = if mode == DemodMode::Usb { 1.0 } else { -1.0 };
+                    for n in 0..12 {
+                        let samples: Vec<_> = (n * 4096..(n + 1) * 4096)
+                            .map(|index| {
+                                let time = index as f64 / 384000.0;
+                                let opposite = std::f64::consts::TAU
+                                    * (offset as f64 - sign * 2197.137)
+                                    * time;
+                                let selected = std::f64::consts::TAU
+                                    * (offset as f64 + sign * 2197.137)
+                                    * time;
+                                Complex32::new(
+                                    (0.7 * opposite.cos()
+                                        + if wanted { 0.05 * selected.cos() } else { 0.0 })
+                                        as f32,
+                                    (0.7 * opposite.sin()
+                                        + if wanted { 0.05 * selected.sin() } else { 0.0 })
+                                        as f32,
+                                )
+                            })
+                            .collect();
+                        let mut block = CaptureBlock::fixture(
+                            Vec::new(),
+                            ez_proto::CaptureClock::new(123, n as u64 * 4096, 384000, None),
+                            1,
+                            n as u64 * 4096,
+                        );
+                        block.float_samples = Some(Arc::from(samples));
+                        block.center_hz = 100_000_000;
+                        block.clock.discontinuous = n == 0;
+                        processor.process(&block, &desired, &previews, &audio);
+                    }
+                    let mut frames = Vec::new();
+                    while let Some(frame) = rx.try_recv() {
+                        frames.push(frame);
+                    }
+                    assert_eq!(frames.len(), 12);
+                    let last = frames.last().unwrap();
+                    if wanted {
+                        assert!((processor.snapshot.signal_db + 26.0206).abs() < 0.15);
+                        assert!(last.samples.iter().any(|x| x.abs() > 0.02));
+                    } else {
+                        assert!(processor.snapshot.signal_db < -80.0);
+                        assert!(last.samples.iter().all(|x| *x == 0.0));
+                    }
+                    let mut recorder = crate::recorder_panel::RecorderPanel::new(
+                        crate::test_helpers::make_shared_state(),
+                    );
+                    recorder.signal_monitor = true;
+                    recorder.tick_squelch_record(
+                        processor.snapshot.signal_db,
+                        -45.0,
+                        desired.radio.as_ref().unwrap().frequency_hz,
+                        mode.label(),
+                    );
+                    assert_eq!(
+                        recorder.signal_log.len(),
+                        usize::from(wanted),
+                        "{mode:?} offset={offset}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+        println!("power_native_consumers cases={cases} display_preview=false gate_and_recording_monitor=passed");
     }
 
     #[test]

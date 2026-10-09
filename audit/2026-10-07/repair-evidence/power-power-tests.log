@@ -1,0 +1,35 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.21s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 6 tests
+test radio_power::tests::sideband_geometry_matches_demodulator_including_dsb_selection_and_defaults ... ok
+test radio_power::tests::all_windows_in_a_large_block_are_consumed_and_invalid_geometry_retires_readings ... ok
+test radio_power::tests::full_stream_counts_chunks_and_resets_do_not_depend_on_caller_partitions ... ok
+power_cw integer_widths=451 max_gain_error_db=0.0000019073486
+test radio_power::tests::every_integer_cw_width_and_fractional_off_bin_carrier_keeps_calibrated_amplitude ... ok
+test radio_power::tests::cw_edge_peaks_fractional_clocks_low_and_high_capture_rates_have_no_bin_blind_spots has been running for over 60 seconds
+test radio_power::tests::ssb_sweep_preserves_wanted_peaks_rejects_opposite_and_keeps_mixed_weak_tones has been running for over 60 seconds
+power_cw_edges cases=72 max_gain_error_db=0.0000019073486
+test radio_power::tests::cw_edge_peaks_fractional_clocks_low_and_high_capture_rates_have_no_bin_blind_spots ... ok
+power_ssb cases=810 max_gain_error_db=0.0015525818 maximum_opposite_dbfs=-95.376816
+test radio_power::tests::ssb_sweep_preserves_wanted_peaks_rejects_opposite_and_keeps_mixed_weak_tones ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 852 filtered out; finished in 124.15s

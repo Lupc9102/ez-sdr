@@ -2,9 +2,14 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-24 findings have software repairs with passing regressions; 9 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+26 findings have software repairs with passing regressions; 7 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
+
+- **R06 — USB/LSB power squelch measures a symmetric band instead of the selected sideband**: Share actual nominal RF geometry with demodulation, native measurement and scanner selection, including DSB upper/lower.
+  Evidence: 810 sideband cases, 12 native squelch/recording-monitor cases and 12 scanner cases pass. Maximum wanted gain error is 0.00156 dB; maximum opposite reading is −95.37 dBFS. See repair-power-verification.json.
+- **R07 — Narrow power measurements can return silence because no FFT bin fits**: Infer fractional spectral peaks with adaptive resolution and controlled leakage. The metric is carrier peak amplitude in dBFS; complete narrow observations take up to 200 ms.
+  Evidence: all 451 integer CW widths and 72 edge/fractional-clock cases pass, alongside chunk/reset/window-cadence checks. The original carrier fixture now supplies a complete adaptive observation without changing its amplitude gate. See repair-power-verification.json.
 
 - **R05 — Local FM loudness changes with RF sample rate and RF decimation**: Use physical 5 kHz NFM / 75 kHz WFM amplitude units at the actual discriminator clock. Correct interval averaging, RF filter phase distortion and IF interpolation/reconstruction loss; share mono/stereo deviation measurements and reset semantics.
   Evidence: 216 independent tone cases, 12 continuous stereo-MPX cases and 24 stereo-downmix comparisons pass strict gain/pitch/count/deviation gates. See repair-fm-verification.json.
@@ -63,8 +68,6 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
 - [ ] **R05 · P2** — Local FM loudness changes with RF sample rate and RF decimation
-- [ ] **R06 · P2** — USB/LSB power squelch measures a symmetric band instead of the selected sideband
-- [ ] **R07 · P2** — Narrow power measurements can return silence because no FFT bin fits
 - [ ] **R09 · P2** — AM audio aliases when the selected RF band exceeds output audio Nyquist
 - [ ] **R10 · P2** — RAW output has the wrong channel count and timebase for playback/WAV
 - [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
@@ -78,7 +81,7 @@ Normal workspace tests pass with hardware/audio disabled (`cargo test --workspac
 
 The original long Viterbi counterexample now reports zero errors in the 1,920 aligned clean bits after 8,192,000 noisy trellis steps. The chronological-marker probe extracts both frames. Split primary headers complete; the old cross-VCID probe produces AAAA instead of BBAA. The independent 896-pixel libjpeg fixture has maximum error 1 and mean error 0.021205; the exact DC vector produces pixel 160.
 
-The historical reproduce.py verifies the baseline counterexamples, so it intentionally no longer passes unchanged on repaired code. Active regressions and repair-verification.json are the evidence for this batch. R06/R07 acceptance probes remain ignored pending their repairs.
+The historical reproduce.py verifies the baseline counterexamples, so it intentionally no longer passes unchanged on repaired code. Active regressions and repair-verification.json are the evidence for this batch. R06/R07 were pending in that batch; their acceptance probes are now active under the carrier-power repair below.
 
 Graphify was refreshed with the AST-only update command. It skipped HTML because the graph exceeds 5,000 nodes; code navigation remains available. Pre-existing user deletions and the untracked AGENTS.md are excluded from repair commits. The formatter normalized three previously unformatted areas and the audit example now uses the equivalent Clippy-approved parity expression.
 
@@ -211,3 +214,7 @@ A continuous stereo fixture analytically integrates a seven-component multiplex 
 The failed development checks exposed real attenuation from single-bin IF reconstruction, sample-interval averaging, RF IIR phase distortion and linear IF interpolation. The repair preserves clean FM through envelope-informed reconstruction, uses a bounded symmetric frequency equalizer, shares the verified linear-phase FIR RF decimator and applies causal four-point IQ interpolation. The IF channel filter is applied once. The original strongest-bin reference and noisy-NFM SNR-improvement regression still pass. Failed logs remain alongside the final evidence.
 
 All 75 demodulator tests and the full workspace suite pass, including 845 GUI, 223 daemon, 20 protocol and 107 LRPT tests. Default workspace build, all-target Clippy with warnings denied and formatting pass. The AST graph refresh passes with 7,359 nodes and 16,472 edges; the eight user-deleted tracked graph sidecars remain deleted. Commands, logs, measured cases and source hashes are recorded in repair-fm-verification.json. No physical receiver/audio device was opened, and all original field and off-air release gates remain unverified where independent evidence is still missing. The goal remains active.
+
+## Carrier-power repair verification (R06/R07)
+
+All focused DSP and native/scanner-consumer regressions pass, as do the default workspace build, all-target Clippy with warnings denied and formatting. The AST refresh passes with 7,385 nodes and 16,553 edges; the eight user-deleted graph sidecars remain deleted. The full workspace test attempt was stopped at the user request to stop pegging CPU (SIGTERM, exit 143); it is incomplete and is not counted as passing. Command logs, failed development compilations, source hashes, acquisition limits and every measured sweep are retained in repair-power-verification.json. No additional CPU-heavy checks were started after that request. Original hardware/off-air/audio/disk gates remain unchanged, and the goal remains active.

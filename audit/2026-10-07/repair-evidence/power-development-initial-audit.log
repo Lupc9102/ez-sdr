@@ -1,0 +1,14 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+error: unexpected closing delimiter: `}`
+    --> ez-gui/src/spectrum.rs:4266:1
+     |
+ 622 | impl SpectrumAnalyzer {
+     |                       - this delimiter might not be properly closed...
+...
+ 858 |     }
+     |     - ...as it matches this but it has different indentation
+...
+4266 | }
+     | ^ unexpected closing delimiter
+
+error: could not compile `ez-gui` (lib test) due to 1 previous error

@@ -1,7 +1,6 @@
-// Acceptance probes from the 2026-10-07 audit. R01 and R08 are active
-// regressions; R06 and R07 remain ignored until their repairs land.
-// Run the remaining probes with `cargo test -p ez-gui --no-default-features
-// --lib audit_ -- --ignored --nocapture`.
+// Active acceptance probes from the 2026-10-07 audit: R01, R06, R07 and R08.
+// R06/R07 use the shared selected-channel geometry.
+// Run with `cargo test -p ez-gui --no-default-features --lib audit_ -- --nocapture`.
 
 fn audit_tone(rate: f64, frequency: f64) -> Vec<Complex32> {
     (0..4096)
@@ -47,12 +46,11 @@ fn audit_signed_file_replay() {
 }
 
 #[test]
-#[ignore = "R06: power meter does not match the SSB passband"]
 fn audit_ssb_power_meter_passband() {
     let rate = 300_000.0;
     let mut meter = PowerMeter::new();
-    let wanted = meter.process(&audit_tone(rate, 30.0 * rate / 4096.0), rate, 0.0, 3_000.0);
-    let opposite = meter.process(&audit_tone(rate, -15.0 * rate / 4096.0), rate, 0.0, 3_000.0);
+    let wanted = meter.process(&audit_tone(rate, 30.0 * rate / 4096.0), rate, 0.0, RfPassband::for_mode(DemodMode::Usb,3000.0,DsbSideband::Both));
+    let opposite = meter.process(&audit_tone(rate, -15.0 * rate / 4096.0), rate, 0.0, RfPassband::for_mode(DemodMode::Usb,3000.0,DsbSideband::Both));
     println!(
         "USB bandwidth=3000 wanted_2197Hz_db={wanted:.3} opposite_minus1099Hz_db={opposite:.3}"
     );
@@ -63,11 +61,16 @@ fn audit_ssb_power_meter_passband() {
 }
 
 #[test]
-#[ignore = "R07: an allowed 50 Hz CW passband can contain no FFT bins"]
 fn audit_narrow_cw_power_meter() {
     let rate = 300_000.0;
     let offset = rate / 4096.0 / 2.0;
-    let level = PowerMeter::new().process(&audit_tone(rate, offset), rate, offset, 50.0);
+    // A 50 Hz channel requires a complete observation at the meter's finer
+    // resolution; keep the original off-grid RF frequency and amplitude gate.
+    let tone: Vec<_> = (0..90_000).map(|n| {
+        let phase = std::f64::consts::TAU * offset * n as f64 / rate;
+        Complex32::new((0.5*phase.cos()) as f32,(0.5*phase.sin()) as f32)
+    }).collect();
+    let level = PowerMeter::new().process(&tone, rate, offset, RfPassband::for_mode(DemodMode::Cw,50.0,DsbSideband::Both));
     println!("CW bandwidth=50 rate=300000 offset={offset:.6} in_band_carrier_db={level}");
     assert!(
         level > -10.0,

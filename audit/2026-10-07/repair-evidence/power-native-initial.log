@@ -1,0 +1,40 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 12 tests
+CS8 signed=[0, 1, -1, 64, -64, 127, -128, 0] replayed_as_CU8=[128, 129, 127, 192, 64, 255, 0, 128] correct_CU8=[128, 129, 127, 192, 64, 255, 0, 128]
+test demod::native::tests::audit_signed_file_replay ... ok
+requested_generation=2 block_generation=1 accepted_audio_samples=0 skipped_rf_samples=16384
+test demod::native::tests::audit_reject_old_capture_generation ... ok
+USB bandwidth=3000 wanted_2197Hz_db=-6.021 opposite_minus1099Hz_db=-120.000
+test demod::native::tests::audit_ssb_power_meter_passband ... ok
+test demod::native::tests::skipped_new_generation_retires_previous_epoch_and_radio_snapshot ... ok
+test demod::native::tests::native_radio_accounts_for_bounded_overflow_missing_tail_and_lost_generations ... ok
+test demod::native::tests::native_radio_coalesces_controls_and_acknowledges_without_iq ... ok
+CW bandwidth=50 rate=300000 offset=36.621094 in_band_carrier_db=-6.0206003
+test demod::native::tests::audit_narrow_cw_power_meter ... ok
+test demod::native::tests::native_float_replay_reaches_rf_preview_and_audio_at_sub_byte_amplitudes ... ok
+test demod::native::tests::native_wav_rejects_capture_geometry_before_radio_controls_catch_up ... ok
+test demod::native::tests::native_radio_resets_every_state_at_capture_boundaries ... ok
+A09 native radio/playback: 1966080 RF samples, 39321 audio samples, no GUI drains, zero loss
+test demod::native::tests::native_radio_delivers_all_rf_and_playback_without_gui_reads ... ok
+test demod::native::tests::native_power_squelch_uses_selected_rf_without_display_updates ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 846 filtered out; finished in 1.28s

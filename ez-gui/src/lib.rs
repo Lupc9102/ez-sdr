@@ -35,6 +35,7 @@ pub mod mode_bar;
 pub mod mqtt;
 pub mod quick_start;
 pub mod radio_iq;
+mod radio_power;
 pub mod radio_rds;
 pub mod radio_squelch;
 pub mod radio_ui;

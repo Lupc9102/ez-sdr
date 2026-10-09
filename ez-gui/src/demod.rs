@@ -980,6 +980,10 @@ impl Demodulator {
         }
     }
 
+    pub(crate) fn rf_passband(&self, mode: DemodMode) -> crate::radio_power::RfPassband {
+        crate::radio_power::RfPassband::for_mode(mode, self.rf_bandwidth_hz, self.dsb_sideband)
+    }
+
     pub fn set_sample_rates(&mut self, input_rate: u32, audio_rate: u32) {
         self.set_sample_rates_exact(f64::from(input_rate), audio_rate);
     }
@@ -1909,7 +1913,7 @@ impl Demodulator {
         // shift is essential: otherwise every received voice tone changes pitch.
         let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
         let mode = if usb { DemodMode::Usb } else { DemodMode::Lsb };
-        let shift_hz = self.rf_bandwidth(mode) / 2.0;
+        let shift_hz = self.rf_passband(mode).center().abs() as f32;
         let shift_rad = 2.0 * std::f32::consts::PI * shift_hz / self.input_rate.max(1.0) as f32;
         let sign = if usb { -1.0 } else { 1.0 };
 

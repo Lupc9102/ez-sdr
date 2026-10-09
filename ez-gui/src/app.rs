@@ -1251,6 +1251,7 @@ impl eframe::App for CentralApp {
                 crate::radio_ui::reconcile_tuning(&mut state);
                 state.spectrum.vfo_freq_hz = Some(state.source.frequency_hz);
                 state.spectrum.vfo_bw_hz = crate::radio_ui::channel_bandwidth(&state) as u32;
+                state.spectrum.dsb_sideband = state.config.advanced.dsb_sideband;
                 state.spectrum.demod_mode = state
                     .demod_mode
                     .resolve(state.source.frequency_hz)
@@ -2379,6 +2380,7 @@ impl CentralApp {
                     state.spectrum.update_params_exact(center, rate);
                 }
                 state.spectrum.vfo_bw_hz = crate::radio_ui::channel_bandwidth(&state) as u32;
+                state.spectrum.dsb_sideband = state.config.advanced.dsb_sideband;
                 state.spectrum.vfo_freq_hz = Some(state.source.frequency_hz);
                 state.spectrum.vfo_b_freq = state.vfo_b;
                 state.spectrum.demod_mode = state.demod_mode.resolve(state.source.frequency_hz).label().to_string();
