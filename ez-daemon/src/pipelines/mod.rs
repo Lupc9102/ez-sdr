@@ -8,6 +8,7 @@
 //! obscure each one's actual control flow.
 
 pub mod audio;
+mod audio_filter;
 pub mod packet;
 pub mod spectrum;
 pub mod telemetry;

@@ -137,6 +137,9 @@ envelope detection and frequencies shifted above audio Nyquist by the CW beat.
 Audio filters and effects run at the device clock; RF bandwidth remains separate
 from audio bandwidth.
 
+Daemon USB/LSB listening preserves voice pitch and rejects the opposite sideband
+across the 300–3,000 Hz voice band, including the GUI’s 200 kS/s channel.
+
 Automatic recording and signal monitoring require **Power** squelch and use the
 entire -100..0 dBFS threshold range. Local observations come from the native RF
 processor; daemon observations use fresh raw spectrum measurements after capture

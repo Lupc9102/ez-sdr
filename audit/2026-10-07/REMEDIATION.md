@@ -2,9 +2,12 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-30 findings have software repairs with passing regressions; 3 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+31 findings have software repairs with passing regressions; 2 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
+
+- **R12 — Daemon SSB rejection degrades sharply at the actual GUI channel rate**: Define the sideband response in Hz at the exact channel clock, and restore the mixer translation before real projection to preserve voice pitch.
+  Evidence: all 336 voice checks and 21 unique affected tests pass; default daemon build, all-target Clippy, formatting and AST graph refresh pass. Minimum measured opposite rejection is 92.681208 dB. See repair-ssb-selectivity-verification.json.
 
 - **R09 — AM audio aliases when the selected RF band exceeds output audio Nyquist**: Filter detected AM, SSB, DSB and CW audio before device-rate conversion, including nonlinear envelope harmonics and CW beat mixing. Preserve headroom, stream duration and device-clock audio controls.
   Evidence: six focused regressions and all 64 unique affected tests pass, alongside GUI build, Clippy, formatting and graph refresh. See repair-detected-antialias-verification.json.
@@ -73,7 +76,6 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
-- [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
 
 ## Verification and limits
@@ -253,3 +255,17 @@ All six focused and all 64 unique affected tests pass. The mode sweep covers 12 
 The unchanged constant-carrier DC regression exposed a pre-existing constructor clock inconsistency: 2.048 MHz source/input with 1:1 decimation and a 48k audio clock. The constructor now starts consistently at 48 kHz; capture workers apply their actual source rate before DSP. The original DC window and amplitude gate remain unchanged. Explicit constructor invariants, default FM/WFM and worker mode/reset regressions pass.
 
 GUI default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. The failed development outcome, final command logs, source hashes and resource policy are retained in repair-detected-antialias-verification.json. All checks ran serially under 10% of one CPU, nice 19, one Cargo job and one test thread. User deletions remain untouched. The ledger now has 30 software-verified findings and three open findings: S01, R12 and R19. Original off-air/hardware/audio/disk release requirements remain unverified; the goal remains active.
+
+## Daemon SSB response — focused verification, 2026-10-10
+
+R12 has an implemented repair and three passing focused tests; it remains open pending affected regression, default-feature build and Clippy verification. A 36th-order complex Butterworth filter defines the response in Hz at the exact channel clock. Translating the selected sideband back before real projection preserves voice pitch. This also removes the old 1,650 Hz voice-frequency shift.
+
+The real AudioPipeline sweep checks USB and LSB at six clocks, including 200 kS/s and fractional 204,800.3 S/s. All 336 voice points from 300 through 3,000 Hz pass: maximum wanted gain error 0.02520669 dB, minimum opposite-sideband rejection 92.681208 dB, and maximum gain error with an opposite signal 12.5 times stronger (21.94 dB) of 0.00251525 dB. Exact chunk equality, epoch/discontinuity/gap/mode resets, filter-clock changes and nonfinite input checks also pass.
+
+The completed focused run used 10% of one CPU core, nice 19, one Cargo job and one test thread. No further build or test job was started after the user requested relief from CPU load. The log, exact command and source hashes are saved in repair-ssb-selectivity-verification.json. The ledger remains at 30 software-verified findings and three open findings; R19 and all original field/off-air/hardware/audio/disk gates remain unchanged.
+
+## Daemon SSB response — completed affected verification, 2026-10-10
+
+R12 is software-verified. All 18 existing audio regressions pass alongside the three focused tests described above (21 unique tests total). Default daemon build, all-target Clippy with warnings denied and formatting pass. The AST graph refresh completed with 7,474 nodes and 16,863 edges; user-deleted graph sidecars remain deleted. No full-workspace suite was run.
+
+The affected checks used an enforced 10% quota of one CPU core, nice 19, one Cargo job and one test thread. Exact commands, retained logs, source hashes and the guarded runner are saved in repair-ssb-selectivity-verification.json. The ledger now contains 31 software-verified findings and two open findings: S01 and R19. Original repair gates and physical/off-air/hardware/audio/disk release requirements remain unchanged; the goal remains active.

@@ -1,0 +1,36 @@
+import json, os, re, subprocess, time
+from pathlib import Path
+line = next(x for x in Path('/proc/self/cgroup').read_text().splitlines() if x.startswith('0::'))
+cgroup = Path('/sys/fs/cgroup') / line.split('::', 1)[1].lstrip('/')
+cpu_max = (cgroup / 'cpu.max').read_text().strip()
+assert cpu_max == '10000 100000', cpu_max
+assert os.getpriority(os.PRIO_PROCESS, 0) == 19
+resource = {'cgroup': str(cgroup), 'cpu_max': cpu_max, 'nice': 19, 'build_jobs': 1, 'test_threads': 1}
+commands = [
+ ('affected-audio', ['cargo','test','-p','ez-daemon','--no-default-features','-j','1','--lib','pipelines::audio::tests::','--','--nocapture','--test-threads=1','--skip','ssb_production']),
+ ('clippy', ['cargo','clippy','-p','ez-daemon','--all-targets','-j','1','--','-D','warnings']),
+ ('default-build', ['cargo','build','-p','ez-daemon','-j','1']),
+ ('format', ['cargo','fmt','--all','--','--check']),
+]
+results=[]
+for name, command in commands:
+    print('Running '+name+' under 10% CPU cap.', flush=True)
+    log = Path('/tmp/ez-sdr-r12-'+name+'.log')
+    start=time.monotonic()
+    with log.open('wb') as output:
+        result=subprocess.run(command, stdout=output, stderr=subprocess.STDOUT)
+    content=log.read_text()
+    record={'name':name,'command':command,'exit_code':result.returncode,'seconds':time.monotonic()-start,'raw_log':str(log)}
+    if name=='affected-audio':
+        harness=re.findall(r'test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored',content)
+        assert harness, content
+        record['test_harnesses']=[{'passed':int(a),'failed':int(b),'ignored':int(c)} for a,b,c in harness]
+    results.append(record)
+    print(name+': exit '+str(result.returncode)+'; '+str(round(record['seconds'],2))+' seconds', flush=True)
+    if result.returncode:
+        print(content[-4500:], flush=True)
+    payload={'resource_policy':resource,'commands':results,'cpu_stat':(cgroup/'cpu.stat').read_text()}
+    Path('/tmp/ez-sdr-r12-verification-results.json').write_text(json.dumps(payload,indent=2)+'\n')
+    if result.returncode:
+        raise SystemExit(result.returncode)
+print('Affected SSB checks complete.', flush=True)

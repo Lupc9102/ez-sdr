@@ -1,0 +1,21 @@
+   Compiling tokio v1.53.1
+   Compiling serde v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling thiserror v2.0.21
+   Compiling tokio-util v0.7.19
+   Compiling sync_wrapper v1.0.2
+   Compiling hyper v1.11.1
+   Compiling tungstenite v0.29.0
+   Compiling bincode v1.3.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling tokio-tungstenite v0.29.0
+   Compiling hyper-util v0.1.21
+   Compiling tower v0.5.3
+   Compiling axum-core v0.5.6
+   Compiling tower-http v0.6.11
+   Compiling axum v0.8.9
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7m 34s

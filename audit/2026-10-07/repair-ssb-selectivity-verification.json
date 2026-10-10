@@ -1,0 +1,244 @@
+{
+  "date": "2026-10-10",
+  "scope": [
+    "R12"
+  ],
+  "verification_state": "software_verified",
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "ez-daemon",
+    "--no-default-features",
+    "-j",
+    "1",
+    "--lib",
+    "ssb_production",
+    "--",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  "resource_policy": {
+    "systemd_unit": "ez-sdr-audit-r12-focused.service",
+    "cpu_quota": "10% of one CPU core",
+    "nice": 19,
+    "build_jobs": 1,
+    "test_threads": 1
+  },
+  "test_result": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "filtered_out": 225,
+    "test_runtime_seconds": 17.89
+  },
+  "log": "repair-evidence/ssb-selectivity-focused.log",
+  "log_sha256": "b63984361e4c0480e34093a5485f8bea05b9e85b0c54208441306fd1ed7667eb",
+  "source_sha256": {
+    "ez-daemon/src/pipelines/audio.rs": "bd2c52e7602432152835afee0ac326deb2b3ab32622a513c6b85e405b15e5e26",
+    "ez-daemon/src/pipelines/audio_filter.rs": "445f8417ed78c592fb80d2288fff21419b87585fc7dcdb6995a13f5e3e48d51d",
+    "ez-daemon/src/pipelines/mod.rs": "b8e6a58b0e4655f9d5bfeba3555fa4b91143858fa525b32af42b8872242387e2",
+    "README.md": "c9a8901e1c92278581597cb38b6d86e073407a5347e5efad51e216e45aaef02b"
+  },
+  "behavior": {
+    "filter": "36th-order Butterworth complex low-pass at the exact channel clock, centered at +/-1650 Hz with a 1450 Hz cutoff. Translate back before real projection to preserve voice pitch.",
+    "voice_passband_hz": [
+      300,
+      3000
+    ],
+    "sidebands": [
+      "USB",
+      "LSB"
+    ],
+    "source_rate_and_stride": [
+      [
+        8000,
+        1
+      ],
+      [
+        48000,
+        1
+      ],
+      [
+        96000,
+        1
+      ],
+      [
+        192000,
+        1
+      ],
+      [
+        200000,
+        1
+      ],
+      [
+        2048003,
+        10
+      ]
+    ],
+    "voice_points_hz": [
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900,
+      1000,
+      1100,
+      1200,
+      1300,
+      1400,
+      1500,
+      1600,
+      1700,
+      1800,
+      1900,
+      2000,
+      2100,
+      2200,
+      2300,
+      2400,
+      2500,
+      2600,
+      2700,
+      2800,
+      2900,
+      3000
+    ],
+    "voice_checks": 336,
+    "maximum_gain_error_db": 0.02520669,
+    "minimum_opposite_rejection_db": 92.681208,
+    "opposite_to_wanted_amplitude_ratio": 12.5,
+    "maximum_mixture_gain_error_db": 0.00251525
+  },
+  "regressions": [
+    "ssb_production_whole_voice_band_rejects_strong_opposite_signals_without_pitch_shift",
+    "ssb_production_fractional_clock_chunks_mode_changes_and_gaps_preserve_history",
+    "ssb_production_filter_reset_clock_changes_and_nonfinite_samples_retire_history"
+  ],
+  "limits": [
+    "The focused sweep covers 28 voice frequencies in each sideband at six channel clocks, rather than an off-air station or physical audio device.",
+    "Affected regressions, build, Clippy and formatting ran serially under an enforced 10% one-core quota after the earlier CPU-relief checkpoint. No full-workspace suite was run.",
+    "R19 protocol rate separation and AM/FM RF selection remain separate open requirements.",
+    "No physical receiver or audio device was opened.",
+    "Original repair and release gates remain unchanged."
+  ],
+  "graph_refresh": {
+    "command": [
+      "graphify",
+      "update",
+      "."
+    ],
+    "exit_code": 0,
+    "cpu_max": "10000 100000",
+    "log": "repair-evidence/ssb-selectivity-graph-refresh.log",
+    "log_sha256": "85a61baac078a781bc83dfba50a1e94c5b17fa8b773e876d262f2bdcd4e58629",
+    "nodes": 7474,
+    "edges": 16863,
+    "user_deleted_sidecars_preserved": true
+  },
+  "affected_resource_policy": {
+    "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r12-verification.service",
+    "cpu_max": "10000 100000",
+    "nice": 19,
+    "build_jobs": 1,
+    "test_threads": 1,
+    "observed_cpu_stat": "usage_usec 63762968\nuser_usec 50860240\nsystem_usec 12902727\nnice_usec 52169000\ncore_sched.force_idle_usec 0\nnr_periods 6384\nnr_throttled 6383\nthrottled_usec 623937752\nnr_bursts 0\nburst_usec 0\n"
+  },
+  "affected_commands": [
+    {
+      "name": "affected-audio",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-daemon",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "pipelines::audio::tests::",
+        "--",
+        "--nocapture",
+        "--test-threads=1",
+        "--skip",
+        "ssb_production"
+      ],
+      "exit_code": 0,
+      "seconds": 26.9119689500003,
+      "test_harnesses": [
+        {
+          "passed": 18,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log": "repair-evidence/ssb-selectivity-affected-audio.log",
+      "log_sha256": "cbb17781d6f526ed032b5df75eb0bec52e017f6760ee982aab067b70e67b0da0",
+      "raw_log_sha256": "34d906d80609c93e7c12d67fd27a11f1f76a58e1dc7ffc4dfb92ec7467997ea2",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged."
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "ez-daemon",
+        "--all-targets",
+        "-j",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 143.61115722899922,
+      "log": "repair-evidence/ssb-selectivity-clippy.log",
+      "log_sha256": "5b3377d17d21377fccfbfeb0fbebdfdb314f5caa73817003dce5b749f1eca73e",
+      "raw_log_sha256": "5b3377d17d21377fccfbfeb0fbebdfdb314f5caa73817003dce5b749f1eca73e",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged."
+    },
+    {
+      "name": "default-build",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "ez-daemon",
+        "-j",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 455.39455330999954,
+      "log": "repair-evidence/ssb-selectivity-default-build.log",
+      "log_sha256": "03356ad3c155841159d5fd8821cdad8783c02f767ecb8424812fef7fe399962c",
+      "raw_log_sha256": "03356ad3c155841159d5fd8821cdad8783c02f767ecb8424812fef7fe399962c",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged."
+    },
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 12.000916606999454,
+      "log": "repair-evidence/ssb-selectivity-format.log",
+      "log_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged."
+    }
+  ],
+  "verification_runner": {
+    "path": "repair-evidence/ssb-selectivity-verification-runner.py",
+    "sha256": "48c18cdb0cf2f8820a4e1ae89665fa1ccd2808a5d6e16b267d2d2787d2874394"
+  },
+  "unique_affected_tests_passed": 21,
+  "raw_log_sha256": "9654fdd5d99413148d9bd72e3430ac328434f0bfcd2ce5f270c69ad463b9fc95",
+  "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged."
+}

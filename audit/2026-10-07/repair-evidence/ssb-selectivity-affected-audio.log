@@ -1,0 +1,25 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.89s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-95650a7f14b2f657)
+
+running 18 tests
+test pipelines::audio::tests::am_envelope_responds_to_an_amplitude_step ... ok
+test pipelines::audio::tests::am_envelope_settles_near_zero_under_a_constant_carrier ... ok
+test pipelines::audio::tests::default_squelch_passes_a_normal_signal_through ... ok
+test pipelines::audio::tests::fm_discriminator_recovers_constant_offset_as_constant_level ... ok
+test pipelines::audio::tests::fm_discriminator_state_is_continuous_across_ticks ... ok
+test pipelines::audio::tests::fm_output_is_clamped_to_unit_range_under_excessive_deviation ... ok
+test pipelines::audio::tests::missing_samples_or_changed_epoch_reset_every_audio_mode ... ok
+test pipelines::audio::tests::raising_squelch_above_signal_power_silences_output ... ok
+test pipelines::audio::tests::raw_mode_passes_through_the_i_channel ... ok
+test pipelines::audio::tests::run_exits_promptly_when_running_flag_clears ... ok
+test pipelines::audio::tests::set_mode_resets_carried_state_without_panicking ... ok
+test pipelines::audio::tests::set_volume_clamps_to_the_documented_range ... ok
+test pipelines::audio::tests::squelch_gates_output_without_discarding_discriminator_continuity ... ok
+test pipelines::audio::tests::subscriber_count_reflects_subscriptions ... ok
+test pipelines::audio::tests::tick_times_out_cleanly_when_idle ... ok
+test pipelines::audio::tests::usb_and_lsb_reject_the_opposite_sideband ... ok
+test pipelines::audio::tests::volume_scales_raw_output_and_stays_clamped_to_unit_range ... ok
+test pipelines::audio::tests::wfm_deemphasis_attenuates_higher_frequencies ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 210 filtered out; finished in 0.49s

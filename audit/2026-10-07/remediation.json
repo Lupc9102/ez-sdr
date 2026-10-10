@@ -318,10 +318,15 @@
       "id": "R12",
       "title": "Daemon SSB rejection degrades sharply at the actual GUI channel rate",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
-      "original_repair_gate": "Bring SSB to a suitable intermediate rate with anti-alias filtering or scale the filter design to a defined transition/rejection. Sweep the entire voice passband at actual production rates for both sidebands and mixed adjacent signals."
+      "status": "software_verified",
+      "change": "Select USB/LSB with a 36th-order complex Butterworth response specified in Hz at the exact channel clock. Restore the mixer translation before real projection to retain voice pitch. The six-clock, whole-voice-band sweep, stronger opposite-signal mixtures and reset/chunk regressions pass alongside all 18 existing audio regressions, default daemon build, all-target Clippy, formatting and AST graph refresh.",
+      "regressions": [
+        "ssb_production_whole_voice_band_rejects_strong_opposite_signals_without_pitch_shift",
+        "ssb_production_fractional_clock_chunks_mode_changes_and_gaps_preserve_history",
+        "ssb_production_filter_reset_clock_changes_and_nonfinite_samples_retire_history"
+      ],
+      "original_repair_gate": "Bring SSB to a suitable intermediate rate with anti-alias filtering or scale the filter design to a defined transition/rejection. Sweep the entire voice passband at actual production rates for both sidebands and mixed adjacent signals.",
+      "verification": "repair-ssb-selectivity-verification.json"
     },
     {
       "id": "R13",

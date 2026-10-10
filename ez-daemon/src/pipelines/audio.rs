@@ -2,9 +2,9 @@
 //! demodulated mono PCM [`AudioFrame`]s, fanned out to any number of network clients.
 //!
 //! All modes consume complex baseband samples that the [`crate::channelizer::Channelizer`]
-//! has already NCO-mixed and lowpass-decimated to center on the tuned frequency — this
-//! pipeline only ever does the final demodulation step, never any tuning or channel
-//! selection of its own.
+//! has already NCO-mixed and lowpass-decimated to center on the tuned frequency.
+//! USB/LSB additionally select the wanted voice sideband before real projection;
+//! their filter and oscillator use the channel's exact capture clock.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -13,6 +13,7 @@ use num_complex::Complex32;
 
 use ez_proto::{AudioFrame, ChannelId, DemodMode};
 
+use super::audio_filter::ComplexLowpass;
 use crate::broadcast::{Broadcaster, BroadcasterHandle, OverflowPolicy};
 use crate::bus::{SampleBlock, SampleBusHandle, SampleContinuity};
 
@@ -34,29 +35,9 @@ const MAX_VOLUME: f32 = 4.0;
 const DEFAULT_SQUELCH_DB: f32 = -120.0;
 const SSB_SHIFT_HZ: f32 = 1_650.0;
 const SSB_LOWPASS_HZ: f32 = 1_450.0;
-const SSB_FIR_TAPS: usize = 257;
-
-fn design_ssb_lowpass(sample_rate_hz: u32) -> Vec<f32> {
-    let fs = sample_rate_hz.max(1) as f32;
-    let normalized = 2.0 * SSB_LOWPASS_HZ / fs;
-    let midpoint = (SSB_FIR_TAPS - 1) as f32 / 2.0;
-    let mut taps: Vec<f32> = (0..SSB_FIR_TAPS)
-        .map(|n| {
-            let x = n as f32 - midpoint;
-            let sinc = if x.abs() < f32::EPSILON {
-                normalized
-            } else {
-                (std::f32::consts::PI * normalized * x).sin() / (std::f32::consts::PI * x)
-            };
-            let window = 0.54
-                - 0.46 * (2.0 * std::f32::consts::PI * n as f32 / (SSB_FIR_TAPS - 1) as f32).cos();
-            sinc * window
-        })
-        .collect();
-    let sum: f32 = taps.iter().sum();
-    taps.iter_mut().for_each(|tap| *tap /= sum);
-    taps
-}
+// At the 1,650 Hz sideband center, voice at 300..3,000 Hz lies within
+// +/-1,350 Hz. The 36th-order response is flat within 0.1 dB there and rejects
+// the opposite sideband from +/-1,950 Hz by at least 80 dB at production rates.
 
 #[derive(Debug, Clone, Copy)]
 pub struct AudioConfig {
@@ -77,11 +58,8 @@ pub struct AudioPipeline {
     dc_prev_y: f32,
     prev_sample: Complex32,
     deemph_prev: f32,
-    ssb_phase: f32,
-    ssb_history: Vec<Complex32>,
-    ssb_history_index: usize,
-    ssb_filter_rate_hz: u32,
-    ssb_filter_taps: Vec<f32>,
+    ssb_phase: f64,
+    ssb_filter: ComplexLowpass,
     volume: f32,
     squelch_db: f32,
     squelch_revision: u64,
@@ -103,10 +81,7 @@ impl AudioPipeline {
             prev_sample: Complex32::new(0.0, 0.0),
             deemph_prev: 0.0,
             ssb_phase: 0.0,
-            ssb_history: vec![Complex32::new(0.0, 0.0); SSB_FIR_TAPS],
-            ssb_history_index: 0,
-            ssb_filter_rate_hz: 0,
-            ssb_filter_taps: Vec::new(),
+            ssb_filter: ComplexLowpass::default(),
             volume: 1.0,
             squelch_db: DEFAULT_SQUELCH_DB,
             squelch_revision: 0,
@@ -132,8 +107,7 @@ impl AudioPipeline {
         self.prev_sample = Complex32::new(0.0, 0.0);
         self.deemph_prev = 0.0;
         self.ssb_phase = 0.0;
-        self.ssb_history.fill(Complex32::new(0.0, 0.0));
-        self.ssb_history_index = 0;
+        self.ssb_filter.reset();
     }
 
     #[must_use]
@@ -217,8 +191,16 @@ impl AudioPipeline {
                 self.apply_deemphasis(&mut raw, block.sample_rate_hz);
                 raw
             }
-            DemodMode::Usb => self.demod_ssb(&block.samples, block.sample_rate_hz, true),
-            DemodMode::Lsb => self.demod_ssb(&block.samples, block.sample_rate_hz, false),
+            DemodMode::Usb => self.demod_ssb(
+                &block.samples,
+                block.capture_clock().exact_sample_rate_hz(),
+                true,
+            ),
+            DemodMode::Lsb => self.demod_ssb(
+                &block.samples,
+                block.capture_clock().exact_sample_rate_hz(),
+                false,
+            ),
         };
 
         // Squelch gates on the block's own mean input power so it reacts to the RF signal
@@ -296,29 +278,24 @@ impl AudioPipeline {
         }
     }
 
-    fn demod_ssb(&mut self, samples: &[Complex32], sample_rate_hz: u32, usb: bool) -> Vec<f32> {
-        if self.ssb_filter_rate_hz != sample_rate_hz {
-            self.ssb_filter_taps = design_ssb_lowpass(sample_rate_hz);
-            self.ssb_filter_rate_hz = sample_rate_hz;
-            self.ssb_history.fill(Complex32::new(0.0, 0.0));
-            self.ssb_history_index = 0;
-        }
-        let phase_step = 2.0 * std::f32::consts::PI * SSB_SHIFT_HZ / sample_rate_hz.max(1) as f32;
+    fn demod_ssb(&mut self, samples: &[Complex32], sample_rate_hz: f64, usb: bool) -> Vec<f32> {
+        let phase_step = std::f64::consts::TAU * f64::from(SSB_SHIFT_HZ) / sample_rate_hz.max(1.0);
         let mixer_sign = if usb { -1.0 } else { 1.0 };
         let mut output = Vec::with_capacity(samples.len());
         for &sample in samples {
-            let oscillator = Complex32::from_polar(1.0, mixer_sign * self.ssb_phase);
-            let mixed = sample * oscillator;
-            self.ssb_phase = (self.ssb_phase + phase_step).rem_euclid(2.0 * std::f32::consts::PI);
-
-            self.ssb_history[self.ssb_history_index] = mixed;
-            let mut filtered = Complex32::new(0.0, 0.0);
-            for (lag, &tap) in self.ssb_filter_taps.iter().enumerate() {
-                let index = (self.ssb_history_index + SSB_FIR_TAPS - lag) % SSB_FIR_TAPS;
-                filtered += self.ssb_history[index] * tap;
-            }
-            self.ssb_history_index = (self.ssb_history_index + 1) % SSB_FIR_TAPS;
-            output.push((2.0 * filtered.re).clamp(-1.0, 1.0));
+            let (sin, cos) = self.ssb_phase.sin_cos();
+            let mixed = Complex32::new(
+                (f64::from(sample.re) * cos - mixer_sign * f64::from(sample.im) * sin) as f32,
+                (mixer_sign * f64::from(sample.re) * sin + f64::from(sample.im) * cos) as f32,
+            );
+            let selected =
+                self.ssb_filter
+                    .process(mixed, f64::from(SSB_LOWPASS_HZ), sample_rate_hz);
+            // Restore the RF translation before real projection: filtering must
+            // select the wanted sideband without shifting every voice tone.
+            let audio = f64::from(selected.re) * cos + mixer_sign * f64::from(selected.im) * sin;
+            output.push((2.0 * audio as f32).clamp(-1.0, 1.0));
+            self.ssb_phase = (self.ssb_phase + phase_step).rem_euclid(std::f64::consts::TAU);
         }
         output
     }
@@ -562,6 +539,185 @@ mod tests {
             lsb_rejected < lsb_wanted * 0.1,
             "LSB rejection: wanted={lsb_wanted}, opposite={lsb_rejected}"
         );
+    }
+
+    fn ssb_tone_amplitude(samples: &[f32], hz: f64, rate: f64) -> f64 {
+        let projection: num_complex::Complex64 = samples
+            .iter()
+            .enumerate()
+            .map(|(n, &sample)| {
+                num_complex::Complex64::from_polar(
+                    f64::from(sample),
+                    -std::f64::consts::TAU * hz * n as f64 / rate,
+                )
+            })
+            .sum();
+        2.0 * projection.norm() / samples.len() as f64
+    }
+
+    #[test]
+    fn ssb_production_whole_voice_band_rejects_strong_opposite_signals_without_pitch_shift() {
+        let frequencies: Vec<_> = (300..=3000).step_by(100).map(f64::from).collect();
+        let mut max_gain_error = 0.0_f64;
+        let mut max_mixture_error = 0.0_f64;
+        let mut minimum_rejection = f64::INFINITY;
+        let mut checks = 0;
+        for (source_rate, stride) in [
+            (8000_u32, 1_u32),
+            (48_000, 1),
+            (96_000, 1),
+            (192_000, 1),
+            (200_000, 1),
+            (2_048_003, 10),
+        ] {
+            let rate = f64::from(source_rate) / f64::from(stride);
+            let count = (rate * 0.2) as usize;
+            let positive: Vec<_> = (0..count)
+                .map(|n| {
+                    let value: num_complex::Complex64 = frequencies
+                        .iter()
+                        .map(|&hz| {
+                            num_complex::Complex64::from_polar(
+                                0.002,
+                                std::f64::consts::TAU * hz * n as f64 / rate,
+                            )
+                        })
+                        .sum();
+                    Complex32::new(value.re as f32, value.im as f32)
+                })
+                .collect();
+            for mode in [DemodMode::Usb, DemodMode::Lsb] {
+                let wanted: Vec<_> = positive
+                    .iter()
+                    .map(|&x| if mode == DemodMode::Usb { x } else { x.conj() })
+                    .collect();
+                let opposite: Vec<_> = wanted.iter().map(|x| x.conj() * 12.5).collect();
+                let mixture: Vec<_> = wanted.iter().zip(&opposite).map(|(a, b)| a + b).collect();
+                let measure = |input: Vec<Complex32>| {
+                    let (_, mut pipeline) = pipeline_with(mode);
+                    let output = pipeline.subscribe(2);
+                    let mut block = block_of(input, source_rate / stride);
+                    let mut clock =
+                        ez_proto::CaptureClock::new(71, 0, source_rate, Some(1_000_000));
+                    clock.sample_stride = stride;
+                    block.capture = Some(clock);
+                    pipeline.process_block(&block);
+                    let frame = output.try_recv().unwrap();
+                    assert_eq!(frame.samples.len(), count);
+                    assert_eq!(frame.clock.exact_sample_rate_hz(), rate);
+                    frame.samples[frame.samples.len() - (rate * 0.1) as usize..].to_vec()
+                };
+                let reference = measure(wanted);
+                let rejected = measure(opposite);
+                let mixed = measure(mixture);
+                for &hz in &frequencies {
+                    let amplitude = ssb_tone_amplitude(&reference, hz, rate);
+                    let gain_error = (20.0 * (amplitude / 0.004).log10()).abs();
+                    let rejection =
+                        -20.0 * (ssb_tone_amplitude(&rejected, hz, rate) / 0.05).log10();
+                    let mixture_error =
+                        (20.0 * (ssb_tone_amplitude(&mixed, hz, rate) / amplitude).log10()).abs();
+                    max_gain_error = max_gain_error.max(gain_error);
+                    max_mixture_error = max_mixture_error.max(mixture_error);
+                    minimum_rejection = minimum_rejection.min(rejection);
+                    assert!(
+                        gain_error < 0.1,
+                        "{mode:?} {rate} {hz}Hz gain error={gain_error}dB"
+                    );
+                    assert!(
+                        rejection > 80.0,
+                        "{mode:?} {rate} {hz}Hz rejection={rejection}dB"
+                    );
+                    assert!(
+                        mixture_error < 0.1,
+                        "{mode:?} {rate} {hz}Hz mixture error={mixture_error}dB"
+                    );
+                    checks += 1;
+                }
+            }
+        }
+        eprintln!("ssb_production voice_checks={checks} max_gain_error_db={max_gain_error:.8} min_rejection_db={minimum_rejection:.6} max_21_94db_stronger_opposite_mixture_error_db={max_mixture_error:.8}");
+    }
+
+    #[test]
+    fn ssb_production_fractional_clock_chunks_mode_changes_and_gaps_preserve_history() {
+        let mut clock = ez_proto::CaptureClock::new(81, 0, 2_048_003, Some(1_000_000));
+        clock.sample_stride = 10;
+        let rate = clock.exact_sample_rate_hz();
+        let input: Vec<_> = (0..12_007)
+            .map(|n| {
+                let t = n as f64 / rate;
+                let wanted =
+                    num_complex::Complex64::from_polar(0.05, std::f64::consts::TAU * 300.0 * t);
+                let opposite =
+                    num_complex::Complex64::from_polar(0.5, -std::f64::consts::TAU * 1800.0 * t);
+                Complex32::new(
+                    (wanted.re + opposite.re) as f32,
+                    (wanted.im + opposite.im) as f32,
+                )
+            })
+            .collect();
+        let block = |samples: Vec<Complex32>, offset: usize, clock: ez_proto::CaptureClock| {
+            let mut block = block_of(samples, 204_800);
+            block.start_sample = offset as u64;
+            block.capture = clock.offset_samples(offset as u64);
+            block
+        };
+        for mode in [DemodMode::Usb, DemodMode::Lsb] {
+            let (_, mut whole) = pipeline_with(mode);
+            let whole_out = whole.subscribe(2);
+            whole.process_block(&block(input.clone(), 0, clock));
+            let expected = whole_out.try_recv().unwrap().samples;
+            let (_, mut split) = pipeline_with(mode);
+            let output = split.subscribe(2);
+            let mut actual = Vec::new();
+            let mut offset = 0;
+            for size in [1_usize, 37, 997].into_iter().cycle() {
+                if offset == input.len() {
+                    break;
+                }
+                let end = (offset + size).min(input.len());
+                split.process_block(&block(input[offset..end].to_vec(), offset, clock));
+                actual.extend(output.try_recv().unwrap().samples);
+                offset = end;
+            }
+            assert_eq!(actual, expected, "chunk history {mode:?}");
+            let mut base_clock = clock;
+            for boundary in 0..4 {
+                if boundary == 0 {
+                    base_clock.epoch += 1;
+                }
+                if boundary == 2 {
+                    base_clock.source_sample_index += 100;
+                }
+                let mut new_clock = base_clock;
+                match boundary {
+                    0 => {}
+                    1 => new_clock.discontinuous = true,
+                    2 => {}
+                    _ => {
+                        split.set_mode(DemodMode::Raw);
+                        split.set_mode(mode);
+                    }
+                }
+                let after = block(
+                    input[..997].to_vec(),
+                    input.len() + boundary * 997,
+                    new_clock,
+                );
+                split.process_block(&after);
+                let frame = output.try_recv().unwrap();
+                let (_, mut fresh) = pipeline_with(mode);
+                let fresh_out = fresh.subscribe(2);
+                fresh.process_block(&after);
+                assert_eq!(
+                    frame.samples,
+                    fresh_out.try_recv().unwrap().samples,
+                    "reset {mode:?}/{boundary}"
+                );
+                assert!(frame.clock.discontinuous);
+            }
+        }
     }
 
     #[test]
