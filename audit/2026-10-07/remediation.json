@@ -411,9 +411,13 @@
       "title": "Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection",
       "priority": "P2",
       "status": "open",
-      "change": null,
-      "regressions": [],
-      "original_repair_gate": "Separate RF passband width, channel sample rate and audio output rate in the protocol. Apply mode-specific complex channel selection before AM/FM detection, and measure squelch on that selected signal. Test desired/adjacent mixtures at realistic amplitude ratios."
+      "change": "Prepared shared audio-rate conversion for daemon use without changing existing converter arithmetic, plus a bounded linear-phase FFT RF selector with passing production-clock/strong-neighbor tests. Protocol and AudioPipeline integration remain pending; the finding stays open.",
+      "regressions": [
+        "audio_rf::tests::rf_selection_production_clocks_protect_passband_and_reject_stronger_neighbors",
+        "audio_rf::tests::rf_selection_chunks_resets_and_nonfinite_inputs_preserve_bounded_history"
+      ],
+      "original_repair_gate": "Separate RF passband width, channel sample rate and audio output rate in the protocol. Apply mode-specific complex channel selection before AM/FM detection, and measure squelch on that selected signal. Test desired/adjacent mixtures at realistic amplitude ratios.",
+      "verification": "repair-daemon-audio-foundation-verification.json"
     },
     {
       "id": "R20",

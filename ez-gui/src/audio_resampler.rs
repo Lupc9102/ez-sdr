@@ -3,86 +3,13 @@
 //! The passband extends through 0.4 * min(input Fs, output Fs), with a
 //! transition to 0.5 * min(Fs) and at least 80 dB measured alias rejection.
 
-const PHASE_INTERVALS: usize = 256;
+pub(crate) use ez_daemon::audio_rate::RateFilter;
 
 fn valid_rates(source_rate: u32, stride: u32, output_rate: u32) -> bool {
     stride != 0
         && u64::from(source_rate) >= 8_000 * u64::from(stride)
         && u64::from(source_rate) <= 384_000 * u64::from(stride)
         && (8_000..=384_000).contains(&output_rate)
-}
-
-pub(crate) struct RateFilter {
-    banks: Vec<Vec<f32>>,
-    history: Vec<f32>,
-    write: usize,
-    len: usize,
-}
-
-impl RateFilter {
-    pub(crate) fn new(input_per_output: f64) -> Self {
-        let ratio = input_per_output.max(1.0);
-        let len = (100.0 * ratio).ceil() as usize | 1;
-        let cutoff = 0.9 / ratio;
-        let midpoint = (len - 1) as f64 / 2.0;
-        let banks = (0..=PHASE_INTERVALS)
-            .map(|bank| {
-                let phase = bank as f64 / PHASE_INTERVALS as f64;
-                let mut taps: Vec<f64> = (0..len)
-                    .map(|n| {
-                        let x = n as f64 - midpoint - phase;
-                        let sinc = if x.abs() < 1e-12 {
-                            cutoff
-                        } else {
-                            (std::f64::consts::PI * cutoff * x).sin() / (std::f64::consts::PI * x)
-                        };
-                        let angle = std::f64::consts::TAU * n as f64 / (len - 1) as f64;
-                        let window = 0.35875 - 0.48829 * angle.cos()
-                            + 0.14128 * (2.0 * angle).cos()
-                            - 0.01168 * (3.0 * angle).cos();
-                        sinc * window
-                    })
-                    .collect();
-                let gain: f64 = taps.iter().sum();
-                taps.iter_mut().for_each(|tap| *tap /= gain);
-                taps.into_iter().map(|tap| tap as f32).collect()
-            })
-            .collect();
-        Self {
-            banks,
-            history: vec![0.0; len * 2],
-            write: 0,
-            len,
-        }
-    }
-
-    pub(crate) fn push(&mut self, sample: f32) {
-        self.history[self.write] = sample;
-        self.history[self.write + self.len] = sample;
-        self.write = (self.write + 1) % self.len;
-    }
-
-    pub(crate) fn output(&self, phase: f64) -> f32 {
-        let coordinate = phase * PHASE_INTERVALS as f64;
-        let bank = coordinate.floor() as usize;
-        let blend = (coordinate - bank as f64) as f32;
-        let samples = &self.history[self.write..self.write + self.len];
-        if blend == 0.0 {
-            return samples
-                .iter()
-                .zip(&self.banks[bank])
-                .map(|(x, tap)| x * tap)
-                .sum();
-        }
-        // Select the fractional delay before rate conversion. Interpolating
-        // coefficients is safe; interpolating unfiltered PCM would alias.
-        samples
-            .iter()
-            .zip(&self.banks[bank])
-            .zip(&self.banks[bank + 1])
-            .map(|((&x, &a), &b)| x * (a + (b - a) * blend))
-            .sum()
-    }
 }
 
 #[derive(Default)]
@@ -420,16 +347,18 @@ mod tests {
                 (count as u64 * u64::from(output_rate)).div_ceil(u64::from(input_rate)) as usize
             );
             let filter = resampler.filter.as_ref().unwrap();
-            assert!(filter.len <= 4801 && filter.banks.len() <= 257);
-            let settling = (filter.len as f64 * f64::from(output_rate) / f64::from(input_rate))
-                .ceil() as usize
+            let (taps, phases) = filter.storage_shape();
+            assert!(taps <= 4801 && phases <= 257);
+            let settling = (filter.storage_shape().0 as f64 * f64::from(output_rate)
+                / f64::from(input_rate))
+            .ceil() as usize
                 + 1;
             assert_tone_clock(
                 &actual,
                 f64::from(input_rate),
                 output_rate,
                 hz,
-                (filter.len - 1) as f64 / 2.0,
+                (filter.storage_shape().0 - 1) as f64 / 2.0,
                 settling,
             );
         }
@@ -472,7 +401,7 @@ mod tests {
             (samples.len() as u64 * 48_000 * u64::from(stride)).div_ceil(u64::from(source_rate))
                 as usize
         );
-        let delay = (reference.filter.as_ref().unwrap().len - 1) as f64 / 2.0;
+        let delay = (reference.filter.as_ref().unwrap().storage_shape().0 - 1) as f64 / 2.0;
         assert_tone_clock(&actual, rate, 48_000, 17_000.0, delay, 128);
     }
 

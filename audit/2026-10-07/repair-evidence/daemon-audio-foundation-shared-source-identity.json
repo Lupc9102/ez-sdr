@@ -1,0 +1,6 @@
+{
+  "baseline_commit": "344a543988b750975000c6046cd6040055695f25",
+  "rate_filter_algorithm_canonical_sha256": "70055387d4576aaf61151c2d16ed76b3e9b8f21039c444762e23ae37807e8d5c",
+  "iq_audio_converter_algorithm_canonical_sha256": "0f0254fc0d8b5254c9d78066a7b10f8cebd7d3356631dfff7c8b5be858ca4e6a",
+  "canonicalization": "Whitespace removed, visibility and shared type names normalized. Added storage-shape accessor excluded. All coefficient design, arithmetic, state, gain, sanitation and duration-accounting source is otherwise identical."
+}

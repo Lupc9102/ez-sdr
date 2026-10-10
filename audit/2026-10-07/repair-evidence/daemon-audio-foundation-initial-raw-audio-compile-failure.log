@@ -1,0 +1,39 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0616]: field `len` of struct `RateFilter` is private
+   --> ez-gui/src/audio_resampler.rs:352:36
+    |
+352 |             let settling = (filter.len as f64 * f64::from(output_rate) / f64::from(input_rate))
+    |                                    ^^^ private field
+
+error[E0616]: field `len` of struct `RateFilter` is private
+   --> ez-gui/src/audio_resampler.rs:360:25
+    |
+360 |                 (filter.len - 1) as f64 / 2.0,
+    |                         ^^^ private field
+
+error[E0616]: field `len` of struct `RateFilter` is private
+   --> ez-gui/src/audio_resampler.rs:403:57
+    |
+403 |         let delay = (reference.filter.as_ref().unwrap().len - 1) as f64 / 2.0;
+    |                                                         ^^^ private field
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0616`.
+warning: `ez-gui` (lib test) generated 2 warnings
+error: could not compile `ez-gui` (lib test) due to 3 previous errors; 2 warnings emitted
