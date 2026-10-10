@@ -12,7 +12,7 @@ fn valid_rates(source_rate: u32, stride: u32, output_rate: u32) -> bool {
         && (8_000..=384_000).contains(&output_rate)
 }
 
-struct RateFilter {
+pub(crate) struct RateFilter {
     banks: Vec<Vec<f32>>,
     history: Vec<f32>,
     write: usize,
@@ -20,7 +20,7 @@ struct RateFilter {
 }
 
 impl RateFilter {
-    fn new(input_per_output: f64) -> Self {
+    pub(crate) fn new(input_per_output: f64) -> Self {
         let ratio = input_per_output.max(1.0);
         let len = (100.0 * ratio).ceil() as usize | 1;
         let cutoff = 0.9 / ratio;
@@ -56,13 +56,13 @@ impl RateFilter {
         }
     }
 
-    fn push(&mut self, sample: f32) {
+    pub(crate) fn push(&mut self, sample: f32) {
         self.history[self.write] = sample;
         self.history[self.write + self.len] = sample;
         self.write = (self.write + 1) % self.len;
     }
 
-    fn output(&self, phase: f64) -> f32 {
+    pub(crate) fn output(&self, phase: f64) -> f32 {
         let coordinate = phase * PHASE_INTERVALS as f64;
         let bank = coordinate.floor() as usize;
         let blend = (coordinate - bank as f64) as f32;

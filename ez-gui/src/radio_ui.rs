@@ -1890,6 +1890,27 @@ fn channel_bandwidth_bounds_for(state: &SharedState, mode: DemodMode) -> (f32, f
     (bounds.0.min(max), max)
 }
 
+pub(crate) fn playback_channels(state: &SharedState) -> usize {
+    if state.source.source_mode != SourceMode::Daemon
+        && (state.demod_mode.resolve(state.source.frequency_hz) == DemodMode::Raw
+            || stereo_audio_requested(state))
+    {
+        2
+    } else {
+        1
+    }
+}
+
+pub(crate) fn recording_audio_channels(state: &SharedState) -> u16 {
+    if state.source.source_mode != SourceMode::Daemon
+        && state.demod_mode.resolve(state.source.frequency_hz) == DemodMode::Raw
+    {
+        2
+    } else {
+        1
+    }
+}
+
 pub(crate) fn stereo_audio_requested(state: &SharedState) -> bool {
     state.source.source_mode != SourceMode::Daemon
         && state.config.advanced.wfm_stereo
@@ -2182,6 +2203,28 @@ mod tests {
         assert_eq!(channel_bandwidth(&state), 150_000.0);
         state.source.sample_rate_hz = 48_000;
         assert_eq!(channel_bandwidth(&state), 45_600.0);
+    }
+
+    #[test]
+    fn raw_audio_output_and_recording_channel_layout_resolve_the_local_mode() {
+        let shared = crate::test_helpers::make_shared_state();
+        let mut state = shared.lock().unwrap();
+        state.demod_mode = DemodMode::Raw;
+        assert_eq!(playback_channels(&state), 2);
+        assert_eq!(recording_audio_channels(&state), 2);
+        assert!(!stereo_audio_requested(&state));
+        state.demod_mode = DemodMode::Auto;
+        state.source.frequency_hz = 1_090_000_000;
+        assert_eq!(
+            state.demod_mode.resolve(state.source.frequency_hz),
+            DemodMode::Fm
+        );
+        assert_eq!(playback_channels(&state), 1);
+        assert_eq!(recording_audio_channels(&state), 1);
+        state.demod_mode = DemodMode::Raw;
+        state.source.source_mode = SourceMode::Daemon;
+        assert_eq!(playback_channels(&state), 1);
+        assert_eq!(recording_audio_channels(&state), 1);
     }
 
     #[test]

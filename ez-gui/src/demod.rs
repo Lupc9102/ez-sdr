@@ -735,6 +735,7 @@ pub struct Demodulator {
     cw_squelch_level_db: f32,
     cw_squelch_envelope: f64,
     resampler: AudioResampler,
+    raw_audio: crate::raw_audio::RawIqAudio,
     stereo: Option<StereoFmDecoder>,
     stereo_right: Option<Box<Demodulator>>,
     pub last_stereo_locked: bool,
@@ -849,6 +850,7 @@ impl Demodulator {
             cw_squelch_level_db: -60.0,
             cw_squelch_envelope: 0.0,
             resampler: AudioResampler::default(),
+            raw_audio: crate::raw_audio::RawIqAudio::default(),
             stereo: None,
             stereo_right: None,
             last_stereo_locked: false,
@@ -1510,7 +1512,22 @@ impl Demodulator {
         self.nfm_subaudible_audio.clear();
         self.wfm_multiplex.clear();
         self.wfm_multiplex_rate = 0.0;
+        let source_samples = iq.len();
         let iq = self.iq_preprocess(iq);
+        if matches!(mode, DemodMode::Raw | DemodMode::Auto) {
+            self.reset_fm_discriminator();
+            let audio = self.raw_audio.process_capture(
+                &iq,
+                self.input_rate,
+                self.audio_sample_rate,
+                0.3 * self.audio_gain,
+                source_samples,
+                self.source_rate,
+            );
+            self.last_audio_peak = audio.iter().flatten().map(|x| x.abs()).fold(0.0, f32::max);
+            return audio.into_iter().flatten().collect();
+        }
+        self.raw_audio.reset();
         let (iq, previous_clock) = self.prepare_fm_if(iq, mode);
         if !matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
             self.reset_fm_discriminator();
@@ -1518,7 +1535,7 @@ impl Demodulator {
         let samples = match mode {
             // Auto should be resolved to a concrete mode before reaching here
             // (see `DemodMode::resolve`); pass through if it ever slips by.
-            DemodMode::Auto | DemodMode::Raw => self.demod_raw(&iq),
+            DemodMode::Auto | DemodMode::Raw => unreachable!("RAW handled above"),
             DemodMode::Am => self.demod_am(&iq),
             DemodMode::Fm => self.demod_fm(&iq),
             DemodMode::Wfm => self.demod_wfm(&iq),
@@ -1539,20 +1556,41 @@ impl Demodulator {
             filtered
         };
         let processed = self.post_process(agc);
-        let audio = if matches!(mode, DemodMode::Raw | DemodMode::Auto) {
-            processed
-        } else {
-            self.resampler.process(
-                processed,
-                self.effective_output_rate,
-                self.audio_sample_rate,
-            )
-        };
+        let audio = self.resampler.process(
+            processed,
+            self.effective_output_rate,
+            self.audio_sample_rate,
+        );
         self.restore_fm_clock(previous_clock);
         audio
     }
 
-    /// Local broadcast-FM stereo, expressed as frames rather than interleaved
+    pub(crate) fn demodulate_raw_capture_complex(
+        &mut self,
+        iq: &[Complex32],
+        source_samples: usize,
+        source_rate: f64,
+    ) -> Vec<f32> {
+        self.last_stereo_locked = false;
+        self.reset_fm_discriminator();
+        self.nfm_subaudible_audio.clear();
+        self.wfm_multiplex.clear();
+        self.wfm_multiplex_rate = 0.0;
+        let iq = self.iq_preprocess(iq);
+        let audio = self.raw_audio.process_capture(
+            &iq,
+            self.input_rate,
+            self.audio_sample_rate,
+            0.3 * self.audio_gain,
+            source_samples,
+            source_rate,
+        );
+        self.last_audio_peak = audio.iter().flatten().map(|x| x.abs()).fold(0.0, f32::max);
+        audio.into_iter().flatten().collect()
+    }
+
+    /// RAW returns stereo I/Q frames; local broadcast-FM stereo is expressed
+    /// as frames rather than interleaved
     /// samples. Other modes and sources too narrow to hold an FM multiplex
     /// return identical left/right channels through the existing mono path.
     pub fn demodulate_stereo(&mut self, iq: &[u8], mode: DemodMode) -> Vec<[f32; 2]> {
@@ -1565,6 +1603,13 @@ impl Demodulator {
         iq: &[Complex32],
         mode: DemodMode,
     ) -> Vec<[f32; 2]> {
+        if matches!(mode, DemodMode::Raw | DemodMode::Auto) {
+            return self
+                .demodulate_complex(iq, mode)
+                .chunks_exact(2)
+                .map(|pair| [pair[0], pair[1]])
+                .collect();
+        }
         if mode != DemodMode::Wfm || self.input_rate < 120_000.0 {
             return self
                 .demodulate_complex(iq, mode)
@@ -1713,17 +1758,6 @@ impl Demodulator {
         for s in samples {
             self.lpf_state_l = self.lpf_state_l + self.lpf_alpha * (s - self.lpf_state_l);
             out.push(self.lpf_state_l);
-        }
-        out
-    }
-
-    fn demod_raw(&mut self, iq: &[Complex32]) -> Vec<f32> {
-        let mut out = Vec::with_capacity(iq.len());
-        for sample in iq {
-            let i = sample.re;
-            let q = sample.im;
-            out.push(i * 0.3);
-            out.push(q * 0.3);
         }
         out
     }
@@ -1996,6 +2030,7 @@ impl Demodulator {
     }
 
     pub fn reset(&mut self) {
+        self.raw_audio.reset();
         self.reset_fm_discriminator();
         self.decim_counter = 0;
         self.lpf_state_l = 0.0;
@@ -3589,8 +3624,11 @@ mod tests {
         d.agc_enabled = false;
         let iq = make_iq_dc(127, 127, 64);
         let out = d.demodulate(&iq, DemodMode::Raw);
-        // raw produces 2 samples per IQ pair
-        assert_eq!(out.len(), 128);
+        // Two interleaved channels at the configured audio clock.
+        assert_eq!(
+            out.len(),
+            2 * (64.0 * f64::from(d.audio_sample_rate) / d.input_rate).ceil() as usize
+        );
     }
 
     #[test]

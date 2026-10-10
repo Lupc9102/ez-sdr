@@ -292,9 +292,12 @@
       "id": "R10",
       "title": "RAW output has the wrong channel count and timebase for playback/WAV",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Define local RAW as filtered/resampled stereo I/Q at the selected audio clock, carry two channels through native playback and WAV headers/metadata, and preserve exact root-capture duration despite fractional RF clocks, chunk boundaries and partial RF strides. Keep full-band IQ export at RF rate.",
+      "regressions": [
+        "Eight focused regressions: 45 clock/partition cases, 27 RF-stride partition cases, six independent I/Q amplitude/alias checks and three one-second native playback/WAV cases including 64x RF decimation with 384k audio. Equal clocks preserve I/Q exactly without new delay.",
+        "All 102 unique affected tests pass, including the unchanged RF impulse regression, native consumers, WAV recording, recorder, radio channel selection and audio output. GUI default build, all-target Clippy, formatting and AST graph refresh pass at 20% of one CPU. See repair-raw-audio-verification.json."
+      ],
       "original_repair_gate": "Define RAW semantics explicitly: properly resampled stereo I/Q audio, an RF-rate IQ export, or an analysis-only mode. Carry correct channels/rate through playback and recording. Require duration and sample-count equality for each supported source clock."
     },
     {

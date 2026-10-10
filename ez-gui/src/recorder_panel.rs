@@ -163,6 +163,8 @@ impl RecordingFinalizer {
                             serde_json::to_value(result.capture).unwrap_or_default();
                         for name in [
                             "audio_samples",
+                            "audio_frames",
+                            "audio_channels",
                             "audio_bytes_total",
                             "audio_sample_rate_hz",
                             "audio_duration_sec",
@@ -923,6 +925,7 @@ impl RecorderPanel {
             gain_db,
             ppm_correction,
             demod_label,
+            audio_channels,
             capture_stream,
         ) = if let Ok(state) = self.shared.try_lock() {
             let (center, rate, gain) = state.source.applied_capture_settings().unwrap_or((
@@ -937,7 +940,12 @@ impl RecorderPanel {
                 rate,
                 gain,
                 state.source.ppm_correction,
-                state.demod_mode.label().to_string(),
+                state
+                    .demod_mode
+                    .resolve(state.source.frequency_hz)
+                    .label()
+                    .to_string(),
+                crate::radio_ui::recording_audio_channels(&state),
                 state.source.capture_stream(),
             )
         } else {
@@ -1018,7 +1026,7 @@ impl RecorderPanel {
             let wf = format!("{base_name}_audio.wav");
             let wav_path = dir.join(&wf);
             let spec = hound::WavSpec {
-                channels: 1,
+                channels: audio_channels,
                 sample_rate: self.audio_sample_rate,
                 bits_per_sample: 16,
                 sample_format: hound::SampleFormat::Int,
@@ -1079,6 +1087,7 @@ impl RecorderPanel {
             "hardware_offset_hz": offset_hz,
             "sample_rate_hz": sample_rate_hz,
             "audio_sample_rate_hz": self.audio_sample_rate,
+            "audio_channels": audio_channels,
             "demod_mode": demod_label,
             "gain_db": gain_db,
             "ppm_correction": ppm_correction,
@@ -3177,6 +3186,33 @@ mod tests {
             serde_json::from_slice(&std::fs::read(dir.join("quoted\"station_001.json")).unwrap())
                 .unwrap();
         assert_eq!(metadata["files"][0], "quoted\"station_001.iq");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn raw_audio_recorder_panel_opens_stereo_wav_with_declared_layout() {
+        let shared = make_shared_state();
+        shared.lock().unwrap().demod_mode = crate::sdr_panel::DemodMode::Raw;
+        let dir = recording_dir("raw-layout");
+        let mut panel = RecorderPanel::new_direct(shared);
+        panel.output_dir = dir.display().to_string();
+        panel.filename_template = "raw".into();
+        panel.record_iq = false;
+        panel.record_audio = true;
+        panel.set_audio_sample_rate(48_000);
+        panel.start_recording();
+        assert!(panel.recording, "{}", panel.last_error);
+        let input = [0.1, -0.2].repeat(48_000);
+        panel.write_audio_samples(&input);
+        panel.stop_and_wait();
+        let wav = hound::WavReader::open(dir.join("raw_audio.wav")).unwrap();
+        assert_eq!(wav.spec().channels, 2);
+        assert_eq!(wav.spec().sample_rate, 48_000);
+        assert_eq!(wav.duration(), 48_000);
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("raw.json")).unwrap()).unwrap();
+        assert_eq!(metadata["audio_channels"], 2);
+        drop(wav);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -39,6 +39,7 @@ mod radio_power;
 pub mod radio_rds;
 pub mod radio_squelch;
 pub mod radio_ui;
+mod raw_audio;
 mod raw_recording;
 pub mod recorder_panel;
 pub mod rigctl;

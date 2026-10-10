@@ -123,6 +123,14 @@ unannotated recording, select **Legacy ADC counts** in Replay, pass the daemon
 `--replay-amplitude adc-counts-127-4`, or add `"amplitude": "adc_counts_127_4"`
 to its JSON sidecar before a Meteor import. Units are never guessed from signal peaks.
 
+Local **RAW** listening is stereo I/Q audio: I on the left and Q on the right,
+filtered to the audio Nyquist limit and resampled to the selected sound-device
+clock. WAV recordings retain both channels and the capture's real duration,
+including fractional RF clocks and incomplete RF decimation strides. RAW uses
+receiver IQ correction and RF decimation, volume and audio gain (0.3 default
+headroom), and bypasses the mono voice EQ/AGC/pitch chain. Use **IQ recording** for
+full-band samples at the original RF clock.
+
 Automatic recording and signal monitoring require **Power** squelch and use the
 entire -100..0 dBFS threshold range. Local observations come from the native RF
 processor; daemon observations use fresh raw spectrum measurements after capture

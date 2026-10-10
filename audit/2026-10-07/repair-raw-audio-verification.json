@@ -1,0 +1,751 @@
+{
+  "date": "2026-10-10",
+  "scope": [
+    "R10"
+  ],
+  "verification_state": "software_verified",
+  "resource_policy": {
+    "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r10-verification-style.service",
+    "cpu_max": "20000 100000",
+    "nice": 19,
+    "build_jobs": 1,
+    "test_threads": 1,
+    "observed_cpu_stat": "usage_usec 41327742\nuser_usec 34200743\nsystem_usec 7126998\nnice_usec 34789000\ncore_sched.force_idle_usec 0\nnr_periods 2066\nnr_throttled 2066\nthrottled_usec 226102267\nnr_bursts 0\nburst_usec 0\n"
+  },
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "raw_audio",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 91.30202252000026,
+      "log": "repair-evidence/raw-audio-focused-final.log",
+      "log_sha256": "b460a0c3196ced43beee44ffb1d1d52ae343a61daaa6f0054125f575e3aa0bba",
+      "raw_log_sha256": "919fd922bc15d0578ccfaefab1700ee959ae711f190eb0282fad5135a73e03af",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::tests::demod_raw_output_length",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.7134449599998334,
+      "log": "repair-evidence/raw-audio-raw-length.log",
+      "log_sha256": "380f0116859fc73877fe76677a13864e82cf2c2b0e09851fce458b024324b659",
+      "raw_log_sha256": "4e6db1e1540dd62905c841ff87dc77cbc04d48098fd774879ca415f8fa9251e4",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::tests::rf_blanker_level_controls_real_impulse",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.404408543000045,
+      "log": "repair-evidence/raw-audio-blanker.log",
+      "log_sha256": "d56018ad57d46eaf4db313fa65702b1e3df961b081c62de97b70647a46fff6ae",
+      "raw_log_sha256": "55caef911f8045f5a23f95b04a741e8b1477bd5e2197d9dabdb2208016b3244a",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::tests::complex_and_byte_apis_match_for_every_mode",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 8.870362003000082,
+      "log": "repair-evidence/raw-audio-byte-parity.log",
+      "log_sha256": "85ca7f4e81c95a7d8e258c60d9b31a203f1fda8eb43e54e6d397ac48c4737b03",
+      "raw_log_sha256": "6efe69b4c408891262195c66f69bbababa066afed76e62aa70d1a32779e62093",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::tests::empty_iq_returns_empty",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.4183448250000765,
+      "log": "repair-evidence/raw-audio-empty.log",
+      "log_sha256": "c5e951a190a1a28a77ce1f06abacc6df6cde0a6455c95cbb0b832ac3cd9f5475",
+      "raw_log_sha256": "9d76624fa854198f6dcad1d39738d337c95fcd1e1e05477c3179e451ccb912ea",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::tests::test_demod_process_empty_iq",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.508001976000287,
+      "log": "repair-evidence/raw-audio-empty-process.log",
+      "log_sha256": "b6dd58ceb355f73887f36ce5f2498928cb560776e0ce35b0a37b188b2fd565a8",
+      "raw_log_sha256": "72e25135d3caf1553e21f02fcc5b1a2b4f6858d710cab8c05fb035faeb74da51",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::tests::test_demod_mode_switch_does_not_panic",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.4985779759999787,
+      "log": "repair-evidence/raw-audio-mode-switch.log",
+      "log_sha256": "f5f2f4c62754d5bdc23daa251b2296a21840e63e0490957dd6ffcf57dc509a00",
+      "raw_log_sha256": "12b08017c8fae05608ae21a0e466a0707c228e7f634366a6eee85b6bd3feb618",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::native::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 28.883971471999757,
+      "log": "repair-evidence/raw-audio-native.log",
+      "log_sha256": "1255ef19b52eb54c57bdd038fc1a9e81ad61645c75f2d95918c153d76ada9fdf",
+      "raw_log_sha256": "837a6d38ef19346f04b6c5bb78db26e52e130989dc4b1502d8502a0596cb0747",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "audio_recording::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.712663505999899,
+      "log": "repair-evidence/raw-audio-recording.log",
+      "log_sha256": "ecb1ef94d800ba68ac643c9f75592943642af23e0d7fee61ca98e7b35c1f1bcd",
+      "raw_log_sha256": "271980930e86f06c5973b35c2ad454407e02f6046d1c888127b3acc227f3927f",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "recorder_panel::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 3.883317404999616,
+      "log": "repair-evidence/raw-audio-recorder.log",
+      "log_sha256": "1523b5bffc6a6a7a33b93e99c238d2f570af7b61c754db569a0058b968fce0b4",
+      "raw_log_sha256": "9a44d39bcbfd828996d5b7c5769e0addace7d6e83baa7effbad4880c823b0cb5",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 41,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "radio_ui::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 3.2088825910000196,
+      "log": "repair-evidence/raw-audio-radio-ui.log",
+      "log_sha256": "d44acbe7abc8bf7ccfe109165ed80670bc306f8403764afe34c41db6fb575630",
+      "raw_log_sha256": "154ffd40b901917fe87960555b8c788d94c6c471499f38084aefe6d2c177f419",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 24,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "audio_output::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3908430459996453,
+      "log": "repair-evidence/raw-audio-output.log",
+      "log_sha256": "f63959a50c3c9fb22c24e68ca3af6dc921df2565565235e5b4cbaf8f6b029374",
+      "raw_log_sha256": "28fb57ab51693fa7ebf295266141943da00ea47966e88060deac07aa42619683",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "ez-gui",
+        "--all-targets",
+        "-j",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 71.39371165800003,
+      "log": "repair-evidence/raw-audio-clippy.log",
+      "log_sha256": "57cda591b1dd1b2d5efe716cb8c63027ca049473711e2ff6c3ff447ad88dd940",
+      "raw_log_sha256": "57cda591b1dd1b2d5efe716cb8c63027ca049473711e2ff6c3ff447ad88dd940",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "recorder_panel::tests::raw_audio_recorder_panel_opens_stereo_wav",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 25.21631791799973,
+      "log": "repair-evidence/raw-audio-recorder-layout-final.log",
+      "log_sha256": "229ff00aadf0a30c7daf1f87ed7b59dce9b6b9b10b23b6fcd58923aaab6b7708",
+      "raw_log_sha256": "74de5dd10e81ae19c6d13727da481593b9bd1c4a8fd5c69ac5adf1d91223cc11",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "ez-gui",
+        "-j",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 51.39932346800015,
+      "log": "repair-evidence/raw-audio-build.log",
+      "log_sha256": "214d2614688e52435d7fac55280d3f80a27b877552428211701603e823c6843a",
+      "raw_log_sha256": "214d2614688e52435d7fac55280d3f80a27b877552428211701603e823c6843a",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 5.406574489999912,
+      "log": "repair-evidence/raw-audio-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "graphify",
+        "update",
+        "."
+      ],
+      "exit_code": 0,
+      "seconds": 53.099067548999756,
+      "log": "repair-evidence/raw-audio-graph-update.log",
+      "log_sha256": "35bf33a38a7d5a92481589d6a74a43b1d4f2f97ab124c191714096fbcb086f64",
+      "raw_log_sha256": "35bf33a38a7d5a92481589d6a74a43b1d4f2f97ab124c191714096fbcb086f64",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    }
+  ],
+  "verification_runner": {
+    "log": "repair-evidence/raw-audio-capped-runner.log",
+    "log_sha256": "307844881a0fa07a805eba60bef32152ea72bb528a8fd8580cac01f766c792d8",
+    "raw_log_sha256": "307844881a0fa07a805eba60bef32152ea72bb528a8fd8580cac01f766c792d8",
+    "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+    "test_harnesses": []
+  },
+  "previous_verification_runner": {
+    "log": "repair-evidence/raw-audio-pre-style-capped-runner.log",
+    "log_sha256": "2120af0979e9d35df0bbd7176c956f4d204bdf53b766fc5bcef9c69e59da1a79",
+    "raw_log_sha256": "2120af0979e9d35df0bbd7176c956f4d204bdf53b766fc5bcef9c69e59da1a79",
+    "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+    "test_harnesses": []
+  },
+  "source_sha256": {
+    "README.md": "978db92dcba0e6a023e76919d53d2393e1910be2c9d38b8561b2b522ab9ee2d6",
+    "ez-gui/src/app.rs": "1bd336db02331283d803f5cfc3af4d9fbf29678ab54625546fa6b79559935dc7",
+    "ez-gui/src/audio_recording.rs": "b2c42c39de04c85313421afc267ddf60708aeead3c12ae1c39abac7b74cae35b",
+    "ez-gui/src/audio_resampler.rs": "3ab2f658006ffe4efe0b909ed5a66953aeeecfc82bfc057e6a69a4b63521f756",
+    "ez-gui/src/demod.rs": "beee34d2b6acb61cc8e3a7da5ad9e037a895c0d84d2d133dd2680b5d196bb6c7",
+    "ez-gui/src/demod_native.rs": "5ef606082bde6442833e56dfcad5f668d972ec4aa1724ba9cc51a5a60c924739",
+    "ez-gui/src/lib.rs": "19a815c286a2eaa04dce683b0b914cff0a0a961e84db5f795865573bd8575089",
+    "ez-gui/src/radio_ui.rs": "67c12f2fb0e99c2c74d7aa6324133b4654f897910f0fe64a7510a11caf06e59e",
+    "ez-gui/src/recorder_panel.rs": "367585ee7fb6b9632728abe9da65740e87b048d0ce8ead373beb91db22de494b",
+    "ez-gui/src/sdr_panel.rs": "d1a885e2e049541336a09b5aeff0e2c46eb557fd914237dd527945544edba4e4",
+    "ez-gui/src/raw_audio.rs": "890ecc97e9326e013409803525c6b5861e4e01a3b0067d431502b704e0bde191"
+  },
+  "behavior": {
+    "semantics": "Local RAW listening is stereo I/Q audio at the selected device clock: I left, Q right, nominal 0.3 headroom times configured audio gain and native volume. Receiver IQ correction and RF decimation remain active; the mono voice EQ/AGC/pitch chain is bypassed. Full-band IQ export remains at the original RF clock.",
+    "conversion": "The verified shared complex FIR decimator bounds high-rate input. Independent shared fractional-delay FIR filters preserve channel identity, filter before rate conversion and retain history across input chunks. Equal clocks preserve sanitized scaled I/Q exactly without adding filter delay.",
+    "clock": "Represent the actual f64 input clock as an exact dyadic ratio. Bounded integer phase gives ceil(N * output Fs / input Fs) frames without accumulated clock drift. Defer frames beyond root input duration when coarse conversion produces an entire stride. Preceding floor(N/D) RF decimation contributes a causal zero startup interval; a separate root-duration budget preserves capture length including tiny blocks and incomplete strides.",
+    "publication": "RAW native playback and RadioAudio carry two interleaved channels at the device rate; snapshot sample counts remain frames. Voice/WFM WAV publication retains its existing mono convention. GUI output reopens with two input channels for local RAW, independently of the WFM stereo option.",
+    "recording": "RAW WAV headers and metadata declare two channels. Native WAV ingress rejects channel/packet geometry changes, stores scalar audio_samples and per-channel audio_frames separately, and computes duration from frames/rate. Main recorder metadata retains channels/frame count. The RF sample clock remains separate from audio clock."
+  },
+  "regressions": {
+    "focused_tests": 8,
+    "unique_affected_tests": 102,
+    "test_names": [
+      "audio_output::tests::asynchronous_stream_error_changes_running_state_and_can_be_drained",
+      "audio_output::tests::audio_disabled_reports_failure_for_start_and_enumeration",
+      "audio_output::tests::changing_running_selection_requires_stop_without_reopening_hardware",
+      "audio_output::tests::defaults_and_stop_reset_state",
+      "audio_output::tests::input_channel_count_is_validated_without_opening_hardware",
+      "audio_output::tests::selection_uses_id_and_never_falls_back_to_another_device",
+      "audio_recording::tests::blocked_wav_stop_and_panel_drop_are_responsive_and_preserve_finalization",
+      "audio_recording::tests::native_wav_boundaries_finalize_the_valid_prefix_without_gui_ticks",
+      "audio_recording::tests::native_wav_deadline_and_native_loss_finalize_without_gui_ticks",
+      "audio_recording::tests::native_wav_disk_faults_preserve_the_actual_pcm_prefix_and_stop_promptly",
+      "audio_recording::tests::native_wav_overflow_keeps_a_prefix_accounts_for_loss_and_isolates_consumers",
+      "demod::native::tests::audit_narrow_cw_power_meter",
+      "demod::native::tests::audit_reject_old_capture_generation",
+      "demod::native::tests::audit_signed_file_replay",
+      "demod::native::tests::audit_ssb_power_meter_passband",
+      "demod::native::tests::native_automatic_trigger_timestamps_advance_only_for_complete_power_windows",
+      "demod::native::tests::native_float_replay_reaches_rf_preview_and_audio_at_sub_byte_amplitudes",
+      "demod::native::tests::native_power_squelch_uses_selected_rf_without_display_updates",
+      "demod::native::tests::native_radio_accounts_for_bounded_overflow_missing_tail_and_lost_generations",
+      "demod::native::tests::native_radio_coalesces_controls_and_acknowledges_without_iq",
+      "demod::native::tests::native_radio_delivers_all_rf_and_playback_without_gui_reads",
+      "demod::native::tests::native_radio_resets_every_state_at_capture_boundaries",
+      "demod::native::tests::native_raw_audio_playback_and_wav_have_two_channels_and_one_second_duration",
+      "demod::native::tests::native_ssb_gate_and_recording_monitor_follow_wanted_sideband_at_vfo_offsets",
+      "demod::native::tests::native_wav_rejects_capture_geometry_before_radio_controls_catch_up",
+      "demod::native::tests::skipped_new_generation_retires_previous_epoch_and_radio_snapshot",
+      "demod::tests::complex_and_byte_apis_match_for_every_mode_and_stereo",
+      "demod::tests::demod_raw_output_length",
+      "demod::tests::empty_iq_returns_empty",
+      "demod::tests::rf_blanker_level_controls_real_impulse_suppression_before_demodulation",
+      "demod::tests::test_demod_mode_switch_does_not_panic",
+      "demod::tests::test_demod_process_empty_iq",
+      "radio_ui::tests::compact_ui_renders_without_starting_source",
+      "radio_ui::tests::converter_offset_changes_physical_tune_without_wrapping_logical_frequency",
+      "radio_ui::tests::cw_offset_change_sets_dsp_changed",
+      "radio_ui::tests::cw_squelch_toggle_works",
+      "radio_ui::tests::cw_volume_change_sets_dsp_changed",
+      "radio_ui::tests::decimation_reconciles_vfo_span_and_adsb_bypasses_radio_iq_controls",
+      "radio_ui::tests::demod_selection_applies_usable_voice_filter",
+      "radio_ui::tests::digit_tuning_carries_borrows_and_saturates",
+      "radio_ui::tests::digit_widget_routes_click_wheel_and_manual_entry_events",
+      "radio_ui::tests::dsb_sideband_change_sets_dsp_changed",
+      "radio_ui::tests::frequency_entry_has_explicit_units_and_validates_before_tuning",
+      "radio_ui::tests::idle_tuning_and_source_selection_do_not_start_receiving",
+      "radio_ui::tests::keyboard_mute_is_reflected_and_spectrum_start_keeps_it",
+      "radio_ui::tests::mode_changes_reset_both_filters_but_saved_settings_survive_ui_creation",
+      "radio_ui::tests::normal_tuning_keeps_capture_center_until_channel_leaves_useful_band",
+      "radio_ui::tests::play_stop_controls_source_and_audio_lifecycle",
+      "radio_ui::tests::radio_mode_profiles_restore_controls_without_changing_source_or_display",
+      "radio_ui::tests::raw_audio_output_and_recording_channel_layout_resolve_the_local_mode",
+      "radio_ui::tests::replay_scan_bounds_keep_complete_sided_passbands_and_fractional_decimation",
+      "radio_ui::tests::replay_tuning_preserves_file_center_and_playback_position",
+      "radio_ui::tests::rf_width_is_independent_from_audio_and_bounded_by_input_rate",
+      "radio_ui::tests::selecting_cw_shows_offset_volume_squelch_controls",
+      "radio_ui::tests::selecting_dsb_shows_sideband_control",
+      "radio_ui::tests::stereo_transport_only_applies_to_local_wfm_and_resolves_auto",
+      "raw_audio::tests::raw_audio_channels_preserve_independent_tones_and_reject_output_aliases",
+      "raw_audio::tests::raw_audio_clocks_count_frames_exactly_and_preserve_every_partition",
+      "raw_audio::tests::raw_audio_equal_clocks_preserve_iq_without_added_delay",
+      "raw_audio::tests::raw_audio_reset_rate_changes_and_nonfinite_input_retire_history",
+      "raw_audio::tests::raw_audio_rf_stride_tails_follow_root_duration_in_tiny_partitions",
+      "recorder_panel::tests::apply_filename_template_adjacent_tokens",
+      "recorder_panel::tests::apply_filename_template_all_tokens",
+      "recorder_panel::tests::apply_filename_template_basic",
+      "recorder_panel::tests::apply_filename_template_case_sensitive_no_match",
+      "recorder_panel::tests::apply_filename_template_empty_template",
+      "recorder_panel::tests::apply_filename_template_no_tokens",
+      "recorder_panel::tests::apply_filename_template_only_date",
+      "recorder_panel::tests::apply_filename_template_only_freq",
+      "recorder_panel::tests::apply_filename_template_only_mode",
+      "recorder_panel::tests::apply_filename_template_repeated_token",
+      "recorder_panel::tests::apply_filename_template_spaces_replaced",
+      "recorder_panel::tests::apply_filename_template_strange_chars_in_template",
+      "recorder_panel::tests::apply_filename_template_very_long_template",
+      "recorder_panel::tests::automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement",
+      "recorder_panel::tests::automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests",
+      "recorder_panel::tests::automatic_trigger_daemon_gain_changes_require_acknowledgement_and_new_measurement",
+      "recorder_panel::tests::automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared",
+      "recorder_panel::tests::automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel",
+      "recorder_panel::tests::automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources",
+      "recorder_panel::tests::automatic_trigger_failed_local_open_does_not_count_and_success_counts_once",
+      "recorder_panel::tests::automatic_trigger_native_measurements_expire_and_wrong_context_never_activates",
+      "recorder_panel::tests::blocked_native_raw_stop_preserves_final_bytes_and_metadata_errors",
+      "recorder_panel::tests::dropping_recorder_finalizes_all_queued_iq_in_background",
+      "recorder_panel::tests::free_disk_space_dot_returns_something",
+      "recorder_panel::tests::free_disk_space_nonexistent_path_returns_fallback",
+      "recorder_panel::tests::free_disk_space_returns_reasonable_value",
+      "recorder_panel::tests::free_disk_space_special_chars_path",
+      "recorder_panel::tests::free_disk_space_tmp_dir",
+      "recorder_panel::tests::free_disk_space_very_long_path",
+      "recorder_panel::tests::invalid_recording_configuration_and_save_path_do_not_start",
+      "recorder_panel::tests::iq_worker_roundtrip_writes_file",
+      "recorder_panel::tests::native_recording_consumers_finalize_each_clock_boundary_without_gui_ticks",
+      "recorder_panel::tests::native_recording_deadline_finalizes_files_without_gui_ticks",
+      "recorder_panel::tests::raw_audio_recorder_panel_opens_stereo_wav_with_declared_layout",
+      "recorder_panel::tests::raw_iq_queue_overflow_ends_the_file_before_later_samples_can_be_appended",
+      "recorder_panel::tests::raw_iq_recording_finalizes_before_any_epoch_geometry_or_gap_boundary",
+      "recorder_panel::tests::repeated_template_preserves_prior_recordings_and_escapes_metadata",
+      "recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker",
+      "recorder_panel::tests::wav_uses_real_audio_rate_and_finalizes_on_a_rate_change",
+      "recorder_panel::tests::wav_write_failure_stops_recording_and_does_not_count_unwritten_tail",
+      "recorder_panel::tests::write_samples_not_recording_is_noop"
+    ],
+    "clock_partition_cases": 45,
+    "audio_rates_hz": [
+      8000,
+      44100,
+      48000,
+      192000,
+      384000
+    ],
+    "root_stride_cases": 27,
+    "root_partition_sizes": [
+      1,
+      7,
+      37,
+      997,
+      3
+    ],
+    "root_stride_capture_rates_hz": [
+      8000,
+      192003,
+      2400000
+    ],
+    "root_rf_factors": [
+      2,
+      8,
+      64
+    ],
+    "independent_iq_tone_cases": 6,
+    "max_gain_error_db": 6.13e-06,
+    "minimum_alias_rejection_db": 142.6997,
+    "gain_gate_db": 0.1,
+    "alias_rejection_gate_db": 80,
+    "native_playback_wav_cases": [
+      {
+        "source_rate_hz": 192000,
+        "rf_factor": 1,
+        "audio_rate_hz": 48000,
+        "channels": 2,
+        "audio_frames": 48000,
+        "duration_sec": 1
+      },
+      {
+        "source_rate_hz": 192003,
+        "rf_factor": 8,
+        "audio_rate_hz": 44100,
+        "channels": 2,
+        "audio_frames": 44100,
+        "duration_sec": 1
+      },
+      {
+        "source_rate_hz": 200003,
+        "rf_factor": 64,
+        "audio_rate_hz": 384000,
+        "channels": 2,
+        "audio_frames": 384000,
+        "duration_sec": 1
+      }
+    ],
+    "wav_scalar_samples_equal_native_playback_after_int16_quantization": true,
+    "equal_clock_identity_without_delay": true,
+    "existing_impulse_regression_unchanged": true,
+    "effective_input_rates_hz": [
+      125,
+      8000,
+      48000,
+      192000,
+      54857.57142857143,
+      1000003,
+      2048000,
+      2400000,
+      20000000
+    ]
+  },
+  "development_verification": [
+    {
+      "exit_code": 101,
+      "state": "development_only",
+      "log": "repair-evidence/raw-audio-initial-compile.log",
+      "log_sha256": "bed72f617975e47ff6a6ebbd2c90442f6eb8f1dcec1fc26ebede9aa38745c087",
+      "raw_log_sha256": "bed72f617975e47ff6a6ebbd2c90442f6eb8f1dcec1fc26ebede9aa38745c087",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "exit_code": 0,
+      "state": "development_only",
+      "log": "repair-evidence/raw-audio-core-before-capture-tests.log",
+      "log_sha256": "c398555a1cd6329e7b0de370ee2ca31b40128f00b07597c5e6c6102306f34137",
+      "raw_log_sha256": "0b533a4937bb7ffd70c8134bafb177182276a8efc4161663925674f876254df8",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "exit_code": 101,
+      "state": "development_only",
+      "log": "repair-evidence/raw-audio-auto-fixture-failure.log",
+      "log_sha256": "4fcaf834014a52d61c79bdd082f71227f399086eda4c39c3d89e24ff8aa8bec1",
+      "raw_log_sha256": "146e198049bb6920569b0d3772213b9658cb3bf09af54769c69034dd425d61b1",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 6,
+          "failed": 1,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "exit_code": 101,
+      "state": "development_only",
+      "log": "repair-evidence/raw-audio-equal-clock-impulse-failure.log",
+      "log_sha256": "19638728ba74c2425fa877ad8843c5a81f4981c19288e624ee7d5d41bed21711",
+      "raw_log_sha256": "75d1a2c0be371bdae90c65b52c44d4d8754046109250c47d87ae202190402efe",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "exit_code": 101,
+      "state": "development_only",
+      "log": "repair-evidence/raw-audio-first-clippy.log",
+      "log_sha256": "89fcaa2b97fb80b35c00dad585c7e2c66294bbba702f541a314781b0a655bd0f",
+      "raw_log_sha256": "89fcaa2b97fb80b35c00dad585c7e2c66294bbba702f541a314781b0a655bd0f",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    }
+  ],
+  "development_notes": [
+    "The initial clock sweep needed an explicit f64 array annotation.",
+    "The first UI fixture incorrectly assumed Auto resolves to RAW at 1090 MHz; existing Auto resolves to FM. Corrected the fixture to require mono FM, then reselect RAW to verify the disabled daemon path.",
+    "The existing RF blanker impulse regression exposed unnecessary same-clock filtering and added delay. Implemented exact equal-rate passthrough; the original regression passed without changing its window or threshold.",
+    "Clippy requested an array rather than a temporary vec! in the new direct WAV test. That test was rerun after the equivalent style change."
+  ],
+  "limits": [
+    "Verification is software-only: pure/fixture audio sinks, actual native processing and real WAV files. No physical audio or RF device was opened.",
+    "All tests/lint/build/AST refresh were serialized under 20% of one CPU, nice 19, one Cargo build job and one test thread. The full workspace suite and unrelated heavy DSP sweeps remain off.",
+    "All original repair and release gates remain intact. Off-air/hardware/audio/disk field requirements are not certified by these tests."
+  ]
+}

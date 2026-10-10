@@ -1,0 +1,33 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.01s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 5 tests
+test audio_recording::tests::blocked_wav_stop_and_panel_drop_are_responsive_and_preserve_finalization ... Blocked WAV Stop: 41 us; drop=false, flush_error=false, finalized 16 PCM samples
+Blocked WAV Stop: 48 us; drop=false, flush_error=true, finalized 16 PCM samples
+Blocked WAV Stop: 43 us; drop=true, flush_error=false, finalized 16 PCM samples
+ok
+test audio_recording::tests::native_wav_boundaries_finalize_the_valid_prefix_without_gui_ticks ... ok
+test audio_recording::tests::native_wav_deadline_and_native_loss_finalize_without_gui_ticks ... ok
+test audio_recording::tests::native_wav_disk_faults_preserve_the_actual_pcm_prefix_and_stop_promptly ... A09 native WAV write failure: stop/join 43 us, 8 PCM bytes preserved
+A09 native WAV flush failure: stop/join 10132 us, 32 PCM bytes preserved
+ok
+test audio_recording::tests::native_wav_overflow_keeps_a_prefix_accounts_for_loss_and_isolates_consumers ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.40s

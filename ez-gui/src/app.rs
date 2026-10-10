@@ -1179,11 +1179,7 @@ impl eframe::App for CentralApp {
             crate::radio_ui::reconcile_tuning(&mut state);
         }
         let desired_audio = self.shared.try_lock().ok().map(|state| {
-            let channels = if crate::radio_ui::stereo_audio_requested(&state) {
-                2
-            } else {
-                1
-            };
+            let channels = crate::radio_ui::playback_channels(&state);
             (
                 channels,
                 (
@@ -1612,11 +1608,7 @@ impl eframe::App for CentralApp {
                     Some((
                         audio_running,
                         state.config.advanced.audio_output.clone(),
-                        if crate::radio_ui::stereo_audio_requested(&state) {
-                            2
-                        } else {
-                            1
-                        },
+                        crate::radio_ui::playback_channels(&state),
                     )),
                     Some(title),
                     Some(state.source.status.clone()),

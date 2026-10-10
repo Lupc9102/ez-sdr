@@ -1,0 +1,27 @@
+Resource policy: {"cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r10-verification-final.service", "cpu_max": "20000 100000", "nice": 19, "build_jobs": 1, "test_threads": 1}
+START focused-final
+DONE focused-final 0
+START raw-length
+DONE raw-length 0
+START blanker
+DONE blanker 0
+START byte-parity
+DONE byte-parity 0
+START empty
+DONE empty 0
+START empty-process
+DONE empty-process 0
+START mode-switch
+DONE mode-switch 0
+START native
+DONE native 0
+START recording
+DONE recording 0
+START recorder
+DONE recorder 0
+START radio-ui
+DONE radio-ui 0
+START output
+DONE output 0
+START clippy
+DONE clippy 101

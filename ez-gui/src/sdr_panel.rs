@@ -15,7 +15,7 @@ pub enum DemodMode {
     /// band to a concrete mode, and [`DemodMode::resolve`] applies it in the
     /// demod loop. Stored as the selected mode; never demodulated directly.
     Auto,
-    /// Raw I/Q samples passed through without demodulation.
+    /// Band-limited stereo I/Q audio at the selected sound-device rate.
     Raw,
     /// Amplitude Modulation (8 kHz, used for aviation / AM broadcast).
     Am,

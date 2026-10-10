@@ -73,6 +73,7 @@ pub(crate) struct RadioPreview {
 #[derive(Clone)]
 pub(crate) struct RadioAudio {
     pub samples: Vec<f32>,
+    pub channels: u16,
     pub rate: u32,
     pub clock: ez_proto::CaptureClock,
     pub center_hz: u64,
@@ -326,7 +327,13 @@ impl Processor {
         self.demod_active = active;
         if active {
             let channel = self.mixer.process(&wideband);
-            let mut playback = if desired.config.stereo {
+            let mut playback = if matches!(desired.config.mode, DemodMode::Raw | DemodMode::Auto) {
+                self.demod.demodulate_raw_capture_complex(
+                    &channel,
+                    samples as usize,
+                    block.clock.exact_sample_rate_hz(),
+                )
+            } else if desired.config.stereo {
                 self.demod
                     .demodulate_stereo_complex(&channel, desired.config.mode)
                     .into_iter()
@@ -370,7 +377,8 @@ impl Processor {
             for sample in &mut playback {
                 *sample *= radio.volume * gate;
             }
-            let mono = if desired.config.stereo {
+            let raw_iq = matches!(desired.config.mode, DemodMode::Raw | DemodMode::Auto);
+            let mono = if desired.config.stereo || raw_iq {
                 playback
                     .chunks_exact(2)
                     .map(|pair| (pair[0] + pair[1]) * 0.5)
@@ -388,7 +396,8 @@ impl Processor {
                 clock.discontinuous |= !continuous || missing > 0 || resumed;
                 audio.produced_samples.fetch_add(samples, Ordering::Release);
                 audio.bus.publish(Arc::new(RadioAudio {
-                    samples: mono,
+                    samples: if raw_iq { playback.clone() } else { mono },
+                    channels: if raw_iq { 2 } else { 1 },
                     rate: desired.config.audio_rate,
                     clock,
                     center_hz: block.center_hz,
@@ -431,6 +440,11 @@ impl Processor {
         self.sequence += 1;
         audio.bus.publish(Arc::new(RadioAudio {
             samples: Vec::new(),
+            channels: if matches!(desired.config.mode, DemodMode::Raw | DemodMode::Auto) {
+                2
+            } else {
+                1
+            },
             rate: desired.config.audio_rate,
             clock: block.clock,
             center_hz: block.center_hz,
@@ -655,6 +669,120 @@ mod tests {
                 stereo: false,
             },
         )
+    }
+
+    #[test]
+    fn native_raw_audio_playback_and_wav_have_two_channels_and_one_second_duration() {
+        for (source_rate, factor, audio_rate) in [
+            (192_000_u32, 1, 48_000_u32),
+            (192_003, 8, 44_100),
+            (200_003, 64, 384_000),
+        ] {
+            let stream = CaptureStream::default();
+            stream.start(1);
+            let (sink, heard) = crate::audio_output::AudioSink::fixture(8);
+            let (mut radio, mut demod) = config(Some(sink));
+            radio.preview = false;
+            radio.frequency_hz = radio.center_hz;
+            radio.volume = 1.0;
+            radio.iq = RadioIqConfig {
+                input_rate: source_rate,
+                decimation: factor,
+                dc_remove: false,
+                invert: false,
+            };
+            demod.mode = DemodMode::Raw;
+            demod.stereo = false;
+            demod.input_rate = f64::from(source_rate) / f64::from(factor);
+            demod.audio_rate = audio_rate;
+            let desired = WorkerControl {
+                radio: Some(radio),
+                config: demod,
+                ..Default::default()
+            };
+            let audio = RadioAudioStream {
+                bus: Broadcaster::new(),
+                capture: stream.clone(),
+                handled_samples: Arc::new(AtomicU64::new(0)),
+                lost_samples: Arc::new(AtomicU64::new(0)),
+                running: Arc::new(AtomicBool::new(true)),
+                produced_samples: Arc::new(AtomicU64::new(0)),
+            };
+            let received = audio.bus.subscribe(8, OverflowPolicy::DropIncoming);
+            let dir = std::env::temp_dir().join(format!(
+                "ez-raw-native-{}-{}",
+                std::process::id(),
+                ez_proto::new_capture_epoch()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let writer = hound::WavWriter::create(
+                dir.join("raw.wav"),
+                hound::WavSpec {
+                    channels: 2,
+                    sample_rate: audio_rate,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap();
+            let mut recording = crate::audio_recording::AudioRecorder::start(
+                audio.clone(),
+                writer,
+                dir.join("raw.json"),
+                serde_json::json!({"frequency_hz":100_000_000,"sample_rate_hz":source_rate}),
+                None,
+            );
+            let input: Vec<_> = (0..source_rate)
+                .map(|n| {
+                    let t = f64::from(n) / f64::from(source_rate);
+                    Complex32::new(
+                        (0.2 * (std::f64::consts::TAU * 100.0 * t).cos()) as f32,
+                        (0.1 * (std::f64::consts::TAU * 200.0 * t).sin()) as f32,
+                    )
+                })
+                .collect();
+            let mut block = CaptureBlock::fixture(
+                vec![128; source_rate as usize * 2],
+                ez_proto::CaptureClock::new(10, 0, source_rate, None),
+                1,
+                0,
+            );
+            block.session = Some(stream.session());
+            block.center_hz = 100_000_000;
+            block.float_samples = Some(Arc::from(input));
+            let mut processor = Processor::new();
+            processor.configure(&desired);
+            processor.process(&block, &desired, &Broadcaster::new(), &audio);
+            let frame = received.try_recv().unwrap();
+            assert_eq!(frame.channels, 2);
+            assert_eq!(frame.rate, audio_rate);
+            assert_eq!(frame.samples.len(), audio_rate as usize * 2);
+            assert_eq!(frame.input_samples, u64::from(source_rate));
+            assert_eq!(processor.snapshot.audio_samples, u64::from(audio_rate));
+            assert_eq!(heard.try_recv().unwrap(), frame.samples);
+            let result = recording.finish().unwrap();
+            assert!(result.error.is_none(), "{:?}", result.error);
+            assert_eq!(result.bytes, u64::from(audio_rate) * 4);
+            assert_eq!(result.metadata["audio_channels"], 2);
+            assert_eq!(result.metadata["audio_frames"], audio_rate);
+            assert_eq!(result.metadata["audio_duration_sec"], 1.0);
+            let mut wav = hound::WavReader::open(dir.join("raw.wav")).unwrap();
+            assert_eq!(wav.spec().channels, 2);
+            assert_eq!(wav.spec().sample_rate, audio_rate);
+            assert_eq!(wav.duration(), audio_rate);
+            let scalars: Vec<_> = wav.samples::<i16>().map(Result::unwrap).collect();
+            let expected: Vec<_> = frame
+                .samples
+                .iter()
+                .map(|sample| (*sample * f32::from(i16::MAX)) as i16)
+                .collect();
+            assert_eq!(scalars, expected);
+            drop(wav);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+        eprintln!(
+            "raw_audio native_playback_wav_cases=3 stereo_frames_and_one_second_duration=passed"
+        );
     }
 
     #[test]

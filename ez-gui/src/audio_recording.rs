@@ -46,6 +46,7 @@ impl AudioRecorder {
         let worker_progress = Arc::clone(&progress);
         let worker_stream = stream.clone();
         let rate = writer.spec().sample_rate;
+        let channels = writer.spec().channels;
         let initial_produced = stream.produced_samples.load(Ordering::Acquire);
         let peak = Arc::new(std::sync::atomic::AtomicU32::new((-120.0_f32).to_bits()));
         let worker_peak = Arc::clone(&peak);
@@ -101,6 +102,11 @@ impl AudioRecorder {
                         block.clock.source_sample_rate_hz / block.clock.sample_stride.max(1);
                     if metadata["frequency_hz"].as_u64() != Some(block.center_hz)
                         || metadata["sample_rate_hz"].as_u64() != Some(u64::from(native_rate))
+                        || block.channels != channels
+                        || !block
+                            .samples
+                            .len()
+                            .is_multiple_of(usize::from(channels.max(1)))
                         || block.rate != rate
                         || next_sequence.is_some_and(|next| next != block.sequence)
                     {
@@ -167,10 +173,13 @@ impl AudioRecorder {
             metadata["format"] = "wav16".into();
             metadata["audio_capture"] = serde_json::to_value(&capture).unwrap_or_default();
             metadata["audio_samples"] = (bytes / 2).into();
+            metadata["audio_frames"] = (bytes / 2 / u64::from(channels)).into();
+            metadata["audio_channels"] = channels.into();
             metadata["audio_native_partial_frame"] = partial_frame.into();
             metadata["audio_bytes_total"] = bytes.into();
             metadata["audio_sample_rate_hz"] = rate.into();
-            metadata["audio_duration_sec"] = (bytes as f64 / 2.0 / f64::from(rate)).into();
+            metadata["audio_duration_sec"] =
+                (bytes as f64 / 2.0 / f64::from(channels) / f64::from(rate)).into();
             metadata["audio_input_dropped_blocks"] = drops.into();
             metadata["audio_input_lost_samples"] = if drops > 0 {
                 worker_stream
@@ -307,6 +316,7 @@ mod tests {
 
     fn block(sequence: u64) -> RadioAudio {
         RadioAudio {
+            channels: 1,
             samples: vec![0.25; 16],
             rate: 48_000,
             clock: ez_proto::CaptureClock::new(10, (sequence - 1) * 1000, 2_400_000, None),

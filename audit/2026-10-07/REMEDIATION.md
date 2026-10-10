@@ -72,7 +72,7 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
 - [ ] **R05 · P2** — Local FM loudness changes with RF sample rate and RF decimation
 - [ ] **R09 · P2** — AM audio aliases when the selected RF band exceeds output audio Nyquist
-- [ ] **R10 · P2** — RAW output has the wrong channel count and timebase for playback/WAV
+- [x] **R10 · P2** — RAW output has the wrong channel count and timebase for playback/WAV
 - [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
 - [x] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
@@ -234,3 +234,13 @@ Local counts advance after successful file open. Daemon starts remain pending un
 All ten focused regressions pass, including 202 threshold/source cases, plus all 62 unique affected tests across recorder, native RF, spectrum freshness, receipt age and daemon squelch modules. GUI default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. Everything ran serially with a verified 20%-of-one-CPU cgroup quota, nice 19, one build job and one test thread. The full workspace suite and expensive DSP sweeps remain off. Failed development checks and final results, exact commands, resource policy and source hashes are retained in repair-trigger-verification.json.
 
 There are now 28 software-verified findings and five open findings: S01, R09, R10, R12 and R19. Original repair gates and off-air/hardware/audio/disk release requirements remain unchanged; this batch uses controlled daemon protocol fixtures rather than field recordings. The AST graph has 7,425 nodes and 16,706 edges; HTML export was skipped at the configured size limit. User-deleted graph sidecars remain deleted. The goal remains active.
+
+## RAW playback and WAV verification (R10)
+
+R10 is software-verified. Local RAW means stereo I/Q audio, I on the left and Q on the right, filtered before conversion to the selected audio clock. It uses receiver IQ/RF correction and decimation, volume and audio gain with 0.3 headroom, bypassing the mono voice chain. Full-band IQ export retains the original RF clock. Equal input/output clocks preserve scaled I/Q exactly without new delay. Bounded integer phase follows the exact f64 clock, and a separate root-capture budget includes partial RF strides and tiny blocks. Native playback, WAV headers and metadata carry two channels; scalar samples and per-channel frames are distinct.
+
+All eight focused regressions and all 102 unique affected tests pass. The clock sweep covers 45 rate/partition pairs and 27 RF-stride cases across five tiny partitions. Six independent I/Q checks have maximum gain error 0.00000613 dB and minimum alias rejection 142.6997 dB, against unchanged 0.1 dB/80 dB gates. Three native playback/WAV cases produce exactly one second with 48k, 44.1k and 384k audio, including fractional RF clocks and 64x RF decimation. Native playback samples and WAV samples match after int16 quantization. The existing RF blanker impulse regression passed unchanged after adding equal-clock passthrough.
+
+GUI default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. Verification was serialized with a confirmed 20%-of-one-CPU quota, nice 19, one build job and one test thread. The full workspace suite and unrelated expensive DSP sweeps remain off. Failed development outcomes and final command logs, resource policy and source hashes are retained in repair-raw-audio-verification.json. User deletions remain untouched.
+
+There are now 29 software-verified findings and four open findings: S01, R09, R12 and R19. All original repair and off-air/hardware/audio/disk release gates remain intact. No physical receiver or audio device was opened; the goal remains active.

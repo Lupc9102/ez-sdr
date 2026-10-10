@@ -1,0 +1,48 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 51.68s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 7 tests
+test demod::native::tests::native_raw_audio_playback_and_wav_have_two_channels_and_one_second_duration ... raw_audio native_playback_wav_cases=3 stereo_frames_and_one_second_duration=passed
+ok
+test radio_ui::tests::raw_audio_output_and_recording_channel_layout_resolve_the_local_mode ...
+thread 'radio_ui::tests::raw_audio_output_and_recording_channel_layout_resolve_the_local_mode' (45805) panicked at ez-gui/src/radio_ui.rs:2218:9:
+assertion `left == right` failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test raw_audio::tests::raw_audio_channels_preserve_independent_tones_and_reject_output_aliases ... raw_audio independent_channel_cases=6 max_gain_error_db=0.00000613 min_alias_rejection_db=142.6997
+ok
+test raw_audio::tests::raw_audio_clocks_count_frames_exactly_and_preserve_every_partition ... raw_audio duration_and_partition_cases=45 exact_frames=passed
+ok
+test raw_audio::tests::raw_audio_reset_rate_changes_and_nonfinite_input_retire_history ... ok
+test raw_audio::tests::raw_audio_rf_stride_tails_follow_root_duration_in_tiny_partitions ... raw_audio root_stride_partition_cases=27 incomplete_stride_duration=passed
+ok
+test recorder_panel::tests::raw_audio_recorder_panel_opens_stereo_wav_with_declared_layout ... ok
+
+failures:
+
+failures:
+    radio_ui::tests::raw_audio_output_and_recording_channel_layout_resolve_the_local_mode
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 875 filtered out; finished in 44.61s
+
+error: test failed, to rerun pass `-p ez-gui --lib`
