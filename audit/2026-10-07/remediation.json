@@ -321,9 +321,12 @@
       "id": "R13",
       "title": "Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Use explicit Power/enabled state for every threshold. Consume current native observations or acknowledged, fresh, tagged daemon raw spectrum measurements independently of display/tab rendering. Count only successful local starts or current-session daemon active acknowledgements, preserving recording transitions and guarding pending/failed requests.",
+      "regressions": [
+        "Ten focused regressions cover 202 thresholds/source cases, observation expiry/context resets, gain and scanner boundaries, local file-open failure and exact final bytes, daemon acknowledgements/timeout/cancelled/closed-queue cases and preserved queue phases.",
+        "All 62 unique affected tests pass; GUI default build, all-target Clippy, formatting and AST graph refresh pass with a strict 20%-of-one-core limit. See repair-trigger-verification.json."
+      ],
       "original_repair_gate": "Use explicit enabled/mode state instead of a magic threshold sentinel. Route acknowledged, fresh daemon RF measurements when supported or disable the feature with a clear reason. Increment recording count only after successful start. Test the full threshold range and both sources."
     },
     {

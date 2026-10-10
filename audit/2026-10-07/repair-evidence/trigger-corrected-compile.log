@@ -1,0 +1,42 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no method named `vfo_peak_db` found for struct `spectrum::SpectrumAnalyzer` in the current scope
+    --> ez-gui/src/recorder_panel.rs:2222:44
+     |
+2222 |             let displayed = state.spectrum.vfo_peak_db();
+     |                                            ^^^^^^^^^^^ method not found in `spectrum::SpectrumAnalyzer`
+     |
+    ::: ez-gui/src/spectrum.rs:296:1
+     |
+ 296 | pub struct SpectrumAnalyzer {
+     | --------------------------- method `vfo_peak_db` not found for this struct
+
+error[E0599]: no method named `vfo_peak_db` found for struct `spectrum::SpectrumAnalyzer` in the current scope
+    --> ez-gui/src/recorder_panel.rs:2231:32
+     |
+2231 |                 state.spectrum.vfo_peak_db(),
+     |                                ^^^^^^^^^^^ method not found in `spectrum::SpectrumAnalyzer`
+     |
+    ::: ez-gui/src/spectrum.rs:296:1
+     |
+ 296 | pub struct SpectrumAnalyzer {
+     | --------------------------- method `vfo_peak_db` not found for this struct
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `ez-gui` (lib test) generated 2 warnings
+error: could not compile `ez-gui` (lib test) due to 2 previous errors; 2 warnings emitted

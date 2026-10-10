@@ -1,0 +1,67 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 40 tests
+test recorder_panel::tests::apply_filename_template_adjacent_tokens ... ok
+test recorder_panel::tests::apply_filename_template_all_tokens ... ok
+test recorder_panel::tests::apply_filename_template_basic ... ok
+test recorder_panel::tests::apply_filename_template_case_sensitive_no_match ... ok
+test recorder_panel::tests::apply_filename_template_empty_template ... ok
+test recorder_panel::tests::apply_filename_template_no_tokens ... ok
+test recorder_panel::tests::apply_filename_template_only_date ... ok
+test recorder_panel::tests::apply_filename_template_only_freq ... ok
+test recorder_panel::tests::apply_filename_template_only_mode ... ok
+test recorder_panel::tests::apply_filename_template_repeated_token ... ok
+test recorder_panel::tests::apply_filename_template_spaces_replaced ... ok
+test recorder_panel::tests::apply_filename_template_strange_chars_in_template ... ok
+test recorder_panel::tests::apply_filename_template_very_long_template ... ok
+test recorder_panel::tests::automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement ... ok
+test recorder_panel::tests::automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests ... ok
+test recorder_panel::tests::automatic_trigger_daemon_gain_changes_require_acknowledgement_and_new_measurement ... ok
+test recorder_panel::tests::automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared ... ok
+test recorder_panel::tests::automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel ... ok
+test recorder_panel::tests::automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources ... automatic_trigger threshold_cases=202 range=-100..0 local_and_acknowledged_daemon=passed
+ok
+test recorder_panel::tests::automatic_trigger_failed_local_open_does_not_count_and_success_counts_once ... ok
+test recorder_panel::tests::automatic_trigger_native_measurements_expire_and_wrong_context_never_activates ... ok
+test recorder_panel::tests::blocked_native_raw_stop_preserves_final_bytes_and_metadata_errors ... Blocked raw IQ Stop: 37 us; flush_error=false, finalized 20 bytes
+Blocked raw IQ Stop: 38 us; flush_error=true, finalized 20 bytes
+ok
+test recorder_panel::tests::dropping_recorder_finalizes_all_queued_iq_in_background ... ok
+test recorder_panel::tests::free_disk_space_dot_returns_something ... ok
+test recorder_panel::tests::free_disk_space_nonexistent_path_returns_fallback ... ok
+test recorder_panel::tests::free_disk_space_returns_reasonable_value ... ok
+test recorder_panel::tests::free_disk_space_special_chars_path ... ok
+test recorder_panel::tests::free_disk_space_tmp_dir ... ok
+test recorder_panel::tests::free_disk_space_very_long_path ... ok
+test recorder_panel::tests::invalid_recording_configuration_and_save_path_do_not_start ... ok
+test recorder_panel::tests::iq_worker_roundtrip_writes_file ... ok
+test recorder_panel::tests::native_recording_consumers_finalize_each_clock_boundary_without_gui_ticks ... ok
+test recorder_panel::tests::native_recording_deadline_finalizes_files_without_gui_ticks ... ok
+test recorder_panel::tests::raw_iq_queue_overflow_ends_the_file_before_later_samples_can_be_appended ... ok
+test recorder_panel::tests::raw_iq_recording_finalizes_before_any_epoch_geometry_or_gap_boundary ... ok
+test recorder_panel::tests::repeated_template_preserves_prior_recordings_and_escapes_metadata ... ok
+test recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker ... Blocked disk Stop returned in 25 us; pending completion and final flush error preserved
+ok
+test recorder_panel::tests::wav_uses_real_audio_rate_and_finalizes_on_a_rate_change ... ok
+test recorder_panel::tests::wav_write_failure_stops_recording_and_does_not_count_unwritten_tail ... ok
+test recorder_panel::tests::write_samples_not_recording_is_noop ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 835 filtered out; finished in 2.47s

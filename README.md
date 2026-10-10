@@ -123,6 +123,14 @@ unannotated recording, select **Legacy ADC counts** in Replay, pass the daemon
 `--replay-amplitude adc-counts-127-4`, or add `"amplitude": "adc_counts_127_4"`
 to its JSON sidecar before a Meteor import. Units are never guessed from signal peaks.
 
+Automatic recording and signal monitoring require **Power** squelch and use the
+entire -100..0 dBFS threshold range. Local observations come from the native RF
+processor; daemon observations use fresh raw spectrum measurements after capture
+settings and the power threshold are acknowledged. Monitoring continues with the
+Listen tab hidden and the display frozen. A missing or expired measurement waits
+for fresh input instead of opening the trigger. Automatic recording counts advance
+only after the local file opens or the daemon confirms an active recording.
+
 ## Optional daemon
 
 The GUI and daemon must both speak protocol version 11; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate. Aircraft snapshots include their channel identity, receiver counters and a fixed five-second message rate that expires during idle reception. Welcome allocates connection-owned GUI channel IDs; all streamed data carries channel identity and control subscribers receive explicit removal events. Active recordings prevent channel deletion. Daemon squelch commands have correlated applied/error replies, and audio frames carry the applied threshold and revision so queued audio cannot undo a newer setting.

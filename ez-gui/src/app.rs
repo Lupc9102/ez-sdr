@@ -974,7 +974,8 @@ impl CentralApp {
             return;
         }
         state.recording = status.active;
-        self.recorder_panel.handle_daemon_recording(status);
+        self.recorder_panel
+            .handle_daemon_recording(status, state.source.stream_generation());
     }
 
     fn process_web_remote_commands(&mut self) {
@@ -1038,11 +1039,17 @@ impl CentralApp {
         };
         state.source.sync_daemon_controls();
         let audio_running = state.audio_running;
+        let monitor_power = (self.recorder_panel.squelch_record
+            || self.recorder_panel.signal_monitor)
+            && state.config.advanced.squelch_mode == crate::radio_squelch::SquelchMode::Power;
         let adsb_running = state.adsb_running;
         let demod_mode = state.demod_mode;
-        state
-            .source
-            .sync_daemon_workflows(audio_running, adsb_running, false, demod_mode);
+        state.source.sync_daemon_workflows(
+            audio_running || monitor_power,
+            adsb_running,
+            false,
+            demod_mode,
+        );
         let desired_squelch = crate::radio_ui::requested_power_squelch(&state);
         state.source.sync_daemon_squelch(desired_squelch);
         crate::radio_ui::sync_squelch_level(&mut state);
@@ -1055,10 +1062,10 @@ impl CentralApp {
             match event {
                 Some(ez_proto::ServerEvent::Spectrum(frame)) => {
                     // Scanner measurements continue independently of tab rendering.
-                    if !self.scanner.enabled {
+                    if !self.scanner.enabled && !monitor_power {
                         state.spectrum.require_daemon_observation(None);
                     }
-                    if self.current_tab == AppTab::Listen || self.scanner.enabled {
+                    if self.current_tab == AppTab::Listen || self.scanner.enabled || monitor_power {
                         let observed_at = state
                             .source
                             .daemon_spectrum_received_at()
@@ -1330,8 +1337,9 @@ impl eframe::App for CentralApp {
                     crate::demod::RadioConfig {
                         enabled: source_mode != crate::source_manager::SourceMode::Daemon,
                         preview: self.current_tab == AppTab::Listen || self.scanner.enabled,
-                        measure_power: self.recorder_panel.squelch_record
-                            || self.recorder_panel.signal_monitor,
+                        measure_power: (self.recorder_panel.squelch_record
+                            || self.recorder_panel.signal_monitor)
+                            && squelch_mode == crate::radio_squelch::SquelchMode::Power,
                         frequency_hz: freq,
                         center_hz: center,
                         generation: stream_generation,
@@ -1682,30 +1690,30 @@ impl eframe::App for CentralApp {
 
             // Squelch-triggered recording tick
             {
-                let (signal_db, squelch_db, freq_hz, mode_label) = if let Ok(state) =
-                    self.shared.try_lock()
-                {
-                    (
-                        self.demod_worker
-                            .radio_snapshot()
-                            .filter(|snapshot| {
-                                snapshot.control_version == self.demod_worker.requested_version()
-                                    && state.source.status
-                                        == crate::source_manager::SourceStatus::Running
-                            })
-                            .map_or(-120.0, |snapshot| snapshot.signal_db),
-                        state.squelch,
-                        state.source.frequency_hz,
-                        state.demod_mode.label().to_string(),
+                let input = if let Ok(mut state) = self.shared.try_lock() {
+                    let native = self.demod_worker.radio_snapshot();
+                    self.recorder_panel.prepare_squelch_trigger(
+                        &mut state,
+                        native.as_deref(),
+                        self.demod_worker.requested_version(),
+                        self.scanner.enabled,
+                        now,
                     )
                 } else {
-                    (-120.0, -50.0, 0u64, "NFM".to_string())
+                    crate::recorder_panel::AutomaticTrigger {
+                        signal_db: None,
+                        threshold_db: 0.0,
+                        enabled: false,
+                        frequency_hz: 0,
+                        mode: String::new(),
+                    }
                 };
                 self.recorder_panel.tick_squelch_record(
-                    signal_db,
-                    squelch_db,
-                    freq_hz,
-                    &mode_label,
+                    input.signal_db,
+                    input.threshold_db,
+                    input.enabled,
+                    input.frequency_hz,
+                    &input.mode,
                 );
             }
 

@@ -1,0 +1,16 @@
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+error: match expression looks like `matches!` macro
+  --> ez-gui/src/daemon_client.rs:63:39
+   |
+63 |           self.events.retain(|previous| match (&event, previous) {
+   |  _______________________________________^
+64 | |             (ServerEvent::Hardware(_), ServerEvent::Hardware(_)) => false,
+65 | |             _ => true,
+66 | |         });
+   | |_________^ help: try: `!matches!((&event, previous), (ServerEvent::Hardware(_), ServerEvent::Hardware(_)))`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#match_like_matches_macro
+   = note: `-D clippy::match-like-matches-macro` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::match_like_matches_macro)]`
+
+error: could not compile `ez-gui` (lib) due to 1 previous error

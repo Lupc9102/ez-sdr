@@ -74,7 +74,7 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 - [ ] **R09 · P2** — AM audio aliases when the selected RF band exceeds output audio Nyquist
 - [ ] **R10 · P2** — RAW output has the wrong channel count and timebase for playback/WAV
 - [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
-- [ ] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
+- [x] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
 
 ## Verification and limits
@@ -224,3 +224,13 @@ All focused DSP and native/scanner-consumer regressions pass, as do the default 
 ## Fixed-capture scan repair verification (R20)
 
 All five focused regressions and all 80 affected-module tests pass; GUI all-target Clippy with warnings denied, GUI default build, formatting and AST refresh pass. Verification was serialized under a verified 20%-of-one-CPU cgroup quota, nice 19, one build job and one test thread. The full workspace suite remains off after the user CPU request. The graph has 7,399 nodes and 16,609 edges; user-deleted graph sidecars remain deleted. The initial test-fixture failure and corrected final results, commands, resource policy and source hashes are retained in repair-scan-verification.json. All 33 original repair gates and all original off-air/hardware/audio/disk release requirements remain intact. The goal remains active.
+
+## Automatic recording and monitor verification (R13)
+
+R13 is software-verified. Explicit Power/enabled state covers the complete -100..0 dBFS range. Native observations advance only on complete RF windows and expire with capture receipt age. Daemon monitoring requires acknowledged capture settings and power threshold, then fresh revision-tagged raw measurements; gain/VFO changes retire history. Frozen displays and hidden Listen tabs keep ingesting observations. Scanner startup must establish its own token, and active scanner/monitor consumers share that boundary.
+
+Local counts advance after successful file open. Daemon starts remain pending until an owned-channel active acknowledgement in the current session. Failures, timeouts, cancelled starts, duplicate statuses and closed queues do not count or flood commands. Recording progress coalesces within a phase while start/stop acknowledgements stay in order.
+
+All ten focused regressions pass, including 202 threshold/source cases, plus all 62 unique affected tests across recorder, native RF, spectrum freshness, receipt age and daemon squelch modules. GUI default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. Everything ran serially with a verified 20%-of-one-CPU cgroup quota, nice 19, one build job and one test thread. The full workspace suite and expensive DSP sweeps remain off. Failed development checks and final results, exact commands, resource policy and source hashes are retained in repair-trigger-verification.json.
+
+There are now 28 software-verified findings and five open findings: S01, R09, R10, R12 and R19. Original repair gates and off-air/hardware/audio/disk release requirements remain unchanged; this batch uses controlled daemon protocol fixtures rather than field recordings. The AST graph has 7,425 nodes and 16,706 edges; HTML export was skipped at the configured size limit. User-deleted graph sidecars remain deleted. The goal remains active.

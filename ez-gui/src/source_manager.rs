@@ -1879,10 +1879,12 @@ impl SourceManager {
         if client.status() != crate::daemon_client::ConnectionStatus::Connected {
             return Err("wait for the daemon connection before recording".to_string());
         }
-        client.send(ez_proto::ClientCommand::StartRecording {
+        if !client.try_send(ez_proto::ClientCommand::StartRecording {
             channel_id: self.daemon_channels.spectrum,
             format,
-        });
+        }) {
+            return Err("daemon recording command could not be queued".into());
+        }
         Ok(())
     }
 
@@ -1898,9 +1900,11 @@ impl SourceManager {
             .daemon_client
             .as_ref()
             .ok_or_else(|| "daemon is not connected".to_string())?;
-        client.send(ez_proto::ClientCommand::StopRecording {
+        if !client.try_send(ez_proto::ClientCommand::StopRecording {
             channel_id: self.daemon_channels.spectrum,
-        });
+        }) {
+            return Err("daemon recording stop could not be queued".into());
+        }
         Ok(())
     }
 

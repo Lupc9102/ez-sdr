@@ -53,6 +53,10 @@ pub(crate) struct RadioSnapshot {
     pub fm_deviation_hz: f32,
     pub audio_peak: f32,
     pub signal_db: f32,
+    /// Only complete RF observations advance this timestamp. GUI drains and
+    /// partial input windows cannot refresh the previous carrier measurement.
+    pub signal_observed_at: Option<Instant>,
+    pub signal_max_age: Duration,
     pub waveform: Vec<f32>,
 }
 
@@ -151,6 +155,8 @@ impl Processor {
         self.snapshot.fm_deviation_hz = 0.0;
         self.snapshot.audio_peak = 0.0;
         self.snapshot.signal_db = -120.0;
+        self.snapshot.signal_observed_at = None;
+        self.snapshot.signal_max_age = Duration::ZERO;
         self.snapshot.discontinuity_revision += 1;
         self.rf_active = false;
         self.demod_active = false;
@@ -268,6 +274,8 @@ impl Processor {
         if !active && !radio.preview && !radio.measure_power {
             self.rf_active = false;
             self.demod_active = false;
+            self.snapshot.signal_db = -120.0;
+            self.snapshot.signal_observed_at = None;
             return;
         }
         let rf_resumed = !self.rf_active;
@@ -283,13 +291,27 @@ impl Processor {
         };
         let offset = (i128::from(radio.frequency_hz) - i128::from(block.center_hz)) as f64;
         let signal = if radio.measure_power || radio.squelch_mode == SquelchMode::Power {
-            self.power.process(
+            let previous = self.power.observation_revision();
+            let level = self.power.process(
                 &wideband,
                 self.iq.output_rate(),
                 offset,
                 self.demod.rf_passband(desired.config.mode),
-            )
+            );
+            if !self.power.has_measurement() {
+                self.snapshot.signal_observed_at = None;
+            } else if self.power.observation_revision() != previous {
+                self.snapshot.signal_observed_at = Some(block.observed_at);
+                // Tolerate slow source block cadence without depending on
+                // display FFT cadence. Expiry still detects stalled input.
+                self.snapshot.signal_max_age = Duration::from_millis(500).max(
+                    Duration::from_secs_f64(2.5 * wideband.len() as f64 / self.iq.output_rate()),
+                );
+            }
+            level
         } else {
+            self.power.reset();
+            self.snapshot.signal_observed_at = None;
             -120.0
         };
         self.snapshot.signal_db = signal;
@@ -633,6 +655,78 @@ mod tests {
                 stereo: false,
             },
         )
+    }
+
+    #[test]
+    fn native_automatic_trigger_timestamps_advance_only_for_complete_power_windows() {
+        let stream = CaptureStream::default();
+        stream.start(1);
+        let (mut radio, mut demod_config) = config(None);
+        radio.iq = RadioIqConfig {
+            input_rate: 384000,
+            decimation: 1,
+            dc_remove: false,
+            invert: false,
+        };
+        radio.frequency_hz = radio.center_hz;
+        radio.audio_running = false;
+        radio.preview = false;
+        radio.measure_power = true;
+        demod_config.input_rate = 384000.0;
+        demod_config.rf_bandwidth = 3000.0;
+        let mut desired = WorkerControl {
+            radio: Some(radio),
+            config: demod_config,
+            ..Default::default()
+        };
+        let audio = RadioAudioStream {
+            bus: Broadcaster::new(),
+            capture: stream.clone(),
+            handled_samples: Arc::new(AtomicU64::new(0)),
+            lost_samples: Arc::new(AtomicU64::new(0)),
+            running: Arc::new(AtomicBool::new(true)),
+            produced_samples: Arc::new(AtomicU64::new(0)),
+        };
+        let previews = Broadcaster::new();
+        let mut processor = Processor::new();
+        processor.configure(&desired);
+        let now = Instant::now();
+        for n in 0..4 {
+            let mut block = CaptureBlock::fixture(
+                vec![128; 4096],
+                ez_proto::CaptureClock::new(42, n * 2048, 384000, None),
+                1,
+                n * 2048,
+            );
+            block.clock.discontinuous = n == 0;
+            block.center_hz = 100000000;
+            block.session = Some(stream.session());
+            block.float_samples = Some(Arc::from(vec![Complex32::new(0.1, 0.0); 2048]));
+            block.observed_at = now + Duration::from_millis(n * 10);
+            processor.process(&block, &desired, &previews, &audio);
+            let expected = match n {
+                0 => None,
+                1 | 2 => Some(now + Duration::from_millis(10)),
+                _ => Some(now + Duration::from_millis(30)),
+            };
+            assert_eq!(processor.snapshot.signal_observed_at, expected);
+            if expected.is_some() {
+                assert!((processor.snapshot.signal_db + 20.0).abs() < 0.01);
+            }
+        }
+        processor.reset();
+        assert!(processor.snapshot.signal_observed_at.is_none());
+        desired.radio.as_mut().unwrap().measure_power = false;
+        let mut block = CaptureBlock::fixture(
+            vec![128; 4096],
+            ez_proto::CaptureClock::new(43, 0, 384000, None),
+            1,
+            8192,
+        );
+        block.center_hz = 100000000;
+        processor.process(&block, &desired, &previews, &audio);
+        assert!(processor.snapshot.signal_observed_at.is_none());
+        eprintln!("automatic_trigger native_complete_window_timestamps=passed incomplete_windows_do_not_refresh=passed");
     }
 
     fn input(count: usize, start: usize) -> Vec<u8> {
@@ -1092,8 +1186,9 @@ mod tests {
                     );
                     recorder.signal_monitor = true;
                     recorder.tick_squelch_record(
-                        processor.snapshot.signal_db,
+                        Some(processor.snapshot.signal_db),
                         -45.0,
+                        true,
                         desired.radio.as_ref().unwrap().frequency_hz,
                         mode.label(),
                     );

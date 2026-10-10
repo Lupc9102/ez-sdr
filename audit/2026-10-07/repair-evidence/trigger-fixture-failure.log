@@ -1,0 +1,79 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused return value of `source_manager::SourceManager::recv_daemon_event` that must be used
+    --> ez-gui/src/recorder_panel.rs:2140:13
+     |
+2140 |             state.source.recv_daemon_event();
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+2140 |             let _ = state.source.recv_daemon_event();
+     |             +++++++
+
+warning: `ez-gui` (lib test) generated 3 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 10s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 9 tests
+test daemon_client::tests::automatic_trigger_recording_acknowledgements_survive_progress_coalescing ... ok
+test demod::native::tests::native_automatic_trigger_timestamps_advance_only_for_complete_power_windows ... automatic_trigger native_complete_window_timestamps=passed incomplete_windows_do_not_refresh=passed
+ok
+test recorder_panel::tests::automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement ...
+thread 'recorder_panel::tests::automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement' (24097) panicked at ez-gui/src/recorder_panel.rs:2148:13:
+assertion failed: state.source.capture_tuning_applied()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test recorder_panel::tests::automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests ...
+thread 'recorder_panel::tests::automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests' (24100) panicked at ez-gui/src/recorder_panel.rs:2148:13:
+assertion failed: state.source.capture_tuning_applied()
+FAILED
+test recorder_panel::tests::automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared ...
+thread 'recorder_panel::tests::automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared' (24103) panicked at ez-gui/src/recorder_panel.rs:2148:13:
+assertion failed: state.source.capture_tuning_applied()
+FAILED
+test recorder_panel::tests::automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel ...
+thread 'recorder_panel::tests::automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel' (24106) panicked at ez-gui/src/recorder_panel.rs:2148:13:
+assertion failed: state.source.capture_tuning_applied()
+FAILED
+test recorder_panel::tests::automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources ...
+thread 'recorder_panel::tests::automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources' (24110) panicked at ez-gui/src/recorder_panel.rs:2148:13:
+assertion failed: state.source.capture_tuning_applied()
+FAILED
+test recorder_panel::tests::automatic_trigger_failed_local_open_does_not_count_and_success_counts_once ...
+thread 'recorder_panel::tests::automatic_trigger_failed_local_open_does_not_count_and_success_counts_once' (24114) panicked at ez-gui/src/recorder_panel.rs:2444:9:
+assertion `left == right` failed
+  left: []
+ right: [128, 128]
+FAILED
+test recorder_panel::tests::automatic_trigger_native_measurements_expire_and_wrong_context_never_activates ... ok
+
+failures:
+
+failures:
+    recorder_panel::tests::automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement
+    recorder_panel::tests::automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests
+    recorder_panel::tests::automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared
+    recorder_panel::tests::automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel
+    recorder_panel::tests::automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources
+    recorder_panel::tests::automatic_trigger_failed_local_open_does_not_count_and_success_counts_once
+
+test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 865 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

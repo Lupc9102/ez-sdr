@@ -2412,7 +2412,7 @@ impl Drop for DemodWorker {
 
 #[path = "demod_native.rs"]
 mod native;
-pub(crate) use native::{RadioAudio, RadioAudioStream, RadioConfig};
+pub(crate) use native::{RadioAudio, RadioAudioStream, RadioConfig, RadioSnapshot};
 
 #[cfg(test)]
 mod tests {

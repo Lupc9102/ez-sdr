@@ -47,10 +47,24 @@ struct ControlQueue {
 
 impl ControlQueue {
     fn push(&mut self, event: ServerEvent) -> bool {
-        self.events.retain(|previous| match (&event, previous) {
-            (ServerEvent::Hardware(_), ServerEvent::Hardware(_)) => false,
-            (ServerEvent::Recording(a), ServerEvent::Recording(b)) => a.channel_id != b.channel_id,
-            _ => true,
+        if let ServerEvent::Recording(next) = &event {
+            if let Some(index) = self.events.iter().rposition(|previous| {
+                matches!(previous, ServerEvent::Recording(previous) if previous.channel_id == next.channel_id)
+            }) {
+                if matches!(&self.events[index], ServerEvent::Recording(previous)
+                    if previous.active == next.active && previous.path == next.path)
+                {
+                    // Coalesce progress within one recording phase, while
+                    // preserving start/stop acknowledgements in FIFO order.
+                    self.events.remove(index);
+                }
+            }
+        }
+        self.events.retain(|previous| {
+            !matches!(
+                (&event, previous),
+                (ServerEvent::Hardware(_), ServerEvent::Hardware(_))
+            )
         });
         if self.events.len() >= 64 {
             return false;
@@ -172,6 +186,11 @@ impl DaemonClient {
             .lock()
             .expect("daemon client status mutex poisoned")
             .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_client_channels(&self, channels: ez_proto::ClientChannels) {
+        *self.client_channels.lock().unwrap() = Some(channels);
     }
 
     pub fn client_channels(&self) -> Option<ez_proto::ClientChannels> {
@@ -417,6 +436,50 @@ async fn run_connection(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn automatic_trigger_recording_acknowledgements_survive_progress_coalescing() {
+        let mut queue = super::ControlQueue::default();
+        for (active, path, bytes) in [
+            (true, "first.cf32", 0),
+            (true, "first.cf32", 8),
+            (false, "first.cf32", 16),
+            (true, "second.cf32", 0),
+            (true, "second.cf32", 24),
+        ] {
+            assert!(queue.push(ez_proto::ServerEvent::Recording(
+                ez_proto::RecordingStatus {
+                    channel_id: 1,
+                    active,
+                    path: Some(path.into()),
+                    bytes_written: bytes,
+                    duration_sec: 0.0,
+                    stop_reason: None,
+                }
+            )));
+        }
+        let phases: Vec<_> = queue
+            .events
+            .iter()
+            .map(|event| {
+                let ez_proto::ServerEvent::Recording(status) = event else {
+                    panic!("unexpected event")
+                };
+                (
+                    status.active,
+                    status.path.as_deref().unwrap(),
+                    status.bytes_written,
+                )
+            })
+            .collect();
+        assert_eq!(
+            phases,
+            vec![
+                (true, "first.cf32", 8),
+                (false, "first.cf32", 16),
+                (true, "second.cf32", 24)
+            ]
+        );
+    }
     use super::*;
     use ez_daemon::{run, DaemonConfig, SourceConfig};
     use ez_proto::{ChannelSpec, PipelineKind};

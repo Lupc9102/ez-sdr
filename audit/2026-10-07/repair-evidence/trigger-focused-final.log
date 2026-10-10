@@ -1,0 +1,36 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 43.29s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 10 tests
+test daemon_client::tests::automatic_trigger_recording_acknowledgements_survive_progress_coalescing ... ok
+test demod::native::tests::native_automatic_trigger_timestamps_advance_only_for_complete_power_windows ... automatic_trigger native_complete_window_timestamps=passed incomplete_windows_do_not_refresh=passed
+ok
+test recorder_panel::tests::automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement ... ok
+test recorder_panel::tests::automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests ... ok
+test recorder_panel::tests::automatic_trigger_daemon_gain_changes_require_acknowledgement_and_new_measurement ... ok
+test recorder_panel::tests::automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared ... ok
+test recorder_panel::tests::automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel ... ok
+test recorder_panel::tests::automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources ... automatic_trigger threshold_cases=202 range=-100..0 local_and_acknowledged_daemon=passed
+ok
+test recorder_panel::tests::automatic_trigger_failed_local_open_does_not_count_and_success_counts_once ... ok
+test recorder_panel::tests::automatic_trigger_native_measurements_expire_and_wrong_context_never_activates ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 865 filtered out; finished in 0.80s

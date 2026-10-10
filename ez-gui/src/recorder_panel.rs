@@ -1,5 +1,29 @@
 use crate::app::SharedState;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+pub(crate) struct AutomaticTrigger {
+    pub signal_db: Option<f32>,
+    pub threshold_db: f32,
+    pub enabled: bool,
+    pub frequency_hz: u64,
+    pub mode: String,
+}
+
+struct DaemonTriggerObservation {
+    generation: u64,
+    spectrum_revision: u64,
+    applied_gain_bits: u64,
+    remote_revision: u64,
+    sent: bool,
+}
+
+struct PendingDaemonStart {
+    generation: u64,
+    channel: ez_proto::ChannelId,
+    started_at: Instant,
+    automatic: bool,
+}
 
 pub struct SignalEvent {
     pub timestamp: String,
@@ -55,6 +79,12 @@ pub struct RecorderPanel {
     pub signal_monitor: bool,
     pub signal_log: std::collections::VecDeque<SignalEvent>,
     signal_last_logged: Option<std::time::Instant>,
+    signal_logged_channel: Option<(u64, String)>,
+    automatic_trigger_status: String,
+    daemon_trigger_observation: Option<DaemonTriggerObservation>,
+    pending_daemon_start: Option<PendingDaemonStart>,
+    pending_daemon_stop: Option<u64>,
+    automatic_retry_after: Option<Instant>,
     // Filename template
     pub filename_template: String,
     // Quick-start duration in seconds (0 = use max_duration_mins)
@@ -326,6 +356,12 @@ impl RecorderPanel {
             signal_monitor: false,
             signal_log: std::collections::VecDeque::with_capacity(200),
             signal_last_logged: None,
+            signal_logged_channel: None,
+            automatic_trigger_status: String::new(),
+            daemon_trigger_observation: None,
+            pending_daemon_start: None,
+            pending_daemon_stop: None,
+            automatic_retry_after: None,
             filename_template: "{date}_{freq}MHz".to_string(),
             quick_duration_secs: 0,
             peak_level_dbfs: -120.0,
@@ -342,12 +378,34 @@ impl RecorderPanel {
         panel
     }
 
-    pub fn handle_daemon_recording(&mut self, status: ez_proto::RecordingStatus) {
+    pub fn handle_daemon_recording(&mut self, status: ez_proto::RecordingStatus, generation: u64) {
         let was_active = self
             .daemon_recording
             .as_ref()
             .is_some_and(|previous| previous.active);
         self.recording = status.active;
+        if self.pending_daemon_start.as_ref().is_some_and(|pending| {
+            pending.generation != generation || status.active || status.stop_reason.is_some()
+        }) {
+            let pending = self.pending_daemon_start.take().unwrap();
+            if status.active
+                && !was_active
+                && pending.automatic
+                && pending.generation == generation
+                && pending.channel == status.channel_id
+            {
+                self.squelch_record_count = self.squelch_record_count.saturating_add(1);
+            } else if !status.active && status.stop_reason.is_some() {
+                self.automatic_retry_after = Some(Instant::now() + Duration::from_secs(1));
+            }
+        }
+        if !status.active
+            || self
+                .pending_daemon_stop
+                .is_some_and(|pending| pending != generation)
+        {
+            self.pending_daemon_stop = None;
+        }
         if status.active && !was_active {
             self.start_time = Some(std::time::Instant::now());
         } else if !status.active {
@@ -371,6 +429,13 @@ impl RecorderPanel {
     }
 
     pub fn start(&mut self) {
+        if self.recording
+            || self.pending_daemon_start.is_some()
+            || self.pending_daemon_stop.is_some()
+            || self.is_finalizing()
+        {
+            return;
+        }
         if !self.daemon_mode() {
             self.start_recording();
             return;
@@ -389,9 +454,23 @@ impl RecorderPanel {
             .shared
             .try_lock()
             .map_err(|_| "source state is busy; try again".to_string())
-            .and_then(|mut state| state.source.start_daemon_recording(format));
+            .and_then(|mut state| {
+                state.source.start_daemon_recording(format)?;
+                Ok((
+                    state.source.stream_generation(),
+                    state.source.daemon_channel_ids().spectrum,
+                ))
+            });
         match result {
-            Ok(()) => self.last_error = "Starting daemon recording…".to_string(),
+            Ok((generation, channel)) => {
+                self.pending_daemon_start = Some(PendingDaemonStart {
+                    generation,
+                    channel,
+                    started_at: Instant::now(),
+                    automatic: false,
+                });
+                self.last_error = "Starting daemon recording…".to_string();
+            }
             Err(error) => self.last_error = error,
         }
     }
@@ -405,13 +484,23 @@ impl RecorderPanel {
             self.stop_recording();
             return true;
         }
+        if self.pending_daemon_stop.is_some() {
+            return true;
+        }
         let result = self
             .shared
             .try_lock()
             .map_err(|_| "source state is busy; try again".to_string())
-            .and_then(|mut state| state.source.stop_daemon_recording());
+            .and_then(|mut state| {
+                state.source.stop_daemon_recording()?;
+                Ok(state.source.stream_generation())
+            });
         match result {
-            Ok(()) => {
+            Ok(generation) => {
+                self.pending_daemon_stop = Some(generation);
+                if let Some(pending) = &mut self.pending_daemon_start {
+                    pending.automatic = false;
+                }
                 self.last_error = "Stopping daemon recording…".to_string();
                 true
             }
@@ -440,22 +529,49 @@ impl RecorderPanel {
 
     pub fn tick_squelch_record(
         &mut self,
-        signal_db: f32,
+        signal_db: Option<f32>,
         squelch_db: f32,
+        squelch_enabled: bool,
         freq_hz: u64,
         mode: &str,
     ) {
-        let signal_active = signal_db > squelch_db && squelch_db > -90.0;
-        let now = std::time::Instant::now();
+        self.tick_squelch_record_at(
+            signal_db,
+            squelch_db,
+            squelch_enabled,
+            freq_hz,
+            mode,
+            Instant::now(),
+        );
+    }
+
+    fn tick_squelch_record_at(
+        &mut self,
+        signal_db: Option<f32>,
+        squelch_db: f32,
+        squelch_enabled: bool,
+        freq_hz: u64,
+        mode: &str,
+        now: Instant,
+    ) {
+        let signal_db = signal_db.filter(|level| level.is_finite());
+        let signal_active = squelch_enabled
+            && squelch_db.is_finite()
+            && signal_db.is_some_and(|level| level > squelch_db);
 
         // Signal event log — throttle to one entry per 5s per activation
         if self.signal_monitor && signal_active {
             let log_gap = std::time::Duration::from_secs(5);
             let should_log = self
                 .signal_last_logged
-                .is_none_or(|t| now.duration_since(t) >= log_gap);
+                .is_none_or(|t| now.saturating_duration_since(t) >= log_gap)
+                || self
+                    .signal_logged_channel
+                    .as_ref()
+                    .is_none_or(|(frequency, previous)| *frequency != freq_hz || previous != mode);
             if should_log {
                 self.signal_last_logged = Some(now);
+                self.signal_logged_channel = Some((freq_hz, mode.to_string()));
                 let ts = chrono::Local::now().format("%H:%M:%S").to_string();
                 if self.signal_log.len() >= 200 {
                     self.signal_log.pop_front();
@@ -464,12 +580,16 @@ impl RecorderPanel {
                     timestamp: ts,
                     frequency_hz: freq_hz,
                     mode: mode.to_string(),
-                    signal_db,
+                    signal_db: signal_db.unwrap(),
                 });
             }
         }
-        if !signal_active {
+        if !signal_active || !self.signal_monitor {
             self.signal_last_logged = None;
+            self.signal_logged_channel = None;
+        }
+        if !signal_active {
+            self.automatic_retry_after = None;
         }
 
         if !self.squelch_record {
@@ -477,11 +597,22 @@ impl RecorderPanel {
         }
         if signal_active {
             self.squelch_record_last_active = Some(now);
-            if !self.recording {
+            if !self.recording
+                && !self.is_finalizing()
+                && self.pending_daemon_start.is_none()
+                && self.pending_daemon_stop.is_none()
+                && self.automatic_retry_after.is_none_or(|retry| now >= retry)
+            {
                 self.start();
-                self.squelch_record_count += 1;
+                if self.recording {
+                    self.squelch_record_count = self.squelch_record_count.saturating_add(1);
+                } else if let Some(pending) = &mut self.pending_daemon_start {
+                    pending.automatic = true;
+                } else {
+                    self.automatic_retry_after = Some(now + Duration::from_secs(1));
+                }
             }
-        } else if self.recording {
+        } else if self.recording || self.pending_daemon_start.is_some() {
             let tail = std::time::Duration::from_millis(self.squelch_record_tail_ms);
             let since = self
                 .squelch_record_last_active
@@ -490,6 +621,173 @@ impl RecorderPanel {
                 self.stop();
             }
         }
+    }
+
+    /// Prepare source-specific, current measurements while the caller owns the
+    /// shared state lock. File/daemon recording starts happen after releasing it.
+    pub(crate) fn prepare_squelch_trigger(
+        &mut self,
+        state: &mut SharedState,
+        native: Option<&crate::demod::RadioSnapshot>,
+        requested_version: u64,
+        scanner_active: bool,
+        now: Instant,
+    ) -> AutomaticTrigger {
+        use crate::source_manager::{SourceMode, SourceStatus};
+        let generation = state.source.stream_generation();
+        if self.pending_daemon_start.as_ref().is_some_and(|pending| {
+            state.source.source_mode != SourceMode::Daemon
+                || pending.generation != generation
+                || now.saturating_duration_since(pending.started_at) >= Duration::from_secs(5)
+        }) {
+            self.pending_daemon_start = None;
+            self.automatic_retry_after = Some(now + Duration::from_secs(1));
+            self.last_error =
+                "Daemon recording start was not acknowledged in the current session.".into();
+        }
+        if self.pending_daemon_stop.is_some_and(|pending| {
+            state.source.source_mode != SourceMode::Daemon || pending != generation
+        }) {
+            self.pending_daemon_stop = None;
+        }
+        let mut input = AutomaticTrigger {
+            signal_db: None,
+            threshold_db: state.config.advanced.squelch_level_db,
+            enabled: false,
+            frequency_hz: state.source.frequency_hz,
+            mode: state.demod_mode.label().to_string(),
+        };
+        if !(self.squelch_record || self.signal_monitor) {
+            self.daemon_trigger_observation = None;
+            self.automatic_trigger_status.clear();
+            return input;
+        }
+        if state.config.advanced.squelch_mode != crate::radio_squelch::SquelchMode::Power {
+            self.daemon_trigger_observation = None;
+            self.automatic_trigger_status =
+                "Select Power squelch to use automatic recording or signal monitoring.".into();
+            return input;
+        }
+        if state.source.status != SourceStatus::Running {
+            self.daemon_trigger_observation = None;
+            self.automatic_trigger_status = "Waiting for the receiver to run.".into();
+            return input;
+        }
+        if state.source.source_mode != SourceMode::Daemon {
+            self.daemon_trigger_observation = None;
+            input.enabled = input.threshold_db.is_finite();
+            input.signal_db = native
+                .filter(|snapshot| {
+                    snapshot.control_version == requested_version
+                        && snapshot.generation == generation
+                        && snapshot.epoch.is_some()
+                        && snapshot.signal_db.is_finite()
+                        && snapshot
+                            .signal_observed_at
+                            .and_then(|observed| now.checked_duration_since(observed))
+                            .is_some_and(|age| age <= snapshot.signal_max_age)
+                })
+                .map(|snapshot| snapshot.signal_db);
+            self.automatic_trigger_status = if input.signal_db.is_some() {
+                String::new()
+            } else {
+                "Waiting for a fresh native RF measurement.".into()
+            };
+            return input;
+        }
+        let Some(applied) = state
+            .source
+            .daemon_squelch_applied()
+            .filter(|applied| applied.db.is_finite())
+        else {
+            self.automatic_trigger_status = "Waiting for daemon squelch acknowledgement.".into();
+            return input;
+        };
+        input.threshold_db = applied.db;
+        if !state.source.capture_tuning_applied()
+            || !state.source.gain_request_applied(state.source.gain_db)
+            || state.spectrum.capture_geometry()
+                != (
+                    state.source.capture_center_frequency_hz(),
+                    f64::from(state.source.sample_rate_hz),
+                )
+            || state.spectrum.vfo_frequency_hz() != state.source.frequency_hz
+        {
+            self.daemon_trigger_observation = None;
+            self.automatic_trigger_status =
+                "Waiting for acknowledged daemon capture settings.".into();
+            return input;
+        }
+        let applied_gain_bits = state.source.applied_capture_settings().unwrap().2.to_bits();
+        state.spectrum.synchronize_observation_context();
+        if scanner_active {
+            // Share the scanner's existing remote boundary. Two consumers
+            // must not continually supersede one another's observation token.
+            let scanner_revision = state.spectrum.required_daemon_observation();
+            if scanner_revision.is_none()
+                || self
+                    .daemon_trigger_observation
+                    .as_ref()
+                    .is_some_and(|previous| scanner_revision == Some(previous.remote_revision))
+            {
+                self.automatic_trigger_status =
+                    "Waiting for the scanner's daemon RF observation.".into();
+                return input;
+            }
+            self.daemon_trigger_observation = None;
+        } else {
+            let revision = state.spectrum.observation_revision();
+            if self
+                .daemon_trigger_observation
+                .as_ref()
+                .is_none_or(|previous| {
+                    previous.generation != generation
+                        || previous.spectrum_revision != revision
+                        || previous.applied_gain_bits != applied_gain_bits
+                })
+            {
+                let remote_revision = ez_proto::new_capture_epoch();
+                state.spectrum.begin_scan_observation(now);
+                state
+                    .spectrum
+                    .require_daemon_observation(Some(remote_revision));
+                self.daemon_trigger_observation = Some(DaemonTriggerObservation {
+                    generation,
+                    spectrum_revision: state.spectrum.observation_revision(),
+                    applied_gain_bits,
+                    remote_revision,
+                    sent: false,
+                });
+            }
+            let observation = self.daemon_trigger_observation.as_mut().unwrap();
+            if !observation.sent {
+                observation.sent = state
+                    .source
+                    .begin_daemon_spectrum_observation(observation.remote_revision);
+            }
+            if !observation.sent {
+                self.automatic_trigger_status =
+                    "Waiting to request a fresh daemon RF observation.".into();
+                return input;
+            }
+        }
+        input.enabled = true;
+        input.signal_db = state
+            .spectrum
+            .scan_measurement()
+            .filter(|measurement| {
+                measurement.peak_db.is_finite()
+                    && now
+                        .checked_duration_since(measurement.observed_at)
+                        .is_some_and(|age| age <= state.spectrum.measurement_max_age())
+            })
+            .map(|measurement| measurement.peak_db);
+        self.automatic_trigger_status = if input.signal_db.is_some() {
+            String::new()
+        } else {
+            "Waiting for a fresh acknowledged daemon RF measurement.".into()
+        };
+        input
     }
 
     fn scan_recordings(&mut self) {
@@ -1271,18 +1569,26 @@ impl RecorderPanel {
         ui.separator();
 
         // Squelch-triggered recording
+        let power_squelch = self.shared.try_lock().is_ok_and(|state| {
+            state.config.advanced.squelch_mode == crate::radio_squelch::SquelchMode::Power
+        });
+        if (self.squelch_record || self.signal_monitor) && !self.automatic_trigger_status.is_empty()
+        {
+            ui.label(&self.automatic_trigger_status);
+        }
         ui.collapsing("🎙 VOX / Squelch-triggered recording", |ui| {
-            ui.label("Automatically start and stop recording when a signal is detected above the squelch threshold. Each transmission becomes a separate file.");
+            ui.label("Use Power squelch to start and stop recording from fresh RF measurements above its threshold. Each transmission becomes a separate file.");
             ui.horizontal(|ui| {
                 let vox_label = if self.squelch_record {
                     egui::RichText::new("VOX ON").color(egui::Color32::from_rgb(80, 220, 120)).strong()
                 } else {
                     egui::RichText::new("Enable VOX")
                 };
-                if ui.toggle_value(&mut self.squelch_record, vox_label)
+                if ui.add_enabled(power_squelch || self.squelch_record, egui::Button::new(vox_label).selected(self.squelch_record))
                     .on_hover_text("When enabled, recording starts automatically when signal exceeds squelch, and stops after the tail delay.")
-                    .changed() && self.squelch_record && self.recording {
-                    self.stop();
+                    .clicked() {
+                    self.squelch_record = !self.squelch_record;
+                    if self.squelch_record && self.recording { self.stop(); }
                 }
                 ui.add(egui::Slider::new(&mut self.squelch_record_tail_ms, 200u64..=10_000)
                     .step_by(200.0)
@@ -1292,6 +1598,7 @@ impl RecorderPanel {
                     }))
                     .on_hover_text("How long to continue recording after signal drops. Prevents chopping multi-part transmissions.");
             });
+            if !power_squelch { ui.label("Select Power squelch in Listen to enable VOX."); }
             if self.squelch_record_count > 0 {
                 ui.label(format!("{} recordings captured this session", self.squelch_record_count));
             }
@@ -1312,8 +1619,10 @@ impl RecorderPanel {
                 } else {
                     egui::RichText::new("Start Monitor")
                 };
-                ui.toggle_value(&mut self.signal_monitor, mon_label)
-                    .on_hover_text("Log each new signal detection with timestamp, frequency, mode, and strength. Throttled to one entry per 5 seconds per activation.");
+                if ui.add_enabled(power_squelch || self.signal_monitor, egui::Button::new(mon_label).selected(self.signal_monitor))
+                    .on_hover_text("Uses fresh RF observations and the acknowledged Power squelch threshold. Logs each activation, then at most every 5 seconds.").clicked() {
+                    self.signal_monitor = !self.signal_monitor;
+                }
                 if ui.small_button("🗑 Clear").on_hover_text("Clear all log entries.").clicked() {
                     self.signal_log.clear();
                 }
@@ -1334,6 +1643,7 @@ impl RecorderPanel {
                     }
                 }
             });
+            if !power_squelch { ui.label("Select Power squelch in Listen to enable monitoring."); }
             if self.signal_log.is_empty() {
                 ui.colored_label(egui::Color32::GRAY, "No signals logged yet. Enable monitoring and set squelch above noise floor.");
             } else {
@@ -1763,6 +2073,602 @@ fn free_disk_space_with_timeout(path: &str) -> (f64, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn automatic_daemon_state(
+        threshold: f32,
+    ) -> (
+        Arc<Mutex<SharedState>>,
+        tokio::sync::mpsc::UnboundedReceiver<ez_proto::ClientCommand>,
+        crossbeam_channel::Sender<ez_proto::ServerEvent>,
+    ) {
+        let shared = make_shared_state();
+        let (client, mut commands, events) = crate::daemon_client::DaemonClient::test_connection();
+        client.test_set_client_channels(ez_proto::ClientChannels {
+            spectrum: ez_proto::CLIENT_CHANNEL_START,
+            audio: ez_proto::CLIENT_CHANNEL_START + 1,
+            adsb: ez_proto::CLIENT_CHANNEL_START + 2,
+            lrpt: ez_proto::CLIENT_CHANNEL_START + 3,
+        });
+        {
+            let mut state = shared.lock().unwrap();
+            state.source.source_mode = crate::source_manager::SourceMode::Daemon;
+            state.source.frequency_hz = 100_000_000;
+            state.source.gain_db = 0.0;
+            state.source.center_frequency_hz = Some(100_000_000);
+            state.source.set_test_daemon_client(client);
+            events
+                .send(ez_proto::ServerEvent::Hardware(ez_proto::HardwareStatus {
+                    connected: true,
+                    source_kind: "synthetic fixture".into(),
+                    frequency_hz: 100_000_000,
+                    sample_rate_hz: 200_000,
+                    gain_db: 0.0,
+                    requested_gain_db: None,
+                    gain_mode: None,
+                    error: None,
+                }))
+                .unwrap();
+            assert!(matches!(
+                state.source.recv_daemon_event(),
+                Some(ez_proto::ServerEvent::Hardware(_))
+            ));
+            state
+                .source
+                .sync_daemon_workflows(true, false, false, crate::sdr_panel::DemodMode::Fm);
+            state.source.request_daemon_squelch(threshold).unwrap();
+            let mut request = None;
+            while let Ok(command) = commands.try_recv() {
+                if let ez_proto::ClientCommand::SetSquelch {
+                    channel_id,
+                    request_id,
+                    db,
+                } = command
+                {
+                    assert_eq!(db, threshold);
+                    request = Some((channel_id, request_id));
+                }
+            }
+            let (channel_id, request_id) = request.unwrap();
+            events
+                .send(ez_proto::ServerEvent::Squelch {
+                    channel_id,
+                    request_id,
+                    result: Ok(ez_proto::SquelchState {
+                        db: threshold,
+                        revision: 1,
+                    }),
+                })
+                .unwrap();
+            assert!(matches!(
+                state.source.recv_daemon_event(),
+                Some(ez_proto::ServerEvent::Squelch { .. })
+            ));
+            state.config.advanced.squelch_mode = crate::radio_squelch::SquelchMode::Power;
+            state.config.advanced.squelch_level_db = threshold;
+            state.spectrum.update_params(100_000_000, 200_000);
+            state.spectrum.vfo_freq_hz = Some(100_000_000);
+            state.spectrum.vfo_bw_hz = 12_500;
+            state.spectrum.demod_mode = "NFM".into();
+            state.spectrum.frozen = true;
+            assert!(state.source.capture_tuning_applied());
+        }
+        (shared, commands, events)
+    }
+
+    fn automatic_frame(
+        channel: u32,
+        revision: u64,
+        timestamp: u64,
+        level: f32,
+    ) -> ez_proto::SpectrumFrame {
+        let mut raw = vec![-120.0; 2048];
+        raw[1024] = level;
+        ez_proto::SpectrumFrame {
+            channel_id: channel,
+            center_hz: 100_000_000,
+            sample_rate_hz: 200_000,
+            bins: vec![0.0; 2048],
+            timestamp_ms: timestamp,
+            observation_revision: revision,
+            measurement_bins: Some(raw),
+        }
+    }
+
+    #[test]
+    fn automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources() {
+        let now = Instant::now();
+        let mut cases = 0;
+        for threshold in -100..=0 {
+            let threshold = threshold as f32;
+            let shared = make_shared_state();
+            let mut panel = RecorderPanel::new(Arc::clone(&shared));
+            panel.signal_monitor = true;
+            let mut state = shared.lock().unwrap();
+            state.source.status = crate::source_manager::SourceStatus::Running;
+            state.config.advanced.squelch_mode = crate::radio_squelch::SquelchMode::Power;
+            state.config.advanced.squelch_level_db = threshold;
+            let mut snapshot = crate::demod::RadioSnapshot {
+                control_version: 17,
+                generation: state.source.stream_generation(),
+                epoch: Some(3),
+                signal_db: threshold + 0.5,
+                signal_observed_at: Some(now),
+                signal_max_age: Duration::from_millis(500),
+                ..Default::default()
+            };
+            let input = panel.prepare_squelch_trigger(&mut state, Some(&snapshot), 17, false, now);
+            assert!(input.enabled);
+            assert_eq!(input.signal_db, Some(threshold + 0.5));
+            drop(state);
+            panel.tick_squelch_record_at(
+                input.signal_db,
+                input.threshold_db,
+                input.enabled,
+                input.frequency_hz,
+                &input.mode,
+                now,
+            );
+            assert_eq!(panel.signal_log.len(), 1, "local threshold {threshold}");
+            snapshot.signal_db = threshold;
+            panel.tick_squelch_record_at(
+                Some(snapshot.signal_db),
+                threshold,
+                true,
+                input.frequency_hz,
+                &input.mode,
+                now,
+            );
+            assert!(panel.signal_last_logged.is_none());
+            panel.tick_squelch_record_at(
+                Some(threshold + 10.0),
+                threshold,
+                false,
+                input.frequency_hz,
+                &input.mode,
+                now,
+            );
+            assert_eq!(panel.signal_log.len(), 1);
+
+            let (shared, _commands, _events) = automatic_daemon_state(threshold);
+            let mut panel = RecorderPanel::new(Arc::clone(&shared));
+            panel.signal_monitor = true;
+            let mut state = shared.lock().unwrap();
+            let first = panel.prepare_squelch_trigger(&mut state, None, 0, false, now);
+            assert!(first.signal_db.is_none());
+            let revision = state.spectrum.required_daemon_observation().unwrap();
+            let channel = state.source.daemon_channel_ids().spectrum;
+            let displayed = state.spectrum.vfo_signal_level();
+            state.spectrum.push_spectrum_frame_at(
+                &automatic_frame(channel, revision, 1, threshold + 0.5),
+                now,
+            );
+            let input = panel.prepare_squelch_trigger(&mut state, None, 0, false, now);
+            assert_eq!(input.threshold_db, threshold);
+            assert_eq!(input.signal_db, Some(threshold + 0.5));
+            assert_eq!(
+                state.spectrum.vfo_signal_level(),
+                displayed,
+                "display stays frozen"
+            );
+            drop(state);
+            panel.tick_squelch_record_at(
+                input.signal_db,
+                input.threshold_db,
+                input.enabled,
+                input.frequency_hz,
+                &input.mode,
+                now,
+            );
+            assert_eq!(panel.signal_log.len(), 1, "daemon threshold {threshold}");
+            panel.tick_squelch_record_at(
+                Some(threshold),
+                threshold,
+                true,
+                input.frequency_hz,
+                &input.mode,
+                now,
+            );
+            assert!(panel.signal_last_logged.is_none());
+            cases += 2;
+        }
+        eprintln!("automatic_trigger threshold_cases={cases} range=-100..0 local_and_acknowledged_daemon=passed");
+    }
+
+    #[test]
+    fn automatic_trigger_native_measurements_expire_and_wrong_context_never_activates() {
+        let shared = make_shared_state();
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.signal_monitor = true;
+        let mut state = shared.lock().unwrap();
+        state.source.status = crate::source_manager::SourceStatus::Running;
+        state.config.advanced.squelch_mode = crate::radio_squelch::SquelchMode::Power;
+        let now = Instant::now();
+        let mut snapshot = crate::demod::RadioSnapshot {
+            control_version: 17,
+            epoch: Some(3),
+            signal_db: -20.0,
+            signal_observed_at: Some(now),
+            signal_max_age: Duration::from_millis(500),
+            ..Default::default()
+        };
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, Some(&snapshot), 17, false, now)
+            .signal_db
+            .is_some());
+        for age in [Duration::from_millis(501), Duration::from_secs(10)] {
+            assert!(panel
+                .prepare_squelch_trigger(&mut state, Some(&snapshot), 17, false, now + age)
+                .signal_db
+                .is_none());
+        }
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, Some(&snapshot), 18, false, now)
+            .signal_db
+            .is_none());
+        snapshot.generation = 1;
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, Some(&snapshot), 17, false, now)
+            .signal_db
+            .is_none());
+        snapshot.generation = 0;
+        snapshot.signal_observed_at = Some(now + Duration::from_secs(1));
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, Some(&snapshot), 17, false, now)
+            .signal_db
+            .is_none());
+        state.config.advanced.squelch_mode = crate::radio_squelch::SquelchMode::Off;
+        assert!(
+            !panel
+                .prepare_squelch_trigger(&mut state, Some(&snapshot), 17, false, now)
+                .enabled
+        );
+        assert!(panel.automatic_trigger_status.contains("Power squelch"));
+        for invalid in [Some(f32::NAN), Some(f32::INFINITY), None] {
+            panel.tick_squelch_record_at(invalid, -95.0, true, 100_000_000, "NFM", now);
+        }
+        assert!(panel.signal_log.is_empty());
+    }
+
+    #[test]
+    fn automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared() {
+        let (shared, mut commands, _events) = automatic_daemon_state(-95.0);
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.signal_monitor = true;
+        let mut state = shared.lock().unwrap();
+        let now = Instant::now();
+        panel.prepare_squelch_trigger(&mut state, None, 0, false, now);
+        let revision = state.spectrum.required_daemon_observation().unwrap();
+        assert!(
+            matches!(commands.try_recv().unwrap(), ez_proto::ClientCommand::BeginSpectrumObservation {revision: sent, ..} if sent == revision)
+        );
+        let channel = state.source.daemon_channel_ids().spectrum;
+        state
+            .spectrum
+            .push_spectrum_frame_at(&automatic_frame(channel, revision + 1, 1, 0.0), now);
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, None, 0, false, now)
+            .signal_db
+            .is_none());
+        let valid = automatic_frame(channel, revision, 2, -94.0);
+        state.spectrum.push_spectrum_frame_at(&valid, now);
+        assert_eq!(
+            panel
+                .prepare_squelch_trigger(&mut state, None, 0, false, now)
+                .signal_db,
+            Some(-94.0)
+        );
+        let later = now + state.spectrum.measurement_max_age() + Duration::from_millis(1);
+        state.spectrum.push_spectrum_frame_at(&valid, later); // Duplicate does not renew receipt age.
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, None, 0, false, later)
+            .signal_db
+            .is_none());
+        state.spectrum.vfo_freq_hz = Some(100_010_000);
+        state.source.frequency_hz = 100_010_000;
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, None, 0, false, later)
+            .signal_db
+            .is_none());
+        let next = state.spectrum.required_daemon_observation().unwrap();
+        assert_ne!(next, revision);
+        while commands.try_recv().is_ok() {}
+        assert!(
+            !panel
+                .prepare_squelch_trigger(&mut state, None, 0, true, later)
+                .enabled,
+            "scanner startup cannot reuse the monitor's boundary"
+        );
+        assert_eq!(state.spectrum.required_daemon_observation(), Some(next));
+        state.spectrum.begin_scan_observation(later);
+        state.spectrum.require_daemon_observation(Some(12345));
+        panel.prepare_squelch_trigger(&mut state, None, 0, true, later);
+        assert_eq!(state.spectrum.required_daemon_observation(), Some(12345));
+        assert!(
+            commands.try_recv().is_err(),
+            "monitor must not replace the scanner's boundary"
+        );
+        state.source.sample_rate_hz = 100_000; // Requested geometry has no matching hardware acknowledgement.
+        assert!(
+            !panel
+                .prepare_squelch_trigger(&mut state, None, 0, true, later)
+                .enabled
+        );
+    }
+
+    #[test]
+    fn automatic_trigger_daemon_gain_changes_require_acknowledgement_and_new_measurement() {
+        let (shared, mut commands, events) = automatic_daemon_state(-95.0);
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.signal_monitor = true;
+        let mut state = shared.lock().unwrap();
+        let now = Instant::now();
+        panel.prepare_squelch_trigger(&mut state, None, 0, false, now);
+        let old = state.spectrum.required_daemon_observation().unwrap();
+        let channel = state.source.daemon_channel_ids().spectrum;
+        state
+            .spectrum
+            .push_spectrum_frame_at(&automatic_frame(channel, old, 1, -94.0), now);
+        assert_eq!(
+            panel
+                .prepare_squelch_trigger(&mut state, None, 0, false, now)
+                .signal_db,
+            Some(-94.0)
+        );
+        while commands.try_recv().is_ok() {}
+        state.source.gain_db = 10.0;
+        assert!(
+            !panel
+                .prepare_squelch_trigger(&mut state, None, 0, false, now)
+                .enabled
+        );
+        assert!(commands.try_recv().is_err());
+        events
+            .send(ez_proto::ServerEvent::Hardware(ez_proto::HardwareStatus {
+                connected: true,
+                source_kind: "synthetic fixture".into(),
+                frequency_hz: 100_000_000,
+                sample_rate_hz: 200_000,
+                gain_db: 10.0,
+                requested_gain_db: Some(10.0),
+                gain_mode: None,
+                error: None,
+            }))
+            .unwrap();
+        assert!(matches!(
+            state.source.recv_daemon_event(),
+            Some(ez_proto::ServerEvent::Hardware(_))
+        ));
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, None, 0, false, now)
+            .signal_db
+            .is_none());
+        let new = state.spectrum.required_daemon_observation().unwrap();
+        assert_ne!(old, new);
+        state
+            .spectrum
+            .push_spectrum_frame_at(&automatic_frame(channel, old, 2, 0.0), now);
+        assert!(panel
+            .prepare_squelch_trigger(&mut state, None, 0, false, now)
+            .signal_db
+            .is_none());
+        state
+            .spectrum
+            .push_spectrum_frame_at(&automatic_frame(channel, new, 3, -94.0), now);
+        assert_eq!(
+            panel
+                .prepare_squelch_trigger(&mut state, None, 0, false, now)
+                .signal_db,
+            Some(-94.0)
+        );
+    }
+
+    #[test]
+    fn automatic_trigger_failed_local_open_does_not_count_and_success_counts_once() {
+        let shared = make_shared_state();
+        shared.lock().unwrap().source.frequency_hz = 100_000_000;
+        let mut panel = RecorderPanel::new_direct(Arc::clone(&shared));
+        panel.squelch_record = true;
+        let dir = std::env::temp_dir().join(format!("ez-automatic-local-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bad = dir.join("file");
+        std::fs::write(&bad, b"x").unwrap();
+        panel.output_dir = bad.to_string_lossy().into_owned();
+        let now = Instant::now();
+        panel.tick_squelch_record_at(Some(-94.0), -95.0, true, 100_000_000, "NFM", now);
+        assert!(!panel.recording);
+        assert_eq!(panel.squelch_record_count, 0);
+        assert!(panel.last_error.contains("directory"));
+        panel.output_dir = dir.to_string_lossy().into_owned();
+        panel.filename_template = "automatic".into();
+        panel.tick_squelch_record_at(
+            Some(-94.0),
+            -95.0,
+            true,
+            100_000_000,
+            "NFM",
+            now + Duration::from_secs(1),
+        );
+        assert!(panel.recording);
+        assert_eq!(panel.squelch_record_count, 1);
+        panel.tick_squelch_record_at(
+            Some(-94.0),
+            -95.0,
+            true,
+            100_000_000,
+            "NFM",
+            now + Duration::from_secs(2),
+        );
+        assert_eq!(panel.squelch_record_count, 1);
+        panel.write_capture(
+            &[128, 128],
+            ez_proto::CaptureClock::new(1, 0, 2_048_000, None),
+            100_000_000,
+        );
+        panel.tick_squelch_record_at(
+            None,
+            -95.0,
+            true,
+            100_000_000,
+            "NFM",
+            now + Duration::from_secs(5),
+        );
+        panel.stop_and_wait();
+        assert!(!panel.recording);
+        assert_eq!(
+            std::fs::read(dir.join("automatic.iq")).unwrap(),
+            vec![128, 128]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement() {
+        let (shared, mut commands, _events) = automatic_daemon_state(-95.0);
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.squelch_record = true;
+        let now = Instant::now();
+        let generation = shared.lock().unwrap().source.stream_generation();
+        panel.tick_squelch_record_at(Some(-94.0), -95.0, true, 100_000_000, "NFM", now);
+        assert_eq!(panel.squelch_record_count, 0);
+        assert!(panel.pending_daemon_start.is_some());
+        assert!(matches!(
+            commands.try_recv().unwrap(),
+            ez_proto::ClientCommand::StartRecording { .. }
+        ));
+        for _ in 0..10 {
+            panel.tick_squelch_record_at(Some(-94.0), -95.0, true, 100_000_000, "NFM", now);
+        }
+        assert!(commands.try_recv().is_err());
+        let channel = shared.lock().unwrap().source.daemon_channel_ids().spectrum;
+        let active = ez_proto::RecordingStatus {
+            channel_id: channel,
+            active: true,
+            path: Some("remote.cf32".into()),
+            bytes_written: 0,
+            duration_sec: 0.0,
+            stop_reason: None,
+        };
+        panel.handle_daemon_recording(active.clone(), generation);
+        assert_eq!(panel.squelch_record_count, 1);
+        panel.handle_daemon_recording(active.clone(), generation);
+        assert_eq!(panel.squelch_record_count, 1);
+        panel.handle_daemon_recording(
+            ez_proto::RecordingStatus {
+                active: false,
+                stop_reason: Some("failed start".into()),
+                ..active.clone()
+            },
+            generation,
+        );
+        panel.tick_squelch_record_at(
+            Some(-94.0),
+            -95.0,
+            true,
+            100_000_000,
+            "NFM",
+            now + Duration::from_secs(2),
+        );
+        assert_eq!(panel.squelch_record_count, 1);
+        panel.handle_daemon_recording(active, generation + 1);
+        assert_eq!(
+            panel.squelch_record_count, 1,
+            "new session cannot confirm an old automatic request"
+        );
+        drop(commands);
+        let mut state = shared.lock().unwrap();
+        assert!(state
+            .source
+            .start_daemon_recording(ez_proto::RecordingFormat::Cf32)
+            .is_err());
+        assert!(state.source.stop_daemon_recording().is_err());
+    }
+
+    #[test]
+    fn automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests() {
+        let (shared, mut commands, _events) = automatic_daemon_state(-95.0);
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.squelch_record = true;
+        let now = Instant::now();
+        let generation = shared.lock().unwrap().source.stream_generation();
+        panel.tick_squelch_record_at(Some(-94.0), -95.0, true, 100_000_000, "NFM", now);
+        commands.try_recv().unwrap();
+        let channel = shared.lock().unwrap().source.daemon_channel_ids().spectrum;
+        panel.handle_daemon_recording(
+            ez_proto::RecordingStatus {
+                channel_id: channel,
+                active: false,
+                path: None,
+                bytes_written: 0,
+                duration_sec: 0.0,
+                stop_reason: Some("disk refused the recording".into()),
+            },
+            generation,
+        );
+        assert_eq!(panel.squelch_record_count, 0);
+        assert!(panel.pending_daemon_start.is_none());
+        panel.tick_squelch_record_at(Some(-94.0), -95.0, true, 100_000_000, "NFM", now);
+        assert!(commands.try_recv().is_err());
+        panel.tick_squelch_record_at(
+            Some(-94.0),
+            -95.0,
+            true,
+            100_000_000,
+            "NFM",
+            now + Duration::from_secs(2),
+        );
+        assert!(matches!(
+            commands.try_recv().unwrap(),
+            ez_proto::ClientCommand::StartRecording { .. }
+        ));
+        let started = panel.pending_daemon_start.as_ref().unwrap().started_at;
+        let mut state = shared.lock().unwrap();
+        panel.prepare_squelch_trigger(&mut state, None, 0, false, started + Duration::from_secs(6));
+        assert!(panel.pending_daemon_start.is_none());
+        assert_eq!(panel.squelch_record_count, 0);
+        assert!(panel.last_error.contains("not acknowledged"));
+        assert!(!panel.recording);
+    }
+
+    #[test]
+    fn automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel() {
+        let shared = make_shared_state();
+        let mut panel = RecorderPanel::new(shared);
+        panel.signal_monitor = true;
+        let now = Instant::now();
+        for freq in [100_000_000, 100_010_000] {
+            panel.tick_squelch_record_at(Some(-94.0), -95.0, true, freq, "NFM", now);
+        }
+        assert_eq!(panel.signal_log.len(), 2);
+        panel.tick_squelch_record_at(Some(-94.0), -95.0, true, 100_010_000, "NFM", now);
+        assert_eq!(panel.signal_log.len(), 2);
+        let (shared, mut commands, _events) = automatic_daemon_state(-95.0);
+        let mut panel = RecorderPanel::new(Arc::clone(&shared));
+        panel.squelch_record = true;
+        panel.tick_squelch_record_at(Some(-94.0), -95.0, true, 100_000_000, "NFM", now);
+        commands.try_recv().unwrap();
+        panel.tick_squelch_record_at(
+            None,
+            -95.0,
+            true,
+            100_000_000,
+            "NFM",
+            now + Duration::from_secs(3),
+        );
+        assert!(matches!(
+            commands.try_recv().unwrap(),
+            ez_proto::ClientCommand::StopRecording { .. }
+        ));
+        panel.tick_squelch_record_at(
+            None,
+            -95.0,
+            true,
+            100_000_000,
+            "NFM",
+            now + Duration::from_secs(4),
+        );
+        assert!(commands.try_recv().is_err());
+        assert_eq!(panel.squelch_record_count, 0);
+    }
 
     struct BlockedRawFile {
         file: std::fs::File,

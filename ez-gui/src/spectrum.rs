@@ -1029,6 +1029,10 @@ impl SpectrumAnalyzer {
         self.expected_daemon_observation = revision;
     }
 
+    pub(crate) fn required_daemon_observation(&self) -> Option<u64> {
+        self.expected_daemon_observation
+    }
+
     pub(crate) fn measurement_max_age(&self) -> Duration {
         // Also support the user-selectable 1 Hz FFT cadence.
         Duration::from_millis(250).max(Duration::from_secs_f64(2.5 / self.fft_rate as f64))

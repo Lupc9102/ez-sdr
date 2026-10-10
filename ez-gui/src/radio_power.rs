@@ -63,6 +63,7 @@ pub(crate) struct PowerMeter {
     rate: f64,
     level: f32,
     completed_windows: u64,
+    observation_revision: u64,
 }
 
 impl PowerMeter {
@@ -81,6 +82,7 @@ impl PowerMeter {
             rate: 1.0,
             level: -120.0,
             completed_windows: 0,
+            observation_revision: 0,
         }
     }
 
@@ -90,6 +92,15 @@ impl PowerMeter {
         self.decimator.reset(0);
         self.level = -120.0;
         self.completed_windows = 0;
+        self.observation_revision = self.observation_revision.wrapping_add(1);
+    }
+
+    pub fn observation_revision(&self) -> u64 {
+        self.observation_revision
+    }
+
+    pub fn has_measurement(&self) -> bool {
+        self.completed_windows > 0
     }
 
     fn configure(&mut self, rate: f64, offset: f64, band: RfPassband) -> bool {
@@ -180,6 +191,7 @@ impl PowerMeter {
                 self.measure(band);
                 self.samples.clear();
                 self.completed_windows += 1;
+                self.observation_revision = self.observation_revision.wrapping_add(1);
             }
         }
         self.level
