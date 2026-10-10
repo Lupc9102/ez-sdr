@@ -96,12 +96,12 @@ impl AudioResampler {
         gain: f32,
     ) -> Vec<f32> {
         let continuous = self.expected.is_some_and(|(id, sequence, clock)| {
-            id == frame.channel_id && sequence == frame.sequence && clock == frame.clock
+            id == frame.channel_id && sequence == frame.sequence && clock == frame.audio_clock
         });
         if !continuous {
             self.reset();
         }
-        let clock = frame.clock;
+        let clock = frame.audio_clock;
         if clock.sample_stride == 0
             || frame.sample_rate_hz != clock.source_sample_rate_hz / clock.sample_stride
             || !valid_rates(
@@ -130,7 +130,7 @@ impl AudioResampler {
             )
         };
         self.expected = frame
-            .clock
+            .audio_clock
             .offset_samples(frame.samples.len() as u64)
             .map(|mut clock| {
                 clock.discontinuous = false;
@@ -145,8 +145,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pcm_playback_uses_generated_clock_while_retaining_fractional_rf_metadata() {
+        let samples: Vec<_> = (0..1007)
+            .map(|n| (0.2 * (std::f64::consts::TAU * 1000.0 * n as f64 / 48_000.0).sin()) as f32)
+            .collect();
+        let mut rf_clock = ez_proto::CaptureClock::new(19, 700, 2_048_003, None);
+        rf_clock.sample_stride = 10;
+        let pcm_clock = ez_proto::CaptureClock::new(3, 0, 48_000, None);
+        let first = ez_proto::AudioFrame {
+            clock: rf_clock,
+            audio_clock: pcm_clock,
+            sequence: 1,
+            squelch: ez_proto::SquelchState {
+                db: -120.0,
+                revision: 0,
+            },
+            channel_id: 7,
+            sample_rate_hz: 48_000,
+            samples: samples[..333].to_vec(),
+        };
+        let second = ez_proto::AudioFrame {
+            clock: rf_clock.offset_samples(1421).unwrap(),
+            audio_clock: pcm_clock.offset_samples(333).unwrap(),
+            sequence: 2,
+            samples: samples[333..].to_vec(),
+            ..first.clone()
+        };
+        let expected = AudioResampler::default().process(&samples, 48_000, 44_100, 1.0);
+        let mut playback = AudioResampler::default();
+        let mut actual = playback.process_frame(&first, 44_100, 1.0);
+        actual.extend(playback.process_frame(&second, 44_100, 1.0));
+        assert_eq!(actual, expected);
+        assert_eq!(first.clock.source_sample_rate_hz, 2_048_003);
+        assert_eq!(first.clock.sample_stride, 10);
+        assert!(actual.iter().any(|x| x.abs() > 0.1));
+    }
+
+    #[test]
     fn mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation() {
         let first = ez_proto::AudioFrame {
+            audio_clock: ez_proto::CaptureClock::new(10, 0, 48_000, None),
             clock: ez_proto::CaptureClock::new(10, 0, 48_000, None),
             sequence: 1,
             channel_id: 2,
@@ -161,15 +199,15 @@ mod tests {
             let mut resampler = AudioResampler::default();
             resampler.process_frame(&first, 44_100, 1.0);
             let mut second = first.clone();
-            second.clock.source_sample_index = 64;
+            second.audio_clock.source_sample_index = 64;
             second.sequence = 2;
             second.samples.fill(-0.8);
             match boundary {
                 0 => second.sequence += 1,
-                1 => second.clock.source_sample_index += 1,
-                2 => second.clock.epoch += 1,
-                3 => second.clock.discontinuous = true,
-                4 => second.clock.origin_unix_ns = Some(123),
+                1 => second.audio_clock.source_sample_index += 1,
+                2 => second.audio_clock.epoch += 1,
+                3 => second.audio_clock.discontinuous = true,
+                4 => second.audio_clock.origin_unix_ns = Some(123),
                 _ => second.channel_id += 1,
             }
             let expected = AudioResampler::default().process_frame(&second, 44_100, 1.0);
@@ -182,7 +220,7 @@ mod tests {
         let mut resampler = AudioResampler::default();
         let mut actual = resampler.process_frame(&first, 44_100, 1.0);
         let mut second = first.clone();
-        second.clock.source_sample_index = 64;
+        second.audio_clock.source_sample_index = 64;
         second.sequence = 2;
         second.samples.fill(-0.8);
         actual.extend(resampler.process_frame(&second, 44_100, 1.0));
@@ -383,6 +421,7 @@ mod tests {
             );
             clock.sample_stride = stride;
             let frame = ez_proto::AudioFrame {
+                audio_clock: clock,
                 clock,
                 sequence: sequence as u64 + 1,
                 channel_id: 1,
@@ -453,9 +492,17 @@ mod tests {
             })
             .collect();
         let bus = SampleBus::new();
+        // This fixture measures the subsequent audio-rate anti-alias stage.
+        // Keep its 49 kHz AM/FM modulation inside the selected RF passband;
+        // narrow-mode RF rejection is covered by the daemon selection tests.
+        let parameters = ez_proto::AudioParameters {
+            rf_bandwidth_hz: (0.8 * f64::from(rate)) as u32,
+            output_sample_rate_hz: 0,
+        };
         let mut pipeline = AudioPipeline::new(
             bus.subscribe(4, OverflowPolicy::DropIncoming),
             AudioConfig {
+                audio: Some(parameters),
                 channel_id: 1,
                 mode,
             },
@@ -636,6 +683,7 @@ mod tests {
     #[test]
     fn corrupt_frame_geometry_retires_history_before_next_valid_audio() {
         let valid = ez_proto::AudioFrame {
+            audio_clock: ez_proto::CaptureClock::new(7, 0, 200000, None),
             clock: ez_proto::CaptureClock::new(7, 0, 200000, None),
             sequence: 1,
             channel_id: 1,
@@ -650,15 +698,15 @@ mod tests {
             let mut resampler = AudioResampler::default();
             resampler.process_frame(&valid, 48000, 1.0);
             let mut bad = valid.clone();
-            bad.clock.source_sample_index = 512;
+            bad.audio_clock.source_sample_index = 512;
             bad.sequence = 2;
             match invalid {
-                0 => bad.clock.sample_stride = 0,
-                1 => bad.clock.source_sample_rate_hz = 0,
+                0 => bad.audio_clock.sample_stride = 0,
+                1 => bad.audio_clock.source_sample_rate_hz = 0,
                 2 => bad.sample_rate_hz += 1,
                 _ => {
                     bad.sample_rate_hz = 400000;
-                    bad.clock.source_sample_rate_hz = 400000;
+                    bad.audio_clock.source_sample_rate_hz = 400000;
                 }
             }
             assert!(resampler.process_frame(&bad, 48000, 1.0).is_empty());

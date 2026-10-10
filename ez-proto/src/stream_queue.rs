@@ -173,6 +173,7 @@ mod tests {
 
     fn audio(n: u64) -> ServerEvent {
         ServerEvent::Audio(crate::AudioFrame {
+            audio_clock: crate::CaptureClock::new(7, n * 16, 48_000, None),
             clock: crate::CaptureClock::new(7, n * 16, 48_000, None),
             sequence: n + 1,
             channel_id: 1,

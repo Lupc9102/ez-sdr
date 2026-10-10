@@ -1,0 +1,11 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 28s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35d4e7e0e5283107)
+
+running 3 tests
+test source_manager::tests::daemon_audio_mode_changes_send_one_atomic_three_rate_configuration ... ok
+test source_manager::tests::daemon_audio_overflow_unsubscribes_instead_of_wrapping_vfo_offset ... ok
+test source_manager::tests::daemon_audio_subscribes_and_retunes_vfo_without_moving_capture ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 894 filtered out; finished in 0.00s
+

@@ -410,14 +410,23 @@
       "id": "R19",
       "title": "Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection",
       "priority": "P2",
-      "status": "open",
-      "change": "Prepared shared audio-rate conversion for daemon use without changing existing converter arithmetic, plus a bounded linear-phase FFT RF selector with passing production-clock/strong-neighbor tests. Protocol and AudioPipeline integration remain pending; the finding stays open.",
+      "status": "software_verified",
+      "change": "Protocol v12 separates RF width, channel sample rate and PCM output rate. Select complex RF before AM/FM/WFM detection and measure squelch on that selected signal. Share exact-rational audio conversion, retain separate RF/PCM clocks, validate atomic audio/channel changes and send them from the desktop.",
       "regressions": [
         "audio_rf::tests::rf_selection_production_clocks_protect_passband_and_reject_stronger_neighbors",
-        "audio_rf::tests::rf_selection_chunks_resets_and_nonfinite_inputs_preserve_bounded_history"
+        "audio_rf::tests::rf_selection_chunks_resets_and_nonfinite_inputs_preserve_bounded_history",
+        "pipelines::audio::selection_tests::selected_am_fm_wfm_reject_strong_neighbors_before_detection_and_squelch (12 mixtures; neighbor 25x stronger)",
+        "pipelines::audio::selection_tests::independent_pcm_clock_preserves_rational_rf_provenance_and_partition_history",
+        "pipelines::audio::selection_tests::audio_parameter_geometry_is_validated_even_when_raw_selection_is_bypassed",
+        "audio_rate::clock_tests (two exact clock/count/reset tests)",
+        "state::tests::audio_configuration_validates_all_three_rates_before_allocation",
+        "state::tests::audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions",
+        "messages::audio_configuration_tests (three protocol/alias/clock round trips)",
+        "source_manager::tests::daemon_audio_mode_changes_send_one_atomic_three_rate_configuration",
+        "audio_resampler::tests (13 current producer/playback regressions; unchanged alias gates)"
       ],
       "original_repair_gate": "Separate RF passband width, channel sample rate and audio output rate in the protocol. Apply mode-specific complex channel selection before AM/FM detection, and measure squelch on that selected signal. Test desired/adjacent mixtures at realistic amplitude ratios.",
-      "verification": "repair-daemon-audio-foundation-verification.json"
+      "verification": "repair-daemon-selection-verification.json"
     },
     {
       "id": "R20",

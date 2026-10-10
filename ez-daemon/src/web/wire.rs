@@ -133,6 +133,7 @@ mod tests {
     #[test]
     fn audio_layout_matches_the_documented_byte_offsets() {
         let frame = AudioFrame {
+            audio_clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
             clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
             sequence: 1,
             squelch: ez_proto::SquelchState {

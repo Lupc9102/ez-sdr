@@ -1,0 +1,27 @@
+{
+  "finished_utc": "2026-10-10T14:34:00.083299+00:00",
+  "cpu_max": [
+    "1000",
+    "100000"
+  ],
+  "source_path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/2026-09-02_13-32-03_288000SPS_137900000Hz.ziq",
+  "source_sha256": "4c2b9e0c7f207b2b8bb0f1ec4a7d8234a930e86ea6664f08da8adfef6723fd6e",
+  "header_bytes": 22,
+  "format_reference": "https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/src-core/common/ziq.cpp",
+  "sample_rate_hz": 288000,
+  "command": [
+    "zstd",
+    "--decompress",
+    "--stdout",
+    "--no-progress"
+  ],
+  "exit_code": 1,
+  "stderr_log": "audit/2026-10-07/repair-evidence/public-meteor-prefix-1010.log",
+  "bytes": 522059776,
+  "sha256": "251a795ee1a6f82f92759e3bb24416d13f5d46b9449e2c01b6e8cf823ea697ed",
+  "recording_complete": false,
+  "validation_boundary": "The compressed recording ends prematurely. A matching complete-pair decoded prefix is usable; it is not a certified complete recording or a new decoder comparison.",
+  "complete_pair_prefix": true,
+  "matches_previous_prefix": true,
+  "local_path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/meteor-72k.cs8"
+}

@@ -1,0 +1,10 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.00s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-72867641d7d52d15)
+
+running 2 tests
+test state::tests::audio_configuration_validates_all_three_rates_before_allocation ... ok
+test state::tests::audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 235 filtered out; finished in 11.90s
+

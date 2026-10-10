@@ -346,8 +346,12 @@ pub(crate) async fn apply_command(
             }
             event_tx.clear(channel_id);
         }
-        ClientCommand::SetDemodMode { channel_id, mode } => {
-            if let Err(e) = state.set_demod_mode(channel_id, mode) {
+        ClientCommand::SetDemodMode {
+            audio,
+            channel_id,
+            mode,
+        } => {
+            if let Err(e) = state.configure_audio(channel_id, mode, audio) {
                 send_error(event_tx, e.to_string()).await;
             }
         }
@@ -373,11 +377,14 @@ pub(crate) async fn apply_command(
                 .await;
         }
         ClientCommand::Retune {
+            audio,
             channel_id,
             center_offset_hz,
-            bandwidth_hz,
+            channel_sample_rate_hz,
         } => {
-            if let Err(e) = state.retune(channel_id, center_offset_hz, bandwidth_hz) {
+            if let Err(e) =
+                state.retune_configured(channel_id, center_offset_hz, channel_sample_rate_hz, audio)
+            {
                 send_error(event_tx, e.to_string()).await;
             }
         }
@@ -665,10 +672,11 @@ mod tests {
 
     fn spectrum_spec(id: ChannelId) -> ChannelSpec {
         ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id,
             center_offset_hz: 0,
-            bandwidth_hz: 2_000_000,
+            channel_sample_rate_hz: 2_000_000,
             kind: PipelineKind::Spectrum,
             demod_mode: None,
         }
@@ -919,6 +927,7 @@ mod tests {
         );
         for n in 0..1000 {
             audio.publish(ez_proto::AudioFrame {
+                audio_clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
                 clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
                 sequence: n + 1,
                 channel_id: ids.audio,
@@ -1016,6 +1025,7 @@ mod tests {
             rx,
         ));
         let audio = |n: u64, count: usize| ez_proto::AudioFrame {
+            audio_clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
             clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
             sequence: n + 1,
             channel_id: 1,

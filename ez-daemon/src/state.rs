@@ -20,8 +20,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 use ez_proto::{
-    AudioFrame, ChannelId, ChannelSpec, DemodMode, HardwareStatus, PipelineKind, RecordingFormat,
-    RecordingStatus, SpectrumFrame, TelemetryFrame,
+    AudioConfiguration, AudioFrame, AudioParameters, ChannelId, ChannelSpec, DemodMode,
+    HardwareStatus, PipelineKind, RecordingFormat, RecordingStatus, SpectrumFrame, TelemetryFrame,
 };
 
 use crate::broadcast::BroadcasterHandle;
@@ -166,52 +166,81 @@ impl DaemonState {
     /// created unbounded resources).
     pub const MAX_CHANNELS: usize = 32;
 
+    fn resolved_audio(spec: &ChannelSpec) -> AudioParameters {
+        spec.audio.unwrap_or_else(|| {
+            let mode = spec.demod_mode.unwrap_or(DemodMode::Raw);
+            let mut p = AudioParameters::for_mode(mode);
+            let fraction = if matches!(mode, DemodMode::Usb | DemodMode::Lsb) {
+                0.44
+            } else {
+                0.8
+            };
+            p.rf_bandwidth_hz = p
+                .rf_bandwidth_hz
+                .min((fraction * f64::from(spec.channel_sample_rate_hz)) as u32);
+            p.output_sample_rate_hz = 0;
+            p
+        })
+    }
+
     /// Validates a channel request against the wideband geometry before any
     /// thread or tap is allocated.
     fn validate_spec(&self, spec: &ChannelSpec) -> anyhow::Result<()> {
-        if spec.bandwidth_hz == 0 {
+        if spec.channel_sample_rate_hz == 0 {
             anyhow::bail!("channel {} bandwidth must be non-zero", spec.id);
         }
-        if spec.kind == PipelineKind::AdsbPackets && spec.bandwidth_hz != 2_400_000 {
+        if spec.kind == PipelineKind::AdsbPackets && spec.channel_sample_rate_hz != 2_400_000 {
             anyhow::bail!("ADS-B requires exactly 2.4 MHz bandwidth");
         }
         let wideband_rate = self.channelizer.lock().wideband_rate_hz();
         if wideband_rate == 0 {
             anyhow::bail!("wideband rate is zero; cannot create channels");
         }
-        if spec.bandwidth_hz > wideband_rate {
+        if spec.channel_sample_rate_hz > wideband_rate {
             anyhow::bail!(
                 "channel {} bandwidth {} exceeds wideband rate {}",
                 spec.id,
-                spec.bandwidth_hz,
+                spec.channel_sample_rate_hz,
                 wideband_rate
             );
+        }
+        if spec.kind == PipelineKind::Audio {
+            let decimation = (wideband_rate / spec.channel_sample_rate_hz).max(1);
+            let rate = f64::from(wideband_rate) / f64::from(decimation);
+            AudioPipeline::validate_parameters(
+                spec.demod_mode.unwrap_or(DemodMode::Raw),
+                Self::resolved_audio(spec),
+                rate,
+            )
+            .map_err(anyhow::Error::msg)?;
+        } else if spec.audio.is_some() {
+            anyhow::bail!("audio parameters are only supported on audio channels");
         }
         if spec.kind == PipelineKind::LrptTelemetry {
             let profile = spec
                 .meteor_profile
                 .ok_or_else(|| anyhow!("LRPT requires an explicit meteor_profile"))?;
-            if spec.bandwidth_hz < profile.occupied_bandwidth_hz() {
+            if spec.channel_sample_rate_hz < profile.occupied_bandwidth_hz() {
                 anyhow::bail!(
                     "LRPT {} occupies {} Hz; channel bandwidth {} is too narrow",
                     profile.label(),
                     profile.occupied_bandwidth_hz(),
-                    spec.bandwidth_hz
+                    spec.channel_sample_rate_hz
                 );
             }
-            let decimation = (wideband_rate / spec.bandwidth_hz).max(1);
+            let decimation = (wideband_rate / spec.channel_sample_rate_hz).max(1);
             lrpt_decode::validate_mission_sampling(wideband_rate / decimation, profile)?;
         } else if spec.meteor_profile.is_some() {
             anyhow::bail!("meteor_profile is only supported on LRPT channels");
         }
         let half = wideband_rate as i64 / 2;
         let offset_abs = spec.center_offset_hz.checked_abs().unwrap_or(i64::MAX);
-        if offset_abs.saturating_add(spec.bandwidth_hz as i64 / 2) > half {
+        if offset_abs.saturating_add(spec.channel_sample_rate_hz as i64 / 2) > half {
             anyhow::bail!(
                 "channel {} offset {} and bandwidth {} outside wideband ±{} Hz",
                 spec.id,
                 spec.center_offset_hz,
-                spec.bandwidth_hz,
+                spec.channel_sample_rate_hz,
                 half
             );
         }
@@ -319,7 +348,7 @@ impl DaemonState {
     /// output subscription to it. A second `Subscribe` for the same id and kind just returns
     /// another subscription to the same running pipeline — see the module doc comment on
     /// why channels are daemon-global rather than per-client.
-    pub fn subscribe(&self, spec: ChannelSpec) -> Result<(ChannelSubscription, bool)> {
+    pub fn subscribe(&self, mut spec: ChannelSpec) -> Result<(ChannelSubscription, bool)> {
         let id = spec.id;
         // Fast path: channel already exists — just return a fresh output subscription.
         {
@@ -342,6 +371,9 @@ impl DaemonState {
             }
         }
         self.validate_spec(&spec)?;
+        if spec.kind == PipelineKind::Audio {
+            spec.audio = Some(Self::resolved_audio(&spec));
+        }
         // Create the channel *without* holding the channels lock. This avoids a
         // lock-ordering hazard: create_channel → add_virtual_channel blocks on the
         // channelizer Mutex (held during tick's recv_timeout), and holding channels
@@ -443,6 +475,7 @@ impl DaemonState {
                 let pipeline = Arc::new(Mutex::new(AudioPipeline::new(
                     input,
                     AudioConfig {
+                        audio: Some(Self::resolved_audio(&spec)),
                         channel_id: spec.id,
                         mode,
                     },
@@ -462,7 +495,7 @@ impl DaemonState {
                     .channelizer
                     .lock()
                     .channel_output_rate_hz(internal_id)
-                    .unwrap_or(spec.bandwidth_hz);
+                    .unwrap_or(spec.channel_sample_rate_hz);
                 let mut packet_pipeline = PacketPipeline::new(input, sample_rate_hz);
                 packet_pipeline.set_receiver_position(*self.receiver_position.lock());
                 let pipeline = Arc::new(Mutex::new(packet_pipeline));
@@ -481,7 +514,7 @@ impl DaemonState {
                     .channelizer
                     .lock()
                     .channel_output_rate_hz(internal_id)
-                    .unwrap_or(spec.bandwidth_hz);
+                    .unwrap_or(spec.channel_sample_rate_hz);
                 let telemetry = TelemetryPipeline::new(
                     input,
                     TelemetryConfig {
@@ -526,19 +559,50 @@ impl DaemonState {
         let center_freq_hz = ((chan.wideband_center_hz() as i64)
             .saturating_add(spec.center_offset_hz))
         .max(0) as u64;
-        chan.add_channel(center_freq_hz, spec.bandwidth_hz)
+        chan.add_channel(center_freq_hz, spec.channel_sample_rate_hz)
     }
 
     pub fn set_demod_mode(&self, channel_id: ChannelId, mode: DemodMode) -> Result<()> {
-        self.with_audio_pipeline(channel_id, |p| p.set_mode(mode))?;
-        // Keep the ChannelSpec mirror in sync so `GET /api/channels` (and the control-plane
-        // `Welcome`/`active_channels`) reports the mode that's actually running, not the
-        // creation-time value. The mode is applied to the live pipeline above; this only
-        // fixes the read-side snapshot.
-        let mut channels = self.channels.lock();
-        if let Some(active) = channels.get_mut(&channel_id) {
-            active.spec.demod_mode = Some(mode);
+        self.configure_audio(channel_id, mode, None)
+    }
+
+    pub fn configure_audio(
+        &self,
+        channel_id: ChannelId,
+        mode: DemodMode,
+        parameters: Option<AudioParameters>,
+    ) -> Result<()> {
+        let (mut proposed, pipeline) = {
+            let channels = self.channels.lock();
+            let active = channels
+                .get(&channel_id)
+                .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
+            let ActivePipeline::Audio(pipeline) = &active.pipeline else {
+                return Err(anyhow!("channel {channel_id} is not audio"));
+            };
+            (active.spec.clone(), Arc::clone(pipeline))
+        };
+        let previous = Self::resolved_audio(&proposed);
+        proposed.demod_mode = Some(mode);
+        proposed.audio = parameters;
+        let mut applied = Self::resolved_audio(&proposed);
+        if parameters.is_none() {
+            applied.output_sample_rate_hz = previous.output_sample_rate_hz;
         }
+        proposed.audio = Some(applied);
+        self.validate_spec(&proposed)?;
+        pipeline.lock().configure(mode, applied);
+        let mut channels = self.channels.lock();
+        let active = channels
+            .get_mut(&channel_id)
+            .ok_or_else(|| anyhow!("audio channel removed while reconfiguring"))?;
+        let ActivePipeline::Audio(current) = &active.pipeline else {
+            return Err(anyhow!("audio channel replaced while reconfiguring"));
+        };
+        if !Arc::ptr_eq(current, &pipeline) {
+            return Err(anyhow!("audio channel replaced while reconfiguring"));
+        }
+        active.spec = proposed;
         Ok(())
     }
 
@@ -551,29 +615,53 @@ impl DaemonState {
         &self,
         channel_id: ChannelId,
         center_offset_hz: i64,
-        bandwidth_hz: u32,
+        channel_sample_rate_hz: u32,
     ) -> Result<()> {
-        let internal_id = {
+        self.retune_configured(channel_id, center_offset_hz, channel_sample_rate_hz, None)
+    }
+
+    pub fn retune_configured(
+        &self,
+        channel_id: ChannelId,
+        center_offset_hz: i64,
+        channel_sample_rate_hz: u32,
+        audio: Option<AudioConfiguration>,
+    ) -> Result<()> {
+        let (internal_id, mut proposed, telemetry, audio_pipeline) = {
             let channels = self.channels.lock();
             let active = channels
                 .get(&channel_id)
                 .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
-            let mut proposed = active.spec.clone();
-            proposed.center_offset_hz = center_offset_hz;
-            proposed.bandwidth_hz = bandwidth_hz;
             let telemetry = match &active.pipeline {
                 ActivePipeline::LrptTelemetry(p) => Some(Arc::clone(p)),
                 _ => None,
             };
-            (active.internal_channel_id, proposed, telemetry)
+            let audio_pipeline = match &active.pipeline {
+                ActivePipeline::Audio(p) => Some(Arc::clone(p)),
+                _ => None,
+            };
+            (
+                active.internal_channel_id,
+                active.spec.clone(),
+                telemetry,
+                audio_pipeline,
+            )
         };
-        let (internal_id, proposed, telemetry) = internal_id;
+        proposed.center_offset_hz = center_offset_hz;
+        proposed.channel_sample_rate_hz = channel_sample_rate_hz;
+        if let Some(configuration) = audio {
+            if audio_pipeline.is_none() {
+                anyhow::bail!("audio configuration is only supported on audio channels");
+            }
+            proposed.demod_mode = Some(configuration.mode);
+            proposed.audio = Some(configuration.parameters);
+        }
         self.validate_spec(&proposed)?;
         if let Some(internal_id) = internal_id {
             let mut chan = self.channelizer.lock();
             let center_freq_hz =
                 ((chan.wideband_center_hz() as i64).saturating_add(center_offset_hz)).max(0) as u64;
-            chan.retune_channel(internal_id, center_freq_hz, bandwidth_hz)?;
+            chan.retune_channel(internal_id, center_freq_hz, channel_sample_rate_hz)?;
             let rate = chan
                 .channel_output_rate_hz(internal_id)
                 .expect("retuned channel");
@@ -581,11 +669,20 @@ impl DaemonState {
                 pipeline.lock().retune(rate, center_freq_hz)?;
             }
         }
-        let mut channels = self.channels.lock();
-        if let Some(active) = channels.get_mut(&channel_id) {
-            active.spec.center_offset_hz = center_offset_hz;
-            active.spec.bandwidth_hz = bandwidth_hz;
+        if let Some(pipeline) = audio_pipeline {
+            pipeline.lock().configure(
+                proposed.demod_mode.unwrap_or(DemodMode::Raw),
+                Self::resolved_audio(&proposed),
+            );
         }
+        let mut channels = self.channels.lock();
+        let active = channels
+            .get_mut(&channel_id)
+            .ok_or_else(|| anyhow!("channel removed while retuning"))?;
+        if active.internal_channel_id != internal_id {
+            anyhow::bail!("channel replaced while retuning");
+        }
+        active.spec = proposed;
         Ok(())
     }
 
@@ -813,6 +910,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    include!("audio_configuration_tests.rs");
     use super::*;
     use crate::bus::SampleBus;
     use crate::ingest;
@@ -834,10 +932,11 @@ mod tests {
 
     fn audio_spec(id: ChannelId, offset_hz: i64) -> ChannelSpec {
         ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id,
             center_offset_hz: offset_hz,
-            bandwidth_hz: 200_000,
+            channel_sample_rate_hz: 200_000,
             kind: PipelineKind::Audio,
             demod_mode: Some(DemodMode::Fm),
         }
@@ -847,10 +946,11 @@ mod tests {
     fn lrpt_profiles_and_actual_channel_rates_are_validated_before_allocation() {
         let state = test_state();
         let mut spec = ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id: 15,
             center_offset_hz: 0,
-            bandwidth_hz: 400_000,
+            channel_sample_rate_hz: 400_000,
             kind: PipelineKind::LrptTelemetry,
             demod_mode: None,
         };
@@ -863,12 +963,12 @@ mod tests {
         for profile in ez_proto::MeteorProfile::ALL {
             spec.meteor_profile = Some(profile);
             for bandwidth in [100_000, 250_000, 285_000] {
-                spec.bandwidth_hz = bandwidth;
+                spec.channel_sample_rate_hz = bandwidth;
                 assert!(state.subscribe(spec.clone()).is_err());
                 assert!(state.active_channels().is_empty());
                 assert_eq!(state.channelizer.lock().channel_count(), 0);
             }
-            spec.bandwidth_hz = 400_000;
+            spec.channel_sample_rate_hz = 400_000;
             let (_, created) = state.subscribe(spec.clone()).unwrap();
             assert!(created);
             assert_eq!(state.active_channels()[0].meteor_profile, Some(profile));
@@ -887,10 +987,11 @@ mod tests {
     fn resubscribing_an_lrpt_channel_cannot_silently_change_its_transport() {
         let state = test_state();
         let spec = ChannelSpec {
+            audio: None,
             meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
             id: 15,
             center_offset_hz: 0,
-            bandwidth_hz: 400_000,
+            channel_sample_rate_hz: 400_000,
             kind: PipelineKind::LrptTelemetry,
             demod_mode: None,
         };
@@ -977,10 +1078,11 @@ mod tests {
         state.subscribe(audio_spec(ids.audio, 0)).unwrap();
         state
             .subscribe(ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: ids.spectrum,
                 kind: PipelineKind::Spectrum,
-                bandwidth_hz: 2_000_000,
+                channel_sample_rate_hz: 2_000_000,
                 center_offset_hz: 0,
                 demod_mode: None,
             })
@@ -1042,10 +1144,11 @@ mod tests {
         let state = test_state();
         let _a = state.subscribe(audio_spec(1, 0)).unwrap();
         let spectrum_spec = ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id: 1,
             center_offset_hz: 0,
-            bandwidth_hz: 2_000_000,
+            channel_sample_rate_hz: 2_000_000,
             kind: PipelineKind::Spectrum,
             demod_mode: None,
         };
@@ -1059,10 +1162,11 @@ mod tests {
     fn spectrum_channel_has_no_internal_virtual_channel() {
         let state = test_state();
         let spec = ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id: 5,
             center_offset_hz: 0,
-            bandwidth_hz: 2_000_000,
+            channel_sample_rate_hz: 2_000_000,
             kind: PipelineKind::Spectrum,
             demod_mode: None,
         };
@@ -1081,10 +1185,11 @@ mod tests {
     fn set_volume_on_non_audio_channel_is_an_error() {
         let state = test_state();
         let spec = ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id: 9,
             center_offset_hz: 0,
-            bandwidth_hz: 2_000_000,
+            channel_sample_rate_hz: 2_000_000,
             kind: PipelineKind::Spectrum,
             demod_mode: None,
         };
@@ -1135,11 +1240,11 @@ mod tests {
         let state = test_state();
         // Zero bandwidth.
         let mut bad = audio_spec(1, 0);
-        bad.bandwidth_hz = 0;
+        bad.channel_sample_rate_hz = 0;
         assert!(state.subscribe(bad).is_err());
         // Bandwidth wider than the 2 MHz wideband.
         let mut bad = audio_spec(2, 0);
-        bad.bandwidth_hz = 4_000_000;
+        bad.channel_sample_rate_hz = 4_000_000;
         assert!(state.subscribe(bad).is_err());
         // Offset outside ±1 MHz.
         let bad = audio_spec(3, 1_500_000);
@@ -1173,10 +1278,11 @@ mod tests {
     fn set_sample_rate_updates_channelizer_with_only_spectrum_active() {
         let state = test_state();
         let spectrum = ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id: 5,
             center_offset_hz: 0,
-            bandwidth_hz: 2_000_000,
+            channel_sample_rate_hz: 2_000_000,
             kind: PipelineKind::Spectrum,
             demod_mode: None,
         };
@@ -1186,10 +1292,11 @@ mod tests {
 
         assert_eq!(state.channelizer.lock().wideband_rate_hz(), 2_400_000);
         let adsb = ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id: 6,
             center_offset_hz: 0,
-            bandwidth_hz: 2_400_000,
+            channel_sample_rate_hz: 2_400_000,
             kind: PipelineKind::AdsbPackets,
             demod_mode: None,
         };
@@ -1237,7 +1344,7 @@ mod tests {
             .find(|s| s.id == 1)
             .expect("channel present");
         assert_eq!(spec.center_offset_hz, 500_000);
-        assert_eq!(spec.bandwidth_hz, 100_000);
+        assert_eq!(spec.channel_sample_rate_hz, 100_000);
     }
 
     #[test]

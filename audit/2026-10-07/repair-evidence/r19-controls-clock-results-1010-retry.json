@@ -1,0 +1,50 @@
+{
+  "cpu_max": [
+    "10000",
+    "100000"
+  ],
+  "test_threads": 1,
+  "cargo_jobs": 1,
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-daemon",
+        "--lib",
+        "state::tests::audio_",
+        "-j",
+        "1",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T13:40:30.352592+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-state-configuration-tests-1010-retry.log",
+      "exit_code": 0,
+      "finished_utc": "2026-10-10T13:41:18.955714+00:00",
+      "log_sha256": "a64a87700a21e6e04a4a92232075262f3cf107678afbf5bfb8568b9e82275897"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-proto",
+        "--lib",
+        "messages::audio_configuration_tests::",
+        "-j",
+        "1",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T13:41:18.956132+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-protocol-configuration-tests-1010-retry.log",
+      "exit_code": 0,
+      "finished_utc": "2026-10-10T13:41:45.362044+00:00",
+      "log_sha256": "4869ef015795f65aa8adc2bdf03d8a8611f56f4ae8ed2d002edd8184d883a715"
+    }
+  ]
+}

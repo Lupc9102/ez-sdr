@@ -427,10 +427,11 @@ async fn private_web_sessions_protect_controls_recordings_and_report_deletion() 
             ws,
             ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    audio: None,
                     meteor_profile: None,
                     id: ids.spectrum,
                     center_offset_hz: 0,
-                    bandwidth_hz: 2_000_000,
+                    channel_sample_rate_hz: 2_000_000,
                     kind: ez_proto::PipelineKind::Spectrum,
                     demod_mode: None,
                 },
@@ -448,10 +449,11 @@ async fn private_web_sessions_protect_controls_recordings_and_report_deletion() 
         &mut a,
         ClientCommand::Subscribe {
             channel: ez_proto::ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: bid.spectrum,
                 center_offset_hz: 0,
-                bandwidth_hz: 2_000_000,
+                channel_sample_rate_hz: 2_000_000,
                 kind: ez_proto::PipelineKind::Spectrum,
                 demod_mode: None,
             },
@@ -468,9 +470,10 @@ async fn private_web_sessions_protect_controls_recordings_and_report_deletion() 
             channel_id: bid.spectrum,
         },
         ClientCommand::Retune {
+            audio: None,
             channel_id: bid.spectrum,
             center_offset_hz: 1000,
-            bandwidth_hz: 200_000,
+            channel_sample_rate_hz: 200_000,
         },
         ClientCommand::StartRecording {
             channel_id: bid.spectrum,

@@ -3,17 +3,20 @@
 //!
 //! All modes consume complex baseband samples that the [`crate::channelizer::Channelizer`]
 //! has already NCO-mixed and lowpass-decimated to center on the tuned frequency.
-//! USB/LSB additionally select the wanted voice sideband before real projection;
-//! their filter and oscillator use the channel's exact capture clock.
+//! Mode-specific complex RF selection precedes detection and squelch measurement.
+//! Filters and oscillators use the exact channel clock; PCM can use an independent
+//! output clock without changing the physical capture provenance.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use num_complex::Complex32;
 
-use ez_proto::{AudioFrame, ChannelId, DemodMode};
+use ez_proto::{AudioFrame, AudioParameters, ChannelId, DemodMode};
 
 use super::audio_filter::ComplexLowpass;
+use crate::audio_rate::IqAudioConverter;
+use crate::audio_rf::RfSelector;
 use crate::broadcast::{Broadcaster, BroadcasterHandle, OverflowPolicy};
 use crate::bus::{SampleBlock, SampleBusHandle, SampleContinuity};
 
@@ -43,6 +46,7 @@ const SSB_LOWPASS_HZ: f32 = 1_450.0;
 pub struct AudioConfig {
     pub channel_id: ChannelId,
     pub mode: DemodMode,
+    pub audio: Option<AudioParameters>,
 }
 
 /// Demodulates one virtual channel's baseband into audio. Carries whatever per-sample state
@@ -54,6 +58,11 @@ pub struct AudioPipeline {
     continuity: SampleContinuity,
     channel_id: ChannelId,
     mode: DemodMode,
+    parameters: Option<AudioParameters>,
+    rf_selector: Option<(f64, u32, RfSelector)>,
+    converter: IqAudioConverter,
+    audio_clock: Option<ez_proto::CaptureClock>,
+    audio_epoch: u64,
     dc_prev_x: f32,
     dc_prev_y: f32,
     prev_sample: Complex32,
@@ -76,6 +85,11 @@ impl AudioPipeline {
             continuity: SampleContinuity::default(),
             channel_id: config.channel_id,
             mode: config.mode,
+            parameters: config.audio,
+            rf_selector: None,
+            converter: IqAudioConverter::for_detector(),
+            audio_clock: None,
+            audio_epoch: 0,
             dc_prev_x: 0.0,
             dc_prev_y: 0.0,
             prev_sample: Complex32::new(0.0, 0.0),
@@ -96,8 +110,49 @@ impl AudioPipeline {
     pub fn set_mode(&mut self, mode: DemodMode) {
         if mode != self.mode {
             self.mode = mode;
+            if let Some(parameters) = &mut self.parameters {
+                parameters.rf_bandwidth_hz = AudioParameters::for_mode(mode).rf_bandwidth_hz;
+            }
             self.reset_history();
         }
+    }
+
+    /// Apply already-validated RF and PCM settings as one DSP boundary.
+    pub fn configure(&mut self, mode: DemodMode, parameters: AudioParameters) {
+        if self.mode != mode || self.parameters != Some(parameters) {
+            self.mode = mode;
+            self.parameters = Some(parameters);
+            self.reset_history();
+        }
+    }
+
+    pub fn validate_parameters(
+        mode: DemodMode,
+        parameters: AudioParameters,
+        channel_rate_hz: f64,
+    ) -> Result<(), String> {
+        if !channel_rate_hz.is_finite() || !(100.0..=20_000_000.0).contains(&channel_rate_hz) {
+            return Err("audio channel rate must be finite and between 100 Hz and 20 MHz".into());
+        }
+        if parameters.output_sample_rate_hz != 0
+            && !(8_000..=384_000).contains(&parameters.output_sample_rate_hz)
+        {
+            return Err(
+                "audio output rate must be 8..384 kS/s or zero to follow the channel clock".into(),
+            );
+        }
+        if matches!(mode, DemodMode::Lsb | DemodMode::Usb) {
+            if parameters.rf_bandwidth_hz == 0
+                || f64::from(parameters.rf_bandwidth_hz) > 0.44 * channel_rate_hz
+            {
+                return Err(
+                    "SSB one-sided RF extent must fit within 44% of the channel clock".into(),
+                );
+            }
+        } else if mode != DemodMode::Raw || parameters.rf_bandwidth_hz != 0 {
+            RfSelector::validate(channel_rate_hz, parameters.rf_bandwidth_hz)?;
+        }
+        Ok(())
     }
 
     fn reset_history(&mut self) {
@@ -108,6 +163,12 @@ impl AudioPipeline {
         self.deemph_prev = 0.0;
         self.ssb_phase = 0.0;
         self.ssb_filter.reset();
+        if let Some((_, _, selector)) = &mut self.rf_selector {
+            selector.reset();
+        }
+        self.converter.reset();
+        self.audio_clock = None;
+        self.audio_epoch = self.audio_epoch.wrapping_add(1);
     }
 
     #[must_use]
@@ -127,7 +188,7 @@ impl AudioPipeline {
         self.volume
     }
 
-    /// Sets the squelch threshold in dBFS: a block whose mean input power falls below this
+    /// Sets the squelch threshold in dBFS: a block whose selected RF power falls below this
     /// is still demodulated (to keep carried state continuous) but published as silence.
     pub fn set_squelch(&mut self, db: f32) {
         if self.squelch_db != db {
@@ -182,56 +243,130 @@ impl AudioPipeline {
         if !self.continuity.observe(block) {
             self.reset_history();
         }
+        let mut clock = block.capture_clock();
+        let rate = clock.exact_sample_rate_hz();
+        let parameters = self.parameters.unwrap_or_else(|| {
+            let mut p = AudioParameters::for_mode(self.mode);
+            let fraction = if matches!(self.mode, DemodMode::Usb | DemodMode::Lsb) {
+                0.44
+            } else {
+                0.8
+            };
+            p.rf_bandwidth_hz = p.rf_bandwidth_hz.min((fraction * rate) as u32);
+            p.output_sample_rate_hz = 0;
+            p
+        });
+        if Self::validate_parameters(self.mode, parameters, rate).is_err() {
+            self.reset_history();
+            return;
+        }
+        let selected = if matches!(self.mode, DemodMode::Usb | DemodMode::Lsb) {
+            self.select_ssb(
+                &block.samples,
+                rate,
+                self.mode == DemodMode::Usb,
+                parameters.rf_bandwidth_hz,
+            )
+        } else if parameters.rf_bandwidth_hz == 0 {
+            block
+                .samples
+                .iter()
+                .map(|s| {
+                    Complex32::new(
+                        if s.re.is_finite() { s.re } else { 0.0 },
+                        if s.im.is_finite() { s.im } else { 0.0 },
+                    )
+                })
+                .collect()
+        } else {
+            if self
+                .rf_selector
+                .as_ref()
+                .is_none_or(|(old_rate, old_width, _)| {
+                    *old_rate != rate || *old_width != parameters.rf_bandwidth_hz
+                })
+            {
+                let Ok(filter) = RfSelector::new(rate, parameters.rf_bandwidth_hz) else {
+                    return;
+                };
+                self.rf_selector = Some((rate, parameters.rf_bandwidth_hz, filter));
+            }
+            self.rf_selector.as_mut().unwrap().2.process(&block.samples)
+        };
         let mut samples: Vec<f32> = match self.mode {
-            DemodMode::Raw => block.samples.iter().map(|s| s.re).collect(),
-            DemodMode::Am => self.demod_am(&block.samples),
-            DemodMode::Fm => self.demod_fm(&block.samples, block.sample_rate_hz, NFM_DEVIATION_HZ),
+            DemodMode::Raw => selected.iter().map(|s| s.re).collect(),
+            DemodMode::Am => self.demod_am(&selected),
+            DemodMode::Fm => self.demod_fm(&selected, rate, NFM_DEVIATION_HZ),
             DemodMode::Wfm => {
-                let mut raw = self.demod_fm(&block.samples, block.sample_rate_hz, WFM_DEVIATION_HZ);
-                self.apply_deemphasis(&mut raw, block.sample_rate_hz);
+                let mut raw = self.demod_fm(&selected, rate, WFM_DEVIATION_HZ);
+                self.apply_deemphasis(&mut raw, rate);
                 raw
             }
-            DemodMode::Usb => self.demod_ssb(
-                &block.samples,
-                block.capture_clock().exact_sample_rate_hz(),
-                true,
-            ),
-            DemodMode::Lsb => self.demod_ssb(
-                &block.samples,
-                block.capture_clock().exact_sample_rate_hz(),
-                false,
-            ),
+            DemodMode::Usb | DemodMode::Lsb => selected.iter().map(|s| 2.0 * s.re).collect(),
         };
-
-        // Squelch gates on the block's own mean input power so it reacts to the RF signal
-        // actually present, not to whatever the demodulator happened to output for it
-        // (e.g. FM's discriminator is meaningless on noise alone). Carried demod state
-        // above has already advanced against the real input either way, so un-squelching
-        // never reintroduces a discontinuity.
-        let mean_power: f32 = block.samples.iter().map(|s| s.norm_sqr()).sum::<f32>()
-            / block.samples.len().max(1) as f32;
-        let power_db = if mean_power > 1e-12 {
+        // Measure the same selected complex signal that feeds detection. An
+        // excluded neighboring carrier cannot open power squelch.
+        let mean_power: f64 = selected
+            .iter()
+            .map(|s| f64::from(s.re).powi(2) + f64::from(s.im).powi(2))
+            .sum::<f64>()
+            / selected.len().max(1) as f64;
+        let power_db = if mean_power > 0.0 {
             10.0 * mean_power.log10()
         } else {
             -240.0
         };
-        if power_db < self.squelch_db {
-            samples.iter_mut().for_each(|s| *s = 0.0);
-        } else if self.volume != 1.0 {
-            samples
-                .iter_mut()
-                .for_each(|s| *s = (*s * self.volume).clamp(-1.0, 1.0));
+        let discontinuous = std::mem::take(&mut self.reset_pending);
+        clock.discontinuous |= discontinuous;
+        let (audio_clock, sample_rate_hz) = if parameters.output_sample_rate_hz == 0 {
+            (clock, block.sample_rate_hz)
+        } else {
+            let input: Vec<_> = samples.iter().map(|&x| Complex32::new(x, 0.0)).collect();
+            samples = self
+                .converter
+                .process_clocked(
+                    &input,
+                    clock.source_sample_rate_hz,
+                    clock.sample_stride,
+                    parameters.output_sample_rate_hz,
+                    1.0,
+                )
+                .into_iter()
+                .map(|x| x[0])
+                .collect();
+            let mut output_clock = *self.audio_clock.get_or_insert_with(|| {
+                ez_proto::CaptureClock::new(
+                    self.audio_epoch,
+                    0,
+                    parameters.output_sample_rate_hz,
+                    clock.unix_time_ns(0),
+                )
+            });
+            output_clock.discontinuous = discontinuous;
+            self.audio_clock = output_clock
+                .offset_samples(samples.len() as u64)
+                .map(|mut c| {
+                    c.discontinuous = false;
+                    c
+                });
+            (output_clock, parameters.output_sample_rate_hz)
+        };
+        for sample in &mut samples {
+            *sample =
+                if self.squelch_db > DEFAULT_SQUELCH_DB && power_db < f64::from(self.squelch_db) {
+                    0.0
+                } else {
+                    (*sample * self.volume).clamp(-1.0, 1.0)
+                };
         }
-
         self.sequence += 1;
-        let mut clock = block.capture_clock();
-        clock.discontinuous |= std::mem::take(&mut self.reset_pending);
         self.output.publish(AudioFrame {
             clock,
+            audio_clock,
             sequence: self.sequence,
             squelch: self.squelch_state(),
             channel_id: self.channel_id,
-            sample_rate_hz: block.sample_rate_hz,
+            sample_rate_hz,
             samples,
         });
     }
@@ -244,7 +379,7 @@ impl AudioPipeline {
                 let y = envelope - self.dc_prev_x + AM_DC_BLOCKER_POLE * self.dc_prev_y;
                 self.dc_prev_x = envelope;
                 self.dc_prev_y = y;
-                y.clamp(-1.0, 1.0)
+                y
             })
             .collect()
     }
@@ -252,34 +387,42 @@ impl AudioPipeline {
     fn demod_fm(
         &mut self,
         samples: &[Complex32],
-        sample_rate_hz: u32,
+        sample_rate_hz: f64,
         deviation_hz: f32,
     ) -> Vec<f32> {
-        let gain = sample_rate_hz as f32 / (2.0 * std::f32::consts::PI * deviation_hz);
+        let gain = (sample_rate_hz / (std::f64::consts::TAU * f64::from(deviation_hz))) as f32;
         samples
             .iter()
             .map(|&s| {
                 let d = s * self.prev_sample.conj();
                 self.prev_sample = s;
-                (d.arg() * gain).clamp(-1.0, 1.0)
+                d.arg() * gain
             })
             .collect()
     }
 
-    fn apply_deemphasis(&mut self, samples: &mut [f32], sample_rate_hz: u32) {
-        if sample_rate_hz == 0 {
+    fn apply_deemphasis(&mut self, samples: &mut [f32], sample_rate_hz: f64) {
+        if sample_rate_hz <= 0.0 {
             return;
         }
-        let dt = 1.0 / sample_rate_hz as f32;
-        let alpha = dt / (WFM_DEEMPHASIS_TAU + dt);
+        let dt = 1.0 / sample_rate_hz;
+        let alpha = (dt / (f64::from(WFM_DEEMPHASIS_TAU) + dt)) as f32;
         for s in samples.iter_mut() {
             self.deemph_prev += alpha * (*s - self.deemph_prev);
-            *s = self.deemph_prev.clamp(-1.0, 1.0);
+            *s = self.deemph_prev;
         }
     }
 
-    fn demod_ssb(&mut self, samples: &[Complex32], sample_rate_hz: f64, usb: bool) -> Vec<f32> {
-        let phase_step = std::f64::consts::TAU * f64::from(SSB_SHIFT_HZ) / sample_rate_hz.max(1.0);
+    fn select_ssb(
+        &mut self,
+        samples: &[Complex32],
+        sample_rate_hz: f64,
+        usb: bool,
+        bandwidth_hz: u32,
+    ) -> Vec<Complex32> {
+        let scale = f64::from(bandwidth_hz) / 3300.0;
+        let phase_step =
+            std::f64::consts::TAU * f64::from(SSB_SHIFT_HZ) * scale / sample_rate_hz.max(1.0);
         let mixer_sign = if usb { -1.0 } else { 1.0 };
         let mut output = Vec::with_capacity(samples.len());
         for &sample in samples {
@@ -290,16 +433,22 @@ impl AudioPipeline {
             );
             let selected =
                 self.ssb_filter
-                    .process(mixed, f64::from(SSB_LOWPASS_HZ), sample_rate_hz);
+                    .process(mixed, f64::from(SSB_LOWPASS_HZ) * scale, sample_rate_hz);
             // Restore the RF translation before real projection: filtering must
             // select the wanted sideband without shifting every voice tone.
             let audio = f64::from(selected.re) * cos + mixer_sign * f64::from(selected.im) * sin;
-            output.push((2.0 * audio as f32).clamp(-1.0, 1.0));
+            let imaginary =
+                f64::from(selected.im) * cos - mixer_sign * f64::from(selected.re) * sin;
+            output.push(Complex32::new(audio as f32, imaginary as f32));
             self.ssb_phase = (self.ssb_phase + phase_step).rem_euclid(std::f64::consts::TAU);
         }
         output
     }
 }
+
+#[cfg(test)]
+#[path = "audio_selection_tests.rs"]
+mod selection_tests;
 
 #[cfg(test)]
 mod tests {
@@ -334,6 +483,7 @@ mod tests {
         let pipeline = AudioPipeline::new(
             handle,
             AudioConfig {
+                audio: None,
                 channel_id: 7,
                 mode,
             },
@@ -386,13 +536,14 @@ mod tests {
         let (bus, mut ap) = pipeline_with(DemodMode::Am);
         let out = ap.subscribe(4);
 
-        let mut samples = vec![Complex32::new(0.2, 0.0); 500]; // low envelope, let it settle
-        samples.extend(vec![Complex32::new(1.0, 0.0); 50]); // step up in envelope
+        let latency = RfSelector::new(48_000.0, 15_000).unwrap().latency_samples();
+        let mut samples = vec![Complex32::new(0.2, 0.0); 5_000];
+        samples.extend(vec![Complex32::new(1.0, 0.0); latency + 500]);
         bus.publish(block_of(samples, 48_000));
         ap.tick(Duration::from_millis(50));
 
         let frame = out.try_recv().expect("expected a frame");
-        let just_after_step = frame.samples[502];
+        let just_after_step = frame.samples[5_000 + latency + 20];
         assert!(
             just_after_step > 0.1,
             "expected a positive swing right after the envelope step, got {just_after_step}"
@@ -414,8 +565,8 @@ mod tests {
         let frame = out.try_recv().expect("expected a frame");
 
         let expected = (offset / NFM_DEVIATION_HZ as f64) as f32;
-        // Skip sample 0 (discriminator has no prior sample yet, carried state starts at 0).
-        for &s in &frame.samples[1..] {
+        // The causal RF selector has startup latency; check the settled tail.
+        for &s in &frame.samples[800..] {
             assert!(
                 (s - expected).abs() < 0.01,
                 "sample {s} far from expected constant level {expected}"
@@ -427,31 +578,30 @@ mod tests {
     fn fm_discriminator_state_is_continuous_across_ticks() {
         let sample_rate = 48_000.0;
         let offset = 1_500.0;
-        let full_tone = tone(400, offset, sample_rate);
+        let full_tone = tone(4_000, offset, sample_rate);
 
         let (bus, mut ap) = pipeline_with(DemodMode::Fm);
         let out = ap.subscribe(8);
 
-        bus.publish(block_of(full_tone[..200].to_vec(), sample_rate as u32));
+        bus.publish(block_of(full_tone[..2_000].to_vec(), sample_rate as u32));
         ap.tick(Duration::from_millis(50));
         let first = out.try_recv().expect("first frame");
 
-        let mut next = block_of(full_tone[200..].to_vec(), sample_rate as u32);
-        next.start_sample = 200;
+        let mut next = block_of(full_tone[2_000..].to_vec(), sample_rate as u32);
+        next.start_sample = 2_000;
         bus.publish(next);
         ap.tick(Duration::from_millis(50));
         let second = out.try_recv().expect("second frame");
 
-        // The discriminator's very first output (sample 0 of the whole run) is the only one
-        // allowed to be off (no prior sample yet); every other sample, including the first
-        // of the second block, should reflect the same constant offset continuously.
+        // Both sides of the network boundary are beyond RF filter startup and
+        // must recover the same nonzero discriminator level.
         let expected = (offset / NFM_DEVIATION_HZ as f64) as f32;
         assert!(
             (second.samples[0] - expected).abs() < 0.01,
             "discontinuity at block boundary: {}",
             second.samples[0]
         );
-        assert!((first.samples[199] - expected).abs() < 0.01);
+        assert!((first.samples[1_999] - expected).abs() < 0.01);
     }
 
     #[test]
@@ -501,13 +651,14 @@ mod tests {
         let out = ap.subscribe(4);
 
         bus.publish(block_of(
-            tone(200, 20_000.0, sample_rate),
+            tone(2_000, 6_000.0, sample_rate),
             sample_rate as u32,
         ));
         ap.tick(Duration::from_millis(50));
         let frame = out.try_recv().expect("expected a frame");
 
         assert!(frame.samples.iter().all(|&s| (-1.0..=1.0).contains(&s)));
+        assert!(frame.samples[1_000..].iter().all(|&s| s > 0.99));
     }
 
     #[test]
@@ -836,19 +987,19 @@ mod tests {
         // continuity is only meaningful against a genuinely continuous signal.
         let sample_rate = 48_000.0;
         let offset = 2_000.0;
-        let full_tone = tone(400, offset, sample_rate);
+        let full_tone = tone(4_000, offset, sample_rate);
         let (bus, mut ap) = pipeline_with(DemodMode::Fm);
         ap.set_squelch(100.0); // above any signal power this tone can reach: always gated
         let out = ap.subscribe(4);
 
-        bus.publish(block_of(full_tone[..200].to_vec(), sample_rate as u32));
+        bus.publish(block_of(full_tone[..2_000].to_vec(), sample_rate as u32));
         ap.tick(Duration::from_millis(50));
         let frame = out.try_recv().expect("expected a frame");
         assert!(frame.samples.iter().all(|&s| s == 0.0));
 
         ap.set_squelch(DEFAULT_SQUELCH_DB);
-        let mut next = block_of(full_tone[200..].to_vec(), sample_rate as u32);
-        next.start_sample = 200;
+        let mut next = block_of(full_tone[2_000..].to_vec(), sample_rate as u32);
+        next.start_sample = 2_000;
         bus.publish(next);
         ap.tick(Duration::from_millis(50));
         let unsquelched = out.try_recv().expect("expected a frame");

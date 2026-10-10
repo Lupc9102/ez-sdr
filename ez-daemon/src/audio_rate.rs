@@ -8,6 +8,10 @@ use std::collections::VecDeque;
 
 const PHASE_INTERVALS: usize = 256;
 
+#[cfg(test)]
+#[path = "audio_rate_clock_tests.rs"]
+mod clock_tests;
+
 pub struct RateFilter {
     banks: Vec<Vec<f32>>,
     history: Vec<f32>,
@@ -89,6 +93,7 @@ impl RateFilter {
 #[derive(Default)]
 pub struct IqAudioConverter {
     settings: Option<(f64, u32)>,
+    clock_ratio: Option<(u32, u32)>,
     coarse: Option<FirDecimator>,
     filters: Option<[RateFilter; 2]>,
     numerator: u128,
@@ -121,6 +126,41 @@ fn exact_ratio(rate: f64) -> (u128, u128) {
 }
 
 impl IqAudioConverter {
+    /// Convert an exact rational capture clock without rounding its duration or
+    /// accumulating a dyadic approximation at coherent clock boundaries.
+    pub fn process_clocked(
+        &mut self,
+        input: &[Complex32],
+        source_rate: u32,
+        stride: u32,
+        output_rate: u32,
+        gain: f32,
+    ) -> Vec<[f32; 2]> {
+        if source_rate == 0 || stride == 0 {
+            self.reset();
+            return Vec::new();
+        }
+        let input_rate = f64::from(source_rate) / f64::from(stride);
+        let (mut a, mut b) = (source_rate, stride);
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        let ratio = (source_rate / a, stride / a);
+        if self.clock_ratio != Some(ratio) || self.settings != Some((input_rate, output_rate)) {
+            self.reset();
+            if !self.configure(input_rate, output_rate) {
+                return Vec::new();
+            }
+            let coarse = self.coarse_denominator / self.output_denominator;
+            self.numerator = u128::from(ratio.0);
+            self.output_denominator = u128::from(ratio.1) * u128::from(output_rate);
+            self.coarse_denominator = self.output_denominator * coarse;
+            self.duration_phase = self.numerator - 1;
+            self.clock_ratio = Some(ratio);
+        }
+        self.process(input, input_rate, output_rate, gain)
+    }
+
     /// Detected envelopes can contain DC greater than full-scale. Their
     /// amplitude controls run after rate conversion, so preserve that range.
     pub fn for_detector() -> Self {

@@ -139,6 +139,10 @@ from audio bandwidth.
 
 Daemon USB/LSB listening preserves voice pitch and rejects the opposite sideband
 across the 300–3,000 Hz voice band, including the GUI’s 200 kS/s channel.
+Daemon AM/FM/WFM select complex RF before detection and measure power squelch on
+that selected signal. Their default RF widths are 15/25/180 kHz. The desktop
+requests 200 kS/s channels for voice modes and 256 kS/s for WFM, with 48 kS/s mono
+PCM delivery; integer RF decimation can produce a higher actual channel rate.
 
 Automatic recording and signal monitoring require **Power** squelch and use the
 entire -100..0 dBFS threshold range. Local observations come from the native RF
@@ -150,7 +154,15 @@ only after the local file opens or the daemon confirms an active recording.
 
 ## Optional daemon
 
-The GUI and daemon must both speak protocol version 11; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate. Aircraft snapshots include their channel identity, receiver counters and a fixed five-second message rate that expires during idle reception. Welcome allocates connection-owned GUI channel IDs; all streamed data carries channel identity and control subscribers receive explicit removal events. Active recordings prevent channel deletion. Daemon squelch commands have correlated applied/error replies, and audio frames carry the applied threshold and revision so queued audio cannot undo a newer setting.
+The GUI and daemon must both speak protocol version 12; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate. Aircraft snapshots include their channel identity, receiver counters and a fixed five-second message rate that expires during idle reception. Welcome allocates connection-owned GUI channel IDs; all streamed data carries channel identity and control subscribers receive explicit removal events. Active recordings prevent channel deletion. Daemon squelch commands have correlated applied/error replies, and audio frames carry the applied threshold and revision so queued audio cannot undo a newer setting.
+
+Audio subscriptions separate `channel_sample_rate_hz` from
+`audio.rf_bandwidth_hz` and `audio.output_sample_rate_hz`. JSON requests accept
+the former `bandwidth_hz` name as an alias for the channel rate. Omitting `audio`
+uses mode defaults and follows the actual channel clock; an explicit output rate
+of zero also selects that behavior. `Retune.audio` applies mode, RF width and PCM
+rate together with channel geometry. Audio frames retain physical RF provenance
+in `clock` and carry the generated PCM timeline separately in `audio_clock`.
 
 LRPT subscriptions require `meteor_profile: "Oqpsk72"` or
 `meteor_profile: "Oqpsk80Interleaved"`. These select the complete transport,

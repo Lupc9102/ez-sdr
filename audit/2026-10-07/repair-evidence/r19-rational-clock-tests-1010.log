@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.39s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-72867641d7d52d15)
+
+running 2 tests
+test audio_rate::clock_tests::rational_capture_conversion_has_exact_coherent_counts_and_chunk_independent_pcm ... ok
+test audio_rate::clock_tests::rational_capture_rate_changes_reset_phase_and_filter_history ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 235 filtered out; finished in 28.71s
+

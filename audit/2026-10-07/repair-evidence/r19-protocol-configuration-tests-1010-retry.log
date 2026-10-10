@@ -1,0 +1,11 @@
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.99s
+     Running unittests src/lib.rs (target/debug/deps/ez_proto-c76591d86ece09d5)
+
+running 3 tests
+test messages::audio_configuration_tests::audio_configuration_round_trips_three_independent_rates ... ok
+test messages::audio_configuration_tests::audio_frame_round_trip_keeps_rf_capture_and_pcm_clock_distinct ... ok
+test messages::audio_configuration_tests::legacy_json_bandwidth_alias_is_explicitly_a_channel_clock ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+

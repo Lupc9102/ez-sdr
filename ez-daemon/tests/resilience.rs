@@ -146,10 +146,11 @@ async fn attach(addr: SocketAddr, name: &str) -> (ClientWriter, ClientReader) {
 
 fn spectrum_spec(id: ChannelId) -> ChannelSpec {
     ChannelSpec {
+        audio: None,
         meteor_profile: None,
         id,
         center_offset_hz: 0,
-        bandwidth_hz: 2_000_000,
+        channel_sample_rate_hz: 2_000_000,
         kind: PipelineKind::Spectrum,
         demod_mode: None,
     }

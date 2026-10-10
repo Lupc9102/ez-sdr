@@ -2,9 +2,12 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-31 findings have software repairs with passing regressions; 2 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+32 findings have software repairs with passing regressions; 1 remains open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
+
+- **R19 — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection**: Separate RF width, channel rate and PCM rate in protocol v12; filter complex RF before detection and selected-RF squelch. Preserve independent RF/PCM clocks and validate atomic desktop retunes.
+  Evidence: 47 focused tests, all-target Clippy, default daemon/GUI builds, formatting and AST graph refresh pass. See repair-daemon-selection-verification.json.
 
 - **R12 — Daemon SSB rejection degrades sharply at the actual GUI channel rate**: Define the sideband response in Hz at the exact channel clock, and restore the mixer translation before real projection to preserve voice pitch.
   Evidence: all 336 voice checks and 21 unique affected tests pass; default daemon build, all-target Clippy, formatting and AST graph refresh pass. Minimum measured opposite rejection is 92.681208 dB. See repair-ssb-selectivity-verification.json.
@@ -76,7 +79,6 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
-- [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
 
 ## Verification and limits
 
@@ -279,3 +281,17 @@ A reusable linear-phase RF selector defines its protected passband at +/- half t
 All 25 affected tests pass: two RF-selector tests, five RAW conversion tests, twelve daemon-playback conversion tests and six detected-audio tests. Daemon and GUI all-target Clippy with warnings denied, default GUI build, formatting and AST graph refresh pass. The checks ran serially under an enforced 10% one-core quota, nice 19, one Cargo job and one test thread. No full-workspace suite was run. Logs, exact commands, source hashes and the initial failed compile are in repair-daemon-audio-foundation-verification.json.
 
 R19 remains open: AudioPipeline has not yet adopted the new RF selector, and its protocol still needs distinct RF bandwidth, channel sample rate and audio output rate. Selected-RF squelch and end-to-end AM/FM mixture checks remain required. The ledger stays at 31 software-verified findings and two open findings (S01/R19); all original repair and field/off-air/hardware/audio/disk release gates remain intact.
+
+## R19 integration checkpoint — consumer verification pending, 2026-10-10
+
+The working tree now integrates mode-specific complex RF selection before AM/FM/WFM detection and measures squelch on the selected signal. Protocol version 12 separates channel sample rate, RF width and PCM output rate; audio frames retain the RF capture clock independently of their PCM clock. Mode, RF width, PCM rate and channel geometry can change in one validated retune. The desktop requests 48 kS/s mono PCM and uses the generated clock for playback.
+
+Thirty focused daemon/protocol tests pass: 23 audio pipeline tests, two exact rational-clock conversion tests, two configuration tests and three protocol tests. Twelve AM/FM/WFM mixtures across integer and fractional production clocks reject carriers 25 times stronger than the wanted carrier while preserving wanted audio and selected-RF squelch behavior. Maximum relative PCM error is 0.000003865. The existing 336 SSB voice-band checks still pass with unchanged measured gain and rejection. PCM partition equality, known/unknown UTC origins, capture-gap resets, exact coherent sample counts, invalid geometry and atomic widening/narrowing are covered. Logs and command records are retained under repair-evidence/r19-*.
+
+The initial configuration test incorrectly assumed the shared synthetic fixture supplied 2.0 MS/s; it actually supplies 2.048 MS/s. The corrected fixture initializes channel geometry from the applied hardware clock and checks precomputed actual rates. The failed log and command records are preserved. The initial workspace all-target compatibility check passed before the new tests were wired in; subsequent daemon/protocol test builds pass. GUI workflow/playback checks, current all-target Clippy, default builds, final formatting and graph refresh remain pending. R19 stays open and the ledger remains at 31 software-verified findings. All jobs run serially at 10% of one CPU core, nice 19, one Cargo job and one test thread; the original repair and field-release gates remain unchanged.
+
+## R19 integration verified — 2026-10-10
+
+All 47 unique affected daemon/protocol/GUI tests pass, including the 12 strong-neighbor mixtures, exact coherent PCM counts, atomic widening/narrowing and the unchanged 336 SSB voice checks. The existing 122-case playback sweep and 32 WFM MPX stop cases pass; WFM mixture error is 0.000025807 relative to wanted audio. The AM/NFM audio-alias fixture explicitly selects an RF passband containing its 49 kHz modulation, so RF rejection cannot conceal failure of the separate audio-rate stage.
+
+Current daemon/GUI/protocol all-target Clippy with warnings denied, default daemon and GUI builds, formatting and AST graph refresh pass. Failed fixture/Clippy runs, source hashes, commands and guarded runners are retained in repair-daemon-selection-verification.json. Builds and tests remain serial within a combined 10% limit of one CPU core, nice 19, one Cargo job and one test thread. Independent reference downloads and prefix restoration share that limit at 1% while the build receives 9%. User deletions and the original 33 repair gates are preserved. The ledger now has 32 software-verified findings and S01 open; physical/off-air/audio/disk release requirements remain unverified. Public recording availability checks are recorded separately in public-meteor-candidates-1010.json. The goal remains active.

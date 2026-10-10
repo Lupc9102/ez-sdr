@@ -1,0 +1,50 @@
+{
+  "cpu_max": [
+    "10000",
+    "100000"
+  ],
+  "test_threads": 1,
+  "cargo_jobs": 1,
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-daemon",
+        "--lib",
+        "audio_rate::clock_tests::",
+        "-j",
+        "1",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T13:37:30.616445+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-rational-clock-tests-1010.log",
+      "exit_code": 0,
+      "finished_utc": "2026-10-10T13:38:02.323615+00:00",
+      "log_sha256": "3b2feb64f62a7fb965b9641d34b5acf1996ac16e09c2c6b66f0ae3b8a3023333"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-daemon",
+        "--lib",
+        "state::tests::audio_",
+        "-j",
+        "1",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T13:38:02.323986+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-state-configuration-tests-1010.log",
+      "exit_code": 101,
+      "finished_utc": "2026-10-10T13:38:09.724520+00:00",
+      "log_sha256": "f708dbc4fed12e2bad94a777b2df1857f6f6bca0c12c162001bc480adc07fffd"
+    }
+  ]
+}

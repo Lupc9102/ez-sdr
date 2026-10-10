@@ -157,6 +157,7 @@ fn daemon_pcm(mode: ez_proto::DemodMode, rate: u32, iq: Vec<Complex32>) -> Vec<f
     let mut pipeline = AudioPipeline::new(
         bus.subscribe(4, OverflowPolicy::DropOldest),
         AudioConfig {
+            audio: None,
             channel_id: 1,
             mode,
         },

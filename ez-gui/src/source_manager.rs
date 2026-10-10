@@ -428,11 +428,27 @@ impl Drop for CaptureProducer {
     }
 }
 
+fn daemon_audio_parameters(
+    mode: ez_proto::DemodMode,
+    channel_rate: u32,
+) -> ez_proto::AudioParameters {
+    let mut p = ez_proto::AudioParameters::for_mode(mode);
+    let fraction = if matches!(mode, ez_proto::DemodMode::Usb | ez_proto::DemodMode::Lsb) {
+        0.44
+    } else {
+        0.8
+    };
+    p.rf_bandwidth_hz = p
+        .rf_bandwidth_hz
+        .min((fraction * f64::from(channel_rate)) as u32);
+    p
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DaemonAudioTuning {
     frequency_hz: u64,
     offset_hz: i64,
-    bandwidth_hz: u32,
+    channel_sample_rate_hz: u32,
 }
 
 /// Live input cannot wait for the UI without overrunning the hardware's USB
@@ -1647,10 +1663,11 @@ impl SourceManager {
 
     fn daemon_spectrum_spec(&self) -> ez_proto::ChannelSpec {
         ez_proto::ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id: self.daemon_channels.spectrum,
             center_offset_hz: 0,
-            bandwidth_hz: self
+            channel_sample_rate_hz: self
                 .daemon_applied_capture
                 .as_ref()
                 .map_or(self.sample_rate_hz, |hw| hw.sample_rate_hz),
@@ -2038,7 +2055,13 @@ impl SourceManager {
                 Ok(offset) => Some(DaemonAudioTuning {
                     frequency_hz: self.frequency_hz,
                     offset_hz: offset,
-                    bandwidth_hz: 200_000.min(self.sample_rate_hz),
+                    channel_sample_rate_hz: (if wanted_audio_mode == Some(ez_proto::DemodMode::Wfm)
+                    {
+                        256_000
+                    } else {
+                        200_000
+                    })
+                    .min(self.sample_rate_hz),
                 }),
                 Err(_) => {
                     self.status = SourceStatus::Error(
@@ -2054,10 +2077,15 @@ impl SourceManager {
         match (self.daemon_audio_mode, wanted_audio_mode) {
             (None, Some(mode)) => commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    audio: Some(daemon_audio_parameters(
+                        mode,
+                        wanted_audio_tuning.unwrap().channel_sample_rate_hz,
+                    )),
                     meteor_profile: None,
                     id: self.daemon_channels.audio,
                     center_offset_hz: wanted_audio_tuning.map_or(0, |tuning| tuning.offset_hz),
-                    bandwidth_hz: wanted_audio_tuning.map_or(0, |tuning| tuning.bandwidth_hz),
+                    channel_sample_rate_hz: wanted_audio_tuning
+                        .map_or(0, |tuning| tuning.channel_sample_rate_hz),
                     kind: ez_proto::PipelineKind::Audio,
                     demod_mode: Some(mode),
                 },
@@ -2070,25 +2098,28 @@ impl SourceManager {
                     channel_id: self.daemon_channels.audio,
                 });
             }
-            (Some(current), Some(mode)) if current != mode => {
-                commands.push(ez_proto::ClientCommand::SetDemodMode {
-                    channel_id: self.daemon_channels.audio,
-                    mode,
-                });
-            }
             _ => {}
         }
-        if self.daemon_audio_mode.is_some()
-            && wanted_audio_mode.is_some()
-            && self.daemon_audio_tuning != wanted_audio_tuning
-        {
-            if let Some(tuning) = wanted_audio_tuning {
+        match (
+            self.daemon_audio_mode,
+            wanted_audio_mode,
+            wanted_audio_tuning,
+        ) {
+            (Some(_), Some(mode), Some(tuning))
+                if self.daemon_audio_tuning != wanted_audio_tuning
+                    || self.daemon_audio_mode != wanted_audio_mode =>
+            {
                 commands.push(ez_proto::ClientCommand::Retune {
                     channel_id: self.daemon_channels.audio,
                     center_offset_hz: tuning.offset_hz,
-                    bandwidth_hz: tuning.bandwidth_hz,
+                    channel_sample_rate_hz: tuning.channel_sample_rate_hz,
+                    audio: Some(ez_proto::AudioConfiguration {
+                        mode,
+                        parameters: daemon_audio_parameters(mode, tuning.channel_sample_rate_hz),
+                    }),
                 });
             }
+            _ => {}
         }
         if self.daemon_audio_mode.is_some() && wanted_audio_mode.is_none() {
             self.reset_daemon_squelch();
@@ -2099,10 +2130,11 @@ impl SourceManager {
         if adsb_running && !self.daemon_adsb_subscribed {
             commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    audio: None,
                     meteor_profile: None,
                     id: self.daemon_channels.adsb,
                     center_offset_hz: 0,
-                    bandwidth_hz: 2_400_000,
+                    channel_sample_rate_hz: 2_400_000,
                     kind: ez_proto::PipelineKind::AdsbPackets,
                     demod_mode: None,
                 },
@@ -2123,10 +2155,11 @@ impl SourceManager {
         if meteor_lrpt && !self.daemon_lrpt_subscribed {
             commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    audio: None,
                     meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
                     id: self.daemon_channels.lrpt,
                     center_offset_hz: 0,
-                    bandwidth_hz: 288_000,
+                    channel_sample_rate_hz: 288_000,
                     kind: ez_proto::PipelineKind::LrptTelemetry,
                     demod_mode: None,
                 },
@@ -2991,6 +3024,7 @@ mod tests {
                 measurement_bins: None,
             }),
             E::Audio(AudioFrame {
+                audio_clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
                 clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
                 sequence: 1,
                 channel_id: foreign,
@@ -3200,7 +3234,7 @@ mod tests {
         );
         let spectrum = source.daemon_spectrum_spec();
         assert_eq!(spectrum.center_offset_hz, 0);
-        assert_eq!(spectrum.bandwidth_hz, source.sample_rate_hz);
+        assert_eq!(spectrum.channel_sample_rate_hz, source.sample_rate_hz);
         source.center_frequency_hz = None;
         assert_eq!(
             source.daemon_control_commands(),
@@ -3212,6 +3246,10 @@ mod tests {
 
     #[test]
     fn daemon_audio_subscribes_and_retunes_vfo_without_moving_capture() {
+        let parameters = ez_proto::AudioParameters {
+            rf_bandwidth_hz: 15_000,
+            output_sample_rate_hz: 48_000,
+        };
         let mut source = SourceManager::new();
         source.frequency_hz = 118_500_000;
         source.center_frequency_hz = Some(118_000_000);
@@ -3221,10 +3259,11 @@ mod tests {
             commands,
             vec![ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
+                    audio: Some(parameters),
                     meteor_profile: None,
                     id: DAEMON_AUDIO_CHANNEL_ID,
                     center_offset_hz: 500_000,
-                    bandwidth_hz: 200_000,
+                    channel_sample_rate_hz: 200_000,
                     kind: ez_proto::PipelineKind::Audio,
                     demod_mode: Some(ez_proto::DemodMode::Am),
                 }
@@ -3237,9 +3276,13 @@ mod tests {
         assert_eq!(
             source.daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Am),
             vec![ez_proto::ClientCommand::Retune {
+                audio: Some(ez_proto::AudioConfiguration {
+                    mode: ez_proto::DemodMode::Am,
+                    parameters
+                }),
                 channel_id: DAEMON_AUDIO_CHANNEL_ID,
                 center_offset_hz: -50_000,
-                bandwidth_hz: 200_000,
+                channel_sample_rate_hz: 200_000,
             }]
         );
         assert_eq!(source.capture_center_frequency_hz(), 118_000_000);
@@ -3247,9 +3290,13 @@ mod tests {
         assert_eq!(
             source.daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Am),
             vec![ez_proto::ClientCommand::Retune {
+                audio: Some(ez_proto::AudioConfiguration {
+                    mode: ez_proto::DemodMode::Am,
+                    parameters
+                }),
                 channel_id: DAEMON_AUDIO_CHANNEL_ID,
                 center_offset_hz: 450_000,
-                bandwidth_hz: 200_000,
+                channel_sample_rate_hz: 200_000,
             }]
         );
     }
@@ -3262,11 +3309,71 @@ mod tests {
         assert_eq!(
             source.daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Fm),
             vec![ez_proto::ClientCommand::Retune {
+                audio: Some(ez_proto::AudioConfiguration {
+                    mode: ez_proto::DemodMode::Fm,
+                    parameters: ez_proto::AudioParameters {
+                        rf_bandwidth_hz: 25_000,
+                        output_sample_rate_hz: 48_000
+                    },
+                }),
                 channel_id: DAEMON_AUDIO_CHANNEL_ID,
                 center_offset_hz: 0,
-                bandwidth_hz: 200_000,
+                channel_sample_rate_hz: 200_000,
             }]
         );
+    }
+
+    #[test]
+    fn daemon_audio_mode_changes_send_one_atomic_three_rate_configuration() {
+        let mut source = SourceManager::new();
+        source.sample_rate_hz = 2_048_003;
+        source.daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Fm);
+        for (gui_mode, mode, channel_rate, rf_width) in [
+            (
+                crate::sdr_panel::DemodMode::Wfm,
+                ez_proto::DemodMode::Wfm,
+                256_000,
+                180_000,
+            ),
+            (
+                crate::sdr_panel::DemodMode::Fm,
+                ez_proto::DemodMode::Fm,
+                200_000,
+                25_000,
+            ),
+            (
+                crate::sdr_panel::DemodMode::Usb,
+                ez_proto::DemodMode::Usb,
+                200_000,
+                3_300,
+            ),
+            (
+                crate::sdr_panel::DemodMode::Am,
+                ez_proto::DemodMode::Am,
+                200_000,
+                15_000,
+            ),
+        ] {
+            let commands = source.daemon_workflow_commands(true, false, false, gui_mode);
+            assert_eq!(
+                commands,
+                vec![ez_proto::ClientCommand::Retune {
+                    channel_id: DAEMON_AUDIO_CHANNEL_ID,
+                    center_offset_hz: 0,
+                    channel_sample_rate_hz: channel_rate,
+                    audio: Some(ez_proto::AudioConfiguration {
+                        mode,
+                        parameters: ez_proto::AudioParameters {
+                            rf_bandwidth_hz: rf_width,
+                            output_sample_rate_hz: 48_000
+                        },
+                    }),
+                }]
+            );
+            assert!(source
+                .daemon_workflow_commands(true, false, false, gui_mode)
+                .is_empty());
+        }
     }
 
     #[test]
@@ -4495,6 +4602,7 @@ mod tests {
         assert!(commands.try_recv().is_err());
         assert_eq!(source.daemon_squelch_pending_db(), Some(-20.0));
         let audio = AudioFrame {
+            audio_clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
             clock: ez_proto::CaptureClock::new(1, 0, 48_000, None),
             sequence: 1,
             channel_id,

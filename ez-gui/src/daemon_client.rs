@@ -519,6 +519,7 @@ pub(crate) mod tests {
             for n in 0..1000 {
                 writer
                     .send(ServerEvent::Audio(ez_proto::AudioFrame {
+                        audio_clock: ez_proto::CaptureClock::new(7, n * 16, 48_000, None),
                         clock: ez_proto::CaptureClock::new(7, n * 16, 48_000, None),
                         sequence: n + 1,
                         channel_id: 2,
@@ -824,10 +825,11 @@ pub(crate) mod tests {
 
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
-                bandwidth_hz: 2_000_000,
+                channel_sample_rate_hz: 2_000_000,
                 kind: PipelineKind::Spectrum,
                 demod_mode: None,
             },
@@ -863,10 +865,11 @@ pub(crate) mod tests {
 
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
-                bandwidth_hz: 2_000_000,
+                channel_sample_rate_hz: 2_000_000,
                 kind: PipelineKind::Spectrum,
                 demod_mode: None,
             },
@@ -1040,20 +1043,22 @@ pub(crate) mod tests {
         wait_for_status(&client, |s| *s == ConnectionStatus::Connected, "connection").await;
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 71,
                 center_offset_hz: 0,
-                bandwidth_hz: 200_000,
+                channel_sample_rate_hz: 200_000,
                 kind: PipelineKind::Audio,
                 demod_mode: Some(ez_proto::DemodMode::Fm),
             },
         });
         client.send(ClientCommand::Subscribe {
             channel: ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 72,
                 center_offset_hz: 0,
-                bandwidth_hz: 2_000_000,
+                channel_sample_rate_hz: 2_000_000,
                 kind: PipelineKind::Spectrum,
                 demod_mode: None,
             },

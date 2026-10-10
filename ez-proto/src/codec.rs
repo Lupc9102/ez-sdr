@@ -161,10 +161,11 @@ mod tests {
             for command in [
                 crate::ClientCommand::Subscribe {
                     channel: crate::ChannelSpec {
+                        audio: None,
                         meteor_profile: Some(profile),
                         id: 7,
                         center_offset_hz: 0,
-                        bandwidth_hz: 400_000,
+                        channel_sample_rate_hz: 400_000,
                         kind: crate::PipelineKind::LrptTelemetry,
                         demod_mode: None,
                     },
@@ -291,10 +292,11 @@ mod tests {
 
         let msg = ClientCommand::Subscribe {
             channel: crate::messages::ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 7,
                 center_offset_hz: -25_000,
-                bandwidth_hz: 12_500,
+                channel_sample_rate_hz: 12_500,
                 kind: PipelineKind::Audio,
                 demod_mode: Some(crate::messages::DemodMode::Fm),
             },
@@ -410,6 +412,7 @@ mod tests {
         }
         data.encode(
             ServerEvent::Audio(AudioFrame {
+                audio_clock: crate::CaptureClock::new(1, 0, 48_000, None),
                 clock: crate::CaptureClock::new(1, 0, 48_000, None),
                 sequence: 1,
                 channel_id: 17,

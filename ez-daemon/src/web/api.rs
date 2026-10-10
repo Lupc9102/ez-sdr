@@ -109,6 +109,8 @@ struct GainRequest {
 #[derive(Debug, Deserialize)]
 struct DemodModeRequest {
     mode: DemodMode,
+    #[serde(default)]
+    audio: Option<ez_proto::AudioParameters>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,7 +131,10 @@ struct RecordingRequest {
 #[derive(Debug, Deserialize)]
 struct RetuneRequest {
     center_offset_hz: i64,
-    bandwidth_hz: u32,
+    #[serde(alias = "bandwidth_hz")]
+    channel_sample_rate_hz: u32,
+    #[serde(default)]
+    audio: Option<ez_proto::AudioConfiguration>,
 }
 
 async fn get_status(State(state): State<Arc<DaemonState>>) -> Json<StatusResponse> {
@@ -209,7 +214,7 @@ async fn set_demod_mode(
     Path(id): Path<ChannelId>,
     Json(body): Json<DemodModeRequest>,
 ) -> Result<StatusCode, ApiError> {
-    state.set_demod_mode(id, body.mode)?;
+    state.configure_audio(id, body.mode, body.audio)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -265,7 +270,12 @@ async fn retune_channel(
     Path(id): Path<ChannelId>,
     Json(body): Json<RetuneRequest>,
 ) -> Result<StatusCode, ApiError> {
-    state.retune(id, body.center_offset_hz, body.bandwidth_hz)?;
+    state.retune_configured(
+        id,
+        body.center_offset_hz,
+        body.channel_sample_rate_hz,
+        body.audio,
+    )?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -390,10 +400,11 @@ mod tests {
 
     fn spectrum_spec(id: ChannelId) -> ChannelSpec {
         ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id,
             center_offset_hz: 0,
-            bandwidth_hz: 2_000_000,
+            channel_sample_rate_hz: 2_000_000,
             kind: PipelineKind::Spectrum,
             demod_mode: None,
         }
@@ -401,10 +412,11 @@ mod tests {
 
     fn audio_spec(id: ChannelId) -> ChannelSpec {
         ChannelSpec {
+            audio: None,
             meteor_profile: None,
             id,
             center_offset_hz: 10_000,
-            bandwidth_hz: 200_000,
+            channel_sample_rate_hz: 200_000,
             kind: PipelineKind::Audio,
             demod_mode: Some(DemodMode::Fm),
         }
@@ -550,7 +562,7 @@ mod tests {
 
         let resp = client
             .post(format!("{base}/api/channels/2/retune"))
-            .json(&serde_json::json!({ "center_offset_hz": 300_000, "bandwidth_hz": 100_000 }))
+            .json(&serde_json::json!({ "center_offset_hz": 300_000, "channel_sample_rate_hz": 100_000 }))
             .send()
             .await
             .unwrap();
@@ -567,7 +579,7 @@ mod tests {
             .find(|c| c.spec.id == 2)
             .expect("channel present");
         assert_eq!(spec.spec.center_offset_hz, 300_000);
-        assert_eq!(spec.spec.bandwidth_hz, 100_000);
+        assert_eq!(spec.spec.channel_sample_rate_hz, 100_000);
     }
 
     #[tokio::test]

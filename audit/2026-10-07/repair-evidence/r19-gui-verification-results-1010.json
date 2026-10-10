@@ -1,0 +1,116 @@
+{
+  "cpu_max": [
+    "10000",
+    "100000"
+  ],
+  "test_threads": 1,
+  "cargo_jobs": 1,
+  "source_sha256": {
+    "ez-daemon/src/audio_configuration_tests.rs": "c75d03eabd5b0977eb2b261ca6bab1c23a4d3c4cf6811e2124e04ba98baf6a27",
+    "ez-daemon/src/audio_rate.rs": "58ac76dcfd19a96a06d55ec006c928357b35183c90b676bdd14af915f23346c4",
+    "ez-daemon/src/audio_rate_clock_tests.rs": "b35e8ea18c349e39abf7d7f25761265c5ae85389b8c9e91558fd7483d0cd684c",
+    "ez-daemon/src/pipelines/audio.rs": "3b47606158fe24ebd9ee820cf3f12b8bcd0f966d5cfaaa4a5289483df071394a",
+    "ez-daemon/src/pipelines/audio_selection_tests.rs": "aadc55edcd74e79b506b8bfe32542a9a9b7594a15db9b08dd424a4dd7cbfee99",
+    "ez-daemon/src/server.rs": "b6853a7a514d0b8331276a358fbdf78f47af54a9ac85d6b73ff32083482871b1",
+    "ez-daemon/src/state.rs": "cd98f7ab0ce9aca96bc7a402fcb6470e183c73fe1cd4b1edc584ef0dcdbc9761",
+    "ez-daemon/src/web/api.rs": "2b2d6ded85e078d55234f0bb72eb13bca9c09b4764100d3170d5f46099b15e24",
+    "ez-daemon/src/web/wire.rs": "1260b9f1af1b601de94e03f539be269afc4228120a8b1b62d716d5e7c03d71f6",
+    "ez-daemon/src/web/ws.rs": "0921f281a53080a87119ed8753f4eecb8186b8d2c0f0e9e1a4faac85bcb8580d",
+    "ez-daemon/tests/resilience.rs": "8f56f799b08cee274efdf08c78db1581631c4c4afbb16386ecfe1bc597742fa8",
+    "ez-daemon/tests/web_resilience.rs": "e269379112b0f99ffbb5d4f325d20c4efb5a859be5675b603b2c14b2ed312805",
+    "ez-gui/examples/audit_radio_logic.rs": "ad9b15cd8b3008d6d70858d7bc2e10b168c1f2596ddd55f031923fe859d76817",
+    "ez-gui/src/app_ui_tests.rs": "41c2f98fc5c3cbf1073e171d274a5de3372b28679931bb88e2552456ecd005e3",
+    "ez-gui/src/audio_resampler.rs": "cf8baa5e418d35b2c2d30516dac6f5e74f85cecca4ad499f3caba99474213ca4",
+    "ez-gui/src/daemon_client.rs": "00a0b76b8bdf8311a4dea275811be1d82b49744c2bb94194e5713156e5c3c194",
+    "ez-gui/src/source_manager.rs": "17173ea597ef97b06d5a4c595425b0d8dc5ad69cb635744abf98f565cd1d5a61",
+    "ez-proto/src/audio_configuration_tests.rs": "735b4e1cac0591f7a3f424dab7dfe0bb3871a23e2636a5110bb5f790846b567c",
+    "ez-proto/src/codec.rs": "3fd61a26c941b5d162cee7bfe963ea7112087fd291a24e98cdc2b8d1b5a3ef80",
+    "ez-proto/src/messages.rs": "00c5755945d443904a352aecc483b5e210e627764812767ce7e1adc5a05b5d77",
+    "ez-proto/src/stream_queue.rs": "7c7efb192da59df388d834f621b27b04c31a32b9919123c5aaba3cf70487e708"
+  },
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "source_manager::tests::daemon_audio_",
+        "-j",
+        "1",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T13:43:27.941326+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-gui-workflow-tests-1010.log",
+      "exit_code": 0,
+      "finished_utc": "2026-10-10T13:49:57.442175+00:00",
+      "log_sha256": "0459d8999a6335bbc57f0c6f06a6eb21aef7007e19d7ed9b4eebb13e30ea0ad1"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "source_manager::tests::daemon_center_following_retunes_absolute_audio_even_when_offset_stays_zero",
+        "-j",
+        "1",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T13:49:57.539170+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-gui-center-retune-test-1010.log",
+      "exit_code": 0,
+      "finished_utc": "2026-10-10T13:50:01.955817+00:00",
+      "log_sha256": "319e18b5e7e233b201e76c7f30c08574e73600f8478a5b1efe21749a576bc8c2"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "audio_resampler::tests::",
+        "-j",
+        "1",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T13:50:01.956325+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-gui-playback-tests-1010.log",
+      "exit_code": 0,
+      "finished_utc": "2026-10-10T13:51:05.653516+00:00",
+      "log_sha256": "39ef8de45aee1221a39acf4db9445fa51c3fb3cc4e31952c5ec433a99762f88e"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "ez-daemon",
+        "-p",
+        "ez-gui",
+        "-p",
+        "ez-proto",
+        "--all-targets",
+        "-j",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "started_utc": "2026-10-10T13:51:05.654095+00:00",
+      "log": "audit/2026-10-07/repair-evidence/r19-all-target-clippy-1010.log",
+      "exit_code": 101,
+      "finished_utc": "2026-10-10T13:53:08.848535+00:00",
+      "log_sha256": "c433a116f800d0481b540d6328903f7c6ef7de30fb7c995ba223ebc42f38cc77"
+    }
+  ]
+}

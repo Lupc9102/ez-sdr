@@ -1,0 +1,30 @@
+{
+  "checked_utc": "2026-10-10T14:24:20.653622+00:00",
+  "units_cpu_max": {
+    "ez-sdr-audit-r19-resume-1010.service": [
+      "9000",
+      "100000"
+    ],
+    "ez-sdr-audit-public-download-1010.service": [
+      "1000",
+      "100000"
+    ]
+  },
+  "combined_cpu_quota_of_one_core": 0.1,
+  "work": "One build job at 9%, with an independent network download/hash job at 1%. Tests and builds remain serialized.",
+  "queued_finalization": {
+    "checked_utc": "2026-10-10T14:49:36.468138+00:00",
+    "units_cpu_max": {
+      "ez-sdr-audit-r19-resume-1010.service": [
+        "9900",
+        "100000"
+      ],
+      "ez-sdr-audit-finish-and-reference-1010.service": [
+        "1000",
+        "1000000"
+      ]
+    },
+    "combined_cpu_quota_of_one_core": 0.1,
+    "promotion": "Only after the build is authoritatively terminal does the waiting unit receive 10% and perform finalization, an explicit-path commit, then sequential satellite comparisons."
+  }
+}

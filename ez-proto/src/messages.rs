@@ -8,7 +8,11 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
+
+#[cfg(test)]
+#[path = "audio_configuration_tests.rs"]
+mod audio_configuration_tests;
 
 /// Identifies a virtual channel (a narrowband slice of the wideband capture) that a
 /// client has asked the daemon to carve out and route to a specific pipeline kind.
@@ -57,6 +61,37 @@ pub enum DemodMode {
     Usb,
 }
 
+/// RF selection and PCM delivery are independent of the virtual channel clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioParameters {
+    /// Full symmetric protected RF width for AM/FM/WFM; one-sided extent for SSB.
+    /// Zero bypasses RF selection only in RAW mode.
+    pub rf_bandwidth_hz: u32,
+    /// PCM clock. Zero explicitly follows the actual channel clock.
+    pub output_sample_rate_hz: u32,
+}
+
+impl AudioParameters {
+    pub fn for_mode(mode: DemodMode) -> Self {
+        Self {
+            rf_bandwidth_hz: match mode {
+                DemodMode::Raw => 0,
+                DemodMode::Am => 15_000,
+                DemodMode::Fm => 25_000,
+                DemodMode::Wfm => 180_000,
+                DemodMode::Lsb | DemodMode::Usb => 3_300,
+            },
+            output_sample_rate_hz: 48_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioConfiguration {
+    pub mode: DemodMode,
+    pub parameters: AudioParameters,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecordingFormat {
     /// Interleaved little-endian f32 I/Q, matching the existing `.cf32` recorder format.
@@ -76,7 +111,14 @@ pub struct ChannelSpec {
     pub id: ChannelId,
     /// Offset in Hz from the wideband center frequency. Positive = above center.
     pub center_offset_hz: i64,
-    pub bandwidth_hz: u32,
+    /// Requested virtual-channel sample rate. Integer RF decimation can produce
+    /// a higher actual rate, carried exactly by the RF capture clock.
+    #[serde(alias = "bandwidth_hz")]
+    pub channel_sample_rate_hz: u32,
+    /// Optional for audio; omission selects mode-specific RF defaults and
+    /// explicitly follows the channel clock for PCM. Absent on other kinds.
+    #[serde(default)]
+    pub audio: Option<AudioParameters>,
     pub kind: PipelineKind,
     pub demod_mode: Option<DemodMode>,
 }
@@ -106,6 +148,8 @@ pub enum ClientCommand {
     SetDemodMode {
         channel_id: ChannelId,
         mode: DemodMode,
+        #[serde(default)]
+        audio: Option<AudioParameters>,
     },
     SetVolume {
         channel_id: ChannelId,
@@ -123,7 +167,12 @@ pub enum ClientCommand {
     Retune {
         channel_id: ChannelId,
         center_offset_hz: i64,
-        bandwidth_hz: u32,
+        #[serde(alias = "bandwidth_hz")]
+        channel_sample_rate_hz: u32,
+        /// Changes RF selection, mode and PCM clock atomically with the channel
+        /// geometry, so both widening and narrowing mode changes are valid.
+        #[serde(default)]
+        audio: Option<AudioConfiguration>,
     },
     /// Permanent, daemon-global teardown of a channel created earlier via `Subscribe`.
     /// Unlike `Unsubscribe` (which is connection-local), this removes the channel's
@@ -181,7 +230,12 @@ pub struct SquelchState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioFrame {
+    /// Actual RF input clock and acquisition provenance, retained independently
+    /// of the PCM sample rate. A DSP reset also marks this frame discontinuous.
     pub clock: crate::CaptureClock,
+    /// PCM stream clock. Its source rate/index describe generated PCM samples;
+    /// `clock` above retains the original RF source rate, stride and epoch.
+    pub audio_clock: crate::CaptureClock,
     /// Monotonic for this pipeline lifetime; exposes network/consumer omissions.
     pub sequence: u64,
     pub squelch: SquelchState,

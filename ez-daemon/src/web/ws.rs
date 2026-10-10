@@ -489,10 +489,11 @@ mod tests {
         let (base, state) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
-                bandwidth_hz: 2_000_000,
+                channel_sample_rate_hz: 2_000_000,
                 kind: PipelineKind::Spectrum,
                 demod_mode: None,
             })
@@ -507,10 +508,11 @@ mod tests {
         let (base, state) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 1,
                 center_offset_hz: 0,
-                bandwidth_hz: 2_000_000,
+                channel_sample_rate_hz: 2_000_000,
                 kind: PipelineKind::Spectrum,
                 demod_mode: None,
             })
@@ -544,10 +546,11 @@ mod tests {
         let (base, state) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
+                audio: None,
                 meteor_profile: None,
                 id: 5,
                 center_offset_hz: 10_000,
-                bandwidth_hz: 200_000,
+                channel_sample_rate_hz: 200_000,
                 kind: PipelineKind::Audio,
                 demod_mode: Some(ez_proto::DemodMode::Fm),
             })
