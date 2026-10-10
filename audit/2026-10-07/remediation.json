@@ -283,9 +283,12 @@
       "id": "R09",
       "title": "AM audio aliases when the selected RF band exceeds output audio Nyquist",
       "priority": "P2",
-      "status": "open",
-      "change": null,
-      "regressions": [],
+      "status": "software_verified",
+      "change": "Filter full-rate detected AM/SSB/DSB/CW audio before converting to the device clock; run CW beat mixing before conversion and audio controls at the device rate. Preserve unclipped envelope headroom, exact capture duration through partial RF strides, and coherent constructor clocks.",
+      "regressions": [
+        "Six focused regressions cover 12 mode/RF-clock cases, 8k/16k/44.1k/48k audio, nonlinear envelope harmonics, CW beat aliases, unclipped carrier headroom, physical notch frequency, tiny chunks, resets and float-only native partial strides. Maximum 6k-to-2k alias is 0.0000032077 against the unchanged 0.00002 limit.",
+        "All 64 unique affected tests pass, including the original unchanged DC regression, 16 native consumers and five default FM/WFM/worker regressions. GUI build, all-target Clippy with warnings denied, formatting and AST graph refresh pass under 10% of one CPU. See repair-detected-antialias-verification.json."
+      ],
       "original_repair_gate": "Low-pass the detected envelope before subsampling, with cutoff tied to the destination/effective output rate. Apply the same requirement to product/SSB routes where configured passbands can exceed audio Nyquist. Test rate/bandwidth combinations and nonlinear envelope harmonics."
     },
     {

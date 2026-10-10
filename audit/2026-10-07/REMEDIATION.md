@@ -2,9 +2,12 @@
 
 The original REPORT.md, findings.json and validation.json describe the audited baseline and remain historical evidence. This ledger tracks repairs against all 33 findings without changing their original repair gates.
 
-27 findings have software repairs with passing regressions; 6 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
+30 findings have software repairs with passing regressions; 3 remain open. The goal is active. Off-air mission compatibility and physical hardware/audio/disk release evidence remain unverified. The user no longer has the earlier Meteor recordings. A public Meteor-M2-4 recording, reference CADUs and an image were downloaded; a 20-second 72k RF slice now matches 175 reference CADUs; complete-pass RF/80k mission compatibility remains pending; corrected-CADU image comparison passes, and the ZIQ stream has an unfinished compressed tail. See public-meteor-reference.json.
 
 ## Implemented and software verified
+
+- **R09 — AM audio aliases when the selected RF band exceeds output audio Nyquist**: Filter detected AM, SSB, DSB and CW audio before device-rate conversion, including nonlinear envelope harmonics and CW beat mixing. Preserve headroom, stream duration and device-clock audio controls.
+  Evidence: six focused regressions and all 64 unique affected tests pass, alongside GUI build, Clippy, formatting and graph refresh. See repair-detected-antialias-verification.json.
 
 - **R20 — Scanning can wait forever on a frequency a fixed replay capture cannot contain**: Validate complete scan grids and bookmark mode profiles against shared, sided capture bounds before tuning. Reject unsupported coverage with an explicit frequency/range result and revalidate source/rate/decimation/center/bandwidth changes.
   Evidence: five new regressions, 32 edge tuning checks and all 80 affected scanner/tuning/mode tests pass. Existing fresh-observation guards remain active. See repair-scan-verification.json.
@@ -70,11 +73,7 @@ The original REPORT.md, findings.json and validation.json describe the audited b
 ## Remaining findings
 
 - [ ] **S01 · P1** — Advertised interleaved 80 ksym/s Meteor transport is missing
-- [ ] **R05 · P2** — Local FM loudness changes with RF sample rate and RF decimation
-- [ ] **R09 · P2** — AM audio aliases when the selected RF band exceeds output audio Nyquist
-- [x] **R10 · P2** — RAW output has the wrong channel count and timebase for playback/WAV
 - [ ] **R12 · P2** — Daemon SSB rejection degrades sharply at the actual GUI channel rate
-- [x] **R13 · P2** — Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed
 - [ ] **R19 · P2** — Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection
 
 ## Verification and limits
@@ -244,3 +243,13 @@ All eight focused regressions and all 102 unique affected tests pass. The clock 
 GUI default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. Verification was serialized with a confirmed 20%-of-one-CPU quota, nice 19, one build job and one test thread. The full workspace suite and unrelated expensive DSP sweeps remain off. Failed development outcomes and final command logs, resource policy and source hashes are retained in repair-raw-audio-verification.json. User deletions remain untouched.
 
 There are now 29 software-verified findings and four open findings: S01, R09, R12 and R19. All original repair and off-air/hardware/audio/disk release gates remain intact. No physical receiver or audio device was opened; the goal remains active.
+
+## Detected audio anti-alias verification (R09)
+
+R09 is software-verified. AM envelope, SSB real output and DSB/CW product detection retain the full IQ clock until a streaming FIR filters and converts the detected audio to the selected device clock. CW beat mixing runs before conversion, so beat components above output Nyquist are removed. DC removal, CW gating, audio filtering, AGC and effects run at the device rate. Envelopes retain full-scale carrier headroom until the amplitude controls. Native conversion follows the root capture duration through fractional RF clocks and incomplete strides, including float-only blocks with no byte preview.
+
+All six focused and all 64 unique affected tests pass. The mode sweep covers 12 RF-clock cases with 8k/44.1k/48k output. Nonlinear rectification tests also use 16k output. The largest measured 6k-to-2k alias is 0.0000032077 (95.90 dB rejection relative to the 0.2 input component), below the 0.00002/80 dB limit; wanted-mixture gain stays within 0.1 dB. CW beat aliases, carrier headroom, physical notch frequency, tiny chunks, resets and three native float-only partial-stride cases pass. All 16 native consumer tests pass; the continuous GUI-independent consumer processes 1,966,080 RF samples and 39,322 audio frames with zero reported loss.
+
+The unchanged constant-carrier DC regression exposed a pre-existing constructor clock inconsistency: 2.048 MHz source/input with 1:1 decimation and a 48k audio clock. The constructor now starts consistently at 48 kHz; capture workers apply their actual source rate before DSP. The original DC window and amplitude gate remain unchanged. Explicit constructor invariants, default FM/WFM and worker mode/reset regressions pass.
+
+GUI default build, all-target Clippy with warnings denied, formatting and AST graph refresh pass. The failed development outcome, final command logs, source hashes and resource policy are retained in repair-detected-antialias-verification.json. All checks ran serially under 10% of one CPU, nice 19, one Cargo job and one test thread. User deletions remain untouched. The ledger now has 30 software-verified findings and three open findings: S01, R12 and R19. Original off-air/hardware/audio/disk release requirements remain unverified; the goal remains active.

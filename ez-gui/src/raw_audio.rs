@@ -19,6 +19,7 @@ pub(crate) struct RawIqAudio {
     duration_phase: u128,
     pending: VecDeque<[f32; 2]>,
     capture: Option<CaptureDuration>,
+    unclipped: bool,
 }
 
 struct CaptureDuration {
@@ -41,8 +42,28 @@ fn exact_ratio(rate: f64) -> (u128, u128) {
 }
 
 impl RawIqAudio {
+    /// Detected envelopes can contain DC greater than full-scale. Their
+    /// amplitude controls run after rate conversion, so preserve that range.
+    pub fn for_detector() -> Self {
+        Self {
+            unclipped: true,
+            ..Self::default()
+        }
+    }
+
     pub fn reset(&mut self) {
+        let unclipped = self.unclipped;
         *self = Self::default();
+        self.unclipped = unclipped;
+    }
+
+    fn output_sample(&self, sample: f32, gain: f32) -> f32 {
+        let output = sample * gain;
+        if self.unclipped {
+            output
+        } else {
+            output.clamp(-1.0, 1.0)
+        }
     }
 
     fn configure(&mut self, input_rate: f64, output_rate: u32) -> bool {
@@ -160,7 +181,7 @@ impl RawIqAudio {
                 .map(|sample| {
                     [sample.re, sample.im].map(|x| {
                         if x.is_finite() {
-                            (x * gain).clamp(-1.0, 1.0)
+                            self.output_sample(x, gain)
                         } else {
                             0.0
                         }
@@ -196,9 +217,19 @@ impl RawIqAudio {
         // This preserves counts even when N is not a multiple of the stride.
         assert!(self.pending.len() >= frames);
         let gain = if gain.is_finite() { gain } else { 0.0 };
+        let unclipped = self.unclipped;
         self.pending
             .drain(..frames)
-            .map(|frame| frame.map(|x| (x * gain).clamp(-1.0, 1.0)))
+            .map(|frame| {
+                frame.map(|x| {
+                    let output = x * gain;
+                    if unclipped {
+                        output
+                    } else {
+                        output.clamp(-1.0, 1.0)
+                    }
+                })
+            })
             .collect()
     }
 }

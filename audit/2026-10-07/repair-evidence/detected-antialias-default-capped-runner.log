@@ -1,0 +1,9 @@
+Resource policy: {"cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r09-default-verification.service", "cpu_max": "10000 100000", "nice": 19, "build_jobs": 1, "test_threads": 1}
+START extra-default-fm
+DONE extra-default-fm 0 valid True
+START extra-default-wfm
+DONE extra-default-wfm 0 valid True
+START extra-wfm-clock
+DONE extra-wfm-clock 0 valid True
+START extra-worker
+DONE extra-worker 0 valid True

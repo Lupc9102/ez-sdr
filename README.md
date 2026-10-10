@@ -131,6 +131,12 @@ receiver IQ correction and RF decimation, volume and audio gain (0.3 default
 headroom), and bypasses the mono voice EQ/AGC/pitch chain. Use **IQ recording** for
 full-band samples at the original RF clock.
 
+AM, SSB, DSB and CW listening filter the detected audio before converting it to
+the selected sound-device rate. This also removes harmonics created by AM
+envelope detection and frequencies shifted above audio Nyquist by the CW beat.
+Audio filters and effects run at the device clock; RF bandwidth remains separate
+from audio bandwidth.
+
 Automatic recording and signal monitoring require **Power** squelch and use the
 entire -100..0 dBFS threshold range. Local observations come from the native RF
 processor; daemon observations use fresh raw spectrum measurements after capture

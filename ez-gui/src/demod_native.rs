@@ -210,7 +210,10 @@ impl Processor {
         previews: &Broadcaster<Arc<RadioPreview>>,
         audio: &RadioAudioStream,
     ) {
-        let samples = (block.samples.len() / 2) as u64;
+        let samples = block
+            .float_samples
+            .as_ref()
+            .map_or(block.samples.len() / 2, |input| input.len()) as u64;
         if self.snapshot.generation != block.source_generation {
             self.account_tail();
             self.reset();
@@ -340,7 +343,12 @@ impl Processor {
                     .flatten()
                     .collect::<Vec<_>>()
             } else {
-                self.demod.demodulate_complex(&channel, desired.config.mode)
+                self.demod.demodulate_capture_complex(
+                    &channel,
+                    desired.config.mode,
+                    samples as usize,
+                    block.clock.exact_sample_rate_hz(),
+                )
             };
             self.snapshot.demodulated_samples += samples;
             self.snapshot.fm_deviation_hz = self.demod.last_fm_deviation_hz;
@@ -1090,12 +1098,108 @@ mod tests {
         demod.set_lpf_cutoff(demod_config.lpf_cutoff);
         demod.set_rf_bandwidth(demod_config.rf_bandwidth);
         let expected: Vec<_> = demod
-            .demodulate_complex(&channel, demod_config.mode)
+            .demodulate_capture_complex(
+                &channel,
+                demod_config.mode,
+                samples.len(),
+                block.clock.exact_sample_rate_hz(),
+            )
             .into_iter()
             .map(|sample| sample * radio.volume)
             .collect();
         assert_eq!(received_audio.try_recv().unwrap().samples, expected);
         assert!(expected.iter().any(|sample| sample.abs() > 0.00001));
+    }
+
+    #[test]
+    fn native_detected_antialias_float_only_blocks_preserve_partial_rf_stride_duration() {
+        let source_rate = 192_003_u32;
+        let count = 20_003_usize;
+        for (mode, audio_rate) in [
+            (DemodMode::Am, 8000_u32),
+            (DemodMode::Usb, 44_100),
+            (DemodMode::Cw, 48_000),
+        ] {
+            let stream = CaptureStream::default();
+            stream.start(1);
+            let (mut radio, mut demod) = config(None);
+            radio.preview = false;
+            radio.frequency_hz = radio.center_hz;
+            radio.volume = 1.0;
+            radio.iq = RadioIqConfig {
+                input_rate: source_rate,
+                decimation: 8,
+                dc_remove: false,
+                invert: false,
+            };
+            demod.mode = mode;
+            demod.input_rate = f64::from(source_rate) / 8.0;
+            demod.audio_rate = audio_rate;
+            demod.rf_bandwidth = 2400.0;
+            let desired = WorkerControl {
+                radio: Some(radio),
+                config: demod,
+                ..Default::default()
+            };
+            let audio = RadioAudioStream {
+                bus: Broadcaster::new(),
+                capture: stream.clone(),
+                handled_samples: Arc::new(AtomicU64::new(0)),
+                lost_samples: Arc::new(AtomicU64::new(0)),
+                running: Arc::new(AtomicBool::new(true)),
+                produced_samples: Arc::new(AtomicU64::new(0)),
+            };
+            let received = audio.bus.subscribe(2, OverflowPolicy::DropIncoming);
+            let mut processor = Processor::new();
+            let mut consumed = 0;
+            let mut frames = 0;
+            for size in [1_usize, 7, 37, 997].into_iter().cycle() {
+                if consumed == count {
+                    break;
+                }
+                let end = (consumed + size).min(count);
+                let input: Vec<_> = (consumed..end)
+                    .map(|n| {
+                        let phase =
+                            std::f64::consts::TAU * 300.0 * n as f64 / f64::from(source_rate);
+                        if mode == DemodMode::Am {
+                            Complex32::new((0.5 + 0.1 * phase.cos()) as f32, 0.0)
+                        } else {
+                            Complex32::new((0.2 * phase.cos()) as f32, (0.2 * phase.sin()) as f32)
+                        }
+                    })
+                    .collect();
+                let mut block = CaptureBlock::fixture(
+                    Vec::new(),
+                    ez_proto::CaptureClock::new(10, consumed as u64, source_rate, None),
+                    1,
+                    consumed as u64,
+                );
+                block.center_hz = 100_000_000;
+                block.session = Some(stream.session());
+                block.float_samples = Some(Arc::from(input));
+                processor.configure(&desired);
+                processor.process(&block, &desired, &Broadcaster::new(), &audio);
+                let packet = received.try_recv().unwrap();
+                assert!(packet.error.is_none(), "{:?}", packet.error);
+                assert_eq!(packet.channels, 1);
+                assert_eq!(packet.rate, audio_rate);
+                assert_eq!(packet.input_samples, (end - consumed) as u64);
+                frames += packet.samples.len();
+                consumed = end;
+                let expected = (consumed as u128 * u128::from(audio_rate))
+                    .div_ceil(u128::from(source_rate)) as usize;
+                assert_eq!(
+                    frames, expected,
+                    "native root duration {mode:?}/{audio_rate}"
+                );
+                assert_eq!(processor.snapshot.audio_samples, expected as u64);
+                assert_eq!(processor.snapshot.received_samples, consumed as u64);
+                assert_eq!(processor.snapshot.demodulated_samples, consumed as u64);
+                assert_eq!(processor.snapshot.lost_samples, 0);
+            }
+            assert_eq!(received.dropped_count(), 0);
+        }
     }
 
     #[test]

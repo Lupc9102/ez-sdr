@@ -1,0 +1,32 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.39s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 9 tests
+test demod::tests::cw_offset_200_produces_tone_at_cw_tone_hz_plus_200 ... ok
+test demod::tests::cw_offset_zero_produces_tone_at_cw_tone_hz ... ok
+test demod::tests::cw_rejects_adjacent_carriers_before_beat_mixing ... ok
+test demod::tests::cw_squelch_strong_signal_passes_audio ... ok
+test demod::tests::cw_squelch_weak_signal_gates_to_silence ... ok
+test demod::tests::cw_tone_is_added_after_narrow_rf_filter_and_honors_setting ... ok
+test demod::tests::cw_volume_full_produces_reference_amplitude ... ok
+test demod::tests::cw_volume_half_produces_half_amplitude ... ok
+test demod::tests::cw_volume_zero_produces_silence ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 880 filtered out; finished in 22.30s
