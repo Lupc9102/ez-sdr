@@ -1,0 +1,30 @@
+    Blocking waiting for file lock on build directory
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `release` profile [optimized] target(s) in 21m 46s
+     Running tests/radio_performance.rs (target/release/deps/radio_performance-5fc5d0667f158542)
+
+running 2 tests
+test radio_enabled_controls_throughput ... FM FMIF=true RDS=false /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod in 0.068 s (14.8x realtime); 48000 audio frames / 1 channels, 0 MPX samples, 0 CRC-valid RDS groups, PS None
+FM FMIF=true RDS=false /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod in 0.064 s (15.6x realtime); 48000 audio frames / 1 channels, 0 MPX samples, 0 CRC-valid RDS groups, PS None
+WFM FMIF=true RDS=false /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod in 0.093 s (10.7x realtime); 48000 audio frames / 1 channels, 0 MPX samples, 0 CRC-valid RDS groups, PS None
+WFM FMIF=true RDS=false /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod in 0.090 s (11.1x realtime); 47999 audio frames / 1 channels, 0 MPX samples, 0 CRC-valid RDS groups, PS None
+WFM stereo FMIF=true RDS=false /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod in 0.124 s (8.1x realtime); 48000 audio frames / 2 channels, 0 MPX samples, 0 CRC-valid RDS groups, PS None
+WFM stereo FMIF=true RDS=false /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod in 0.122 s (8.2x realtime); 47999 audio frames / 2 channels, 0 MPX samples, 0 CRC-valid RDS groups, PS None
+WFM FMIF=false RDS=true /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod + RDS decoder in 0.184 s (5.4x realtime); 47999 audio frames / 1 channels, 2400003 MPX samples, 10 CRC-valid RDS groups, PS Some("ASTRA FM")
+WFM FMIF=false RDS=true /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod + RDS decoder in 0.073 s (13.6x realtime); 47999 audio frames / 1 channels, 300000 MPX samples, 10 CRC-valid RDS groups, PS Some("ASTRA FM")
+WFM stereo FMIF=false RDS=true /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod + RDS decoder in 0.211 s (4.7x realtime); 47999 audio frames / 2 channels, 2400003 MPX samples, 10 CRC-valid RDS groups, PS Some("ASTRA FM")
+WFM stereo FMIF=false RDS=true /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, IQ correction + FFT65536/20Hz + mixer + demod + RDS decoder in 0.099 s (10.1x realtime); 47999 audio frames / 2 channels, 300000 MPX samples, 10 CRC-valid RDS groups, PS Some("ASTRA FM")
+ok
+test radio_pipeline_throughput ... AM /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.228 s (4.4x realtime); 48000 audio frames, stereo lock false
+AM /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.114 s (8.8x realtime); 48000 audio frames, stereo lock false
+WFM /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.158 s (6.3x realtime); 47999 audio frames, stereo lock false
+WFM /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.079 s (12.7x realtime); 47999 audio frames, stereo lock false
+CW /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.246 s (4.1x realtime); 48000 audio frames, stereo lock false
+CW /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.120 s (8.3x realtime); 48000 audio frames, stereo lock false
+WFM stereo /1: 2400003 source pairs (1.000000 s), 2400003.000 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.187 s (5.4x realtime); 47999 audio frames, stereo lock true
+WFM stereo /8: 2400003 source pairs (1.000000 s), 300000.375 Hz effective, VFO +18000 Hz, IQ correction + FFT65536/20Hz + mixer + demod in 0.101 s (9.9x realtime); 47999 audio frames, stereo lock true
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 3.63s
+

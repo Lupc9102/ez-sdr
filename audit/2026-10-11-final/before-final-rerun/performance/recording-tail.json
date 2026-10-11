@@ -1,0 +1,145 @@
+{
+  "profile.wav.json": {
+    "audio_bytes_total": 960104,
+    "audio_capture": {
+      "center_frequency_hz": 118000000,
+      "first_clock": {
+        "discontinuous": true,
+        "epoch": 4,
+        "origin_unix_ns": null,
+        "sample_stride": 1,
+        "source_sample_index": 16384,
+        "source_sample_rate_hz": 2400000
+      },
+      "next_source_sample_index": 24018944,
+      "sample_rate_hz": 2400000,
+      "samples": 24002560
+    },
+    "audio_channels": 1,
+    "audio_duration_sec": 10.001083333333334,
+    "audio_frames": 480052,
+    "audio_input_dropped_blocks": 0,
+    "audio_input_lost_samples": 0,
+    "audio_native_lost_samples": 0,
+    "audio_native_partial_frame": false,
+    "audio_sample_rate_hz": 48000,
+    "audio_samples": 480052,
+    "capture": null,
+    "capture_input_dropped_blocks": 0,
+    "capture_input_lost_samples": 0,
+    "complete": true,
+    "demod_mode": "AM",
+    "end_utc": "2026-10-11T16:47:03.170876988+00:00",
+    "files": [
+      "profile.iq",
+      "profile_audio.wav"
+    ],
+    "format": "wav16",
+    "frequency_hz": 118000000,
+    "frequency_mhz": 118.0,
+    "gain_db": 40.0,
+    "hardware_offset_hz": 0,
+    "lost_samples": 0,
+    "peak_level_dbfs": -10.709293365478516,
+    "ppm_correction": 0,
+    "sample_rate_hz": 2400000,
+    "stop_reason": null,
+    "timestamp_utc": "2026-10-11T16:46:52Z",
+    "tuned_frequency_hz": 118100000
+  },
+  "profile.json": {
+    "audio_bytes_total": 960104,
+    "audio_capture": {
+      "center_frequency_hz": 118000000,
+      "first_clock": {
+        "discontinuous": true,
+        "epoch": 4,
+        "origin_unix_ns": null,
+        "sample_stride": 1,
+        "source_sample_index": 16384,
+        "source_sample_rate_hz": 2400000
+      },
+      "next_source_sample_index": 24018944,
+      "sample_rate_hz": 2400000,
+      "samples": 24002560
+    },
+    "audio_channels": 1,
+    "audio_duration_sec": 10.001083333333334,
+    "audio_frames": 480052,
+    "audio_input_dropped_blocks": 0,
+    "audio_input_lost_samples": 0,
+    "audio_native_lost_samples": 0,
+    "audio_native_partial_frame": false,
+    "audio_sample_rate_hz": 48000,
+    "audio_samples": 480052,
+    "capture": {
+      "center_frequency_hz": 118000000,
+      "first_clock": {
+        "discontinuous": true,
+        "epoch": 4,
+        "origin_unix_ns": null,
+        "sample_stride": 1,
+        "source_sample_index": 0,
+        "source_sample_rate_hz": 2400000
+      },
+      "next_source_sample_index": 24018944,
+      "sample_rate_hz": 2400000,
+      "samples": 24018944
+    },
+    "capture_input_dropped_blocks": 0,
+    "capture_input_lost_samples": 0,
+    "complete": true,
+    "demod_mode": "AM",
+    "duration_sec": 10.007893333333334,
+    "end_utc": "2026-10-11T16:47:03.181419398+00:00",
+    "files": [
+      "profile.iq",
+      "profile_audio.wav"
+    ],
+    "format": "cu8",
+    "frequency_hz": 118000000,
+    "frequency_mhz": 118.0,
+    "gain_db": 40.0,
+    "hardware_offset_hz": 0,
+    "iq_bytes_total": 48037888,
+    "lost_samples": 0,
+    "peak_level_dbfs": -10.709293365478516,
+    "ppm_correction": 0,
+    "sample_rate_hz": 2400000,
+    "stop_reason": "capture session ended",
+    "timestamp_utc": "2026-10-11T16:46:52Z",
+    "tuned_frequency_hz": 118100000
+  },
+  "20261011_164652_329330394_SAT_118.000MHz_149340_0.json": {
+    "frequency_hz": 118000000,
+    "sample_rate_hz": 2400000,
+    "format": "cf32_le",
+    "amplitude": "normalized",
+    "start_utc": "2026-10-11T16:46:52.329361343+00:00",
+    "end_utc": "2026-10-11T16:47:03.180389529+00:00",
+    "duration_sec": 10.007893333333334,
+    "bytes_total": 192151552,
+    "lost_samples": 0,
+    "capture_input_dropped_blocks": 0,
+    "capture_input_lost_samples": 0,
+    "complete": true,
+    "capture": {
+      "first_clock": {
+        "epoch": 4,
+        "source_sample_index": 0,
+        "source_sample_rate_hz": 2400000,
+        "sample_stride": 1,
+        "origin_unix_ns": null,
+        "discontinuous": true
+      },
+      "center_frequency_hz": 118000000,
+      "sample_rate_hz": 2400000,
+      "samples": 24018944,
+      "next_source_sample_index": 24018944
+    },
+    "stop_reason": "capture session ended",
+    "satellite": null,
+    "observer_lat": 51.5,
+    "observer_lon": -0.1
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "source": "isolated synthetic daemon; no SDR",
+  "checks": [],
+  "shutdown_exit_code": 0,
+  "shutdown_seconds": 0.278,
+  "command": [
+    "/home/lupc/Documents/ez-sdr/target/debug/ez-daemon",
+    "--source",
+    "synthetic",
+    "--sample-rate",
+    "256000",
+    "--freq",
+    "100000000",
+    "--listen-port",
+    "53719",
+    "--web-listen-port",
+    "50473",
+    "--recording-dir",
+    "/tmp/ez-final-daemon-8_x366va",
+    "--web-static-dir",
+    "/tmp/ez-final-daemon-8_x366va/missing"
+  ]
+}

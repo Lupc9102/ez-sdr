@@ -1,0 +1,91 @@
+{
+  "group": "quality",
+  "started_utc": "2026-10-11T16:11:26.249031+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 1.166,
+      "log": "audit/2026-10-11-final/before-final-rerun/quality/format.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 26.647,
+      "log": "audit/2026-10-11-final/before-final-rerun/quality/clippy.log",
+      "log_sha256": "7eea5c0fbbf54663e3362ac26a4497224038297460efc8898735e101262a2bf3"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "cargo",
+        "doc",
+        "--workspace",
+        "--locked",
+        "--no-deps"
+      ],
+      "environment": {
+        "RUSTDOCFLAGS": "-D warnings"
+      },
+      "exit_code": 0,
+      "seconds": 9.238,
+      "log": "audit/2026-10-11-final/before-final-rerun/quality/docs.log",
+      "log_sha256": "7c810e2f4860d4266e9c817b913108da60c4c90a078369b6c521d552499179f9"
+    },
+    {
+      "name": "optional-hardware",
+      "command": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 9.556,
+      "log": "audit/2026-10-11-final/before-final-rerun/quality/optional-hardware.log",
+      "log_sha256": "f4348f76a10ab0f26f7983f10ef90ae6cba3c77f5d3f161bccf31038974bc354"
+    },
+    {
+      "name": "release-build",
+      "command": [
+        "cargo",
+        "build",
+        "--workspace",
+        "--locked",
+        "--release",
+        "--features",
+        "ez-daemon/rtlsdr,dump1090/rtlsdr"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 202.226,
+      "log": "audit/2026-10-11-final/before-final-rerun/quality/release-build.log",
+      "log_sha256": "699362b0f15002e6881b9d2408a26eeef15c7d8fb90136249978c5e3e734833f"
+    }
+  ],
+  "updated_utc": "2026-10-11T16:15:35.085420+00:00"
+}

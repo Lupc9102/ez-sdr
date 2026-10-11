@@ -1135,11 +1135,22 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
             demod_mode: Some(ez_proto::DemodMode::Fm),
         },
     });
-    async fn audio_at(client: &DaemonClient, db: f32, min_revision: u64) -> ez_proto::AudioFrame {
+    async fn audio_at(
+        client: &DaemonClient,
+        db: f32,
+        min_revision: u64,
+        require_audible: bool,
+    ) -> ez_proto::AudioFrame {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             if let Some(ServerEvent::Audio(frame)) = client.try_recv_event() {
-                if frame.squelch.db == db && frame.squelch.revision >= min_revision {
+                // A correctly revised frame can be silent during acquisition
+                // or after a stream gap. Opening still must produce actual
+                // nonzero PCM within the deadline, not merely an applied ack.
+                if frame.squelch.db == db
+                    && frame.squelch.revision >= min_revision
+                    && (!require_audible || frame.samples.iter().any(|s| s.abs() > 1e-5))
+                {
                     return frame;
                 }
             }
@@ -1150,7 +1161,7 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
-    let open = audio_at(&monitor, -100.0, 0).await;
+    let open = audio_at(&monitor, -100.0, 0, true).await;
     assert!(open.samples.iter().any(|s| s.abs() > 1e-5));
     {
         let mut state = app.shared.lock().unwrap();
@@ -1170,7 +1181,7 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
         assert_eq!(crate::radio_ui::requested_power_squelch(&state), 0.0);
         assert!(!state.source.accept_daemon_audio(&open));
     }
-    let closed = audio_at(&monitor, 0.0, open.squelch.revision + 1).await;
+    let closed = audio_at(&monitor, 0.0, open.squelch.revision + 1, false).await;
     assert!(closed.squelch.revision > open.squelch.revision);
     assert!(closed.samples.iter().all(|s| *s == 0.0));
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -1250,7 +1261,7 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     assert_eq!(pending["squelch_db"], 0.0);
     assert_eq!(pending["squelch_pending_db"], -100.0);
     assert_eq!(pending["squelch_applied"], true);
-    let reopened = audio_at(&monitor, -100.0, closed.squelch.revision + 1).await;
+    let reopened = audio_at(&monitor, -100.0, closed.squelch.revision + 1, true).await;
     assert!(reopened.squelch.revision > closed.squelch.revision);
     assert!(reopened.samples.iter().any(|s| s.abs() > 1e-5));
     loop {
@@ -2223,7 +2234,10 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
         state.source.wait_for_shutdown();
     }
     let source = stream.progress();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // The byte-for-byte assertion below checks lossless draining, not a
+    // real-time speed budget. Debug DSP and concurrent test workers can need
+    // substantially longer than five seconds to drain the RF tail.
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !app.demod_worker.radio_snapshot().unwrap().complete {
         assert!(
             Instant::now() < deadline,
@@ -2255,7 +2269,16 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
         let channel = mixer.process(&iq.process(&period));
         expected.extend(
             demod
-                .demodulate_complex(&channel, crate::sdr_panel::DemodMode::Am)
+                // Use the same physical capture clock for the synchronous
+                // reference. The RF decimator's causal startup interval is
+                // retained by capture-clock conversion; treating this as a
+                // new 300 kSPS source omits that interval and shifts the PCM.
+                .demodulate_capture_complex(
+                    &channel,
+                    crate::sdr_panel::DemodMode::Am,
+                    period.len() / 2,
+                    2_400_000.0,
+                )
                 .iter()
                 .map(|sample| ((sample * volume).clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16),
         );
@@ -2264,9 +2287,23 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
     assert_eq!(wav.spec().sample_rate, 48_000);
     let recorded = wav.samples::<i16>().collect::<Result<Vec<_>, _>>().unwrap();
     assert_eq!(recorded.len(), expected.len());
+    let differences: Vec<_> = recorded
+        .iter()
+        .zip(&expected)
+        .enumerate()
+        .filter(|(_, (actual, reference))| actual != reference)
+        .map(|(index, (&actual, &reference))| (index, actual, reference))
+        .collect();
+    let max_error = differences
+        .iter()
+        .map(|(_, actual, reference)| (i32::from(*actual) - i32::from(*reference)).abs())
+        .max()
+        .unwrap_or(0);
     assert!(
         recorded == expected,
-        "WAV differs from continuous synchronous DSP"
+        "WAV differs from continuous synchronous DSP: {} mismatches, max error {max_error} PCM counts, first {:?}",
+        differences.len(),
+        &differences[..differences.len().min(8)]
     );
     let meta: serde_json::Value =
         serde_json::from_slice(&std::fs::read(dir.join("native-wave.wav.json")).unwrap()).unwrap();

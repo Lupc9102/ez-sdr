@@ -1,0 +1,282 @@
+[
+  {
+    "proof": "audit/2026-10-07/repair-synthetic-80k-long-verification-1011.json",
+    "proof_sha256": "fa4cf5b9828064afcc094bc4cb0b618682bd0b68b42d96190da04e5ff78ec072",
+    "source_checks": [
+      {
+        "file": "lrpt-decode/src/ccsds.rs",
+        "expected_sha256": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+        "current_sha256": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/diff_decode.rs",
+        "expected_sha256": "678dd1b0eaf4b254901ab517a8d9e002d45dac97bbb1c2e4257c6fcae626fc1d",
+        "current_sha256": "678dd1b0eaf4b254901ab517a8d9e002d45dac97bbb1c2e4257c6fcae626fc1d",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/frame_sync.rs",
+        "expected_sha256": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+        "current_sha256": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/image_builder.rs",
+        "expected_sha256": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+        "current_sha256": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/interleaver.rs",
+        "expected_sha256": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+        "current_sha256": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/iq_source.rs",
+        "expected_sha256": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+        "current_sha256": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/lib.rs",
+        "expected_sha256": "7707a7e08adfe7ec5de4459e33b134cca9a15ac51f01bfe9e7e598fc12ea542d",
+        "current_sha256": "7707a7e08adfe7ec5de4459e33b134cca9a15ac51f01bfe9e7e598fc12ea542d",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/off_air_validation.rs",
+        "expected_sha256": "932a72ee7fb86600258057a4fa2e59c1a054b6284f4864d92eb7c8f5402a230c",
+        "current_sha256": "932a72ee7fb86600258057a4fa2e59c1a054b6284f4864d92eb7c8f5402a230c",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/qpsk.rs",
+        "expected_sha256": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+        "current_sha256": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/randomizer.rs",
+        "expected_sha256": "54dc448169c2058edf7055bec38930eb09eec331a295cc8258f78a241fc8529c",
+        "current_sha256": "54dc448169c2058edf7055bec38930eb09eec331a295cc8258f78a241fc8529c",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/reed_solomon.rs",
+        "expected_sha256": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+        "current_sha256": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/synthetic_product_validation.rs",
+        "expected_sha256": "e7ebf8d306806963c5238b88fd10327abceeb0a518f769db249949e9c00c6359",
+        "current_sha256": "e7ebf8d306806963c5238b88fd10327abceeb0a518f769db249949e9c00c6359",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/viterbi.rs",
+        "expected_sha256": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+        "current_sha256": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/generate_80k_image_vectors.py",
+        "expected_sha256": "7c3e2d95b63cbfbcc04338d5ca084d3370f7d3020409db99ec5f90a895213551",
+        "current_sha256": "7c3e2d95b63cbfbcc04338d5ca084d3370f7d3020409db99ec5f90a895213551",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/generate_oqpsk_vectors.py",
+        "expected_sha256": "4a6667b653a22d1854f8802caeca06535164e59a053f75cbefd6cd147d9ca590",
+        "current_sha256": "4a6667b653a22d1854f8802caeca06535164e59a053f75cbefd6cd147d9ca590",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/verify_80k_native_reference.py",
+        "expected_sha256": "84d575a6734be4c17e2e2a39301c913bf95396777911716b9d1fa98fccba221e",
+        "current_sha256": "84d575a6734be4c17e2e2a39301c913bf95396777911716b9d1fa98fccba221e",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/verify_public_image.py",
+        "expected_sha256": "ba9c1e9f9fe4ad9f72113167096fad2ba1ac91cc4f0de56beb2b6f321d1331e5",
+        "current_sha256": "ba9c1e9f9fe4ad9f72113167096fad2ba1ac91cc4f0de56beb2b6f321d1331e5",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/repair-evidence/synthetic-80k-verify-1011.py",
+        "expected_sha256": "15d6063149a56eaf6c5ab66db22c170f01b00880e9a1d9839a55bf1ba3dd0197",
+        "current_sha256": "15d6063149a56eaf6c5ab66db22c170f01b00880e9a1d9839a55bf1ba3dd0197",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/generate_80k_long_pass.py",
+        "expected_sha256": "b1252be51473a4b18993ca0010d4678485aef3196f40e7b5a961a4b3f132697c",
+        "current_sha256": "b1252be51473a4b18993ca0010d4678485aef3196f40e7b5a961a4b3f132697c",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/repair-evidence/synthetic-80k-long-runner-1011.py",
+        "expected_sha256": "abad37f6bd71d70d9868559296db9e762455879b210b322d9bc124c7652c90e4",
+        "current_sha256": "abad37f6bd71d70d9868559296db9e762455879b210b322d9bc124c7652c90e4",
+        "matches": true
+      }
+    ],
+    "all_match": true
+  },
+  {
+    "proof": "audit/2026-10-07/repair-public-rds-verification-1010.json",
+    "proof_sha256": "484a7684c99c37151e289744fd9e2ca64cc841ac05646b47a28c6edd3443af77",
+    "source_checks": [
+      {
+        "file": "ez-gui/src/radio_rds.rs",
+        "expected_sha256": "225ccb1336c036481ca63478aefd6e5b7b0eabba608099b937e1ea092f888526",
+        "current_sha256": "225ccb1336c036481ca63478aefd6e5b7b0eabba608099b937e1ea092f888526",
+        "matches": true
+      },
+      {
+        "file": "ez-gui/Cargo.toml",
+        "expected_sha256": "1aad3b605c5a8134137973b4a8e188c00ea59cb72242bec8789bbe8fbafe2ffa",
+        "current_sha256": "424eb8d9aaa497db3cdf7ae32c53dbba77b0fd7a9424b174d2ae8db9601acdc6",
+        "matches": false
+      },
+      {
+        "file": "Cargo.lock",
+        "expected_sha256": "0ff3fab993fbbc00c50896077b5d4be64ee46e7ff6af5678f9d834340448158f",
+        "current_sha256": "27a63c48de418592d8e6e62818eccd6f756c413730650de007b2d2a2c4a8ad89",
+        "matches": false
+      },
+      {
+        "file": "audit/2026-10-07/repair-evidence/rds-reference-runner-1010.py",
+        "expected_sha256": "fdf6a8d3e01edff740a9f455e09414a0c5c9da20447ccba905921c56ce94a98b",
+        "current_sha256": "fdf6a8d3e01edff740a9f455e09414a0c5c9da20447ccba905921c56ce94a98b",
+        "matches": true
+      }
+    ],
+    "all_match": false
+  },
+  {
+    "proof": "audit/2026-10-07/repair-audio-driver-verification-1010-attempt-2.json",
+    "proof_sha256": "24d738c45f8f54289ae68c098c981ed3383da7160d2f822c5658e501e6680b55",
+    "source_checks": [
+      {
+        "file": "ez-gui/src/audio_output.rs",
+        "expected_sha256": "16ccdb45ddc8d4ec4fbf4d95a947573927d58ab0645bb2cd7f6498791f2142e0",
+        "current_sha256": "16ccdb45ddc8d4ec4fbf4d95a947573927d58ab0645bb2cd7f6498791f2142e0",
+        "matches": true
+      },
+      {
+        "file": "ez-gui/Cargo.toml",
+        "expected_sha256": "1aad3b605c5a8134137973b4a8e188c00ea59cb72242bec8789bbe8fbafe2ffa",
+        "current_sha256": "424eb8d9aaa497db3cdf7ae32c53dbba77b0fd7a9424b174d2ae8db9601acdc6",
+        "matches": false
+      },
+      {
+        "file": "Cargo.lock",
+        "expected_sha256": "0ff3fab993fbbc00c50896077b5d4be64ee46e7ff6af5678f9d834340448158f",
+        "current_sha256": "27a63c48de418592d8e6e62818eccd6f756c413730650de007b2d2a2c4a8ad89",
+        "matches": false
+      },
+      {
+        "file": "audit/2026-10-07/repair-evidence/audio-driver-runner-1010.py",
+        "expected_sha256": "111e8b3d04f6e2ddd86c3fb497e877eb57e381534a375308f09d80c29402ca78",
+        "current_sha256": "111e8b3d04f6e2ddd86c3fb497e877eb57e381534a375308f09d80c29402ca78",
+        "matches": true
+      }
+    ],
+    "all_match": false
+  },
+  {
+    "proof": "audit/2026-10-07/repair-public-rf-verification-1010.json",
+    "proof_sha256": "5db3e7b22e1d140cdb046e1ef95f834273a0f7135e3b858aec2d70d186f3bdfb",
+    "source_checks": [
+      {
+        "file": "lrpt-decode/src/ccsds.rs",
+        "expected_sha256": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+        "current_sha256": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/diff_decode.rs",
+        "expected_sha256": "678dd1b0eaf4b254901ab517a8d9e002d45dac97bbb1c2e4257c6fcae626fc1d",
+        "current_sha256": "678dd1b0eaf4b254901ab517a8d9e002d45dac97bbb1c2e4257c6fcae626fc1d",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/frame_sync.rs",
+        "expected_sha256": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+        "current_sha256": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/image_builder.rs",
+        "expected_sha256": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+        "current_sha256": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/interleaver.rs",
+        "expected_sha256": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+        "current_sha256": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/iq_source.rs",
+        "expected_sha256": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+        "current_sha256": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/lib.rs",
+        "expected_sha256": "2773be0e0842bb1ecb9d0546108923382083ea06c3be25c5d823c1a2ae4aa528",
+        "current_sha256": "7707a7e08adfe7ec5de4459e33b134cca9a15ac51f01bfe9e7e598fc12ea542d",
+        "matches": false
+      },
+      {
+        "file": "lrpt-decode/src/off_air_validation.rs",
+        "expected_sha256": "55912f1cc93a080a9f23b13971b9c518003d60ce3791b1f7d3490ce24a364986",
+        "current_sha256": "932a72ee7fb86600258057a4fa2e59c1a054b6284f4864d92eb7c8f5402a230c",
+        "matches": false
+      },
+      {
+        "file": "lrpt-decode/src/qpsk.rs",
+        "expected_sha256": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+        "current_sha256": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/randomizer.rs",
+        "expected_sha256": "54dc448169c2058edf7055bec38930eb09eec331a295cc8258f78a241fc8529c",
+        "current_sha256": "54dc448169c2058edf7055bec38930eb09eec331a295cc8258f78a241fc8529c",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/reed_solomon.rs",
+        "expected_sha256": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+        "current_sha256": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+        "matches": true
+      },
+      {
+        "file": "lrpt-decode/src/viterbi.rs",
+        "expected_sha256": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+        "current_sha256": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/verify_public_image.py",
+        "expected_sha256": "ba9c1e9f9fe4ad9f72113167096fad2ba1ac91cc4f0de56beb2b6f321d1331e5",
+        "current_sha256": "ba9c1e9f9fe4ad9f72113167096fad2ba1ac91cc4f0de56beb2b6f321d1331e5",
+        "matches": true
+      },
+      {
+        "file": "audit/2026-10-07/repair-evidence/s01-off-air-runner-1010.py",
+        "expected_sha256": "a086947ce0899d5e6f1e37335a42be3d090946059c599ba0ed696983577ddae8",
+        "current_sha256": "a086947ce0899d5e6f1e37335a42be3d090946059c599ba0ed696983577ddae8",
+        "matches": true
+      }
+    ],
+    "all_match": false
+  }
+]

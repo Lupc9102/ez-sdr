@@ -1,0 +1,1 @@
+2026-10-11T16:58:30.699756Z  WARN ez_daemon::web: frontend static directory not found; serving /api and /ws only static_dir="/tmp/ez-final-daemon-iff2f30_/missing"

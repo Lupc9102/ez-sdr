@@ -1,0 +1,68 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:675:30
+    |
+675 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 51.93s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-70344c28e837185f)
+
+running 36 tests
+test app::app_ui_tests::aircraft_signed_optional_and_typed_measurements_survive_daemon_adapter ... ok
+test app::app_ui_tests::aircraft_trails_collect_and_expire_while_planes_is_hidden ... ok
+test app::app_ui_tests::adsb_capture_identity_resets_on_retune_rate_and_source_changes ... ok
+test app::app_ui_tests::daemon_aircraft_without_valid_coordinates_do_not_create_zero_position_markers ... ok
+test app::app_ui_tests::bookmark_dirty_content_flushes_before_debounce_and_survives_failed_save ... ok
+test app::app_ui_tests::applying_observer_settings_invalidates_fresh_pass_cache_and_updates_hidden_tracking ... ok
+test app::app_ui_tests::daemon_snapshots_preserve_observation_age_validity_and_quality ... ok
+test app::app_ui_tests::daemon_recording_events_update_panel_and_shared_state_under_the_app_lock ... ok
+test app::app_ui_tests::hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples ... ok
+test app::app_ui_tests::hidden_local_capture_epoch_and_gap_retire_trails_notifications_and_decoder_state ... ok
+test app::app_ui_tests::mqtt_cadence_is_independent_of_scheduler_frames_and_settings_show_delivery_health ... ok
+[web_remote] listening on http://127.0.0.1:39199
+test app::app_ui_tests::daemon_recording_epoch_stop_reason_reaches_hidden_app_and_allows_a_new_file ... ok
+A09 real app at 60 Hz plus 200 ms shared-lock stall: 2441216 samples, 148 cross-block messages, zero lost samples
+test app::app_ui_tests::continuous_adsb_keeps_up_with_60_hz_app_and_a_held_shared_state_lock ... ok
+test app::app_ui_tests::recorder_deadline_runs_on_hidden_tab_and_controls_are_dispatchable ... ok
+test app::app_ui_tests::render_workspaces ... ignored, writes visual QA artifacts when explicitly requested
+test app::app_ui_tests::daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio ... ok
+[web_remote] listening on http://127.0.0.1:34875
+test app::app_ui_tests::replay_runs_through_app_logic_with_muted_metadata_and_clears_at_eof ... ok
+[rigctl] listening on 127.0.0.1:39709
+test app::app_ui_tests::restored_file_source_and_mode_stay_idle_with_usable_legacy_settings ... ok
+test app::app_ui_tests::repeated_satellite_passes_honor_gui_web_rigctl_and_scanner_manual_cooldown ... ok
+A09 native recording at 60 Hz + 300 ms GUI/shared-lock stall: 2703360 samples; raw 5406720 bytes, CF32 21626880 bytes, zero loss
+test app::app_ui_tests::native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall ... ok
+test app::app_ui_tests::runtime_action_tests::approved_ai_adsb_request_survives_initial_daemon_handshake ... ok
+test app::app_ui_tests::runtime_action_tests::approved_ai_local_failures_report_device_and_recording_errors_without_success ... ok
+test app::app_ui_tests::runtime_action_tests::approved_ai_recording_stop_reports_finalization_failure_and_preferences_remain_truthful ... ok
+test app::app_ui_tests::runtime_action_tests::approved_ai_local_tools_restart_live_capture_and_record_real_files_while_hidden ... ok
+test app::app_ui_tests::save_and_apply_preserves_live_capture_when_defaults_and_unrelated_settings_change ... ok
+test app::app_ui_tests::runtime_action_tests::approved_ai_waits_for_daemon_acknowledgement_and_reports_rejection_or_timeout ... ok
+test app::app_ui_tests::saved_receiver_profile_import_applies_calibration_and_only_changed_hardware_restarts ... ok
+test app::app_ui_tests::runtime_action_tests::approved_ai_daemon_tools_acknowledge_capture_files_and_adsb_from_initial_two_msps ... ok
+test app::app_ui_tests::saved_receiver_profile_restores_before_first_render_and_round_trips ... ok
+test app::app_ui_tests::scan_real_local_worker_has_identical_hits_visible_hidden_and_frozen_then_waits_on_stop ... ok
+test app::app_ui_tests::scan_real_daemon_frames_work_hidden_and_frozen_then_wait_on_stop ... ok
+test app::app_ui_tests::scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state ... ok
+Eight close/repaint ticks with blocked disk: max 69 us; close allowed only after final result
+test app::app_ui_tests::window_close_keeps_repainting_until_recording_finalization_finishes ... ok
+test app::app_ui_tests::scanner_ai_request_completes_hidden_and_can_be_reopened_without_external_calls ... ok
+test app::app_ui_tests::utility_tools_render_as_floating_windows ... ok
+A09 native app WAV at 60 Hz + 300 ms GUI/shared-lock stall: 2637824 RF samples, 52757 PCM samples identical to synchronous DSP, zero loss
+test app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall ... ok
+
+test result: ok. 35 passed; 0 failed; 1 ignored; 0 measured; 856 filtered out; finished in 24.39s
+

@@ -10,8 +10,8 @@ keeping the layout lightweight; exact SDR++ plugin ordering is not required for 
 ```bash
 cargo run -p ez-gui --release
 
-# Live RTL-SDR reception (requires librtlsdr):
-cargo run -p ez-gui --release --features rtlsdr
+# Audio playback without the RTL-SDR build dependency:
+cargo run -p ez-gui --release --no-default-features --features audio
 ```
 
 The app opens with the receiver stopped. Select **Demo**, **RTL-SDR**, **File replay**,
@@ -19,9 +19,10 @@ or **Daemon** in the Source section, then press Play. Demo produces generated si
 it does not receive local stations. Without the `rtlsdr` feature, use a hardware-enabled
 `ez-daemon` or a recording to receive real signals.
 
-On Debian/Ubuntu, the default audio build needs `build-essential libasound2-dev`.
-Add `librtlsdr-dev` for the RTL-SDR feature. Rust 1.92 or newer is required. To build
-without speaker playback, use `--no-default-features`.
+The default build includes audio and RTL-SDR. On Debian/Ubuntu, install
+`build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev`.
+The repository pins Rust 1.92. To build without speaker playback and RTL-SDR,
+use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
 
 ## Radio
 
@@ -197,6 +198,10 @@ cargo run -p ez-daemon --bin ez-daemon --release --features soapy -- \
 Choose **Daemon** in the desktop Source section and connect to its binary endpoint.
 HackRF and SoapySDR backends require their corresponding feature and system libraries.
 Use `cargo run -p ez-daemon --bin ez-daemon -- --help` for source and bind options.
+The daemon defaults to loopback and its transports have no client authentication.
+Browser WebSockets accept loopback origins or the same numeric IP/port endpoint;
+remote hostnames require an authenticated proxy with an appropriate origin policy.
+Keep a directly exposed daemon on a trusted network.
 
 ## Development and verification
 

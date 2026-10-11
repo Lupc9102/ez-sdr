@@ -1,0 +1,33 @@
+    Blocking waiting for file lock on build directory
+    Finished `release` profile [optimized] target(s) in 2m 16s
+     Running unittests src/lib.rs (target/release/deps/ez_gui-168e23ba9bba9d8f)
+
+running 1 test
+test spectrum::tests::complex_large_fft_preserves_weak_tone_and_fractional_sample_rate ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/release/deps/ez_gui-fa2b6d0d44dbf331)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/release/deps/event_bus_integration-ad6afaa173a9e864)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/release/deps/radio_controls-2a5a1fc406c3b423)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/release/deps/radio_performance-5fc5d0667f158542)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

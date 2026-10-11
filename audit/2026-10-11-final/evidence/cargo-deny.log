@@ -1,0 +1,87 @@
+warning[parse-error]: error parsing SPDX license expression
+   ┌─ /home/lupc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rtlsdr_sys-1.1.2/Cargo.toml:21:12
+   │
+21 │ license = "GPL-2.0+"
+   │            ─────── a deprecated license identifier was used
+   │
+   ├ rtlsdr_sys v1.1.2
+     └── ez-gui v0.1.0
+
+error[rejected]: failed to satisfy license requirements
+   ┌─ /home/lupc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rtlsdr_sys-1.1.2/Cargo.toml:21:12
+   │
+21 │ license = "GPL-2.0+"
+   │            ━━━━━━━─
+   │            │
+   │            rejected: license is not explicitly allowed
+   │
+   ├ GPL-2.0-or-later - GNU General Public License v2.0 or later:
+   ├   - OSI approved
+   ├   - FSF Free/Libre
+   ├   - Copyleft
+   ├ rtlsdr_sys v1.1.2 (*)
+
+warning[license-not-encountered]: license was not encountered
+   ┌─ /home/lupc/Documents/ez-sdr/deny.toml:26:6
+   │
+26 │     "CC0-1.0",
+   │      ━━━━━━━ unmatched license allowance
+
+warning[license-not-encountered]: license was not encountered
+   ┌─ /home/lupc/Documents/ez-sdr/deny.toml:25:6
+   │
+25 │     "MIT-0",
+   │      ━━━━━ unmatched license allowance
+
+warning[license-not-encountered]: license was not encountered
+   ┌─ /home/lupc/Documents/ez-sdr/deny.toml:22:6
+   │
+22 │     "NCSA",
+   │      ━━━━ unmatched license allowance
+
+warning[yanked]: detected yanked crate (try `cargo update -p yoke-derive`)
+    ┌─ /home/lupc/Documents/ez-sdr/Cargo.lock:466:1
+    │
+466 │ yoke-derive 0.8.3 registry+https://github.com/rust-lang/crates.io-index
+    │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ yanked version
+    │
+    ├ yoke-derive v0.8.3
+      └── yoke v0.8.3
+          ├── icu_collections v2.3.0
+          │   ├── icu_normalizer v2.3.0
+          │   │   └── idna_adapter v1.2.2
+          │   │       └── idna v1.1.0
+          │   │           └── url v2.5.8
+          │   │               ├── reqwest v0.12.28
+          │   │               │   ├── (dev) ez-daemon v0.1.0
+          │   │               │   │   └── ez-gui v0.1.0
+          │   │               │   └── ez-gui v0.1.0 (*)
+          │   │               ├── tower-http v0.6.11
+          │   │               │   ├── ez-daemon v0.1.0 (*)
+          │   │               │   └── reqwest v0.12.28 (*)
+          │   │               └── webbrowser v1.2.4
+          │   │                   └── egui-winit v0.35.0
+          │   │                       └── eframe v0.35.0
+          │   │                           └── ez-gui v0.1.0 (*)
+          │   └── icu_properties v2.3.0
+          │       └── idna_adapter v1.2.2 (*)
+          ├── icu_provider v2.3.1
+          │   ├── icu_normalizer v2.3.0 (*)
+          │   └── icu_properties v2.3.0 (*)
+          ├── zerotrie v0.2.5
+          │   ├── icu_properties v2.3.0 (*)
+          │   └── icu_provider v2.3.1 (*)
+          └── zerovec v0.11.8
+              ├── icu_collections v2.3.0 (*)
+              ├── icu_locale_core v2.3.0
+              │   ├── icu_properties v2.3.0 (*)
+              │   └── icu_provider v2.3.1 (*)
+              ├── icu_normalizer v2.3.0 (*)
+              ├── icu_properties v2.3.0 (*)
+              ├── icu_provider v2.3.1 (*)
+              ├── potential_utf v0.1.6
+              │   └── icu_collections v2.3.0 (*)
+              └── tinystr v0.8.4
+                  └── icu_locale_core v2.3.0 (*)
+
+advisories ok, bans ok, licenses FAILED, sources ok

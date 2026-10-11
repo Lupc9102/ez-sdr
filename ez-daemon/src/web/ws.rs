@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -54,6 +54,57 @@ fn parse_pipeline_kind(s: &str) -> Option<PipelineKind> {
     }
 }
 
+/// Browsers must not expose the unauthenticated receiver to a foreign page.
+/// Native clients omit Origin. Loopback browser clients are trusted; a remote
+/// browser must use the same numeric IP/port as the requested daemon endpoint.
+fn browser_origin_allowed(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get(axum::http::header::ORIGIN) else {
+        return true;
+    };
+    let Ok(origin) = origin.to_str() else {
+        return false;
+    };
+    let Ok(uri) = origin.parse::<Uri>() else {
+        return false;
+    };
+    if !matches!(uri.scheme_str(), Some("http" | "https")) {
+        return false;
+    }
+    let Some(authority) = uri.authority() else {
+        return false;
+    };
+    if authority.as_str().contains('@')
+        // `port()` also returns None for an out-of-range port. Detect the
+        // explicit suffix rather than interpreting that as an absent port.
+        || (authority.as_str().len() != authority.host().len()
+            && authority.port_u16().is_none())
+        || uri
+            .path_and_query()
+            .is_some_and(|path| path.as_str() != "/")
+    {
+        return false;
+    }
+    let host = authority.host().to_ascii_lowercase();
+    if host == "localhost" {
+        return true;
+    }
+    let Ok(ip) = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+    else {
+        return false;
+    };
+    if ip.is_loopback() {
+        return true;
+    }
+    !ip.is_unspecified()
+        && headers
+            .get(axum::http::header::HOST)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|host| host.eq_ignore_ascii_case(authority.as_str()))
+}
+
 /// `GET /ws/stream/{kind}/{id}`: binary data plane for an already-created channel. Validates
 /// the kind/id pair *before* upgrading (via `subscribe_existing`, which errors rather than
 /// creating) so a bad request gets a plain HTTP error instead of an upgrade the server would
@@ -61,8 +112,12 @@ fn parse_pipeline_kind(s: &str) -> Option<PipelineKind> {
 async fn data_plane_ws(
     State(state): State<Arc<DaemonState>>,
     Path((kind, id)): Path<(String, ChannelId)>,
+    headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
+    if !browser_origin_allowed(&headers) {
+        return (StatusCode::FORBIDDEN, "Cross-origin WebSocket rejected").into_response();
+    }
     let Some(kind) = parse_pipeline_kind(&kind) else {
         return (
             StatusCode::BAD_REQUEST,
@@ -151,7 +206,14 @@ fn stream_message(event: ServerEvent) -> Message {
 /// (`crate::server::handle_connection`), minus the `Hello`/`Welcome` version handshake — the
 /// HTTP upgrade already establishes the connection, so a `Welcome` event is sent immediately
 /// instead of waiting on a first client message.
-async fn control_ws(State(state): State<Arc<DaemonState>>, ws: WebSocketUpgrade) -> Response {
+async fn control_ws(
+    State(state): State<Arc<DaemonState>>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    if !browser_origin_allowed(&headers) {
+        return (StatusCode::FORBIDDEN, "Cross-origin WebSocket rejected").into_response();
+    }
     ws.on_upgrade(move |socket| control_connection(socket, state))
 }
 
@@ -392,6 +454,62 @@ mod tests {
                 .unwrap();
         });
         (format!("ws://{addr}"), state)
+    }
+
+    #[test]
+    fn browser_origins_require_loopback_or_same_numeric_endpoint() {
+        use axum::http::header::{HOST, ORIGIN};
+        let mut headers = HeaderMap::new();
+        headers.insert(HOST, "192.0.2.10:7891".parse().unwrap());
+        assert!(browser_origin_allowed(&headers)); // Native client.
+        for origin in [
+            "http://localhost:9000",
+            "https://127.0.0.1",
+            "http://[::1]:7891",
+            "http://192.0.2.10:7891",
+        ] {
+            headers.insert(ORIGIN, origin.parse().unwrap());
+            assert!(browser_origin_allowed(&headers), "{origin}");
+        }
+        for origin in [
+            "https://foreign.example",
+            "http://localhost.evil.example",
+            "http://localhost@foreign.example",
+            "http://192.0.2.10:9000",
+            "http://localhost:99999",
+            "null",
+            "file://localhost",
+            "http://localhost/path",
+            "http://0.0.0.0",
+        ] {
+            headers.insert(ORIGIN, origin.parse().unwrap());
+            assert!(!browser_origin_allowed(&headers), "{origin}");
+        }
+    }
+
+    #[tokio::test]
+    async fn foreign_browser_cannot_upgrade_control_or_data_websocket() {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let (base, state) = spawn_test_ws().await;
+        let initial = state.hardware_status().frequency_hz;
+        for path in ["/ws/control", "/ws/stream/spectrum/77"] {
+            let mut request = format!("{base}{path}").into_client_request().unwrap();
+            request
+                .headers_mut()
+                .insert("Origin", "https://foreign.example".parse().unwrap());
+            let error = connect_async(request).await.unwrap_err();
+            let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
+                panic!("expected HTTP rejection: {error}");
+            };
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+        assert_eq!(state.hardware_status().frequency_hz, initial);
+        let mut request = format!("{base}/ws/control").into_client_request().unwrap();
+        request
+            .headers_mut()
+            .insert("Origin", "http://localhost:9000".parse().unwrap());
+        let (mut socket, _) = connect_async(request).await.unwrap();
+        socket.close(None).await.unwrap();
     }
 
     #[test]

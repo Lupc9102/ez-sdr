@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 4
+  RUST_TEST_THREADS: 4
 
 jobs:
   fmt:
@@ -15,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.92.0
         with:
           components: rustfmt
       - name: Format
@@ -25,56 +27,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.92.0
       - name: Check
-        run: cargo check --workspace
+        run: cargo check --workspace --locked --all-targets
 
   doc:
     runs-on: ubuntu-latest
     steps:
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.92.0
       - name: Build docs
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --no-deps
 
   doctest:
     runs-on: ubuntu-latest
     steps:
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.92.0
       - name: Doc tests
-        run: cargo test --workspace --doc
+        run: cargo test --workspace --locked --doc
 
   clippy:
     runs-on: ubuntu-latest
     steps:
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.92.0
         with:
           components: clippy
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --locked --all-targets -- -D warnings
 
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.92.0
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
+      - name: Test without audio or RTL-SDR defaults
+        run: cargo test --workspace --locked --no-default-features
       - name: Audit
         uses: taiki-e/install-action@v2
         with:

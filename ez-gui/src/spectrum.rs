@@ -5049,14 +5049,15 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fractional sample rate (2048003/7) + 8192 FFT bin mapping mismatch — FFT itself is correct, tone-to-bin calibration for this edge case needs rework"]
     fn complex_large_fft_preserves_weak_tone_and_fractional_sample_rate() {
         let mut s = SpectrumAnalyzer::new();
         s.set_fft_size(8_192);
         s.set_avg_alpha(1.0);
         let rate = 2_048_003.0 / 7.0;
         s.update_params_exact(100_000_000, rate);
-        let offset = 12_000.0 * rate / 8_192.0;
+        // Keep the tone inside the sampled Nyquist interval. A 12,000-bin
+        // offset aliases to bin 3,808 in an 8,192-point FFT.
+        let offset = 1_200.0 * rate / 8_192.0;
         let iq = complex_tone(8_192, rate, offset, 0.0001);
         for chunk in iq[..8_191].chunks(997) {
             s.push_complex_samples(chunk);

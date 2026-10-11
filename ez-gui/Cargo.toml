@@ -65,7 +65,8 @@ futures = "0.3"
 image = { workspace = true }
 
 # MQTT
-rumqttc = "0.25"
+# The publisher uses TCP only. Avoid compiling rumqttc's unused TLS verifier.
+rumqttc = { version = "0.25", default-features = false }
 
 # Patch transitive deps with vulnerabilities
 # quick-xml = ">=0.41.0"

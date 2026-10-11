@@ -1,0 +1,5 @@
+
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+
+Get:1 http://apt.pop-os.org/ubuntu noble-security/main amd64 libncurses-dev amd64 6.4+20240113-1ubuntu2.2 [384 kB]
+Fetched 384 kB in 0s (1381 kB/s)

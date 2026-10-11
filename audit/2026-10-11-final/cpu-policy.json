@@ -1,0 +1,184 @@
+{
+  "logical_cpus": 12,
+  "shared_audit_cpu_set": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "aggregate_capacity_cap_percent": 50,
+  "nice_at_least": 10,
+  "processes": [
+    {
+      "pid": 52628,
+      "threads_capped": 1,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 52630,
+      "threads_capped": 1,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 58459,
+      "threads_capped": 1,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 58460,
+      "threads_capped": 5,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 60519,
+      "threads_capped": 113,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 64179,
+      "threads_capped": 1,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 64601,
+      "threads_capped": 1,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 64638,
+      "threads_capped": 6,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 66313,
+      "threads_capped": 4,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 66436,
+      "threads_capped": 4,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 66437,
+      "threads_capped": 4,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 66438,
+      "threads_capped": 4,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 66439,
+      "threads_capped": 4,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "pid": 66461,
+      "threads_capped": 7,
+      "affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "method": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity."
+}

@@ -1,0 +1,34 @@
+{
+  "group": "security",
+  "started_utc": "2026-10-11T16:03:36.081698+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "cargo-audit",
+      "command": [
+        "/tmp/ez-sdr-audit-tools/bin/cargo-audit",
+        "audit",
+        "--json"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 25.84,
+      "log": "audit/2026-10-11-final/evidence/initial-cargo-audit.log",
+      "log_sha256": "a5f58cf442438224be81f461ef7e403c378e1d91d5b4027d7fdc0cfc1561033e"
+    },
+    {
+      "name": "cargo-deny",
+      "command": [
+        "/tmp/ez-sdr-audit-tools/bin/cargo-deny",
+        "deny",
+        "check"
+      ],
+      "environment": {},
+      "exit_code": 4,
+      "seconds": 34.56,
+      "log": "audit/2026-10-11-final/evidence/initial-cargo-deny.log",
+      "log_sha256": "f58141ac86a83a9c4588683d7b2e96c0dbe7644aa49fc77d317a1c70bbab397e"
+    }
+  ],
+  "updated_utc": "2026-10-11T16:04:36.483381+00:00"
+}

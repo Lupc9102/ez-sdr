@@ -1,0 +1,96 @@
+{
+  "group": "quality",
+  "started_utc": "2026-10-11T16:49:15.036143+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "seconds": 1.116,
+      "log": "audit/2026-10-11-final/evidence/format.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "seconds": 11.361,
+      "log": "audit/2026-10-11-final/evidence/clippy.log",
+      "log_sha256": "2844fcb4a59d423ae5913ceeea6db86e6b4cc6c5d906d667990cce3c56e07c71"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "cargo",
+        "doc",
+        "--workspace",
+        "--locked",
+        "--no-deps"
+      ],
+      "environment": {
+        "RUSTDOCFLAGS": "-D warnings"
+      },
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "seconds": 5.275,
+      "log": "audit/2026-10-11-final/evidence/docs.log",
+      "log_sha256": "49f0e72c5fbb388262a25ae9083e4ec093c4a446d08270236d4cf3a73f105b58"
+    },
+    {
+      "name": "optional-hardware",
+      "command": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--locked",
+        "--all-features",
+        "--all-targets"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "seconds": 5.428,
+      "log": "audit/2026-10-11-final/evidence/optional-hardware.log",
+      "log_sha256": "bbe84af097660300fa32d39619f7cf24551c1390dcad16e13ab4253786784d21"
+    },
+    {
+      "name": "release-build",
+      "command": [
+        "cargo",
+        "build",
+        "--workspace",
+        "--locked",
+        "--release",
+        "--features",
+        "ez-daemon/rtlsdr,dump1090/rtlsdr"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "seconds": 495.505,
+      "log": "audit/2026-10-11-final/evidence/release-build.log",
+      "log_sha256": "2b8a6b0fd71300cf3b6f5870e912bf5edf850f7170846e2a3211a24c206c11fb"
+    }
+  ],
+  "updated_utc": "2026-10-11T16:57:53.723756+00:00"
+}

@@ -1,0 +1,26 @@
+{
+  "binary": "/home/lupc/Documents/ez-sdr/target/release/ez-gui",
+  "surface": "native X11/OpenGL with software GL, private config",
+  "screenshots": [
+    {
+      "name": "adsb-replay-stopped",
+      "path": "audit/2026-10-11-final/native/adsb-replay-stopped.png",
+      "process_alive": true
+    },
+    {
+      "name": "adsb-replay-radio-running",
+      "path": "audit/2026-10-11-final/native/adsb-replay-radio-running.png",
+      "process_alive": true
+    },
+    {
+      "name": "adsb-replay-aircraft",
+      "path": "audit/2026-10-11-final/native/adsb-replay-aircraft.png",
+      "process_alive": true
+    },
+    {
+      "name": "adsb-replay-selected-position",
+      "path": "audit/2026-10-11-final/native/adsb-replay-selected-position.png",
+      "process_alive": true
+    }
+  ]
+}

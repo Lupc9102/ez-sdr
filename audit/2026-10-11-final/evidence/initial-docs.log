@@ -1,0 +1,26 @@
+    Blocking waiting for file lock on build directory
+    Checking getrandom v0.2.17
+    Checking ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Checking dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+ Documenting dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+    Checking ring v0.17.14
+ Documenting ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Checking lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+ Documenting lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Checking rustls-webpki v0.103.15
+    Checking rustls-webpki v0.102.8
+    Checking ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+ Documenting ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking rustls v0.23.45
+error: unresolved link to `RtlSdrSource`
+ --> ez-daemon/src/hardware/adsb.rs:7:15
+  |
+7 | //! used by [`RtlSdrSource`].
+  |               ^^^^^^^^^^^^ no item named `RtlSdrSource` in scope
+  |
+  = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+  = note: `-D rustdoc::broken-intra-doc-links` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(rustdoc::broken_intra_doc_links)]`
+
+error: could not document `ez-daemon`
+warning: build failed, waiting for other jobs to finish...

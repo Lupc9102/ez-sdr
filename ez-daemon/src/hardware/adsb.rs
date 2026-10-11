@@ -4,7 +4,7 @@
 //! generates the same sample convention at 2.4 MSPS: a Mode-S preamble followed
 //! by 112 PPM bits.  It is intentionally noiseless at the carrier envelope so
 //! decoder tests are stable, while still passing through the exact Uc8 converter
-//! used by [`RtlSdrSource`].
+//! used by the optional `RtlSdrSource` backend.
 
 use num_complex::Complex32;
 

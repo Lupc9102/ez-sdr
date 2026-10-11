@@ -1,0 +1,52 @@
+{
+  "scope": "Final ignored profiler fixture setup after full suites; production unchanged",
+  "checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 1.065,
+      "log": "audit/2026-10-11-final/evidence/post-fixture-format.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 10.134,
+      "log": "audit/2026-10-11-final/evidence/post-fixture-clippy.log",
+      "log_sha256": "306718180f87dfc824ef94ae6ca565452b3669254e38a207b7717a3ef3e203ba"
+    },
+    {
+      "name": "headless-compile",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 14.689,
+      "log": "audit/2026-10-11-final/evidence/post-fixture-headless-compile.log",
+      "log_sha256": "784135144be70fd3cf62b892a8b5d5317e1c986d02c079931be442b9c362855b"
+    }
+  ]
+}

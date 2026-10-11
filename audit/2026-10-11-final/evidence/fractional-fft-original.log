@@ -1,0 +1,15 @@
+
+running 1 test
+
+thread 'spectrum::tests::complex_large_fft_preserves_weak_tone_and_fractional_sample_rate' (88134) panicked at ez-gui/src/spectrum.rs:5075:9:
+peak_freq 100136000 not within one bin (35 Hz) of 100428572
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test spectrum::tests::complex_large_fft_preserves_weak_tone_and_fractional_sample_rate ... FAILED
+
+failures:
+
+failures:
+    spectrum::tests::complex_large_fft_preserves_weak_tone_and_fractional_sample_rate
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.05s
+

@@ -61,6 +61,7 @@ fn profile_frames_with_continuous_native_recording() {
                 .map(|v| (v * amplitude * 128.0 + 127.4).round().clamp(0.0, 255.0) as u8)
         })
         .collect();
+    let (release_source, source_gate) = crossbeam_channel::bounded(1);
     let stream = {
         let mut state = app.shared.lock().unwrap();
         state.source.source_mode = crate::source_manager::SourceMode::Hardware;
@@ -74,12 +75,24 @@ fn profile_frames_with_continuous_native_recording() {
         state.scheduler.custom_tasks.clear();
         crate::radio_ui::select_demod(&mut state, crate::sdr_panel::DemodMode::Am);
         let input = period.clone();
-        state
-            .source
-            .test_set_hardware_open(move |_| Ok(input.clone()));
+        state.source.test_set_hardware_open(move |_| {
+            source_gate.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(input.clone())
+        });
         state.source.capture_stream()
     };
     app.logic(&ctx, &mut frame);
+    // Native radio setup is asynchronous. Arm all recorder subscriptions only
+    // once it has applied; otherwise the first source block can precede WAV
+    // subscription readiness even though raw and CF32 are already armed.
+    let setup_deadline = Instant::now() + Duration::from_secs(5);
+    while app.demod_worker.applied_version() < app.demod_worker.requested_version() {
+        assert!(
+            Instant::now() < setup_deadline,
+            "native radio setup did not apply"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
     app.recorder_panel.output_dir = recordings.display().to_string();
     app.recorder_panel.filename_template = "profile".into();
     app.recorder_panel.record_audio = true;
@@ -101,6 +114,19 @@ fn profile_frames_with_continuous_native_recording() {
         .to_path_buf();
     app.demod_worker.test_start_native_timing();
     app.shared.lock().unwrap().source.start();
+    // Apply the new source generation before the mock device releases its
+    // first block. This aligns WAV and IQ measurement windows; startup is
+    // excluded from the frame/DSP benchmark, as in the WAV regression.
+    app.logic(&ctx, &mut frame);
+    let setup_deadline = Instant::now() + Duration::from_secs(5);
+    while app.demod_worker.applied_version() < app.demod_worker.requested_version() {
+        assert!(
+            Instant::now() < setup_deadline,
+            "capture generation did not apply"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    release_source.send(()).unwrap();
     let mut results = Vec::new();
     let mut previews = Vec::new();
     for (name, tab, width, height, drag) in [
@@ -214,6 +240,15 @@ fn profile_frames_with_continuous_native_recording() {
         state.source.stop();
         state.source.wait_for_shutdown();
     }
+    // The source has stopped, but its final RF block can still be in DSP.
+    // Closing the WAV subscription now truncates that tail while raw/CF32
+    // have already drained it. Wait for capture completion before finalizing
+    // any recorder, as in the continuous-WAV integration regression.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !app.demod_worker.radio_snapshot().unwrap().complete {
+        assert!(Instant::now() < deadline, "native DSP tail did not drain");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     app.recorder_panel.stop_and_wait();
     app.satellite_panel.stop_cf32_and_wait();
     assert!(
@@ -221,11 +256,6 @@ fn profile_frames_with_continuous_native_recording() {
         "{}",
         app.recorder_panel.last_error
     );
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !app.demod_worker.radio_snapshot().unwrap().complete {
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(Duration::from_millis(1));
-    }
     let radio = app.demod_worker.radio_snapshot().unwrap();
     let source = stream.progress();
     assert_eq!(radio.received_samples, source.samples);
@@ -252,7 +282,12 @@ fn profile_frames_with_continuous_native_recording() {
     assert_eq!(audio_meta["audio_samples"], radio.audio_samples);
     let native_timings = app.demod_worker.test_take_native_timing();
     assert_eq!(native_timings.len(), (source.blocks as usize).min(8192));
-    let evidence = serde_json::json!({"mode":"debug CPU/headless; no GPU or physical devices",
+    let mode = if cfg!(debug_assertions) {
+        "debug CPU/headless; no GPU or physical devices"
+    } else {
+        "release CPU/headless; no GPU or physical devices"
+    };
+    let evidence = serde_json::json!({"mode":mode,
         "percentiles":"nearest rank, 120 measured frames per case, 10 warmup frames excluded",
         "rf_processing_scope":"native Processor::process per 16384-sample block; excludes receive/configure/wait and timing-storage overhead",
         "cases":results,"native_rf_processing":distribution(native_timings),

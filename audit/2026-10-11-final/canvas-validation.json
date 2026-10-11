@@ -1,0 +1,15 @@
+{
+  "exit_code": 0,
+  "command": [
+    "node",
+    "/tmp/ez-sdr-audit-canvas/node_modules/typescript/bin/tsc",
+    "--project",
+    "/tmp/ez-sdr-audit-canvas/tsconfig.json",
+    "--pretty",
+    "false"
+  ],
+  "compiler_version": "7.0.2",
+  "scope": "Typechecked against actual cursor/canvas SDK and React types; host canvas rendering not exercised",
+  "source_sha256": "cc20f77fcfb18c62710bc34544eb8b7520dcf76382bce64706ddae1164075961",
+  "diagnostics": ""
+}
