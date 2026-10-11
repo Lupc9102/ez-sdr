@@ -1,0 +1,45 @@
+{
+  "started_utc": "2026-10-10T17:45:45.142357+00:00",
+  "verification_state": "pending",
+  "source_sha256": {
+    "ez-gui/src/audio_output.rs": "3504210e00e872fd08e2d44e92055f865ffacea14cc2c41ccda9f886701e2212",
+    "ez-gui/Cargo.toml": "1aad3b605c5a8134137973b4a8e188c00ea59cb72242bec8789bbe8fbafe2ffa",
+    "Cargo.lock": "0ff3fab993fbbc00c50896077b5d4be64ee46e7ff6af5678f9d834340448158f",
+    "audit/2026-10-07/repair-evidence/audio-driver-runner-1010.py": "1a401dc2524d10175dcfc5750ad0f158860fde21b83a8cb1e056d2469fc2b961"
+  },
+  "default_sink_before": "alsa_output.pci-0000_07_00.4.analog-stereo",
+  "sink_listing_before": "61\talsa_output.pci-0000_07_00.4.analog-stereo\tPipeWire\ts32le 2ch 48000Hz\tRUNNING\n74\talsa_output.pci-0000_05_00.1.hdmi-stereo\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED\n",
+  "cpu_max": [
+    "10000",
+    "100000"
+  ],
+  "cargo_jobs": 1,
+  "test_threads": 1,
+  "restrict_realtime": true,
+  "silence_only": true,
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver",
+        "-j",
+        "1",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T17:45:45.142445+00:00",
+      "exit_code": 101,
+      "log": "repair-evidence/audio-driver-test-1010-attempt-1.log",
+      "log_sha256": "dc73db308213f8179278b92c296d07f380583c9e95c20487f850ab887b64af69",
+      "finished_utc": "2026-10-10T17:45:49.541639+00:00"
+    }
+  ],
+  "verification_boundary": "Real shared PipeWire output: callback queue consumption, native worker stop/receiver teardown and restart for mono/stereo zero samples. Does not certify acoustics, RF hardware, complete audio timing/calibration, off-air recordings or disk overload."
+}

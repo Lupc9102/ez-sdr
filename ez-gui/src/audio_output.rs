@@ -32,9 +32,11 @@ use std::sync::{
 #[cfg(feature = "audio")]
 const AUDIO_QUEUE_CAPACITY: usize = 8;
 
-// Explicit output buffer size (~10 ms at 48 kHz) instead of the
-// PulseAudio default (50-100 ms), which was the single largest fixed
-// latency component. Passed as the CPAL latency hint in build_output_stream.
+// CPAL's timeout bounds backend initialization, not playback latency. Allow
+// device wake-up and server negotiation on the background worker; the UI's
+// start/stop operations remain non-blocking.
+#[cfg(feature = "audio")]
+const STREAM_INITIALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// None selects the system default; a stored CPAL ID selects that device only.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -333,7 +335,7 @@ fn build_output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
                 format!("Audio output failed: {error}"),
             )
         },
-        Some(std::time::Duration::from_millis(10)),
+        Some(STREAM_INITIALIZATION_TIMEOUT),
     )
 }
 fn record_failure(failed: &AtomicBool, message: &Mutex<Option<String>>, error: String) {
@@ -382,8 +384,8 @@ fn create_cpal_stream(
     let sample_rate = supported.sample_rate();
     let format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
-    // The latency hint (Some(10ms)) in build_output_stream requests a small
-    // buffer from PulseAudio instead of its 50-100 ms default.
+    // Use the device's supported buffer configuration. The separate timeout
+    // in build_output_stream only bounds backend initialization.
     let stream = match format {
         cpal::SampleFormat::F32 => build_output_stream::<f32>(
             &device,
@@ -756,6 +758,85 @@ impl AudioOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exercise shared PulseAudio/PipeWire with silence only. This verifies
+    /// driver ownership and callbacks, not acoustic output or RF performance.
+    #[cfg(feature = "audio")]
+    #[test]
+    #[ignore = "requires a real shared PulseAudio/PipeWire output device"]
+    fn silent_real_driver_callbacks_stop_and_restart_release_old_receiver() {
+        use std::time::{Duration, Instant};
+
+        assert_eq!(std::env::var("EZ_AUDIT_SILENT_AUDIO").as_deref(), Ok("1"));
+        let host = preferred_host().unwrap();
+        assert_eq!(host.id(), HostId::PulseAudio);
+        let device = host.default_output_device().unwrap();
+        let device_id = device.id().unwrap().to_string();
+        let selection = AudioOutputSelection {
+            device_id: None,
+            sample_rate: 48_000,
+        };
+        let mut output = AudioOutput::new();
+        let mut retired: Option<crossbeam_channel::Sender<Vec<f32>>> = None;
+        let mut observations = Vec::new();
+        for input_channels in [1, 2] {
+            let (_unused, receiver) = crossbeam_channel::bounded(1);
+            output
+                .start_with_selection_channels(receiver, &selection, input_channels)
+                .unwrap();
+            let producer = output.worker.as_ref().unwrap().audio_tx.clone();
+            if let Some(previous) = &retired {
+                assert!(!producer.same_channel(previous));
+            }
+            for _ in 0..6 {
+                assert!(output.push_audio(vec![0.0; 480 * input_channels]));
+            }
+            let started = Instant::now();
+            while !producer.is_empty() {
+                assert!(!output.has_failed(), "{:?}", output.take_error());
+                assert!(started.elapsed() < Duration::from_secs(3));
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let queue_drain_us = started.elapsed().as_micros();
+            std::thread::sleep(Duration::from_millis(250));
+            assert!(output.is_running(), "{:?}", output.take_error());
+            assert_eq!(output.sample_rate(), 48_000);
+            assert_eq!(output.input_channels(), input_channels);
+            assert_eq!(output.dropped_frames(), 0);
+            assert_eq!(output.take_error(), None);
+
+            let stopped = Instant::now();
+            output.stop();
+            let stop_call_us = stopped.elapsed().as_micros();
+            assert!(stop_call_us < 100_000);
+            assert!(!output.is_running());
+            assert!(!output.has_failed());
+            loop {
+                match producer.try_send(Vec::new()) {
+                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
+                    Ok(()) | Err(crossbeam_channel::TrySendError::Full(_)) => {
+                        assert!(stopped.elapsed() < Duration::from_secs(3));
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            }
+            observations.push(serde_json::json!({
+                "input_channels": input_channels,
+                "sample_rate_hz": 48_000,
+                "queued_sample_frames": 2_880,
+                "queue_drain_us": queue_drain_us,
+                "stop_call_us": stop_call_us,
+                "receiver_retirement_us": stopped.elapsed().as_micros(),
+                "silence_only": true,
+                "old_receiver_disconnected": true,
+            }));
+            retired = Some(producer);
+        }
+        println!(
+            "AUDIO_DRIVER_RESULT {}",
+            serde_json::json!({"device_id": device_id, "cases": observations})
+        );
+    }
 
     #[cfg(feature = "audio")]
     #[test]
