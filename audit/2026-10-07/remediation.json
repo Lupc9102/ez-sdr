@@ -474,6 +474,6 @@
       "original_repair_gate": "Use a cancellable bounded read contract and correlate command lifecycle through queued/applied/rejected/cancelled states. Ensure shutdown/control latency is bounded even when the driver keeps reporting streaming without data. Test late acknowledgements and avoid releasing hardware ownership before the read actually ends."
     }
   ],
-  "off_air_reference_captures": "User has no current private recordings. Public Meteor-M2-4 IQ and corrected CADUs downloaded; 72k carrier slice and full corrected-CADU images compared independently. Complete RF pass and interleaved 80k mission-profile evidence remain pending.",
+  "off_air_reference_captures": "User has no current private recordings. Actual 72k RF slice and full usable public IQ prefix now pass independent packet/image comparisons: 6,899 recovered frames, 439 missing reference frames, 6,055,292 packet bytes and 25,025,280 pixels (maximum error one). The compressed source is truncated. Independent interleaved 80k capture validation remains pending.",
   "release_gates": "Keep all field/capture/hardware/audio/disk requirements from REPORT.md. Synthetic tests do not certify them."
 }
