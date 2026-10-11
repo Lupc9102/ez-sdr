@@ -590,6 +590,52 @@ impl RdsDecoder {
 mod tests {
     use super::*;
 
+    /// Redsea's pinned public MPX fixture has an independently tested PI/PTY.
+    /// This verifies MPX compatibility, not hardware or off-air provenance.
+    #[test]
+    #[ignore = "requires the pinned Redsea MPX fixture converted to float32 WAV"]
+    fn public_reference_multiplex_matches_independent_redsea_metadata() {
+        let path = std::env::var("EZ_RDS_REFERENCE_WAV")
+            .expect("set EZ_RDS_REFERENCE_WAV to the pinned 192 kHz mono fixture");
+        let mut input = hound::WavReader::open(path).unwrap();
+        let spec = input.spec();
+        assert_eq!(spec.channels, 1);
+        assert_eq!(spec.sample_rate, 192_000);
+        assert_eq!(spec.bits_per_sample, 32);
+        assert_eq!(spec.sample_format, hound::SampleFormat::Float);
+        let samples: Vec<f32> = input.samples::<f32>().map(Result::unwrap).collect();
+        assert_eq!(samples.len(), 134_400);
+        assert!(samples.iter().all(|sample| sample.is_finite()));
+
+        let mut whole = RdsDecoder::new();
+        whole.process_multiplex(&samples, f64::from(spec.sample_rate));
+        let expected = whole.snapshot();
+        assert!(expected.synchronized);
+        assert!(expected.valid_groups >= 2);
+        assert_eq!(expected.pi, Some(0x6201));
+        assert_eq!(expected.pty, Some(14));
+        assert_eq!(expected.pty_label(), Some("Serious Classical"));
+        for partition in [1, 37, 997] {
+            let mut fragmented = RdsDecoder::new();
+            for chunk in samples.chunks(partition) {
+                fragmented.process_multiplex(chunk, f64::from(spec.sample_rate));
+            }
+            assert_eq!(fragmented.snapshot(), expected, "partition={partition}");
+        }
+        println!(
+            "RDS_REFERENCE_RESULT {}",
+            serde_json::json!({
+                "sample_rate_hz": spec.sample_rate,
+                "input_samples": samples.len(),
+                "pi": expected.pi,
+                "pty": expected.pty,
+                "valid_groups": expected.valid_groups,
+                "crc_errors": expected.crc_errors,
+                "partitions": [1, 37, 997],
+            })
+        );
+    }
+
     fn encode_block(data: u16, offset: u16) -> u32 {
         // Serial shift-register encoder, independent of the decoder's division.
         let mut register = 0_u16;

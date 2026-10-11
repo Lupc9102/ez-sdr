@@ -1,0 +1,173 @@
+{
+  "started_utc": "2026-10-10T17:38:36.088691+00:00",
+  "verification_state": "independent_mpx_metadata_and_partitions_verified",
+  "source_sha256": {
+    "ez-gui/src/radio_rds.rs": "225ccb1336c036481ca63478aefd6e5b7b0eabba608099b937e1ea092f888526",
+    "ez-gui/Cargo.toml": "1aad3b605c5a8134137973b4a8e188c00ea59cb72242bec8789bbe8fbafe2ffa",
+    "Cargo.lock": "0ff3fab993fbbc00c50896077b5d4be64ee46e7ff6af5678f9d834340448158f",
+    "audit/2026-10-07/repair-evidence/rds-reference-runner-1010.py": "fdf6a8d3e01edff740a9f455e09414a0c5c9da20447ccba905921c56ce94a98b"
+  },
+  "reference": {
+    "finished_utc": "2026-10-10T15:52:37.053588+00:00",
+    "source_commit": "7555c9f6259d50718697ee8c9f218ea012c6892c",
+    "pointer_url": "https://raw.githubusercontent.com/windytan/redsea/7555c9f6259d50718697ee8c9f218ea012c6892c/test/resources/mpx-testfile-yksi.flac",
+    "download_url": "https://media.githubusercontent.com/media/windytan/redsea/7555c9f6259d50718697ee8c9f218ea012c6892c/test/resources/mpx-testfile-yksi.flac",
+    "local_path": "/home/lupc/.cache/ez-sdr-audit/radio-public-1010/mpx-testfile-yksi.flac",
+    "bytes": 185985,
+    "sha256": "c92b9c72f132e37cbe253a19a6ae17c52f17f5318672c391ce7f3b9657320eb1",
+    "reference_test_url": "https://raw.githubusercontent.com/windytan/redsea/7555c9f6259d50718697ee8c9f218ea012c6892c/test/components-mpx.cc",
+    "reference_test_sha256": "f29945daeea0d2d62cbc23123860d2e439ab8195e2cfef9ff74c4b3270e24697",
+    "independent_expected_pi": "0x6201",
+    "independent_expected_pty": "Serious classical",
+    "metadata": {
+      "programs": [],
+      "streams": [
+        {
+          "sample_fmt": "s16",
+          "sample_rate": "192000",
+          "channels": 1,
+          "duration": "0.700000",
+          "bits_per_raw_sample": "16"
+        }
+      ],
+      "format": {
+        "duration": "0.700000"
+      }
+    },
+    "cpu_max": [
+      "1000",
+      "100000"
+    ],
+    "graph_query": [
+      "graphify",
+      "query",
+      "FM stereo RDS multiplex decoder input flow and demodulator consumer"
+    ],
+    "graph_query_exit_code": 0,
+    "verification_boundary": "Fixture availability and upstream expected values only. Our decoder has not been run. The source does not explicitly document this specific fixture as off-air; do not close physical/field gates.",
+    "unavailable_stereo_candidate": {
+      "documentation": "https://github.com/jj1bdx/airspy-fmradion/blob/869753f6ad3295349c7d8c7ab4a82cccc9298d02/doc/FLOAT_OUTPUT_20260716.md",
+      "reported_capture": "piano_iqtest.wav, 20 seconds, Airspy HF+, 384 kS/s, 82.5 MHz",
+      "availability": "Referenced as local wrk/piano_iqtest.wav. No test-files folder in current repository and no assets in latest two releases. Not downloaded or counted as evidence."
+    },
+    "conversion_command": [
+      "ffmpeg",
+      "-nostdin",
+      "-n",
+      "-loglevel",
+      "error",
+      "-threads",
+      "1",
+      "-filter_threads",
+      "1",
+      "-filter_complex_threads",
+      "1",
+      "-i",
+      "/home/lupc/.cache/ez-sdr-audit/radio-public-1010/mpx-testfile-yksi.flac",
+      "-map",
+      "0:a:0",
+      "-c:a",
+      "pcm_f32le",
+      "/home/lupc/.cache/ez-sdr-audit/radio-public-1010/mpx-testfile-yksi-f32.wav"
+    ],
+    "wav_path": "/home/lupc/.cache/ez-sdr-audit/radio-public-1010/mpx-testfile-yksi-f32.wav",
+    "wav_sha256": "cf06100be10208d4d7ed1329b7f5fa05a255085a8cba032ab3b3a8603d9538c3",
+    "conversion_cpu_max": [
+      "1000",
+      "100000"
+    ]
+  },
+  "cpu_max": [
+    "9900",
+    "100000"
+  ],
+  "cargo_jobs": 1,
+  "test_threads": 1,
+  "resource_policy": "During checks: 9.9% of one core plus the 0.1% waiting audio helper. Earlier RF and finalization stages are terminal. Nice 19, one Cargo job and one test thread.",
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "radio_rds::tests::public_reference_multiplex_matches_independent_redsea_metadata",
+        "-j",
+        "1",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T17:38:36.088760+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/rds-reference-test-1010.log",
+      "log_sha256": "3c0c0bee45f1e9daee10b4c1d7c0d0de6301a03a4cbf0c2016cbef28b672d730",
+      "finished_utc": "2026-10-10T17:45:16.898737+00:00"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "--tests",
+        "-j",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "started_utc": "2026-10-11T05:05:59.832008+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/audio-driver-clippy-1010-attempt-2.log",
+      "log_sha256": "621068d7b56f0f1e680d47a04c227220fe965fd2d5f7909d5622d5c7e623572c",
+      "finished_utc": "2026-10-11T05:08:10.351855+00:00"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "started_utc": "2026-10-11T05:08:10.352141+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/audio-driver-format-1010-attempt-2.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "finished_utc": "2026-10-11T05:08:11.357159+00:00"
+    }
+  ],
+  "verification_boundary": "Third-party MPX fixture and independently tested PI/PTY only. Specific off-air provenance is undocumented. No physical receiver, stereo separation, CTCSS or audio/disk release gate is closed.",
+  "resumption": {
+    "reason": "Progress pipe closed after successful fixture test; original source/input/log hashes verified.",
+    "runner_sha256": "6c8b877030876282ce7bf9a036aba95c282ac2c9070ba2aedb633c8fe9a4ccda",
+    "reused_check_proof": "repair-audio-driver-verification-1010-attempt-2.json",
+    "reused_check_proof_sha256": "24d738c45f8f54289ae68c098c981ed3383da7160d2f822c5658e501e6680b55",
+    "full_cpu_authorized": true
+  },
+  "preceding_graph_refresh": {
+    "proof": "repair-public-rf-verification-1010.json",
+    "proof_sha256": "5db3e7b22e1d140cdb046e1ef95f834273a0f7135e3b858aec2d70d186f3bdfb",
+    "graph_mtime": 1791695153.1834126,
+    "rds_source_mtime": 1791647712.2306151
+  },
+  "metrics": {
+    "crc_errors": 2,
+    "input_samples": 134400,
+    "partitions": [
+      1,
+      37,
+      997
+    ],
+    "pi": 25089,
+    "pty": 14,
+    "sample_rate_hz": 192000,
+    "valid_groups": 5
+  },
+  "finished_utc": "2026-10-11T05:08:33.911226+00:00"
+}
