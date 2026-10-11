@@ -1,0 +1,50 @@
+RF generated: 0.0/852.9 seconds
+RF generated: 41.0/852.9 seconds
+RF generated: 81.9/852.9 seconds
+RF generated: 122.9/852.9 seconds
+RF generated: 163.8/852.9 seconds
+RF generated: 204.8/852.9 seconds
+RF generated: 245.8/852.9 seconds
+RF generated: 286.7/852.9 seconds
+RF generated: 327.7/852.9 seconds
+RF generated: 368.6/852.9 seconds
+RF generated: 409.6/852.9 seconds
+RF generated: 450.6/852.9 seconds
+RF generated: 491.5/852.9 seconds
+RF generated: 532.5/852.9 seconds
+RF generated: 573.4/852.9 seconds
+RF generated: 614.4/852.9 seconds
+RF generated: 655.4/852.9 seconds
+RF generated: 696.3/852.9 seconds
+RF generated: 737.3/852.9 seconds
+RF generated: 778.2/852.9 seconds
+RF generated: 819.2/852.9 seconds
+{
+  "profile": "Oqpsk80Interleaved",
+  "sample_rate_hz": 320000,
+  "symbol_rate_hz": 80000,
+  "reference_frames": 7338,
+  "duration_seconds": 852.90235,
+  "coded_bits": 120236816,
+  "cases": [
+    {
+      "name": "long-pass-noise-drift",
+      "file": "long-pass-noise-drift.cf32",
+      "sha256": "5552f9f07922a59afc87c7610b015a1870ae41d0d80891b11d96f28ff8f5e0fe",
+      "samples": 272928752,
+      "direction": 1,
+      "phase": 37,
+      "offset": 137,
+      "ppm": 70,
+      "snr_db": 30,
+      "ramp": 1,
+      "impairment": false,
+      "require_all": true
+    }
+  ],
+  "reference_sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90",
+  "libfec_commit": "9750ca0a6d0a786b506e44692776b541f90daa91",
+  "libfec_sha256": "a3a6569a1f3f9f20de15c4aac88e6aaaf0e0a7ca8ee2005843aedf0ee6b63a17",
+  "generator_sha256": "b1252be51473a4b18993ca0010d4678485aef3196f40e7b5a961a4b3f132697c",
+  "provenance": "Synthetic full-pass 80k waveform carrying original independently decoded public 72k packet/image content. Not an off-air 80k capture."
+}

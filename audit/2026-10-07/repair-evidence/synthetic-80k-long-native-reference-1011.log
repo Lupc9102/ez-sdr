@@ -1,0 +1,11 @@
+{
+  "reference_frames": 7338,
+  "corrected_payload_bytes": 6545496,
+  "rs_corrected_symbols": 0,
+  "reference_sha256": "6beb367c5a25973d6ba0a678efb1d0026ede4b552dabeb03bb0fa2d7224fab3b",
+  "native_library_sha256": "20cffae61cc0a3d7c3ec0a60084f6e6b830122e15eaffa42058f95f69dd3eaba",
+  "adapter_sha256": "84d575a6734be4c17e2e2a39301c913bf95396777911716b9d1fa98fccba221e",
+  "differential_convention": "post-Viterbi NRZ-M, matching modern SatDump 80k m2x_mode",
+  "convention_source": "https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/module_meteor_lrpt_decoder.cpp",
+  "scope": "Independent full native-C transport decode of ideal transmitted wire bits. Actual app RF cases additionally include pulse shaping, clock/carrier drift, noise, fade and phase slip."
+}

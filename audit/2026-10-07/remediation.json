@@ -18,10 +18,11 @@
         "tests::mission_gap_preserves_product_but_new_product_retires_images_and_counts",
         "Explicit Oqpsk72 public off-air slice: 175 byte-identical reference CADUs.",
         "Explicit Oqpsk72 actual-RF slice and full usable IQ prefix: byte-identical completed packets and independent Pillow/CDS-time image comparisons; missing reference frames reported. See repair-public-rf-verification-1010.json.",
-        "Independent synthetic 80k RF carrying public non-flat image packets: both stagger directions, noise/carrier/clock drift, deep fade and 180-degree phase slip; eight chunk-invariant frame/packet/pixel comparisons. See repair-synthetic-80k-verification-1011.json."
+        "Independent synthetic 80k RF carrying public non-flat image packets: both stagger directions, noise/carrier/clock drift, deep fade and 180-degree phase slip; eight chunk-invariant frame/packet/pixel comparisons. See repair-synthetic-80k-verification-1011.json.",
+        "Full-pass synthetic 80k RF: 852.90235 seconds, 7338/7338 exact CADUs, 6468172 exact packet bytes and 25890816 independent pixels; both 997/16384-sample partitions identical under noise, clock drift and carrier ramp. See repair-synthetic-80k-long-verification-1011.json."
       ],
       "original_repair_gate": "Add explicit mission/transport profiles. Decode marker-bearing interleaved symbols with streaming state and validate the resulting CADUs against an independently decoded 80k recording. Also validate the separate 72k NRZ-M profile. Compare packet bytes and images, not just lock flags.",
-      "synthetic_software_validation": "Verified: clean and noisy/drifting cases recover all 175 reference CADUs; fade/phase-slip case recovers 122 byte-exact CADUs including the final frame. Packet bytes and independent Pillow pixels match across both chunk partitions. Off-air 80k gate remains open."
+      "synthetic_software_validation": "Verified: clean and noisy/drifting cases recover all 175 reference CADUs; fade/phase-slip case recovers 122 byte-exact CADUs including the final frame. Packet bytes and independent Pillow pixels match across both chunk partitions. Off-air 80k gate remains open. Full-pass extension verified: all 7338 CADUs survive 852.90235 seconds with nominal 30 dB noise, 70 ppm clock offset and a 1 Hz/s carrier ramp from 137 Hz. Both partitions match 6468172 packet bytes and 25890816 pixels (maximum independent error 1). See repair-synthetic-80k-long-verification-1011.json."
     },
     {
       "id": "S02",
