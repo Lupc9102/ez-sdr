@@ -14,6 +14,7 @@ pub(crate) fn export(
     input_bytes: u64,
     start_seconds: u64,
     requested_seconds: u64,
+    sample_rate_hz: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(directory)?;
     let observed_keys: Vec<_> = decoder
@@ -69,8 +70,8 @@ pub(crate) fn export(
     }
     let result = serde_json::json!({
         "source": "actual LrptDecoder::for_mission RF path; test-only observation",
-        "mission_profile": "Oqpsk72",
-        "sample_rate_hz": 288000,
+        "mission_profile": decoder.profile,
+        "sample_rate_hz": sample_rate_hz,
         "input_bytes": input_bytes,
         "start_seconds": start_seconds,
         "requested_seconds": requested_seconds,

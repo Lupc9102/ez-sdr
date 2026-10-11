@@ -1,0 +1,58 @@
+[
+  {
+    "case": "clean-positive",
+    "chunk": 997,
+    "frames": 175,
+    "packets": 153846,
+    "pixels": 639744
+  },
+  {
+    "case": "clean-positive",
+    "chunk": 16384,
+    "frames": 175,
+    "packets": 153846,
+    "pixels": 639744
+  },
+  {
+    "case": "clean-negative",
+    "chunk": 997,
+    "frames": 175,
+    "packets": 153846,
+    "pixels": 639744
+  },
+  {
+    "case": "clean-negative",
+    "chunk": 16384,
+    "frames": 175,
+    "packets": 153846,
+    "pixels": 639744
+  },
+  {
+    "case": "noise-and-drift",
+    "chunk": 997,
+    "frames": 175,
+    "packets": 153846,
+    "pixels": 639744
+  },
+  {
+    "case": "noise-and-drift",
+    "chunk": 16384,
+    "frames": 175,
+    "packets": 153846,
+    "pixels": 639744
+  },
+  {
+    "case": "fade-and-phase-slip",
+    "chunk": 997,
+    "frames": 122,
+    "packets": 107064,
+    "pixels": 451584
+  },
+  {
+    "case": "fade-and-phase-slip",
+    "chunk": 16384,
+    "frames": 122,
+    "packets": 107064,
+    "pixels": 451584
+  }
+]

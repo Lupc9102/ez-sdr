@@ -1,0 +1,56 @@
+-- The C compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (0.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/reference-build
+[  2%] Building C object CMakeFiles/lrpt_static.dir/correlator/autocorrelator.c.o
+[  4%] Building C object CMakeFiles/lrpt.dir/correlator/autocorrelator.c.o
+[  6%] Building C object CMakeFiles/lrpt_static.dir/correlator/correlator.c.o
+[  9%] Building C object CMakeFiles/lrpt.dir/correlator/correlator.c.o
+[ 11%] Building C object CMakeFiles/lrpt.dir/deinterleave/deinterleave.c.o
+[ 13%] Building C object CMakeFiles/lrpt_static.dir/deinterleave/deinterleave.c.o
+[ 15%] Building C object CMakeFiles/lrpt_static.dir/diffcode/diffcode.c.o
+[ 18%] Building C object CMakeFiles/lrpt.dir/diffcode/diffcode.c.o
+[ 20%] Building C object CMakeFiles/lrpt.dir/ecc/descramble.c.o
+[ 22%] Building C object CMakeFiles/lrpt_static.dir/ecc/descramble.c.o
+[ 25%] Building C object CMakeFiles/lrpt_static.dir/ecc/rs.c.o
+[ 27%] Building C object CMakeFiles/lrpt_static.dir/ecc/viterbi.c.o
+[ 31%] Building C object CMakeFiles/lrpt.dir/ecc/rs.c.o
+[ 31%] Building C object CMakeFiles/lrpt_static.dir/jpeg/huffman.c.o
+[ 34%] Building C object CMakeFiles/lrpt_static.dir/jpeg/jpeg.c.o
+[ 36%] Building C object CMakeFiles/lrpt_static.dir/math/int.c.o
+[ 38%] Building C object CMakeFiles/lrpt_static.dir/parser/mcu_parser.c.o
+[ 40%] Building C object CMakeFiles/lrpt_static.dir/parser/mpdu_parser.c.o
+[ 43%] Building C object CMakeFiles/lrpt_static.dir/protocol/mcu.c.o
+[ 45%] Building C object CMakeFiles/lrpt_static.dir/protocol/mpdu.c.o
+[ 47%] Building C object CMakeFiles/lrpt.dir/ecc/viterbi.c.o
+[ 50%] Building C object CMakeFiles/lrpt_static.dir/protocol/vcdu.c.o
+[ 52%] Building C object CMakeFiles/lrpt.dir/jpeg/huffman.c.o
+[ 54%] Building C object CMakeFiles/lrpt.dir/jpeg/jpeg.c.o
+[ 56%] Building C object CMakeFiles/lrpt_static.dir/channel.c.o
+[ 59%] Building C object CMakeFiles/lrpt.dir/math/int.c.o
+[ 61%] Building C object CMakeFiles/lrpt.dir/parser/mcu_parser.c.o
+[ 63%] Building C object CMakeFiles/lrpt_static.dir/raw_channel.c.o
+[ 65%] Building C object CMakeFiles/lrpt_static.dir/decode.c.o
+[ 68%] Building C object CMakeFiles/lrpt.dir/parser/mpdu_parser.c.o
+[ 70%] Building C object CMakeFiles/lrpt_static.dir/utils.c.o
+[ 72%] Building C object CMakeFiles/lrpt.dir/protocol/mcu.c.o
+[ 75%] Building C object CMakeFiles/lrpt.dir/protocol/mpdu.c.o
+[ 77%] Building C object CMakeFiles/lrpt.dir/protocol/vcdu.c.o
+[ 79%] Building C object CMakeFiles/lrpt.dir/channel.c.o
+[ 81%] Building C object CMakeFiles/lrpt.dir/raw_channel.c.o
+[ 84%] Building C object CMakeFiles/lrpt.dir/decode.c.o
+[ 86%] Building C object CMakeFiles/lrpt.dir/utils.c.o
+[ 88%] Linking C static library liblrpt_static.a
+[ 88%] Built target lrpt_static
+[ 93%] Building C object CMakeFiles/meteor_decode.dir/main.c.o
+[ 93%] Building C object CMakeFiles/meteor_decode.dir/output/bmp_out.c.o
+[ 95%] Building C object CMakeFiles/meteor_decode.dir/output/png_out.c.o
+[ 97%] Linking C shared library liblrpt.so
+[ 97%] Built target lrpt
+[100%] Linking C executable meteor_decode
+[100%] Built target meteor_decode

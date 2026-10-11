@@ -22,6 +22,8 @@ mod off_air_validation;
 mod qpsk;
 mod randomizer;
 mod reed_solomon;
+#[cfg(test)]
+mod synthetic_product_validation;
 mod viterbi;
 
 use crossbeam_channel::Sender;
@@ -1853,6 +1855,7 @@ mod tests {
                 input_bytes,
                 start,
                 seconds,
+                288_000,
             )
             .unwrap();
         }

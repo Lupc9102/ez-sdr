@@ -1,0 +1,1222 @@
+{
+  "verification_state": "independent_synthetic_80k_packets_images_verified",
+  "finished_utc": "2026-10-11T06:01:01.542371+00:00",
+  "generator": {
+    "profile": "Oqpsk80Interleaved",
+    "sample_rate_hz": 320000,
+    "symbol_rate_hz": 80000,
+    "reference_frames": 175,
+    "native_deinterleaver_coded_bits_verified": 2878224,
+    "cases": [
+      {
+        "name": "clean-positive",
+        "direction": 1,
+        "phase": 37,
+        "offset": 137,
+        "ppm": 70,
+        "snr_db": null,
+        "ramp": 0,
+        "impairment": false,
+        "require_all": true,
+        "file": "clean-positive.cf32",
+        "sha256": "78e2d0e1973fcc7a2c83a41b09f0764665ae7223bbf645a55c829cceca280f27",
+        "samples": 12131952
+      },
+      {
+        "name": "clean-negative",
+        "direction": -1,
+        "phase": 287,
+        "offset": -137,
+        "ppm": -70,
+        "snr_db": null,
+        "ramp": 0,
+        "impairment": false,
+        "require_all": true,
+        "file": "clean-negative.cf32",
+        "sha256": "58195a625d61f424b0db60ef8a0c2bebbd9823431324b45da51ece4de3599de6",
+        "samples": 12131952
+      },
+      {
+        "name": "noise-and-drift",
+        "direction": 1,
+        "phase": 123,
+        "offset": -1000,
+        "ppm": -150,
+        "snr_db": 25,
+        "ramp": 7,
+        "impairment": false,
+        "require_all": true,
+        "file": "noise-and-drift.cf32",
+        "sha256": "d5235afe44dc0a8d2363cb7e41d7c51ad5adfe6050961be4ad125b85b9b00394",
+        "samples": 12131952
+      },
+      {
+        "name": "fade-and-phase-slip",
+        "direction": 1,
+        "phase": 37,
+        "offset": 137,
+        "ppm": 70,
+        "snr_db": 30,
+        "ramp": 0,
+        "impairment": true,
+        "require_all": false,
+        "file": "fade-and-phase-slip.cf32",
+        "sha256": "13a53cb41443b294184fb6cc4a891ad78d44b1cdea338fe8a9ac9760fc190ef1",
+        "samples": 12131952
+      }
+    ],
+    "reference_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+    "libfec_commit": "9750ca0a6d0a786b506e44692776b541f90daa91",
+    "libfec_sha256": "a3a6569a1f3f9f20de15c4aac88e6aaaf0e0a7ca8ee2005843aedf0ee6b63a17",
+    "deinterleaver_commit": "e7ca456ea969dc4834b5544c3789de1dd5d2f663",
+    "deinterleaver_sha256": "897d59907b91b6721d48d2209333c0f427dc93473d722dc683fa518a8a217888",
+    "provenance": "Synthetic 80k waveform carrying original independently decoded public 72k packet/image content. Not an off-air 80k capture.",
+    "generator_sha256": "7c3e2d95b63cbfbcc04338d5ca084d3370f7d3020409db99ec5f90a895213551"
+  },
+  "native_reference": {
+    "reference_frames": 175,
+    "corrected_payload_bytes": 156100,
+    "rs_corrected_symbols": 0,
+    "reference_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+    "native_library_sha256": "20cffae61cc0a3d7c3ec0a60084f6e6b830122e15eaffa42058f95f69dd3eaba",
+    "adapter_sha256": "84d575a6734be4c17e2e2a39301c913bf95396777911716b9d1fa98fccba221e",
+    "differential_convention": "post-Viterbi NRZ-M, matching modern SatDump 80k m2x_mode",
+    "convention_source": "https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/module_meteor_lrpt_decoder.cpp",
+    "scope": "Independent full native-C transport decode of ideal transmitted wire bits. Actual app RF cases additionally include pulse shaping, clock/carrier drift, noise, fade and phase slip."
+  },
+  "comparisons": [
+    {
+      "case": "clean-positive",
+      "chunk_size": 997,
+      "recovered_frames": 175,
+      "missing_frames": 0,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:00:59.963031+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-clean-positive-997-1011.log",
+      "log_sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 153846,
+        "reference_packet_sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332",
+        "packet_counts": {
+          "65": 233,
+          "66": 230,
+          "70": 16,
+          "64": 224
+        },
+        "decoded_segments": 687,
+        "complete_lines": 384,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135298261092,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019639105642256904,
+            "oracle_pixel_sha256": "a497733792d3679dbbe0ab5c2196492244bbf52e727232e0fc0bdc3ca78c9f51"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.01794624099639856,
+            "oracle_pixel_sha256": "91998fcbff3bf2f38ca06ac9ca89b54870138fc226cb39cb9e95966f59f46e27"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019076380552220887,
+            "oracle_pixel_sha256": "eaa0b16272326d6fd5d28b7c93a5f90a019420ea0d162acae3c76822129a4ec9"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/apid-64.png",
+          "sha256": "4258d1e34967fe81658bdc7d9e02e9e42fa2bed5f18beb658a637d81e1139a9f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/apid-65.png",
+          "sha256": "ac61c0bf88e076528d48c391aaf4f630cb60529032fa00ed64d6896a699f6dcd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/apid-66.png",
+          "sha256": "7c6995e4cc8ed1cb56d916c67e243f9d81a5eb7189571b6d84e056675fdca0ba"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/native-reference-selected.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/oracle-native/oracle-64.png",
+          "sha256": "a83771922086989af509fb6e03e957610980046215ac33b747e245e1ef69d1a7"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/oracle-native/oracle-65.png",
+          "sha256": "ef7c0a14a92caa171e141e0da5ce5c2e050105cbba0f2642d107c3f540841270"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/oracle-native/oracle-66.png",
+          "sha256": "00f3cc616d7ce4815111189fdd42dd69eeef1ace239a1de698f72a518febcd3d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/oracle-native/verification.json",
+          "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/packets.bin",
+          "sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/reference.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/result.json",
+          "sha256": "5f396cf60afc21e2e3f8b1688a05f0f8e31903d7752fcdf15a542fcd848c5973"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-997/vcdu.bin",
+          "sha256": "44df3e323e78626d5df99f224dd30535eac35d69254872367c5edb54f77dac83"
+        }
+      ]
+    },
+    {
+      "case": "clean-positive",
+      "chunk_size": 16384,
+      "recovered_frames": 175,
+      "missing_frames": 0,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:01:00.168485+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-clean-positive-16384-1011.log",
+      "log_sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 153846,
+        "reference_packet_sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332",
+        "packet_counts": {
+          "65": 233,
+          "66": 230,
+          "70": 16,
+          "64": 224
+        },
+        "decoded_segments": 687,
+        "complete_lines": 384,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135298261092,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019639105642256904,
+            "oracle_pixel_sha256": "a497733792d3679dbbe0ab5c2196492244bbf52e727232e0fc0bdc3ca78c9f51"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.01794624099639856,
+            "oracle_pixel_sha256": "91998fcbff3bf2f38ca06ac9ca89b54870138fc226cb39cb9e95966f59f46e27"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019076380552220887,
+            "oracle_pixel_sha256": "eaa0b16272326d6fd5d28b7c93a5f90a019420ea0d162acae3c76822129a4ec9"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/apid-64.png",
+          "sha256": "4258d1e34967fe81658bdc7d9e02e9e42fa2bed5f18beb658a637d81e1139a9f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/apid-65.png",
+          "sha256": "ac61c0bf88e076528d48c391aaf4f630cb60529032fa00ed64d6896a699f6dcd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/apid-66.png",
+          "sha256": "7c6995e4cc8ed1cb56d916c67e243f9d81a5eb7189571b6d84e056675fdca0ba"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/native-reference-selected.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/oracle-native/oracle-64.png",
+          "sha256": "a83771922086989af509fb6e03e957610980046215ac33b747e245e1ef69d1a7"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/oracle-native/oracle-65.png",
+          "sha256": "ef7c0a14a92caa171e141e0da5ce5c2e050105cbba0f2642d107c3f540841270"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/oracle-native/oracle-66.png",
+          "sha256": "00f3cc616d7ce4815111189fdd42dd69eeef1ace239a1de698f72a518febcd3d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/oracle-native/verification.json",
+          "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/packets.bin",
+          "sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/reference.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/result.json",
+          "sha256": "5f396cf60afc21e2e3f8b1688a05f0f8e31903d7752fcdf15a542fcd848c5973"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-positive-16384/vcdu.bin",
+          "sha256": "44df3e323e78626d5df99f224dd30535eac35d69254872367c5edb54f77dac83"
+        }
+      ]
+    },
+    {
+      "case": "clean-negative",
+      "chunk_size": 997,
+      "recovered_frames": 175,
+      "missing_frames": 0,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:01:00.368054+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-clean-negative-997-1011.log",
+      "log_sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 153846,
+        "reference_packet_sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332",
+        "packet_counts": {
+          "65": 233,
+          "66": 230,
+          "70": 16,
+          "64": 224
+        },
+        "decoded_segments": 687,
+        "complete_lines": 384,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135298261092,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019639105642256904,
+            "oracle_pixel_sha256": "a497733792d3679dbbe0ab5c2196492244bbf52e727232e0fc0bdc3ca78c9f51"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.01794624099639856,
+            "oracle_pixel_sha256": "91998fcbff3bf2f38ca06ac9ca89b54870138fc226cb39cb9e95966f59f46e27"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019076380552220887,
+            "oracle_pixel_sha256": "eaa0b16272326d6fd5d28b7c93a5f90a019420ea0d162acae3c76822129a4ec9"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/apid-64.png",
+          "sha256": "4258d1e34967fe81658bdc7d9e02e9e42fa2bed5f18beb658a637d81e1139a9f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/apid-65.png",
+          "sha256": "ac61c0bf88e076528d48c391aaf4f630cb60529032fa00ed64d6896a699f6dcd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/apid-66.png",
+          "sha256": "7c6995e4cc8ed1cb56d916c67e243f9d81a5eb7189571b6d84e056675fdca0ba"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/native-reference-selected.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/oracle-native/oracle-64.png",
+          "sha256": "a83771922086989af509fb6e03e957610980046215ac33b747e245e1ef69d1a7"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/oracle-native/oracle-65.png",
+          "sha256": "ef7c0a14a92caa171e141e0da5ce5c2e050105cbba0f2642d107c3f540841270"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/oracle-native/oracle-66.png",
+          "sha256": "00f3cc616d7ce4815111189fdd42dd69eeef1ace239a1de698f72a518febcd3d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/oracle-native/verification.json",
+          "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/packets.bin",
+          "sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/reference.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/result.json",
+          "sha256": "5f396cf60afc21e2e3f8b1688a05f0f8e31903d7752fcdf15a542fcd848c5973"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-997/vcdu.bin",
+          "sha256": "44df3e323e78626d5df99f224dd30535eac35d69254872367c5edb54f77dac83"
+        }
+      ]
+    },
+    {
+      "case": "clean-negative",
+      "chunk_size": 16384,
+      "recovered_frames": 175,
+      "missing_frames": 0,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:01:00.566830+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-clean-negative-16384-1011.log",
+      "log_sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 153846,
+        "reference_packet_sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332",
+        "packet_counts": {
+          "65": 233,
+          "66": 230,
+          "70": 16,
+          "64": 224
+        },
+        "decoded_segments": 687,
+        "complete_lines": 384,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135298261092,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019639105642256904,
+            "oracle_pixel_sha256": "a497733792d3679dbbe0ab5c2196492244bbf52e727232e0fc0bdc3ca78c9f51"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.01794624099639856,
+            "oracle_pixel_sha256": "91998fcbff3bf2f38ca06ac9ca89b54870138fc226cb39cb9e95966f59f46e27"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019076380552220887,
+            "oracle_pixel_sha256": "eaa0b16272326d6fd5d28b7c93a5f90a019420ea0d162acae3c76822129a4ec9"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/apid-64.png",
+          "sha256": "4258d1e34967fe81658bdc7d9e02e9e42fa2bed5f18beb658a637d81e1139a9f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/apid-65.png",
+          "sha256": "ac61c0bf88e076528d48c391aaf4f630cb60529032fa00ed64d6896a699f6dcd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/apid-66.png",
+          "sha256": "7c6995e4cc8ed1cb56d916c67e243f9d81a5eb7189571b6d84e056675fdca0ba"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/native-reference-selected.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/oracle-native/oracle-64.png",
+          "sha256": "a83771922086989af509fb6e03e957610980046215ac33b747e245e1ef69d1a7"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/oracle-native/oracle-65.png",
+          "sha256": "ef7c0a14a92caa171e141e0da5ce5c2e050105cbba0f2642d107c3f540841270"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/oracle-native/oracle-66.png",
+          "sha256": "00f3cc616d7ce4815111189fdd42dd69eeef1ace239a1de698f72a518febcd3d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/oracle-native/verification.json",
+          "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/packets.bin",
+          "sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/reference.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/result.json",
+          "sha256": "5f396cf60afc21e2e3f8b1688a05f0f8e31903d7752fcdf15a542fcd848c5973"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-clean-negative-16384/vcdu.bin",
+          "sha256": "44df3e323e78626d5df99f224dd30535eac35d69254872367c5edb54f77dac83"
+        }
+      ]
+    },
+    {
+      "case": "noise-and-drift",
+      "chunk_size": 997,
+      "recovered_frames": 175,
+      "missing_frames": 0,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:01:00.769968+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-noise-and-drift-997-1011.log",
+      "log_sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 153846,
+        "reference_packet_sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332",
+        "packet_counts": {
+          "65": 233,
+          "66": 230,
+          "70": 16,
+          "64": 224
+        },
+        "decoded_segments": 687,
+        "complete_lines": 384,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135298261092,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019639105642256904,
+            "oracle_pixel_sha256": "a497733792d3679dbbe0ab5c2196492244bbf52e727232e0fc0bdc3ca78c9f51"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.01794624099639856,
+            "oracle_pixel_sha256": "91998fcbff3bf2f38ca06ac9ca89b54870138fc226cb39cb9e95966f59f46e27"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019076380552220887,
+            "oracle_pixel_sha256": "eaa0b16272326d6fd5d28b7c93a5f90a019420ea0d162acae3c76822129a4ec9"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/apid-64.png",
+          "sha256": "4258d1e34967fe81658bdc7d9e02e9e42fa2bed5f18beb658a637d81e1139a9f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/apid-65.png",
+          "sha256": "ac61c0bf88e076528d48c391aaf4f630cb60529032fa00ed64d6896a699f6dcd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/apid-66.png",
+          "sha256": "7c6995e4cc8ed1cb56d916c67e243f9d81a5eb7189571b6d84e056675fdca0ba"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/native-reference-selected.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/oracle-native/oracle-64.png",
+          "sha256": "a83771922086989af509fb6e03e957610980046215ac33b747e245e1ef69d1a7"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/oracle-native/oracle-65.png",
+          "sha256": "ef7c0a14a92caa171e141e0da5ce5c2e050105cbba0f2642d107c3f540841270"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/oracle-native/oracle-66.png",
+          "sha256": "00f3cc616d7ce4815111189fdd42dd69eeef1ace239a1de698f72a518febcd3d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/oracle-native/verification.json",
+          "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/packets.bin",
+          "sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/reference.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/result.json",
+          "sha256": "5f396cf60afc21e2e3f8b1688a05f0f8e31903d7752fcdf15a542fcd848c5973"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-997/vcdu.bin",
+          "sha256": "44df3e323e78626d5df99f224dd30535eac35d69254872367c5edb54f77dac83"
+        }
+      ]
+    },
+    {
+      "case": "noise-and-drift",
+      "chunk_size": 16384,
+      "recovered_frames": 175,
+      "missing_frames": 0,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:01:00.973467+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-noise-and-drift-16384-1011.log",
+      "log_sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 153846,
+        "reference_packet_sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332",
+        "packet_counts": {
+          "65": 233,
+          "66": 230,
+          "70": 16,
+          "64": 224
+        },
+        "decoded_segments": 687,
+        "complete_lines": 384,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135298261092,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019639105642256904,
+            "oracle_pixel_sha256": "a497733792d3679dbbe0ab5c2196492244bbf52e727232e0fc0bdc3ca78c9f51"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.01794624099639856,
+            "oracle_pixel_sha256": "91998fcbff3bf2f38ca06ac9ca89b54870138fc226cb39cb9e95966f59f46e27"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 136,
+            "pixels": 213248,
+            "max_error": 1,
+            "mean_error": 0.019076380552220887,
+            "oracle_pixel_sha256": "eaa0b16272326d6fd5d28b7c93a5f90a019420ea0d162acae3c76822129a4ec9"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/apid-64.png",
+          "sha256": "4258d1e34967fe81658bdc7d9e02e9e42fa2bed5f18beb658a637d81e1139a9f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/apid-65.png",
+          "sha256": "ac61c0bf88e076528d48c391aaf4f630cb60529032fa00ed64d6896a699f6dcd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/apid-66.png",
+          "sha256": "7c6995e4cc8ed1cb56d916c67e243f9d81a5eb7189571b6d84e056675fdca0ba"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/native-reference-selected.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/oracle-native/oracle-64.png",
+          "sha256": "a83771922086989af509fb6e03e957610980046215ac33b747e245e1ef69d1a7"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/oracle-native/oracle-65.png",
+          "sha256": "ef7c0a14a92caa171e141e0da5ce5c2e050105cbba0f2642d107c3f540841270"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/oracle-native/oracle-66.png",
+          "sha256": "00f3cc616d7ce4815111189fdd42dd69eeef1ace239a1de698f72a518febcd3d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/oracle-native/verification.json",
+          "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/packets.bin",
+          "sha256": "fe1e2979d3a6b7f3d05b4ad96f4a8ca1e7e9b1aa67131bd4394dbfd072f14332"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/reference.cadu",
+          "sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/result.json",
+          "sha256": "5f396cf60afc21e2e3f8b1688a05f0f8e31903d7752fcdf15a542fcd848c5973"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-noise-and-drift-16384/vcdu.bin",
+          "sha256": "44df3e323e78626d5df99f224dd30535eac35d69254872367c5edb54f77dac83"
+        }
+      ]
+    },
+    {
+      "case": "fade-and-phase-slip",
+      "chunk_size": 997,
+      "recovered_frames": 122,
+      "missing_frames": 53,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:01:01.203562+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-fade-and-phase-slip-997-1011.log",
+      "log_sha256": "2649bf853595ef55dc865b92324f9d959c9fbe5baf6c81b7a7355071600838ff",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "a3310c48c68b7039425802d7075ab7b9faa7e7ca5accecac1f8f3d273967c9c8",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 107064,
+        "reference_packet_sha256": "e3718f23f54adc5cbf4190b37adbd3020d993c193e44627f97468e2ae6a9209e",
+        "packet_counts": {
+          "65": 165,
+          "66": 160,
+          "70": 11,
+          "64": 154
+        },
+        "decoded_segments": 479,
+        "complete_lines": 264,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135304416800,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 96,
+            "pixels": 150528,
+            "max_error": 1,
+            "mean_error": 0.018926711309523808,
+            "oracle_pixel_sha256": "adbb2c8fbb6f9ddfc44241a963995b67d00595f01e26fb208735ac5da9454cb5"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 96,
+            "pixels": 150528,
+            "max_error": 1,
+            "mean_error": 0.015737935799319726,
+            "oracle_pixel_sha256": "29310df58fad0b41407dfcfbe2acb6286fb996dba286dbde2c2a5cc36ea9b150"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 96,
+            "pixels": 150528,
+            "max_error": 1,
+            "mean_error": 0.016362404336734693,
+            "oracle_pixel_sha256": "d4ba2a68adcc00e55743f5612d36d90ef451a6ce97582b0d044c37fd86d84c96"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/apid-64.png",
+          "sha256": "4801496b4b44fa6a96b02825b9a717b78437d824d5538bafdf1968878d7ac80f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/apid-65.png",
+          "sha256": "4e2e3c2161a026579eb0028198a7084dec9de4bf81d83af5c4c576b2c76003f6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/apid-66.png",
+          "sha256": "91e26198d12f5dcc917c73fa4d7913e56214953dd7ba3ae49a560c33ef27ac89"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/native-reference-selected.cadu",
+          "sha256": "a3310c48c68b7039425802d7075ab7b9faa7e7ca5accecac1f8f3d273967c9c8"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/oracle-native/oracle-64.png",
+          "sha256": "8e555f4b7f9ff561ab2e3c09f6e58dd94caa9b83714b47d8da1369b74a687220"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/oracle-native/oracle-65.png",
+          "sha256": "5cf712676365ab6626b89de56421996969b490cef718d3eb06af26f1e9a1ef53"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/oracle-native/oracle-66.png",
+          "sha256": "c6824a658015c53cf71743dca71620efebee483b2d3473c19190c39507a6d387"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/oracle-native/verification.json",
+          "sha256": "2649bf853595ef55dc865b92324f9d959c9fbe5baf6c81b7a7355071600838ff"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/packets.bin",
+          "sha256": "e3718f23f54adc5cbf4190b37adbd3020d993c193e44627f97468e2ae6a9209e"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/reference.cadu",
+          "sha256": "a3310c48c68b7039425802d7075ab7b9faa7e7ca5accecac1f8f3d273967c9c8"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/result.json",
+          "sha256": "e2f1babdc87a5f72cba1370d5810edc2097bfada1b3506259bcd3fb897ba5c58"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-997/vcdu.bin",
+          "sha256": "daed2dc27fa333fad0fc787fa7936427f9647c28c97b0e3f946159116d716db4"
+        }
+      ]
+    },
+    {
+      "case": "fade-and-phase-slip",
+      "chunk_size": 16384,
+      "recovered_frames": 122,
+      "missing_frames": 53,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/native-reference-selected.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:01:01.372991+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-oracle-fade-and-phase-slip-16384-1011.log",
+      "log_sha256": "2649bf853595ef55dc865b92324f9d959c9fbe5baf6c81b7a7355071600838ff",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "a3310c48c68b7039425802d7075ab7b9faa7e7ca5accecac1f8f3d273967c9c8",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 107064,
+        "reference_packet_sha256": "e3718f23f54adc5cbf4190b37adbd3020d993c193e44627f97468e2ae6a9209e",
+        "packet_counts": {
+          "65": 165,
+          "66": 160,
+          "70": 11,
+          "64": 154
+        },
+        "decoded_segments": 479,
+        "complete_lines": 264,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135304416800,
+        "last_timestamp_us": 810135317959359,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 96,
+            "pixels": 150528,
+            "max_error": 1,
+            "mean_error": 0.018926711309523808,
+            "oracle_pixel_sha256": "adbb2c8fbb6f9ddfc44241a963995b67d00595f01e26fb208735ac5da9454cb5"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 96,
+            "pixels": 150528,
+            "max_error": 1,
+            "mean_error": 0.015737935799319726,
+            "oracle_pixel_sha256": "29310df58fad0b41407dfcfbe2acb6286fb996dba286dbde2c2a5cc36ea9b150"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 96,
+            "pixels": 150528,
+            "max_error": 1,
+            "mean_error": 0.016362404336734693,
+            "oracle_pixel_sha256": "d4ba2a68adcc00e55743f5612d36d90ef451a6ce97582b0d044c37fd86d84c96"
+          }
+        ]
+      },
+      "output_artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/apid-64.png",
+          "sha256": "4801496b4b44fa6a96b02825b9a717b78437d824d5538bafdf1968878d7ac80f"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/apid-65.png",
+          "sha256": "4e2e3c2161a026579eb0028198a7084dec9de4bf81d83af5c4c576b2c76003f6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/apid-66.png",
+          "sha256": "91e26198d12f5dcc917c73fa4d7913e56214953dd7ba3ae49a560c33ef27ac89"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/native-reference-selected.cadu",
+          "sha256": "a3310c48c68b7039425802d7075ab7b9faa7e7ca5accecac1f8f3d273967c9c8"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/oracle-native/oracle-64.png",
+          "sha256": "8e555f4b7f9ff561ab2e3c09f6e58dd94caa9b83714b47d8da1369b74a687220"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/oracle-native/oracle-65.png",
+          "sha256": "5cf712676365ab6626b89de56421996969b490cef718d3eb06af26f1e9a1ef53"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/oracle-native/oracle-66.png",
+          "sha256": "c6824a658015c53cf71743dca71620efebee483b2d3473c19190c39507a6d387"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/oracle-native/verification.json",
+          "sha256": "2649bf853595ef55dc865b92324f9d959c9fbe5baf6c81b7a7355071600838ff"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/packets.bin",
+          "sha256": "e3718f23f54adc5cbf4190b37adbd3020d993c193e44627f97468e2ae6a9209e"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/reference.cadu",
+          "sha256": "a3310c48c68b7039425802d7075ab7b9faa7e7ca5accecac1f8f3d273967c9c8"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/result.json",
+          "sha256": "e2f1babdc87a5f72cba1370d5810edc2097bfada1b3506259bcd3fb897ba5c58"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors/decoded-fade-and-phase-slip-16384/vcdu.bin",
+          "sha256": "daed2dc27fa333fad0fc787fa7936427f9647c28c97b0e3f946159116d716db4"
+        }
+      ]
+    }
+  ],
+  "source_sha256": {
+    "lrpt-decode/src/ccsds.rs": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+    "lrpt-decode/src/diff_decode.rs": "678dd1b0eaf4b254901ab517a8d9e002d45dac97bbb1c2e4257c6fcae626fc1d",
+    "lrpt-decode/src/frame_sync.rs": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+    "lrpt-decode/src/image_builder.rs": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+    "lrpt-decode/src/interleaver.rs": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+    "lrpt-decode/src/iq_source.rs": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+    "lrpt-decode/src/lib.rs": "7707a7e08adfe7ec5de4459e33b134cca9a15ac51f01bfe9e7e598fc12ea542d",
+    "lrpt-decode/src/off_air_validation.rs": "932a72ee7fb86600258057a4fa2e59c1a054b6284f4864d92eb7c8f5402a230c",
+    "lrpt-decode/src/qpsk.rs": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+    "lrpt-decode/src/randomizer.rs": "54dc448169c2058edf7055bec38930eb09eec331a295cc8258f78a241fc8529c",
+    "lrpt-decode/src/reed_solomon.rs": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+    "lrpt-decode/src/synthetic_product_validation.rs": "e7ebf8d306806963c5238b88fd10327abceeb0a518f769db249949e9c00c6359",
+    "lrpt-decode/src/viterbi.rs": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+    "audit/2026-10-07/generate_80k_image_vectors.py": "7c3e2d95b63cbfbcc04338d5ca084d3370f7d3020409db99ec5f90a895213551",
+    "audit/2026-10-07/generate_oqpsk_vectors.py": "4a6667b653a22d1854f8802caeca06535164e59a053f75cbefd6cd147d9ca590",
+    "audit/2026-10-07/verify_80k_native_reference.py": "84d575a6734be4c17e2e2a39301c913bf95396777911716b9d1fa98fccba221e",
+    "audit/2026-10-07/verify_public_image.py": "ba9c1e9f9fe4ad9f72113167096fad2ba1ac91cc4f0de56beb2b6f321d1331e5",
+    "audit/2026-10-07/repair-evidence/synthetic-80k-verify-1011.py": "15d6063149a56eaf6c5ab66db22c170f01b00880e9a1d9839a55bf1ba3dd0197"
+  },
+  "verification_boundary": "Synthetic 80k RF carrying independently decoded public 72k image content. The native-C transport reference sees ideal transmitted bits, while the actual app receives independently pulse-shaped impaired RF samples. Original off-air 80k and physical/field release gates remain unverified.",
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "lrpt-decode",
+        "--lib",
+        "--tests",
+        "-j",
+        "4",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-clippy-1011.log",
+      "log_sha256": "67291a3c0173c9970c05b5cd882cba177d7058fe5dbd268188a4d6dcbb63adfb"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "lrpt-decode",
+        "--release",
+        "--lib",
+        "-j",
+        "4",
+        "--",
+        "--test-threads=4"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-regressions-1011.log",
+      "log_sha256": "8524bdc4000524946f8ff8c516e7d16923c8b6bd110d9f8dbe95537ab37386eb"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-format-1011.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "lrpt-decode",
+        "-j",
+        "4"
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-build-1011.log",
+      "log_sha256": "425514c9f2c6e932a8599f4dc93d1dad768209b5882c0758ceccd8fff3e5a1c4"
+    },
+    {
+      "command": [
+        "graphify",
+        "update",
+        "."
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-graph-1011.log",
+      "log_sha256": "9c9ee70274fa99f4241c1701a2448b9550ef82127016f8552978eb3e315a0830"
+    }
+  ],
+  "actual_rf_test": {
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "lrpt-decode",
+      "--release",
+      "--lib",
+      "synthetic_product_validation::independent_80k_rf_images_match_reference_across_impairments_and_partitions",
+      "-j",
+      "4",
+      "--",
+      "--exact",
+      "--ignored",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "environment": {
+      "EZ_80K_IMAGE_VECTORS": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors"
+    },
+    "exit_code": 0,
+    "log": "repair-evidence/synthetic-80k-rf-1011-attempt-1.log",
+    "log_sha256": "9753a89847b8f02547e87fefdc7a8005d6d21330d0ae6244a3fd8816fb46879a"
+  },
+  "native_reference_command": [
+    "python3",
+    "audit/2026-10-07/verify_80k_native_reference.py",
+    "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/reference-build/liblrpt.so",
+    "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/vectors"
+  ],
+  "convention_sources": [
+    {
+      "commit": "1aedd602055c154401384a8cc7876713bb371254",
+      "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/Meteor-M.json",
+      "sha256": "972bd104f51ab66bcbc86b3e0cba2b06d5fdc752f282d626dd844aa6a1b62cb3",
+      "url": "https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/resources/pipelines/Meteor-M.json"
+    },
+    {
+      "commit": "1aedd602055c154401384a8cc7876713bb371254",
+      "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/module_meteor_lrpt_decoder.cpp",
+      "sha256": "a85177bbcca34daab46bc33c67c3d9eadd88611d2e17c8145fbf8f7f804f0e93",
+      "url": "https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/module_meteor_lrpt_decoder.cpp"
+    }
+  ],
+  "reference_limits": "The unmodified old meteor_decode CLI -i -d reports zero MPDUs because its differential stage is pre-Viterbi per-quadrature, unlike modern m2x_mode post-Viterbi NRZ-M. The successful separate adapter uses its unmodified native transport primitives with the independently documented modern convention. It decodes ideal transmitted bits, not impaired RF; application RF output is compared to that independently decoded data and Pillow/libjpeg images.",
+  "retained_probe_logs": [
+    {
+      "path": "repair-evidence/synthetic-80k-build-1011.log",
+      "sha256": "425514c9f2c6e932a8599f4dc93d1dad768209b5882c0758ceccd8fff3e5a1c4"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-clippy-1011.log",
+      "sha256": "67291a3c0173c9970c05b5cd882cba177d7058fe5dbd268188a4d6dcbb63adfb"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-format-1011.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-generation-1011-attempt-2.log",
+      "sha256": "5137021d1d157dffac7379afd14e8d2da7ffd4c26374c831f5654781921effec"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-generation-1011.log",
+      "sha256": "5c814ac077e3cef3e2f14c3014f7cec9fdb78514e79a7b9444083b9a54f2405a"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-graph-1011.log",
+      "sha256": "9c9ee70274fa99f4241c1701a2448b9550ef82127016f8552978eb3e315a0830"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-native-reference-1011.log",
+      "sha256": "b6e18d4eb6c61efbf3d7919664364d59c0d2f1b7a5a30634623a99bddeb39cb8"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-clean-negative-16384-1011.log",
+      "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-clean-negative-997-1011.log",
+      "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-clean-positive-16384-1011.log",
+      "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-clean-positive-997-1011.log",
+      "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-fade-and-phase-slip-16384-1011.log",
+      "sha256": "2649bf853595ef55dc865b92324f9d959c9fbe5baf6c81b7a7355071600838ff"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-fade-and-phase-slip-997-1011.log",
+      "sha256": "2649bf853595ef55dc865b92324f9d959c9fbe5baf6c81b7a7355071600838ff"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-noise-and-drift-16384-1011.log",
+      "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-oracle-noise-and-drift-997-1011.log",
+      "sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-reference-build-1011.log",
+      "sha256": "db3484eb80f7c21597edbe352f743844f604a746fb92b5c95c980b8901cb00ef"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-reference-decode-1011.log",
+      "sha256": "2868f95379ca6a08da96f967946d0360670f6705540b7def04325cd98ee58266"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-regressions-1011.log",
+      "sha256": "8524bdc4000524946f8ff8c516e7d16923c8b6bd110d9f8dbe95537ab37386eb"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-rf-1011-attempt-1.log",
+      "sha256": "9753a89847b8f02547e87fefdc7a8005d6d21330d0ae6244a3fd8816fb46879a"
+    },
+    {
+      "path": "repair-evidence/synthetic-80k-verification-1011-console.log",
+      "sha256": "8babb42baf43fb0669f3e833febff95538287977a6fd5db30a333a4cc42c172b"
+    }
+  ],
+  "verified_utc": "2026-10-11T06:03:07.508131+00:00"
+}
