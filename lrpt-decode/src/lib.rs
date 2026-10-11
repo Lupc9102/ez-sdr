@@ -17,6 +17,8 @@ mod frame_sync;
 mod image_builder;
 mod interleaver;
 mod iq_source;
+#[cfg(test)]
+mod off_air_validation;
 mod qpsk;
 mod randomizer;
 mod reed_solomon;
@@ -461,6 +463,8 @@ pub struct LrptDecoder {
     last_progress_lock: Option<(bool, bool)>,
     #[cfg(test)]
     validated_payloads: Vec<Vec<u8>>,
+    #[cfg(test)]
+    validated_packets: Vec<ccsds::SpacePacket>,
 }
 
 impl LrptDecoder {
@@ -493,6 +497,8 @@ impl LrptDecoder {
             last_progress_lock: None,
             #[cfg(test)]
             validated_payloads: Vec::new(),
+            #[cfg(test)]
+            validated_packets: Vec::new(),
         }
     }
 
@@ -739,6 +745,8 @@ impl LrptDecoder {
         );
 
         for packet in self.reassembler.drain_completed() {
+            #[cfg(test)]
+            self.validated_packets.push(packet.clone());
             if image_builder::IMAGE_APIDS.contains(&packet.apid) {
                 self.images
                     .push_packet(packet.apid, packet.header.sequence_count, &packet.data);
@@ -1811,12 +1819,14 @@ mod tests {
         let (tx, _rx) = crossbeam_channel::bounded(2);
         let mut decoder = LrptDecoder::for_mission(288_000, MeteorProfile::Oqpsk72, tx).unwrap();
         let mut bytes = [0; 8192];
+        let mut input_bytes = 0_u64;
         loop {
             let count = input.read(&mut bytes).unwrap();
             if count == 0 {
                 break;
             }
             assert_eq!(count % 2, 0);
+            input_bytes += count as u64;
             decoder.push_samples_cs8(&bytes[..count]);
         }
         let mut matched = 0;
@@ -1835,6 +1845,17 @@ mod tests {
             }
         }
         println!("public off-air start={start}s duration={seconds}s accepted={} matched={matched} additional={additional} rs_ok={}",decoder.validated_payloads.len(),decoder.rs_ok);
+        if let Ok(directory) = std::env::var("EZ_METEOR_VALIDATION_OUTPUT") {
+            off_air_validation::export(
+                &decoder,
+                &reference,
+                std::path::Path::new(&directory),
+                input_bytes,
+                start,
+                seconds,
+            )
+            .unwrap();
+        }
         assert!(matched >= 100, "insufficient independent off-air matches");
         assert_eq!(
             additional, 0,

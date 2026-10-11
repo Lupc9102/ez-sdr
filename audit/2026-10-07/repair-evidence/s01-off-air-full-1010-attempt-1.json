@@ -1,0 +1,167 @@
+{
+  "started_utc": "2026-10-10T15:42:11.513968+00:00",
+  "mode": "full",
+  "cpu_max": [
+    "10000",
+    "100000"
+  ],
+  "cargo_jobs": 1,
+  "test_threads": 1,
+  "mission_profile": "Oqpsk72",
+  "sample_rate_hz": 288000,
+  "source_sha256": {
+    "lrpt-decode/src/ccsds.rs": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+    "lrpt-decode/src/diff_decode.rs": "678dd1b0eaf4b254901ab517a8d9e002d45dac97bbb1c2e4257c6fcae626fc1d",
+    "lrpt-decode/src/frame_sync.rs": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+    "lrpt-decode/src/image_builder.rs": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+    "lrpt-decode/src/interleaver.rs": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+    "lrpt-decode/src/iq_source.rs": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+    "lrpt-decode/src/lib.rs": "2773be0e0842bb1ecb9d0546108923382083ea06c3be25c5d823c1a2ae4aa528",
+    "lrpt-decode/src/off_air_validation.rs": "55912f1cc93a080a9f23b13971b9c518003d60ce3791b1f7d3490ce24a364986",
+    "lrpt-decode/src/qpsk.rs": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+    "lrpt-decode/src/randomizer.rs": "54dc448169c2058edf7055bec38930eb09eec331a295cc8258f78a241fc8529c",
+    "lrpt-decode/src/reed_solomon.rs": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+    "lrpt-decode/src/viterbi.rs": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+    "audit/2026-10-07/verify_public_image.py": "ba9c1e9f9fe4ad9f72113167096fad2ba1ac91cc4f0de56beb2b6f321d1331e5",
+    "audit/2026-10-07/repair-evidence/s01-off-air-runner-1010.py": "a086947ce0899d5e6f1e37335a42be3d090946059c599ba0ed696983577ddae8"
+  },
+  "iq_prefix_sha256": "251a795ee1a6f82f92759e3bb24416d13f5d46b9449e2c01b6e8cf823ea697ed",
+  "reference_cadu_sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90",
+  "input_recording_complete": false,
+  "environment": {
+    "EZ_METEOR_CS8": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/meteor-72k.cs8",
+    "EZ_METEOR_CADU": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/meteor_m2-x_lrpt.cadu",
+    "EZ_METEOR_START_SECONDS": "0",
+    "EZ_METEOR_SECONDS": "907",
+    "EZ_METEOR_VALIDATION_OUTPUT": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1"
+  },
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "lrpt-decode",
+        "--release",
+        "--lib",
+        "tests::public_off_air_carrier_recovers_reference_payload_bytes",
+        "-j",
+        "1",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-10T15:42:11.513994+00:00",
+      "exit_code": 0,
+      "log": "audit/2026-10-07/repair-evidence/s01-off-air-full-1010-attempt-1-rf.log",
+      "log_sha256": "6574e02db3b168cd276bab2a8c19c9e8696eddc085a39197bb2c01700d13f144",
+      "finished_utc": "2026-10-10T17:38:11.405653+00:00"
+    },
+    {
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/reference.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1",
+        "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/oracle"
+      ],
+      "started_utc": "2026-10-11T05:05:05.434452+00:00",
+      "finished_utc": "2026-10-11T05:05:09.185936+00:00",
+      "exit_code": 0,
+      "log": "audit/2026-10-07/repair-evidence/s01-off-air-full-1011-resumed-oracle.log",
+      "log_sha256": "74092b92a531898fac2fe1854dd29fb4d611e75213f5f12c2f5cac0f6ea7a836"
+    }
+  ],
+  "verification_boundary": "72k accepted CADUs/packets/products only. Missing reference frames remain explicit. No 80k or physical-hardware release gate is closed.",
+  "finished_utc": "2026-10-11T05:05:09.186072+00:00",
+  "packet_bytes_verified": true,
+  "packet_bytes_compared": 6055292,
+  "reference_packet_sha256": "4d8a7c9d4654b982b884c014afbe78d3e0062a15f48d79654cb30b98b5d35da6",
+  "comparisons": [
+    {
+      "apid": 66,
+      "width": 1568,
+      "height": 5320,
+      "pixels": 8341760,
+      "max_error": 1,
+      "mean_error": 0.017552291123216202,
+      "oracle_pixel_sha256": "2faefde222f1df189203598c31cb23f50c39e1f8fa26cd1d9dd06fd9f7188ce3"
+    },
+    {
+      "apid": 64,
+      "width": 1568,
+      "height": 5320,
+      "pixels": 8341760,
+      "max_error": 1,
+      "mean_error": 0.017496547491176923,
+      "oracle_pixel_sha256": "c53fffa7931cf1363b1b3099797232001d1d9b5770836fe0f298212058729a4c"
+    },
+    {
+      "apid": 65,
+      "width": 1568,
+      "height": 5320,
+      "pixels": 8341760,
+      "max_error": 1,
+      "mean_error": 0.01756763560687433,
+      "oracle_pixel_sha256": "8235629301fcc24da0cd6cb226ac293f031745243bf5c3d0c30537d0e2413119"
+    }
+  ],
+  "recovered_frames": 6899,
+  "missing_reference_frames": 439,
+  "all_reference_frames_recovered": false,
+  "input_bytes": 522059776,
+  "product_json": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/result.json",
+  "artifacts": [
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/apid-64.png",
+      "sha256": "30083a59ea38ade6f5bcc463151dc8be95bee0ad3d4d474a37695929605043e4"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/apid-65.png",
+      "sha256": "82428c29003bc4c157de294269a26e3ddde621d18b5288cf1acc7b07a66f4aa9"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/apid-66.png",
+      "sha256": "170f51871f876fde8ba93f47112ee2ebe5d465af1754213cd679caafab1af43b"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/oracle/oracle-64.png",
+      "sha256": "8f5e93fab04fbb311a2eb2d4c3362eaa96f4e5a79b204295f086c4ad4641eb33"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/oracle/oracle-65.png",
+      "sha256": "0b1c6d255622310039ef7eaeb4d083e080677928b0202aa3e80d56fe47231e6a"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/oracle/oracle-66.png",
+      "sha256": "a488b6913c5e6874bfc965415149aad86071902becb3f1fafdfa8536817b7fe3"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/oracle/verification.json",
+      "sha256": "74092b92a531898fac2fe1854dd29fb4d611e75213f5f12c2f5cac0f6ea7a836"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/packets.bin",
+      "sha256": "4d8a7c9d4654b982b884c014afbe78d3e0062a15f48d79654cb30b98b5d35da6"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/reference.cadu",
+      "sha256": "2d96755d47176b1d3e5b3f33670e0316dc58b2e1444a6bea44f3dee164a30739"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/result.json",
+      "sha256": "bd1fb7aa014c45c244d248f0847f0030fafea9e9d67d13a1ec8b54f6dbb0271d"
+    },
+    {
+      "path": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/s01-off-air-full-1010-attempt-1/vcdu.bin",
+      "sha256": "540529712c067013ae1bca7ff3cf47585e71d65c1139aa42b720277065463ff3"
+    }
+  ],
+  "resumption": {
+    "reason": "Progress pipe closed after RF test passed (helper exited 120). Saved RF sources, input and log hashes verified before continuation.",
+    "runner_sha256": "a775e38fec040480a2037c97ab6578ec438823808e1663cda0055ea42e4f6b41",
+    "full_cpu_authorized": true
+  }
+}

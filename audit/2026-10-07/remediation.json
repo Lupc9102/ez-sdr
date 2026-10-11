@@ -16,7 +16,8 @@
         "tests::mission_profile_rejects_unsupported_rates_and_preserves_explicit_transport_on_gap",
         "tests::interleaved_profile_never_accepts_a_plain_uninterleaved_transport",
         "tests::mission_gap_preserves_product_but_new_product_retires_images_and_counts",
-        "Explicit Oqpsk72 public off-air slice: 175 byte-identical reference CADUs."
+        "Explicit Oqpsk72 public off-air slice: 175 byte-identical reference CADUs.",
+        "Explicit Oqpsk72 actual-RF slice and full usable IQ prefix: byte-identical completed packets and independent Pillow/CDS-time image comparisons; missing reference frames reported. See repair-public-rf-verification-1010.json."
       ],
       "original_repair_gate": "Add explicit mission/transport profiles. Decode marker-bearing interleaved symbols with streaming state and validate the resulting CADUs against an independently decoded 80k recording. Also validate the separate 72k NRZ-M profile. Compare packet bytes and images, not just lock flags."
     },

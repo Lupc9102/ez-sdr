@@ -81,6 +81,12 @@ def main():
     source, repaired, output = map(Path, sys.argv[1:])
     output.mkdir(parents=True, exist_ok=True)
     packets = list(space_packets(source.read_bytes()))
+    packet_dump = repaired / "packets.bin"
+    packet_bytes_verified = False
+    packet_bytes = b"".join(packets)
+    if packet_dump.exists():
+        assert packet_dump.read_bytes() == packet_bytes, "RF decoder packet bytes differ from the independent reference parser"
+        packet_bytes_verified = True
     histogram = Counter(int.from_bytes(packet[:2], "big") & 2047 for packet in packets)
     segments = []
     headers = {}
@@ -143,6 +149,9 @@ def main():
     assert application["packets"] == {str(apid): count for apid, count in histogram.items()}
     result = {"oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
               "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+              "packet_bytes_verified": packet_bytes_verified,
+              "packet_bytes_compared": len(packet_bytes) if packet_bytes_verified else 0,
+              "reference_packet_sha256": hashlib.sha256(packet_bytes).hexdigest(),
               "packet_counts": dict(histogram), "decoded_segments": valid_segments,
               "complete_lines": complete_lines, "measured_group_period_us": period,
               "first_timestamp_us": first_time, "last_timestamp_us": times[-1],
