@@ -19,8 +19,10 @@ fn preferred_host() -> Result<cpal::Host, String> {
     Ok(cpal::default_host())
 }
 use crossbeam_channel::Receiver;
+#[cfg(feature = "audio")]
+use std::sync::atomic::AtomicU32;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 
@@ -338,6 +340,7 @@ fn build_output_stream<T: cpal::SizedSample + cpal::FromSample<f32>>(
         Some(STREAM_INITIALIZATION_TIMEOUT),
     )
 }
+#[cfg(any(feature = "audio", test))]
 fn record_failure(failed: &AtomicBool, message: &Mutex<Option<String>>, error: String) {
     if let Ok(mut message) = message.lock() {
         *message = Some(error);
@@ -672,11 +675,11 @@ impl AudioOutput {
 
     /// Non-blocking audio send via the worker's internal channel.
     /// Returns `false` if the channel is full (sample is dropped).
-    pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    pub fn push_audio(&self, _samples: Vec<f32>) -> bool {
         #[cfg(feature = "audio")]
         {
             if let Some(worker) = &self.worker {
-                return worker.push_audio(samples);
+                return worker.push_audio(_samples);
             }
         }
         false

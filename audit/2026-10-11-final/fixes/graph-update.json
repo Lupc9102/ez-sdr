@@ -1,0 +1,17 @@
+{
+  "command": [
+    "graphify",
+    "update",
+    "."
+  ],
+  "exit_code": 0,
+  "updated_graph": "graphify-out/graph.json",
+  "nodes": 7724,
+  "removed_regenerated_previously_deleted_paths": [
+    "graphify-out/.graphify_labels.json",
+    "graphify-out/.graphify_root",
+    "graphify-out/GRAPH_REPORT.md",
+    "graphify-out/manifest.json"
+  ],
+  "preserved_deletions": 672
+}

@@ -1,5 +1,9 @@
 # EZ-SDR final hackathon audit — 11 October 2026
 
+The original audit and grades below describe the audited baseline. Subsequent
+implementation repairs and fresh verification are recorded in **Implementation
+follow-up** at the end; the original evidence has been preserved.
+
 **Honest overall grade: 6.5/10 against the requested unified replacement. Functionality within the implemented scope: 8/10.**
 
 **Ship verdict: not cleared for an unconditional “fully functional replacement” or public binary distribution.** The three workspaces contain substantial working implementations. A scoped demonstration can be credible, with recorded input and clearly stated limits. Distribution licensing, incomplete advertised CLI feeds, and physical reception validation remain open gates.
@@ -167,3 +171,63 @@ Across five cases with 120 measured frames each (ten warmup frames excluded), to
 Native RF processing per 16,384-sample block has p95 **843 µs**, p99 **928 µs**, and maximum **16,238 µs**, versus a nominal **6,827 µs** capture-block interval at 2.4 MSPS. The isolated scheduling outlier exceeds one block interval; buffering absorbs it without measured loss here. The separate one-second synthetic Radio pipeline cases run at least **4.3× real time**. Neither short result proves a full-pass or overnight hardware run. [Detailed CPU distributions](/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/performance/performance.json), [commands/results](/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/performance.json).
 
 Recorded-input demonstration readiness and field readiness are different conclusions. The evidence supports a presentation of **Radio, native 1090 MHz ADS-B and offline Meteor import** with clearly identified inputs. It does not clear a public distribution with unresolved licensing, the advertised inactive feeds, or a claim of complete SDR++/SatDump equivalence. Fix those concrete contracts, then validate the target hardware before a live-reception promise.
+
+## Implementation follow-up
+
+Three Luna subagents implemented the CLI, transport/headless and
+licensing/packaging repairs; the coordinating agent reviewed and verified the
+combined work. These changes address the software findings without replacing the
+original audit's field evidence or grade.
+
+- **Finding 1:** `dump1090` now declares `GPL-2.0-or-later AND BSD-3-Clause`,
+  with upstream attribution and full license texts. Combined Linux binaries use
+  the compatible GPL-3.0-or-later terms; independently authored components retain
+  their original dual-license grants. [License overview](../../../LICENSE.md)
+  and [notices](../../../LICENSES/THIRD-PARTY-NOTICES.md) explain the scopes.
+  The license-policy check now passes; its allowlist is supported by provenance
+  and source-distribution changes.
+- **Finding 2:** the executable sends accepted messages to Beast, untimestamped
+  raw AVR and populated 22-column BaseStation SBS feeds. The real-process
+  regression connects all three clients before independently generated I/Q,
+  then checks message payloads, callsign, altitude, paired CPR coordinates,
+  ground velocity and timestamps. CPR freshness uses capture time during fast
+  replay. Mode A/C raw messages use a valid untimestamped prefix; SBS omits
+  namespaced non-ICAO addresses it cannot represent without ambiguity.
+- **Finding 3 remains open:** the user reports an RTL-SDR v4, but the latest
+  device inventory still finds no supported receiver attached to this machine.
+  Antenna reception, audible output, reconnect and extended hardware runs require
+  actual equipment observations. [Field checklist](../../../HARDWARE_VALIDATION.md)
+  and [fresh inventory](fixes/hardware-inventory.json) retain that gate.
+- **Finding 4 remains open:** an original off-air 80k Meteor capture and a matched
+  SatDump comparison are still required. The user is locating a recording.
+  Existing synthetic 80k and public 72k evidence is not relabeled as that proof.
+- **Finding 5:** README now states the single active listening chain, mono and
+  mode-limited daemon audio, imported-only Meteor workflow/image-height limit,
+  external UAT decoder and absent browser frontend. REST and WebSocket requests
+  share a Host/Origin guard. A real synthetic daemon rejects rebinding-shaped
+  controls before tuning changes; valid local clients still work. Native DNS
+  aliases require a proxy with a localhost/numeric upstream Host. The transports
+  remain unauthenticated and retain the documented trusted-network scope.
+- **Finding 6:** release packaging supplies all three binaries, installation
+  instructions, notices, checksums, builder/native-library metadata and matching
+  source with locked Cargo dependencies vendored. It rejects uncommitted release
+  inputs and rebuilds the hardware/audio feature configuration before bundling.
+  Ubuntu 24.04 is pinned; native runtime libraries remain separately installed.
+  No portable installer, Windows/macOS validation or external release is claimed.
+  Headless warnings are fixed and strict headless Clippy is enforced in CI.
+  The yanked `yoke-derive` 0.8.3 is replaced by 0.8.4; the existing bincode
+  maintenance exception and required versioned migration are explicitly tracked.
+
+Fresh [quality checks](fixes/quality.json), [default tests](fixes/full.json),
+[headless tests](fixes/headless.json), [dependency/license scans](fixes/security.json)
+and [daemon process checks](fixes/daemon-process.json) record commands, results
+and available log hashes. Default release tests pass 1,804 executions and headless
+release tests pass 1,795, with zero failures; 14 and 13 checks respectively
+remain ignored in the normal invocations. These are executions, including
+duplicated library/binary tests, rather than unique cases. The first
+formatting/headless-helper failures remain
+in [first-quality](fixes/first-quality/quality.json); they were corrected before
+the final checks. [Source fingerprints](fixes/source.json) identify the checked
+code. [Graph update](fixes/graph-update.json) records the AST refresh and
+preservation of all 672 pre-existing tracked deletions. The untracked AGENTS.md
+also remains outside the implementation commits.

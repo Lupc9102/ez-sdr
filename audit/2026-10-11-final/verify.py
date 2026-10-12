@@ -21,7 +21,11 @@ os.sched_setaffinity(0, set(cpu_policy["shared_audit_cpu_set"]))
 os.setpriority(os.PRIO_PROCESS, 0, max(os.getpriority(os.PRIO_PROCESS, 0), 10))
 parser = argparse.ArgumentParser()
 parser.add_argument("group", choices=["quality", "runtime", "reference", "performance", "security", "full", "headless"])
+parser.add_argument("--output-dir", type=Path, default=AUDIT,
+                    help="Store fresh results separately from the historical audit")
 args = parser.parse_args()
+AUDIT = args.output_dir.resolve()
+AUDIT.mkdir(parents=True, exist_ok=True)
 environment = dict(os.environ, CARGO_BUILD_JOBS="4", RUST_TEST_THREADS="4")
 cache = Path("/home/lupc/.cache/ez-sdr-audit")
 groups = {
@@ -30,6 +34,7 @@ groups = {
     "quality": [
         ("format", ["cargo", "fmt", "--all", "--", "--check"], {}),
         ("clippy", ["cargo", "clippy", "--workspace", "--locked", "--all-targets", "--", "-D", "warnings"], {}),
+        ("clippy-headless", ["cargo", "clippy", "--workspace", "--locked", "--all-targets", "--no-default-features", "--", "-D", "warnings"], {}),
         ("docs", ["cargo", "doc", "--workspace", "--locked", "--no-deps"], {"RUSTDOCFLAGS": "-D warnings"}),
         ("optional-hardware", ["cargo", "check", "--workspace", "--locked", "--all-features", "--all-targets"], {}),
         ("release-build", ["cargo", "build", "--workspace", "--locked", "--release", "--features", "ez-daemon/rtlsdr,dump1090/rtlsdr"], {}),
@@ -91,3 +96,4 @@ for name, command, extra in groups[args.group]:
     (AUDIT / (args.group + ".json")).write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(record), flush=True)
 print("Passed", sum(c["exit_code"] == 0 for c in manifest["checks"]), "of", len(manifest["checks"]), flush=True)
+raise SystemExit(0 if all(c["exit_code"] == 0 for c in manifest["checks"]) else 1)

@@ -19,8 +19,10 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-AUDIT = Path(__file__).resolve().parent
-policy = json.loads((AUDIT / "cpu-policy.json").read_text())
+AUDIT_SOURCE = Path(__file__).resolve().parent
+AUDIT = Path(os.environ.get("EZ_AUDIT_OUTPUT_DIR", AUDIT_SOURCE)).resolve()
+(AUDIT / "evidence").mkdir(parents=True, exist_ok=True)
+policy = json.loads((AUDIT_SOURCE / "cpu-policy.json").read_text())
 os.sched_setaffinity(0, set(policy["shared_audit_cpu_set"]))
 os.nice(10)
 
@@ -101,7 +103,9 @@ with tempfile.TemporaryDirectory(prefix="ez-final-daemon-") as directory:
         sock.close()
         result["checks"].append({"name": "foreign Origin WebSocket control", "response": response, "synthetic_frequency_changed": changed, "origin_rejected": " 403 " in response})
         assert " 403 " in response and not changed, (response, changed)
-        result["checks"].append({"name": "missing web frontend", "http_status": request("/")[0]})
+        frontend_status = request("/")[0]
+        assert frontend_status == 404, frontend_status
+        result["checks"].append({"name": "missing web frontend", "http_status": frontend_status})
         status, removed = request("/api/channels/77", method="DELETE")
         assert status == 204, (status, removed)
         # Server-side rebinding-shaped request. This does not simulate browser
@@ -111,9 +115,21 @@ with tempfile.TemporaryDirectory(prefix="ez-final-daemon-") as directory:
         status, body = request("/api/hardware/frequency", {"hz": 100200000},
             headers={"Host": f"foreign-audit.example:{web_port}", "Origin": origin})
         _, hardware = request("/api/hardware")
+        assert status == 403 and hardware["frequency_hz"] == 100000000, (status, body, hardware)
         result["checks"].append({"name": "REST Host/Origin boundary", "http_status": status,
             "synthetic_frequency_changed": hardware["frequency_hz"] == 100200000,
-            "scope": "server accepts rebinding-shaped HTTP control; browser DNS/private-network behavior not tested"})
+            "scope": "server rejects rebinding-shaped HTTP control; browser DNS/private-network behavior not tested"})
+        for headers in [
+            {"Origin": "https://foreign-audit.example"},
+            {"Host": f"foreign-audit.example:{web_port}"},
+        ]:
+            status, body = request("/api/hardware/frequency", {"hz": 100200000}, headers=headers)
+            _, hardware = request("/api/hardware")
+            assert status == 403 and hardware["frequency_hz"] == 100000000, (headers, status, body, hardware)
+        status, body = request("/api/hardware/frequency", {"hz": 100100000}, headers={"Origin": base})
+        _, hardware = request("/api/hardware")
+        assert status == 204 and hardware["frequency_hz"] == 100100000, (status, body, hardware)
+        result["checks"].append({"name": "foreign Origin and Host rejected; same-origin REST control works", "passed": True})
     finally:
         began = time.monotonic()
         process.send_signal(signal.SIGINT)
@@ -128,3 +144,4 @@ with tempfile.TemporaryDirectory(prefix="ez-final-daemon-") as directory:
         log.close()
         (AUDIT / "daemon-process.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result, indent=2))
+        assert result["shutdown_exit_code"] == 0 and not result.get("shutdown_forced"), result

@@ -3,13 +3,13 @@
 all: check test clippy fmt
 
 check:
-	cargo check --workspace --all-targets
+	cargo check --workspace --locked --all-targets
 
 test:
-	cargo test --workspace
+	cargo test --workspace --locked
 
 clippy:
-	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy --workspace --locked --all-targets -- -D warnings
 
 fmt:
 	cargo fmt --check

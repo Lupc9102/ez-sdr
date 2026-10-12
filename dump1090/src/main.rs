@@ -16,9 +16,10 @@ pub mod util;
 use clap::Parser;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::convert::IqFormat;
+use crate::cpr::{CprDecoder, CprFrame, CprTimestamp, CprType};
 use crate::demod::{DemodStats, MagBuf, MagBufFlags, ModesMessage};
 use crate::sdr::ifile::IFileSdr;
 #[cfg(feature = "rtlsdr")]
@@ -88,6 +89,138 @@ impl NetOutput {
                 .send_beast(mm.timestamp_msg, signal, &mm.msg[..msg_len]);
         }
     }
+
+    fn broadcast_raw_and_sbs(&self, mm: &ModesMessage, cpr: &mut CprDecoder) {
+        let msg_len = mm.msgbits / 8;
+        if !matches!(msg_len, 2 | 7 | 14) {
+            return;
+        }
+
+        let msg = &mm.msg[..msg_len];
+        // No AVR timestamp is available in the raw serializer, so use the
+        // untimestamped `*` prefix for both Mode S and Mode A/C frames.
+        self.inner.send_raw(msg);
+        if msg_len == 2 {
+            return;
+        }
+
+        if let Some(mut aircraft) = mode_s::decode_validated_mode_s_message(msg) {
+            // BaseStation's six-hex-digit aircraft field cannot represent the
+            // namespaced DF18 addresses tracked internally with a high byte.
+            if aircraft.icao > 0x00FF_FFFF {
+                return;
+            }
+            let type_code = msg.get(4).map_or(0, |byte| byte >> 3);
+            if matches!(aircraft.df, 17 | 18)
+                && ((5..=18).contains(&type_code) || (20..=22).contains(&type_code))
+            {
+                let frame = CprFrame {
+                    cpr_type: if type_code <= 8 {
+                        CprType::Surface
+                    } else {
+                        CprType::Airborne
+                    },
+                    odd: msg[6] & 0x04 != 0,
+                    lat: (u32::from(msg[6] & 0x03) << 15)
+                        | (u32::from(msg[7]) << 7)
+                        | (u32::from(msg[8]) >> 1),
+                    lon: (u32::from(msg[8] & 0x01) << 16)
+                        | (u32::from(msg[9]) << 8)
+                        | u32::from(msg[10]),
+                };
+                aircraft.position = cpr.submit_with_timestamp(
+                    aircraft.icao,
+                    frame,
+                    cpr_capture_timestamp(mm.timestamp_msg),
+                );
+            }
+            let Some(message_type) = sbs_message_type(aircraft.df, type_code) else {
+                return;
+            };
+            let (date, time) = sbs_timestamp(SystemTime::now());
+            let icao = format!("{:06X}", aircraft.icao & 0x00FF_FFFF);
+            self.inner.send_sbs(&format!(
+                "MSG,{message_type},,,{icao},,{date},{time},{date},{time},{callsign},{altitude},{ground_speed},{track},{latitude},{longitude},{vertical_rate},{squawk},,,,{on_ground}",
+                callsign = aircraft.callsign.as_deref().unwrap_or(""),
+                altitude = aircraft.altitude.map_or_else(String::new, |v| v.to_string()),
+                ground_speed = aircraft
+                    .velocity
+                    .map(|v| v.0)
+                    .or(aircraft.surface_movement)
+                    .map_or_else(String::new, |v| format!("{v:.1}")),
+                track = aircraft.velocity.map_or_else(String::new, |v| format!("{:.1}", v.1)),
+                latitude = aircraft.position.map_or_else(String::new, |v| format!("{:.5}", v.0)),
+                longitude = aircraft.position.map_or_else(String::new, |v| format!("{:.5}", v.1)),
+                vertical_rate = aircraft.vertical_rate.map_or_else(String::new, |v| v.to_string()),
+                squawk = aircraft.squawk.map_or_else(String::new, |v| format!("{v:04}")),
+                on_ground = aircraft
+                    .on_ground
+                    .map_or_else(String::new, |v| if v { "-1" } else { "0" }.to_owned()),
+            ));
+        }
+    }
+}
+
+fn cpr_capture_timestamp(ticks: u64) -> CprTimestamp {
+    let seconds = ticks / TICKS_PER_SECOND;
+    let remaining_ticks = ticks % TICKS_PER_SECOND;
+    let nanoseconds = remaining_ticks * 1_000_000_000 / TICKS_PER_SECOND;
+    CprTimestamp::Capture {
+        epoch: 0,
+        elapsed: Duration::new(seconds, nanoseconds as u32),
+    }
+}
+
+fn sbs_message_type(df: u8, type_code: u8) -> Option<u8> {
+    Some(match df {
+        17 | 18 => match type_code {
+            1..=4 => 1,
+            5..=8 => 2,
+            9..=18 | 20..=22 => 3,
+            19 => 4,
+            _ => return None,
+        },
+        0 | 16 => 7,
+        11 => 8,
+        4 | 20 => 5,
+        5 | 21 => 6,
+        _ => return None,
+    })
+}
+
+fn sbs_timestamp(now: SystemTime) -> (String, String) {
+    let millis = now
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let seconds = (millis / 1000) as i64;
+    let days = seconds.div_euclid(86_400);
+    let day_seconds = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let date = format!("{year:04}/{month:02}/{day:02}");
+    let time = format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        day_seconds / 3600,
+        (day_seconds / 60) % 60,
+        day_seconds % 60,
+        millis % 1000
+    );
+    (date, time)
+}
+
+fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
+    let z = days_since_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    (year, month, day)
 }
 
 /// Wrapper around `Demod2400` that exposes a `process` method matching the
@@ -234,6 +367,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut demod_stats = DemodStats::default();
     let mut demod = Demodulator::new();
+    let mut cpr_decoder = CprDecoder::new();
 
     let mut last_stats_print = Instant::now();
     let mut interval_start_ms: u64 = 0;
@@ -317,9 +451,10 @@ fn main() -> anyhow::Result<()> {
                 tracker.update_from_message(mm);
             }
 
-            // 7. if --net, net_output.broadcast_beast(&frame.raw_bytes)
+            // Send each accepted frame to all requested network feed formats.
             if let Some(ref net) = net_output {
                 net.broadcast_beast(mm);
+                net.broadcast_raw_and_sbs(mm, &mut cpr_decoder);
             }
         }
 
@@ -375,4 +510,39 @@ fn main() -> anyhow::Result<()> {
     println!("dump1090: tracked {} unique aircraft", tracker.len());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpr_pair_timeout_uses_capture_time_for_fast_file_replay() {
+        let mut decoder = CprDecoder::new();
+        let even = CprFrame {
+            cpr_type: CprType::Airborne,
+            odd: false,
+            lat: 93_000,
+            lon: 51_372,
+        };
+        let odd = CprFrame {
+            cpr_type: CprType::Airborne,
+            odd: true,
+            lat: 74_158,
+            lon: 50_194,
+        };
+
+        assert!(decoder
+            .submit_with_timestamp(0x40621D, even, cpr_capture_timestamp(0))
+            .is_none());
+        // The CPU can process both file frames in milliseconds, but their
+        // source timestamps are over ten seconds apart and cannot form a pair.
+        assert!(decoder
+            .submit_with_timestamp(
+                0x40621D,
+                odd,
+                cpr_capture_timestamp(10 * TICKS_PER_SECOND + 1),
+            )
+            .is_none());
+    }
 }

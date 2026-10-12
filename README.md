@@ -2,8 +2,9 @@
 
 A native Rust SDR desktop with three workspaces: **Radio**, **ADS-B**, and **Meteor**.
 The UI uses egui with a single OpenGL renderer, compact controls, a dark theme, and
-background file decoding. It covers the requested SDR++-style radio workflows while
-keeping the layout lightweight; exact SDR++ plugin ordering is not required for use.
+background file decoding. It implements local radio listening, native 1090 MHz
+ADS-B reception and offline Meteor import. It has narrower hardware, plugin and
+product support than SDR++ and SatDump.
 
 ## Run
 
@@ -63,6 +64,9 @@ use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
   `m/M`, `v/V`, and `q` commands on localhost (default port `4532`).
 - General recording, bookmarks, settings and other utilities are under **Tools**.
 
+There is one active desktop listening chain. VFO B stores an alternate tuning that
+can be swapped with VFO A; it is not a simultaneous second receiver.
+
 DSB/CW and stereo decoding apply to local RTL-SDR, replay and Demo sources; the current
 daemon audio protocol lacks DSB/CW and supplies mono audio. Native reception and audible
 output still require hardware validation, and exact SDR++ plugin spacing is an optional
@@ -112,8 +116,10 @@ itself demodulate UAT I/Q. The external decoder is a runtime dependency for this
 Meteor has independent decode state and no source/recording controls. No SDR, observer
 location or TLE is needed to decode an existing recording. The decoder targets
 Meteor-M2-3/M2-4 LRPT OQPSK at 80 or 72 ksym/s. NOAA APT, HRPT and GOES are not implemented.
-Synthetic end-to-end and protocol tests are available; independent off-air recordings
-are still needed for field validation.
+Each reconstructed channel is limited to 16,384 image lines. Live Meteor capture
+and SatDump-style geometry/product generation are outside this imported-file workflow.
+Public off-air 72k and independently generated 80k recordings have packet/image
+checks; an original off-air 80k pass and target receiver validation remain open.
 
 New CF32 recordings contain little-endian float32 I/Q in normalized full-scale units
 (CU8 values 0 and 255 map to -1 and +1). Their JSON sidecar declares
@@ -187,6 +193,8 @@ For initial surface ADS-B positions, configure the daemon with `--receiver-lat 5
 The Rust daemon owns source/DSP pipelines and exposes the desktop's binary protocol
 at `127.0.0.1:7890`, plus HTTP/WebSocket APIs on `127.0.0.1:7891`.
 The previous `ez-web` frontend is not included in this worktree.
+Without separately supplied static files, `/` returns HTTP 404; the REST and
+WebSocket endpoints do not include a browser application.
 
 ```bash
 cargo run -p ez-daemon --bin ez-daemon --release
@@ -199,8 +207,11 @@ Choose **Daemon** in the desktop Source section and connect to its binary endpoi
 HackRF and SoapySDR backends require their corresponding feature and system libraries.
 Use `cargo run -p ez-daemon --bin ez-daemon -- --help` for source and bind options.
 The daemon defaults to loopback and its transports have no client authentication.
-Browser WebSockets accept loopback origins or the same numeric IP/port endpoint;
-remote hostnames require an authenticated proxy with an appropriate origin policy.
+HTTP and WebSocket requests require a localhost or numeric-IP Host. Browser requests
+also require a trusted loopback Origin or the same numeric IP/port endpoint; native
+clients may omit Origin. These checks cover browser request boundaries and do not
+authenticate clients. For remote hostname access, use an authenticated proxy with
+an appropriate origin policy and a localhost/numeric upstream Host.
 Keep a directly exposed daemon on a trusted network.
 
 ## Development and verification
@@ -217,13 +228,23 @@ EZ_SDR_PREVIEW_DIR=/tmp/ez-sdr-previews cargo test -p ez-gui --no-default-featur
 Network integration tests need permission to bind loopback sockets. The CPU preview
 renderer checks egui layout and textures; native window/input/audio validation remains
 separate. No physical SDR is covered by the automated tests.
+Use [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md) to record the receiver,
+audible-output and original 80k Meteor checks before making field-reliability claims.
 
 Current task/evidence: [UI_FINAL_SESSION_SUMMARY.md](UI_FINAL_SESSION_SUMMARY.md) and
 [UI_BUILD_TASK.md](UI_BUILD_TASK.md).
 Earlier reports are historical and may describe interfaces that have since changed.
 
+Dependency maintenance: `bincode` 1.x remains unmaintained. The documented
+`RUSTSEC-2025-0141` exception in `deny.toml` depends on bounded codec frames and
+the enforced protocol handshake. Replacing it requires an explicit wire-version
+migration across the daemon and clients; the exception does not waive new advisories.
+
 ## License
 
-Workspace manifests declare `MIT OR Apache-2.0`. The existing `dump1090` Rust port has an
-unresolved licensing review against its GPL reference implementations; resolve attribution
-and licensing before distribution. `dump978-fa` remains a separately installed program.
+The translated `dump1090` crate declares `GPL-2.0-or-later AND BSD-3-Clause`;
+independently authored workspace components retain `MIT OR Apache-2.0`.
+Combined release binaries are distributed under GPL-3.0-or-later with upstream
+attribution, license texts and matching vendored source. See [LICENSE.md](LICENSE.md)
+and [DISTRIBUTION.md](DISTRIBUTION.md) for the scope and Linux package instructions.
+`dump978-fa` remains a separately installed program.

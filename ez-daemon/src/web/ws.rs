@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, Uri};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -29,6 +29,7 @@ use ez_proto::{ChannelId, ClientCommand, PipelineKind, ServerEvent, PROTOCOL_VER
 
 use crate::server::{apply_command, spawn_forwarder};
 use crate::state::{ChannelSubscription, DaemonState};
+use crate::web::browser_origin_allowed;
 use crate::web::wire;
 
 const CONTROL_EVENT_CHANNEL_CAPACITY: usize = 256;
@@ -52,57 +53,6 @@ fn parse_pipeline_kind(s: &str) -> Option<PipelineKind> {
         "lrpt-telemetry" => Some(PipelineKind::LrptTelemetry),
         _ => None,
     }
-}
-
-/// Browsers must not expose the unauthenticated receiver to a foreign page.
-/// Native clients omit Origin. Loopback browser clients are trusted; a remote
-/// browser must use the same numeric IP/port as the requested daemon endpoint.
-fn browser_origin_allowed(headers: &HeaderMap) -> bool {
-    let Some(origin) = headers.get(axum::http::header::ORIGIN) else {
-        return true;
-    };
-    let Ok(origin) = origin.to_str() else {
-        return false;
-    };
-    let Ok(uri) = origin.parse::<Uri>() else {
-        return false;
-    };
-    if !matches!(uri.scheme_str(), Some("http" | "https")) {
-        return false;
-    }
-    let Some(authority) = uri.authority() else {
-        return false;
-    };
-    if authority.as_str().contains('@')
-        // `port()` also returns None for an out-of-range port. Detect the
-        // explicit suffix rather than interpreting that as an absent port.
-        || (authority.as_str().len() != authority.host().len()
-            && authority.port_u16().is_none())
-        || uri
-            .path_and_query()
-            .is_some_and(|path| path.as_str() != "/")
-    {
-        return false;
-    }
-    let host = authority.host().to_ascii_lowercase();
-    if host == "localhost" {
-        return true;
-    }
-    let Ok(ip) = host
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse::<std::net::IpAddr>()
-    else {
-        return false;
-    };
-    if ip.is_loopback() {
-        return true;
-    }
-    !ip.is_unspecified()
-        && headers
-            .get(axum::http::header::HOST)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|host| host.eq_ignore_ascii_case(authority.as_str()))
 }
 
 /// `GET /ws/stream/{kind}/{id}`: binary data plane for an already-created channel. Validates

@@ -177,20 +177,24 @@ impl NetIo {
         Self::prune_and_send(&self.sbs_clients, &out);
     }
 
-    /// Send a message in raw AVR format.
-    pub fn send_raw(&self, msg: &[u8], downlink: bool) {
-        let prefix = if downlink { '*' } else { '@' };
-        let mut out = Vec::with_capacity(msg.len() * 2 + 4);
-        out.push(prefix as u8);
-        for b in msg {
-            out.push(hex_digit(*b >> 4));
-            out.push(hex_digit(*b & 0x0f));
-        }
-        out.push(b';');
-        out.push(b'\r');
-        out.push(b'\n');
+    /// Send an untimestamped message in raw AVR format.
+    pub fn send_raw(&self, msg: &[u8]) {
+        let out = encode_raw_frame(msg);
         Self::prune_and_send(&self.raw_clients, &out);
     }
+}
+
+fn encode_raw_frame(msg: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(msg.len() * 2 + 4);
+    out.push(b'*');
+    for b in msg {
+        out.push(hex_digit(*b >> 4));
+        out.push(hex_digit(*b & 0x0f));
+    }
+    out.push(b';');
+    out.push(b'\r');
+    out.push(b'\n');
+    out
 }
 
 /// Build a framed, escaped Beast-format message: 0x1a marker (never escaped)
@@ -484,5 +488,11 @@ mod tests {
     fn net_io_start_on_loopback() {
         let net = NetIo::new();
         assert!(net.start_on("127.0.0.1", 0, 0, 0).is_ok());
+    }
+
+    #[test]
+    fn raw_avr_uses_untimestamped_prefix_for_mode_ac_and_mode_s() {
+        assert_eq!(encode_raw_frame(&[0x12, 0x34]), b"*1234;\r\n");
+        assert_eq!(encode_raw_frame(&[0x8D, 0x40]), b"*8D40;\r\n");
     }
 }

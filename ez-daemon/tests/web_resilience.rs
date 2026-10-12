@@ -115,6 +115,83 @@ async fn wait_until_web_ready(base: &str) {
     }
 }
 
+async fn hardware_frequency(base: &str) -> u64 {
+    reqwest::get(format!("{base}/api/hardware"))
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()["frequency_hz"]
+        .as_u64()
+        .unwrap()
+}
+
+/// A DNS-rebinding-shaped browser POST must be rejected before it reaches daemon state.
+/// Native clients without Origin and trusted loopback browser clients remain usable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rest_rejects_foreign_rebinding_before_mutation_and_allows_trusted_clients() {
+    let daemon = Harness::spawn("web-host-origin").await;
+    let base = daemon.base_url();
+    wait_until_web_ready(&base).await;
+
+    let initial = hardware_frequency(&base).await;
+    let client = reqwest::Client::new();
+    let rejected = client
+        .post(format!("{base}/api/hardware/frequency"))
+        .header(reqwest::header::HOST, "attacker.example")
+        .header(reqwest::header::ORIGIN, "https://attacker.example")
+        .json(&serde_json::json!({"hz": initial + 1_000_000}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
+    assert_eq!(hardware_frequency(&base).await, initial);
+
+    let rejected_host = client
+        .post(format!("{base}/api/hardware/frequency"))
+        .header(reqwest::header::HOST, "attacker.example")
+        .json(&serde_json::json!({"hz": initial + 1_500_000}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected_host.status(), reqwest::StatusCode::FORBIDDEN);
+    let rejected_origin = client
+        .post(format!("{base}/api/hardware/frequency"))
+        .header(reqwest::header::ORIGIN, "https://attacker.example")
+        .json(&serde_json::json!({"hz": initial + 1_750_000}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected_origin.status(), reqwest::StatusCode::FORBIDDEN);
+    assert_eq!(hardware_frequency(&base).await, initial);
+
+    // Native command-line clients omit Origin. Browser clients from localhost are also
+    // supported when the daemon is addressed through a loopback IP.
+    let native = client
+        .post(format!("{base}/api/hardware/frequency"))
+        .json(&serde_json::json!({"hz": initial + 2_000_000}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(native.status(), reqwest::StatusCode::NO_CONTENT);
+    assert_eq!(hardware_frequency(&base).await, initial + 2_000_000);
+
+    let browser = client
+        .post(format!("{base}/api/hardware/frequency"))
+        .header(
+            reqwest::header::ORIGIN,
+            format!("http://{}", daemon.web_addr),
+        )
+        .json(&serde_json::json!({"hz": initial + 3_000_000}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(browser.status(), reqwest::StatusCode::NO_CONTENT);
+    assert_eq!(hardware_frequency(&base).await, initial + 3_000_000);
+
+    daemon.shutdown().await;
+}
+
 fn spectrum_spec(id: u32) -> serde_json::Value {
     serde_json::json!({
         "id": id,
