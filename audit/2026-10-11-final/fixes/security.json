@@ -1,6 +1,6 @@
 {
   "group": "security",
-  "started_utc": "2026-10-11T17:39:37.059245+00:00",
+  "started_utc": "2026-10-12T13:46:06.229208+00:00",
   "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
   "checks": [
     {
@@ -15,7 +15,7 @@
       "exit_code": 0,
       "seconds": 2.219,
       "log": "audit/2026-10-11-final/fixes/evidence/cargo-audit.log",
-      "log_sha256": "7e1d6357c3deffceb64abcbc9e698be96b22cbceee25f4fbf41bee38afd2c225"
+      "log_sha256": "61275f28d769ea8c3fd4213795f2f6101738ca01fde7ee8195e7167c225fd01b"
     },
     {
       "name": "cargo-deny",
@@ -27,7 +27,7 @@
       "environment": {},
       "cwd": "/home/lupc/Documents/ez-sdr",
       "exit_code": 0,
-      "seconds": 1.418,
+      "seconds": 1.266,
       "log": "audit/2026-10-11-final/fixes/evidence/cargo-deny.log",
       "log_sha256": "c1ee60f3f13669f6bf278fe81bd5f64803d3b73831506f5fb747a3451d6959e8"
     },
@@ -44,10 +44,10 @@
       "environment": {},
       "cwd": "/tmp",
       "exit_code": 0,
-      "seconds": 0.364,
+      "seconds": 0.314,
       "log": "audit/2026-10-11-final/fixes/evidence/cargo-audit-unfiltered.log",
-      "log_sha256": "6ac96168be5da6e6eaba59283c3e09456b7c0f31832fd551632d16186b2f2284"
+      "log_sha256": "6097634c9b34ac7bd25d678124089e290e9fb2a1533161b15c02924bb165b6be"
     }
   ],
-  "updated_utc": "2026-10-11T17:39:41.061146+00:00"
+  "updated_utc": "2026-10-12T13:46:10.029897+00:00"
 }

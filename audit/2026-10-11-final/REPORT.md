@@ -231,3 +231,14 @@ the final checks. [Source fingerprints](fixes/source.json) identify the checked
 code. [Graph update](fixes/graph-update.json) records the AST refresh and
 preservation of all 672 pre-existing tracked deletions. The untracked AGENTS.md
 also remains outside the implementation commits.
+
+[Package validation](fixes/package.json) verifies the local Linux archive built
+from implementation commit `5a97b74`: all checksums match, all 184 checked Rust
+source/manifest files match the tested workspace, and vendored dependencies resolve
+offline with an empty Cargo cache. Packaged CLI help works, native libraries resolve,
+and the packaged GUI creates a native window using isolated temporary settings and
+software GL. This is host-level package/startup proof, not a clean-machine install
+or physical radio/audio test. Final dependency scans report zero known
+vulnerabilities and no yanked dependency warning; bincode's unmaintained warning
+remains documented. [Scanner versions](fixes/verification-tools.json) identify the
+tools used for the refreshed scan.
