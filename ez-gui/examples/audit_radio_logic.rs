@@ -14,6 +14,24 @@ use ez_gui::{
 use num_complex::Complex32;
 use std::{sync::Arc, time::Duration};
 
+fn resample_mono(samples: Vec<f32>, rate: u32) -> Vec<f32> {
+    let clock = ez_proto::CaptureClock::new(1, 0, rate, None);
+    let frame = ez_proto::AudioFrame {
+        clock,
+        audio_clock: clock,
+        sequence: 0,
+        channel_id: 1,
+        sample_rate_hz: rate,
+        channels: 1,
+        squelch: ez_proto::SquelchState {
+            db: -120.0,
+            revision: 0,
+        },
+        samples,
+    };
+    audio_resampler::AudioResampler::default().process_frame(&frame, 48_000, 1.0)
+}
+
 fn amplitude(samples: &[f32], hz: f64, rate: f64) -> f64 {
     let mut real = 0.0;
     let mut imaginary = 0.0;
@@ -58,7 +76,7 @@ fn main() {
         })
         .collect();
     let pcm = daemon_pcm(ez_proto::DemodMode::Wfm, rate, iq);
-    let audio = audio_resampler::AudioResampler::default().process(&pcm, rate, 48_000, 1.0);
+    let audio = resample_mono(pcm, rate);
     println!(
         "real_daemon_WFM 57kHz_modulation_12kHz_deviation -> 9kHz_alias_amplitude={:.6}",
         amplitude(&audio[5000..], 9000.0, 48000.0)
@@ -70,7 +88,7 @@ fn main() {
                 * 0.5
         })
         .collect();
-    let output = audio_resampler::AudioResampler::default().process(&input, rate, 48_000, 1.0);
+    let output = resample_mono(input, rate);
     println!(
         "daemon_audio 49kHz_input -> 1kHz_alias_amplitude={:.6}",
         amplitude(&output, 1_000.0, 48_000.0)

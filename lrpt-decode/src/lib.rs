@@ -14,11 +14,13 @@ mod ccsds;
 #[cfg(test)]
 mod diff_decode;
 mod frame_sync;
+pub mod geolocation;
 mod image_builder;
 mod interleaver;
 mod iq_source;
 #[cfg(test)]
 mod off_air_validation;
+pub mod product;
 mod qpsk;
 mod randomizer;
 mod reed_solomon;
@@ -31,7 +33,7 @@ use num_complex::Complex32;
 use std::path::Path;
 
 pub use ez_proto::MeteorProfile;
-pub use image_builder::apid_channel_label;
+pub use image_builder::{apid_channel_label, CdsEpoch};
 pub use iq_source::{
     cf32_amplitude_for_path, cf32_le_bytes_to_complex, cf32_le_bytes_to_normalized,
     cf32_le_bytes_to_uc8, cs8_bytes_to_complex, iq_bytes_to_complex, normalized_component_to_uc8,
@@ -94,6 +96,10 @@ pub struct DecodeProgress {
 #[derive(Debug, Clone, Default)]
 pub struct DecodeResult {
     pub images: Vec<(u16, image::GrayImage)>,
+    /// Optional absolute line times decoded from the image packet CDS headers,
+    /// aligned with each channel's first output row. Entries remain `None`
+    /// when the recording carries only time-of-day/invalid packet time.
+    pub line_times_unix_seconds: std::collections::BTreeMap<u16, Vec<Option<f64>>>,
     pub rs_ok: u32,
     pub rs_failed: u32,
 }
@@ -604,6 +610,12 @@ impl LrptDecoder {
         self.maybe_send_progress();
     }
 
+    /// Override the image packet CDS epoch when mission metadata documents a
+    /// non-default epoch. Meteor-M2x is the normal mission default.
+    pub fn set_cds_epoch(&mut self, epoch: CdsEpoch) {
+        self.images.set_cds_epoch(epoch);
+    }
+
     fn push_recovered_symbols(&mut self, symbols: &[qpsk::RecoveredSymbol]) {
         for chunk in symbols.chunks(1024) {
             self.push_symbol_batch(chunk);
@@ -799,11 +811,25 @@ impl LrptDecoder {
     /// Returns `None` if CADU sync was never achieved.
     #[must_use]
     pub fn finish(self) -> Option<DecodeResult> {
+        self.result_snapshot()
+    }
+
+    /// Snapshot every full-resolution image and its packet-derived scanline times without
+    /// consuming the decoder. This lets a live daemon publish final products at an explicit
+    /// stop or product boundary while preserving the progressive decoder lifecycle.
+    #[must_use]
+    pub fn result_snapshot(&self) -> Option<DecodeResult> {
         if !self.ever_locked {
             return None;
         }
+        let images = self.images.render_all();
+        let line_times_unix_seconds = images
+            .iter()
+            .map(|(apid, _)| (*apid, self.images.line_timestamps_unix_seconds(*apid)))
+            .collect();
         Some(DecodeResult {
-            images: self.images.render_all(),
+            images,
+            line_times_unix_seconds,
             rs_ok: self.rs_ok,
             rs_failed: self.rs_failed,
         })
@@ -1846,7 +1872,11 @@ mod tests {
                 additional += 1;
             }
         }
-        println!("public off-air start={start}s duration={seconds}s accepted={} matched={matched} additional={additional} rs_ok={}",decoder.validated_payloads.len(),decoder.rs_ok);
+        println!(
+            "public off-air start={start}s duration={seconds}s accepted={} matched={matched} additional={additional} rs_ok={}",
+            decoder.validated_payloads.len(),
+            decoder.rs_ok
+        );
         if let Ok(directory) = std::env::var("EZ_METEOR_VALIDATION_OUTPUT") {
             off_air_validation::export(
                 &decoder,

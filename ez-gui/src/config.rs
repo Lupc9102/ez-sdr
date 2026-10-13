@@ -535,15 +535,31 @@ radio_mode_profile! {
 }
 
 /// Connection and replay choices are restored without starting a receiver.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SourcePreferences {
     pub mode: String,
     pub daemon_address: String,
+    /// Daemon credential; password UI and Debug output redact it.
+    pub daemon_token: String,
     pub replay_file: Option<String>,
     pub replay_loop: bool,
     pub replay_speed: f32,
     pub replay_cf32_amplitude: Option<lrpt_decode::Cf32Amplitude>,
+}
+
+impl std::fmt::Debug for SourcePreferences {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourcePreferences")
+            .field("mode", &self.mode)
+            .field("daemon_address", &self.daemon_address)
+            .field("daemon_token", &"[REDACTED]")
+            .field("replay_file", &self.replay_file)
+            .field("replay_loop", &self.replay_loop)
+            .field("replay_speed", &self.replay_speed)
+            .field("replay_cf32_amplitude", &self.replay_cf32_amplitude)
+            .finish()
+    }
 }
 
 impl Default for SourcePreferences {
@@ -551,6 +567,7 @@ impl Default for SourcePreferences {
         Self {
             mode: "demo".into(),
             daemon_address: "127.0.0.1:7890".into(),
+            daemon_token: String::new(),
             replay_file: None,
             replay_loop: false,
             replay_speed: 1.0,
@@ -571,6 +588,7 @@ impl SourcePreferences {
             }
             .into(),
             daemon_address: source.daemon_addr.clone(),
+            daemon_token: source.daemon_token.clone(),
             replay_file: source.replay_file.clone(),
             replay_loop: source.replay_loop,
             replay_speed: source.replay_speed,
@@ -587,6 +605,7 @@ impl SourcePreferences {
             _ => SourceMode::Simulated,
         };
         source.daemon_addr = self.daemon_address.clone();
+        source.daemon_token = self.daemon_token.clone();
         source.replay_file = self.replay_file.clone();
         source.replay_loop = self.replay_loop;
         source.replay_cf32_amplitude = self.replay_cf32_amplitude;
@@ -665,6 +684,7 @@ pub struct AppConfig {
     pub ppm_correction: i32,
     /// VFO B frequency (Hz).
     pub vfo_b_hz: u64,
+    pub secondary_vfo: crate::secondary_vfo::SecondaryVfoSettings,
     /// Waterfall colour range minimum (dBFS).
     pub wf_min_db: f32,
     /// Waterfall colour range maximum (dBFS).
@@ -741,6 +761,7 @@ impl Default for AppConfig {
             spectrum_max_db: 0.0,
             ppm_correction: 0,
             vfo_b_hz: 0,
+            secondary_vfo: crate::secondary_vfo::SecondaryVfoSettings::default(),
             wf_min_db: -120.0,
             wf_max_db: -20.0,
             lo_offset_hz: 0,
@@ -1278,6 +1299,31 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_receiver_settings_roundtrip_and_legacy_defaults_are_safe() {
+        let mut config = super::AppConfig::default();
+        config.source_preferences.daemon_token = "private-test-token".into();
+        config.secondary_vfo.enabled = true;
+        config.secondary_vfo.frequency_hz = 101_100_000;
+        let serialized = serde_json::to_string(&config).unwrap();
+        let restored: super::AppConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(restored.secondary_vfo, config.secondary_vfo);
+        assert_eq!(
+            restored.source_preferences.daemon_token,
+            "private-test-token"
+        );
+        assert!(!format!("{:?}", restored).contains("private-test-token"));
+        let mut legacy = serde_json::to_value(&config).unwrap();
+        legacy.as_object_mut().unwrap().remove("secondary_vfo");
+        legacy["source_preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("daemon_token");
+        let restored: super::AppConfig = serde_json::from_value(legacy).unwrap();
+        assert!(!restored.secondary_vfo.enabled);
+        assert!(restored.source_preferences.daemon_token.is_empty());
+    }
+
     use super::*;
 
     #[test]

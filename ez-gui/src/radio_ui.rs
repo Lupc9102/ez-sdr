@@ -577,8 +577,7 @@ impl RadioUi {
         ] {
             ui.horizontal(|ui| {
                 for (mode, label) in modes {
-                    let supported =
-                        local || !matches!(mode, DemodMode::Dsb | DemodMode::Cw | DemodMode::Raw);
+                    let supported = local || mode != DemodMode::Raw;
                     if ui
                         .add_enabled_ui(supported, |ui| {
                             ui.add_sized(
@@ -647,6 +646,25 @@ impl RadioUi {
             if let Some(error) = &state.source.daemon_squelch_error {
                 ui.label(egui::RichText::new(error).color(egui::Color32::LIGHT_RED));
             }
+        }
+        if !local && mode == DemodMode::Wfm {
+            if ui
+                .checkbox(&mut state.config.advanced.wfm_stereo, "Stereo")
+                .changed()
+            {
+                self.audio_changed = true;
+            }
+            if state.config.advanced.wfm_stereo {
+                ui.weak("Daemon stereo enabled · mono fallback when no pilot locks");
+            }
+        }
+        if !local && mode == DemodMode::Cw {
+            row(ui, "Tone Frequency", |ui| {
+                let mut tone = f64::from(state.config.advanced.cw_tone_hz);
+                if stepped_input(ui, &mut tone, 250.0..=1_250.0, 10.0, 100.0) {
+                    state.config.advanced.cw_tone_hz = tone as f32;
+                }
+            });
         }
         ui.add_enabled_ui(local, |ui| {
             if matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
@@ -821,13 +839,14 @@ impl RadioUi {
                     .changed();
             }
             if mode == DemodMode::Wfm {
-                if ui
-                    .checkbox(&mut state.config.advanced.wfm_stereo, "Stereo")
-                    .changed()
+                if local
+                    && ui
+                        .checkbox(&mut state.config.advanced.wfm_stereo, "Stereo")
+                        .changed()
                 {
                     self.audio_changed = true;
                 }
-                if state.config.advanced.wfm_stereo {
+                if local && state.config.advanced.wfm_stereo {
                     ui.weak(if state.source.status != SourceStatus::Running {
                         "Stereo enabled"
                     } else if self.stereo_locked {
@@ -927,13 +946,15 @@ impl RadioUi {
                 });
             }
             if mode == DemodMode::Cw {
-                row(ui, "Tone Frequency", |ui| {
-                    let mut tone = f64::from(state.config.advanced.cw_tone_hz);
-                    if stepped_input(ui, &mut tone, 250.0..=1_250.0, 10.0, 100.0) {
-                        state.config.advanced.cw_tone_hz = tone as f32;
-                        self.dsp_changed = true;
-                    }
-                });
+                if local {
+                    row(ui, "Tone Frequency", |ui| {
+                        let mut tone = f64::from(state.config.advanced.cw_tone_hz);
+                        if stepped_input(ui, &mut tone, 250.0..=1_250.0, 10.0, 100.0) {
+                            state.config.advanced.cw_tone_hz = tone as f32;
+                            self.dsp_changed = true;
+                        }
+                    });
+                }
                 row(ui, "CW Offset", |ui| {
                     let mut offset = f64::from(state.config.advanced.cw_offset_hz);
                     if stepped_input(ui, &mut offset, -500.0..=500.0, 10.0, 100.0) {
@@ -1891,9 +1912,9 @@ fn channel_bandwidth_bounds_for(state: &SharedState, mode: DemodMode) -> (f32, f
 }
 
 pub(crate) fn playback_channels(state: &SharedState) -> usize {
-    if state.source.source_mode != SourceMode::Daemon
-        && (state.demod_mode.resolve(state.source.frequency_hz) == DemodMode::Raw
-            || stereo_audio_requested(state))
+    if (state.source.source_mode != SourceMode::Daemon
+        && state.demod_mode.resolve(state.source.frequency_hz) == DemodMode::Raw)
+        || stereo_audio_requested(state)
     {
         2
     } else {
@@ -1912,8 +1933,7 @@ pub(crate) fn recording_audio_channels(state: &SharedState) -> u16 {
 }
 
 pub(crate) fn stereo_audio_requested(state: &SharedState) -> bool {
-    state.source.source_mode != SourceMode::Daemon
-        && state.config.advanced.wfm_stereo
+    state.config.advanced.wfm_stereo
         && state.demod_mode.resolve(state.source.frequency_hz) == DemodMode::Wfm
 }
 
@@ -2228,14 +2248,15 @@ mod tests {
     }
 
     #[test]
-    fn stereo_transport_only_applies_to_local_wfm_and_resolves_auto() {
+    fn stereo_transport_applies_to_local_and_daemon_wfm_and_resolves_auto() {
         let shared = crate::test_helpers::make_shared_state();
         let mut state = shared.lock().unwrap();
         select_demod(&mut state, DemodMode::Wfm);
         state.config.advanced.wfm_stereo = true;
         assert!(stereo_audio_requested(&state));
         state.source.source_mode = SourceMode::Daemon;
-        assert!(!stereo_audio_requested(&state));
+        assert!(stereo_audio_requested(&state));
+        assert_eq!(playback_channels(&state), 2);
         state.source.source_mode = SourceMode::Replay;
         select_demod(&mut state, DemodMode::Am);
         assert!(!stereo_audio_requested(&state));

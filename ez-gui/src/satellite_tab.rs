@@ -58,7 +58,7 @@ pub fn render_satellite_tab(
         .exact_size(48.0)
         .show(ui, |ui| {
             if *satellite_subtab == SatelliteSubTab::Decode {
-                ui.label("Meteor · offline .cs8 / .cf32 decoding");
+                ui.label("Meteor · live capture and .cs8 / .cf32 products");
                 return;
             }
             ui.horizontal(|ui| {

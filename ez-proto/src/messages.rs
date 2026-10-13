@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a breaking wire-format change is made.
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 #[cfg(test)]
 #[path = "audio_configuration_tests.rs"]
@@ -59,6 +59,8 @@ pub enum DemodMode {
     Wfm,
     Lsb,
     Usb,
+    Dsb,
+    Cw,
 }
 
 /// RF selection and PCM delivery are independent of the virtual channel clock.
@@ -69,6 +71,16 @@ pub struct AudioParameters {
     pub rf_bandwidth_hz: u32,
     /// PCM clock. Zero explicitly follows the actual channel clock.
     pub output_sample_rate_hz: u32,
+    /// Decode the WFM stereo difference channel when a valid 19 kHz pilot is locked.
+    #[serde(default)]
+    pub stereo: bool,
+    /// CW beat oscillator frequency at audio output, clamped to the valid audio band.
+    #[serde(default = "default_cw_tone_hz")]
+    pub cw_tone_hz: u32,
+}
+
+const fn default_cw_tone_hz() -> u32 {
+    800
 }
 
 impl AudioParameters {
@@ -80,9 +92,35 @@ impl AudioParameters {
                 DemodMode::Fm => 25_000,
                 DemodMode::Wfm => 180_000,
                 DemodMode::Lsb | DemodMode::Usb => 3_300,
+                DemodMode::Dsb => 4_600,
+                DemodMode::Cw => 200,
             },
             output_sample_rate_hz: 48_000,
+            stereo: false,
+            cw_tone_hz: default_cw_tone_hz(),
         }
+    }
+}
+
+/// Authentication credential with a redacted formatter so ordinary command logging
+/// cannot disclose a bearer token.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AuthToken(String);
+
+impl AuthToken {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self(token.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for AuthToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AuthToken([REDACTED])")
     }
 }
 
@@ -125,6 +163,10 @@ pub struct ChannelSpec {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientCommand {
+    /// Authenticate a connection before Hello when daemon authentication is enabled.
+    Authenticate {
+        token: AuthToken,
+    },
     /// Must be the first message sent on a new connection.
     Hello {
         client_name: String,
@@ -178,6 +220,12 @@ pub enum ClientCommand {
     /// Unlike `Unsubscribe` (which is connection-local), this removes the channel's
     /// pipeline and, for virtual-channel kinds, its channelizer tap for everyone.
     RemoveChannel {
+        channel_id: ChannelId,
+    },
+    /// Flushes the current LRPT product and emits its final rasters followed by
+    /// a `TelemetryFrame { product_complete: true }` sentinel. The subscription
+    /// remains active until the client receives that sentinel.
+    FinalizeTelemetryProduct {
         channel_id: ChannelId,
     },
     StartRecording {
@@ -241,7 +289,14 @@ pub struct AudioFrame {
     pub squelch: SquelchState,
     pub channel_id: ChannelId,
     pub sample_rate_hz: u32,
+    /// Number of interleaved PCM channels (1=mono, 2=stereo).
+    #[serde(default = "mono_audio_channels")]
+    pub channels: u8,
     pub samples: Vec<f32>,
+}
+
+const fn mono_audio_channels() -> u8 {
+    1
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -310,6 +365,18 @@ pub struct TelemetryFrame {
     pub height: u32,
     /// Row-major 8-bit grayscale pixels for whatever has decoded so far.
     pub pixels: Vec<u8>,
+    /// Absolute per-scanline CDS timestamps for full-resolution final channel
+    /// products. Progressive previews leave this empty because their rows are
+    /// downsampled and do not align one-to-one with packet times.
+    #[serde(default)]
+    pub line_times_unix_seconds: Vec<Option<f64>>,
+    /// This APID frame contains the complete, non-preview channel raster.
+    #[serde(default)]
+    pub final_product: bool,
+    /// APID zero marker emitted after every final channel frame for this
+    /// product has been published.
+    #[serde(default)]
+    pub product_complete: bool,
     pub rs_ok: u32,
     pub rs_failed: u32,
     pub costas_locked: bool,

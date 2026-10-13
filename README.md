@@ -64,13 +64,14 @@ use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
   `m/M`, `v/V`, and `q` commands on localhost (default port `4532`).
 - General recording, bookmarks, settings and other utilities are under **Tools**.
 
-There is one active desktop listening chain. VFO B stores an alternate tuning that
-can be swapped with VFO A; it is not a simultaneous second receiver.
+The desktop supports two simultaneous listening receivers sharing the same capture.
+Enable **Independent B receiver** in the Radio sidebar; its frequency must fit
+inside the receiver capture, and its mode, squelch and volume are independent.
+V swaps A/B frequencies. Daemon mode uses a separate authenticated B channel.
 
-DSB/CW and stereo decoding apply to local RTL-SDR, replay and Demo sources; the current
-daemon audio protocol lacks DSB/CW and supplies mono audio. Native reception and audible
-output still require hardware validation, and exact SDR++ plugin spacing is an optional
-follow-up; see `UI_FINAL_SESSION_SUMMARY.md`.
+DSB/CW are supported locally and over the daemon protocol. WFM stereo uses pilot
+recovery on both paths and falls back to dual-channel mono when no pilot locks.
+Native reception and audible output still require hardware validation.
 
 ## ADS-B
 
@@ -87,23 +88,26 @@ antenna and line of sight.
 
 ### 978 MHz — UAT (United States)
 
-978 MHz receives decoded reports from **dump978-fa** over its direct JSON TCP feed.
-The external decoder owns the SDR; selecting 978 stops EZ-SDR's local source so both
-programs do not compete for one device.
+The **Native IQ** source is selected by default. EZ-SDR decodes UAT downlink and
+uplink frames in Rust from the shared capture stream; no separate dump978 process is
+needed. Native decoding requires a 978 MHz-centered capture at exactly 2,083,333
+complex samples/second. The receiver reports a clock or tuning mismatch instead of
+silently decoding an unsupported capture.
 
-Install/build [dump978-fa](https://github.com/flightaware/dump978) with SoapySDR and the
-appropriate device driver, then run it separately:
+For compatibility with an existing receiver, choose **dump978-fa JSON** to use its
+direct JSON TCP feed. Install/build [dump978-fa](https://github.com/flightaware/dump978)
+with SoapySDR and the appropriate device driver, then run it separately:
 
 ```bash
 dump978-fa --sdr driver=rtlsdr --json-port 127.0.0.1:30979
 ```
 
-Choose **978 MHz** in ADS-B, use `127.0.0.1:30979` (or another numeric IP and port), and
-connect. Connection errors are displayed and the worker retries without blocking the UI.
-Anonymous/non-ICAO addresses remain separate from ICAO aircraft. The Rust app does not
-itself demodulate UAT I/Q. The external decoder is a runtime dependency for this band.
+Choose **978 MHz** in ADS-B, enter `127.0.0.1:30979` (or another numeric IP and port),
+and connect. Connection errors are displayed and the worker retries without blocking the
+UI. External JSON mode releases EZ-SDR's SDR so the external receiver can own it.
+Anonymous/non-ICAO addresses remain separate from ICAO aircraft in either source mode.
 
-## Meteor — imported recordings only
+## Meteor — live passes and imported recordings
 
 1. Open **Meteor** and browse for an existing `.cs8` or `.cf32` recording.
 2. Set the recording's actual sample rate and symbol rate. CS8 means signed interleaved
@@ -113,11 +117,13 @@ itself demodulate UAT I/Q. The external decoder is a runtime dependency for this
 4. Cancel a running decode or export the decoded channels as PNGs. Repeated exports
    get unique filenames rather than overwriting an earlier pass.
 
-Meteor has independent decode state and no source/recording controls. No SDR, observer
-location or TLE is needed to decode an existing recording. The decoder targets
+Meteor has independent live and imported-file decode state. **Start live** starts
+the selected receiver; **Stop live** finalizes decoded channels for export.
+No SDR, observer location or TLE is needed to decode an existing recording. The decoder targets
 Meteor-M2-3/M2-4 LRPT OQPSK at 80 or 72 ksym/s. NOAA APT, HRPT and GOES are not implemented.
-Each reconstructed channel is limited to 16,384 image lines. Live Meteor capture
-and SatDump-style geometry/product generation are outside this imported-file workflow.
+Each reconstructed channel is limited to 16,384 image lines. Live capture and
+RGB/crop/rotation/histogram products are supported. Geolocation uses absolute
+packet timestamps, the selected satellite TLE and explicit scan geometry.
 Public off-air 72k and independently generated 80k recordings have packet/image
 checks; an original off-air 80k pass and target receiver validation remain open.
 
@@ -148,8 +154,8 @@ Daemon USB/LSB listening preserves voice pitch and rejects the opposite sideband
 across the 300–3,000 Hz voice band, including the GUI’s 200 kS/s channel.
 Daemon AM/FM/WFM select complex RF before detection and measure power squelch on
 that selected signal. Their default RF widths are 15/25/180 kHz. The desktop
-requests 200 kS/s channels for voice modes and 256 kS/s for WFM, with 48 kS/s mono
-PCM delivery; integer RF decimation can produce a higher actual channel rate.
+requests 200 kS/s channels for voice modes and 256 kS/s for WFM, with 48 kS/s
+PCM delivery (two interleaved channels when WFM stereo is selected); integer RF decimation can produce a higher actual channel rate.
 
 Automatic recording and signal monitoring require **Power** squelch and use the
 entire -100..0 dBFS threshold range. Local observations come from the native RF
@@ -161,7 +167,7 @@ only after the local file opens or the daemon confirms an active recording.
 
 ## Optional daemon
 
-The GUI and daemon must both speak protocol version 12; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate. Aircraft snapshots include their channel identity, receiver counters and a fixed five-second message rate that expires during idle reception. Welcome allocates connection-owned GUI channel IDs; all streamed data carries channel identity and control subscribers receive explicit removal events. Active recordings prevent channel deletion. Daemon squelch commands have correlated applied/error replies, and audio frames carry the applied threshold and revision so queued audio cannot undo a newer setting.
+The GUI and daemon must both speak protocol version 13; rebuild both together. Aircraft telemetry preserves address class, observation timestamps, emergency state, position decode quality and signed optional measurements. Ground speed/track, IAS/TAS and magnetic/true heading are separate. Aircraft snapshots include their channel identity, receiver counters and a fixed five-second message rate that expires during idle reception. Welcome allocates connection-owned GUI channel IDs; all streamed data carries channel identity and control subscribers receive explicit removal events. Active recordings prevent channel deletion. Daemon squelch commands have correlated applied/error replies, and audio frames carry the applied threshold and revision so queued audio cannot undo a newer setting.
 
 Audio subscriptions separate `channel_sample_rate_hz` from
 `audio.rf_bandwidth_hz` and `audio.output_sample_rate_hz`. JSON requests accept
@@ -186,15 +192,20 @@ To begin another pass at the same tuning, send
 Telemetry previews carry `product_id`; a zero-sized APID-zero preview announces
 a product boundary, and clients must retire images from its prior ID. The raw
 telemetry WebSocket header is now 36 bytes: the product ID is a little-endian
-u64 at offset 28, followed by pixels at offset 36.
+u64 at offset 28, followed by pixels at offset 36. A timestamp trailer follows
+those pixels: a little-endian u32 row count and that many f64 Unix timestamps
+(NaN means unavailable). Flags bits 2 and 3 mark a full final channel and pass
+completion. **Stop live** finalizes a daemon pass before unsubscribing; the
+browser provides **Finalize pass**. Disconnecting the receiver first aborts
+finalization and reports incomplete products. Final images retain full resolution
+and packet row times for the same product/export tools used by local capture.
 
 For initial surface ADS-B positions, configure the daemon with `--receiver-lat 51.5 --receiver-lon -0.1` using the actual IQ capture site. Without a configured receiver or a fresh aircraft reference, ambiguous surface positions stay unavailable. For replay, the reference must describe the recording location.
 
 The Rust daemon owns source/DSP pipelines and exposes the desktop's binary protocol
 at `127.0.0.1:7890`, plus HTTP/WebSocket APIs on `127.0.0.1:7891`.
-The previous `ez-web` frontend is not included in this worktree.
-Without separately supplied static files, `/` returns HTTP 404; the REST and
-WebSocket endpoints do not include a browser application.
+The daemon serves its bundled browser console at `/` when no external static directory is
+configured. A supplied `--web-static-dir` can replace those bundled assets.
 
 ```bash
 cargo run -p ez-daemon --bin ez-daemon --release
@@ -206,13 +217,27 @@ cargo run -p ez-daemon --bin ez-daemon --release --features soapy -- \
 Choose **Daemon** in the desktop Source section and connect to its binary endpoint.
 HackRF and SoapySDR backends require their corresponding feature and system libraries.
 Use `cargo run -p ez-daemon --bin ez-daemon -- --help` for source and bind options.
-The daemon defaults to loopback and its transports have no client authentication.
+The daemon defaults to loopback. Authentication is optional for local development; enable a
+shared token for clients with `--auth-token` or `EZ_DAEMON_AUTH_TOKEN`:
+
+```bash
+EZ_DAEMON_AUTH_TOKEN='replace-with-a-random-secret' \
+  cargo run -p ez-daemon --bin ez-daemon --release -- --bind 0.0.0.0
+```
+
+REST clients send `Authorization: Bearer <token>`. Browser WebSockets offer the
+`ez-sdr-auth.<lowercase-hex-utf8-token>` subprotocol because browser WebSocket APIs cannot
+set an Authorization header. Binary TCP clients send `Authenticate` before `Hello`.
+Without a configured token, old local TCP clients and unauthenticated REST/WebSocket clients
+continue to work.
+
 HTTP and WebSocket requests require a localhost or numeric-IP Host. Browser requests
 also require a trusted loopback Origin or the same numeric IP/port endpoint; native
 clients may omit Origin. These checks cover browser request boundaries and do not
-authenticate clients. For remote hostname access, use an authenticated proxy with
-an appropriate origin policy and a localhost/numeric upstream Host.
-Keep a directly exposed daemon on a trusted network.
+authenticate clients. A token sent over plain HTTP/TCP is visible to network observers, so
+for remote use place the daemon behind a TLS-enabled authenticated proxy with an appropriate
+origin policy and a localhost/numeric upstream Host. Keep a directly exposed daemon on a
+trusted network.
 
 ## Development and verification
 
@@ -247,4 +272,4 @@ independently authored workspace components retain `MIT OR Apache-2.0`.
 Combined release binaries are distributed under GPL-3.0-or-later with upstream
 attribution, license texts and matching vendored source. See [LICENSE.md](LICENSE.md)
 and [DISTRIBUTION.md](DISTRIBUTION.md) for the scope and Linux package instructions.
-`dump978-fa` remains a separately installed program.
+`dump978-fa` is optional and only needed for its JSON source mode.

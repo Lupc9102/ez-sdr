@@ -14,6 +14,25 @@ const SEGMENT_HEIGHT: usize = 8;
 pub const MAX_CHANNEL_HEIGHT: usize = 16_384;
 pub const MAX_CHANNEL_PIXELS: usize = IMAGE_WIDTH * MAX_CHANNEL_HEIGHT;
 
+/// Epoch for the eight-byte day/millisecond/submillisecond CDS time field.
+/// Meteor-M2x day counters use the 11,322-day Unix offset applied by SatDump
+/// (2000-12-31 UTC); standard CCSDS 1958 epoch is available as an override.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CdsEpoch {
+    #[default]
+    MeteorM2x,
+    Ccsds1958,
+}
+
+impl CdsEpoch {
+    fn unix_epoch_seconds(self) -> f64 {
+        match self {
+            Self::MeteorM2x => 978_220_800.0,
+            Self::Ccsds1958 => -378_691_200.0,
+        }
+    }
+}
+
 #[must_use]
 pub fn apid_channel_label(apid: u16) -> Option<&'static str> {
     match apid {
@@ -39,12 +58,14 @@ const GROUP_PERIOD_US: f64 = 1_231_142.0;
 #[derive(Debug)]
 struct ScanGroup {
     segments: [Option<Vec<u8>>; SEGMENTS_PER_LINE],
+    timestamp_unix_seconds: Option<f64>,
 }
 
 impl Default for ScanGroup {
     fn default() -> Self {
         Self {
             segments: std::array::from_fn(|_| None),
+            timestamp_unix_seconds: None,
         }
     }
 }
@@ -133,12 +154,18 @@ pub struct ImageBuilder {
     channels: BTreeMap<u16, ChannelImage>,
     clock: SequenceClock,
     dropped_segments: u64,
+    cds_epoch: CdsEpoch,
 }
 
 impl ImageBuilder {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Select the mission epoch used by absolute CDS image timestamps.
+    pub fn set_cds_epoch(&mut self, epoch: CdsEpoch) {
+        self.cds_epoch = epoch;
     }
 
     /// Decode a segment and retain its absolute shared sequence/time identity.
@@ -160,6 +187,7 @@ impl ImageBuilder {
             return;
         }
         let time = self.clock.timestamp(payload);
+        let timestamp_unix_seconds = cds_timestamp_unix_seconds(payload, self.cds_epoch);
         let absolute = self.clock.locate(sequence, time);
         let base = absolute - column as i64;
         let phase = base.rem_euclid(PACKETS_PER_GROUP);
@@ -208,6 +236,9 @@ impl ImageBuilder {
         let group = channel.groups.entry(raw_group).or_default();
         if group.segments[column].is_some() {
             return;
+        }
+        if group.timestamp_unix_seconds.is_none() {
+            group.timestamp_unix_seconds = timestamp_unix_seconds;
         }
         group.segments[column] = Some(segment.pixels);
         if let Some(time) = time {
@@ -280,6 +311,34 @@ impl ImageBuilder {
             .collect()
     }
 
+    /// Absolute CCSDS Day Segmented Time for each reconstructed scanline.
+    /// A group timestamp identifies its containing 8-line scan block; the
+    /// intervening line times are interpolated at the documented group cadence.
+    /// Missing/invalid packet time fields stay `None` rather than acquiring a
+    /// wall-clock or capture-start estimate.
+    #[must_use]
+    pub fn line_timestamps_unix_seconds(&self, apid: u16) -> Vec<Option<f64>> {
+        let Some(channel) = self.channels.get(&apid) else {
+            return Vec::new();
+        };
+        let Some((first, last, first_phase)) = self.bounds() else {
+            return Vec::new();
+        };
+        let shift = i64::from(channel.phase < first_phase);
+        let height = (last - first + 1) as usize * SEGMENT_HEIGHT;
+        let mut lines = Vec::with_capacity(height);
+        for row in 0..height {
+            let group_index = first + (row / SEGMENT_HEIGHT) as i64 + shift;
+            let group = channel.groups.get(&group_index);
+            let timestamp = group.and_then(|group| group.timestamp_unix_seconds);
+            let line_in_group = row % SEGMENT_HEIGHT;
+            lines.push(timestamp.map(|timestamp| {
+                timestamp + line_in_group as f64 * self.clock.group_period_us / 8_000_000.0
+            }));
+        }
+        lines
+    }
+
     /// Sample sparse groups directly, without allocating full-pass rasters.
     #[must_use]
     pub fn render_previews(&self, max_side: usize) -> Vec<(u16, GrayImage)> {
@@ -339,6 +398,28 @@ impl ImageBuilder {
     pub fn dropped_scanlines(&self) -> u64 {
         self.dropped_segments
     }
+}
+
+/// Meteor MSU-MR packet secondary headers use an 8-byte day/millisecond/
+/// submillisecond field; `cds_epoch` selects the mission's explicit epoch.
+/// A zero day is treated as a time-of-day-only legacy timestamp and is not
+/// sufficient for absolute geolocation.
+pub fn cds_timestamp_unix_seconds(payload: &[u8], epoch: CdsEpoch) -> Option<f64> {
+    if payload.len() < 8 {
+        return None;
+    }
+    let days = u16::from_be_bytes([payload[0], payload[1]]);
+    let millis = u32::from_be_bytes(payload[2..6].try_into().ok()?);
+    let micros = u16::from_be_bytes([payload[6], payload[7]]);
+    if days == 0 || millis >= 86_400_000 || micros >= 1_000 {
+        return None;
+    }
+    Some(
+        epoch.unix_epoch_seconds()
+            + f64::from(days) * 86_400.0
+            + f64::from(millis) / 1_000.0
+            + f64::from(micros) / 1_000_000.0,
+    )
 }
 
 #[derive(Debug)]
@@ -522,6 +603,50 @@ fn decode_segment(payload: &[u8]) -> Option<DecodedSegment> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cds_timestamp_uses_ccsds_1958_epoch_and_rejects_time_of_day_only() {
+        let mut payload = [0_u8; 8];
+        payload[1] = 1; // 1958-01-02
+        payload[2..6].copy_from_slice(&1_234_u32.to_be_bytes());
+        payload[6..8].copy_from_slice(&500_u16.to_be_bytes());
+        assert!(
+            (cds_timestamp_unix_seconds(&payload, CdsEpoch::Ccsds1958).unwrap()
+                - (-378_604_798.765_5))
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            (cds_timestamp_unix_seconds(&payload, CdsEpoch::MeteorM2x).unwrap()
+                - 978_307_201.234_5)
+                .abs()
+                < 1e-6
+        );
+        payload[0] = 0;
+        payload[1] = 0;
+        assert_eq!(
+            cds_timestamp_unix_seconds(&payload, CdsEpoch::MeteorM2x),
+            None
+        );
+    }
+
+    #[test]
+    fn timed_scan_group_assigns_absolute_times_to_its_eight_scanlines() {
+        let mut builder = ImageBuilder::new();
+        for column in 0..SEGMENTS_PER_LINE {
+            let mut payload = zero_segment((column * BLOCKS_PER_SEGMENT) as u8);
+            payload[1] = 1;
+            payload[2..6].copy_from_slice(&1_000_u32.to_be_bytes());
+            builder.push_packet(64, column as u16, &payload);
+        }
+        let timestamps = builder.line_timestamps_unix_seconds(64);
+        assert_eq!(timestamps.len(), SEGMENT_HEIGHT);
+        let first = timestamps[0].unwrap();
+        assert!((first - 978_307_201.0).abs() < 1e-6);
+        let last = timestamps.last().unwrap().unwrap();
+        assert!(last > first);
+        assert!((last - first - 7.0 * GROUP_PERIOD_US / 8_000_000.0).abs() < 1e-6);
+    }
 
     fn zero_segment(mcu_number: u8) -> Vec<u8> {
         let mut payload = vec![0u8; 14];

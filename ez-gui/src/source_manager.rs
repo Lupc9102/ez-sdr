@@ -111,7 +111,9 @@ fn resolve_rtl_device(
             .iter()
             .filter(|device| device.serial.as_deref() == Some(serial));
         let Some(device) = matching.next() else {
-            return Err(format!("Selected RTL-SDR serial {serial:?} is not connected. Refresh and select a receiver."));
+            return Err(format!(
+                "Selected RTL-SDR serial {serial:?} is not connected. Refresh and select a receiver."
+            ));
         };
         if matching.next().is_some() {
             return Err(format!(
@@ -431,8 +433,12 @@ impl Drop for CaptureProducer {
 fn daemon_audio_parameters(
     mode: ez_proto::DemodMode,
     channel_rate: u32,
+    stereo: bool,
+    cw_tone_hz: u32,
 ) -> ez_proto::AudioParameters {
     let mut p = ez_proto::AudioParameters::for_mode(mode);
+    p.stereo = mode == ez_proto::DemodMode::Wfm && stereo;
+    p.cw_tone_hz = cw_tone_hz;
     let fraction = if matches!(mode, ez_proto::DemodMode::Usb | ez_proto::DemodMode::Lsb) {
         0.44
     } else {
@@ -523,6 +529,7 @@ fn iq_block_duration(byte_count: usize, sample_rate: u32) -> Duration {
 }
 
 const DAEMON_SQUELCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const DAEMON_LRPT_FINALIZE_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct PendingSquelch {
     request_id: u64,
@@ -587,6 +594,8 @@ pub struct SourceManager {
     pub replay_size: u64,
     /// `host:port` of the `ez-daemon` to connect to in `SourceMode::Daemon`.
     pub daemon_addr: String,
+    /// Optional bearer token for a daemon configured with `--auth-token`.
+    pub daemon_token: String,
     daemon_client: Option<crate::daemon_client::DaemonClient>,
     daemon_channels: ez_proto::ClientChannels,
     daemon_session_ready: bool,
@@ -608,6 +617,10 @@ pub struct SourceManager {
     test_hardware_open: Option<TestHardwareOpen>,
     daemon_audio_mode: Option<ez_proto::DemodMode>,
     daemon_audio_tuning: Option<DaemonAudioTuning>,
+    daemon_audio_parameters: Option<ez_proto::AudioParameters>,
+    daemon_wfm_stereo: bool,
+    daemon_cw_tone_hz: u32,
+    daemon_meteor_profile: ez_proto::MeteorProfile,
     daemon_squelch_applied: Option<ez_proto::SquelchState>,
     daemon_squelch_pending: Option<PendingSquelch>,
     daemon_squelch_wanted: f32,
@@ -616,6 +629,9 @@ pub struct SourceManager {
     pub daemon_squelch_error: Option<String>,
     daemon_adsb_subscribed: bool,
     daemon_lrpt_subscribed: bool,
+    daemon_lrpt_profile: Option<ez_proto::MeteorProfile>,
+    daemon_lrpt_finalize_sent_at: Option<Instant>,
+    daemon_lrpt_product_complete: bool,
     daemon_recording_active: bool,
     tx: Option<Sender<SourceMessage>>,
     rx: Option<Receiver<SourceMessage>>,
@@ -708,6 +724,7 @@ impl SourceManager {
             replay_position: 0,
             replay_size: 0,
             daemon_addr: "127.0.0.1:7890".to_string(),
+            daemon_token: String::new(),
             daemon_client: None,
             daemon_channels: ez_proto::ClientChannels {
                 spectrum: 1,
@@ -731,6 +748,10 @@ impl SourceManager {
             daemon_last_gain_db: 40.0,
             daemon_audio_mode: None,
             daemon_audio_tuning: None,
+            daemon_audio_parameters: None,
+            daemon_wfm_stereo: false,
+            daemon_cw_tone_hz: 800,
+            daemon_meteor_profile: ez_proto::MeteorProfile::Oqpsk72,
             daemon_squelch_applied: None,
             daemon_squelch_pending: None,
             daemon_squelch_wanted: -100.0,
@@ -739,6 +760,9 @@ impl SourceManager {
             daemon_squelch_error: None,
             daemon_adsb_subscribed: false,
             daemon_lrpt_subscribed: false,
+            daemon_lrpt_profile: None,
+            daemon_lrpt_finalize_sent_at: None,
+            daemon_lrpt_product_complete: false,
             daemon_recording_active: false,
             tx: Some(tx),
             rx: Some(rx),
@@ -1276,7 +1300,7 @@ impl SourceManager {
                                         .downcast_ref::<ez_daemon::hardware::ReadPending>()
                                         .is_some() =>
                                 {
-                                    continue
+                                    continue;
                                 }
                                 Err(error) => {
                                     send_cancellable(
@@ -1452,7 +1476,13 @@ impl SourceManager {
                 return;
             }
         };
-        let client = crate::daemon_client::DaemonClient::connect(addr, "ez-gui".to_string());
+        let token = (!self.daemon_token.is_empty())
+            .then(|| ez_proto::AuthToken::new(self.daemon_token.clone()));
+        let client = crate::daemon_client::DaemonClient::connect_with_token(
+            addr,
+            "ez-gui".to_string(),
+            token,
+        );
         self.daemon_session_ready = false;
         self.daemon_applied_capture = None;
         self.daemon_adsb_confirmed = false;
@@ -1460,10 +1490,14 @@ impl SourceManager {
         self.daemon_removals_pending.clear();
         self.daemon_audio_mode = None;
         self.daemon_audio_tuning = None;
+        self.daemon_audio_parameters = None;
         self.local_capture_accepted = false;
         self.reset_daemon_squelch();
         self.daemon_adsb_subscribed = false;
         self.daemon_lrpt_subscribed = false;
+        self.daemon_lrpt_profile = None;
+        self.daemon_lrpt_finalize_sent_at = None;
+        self.daemon_lrpt_product_complete = false;
         self.daemon_recording_active = false;
         self.daemon_client = Some(client);
         self.stream_generation = self.stream_generation.wrapping_add(1);
@@ -1476,6 +1510,17 @@ impl SourceManager {
 
     pub fn daemon_channel_ids(&self) -> ez_proto::ClientChannels {
         self.daemon_channels
+    }
+
+    /// Error from a failed daemon workflow, including a timed-out LRPT finalization.
+    #[must_use]
+    pub fn daemon_channel_error(&self) -> Option<&str> {
+        self.daemon_channel_error.as_deref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_daemon_channel_error(&mut self, error: impl Into<String>) {
+        self.daemon_channel_error = Some(error.into());
     }
 
     fn sync_daemon_session(&mut self) {
@@ -1659,6 +1704,22 @@ impl SourceManager {
             && self
                 .daemon_squelch_applied
                 .is_some_and(|applied| frame.squelch == applied)
+    }
+
+    /// Set the desktop's WFM stereo preference and CW beat tone for daemon DSP.
+    pub fn set_daemon_radio_audio_options(&mut self, stereo: bool, cw_tone_hz: f32) {
+        self.daemon_wfm_stereo = stereo;
+        let cw_tone_hz = if cw_tone_hz.is_finite() {
+            cw_tone_hz.round().clamp(100.0, 2_000.0) as u32
+        } else {
+            800
+        };
+        self.daemon_cw_tone_hz = cw_tone_hz;
+    }
+
+    /// Select the Meteor profile requested for the next daemon LRPT subscription.
+    pub fn set_daemon_meteor_profile(&mut self, profile: ez_proto::MeteorProfile) {
+        self.daemon_meteor_profile = profile;
     }
 
     fn daemon_spectrum_spec(&self) -> ez_proto::ChannelSpec {
@@ -1851,6 +1912,9 @@ impl SourceManager {
                 self.reset_daemon_squelch();
                 self.daemon_adsb_subscribed = false;
                 self.daemon_lrpt_subscribed = false;
+                self.daemon_lrpt_profile = None;
+                self.daemon_lrpt_finalize_sent_at = None;
+                self.daemon_lrpt_product_complete = false;
             }
         }
         if let ez_proto::ServerEvent::Squelch {
@@ -1867,6 +1931,13 @@ impl SourceManager {
         } else if let ez_proto::ServerEvent::Aircraft(snapshot) = &event {
             if self.daemon_adsb_subscribed && snapshot.channel_id == self.daemon_channels.adsb {
                 self.daemon_adsb_confirmed = true;
+            }
+        } else if let ez_proto::ServerEvent::Telemetry(frame) = &event {
+            if self.daemon_lrpt_subscribed
+                && frame.channel_id == self.daemon_channels.lrpt
+                && frame.product_complete
+            {
+                self.daemon_lrpt_product_complete = true;
             }
         } else if let ez_proto::ServerEvent::Hardware(hw) = &event {
             self.apply_daemon_hardware(hw);
@@ -2043,7 +2114,8 @@ impl SourceManager {
                 crate::sdr_panel::DemodMode::Wfm => Some(ez_proto::DemodMode::Wfm),
                 crate::sdr_panel::DemodMode::Lsb => Some(ez_proto::DemodMode::Lsb),
                 crate::sdr_panel::DemodMode::Usb => Some(ez_proto::DemodMode::Usb),
-                crate::sdr_panel::DemodMode::Dsb | crate::sdr_panel::DemodMode::Cw => None,
+                crate::sdr_panel::DemodMode::Dsb => Some(ez_proto::DemodMode::Dsb),
+                crate::sdr_panel::DemodMode::Cw => Some(ez_proto::DemodMode::Cw),
             }
         } else {
             None
@@ -2055,11 +2127,10 @@ impl SourceManager {
                 Ok(offset) => Some(DaemonAudioTuning {
                     frequency_hz: self.frequency_hz,
                     offset_hz: offset,
-                    channel_sample_rate_hz: (if wanted_audio_mode == Some(ez_proto::DemodMode::Wfm)
-                    {
-                        256_000
-                    } else {
-                        200_000
+                    channel_sample_rate_hz: (match wanted_audio_mode {
+                        Some(ez_proto::DemodMode::Wfm) => 256_000,
+                        Some(ez_proto::DemodMode::Cw) => 48_000,
+                        _ => 200_000,
                     })
                     .min(self.sample_rate_hz),
                 }),
@@ -2074,13 +2145,21 @@ impl SourceManager {
         } else {
             None
         };
+        let wanted_audio_parameters =
+            wanted_audio_mode
+                .zip(wanted_audio_tuning)
+                .map(|(mode, tuning)| {
+                    daemon_audio_parameters(
+                        mode,
+                        tuning.channel_sample_rate_hz,
+                        self.daemon_wfm_stereo,
+                        self.daemon_cw_tone_hz,
+                    )
+                });
         match (self.daemon_audio_mode, wanted_audio_mode) {
             (None, Some(mode)) => commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
-                    audio: Some(daemon_audio_parameters(
-                        mode,
-                        wanted_audio_tuning.unwrap().channel_sample_rate_hz,
-                    )),
+                    audio: wanted_audio_parameters,
                     meteor_profile: None,
                     id: self.daemon_channels.audio,
                     center_offset_hz: wanted_audio_tuning.map_or(0, |tuning| tuning.offset_hz),
@@ -2107,7 +2186,8 @@ impl SourceManager {
         ) {
             (Some(_), Some(mode), Some(tuning))
                 if self.daemon_audio_tuning != wanted_audio_tuning
-                    || self.daemon_audio_mode != wanted_audio_mode =>
+                    || self.daemon_audio_mode != wanted_audio_mode
+                    || self.daemon_audio_parameters != wanted_audio_parameters =>
             {
                 commands.push(ez_proto::ClientCommand::Retune {
                     channel_id: self.daemon_channels.audio,
@@ -2115,7 +2195,7 @@ impl SourceManager {
                     channel_sample_rate_hz: tuning.channel_sample_rate_hz,
                     audio: Some(ez_proto::AudioConfiguration {
                         mode,
-                        parameters: daemon_audio_parameters(mode, tuning.channel_sample_rate_hz),
+                        parameters: wanted_audio_parameters.unwrap(),
                     }),
                 });
             }
@@ -2126,6 +2206,7 @@ impl SourceManager {
         }
         self.daemon_audio_mode = wanted_audio_mode;
         self.daemon_audio_tuning = wanted_audio_tuning;
+        self.daemon_audio_parameters = wanted_audio_parameters;
 
         if adsb_running && !self.daemon_adsb_subscribed {
             commands.push(ez_proto::ClientCommand::Subscribe {
@@ -2152,27 +2233,61 @@ impl SourceManager {
         }
         self.daemon_adsb_subscribed = adsb_running;
 
-        if meteor_lrpt && !self.daemon_lrpt_subscribed {
+        let changing_meteor_profile = meteor_lrpt
+            && self.daemon_lrpt_subscribed
+            && self.daemon_lrpt_profile != Some(self.daemon_meteor_profile);
+        let mut lrpt_removed_this_tick = false;
+        let retiring_lrpt = self.daemon_lrpt_subscribed
+            && (self.daemon_lrpt_finalize_sent_at.is_some()
+                || !meteor_lrpt
+                || changing_meteor_profile);
+        if retiring_lrpt {
+            let timed_out = self
+                .daemon_lrpt_finalize_sent_at
+                .is_some_and(|started| started.elapsed() >= DAEMON_LRPT_FINALIZE_TIMEOUT);
+            if !self.daemon_lrpt_product_complete && !timed_out {
+                if self.daemon_lrpt_finalize_sent_at.is_none() {
+                    commands.push(ez_proto::ClientCommand::FinalizeTelemetryProduct {
+                        channel_id: self.daemon_channels.lrpt,
+                    });
+                    self.daemon_lrpt_finalize_sent_at = Some(Instant::now());
+                }
+            } else {
+                if timed_out && !self.daemon_lrpt_product_complete {
+                    self.daemon_channel_error = Some(
+                        "daemon did not finish the LRPT product before the 15-second timeout; the channel is being removed".into(),
+                    );
+                }
+                commands.push(ez_proto::ClientCommand::Unsubscribe {
+                    channel_id: self.daemon_channels.lrpt,
+                });
+                commands.push(ez_proto::ClientCommand::RemoveChannel {
+                    channel_id: self.daemon_channels.lrpt,
+                });
+                self.daemon_lrpt_subscribed = false;
+                self.daemon_lrpt_profile = None;
+                self.daemon_lrpt_finalize_sent_at = None;
+                self.daemon_lrpt_product_complete = false;
+                lrpt_removed_this_tick = true;
+            }
+        }
+        if meteor_lrpt && !self.daemon_lrpt_subscribed && !lrpt_removed_this_tick {
             commands.push(ez_proto::ClientCommand::Subscribe {
                 channel: ez_proto::ChannelSpec {
                     audio: None,
-                    meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
+                    meteor_profile: Some(self.daemon_meteor_profile),
                     id: self.daemon_channels.lrpt,
                     center_offset_hz: 0,
-                    channel_sample_rate_hz: 288_000,
+                    channel_sample_rate_hz: self.daemon_meteor_profile.symbol_rate_hz() * 4,
                     kind: ez_proto::PipelineKind::LrptTelemetry,
                     demod_mode: None,
                 },
             });
-        } else if !meteor_lrpt && self.daemon_lrpt_subscribed {
-            commands.push(ez_proto::ClientCommand::Unsubscribe {
-                channel_id: self.daemon_channels.lrpt,
-            });
-            commands.push(ez_proto::ClientCommand::RemoveChannel {
-                channel_id: self.daemon_channels.lrpt,
-            });
         }
-        self.daemon_lrpt_subscribed = meteor_lrpt;
+        if meteor_lrpt && !self.daemon_lrpt_subscribed && !lrpt_removed_this_tick {
+            self.daemon_lrpt_subscribed = true;
+            self.daemon_lrpt_profile = Some(self.daemon_meteor_profile);
+        }
         for command in &commands {
             if let ez_proto::ClientCommand::RemoveChannel { channel_id } = command {
                 self.daemon_removals_pending.insert(*channel_id);
@@ -2210,6 +2325,9 @@ impl SourceManager {
         self.reset_daemon_squelch();
         self.daemon_adsb_subscribed = false;
         self.daemon_lrpt_subscribed = false;
+        self.daemon_lrpt_profile = None;
+        self.daemon_lrpt_finalize_sent_at = None;
+        self.daemon_lrpt_product_complete = false;
         self.daemon_recording_active = false;
         self.running.store(false, Ordering::SeqCst);
         self.restart_requested = false;
@@ -2360,6 +2478,15 @@ impl SourceManager {
                     egui::TextEdit::singleline(&mut self.daemon_addr)
                         .desired_width(160.0)
                         .hint_text("127.0.0.1:7890"),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Access token:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.daemon_token)
+                        .desired_width(160.0)
+                        .password(true)
+                        .hint_text("optional"),
                 );
             });
             ui.label(egui::RichText::new("Daemon mode provides spectrum, audio, aircraft, and LRPT streams; local-only tools may still be unavailable.").color(egui::Color32::YELLOW));
@@ -2593,7 +2720,9 @@ unsafe fn rtl_sdr_open(
     let mut dev: *mut std::ffi::c_void = std::ptr::null_mut();
     let opened = unsafe { rtlsdr_sys::rtlsdr_open(&mut dev, index) };
     if opened != 0 || dev.is_null() {
-        return Err(format!("Could not open RTL-SDR device {index} (USB error {opened}). Check USB access and whether another program is using it."));
+        return Err(format!(
+            "Could not open RTL-SDR device {index} (USB error {opened}). Check USB access and whether another program is using it."
+        ));
     }
     let cleanup_and_fail = |what: &str| -> Result<*mut std::ffi::c_void, String> {
         unsafe {
@@ -3029,6 +3158,7 @@ mod tests {
                 sequence: 1,
                 channel_id: foreign,
                 sample_rate_hz: 48000,
+                channels: 1,
                 samples: vec![1.0],
                 squelch: SquelchState {
                     db: -100.0,
@@ -3046,6 +3176,9 @@ mod tests {
                 width: 1,
                 height: 1,
                 pixels: vec![0],
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: false,
                 rs_ok: 0,
                 rs_failed: 0,
                 costas_locked: false,
@@ -3249,6 +3382,7 @@ mod tests {
         let parameters = ez_proto::AudioParameters {
             rf_bandwidth_hz: 15_000,
             output_sample_rate_hz: 48_000,
+            ..ez_proto::AudioParameters::for_mode(ez_proto::DemodMode::Am)
         };
         let mut source = SourceManager::new();
         source.frequency_hz = 118_500_000;
@@ -3313,7 +3447,8 @@ mod tests {
                     mode: ez_proto::DemodMode::Fm,
                     parameters: ez_proto::AudioParameters {
                         rf_bandwidth_hz: 25_000,
-                        output_sample_rate_hz: 48_000
+                        output_sample_rate_hz: 48_000,
+                        ..ez_proto::AudioParameters::for_mode(ez_proto::DemodMode::Fm)
                     },
                 }),
                 channel_id: DAEMON_AUDIO_CHANNEL_ID,
@@ -3353,6 +3488,18 @@ mod tests {
                 200_000,
                 15_000,
             ),
+            (
+                crate::sdr_panel::DemodMode::Dsb,
+                ez_proto::DemodMode::Dsb,
+                200_000,
+                4_600,
+            ),
+            (
+                crate::sdr_panel::DemodMode::Cw,
+                ez_proto::DemodMode::Cw,
+                48_000,
+                200,
+            ),
         ] {
             let commands = source.daemon_workflow_commands(true, false, false, gui_mode);
             assert_eq!(
@@ -3365,7 +3512,8 @@ mod tests {
                         mode,
                         parameters: ez_proto::AudioParameters {
                             rf_bandwidth_hz: rf_width,
-                            output_sample_rate_hz: 48_000
+                            output_sample_rate_hz: 48_000,
+                            ..ez_proto::AudioParameters::for_mode(mode)
                         },
                     }),
                 }]
@@ -3374,6 +3522,185 @@ mod tests {
                 .daemon_workflow_commands(true, false, false, gui_mode)
                 .is_empty());
         }
+    }
+
+    #[test]
+    fn daemon_audio_options_retune_live_stereo_and_cw_beat_parameters() {
+        let mut source = SourceManager::new();
+        source.daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Wfm);
+        source.set_daemon_radio_audio_options(true, 650.0);
+        let commands =
+            source.daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Wfm);
+        let [ez_proto::ClientCommand::Retune { audio, .. }] = commands.as_slice() else {
+            panic!("stereo preference should retune the active WFM channel")
+        };
+        let audio = audio.as_ref().expect("audio configuration");
+        assert!(audio.parameters.stereo);
+        assert_eq!(audio.parameters.cw_tone_hz, 650);
+
+        assert!(matches!(
+            source
+                .daemon_workflow_commands(true, false, false, crate::sdr_panel::DemodMode::Cw)
+                .as_slice(),
+            [ez_proto::ClientCommand::Retune {
+                audio: Some(ez_proto::AudioConfiguration {
+                    mode: ez_proto::DemodMode::Cw,
+                    parameters: ez_proto::AudioParameters {
+                        cw_tone_hz: 650,
+                        ..
+                    }
+                }),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn daemon_live_meteor_profile_changes_recreate_only_the_lrpt_pipeline() {
+        let mut source = SourceManager::new();
+        source.set_daemon_meteor_profile(ez_proto::MeteorProfile::Oqpsk80Interleaved);
+        let first =
+            source.daemon_workflow_commands(false, false, true, crate::sdr_panel::DemodMode::Fm);
+        assert!(matches!(
+            first.as_slice(),
+            [ez_proto::ClientCommand::Subscribe {
+                channel: ez_proto::ChannelSpec {
+                    kind: ez_proto::PipelineKind::LrptTelemetry,
+                    meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk80Interleaved),
+                    channel_sample_rate_hz: 320_000,
+                    ..
+                }
+            }]
+        ));
+        assert!(source
+            .daemon_workflow_commands(false, false, true, crate::sdr_panel::DemodMode::Fm)
+            .is_empty());
+
+        source.set_daemon_meteor_profile(ez_proto::MeteorProfile::Oqpsk72);
+        let changed =
+            source.daemon_workflow_commands(false, false, true, crate::sdr_panel::DemodMode::Fm);
+        assert!(matches!(
+            changed.as_slice(),
+            [ez_proto::ClientCommand::FinalizeTelemetryProduct { .. }]
+        ));
+        assert!(source.daemon_lrpt_subscribed);
+        assert!(source
+            .daemon_workflow_commands(false, false, true, crate::sdr_panel::DemodMode::Fm)
+            .is_empty());
+        source.daemon_lrpt_product_complete = true;
+        let retired =
+            source.daemon_workflow_commands(false, false, true, crate::sdr_panel::DemodMode::Fm);
+        assert!(matches!(
+            retired.as_slice(),
+            [
+                ez_proto::ClientCommand::Unsubscribe { .. },
+                ez_proto::ClientCommand::RemoveChannel { .. }
+            ]
+        ));
+        assert!(!source.daemon_lrpt_subscribed);
+        assert!(source
+            .daemon_removals_pending
+            .contains(&source.daemon_channels.lrpt));
+
+        source
+            .daemon_removals_pending
+            .remove(&source.daemon_channels.lrpt);
+        let restarted =
+            source.daemon_workflow_commands(false, false, true, crate::sdr_panel::DemodMode::Fm);
+        assert!(matches!(
+            restarted.as_slice(),
+            [ez_proto::ClientCommand::Subscribe {
+                channel: ez_proto::ChannelSpec {
+                    meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
+                    channel_sample_rate_hz: 288_000,
+                    ..
+                }
+            }]
+        ));
+    }
+
+    #[test]
+    fn daemon_lrpt_stop_waits_for_product_complete_event_before_removing_channel() {
+        use ez_proto::{ServerEvent, TelemetryFrame};
+
+        let (client, _commands, events) = crate::daemon_client::DaemonClient::test_connection();
+        let mut source = SourceManager::new();
+        source.source_mode = SourceMode::Daemon;
+        source.daemon_client = Some(client);
+        source.daemon_session_ready = true;
+        source.daemon_lrpt_subscribed = true;
+        source.daemon_lrpt_profile = Some(ez_proto::MeteorProfile::Oqpsk72);
+
+        let finalize =
+            source.daemon_workflow_commands(false, false, false, crate::sdr_panel::DemodMode::Fm);
+        assert!(matches!(
+            finalize.as_slice(),
+            [ez_proto::ClientCommand::FinalizeTelemetryProduct { channel_id: 4 }]
+        ));
+        assert!(source.daemon_lrpt_subscribed);
+
+        events
+            .send(ServerEvent::Telemetry(TelemetryFrame {
+                product_id: 9,
+                channel_id: source.daemon_channels.lrpt,
+                apid: 0,
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: true,
+                rs_ok: 0,
+                rs_failed: 0,
+                costas_locked: false,
+                frame_locked: false,
+            }))
+            .unwrap();
+        let ServerEvent::Telemetry(frame) = source
+            .recv_daemon_event()
+            .expect("completion sentinel remains visible while subscribed")
+        else {
+            panic!("wrong event");
+        };
+        assert!(frame.product_complete);
+
+        let remove =
+            source.daemon_workflow_commands(false, false, false, crate::sdr_panel::DemodMode::Fm);
+        assert!(matches!(
+            remove.as_slice(),
+            [
+                ez_proto::ClientCommand::Unsubscribe { channel_id: 4 },
+                ez_proto::ClientCommand::RemoveChannel { channel_id: 4 }
+            ]
+        ));
+        assert!(!source.daemon_lrpt_subscribed);
+        assert!(source
+            .daemon_removals_pending
+            .contains(&source.daemon_channels.lrpt));
+    }
+
+    #[test]
+    fn daemon_lrpt_finalize_timeout_surfaces_error_and_removes_channel() {
+        let mut source = SourceManager::new();
+        source.daemon_lrpt_subscribed = true;
+        source.daemon_lrpt_profile = Some(ez_proto::MeteorProfile::Oqpsk72);
+        source.daemon_lrpt_finalize_sent_at =
+            Some(Instant::now() - DAEMON_LRPT_FINALIZE_TIMEOUT - Duration::from_secs(1));
+
+        let commands =
+            source.daemon_workflow_commands(false, false, false, crate::sdr_panel::DemodMode::Fm);
+        assert!(matches!(
+            commands.as_slice(),
+            [
+                ez_proto::ClientCommand::Unsubscribe { channel_id: 4 },
+                ez_proto::ClientCommand::RemoveChannel { channel_id: 4 }
+            ]
+        ));
+        assert!(matches!(
+            source.daemon_channel_error(),
+            Some(error) if error.contains("15-second timeout")
+        ));
+        assert!(!source.daemon_lrpt_subscribed);
     }
 
     #[test]
@@ -4607,6 +4934,7 @@ mod tests {
             sequence: 1,
             channel_id,
             sample_rate_hz: 48_000,
+            channels: 1,
             samples: vec![1.0],
             squelch: SquelchState {
                 db: -100.0,

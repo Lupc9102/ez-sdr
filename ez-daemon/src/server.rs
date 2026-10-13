@@ -98,7 +98,7 @@ async fn handle_connection(
 
     let client_name = match tokio::time::timeout(
         Duration::from_secs(5),
-        perform_handshake(&mut reader, &mut writer),
+        perform_handshake(&mut reader, &mut writer, &state),
     )
     .await
     {
@@ -154,8 +154,32 @@ async fn handle_connection(
 async fn perform_handshake(
     reader: &mut FramedRead<OwnedReadHalf, MessageCodec<ClientCommand>>,
     writer: &mut FramedWrite<OwnedWriteHalf, MessageCodec<ServerEvent>>,
+    state: &DaemonState,
 ) -> Result<Option<String>> {
-    match reader.next().await {
+    let first = reader.next().await;
+    let hello = if state.authentication_required() {
+        match first {
+            Some(Ok(ClientCommand::Authenticate { token }))
+                if state.authenticate(token.as_str()) =>
+            {
+                reader.next().await
+            }
+            Some(Ok(_)) => {
+                let _ = writer
+                    .send(ServerEvent::Error {
+                        message: "authentication required or invalid".to_string(),
+                    })
+                    .await;
+                return Ok(None);
+            }
+            Some(Err(error)) => return Err(error.into()),
+            None => return Ok(None),
+        }
+    } else {
+        first
+    };
+
+    match hello {
         Some(Ok(ClientCommand::Hello {
             client_name,
             protocol_version,
@@ -175,7 +199,7 @@ async fn perform_handshake(
         Some(Ok(_)) => {
             let _ = writer
                 .send(ServerEvent::Error {
-                    message: "first message must be Hello".to_string(),
+                    message: "expected Hello after authentication".to_string(),
                 })
                 .await;
             Ok(None)
@@ -268,6 +292,7 @@ pub(crate) async fn apply_command(
         | ClientCommand::SetSquelch { channel_id, .. }
         | ClientCommand::Retune { channel_id, .. }
         | ClientCommand::RemoveChannel { channel_id }
+        | ClientCommand::FinalizeTelemetryProduct { channel_id }
         | ClientCommand::StartRecording { channel_id, .. }
         | ClientCommand::StopRecording { channel_id }
         | ClientCommand::StartTelemetryProduct { channel_id }
@@ -297,6 +322,13 @@ pub(crate) async fn apply_command(
         return true;
     }
     match cmd {
+        ClientCommand::Authenticate { .. } => {
+            send_error(
+                event_tx,
+                "Authenticate is only valid before Hello".to_string(),
+            )
+            .await;
+        }
         ClientCommand::Hello { .. } => {
             send_error(event_tx, "unexpected Hello after handshake".to_string()).await;
         }
@@ -415,6 +447,11 @@ pub(crate) async fn apply_command(
         },
         ClientCommand::StartTelemetryProduct { channel_id } => {
             if let Err(error) = state.start_telemetry_product(channel_id) {
+                send_error(event_tx, error.to_string()).await;
+            }
+        }
+        ClientCommand::FinalizeTelemetryProduct { channel_id } => {
+            if let Err(error) = state.finalize_telemetry_product(channel_id) {
                 send_error(event_tx, error.to_string()).await;
             }
         }
@@ -577,6 +614,13 @@ mod tests {
     }
 
     async fn spawn_test_server() -> (SocketAddr, Arc<AtomicBool>) {
+        let (addr, running, _) = spawn_test_server_with_auth(None).await;
+        (addr, running)
+    }
+
+    async fn spawn_test_server_with_auth(
+        auth_token: Option<String>,
+    ) -> (SocketAddr, Arc<AtomicBool>, Arc<DaemonState>) {
         let bus = SampleBus::new();
         let ingest_running = Arc::new(AtomicBool::new(true));
         let (hardware, _ingest_thread) = ingest::spawn(
@@ -592,15 +636,17 @@ mod tests {
             2_000_000,
             unique_temp_dir("server"),
         ));
+        state.set_auth_token(auth_token).unwrap();
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let running = Arc::new(AtomicBool::new(true));
         let server_running = Arc::clone(&running);
+        let server_state = Arc::clone(&state);
         tokio::spawn(async move {
-            let _ = serve(listener, state, server_running).await;
+            let _ = serve(listener, server_state, server_running).await;
         });
-        (addr, running)
+        (addr, running, state)
     }
 
     async fn spawn_rejecting_test_server() -> (SocketAddr, Arc<AtomicBool>) {
@@ -700,6 +746,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn configured_auth_rejects_missing_and_wrong_tokens_before_welcome_or_controls() {
+        let token = "a test token longer than a password";
+        let (addr, running, state) = spawn_test_server_with_auth(Some(token.to_string())).await;
+        let initial_frequency = state.hardware_status().frequency_hz;
+
+        for first in [
+            ClientCommand::Hello {
+                client_name: "missing-auth".into(),
+                protocol_version: PROTOCOL_VERSION,
+            },
+            ClientCommand::Authenticate {
+                token: ez_proto::AuthToken::new("incorrect token"),
+            },
+        ] {
+            let (mut writer, mut reader) = connect(addr).await;
+            writer.send(first).await.unwrap();
+            let event = reader.next().await.unwrap().unwrap();
+            assert!(matches!(event, ServerEvent::Error { .. }));
+            assert!(reader.next().await.is_none());
+        }
+        assert_eq!(state.hardware_status().frequency_hz, initial_frequency);
+
+        let (mut writer, mut reader) = connect(addr).await;
+        writer
+            .send(ClientCommand::Authenticate {
+                token: ez_proto::AuthToken::new(token),
+            })
+            .await
+            .unwrap();
+        hello(&mut writer, "authenticated-client").await;
+        assert!(matches!(
+            reader.next().await.unwrap().unwrap(),
+            ServerEvent::Welcome { .. }
+        ));
+        assert!(matches!(
+            reader.next().await.unwrap().unwrap(),
+            ServerEvent::Hardware(_)
+        ));
+        writer
+            .send(ClientCommand::SetFrequency { hz: 104_000_000 })
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state.hardware_status().frequency_hz != 104_000_000 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("authenticated command should reach hardware");
+        running.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
     async fn rejected_hardware_frequency_is_reported_to_tcp_client() {
         let (addr, running) = spawn_rejecting_test_server().await;
         let (mut writer, mut reader) = connect(addr).await;
@@ -755,6 +854,63 @@ mod tests {
         let event = reader.next().await.unwrap().unwrap();
         assert!(matches!(event, ServerEvent::Error { .. }));
 
+        running.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn authenticated_live_lrpt_stop_delivers_completion_before_unsubscribe() {
+        let token = "tcp-live-lrpt-secret";
+        let (addr, running, _) = spawn_test_server_with_auth(Some(token.into())).await;
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let (read_half, write_half) = stream.into_split();
+        let mut writer =
+            FramedWrite::new(write_half, MessageCodec::<ClientCommand>::for_commands());
+        let mut reader = FramedRead::new(read_half, MessageCodec::<ServerEvent>::for_data());
+        writer
+            .send(ClientCommand::Authenticate {
+                token: ez_proto::AuthToken::new(token),
+            })
+            .await
+            .unwrap();
+        hello(&mut writer, "lrpt-stop-client").await;
+        let _ = reader.next().await.unwrap().unwrap();
+        let _ = reader.next().await.unwrap().unwrap();
+        let channel_id = 42;
+        writer
+            .send(ClientCommand::Subscribe {
+                channel: ChannelSpec {
+                    audio: None,
+                    meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
+                    id: channel_id,
+                    center_offset_hz: 0,
+                    channel_sample_rate_hz: 288_000,
+                    kind: PipelineKind::LrptTelemetry,
+                    demod_mode: None,
+                },
+            })
+            .await
+            .unwrap();
+        writer
+            .send(ClientCommand::FinalizeTelemetryProduct { channel_id })
+            .await
+            .unwrap();
+        let completion = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let ServerEvent::Telemetry(frame) = reader.next().await.unwrap().unwrap() {
+                    if frame.channel_id == channel_id && frame.product_complete {
+                        return frame;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("finalized LRPT product must arrive while still subscribed");
+        assert_eq!((completion.width, completion.height), (0, 0));
+        assert!(!completion.final_product);
+        writer
+            .send(ClientCommand::Unsubscribe { channel_id })
+            .await
+            .unwrap();
         running.store(false, Ordering::Relaxed);
     }
 
@@ -932,6 +1088,7 @@ mod tests {
                 sequence: n + 1,
                 channel_id: ids.audio,
                 sample_rate_hz: 48_000,
+                channels: 1,
                 samples: vec![0.2; 16],
                 squelch: ez_proto::SquelchState {
                     db: -120.0,
@@ -1013,7 +1170,9 @@ mod tests {
         ingest_thread.join().unwrap();
         drop(state);
         std::fs::remove_dir_all(dir).ok();
-        println!("Mixed forwarders: 3000 updates = {retained} retained + {skipped} skipped; Ping independent of stalled data");
+        println!(
+            "Mixed forwarders: 3000 updates = {retained} retained + {skipped} skipped; Ping independent of stalled data"
+        );
     }
 
     #[tokio::test]
@@ -1030,6 +1189,7 @@ mod tests {
             sequence: n + 1,
             channel_id: 1,
             sample_rate_hz: 48_000,
+            channels: 1,
             samples: vec![0.25; count],
             squelch: ez_proto::SquelchState {
                 db: -120.0,
@@ -1074,7 +1234,9 @@ mod tests {
         }
         writer.abort();
         let _ = writer.await;
-        println!("Bincode writer: 64-byte stalled peer, one 16 KiB in-flight frame, then Pong before 992-frame gap and fresh eight-frame tail");
+        println!(
+            "Bincode writer: 64-byte stalled peer, one 16 KiB in-flight frame, then Pong before 992-frame gap and fresh eight-frame tail"
+        );
     }
 
     #[tokio::test]
@@ -1092,6 +1254,9 @@ mod tests {
             width: 1024,
             height: 1,
             pixels: vec![0; 1024],
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: false,
             rs_ok: 0,
             rs_failed: 0,
             costas_locked: false,

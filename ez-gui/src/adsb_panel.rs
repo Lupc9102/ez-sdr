@@ -64,6 +64,9 @@ pub struct AdsBPanel {
     pub region: AdsbRegion,
     pub uat_address: String,
     uat_receiver: UatReceiver,
+    uat_input_source: UatInputSource,
+    native_uat: Option<crate::local_uat::LocalUatWorker>,
+    native_uat_versions: std::collections::HashMap<u32, u64>,
     uat_position_seen: std::collections::HashMap<u32, std::time::Instant>,
     uat_dropped: u64,
     /// Timestamps of recent messages for rolling-window rate calculation.
@@ -78,6 +81,15 @@ pub struct AdsBPanel {
 pub enum AdsbRegion {
     ModeS1090,
     Uat978,
+}
+
+/// Selects the source for 978 MHz UAT reports. Native IQ decoding is the
+/// default; the JSON feed remains available for users already running dump978.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UatInputSource {
+    #[default]
+    NativeIq,
+    ExternalJson,
 }
 
 impl AdsbRegion {
@@ -597,6 +609,9 @@ impl AdsBPanel {
             region: AdsbRegion::ModeS1090,
             uat_address: crate::uat_receiver::DEFAULT_ADDRESS.into(),
             uat_receiver: UatReceiver::default(),
+            uat_input_source: UatInputSource::NativeIq,
+            native_uat: None,
+            native_uat_versions: std::collections::HashMap::new(),
             uat_position_seen: std::collections::HashMap::new(),
             uat_dropped: 0,
             receiver_rate: 0.0,
@@ -631,7 +646,9 @@ impl AdsBPanel {
     /// receiver is already running it does nothing (so re-entering the Planes
     /// mode doesn't reset stats). Called on entry to the Planes mode.
     pub fn begin(&mut self) {
-        if self.region == AdsbRegion::Uat978 {
+        if self.region == AdsbRegion::Uat978
+            && self.uat_input_source == UatInputSource::ExternalJson
+        {
             if !self.uat_receiver.is_active() {
                 self.connect_uat();
             }
@@ -642,6 +659,20 @@ impl AdsBPanel {
             self.pending_status_flash = Some("Receiver busy; try Start again".into());
             return;
         };
+        if self.region == AdsbRegion::Uat978
+            && self.native_uat_selected()
+            && state.source.source_mode == crate::source_manager::SourceMode::Daemon
+        {
+            state.adsb_running = false;
+            state.source.stop();
+            self.pending_status_flash = Some(
+                "Native UAT needs local IQ capture; select a local source or dump978-fa JSON."
+                    .into(),
+            );
+            drop(state);
+            self.configure_native_uat(false);
+            return;
+        }
         if state.adsb_running
             && state.source.frequency_hz == self.region.frequency_hz()
             && state.source.sample_rate_hz == self.region.sample_rate_hz()
@@ -651,6 +682,8 @@ impl AdsBPanel {
                     | crate::source_manager::SourceStatus::Opening
             )
         {
+            drop(state);
+            self.configure_native_uat(true);
             return;
         }
         state.audio_running = false;
@@ -668,11 +701,12 @@ impl AdsBPanel {
             state.source.start();
         }
         state.adsb_running = true;
+        drop(state);
         self.start_time = Some(std::time::Instant::now());
+        self.configure_native_uat(true);
     }
 
-    /// Change source ownership before receiving: dump978-fa needs exclusive SDR
-    /// access for 978 MHz; returning to 1090 restores the normal local source.
+    /// Change the shared capture tune and decoder source for the selected band.
     pub fn set_region(&mut self, region: AdsbRegion) {
         if self.region == region {
             return;
@@ -693,7 +727,22 @@ impl AdsBPanel {
                 .sync_daemon_workflows(false, false, false, mode);
         }
         state.last_manual_tune = Some(std::time::Instant::now());
-        if region == AdsbRegion::Uat978 {
+        if region == AdsbRegion::Uat978
+            && self.uat_input_source == UatInputSource::NativeIq
+            && state.source.source_mode == crate::source_manager::SourceMode::Daemon
+        {
+            state.adsb_running = false;
+            state.source.stop();
+            drop(state);
+            self.configure_native_uat(false);
+            self.start_time = None;
+            self.pending_status_flash = Some(
+                "Native UAT needs local IQ capture; select a local source or dump978-fa JSON."
+                    .into(),
+            );
+            return;
+        }
+        if region == AdsbRegion::Uat978 && self.uat_input_source == UatInputSource::ExternalJson {
             state.adsb_running = false;
             state.source.stop();
         } else {
@@ -706,17 +755,77 @@ impl AdsBPanel {
             state.adsb_running = true;
         }
         drop(state);
-        if region == AdsbRegion::Uat978 {
+        if region == AdsbRegion::Uat978 && self.uat_input_source == UatInputSource::ExternalJson {
             self.start_uat_connection();
             return;
         }
+        if region == AdsbRegion::Uat978 {
+            self.configure_native_uat(true);
+        }
         self.start_time = Some(std::time::Instant::now());
+    }
+
+    /// Attach the application's shared native capture stream. The worker owns
+    /// a bounded subscription and never waits on an egui repaint.
+    pub(crate) fn attach_native_capture(&mut self, stream: crate::capture_stream::CaptureStream) {
+        self.native_uat = Some(crate::local_uat::LocalUatWorker::new(stream));
+        self.configure_native_uat(
+            self.region == AdsbRegion::Uat978 && self.uat_input_source == UatInputSource::NativeIq,
+        );
+    }
+
+    pub(crate) fn native_uat_selected(&self) -> bool {
+        self.uat_input_source == UatInputSource::NativeIq
+    }
+
+    /// Enable native decoding only while the 978 MHz band is selected.
+    pub(crate) fn configure_native_uat(&self, enabled: bool) {
+        if let Some(worker) = &self.native_uat {
+            worker.configure(
+                enabled
+                    && self.region == AdsbRegion::Uat978
+                    && self.uat_input_source == UatInputSource::NativeIq
+                    && self.native_capture_running(),
+            );
+        }
+    }
+
+    fn native_capture_running(&self) -> bool {
+        self.shared.try_lock().is_ok_and(|state| {
+            state.source.source_mode != crate::source_manager::SourceMode::Daemon
+                && state.source.status == crate::source_manager::SourceStatus::Running
+        })
+    }
+
+    fn native_capture_source_available(&self) -> bool {
+        self.shared.try_lock().is_ok_and(|state| {
+            state.source.source_mode != crate::source_manager::SourceMode::Daemon
+        })
+    }
+
+    fn select_uat_source(&mut self, source: UatInputSource) {
+        if self.uat_input_source == source {
+            return;
+        }
+        self.stop_uat();
+        self.uat_input_source = source;
+        self.native_uat_versions.clear();
+        self.clear_tracks();
+        self.configure_native_uat(
+            self.region == AdsbRegion::Uat978 && source == UatInputSource::NativeIq,
+        );
+        if self.region == AdsbRegion::Uat978 && source == UatInputSource::ExternalJson {
+            self.connect_uat();
+        } else if self.region == AdsbRegion::Uat978 {
+            self.begin();
+        }
     }
 
     pub(crate) fn clear_tracks(&mut self) {
         self.aircraft.clear();
         self.aircraft_trails.clear();
         self.uat_position_seen.clear();
+        self.native_uat_versions.clear();
         self.aircraft_info.clear();
         self.known_icao.clear();
         self.selected_icao = None;
@@ -786,6 +895,7 @@ impl AdsBPanel {
 
     pub fn stop_uat(&mut self) {
         self.uat_receiver.stop();
+        self.configure_native_uat(false);
         if self.region == AdsbRegion::Uat978 {
             self.start_time = None;
         }
@@ -808,6 +918,45 @@ impl AdsBPanel {
         if self.region == AdsbRegion::ModeS1090 {
             return "Mode S · local decoder".into();
         }
+        if self.native_uat_selected() {
+            if let Ok(state) = self.shared.try_lock() {
+                if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+                    return "UAT · native IQ requires a local capture source".into();
+                }
+                match &state.source.status {
+                    crate::source_manager::SourceStatus::Error(message) => {
+                        return format!("UAT · local capture error: {message}");
+                    }
+                    crate::source_manager::SourceStatus::Idle => {
+                        return "UAT · local capture is stopped; start the receiver".into();
+                    }
+                    crate::source_manager::SourceStatus::Stopping => {
+                        return "UAT · local capture is stopping".into();
+                    }
+                    crate::source_manager::SourceStatus::Opening => {
+                        return "UAT · waiting for local capture to start".into();
+                    }
+                    crate::source_manager::SourceStatus::Running => {}
+                }
+            }
+            let Some(snapshot) = self
+                .native_uat
+                .as_ref()
+                .and_then(|worker| worker.snapshot())
+            else {
+                return "UAT · waiting for native capture".into();
+            };
+            if snapshot.generation == 0 {
+                return "UAT · waiting for native capture".into();
+            }
+            if let Some(status) = &snapshot.status {
+                return format!("UAT · {status}");
+            }
+            return format!(
+                "UAT · native IQ · {} frames · {} aircraft reports",
+                snapshot.receiver.total_messages, snapshot.receiver.decode_stats.1
+            );
+        }
         match self.uat_receiver.status() {
             UatStatus::Stopped => "UAT · disconnected".into(),
             UatStatus::Connecting => "UAT · connecting to dump978-fa".into(),
@@ -825,11 +974,15 @@ impl AdsBPanel {
         if self.region != AdsbRegion::Uat978 {
             return;
         }
-        for _ in 0..512 {
-            let Some(report) = self.uat_receiver.try_recv() else {
-                break;
-            };
-            self.ingest_uat_report(report);
+        if self.native_uat_selected() {
+            self.tick_native_uat();
+        } else {
+            for _ in 0..512 {
+                let Some(report) = self.uat_receiver.try_recv() else {
+                    break;
+                };
+                self.ingest_uat_report(report);
+            }
         }
         let now = std::time::Instant::now();
         let retention_secs = self.max_age_secs.max(120);
@@ -843,9 +996,48 @@ impl AdsBPanel {
             .retain(|key, _| self.uat_position_seen.contains_key(key));
         self.aircraft_info.retain(|key, _| live.contains(key));
         self.known_icao.retain(|key| live.contains(key));
-        let (_, _, dropped) = self.uat_receiver.counts();
-        self.apply_receiver_snapshot(self.uat_receiver.receiver_snapshot());
-        self.uat_dropped = dropped;
+        if self.native_uat_selected() {
+            if let Some(snapshot) = self
+                .native_uat
+                .as_ref()
+                .and_then(|worker| worker.snapshot())
+            {
+                self.apply_receiver_snapshot(snapshot.receiver.clone());
+                self.uat_dropped = snapshot.dropped_blocks;
+            }
+        } else {
+            let (_, _, dropped) = self.uat_receiver.counts();
+            self.apply_receiver_snapshot(self.uat_receiver.receiver_snapshot());
+            self.uat_dropped = dropped;
+        }
+    }
+
+    /// Apply only newly versioned native reports; polling an unchanged worker
+    /// snapshot must not make an aircraft appear freshly received.
+    pub(crate) fn tick_native_uat(&mut self) {
+        self.configure_native_uat(true);
+        let Some(snapshot) = self
+            .native_uat
+            .as_ref()
+            .and_then(|worker| worker.snapshot())
+        else {
+            return;
+        };
+        let freshness = std::time::Duration::from_secs(self.max_age_secs.max(120));
+        let now = std::time::Instant::now();
+        for (version, report) in &snapshot.reports {
+            let key = report.report.key;
+            if now.duration_since(report.received) <= freshness
+                && self.native_uat_versions.get(&key).copied().unwrap_or(0) < *version
+            {
+                self.native_uat_versions.insert(key, *version);
+                self.ingest_uat_report(report.clone());
+            }
+        }
+        self.native_uat_versions
+            .retain(|key, _| self.aircraft.iter().any(|aircraft| aircraft.icao == *key));
+        self.apply_receiver_snapshot(snapshot.receiver.clone());
+        self.uat_dropped = snapshot.dropped_blocks;
     }
 
     fn ingest_uat_report(&mut self, timed: TimedReport) {
@@ -1092,7 +1284,10 @@ impl AdsBPanel {
             }
         };
 
-        if !(adsb_running || (self.region == AdsbRegion::Uat978 && self.uat_receiver.is_active())) {
+        if !(adsb_running
+            || (self.region == AdsbRegion::Uat978
+                && (self.uat_receiver.is_active() || self.native_uat_selected())))
+        {
             // Reset tracking so the next start is fresh.
             self.known_icao.clear();
             return;
@@ -2387,61 +2582,111 @@ impl AdsBPanel {
 
     fn ui_uat_source(&mut self, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("978 MHz source").strong());
-        ui.label("dump978-fa · JSON TCP feed");
+        let mut selected = self.uat_input_source;
         ui.horizontal(|ui| {
-            ui.label("Address");
-            ui.add_enabled(
-                !self.uat_receiver.is_active(),
-                egui::TextEdit::singleline(&mut self.uat_address)
-                    .desired_width(ui.available_width())
-                    .hint_text(crate::uat_receiver::DEFAULT_ADDRESS),
+            ui.selectable_value(&mut selected, UatInputSource::NativeIq, "Native IQ");
+            ui.selectable_value(
+                &mut selected,
+                UatInputSource::ExternalJson,
+                "dump978-fa JSON",
             );
         });
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!self.uat_receiver.is_active(), egui::Button::new("Connect"))
-                .clicked()
-            {
-                self.clear_tracks();
-                self.connect_uat();
-            }
-            if ui
-                .add_enabled(
-                    self.uat_receiver.is_active(),
-                    egui::Button::new("Disconnect"),
-                )
-                .clicked()
-            {
-                self.stop_uat();
-            }
-        });
-        ui.label(self.receiver_status());
-        if let UatStatus::Error(message) | UatStatus::Reconnecting(message) =
-            self.uat_receiver.status()
-        {
+        if selected != self.uat_input_source {
+            self.select_uat_source(selected);
+        }
+        if self.native_uat_selected() {
+            ui.label("Built-in decoder · 978 MHz / 2.083333 MS/s capture");
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        self.native_capture_source_available(),
+                        egui::Button::new("Start native UAT"),
+                    )
+                    .clicked()
+                {
+                    self.begin();
+                }
+                if ui.button("Stop native UAT").clicked() {
+                    self.stop_receiving();
+                }
+            });
+            ui.label(self.receiver_status());
+            let (frames, reports, dropped) = self
+                .native_uat
+                .as_ref()
+                .and_then(|worker| worker.snapshot())
+                .map_or((0, 0, 0), |snapshot| {
+                    (
+                        snapshot.receiver.total_messages,
+                        snapshot.receiver.decode_stats.1,
+                        snapshot.dropped_blocks,
+                    )
+                });
             ui.label(
-                egui::RichText::new(message)
-                    .small()
-                    .color(egui::Color32::from_rgb(222, 172, 97)),
+                egui::RichText::new(format!(
+                    "{frames} decoded frames · {reports} aircraft reports · {dropped} capture blocks dropped"
+                ))
+                .small(),
+            );
+        } else {
+            ui.label("dump978-fa · JSON TCP feed");
+            ui.horizontal(|ui| {
+                ui.label("Address");
+                ui.add_enabled(
+                    !self.uat_receiver.is_active(),
+                    egui::TextEdit::singleline(&mut self.uat_address)
+                        .desired_width(ui.available_width())
+                        .hint_text(crate::uat_receiver::DEFAULT_ADDRESS),
+                );
+            });
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(!self.uat_receiver.is_active(), egui::Button::new("Connect"))
+                    .clicked()
+                {
+                    self.clear_tracks();
+                    self.connect_uat();
+                }
+                if ui
+                    .add_enabled(
+                        self.uat_receiver.is_active(),
+                        egui::Button::new("Disconnect"),
+                    )
+                    .clicked()
+                {
+                    self.stop_uat();
+                }
+            });
+            ui.label(self.receiver_status());
+            if let UatStatus::Error(message) | UatStatus::Reconnecting(message) =
+                self.uat_receiver.status()
+            {
+                ui.label(
+                    egui::RichText::new(message)
+                        .small()
+                        .color(egui::Color32::from_rgb(222, 172, 97)),
+                );
+            }
+            let (received, rejected, dropped) = self.uat_receiver.counts();
+            ui.label(
+                egui::RichText::new(format!(
+                    "{received} reports · {rejected} invalid · {dropped} dropped"
+                ))
+                .small(),
             );
         }
-        let (received, rejected, dropped) = self.uat_receiver.counts();
-        ui.label(
-            egui::RichText::new(format!(
-                "{received} reports · {rejected} invalid · {dropped} dropped"
-            ))
-            .small(),
-        );
-        ui.collapsing("Receiver setup", |ui| {
-            ui.label("Start FlightAware dump978-fa on the receiver computer, then connect here. UAT broadcasts are primarily available in the US.");
-            let mut command = crate::uat_receiver::SETUP_COMMAND.to_owned();
-            ui.add(egui::TextEdit::multiline(&mut command).font(egui::TextStyle::Monospace).desired_width(ui.available_width()).desired_rows(3).interactive(false));
-            if ui.small_button("Copy command").clicked() {
-                ui.ctx().copy_text(crate::uat_receiver::SETUP_COMMAND.into());
-            }
-            ui.label("Install dump978-fa and your SoapySDR device driver first. Selecting 978 releases ez-sdr's receiver so dump978-fa can own the SDR. Stop dump978-fa before returning to 1090 on the same dongle. For a remote feed, enter its IP:port.");
-            ui.hyperlink_to("dump978-fa documentation", "https://github.com/flightaware/dump978");
-        });
+        if !self.native_uat_selected() {
+            ui.collapsing("Receiver setup", |ui| {
+                ui.label("Start FlightAware dump978-fa on the receiver computer, then connect here. UAT broadcasts are primarily available in the US.");
+                let mut command = crate::uat_receiver::SETUP_COMMAND.to_owned();
+                ui.add(egui::TextEdit::multiline(&mut command).font(egui::TextStyle::Monospace).desired_width(ui.available_width()).desired_rows(3).interactive(false));
+                if ui.small_button("Copy command").clicked() {
+                    ui.ctx().copy_text(crate::uat_receiver::SETUP_COMMAND.into());
+                }
+                ui.label("Install dump978-fa and your SoapySDR device driver first. External mode releases ez-sdr's receiver so dump978-fa can own the SDR. Stop dump978-fa before returning to 1090 on the same dongle. For a remote feed, enter its IP:port.");
+                ui.hyperlink_to("dump978-fa documentation", "https://github.com/flightaware/dump978");
+            });
+        }
         ui.separator();
     }
 
@@ -3359,6 +3604,7 @@ mod tests {
     fn uat_selection_releases_local_receiver_and_disables_modes_decoder() {
         let shared = make_shared_state();
         let mut panel = AdsBPanel::new(shared.clone());
+        panel.select_uat_source(UatInputSource::ExternalJson);
         panel.uat_address = "invalid endpoint".into();
         {
             let mut state = shared.lock().unwrap();
@@ -3375,6 +3621,74 @@ mod tests {
             crate::source_manager::SourceStatus::Idle
         );
         assert!(panel.receiver_status().contains("error"));
+    }
+
+    #[test]
+    fn native_uat_is_default_and_uses_the_tuned_local_capture() {
+        let shared = make_shared_state();
+        let mut panel = AdsBPanel::new(shared.clone());
+        assert!(panel.native_uat_selected());
+        panel.set_region(AdsbRegion::Uat978);
+        let state = shared.lock().unwrap();
+        assert_eq!(state.source.frequency_hz, 978_000_000);
+        assert_eq!(state.source.sample_rate_hz, 2_083_333);
+        assert!(state.adsb_running);
+        assert!(!state.audio_running);
+        drop(state);
+        assert!(panel.receiver_status().contains("capture"));
+    }
+
+    #[test]
+    fn native_uat_explains_that_daemon_sources_do_not_supply_iq() {
+        let shared = make_shared_state();
+        shared.lock().unwrap().source.source_mode = crate::source_manager::SourceMode::Daemon;
+        let mut panel = AdsBPanel::new(shared.clone());
+        panel.set_region(AdsbRegion::Uat978);
+        let state = shared.lock().unwrap();
+        assert!(!state.adsb_running);
+        assert_eq!(
+            state.source.status,
+            crate::source_manager::SourceStatus::Idle
+        );
+        drop(state);
+        assert!(panel.receiver_status().contains("requires a local capture"));
+    }
+
+    #[test]
+    fn native_uat_start_does_not_leave_daemon_running() {
+        let shared = make_shared_state();
+        {
+            let mut state = shared.lock().unwrap();
+            state.source.source_mode = crate::source_manager::SourceMode::Daemon;
+            state.adsb_running = true;
+        }
+        let mut panel = AdsBPanel::new(shared.clone());
+        panel.region = AdsbRegion::Uat978;
+        panel.begin();
+        let state = shared.lock().unwrap();
+        assert!(!state.adsb_running);
+        assert_eq!(
+            state.source.status,
+            crate::source_manager::SourceStatus::Idle
+        );
+        drop(state);
+        assert!(panel.receiver_status().contains("requires a local capture"));
+        assert!(panel
+            .pending_status_flash
+            .as_deref()
+            .is_some_and(|message| message.contains("local IQ capture")));
+    }
+
+    #[test]
+    fn native_uat_surfaces_local_capture_open_failures() {
+        let shared = make_shared_state();
+        shared.lock().unwrap().source.status =
+            crate::source_manager::SourceStatus::Error("RTL-SDR is not connected".into());
+        let mut panel = AdsBPanel::new(shared);
+        panel.region = AdsbRegion::Uat978;
+        assert!(panel
+            .receiver_status()
+            .contains("local capture error: RTL-SDR is not connected"));
     }
 
     #[test]

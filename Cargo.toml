@@ -1,5 +1,5 @@
 [workspace]
-members = ["dump1090", "ez-gui", "lrpt-decode", "ez-proto", "ez-daemon"]
+members = ["dump1090", "ez-gui", "lrpt-decode", "ez-proto", "ez-daemon", "uat-decode"]
 resolver = "2"
 
 [profile.release]
@@ -36,6 +36,7 @@ reqwest = { version = "0.12", default-features = false }
 ez-proto = { path = "ez-proto" }
 dump1090 = { path = "dump1090" }
 lrpt-decode = { path = "lrpt-decode" }
+uat-decode = { path = "uat-decode" }
 ez-daemon = { path = "ez-daemon" }
 
 [workspace.lints.rust]

@@ -187,6 +187,55 @@ pub struct TimedReport {
     pub received: Instant,
 }
 
+/// Convert a decoded native UAT ADS-B payload into the same tracked-report
+/// shape used by the optional dump978-fa JSON source. Uplink/non-ADS-B frames
+/// remain valid decoder packets but do not create aircraft entries.
+pub(crate) fn from_native_message(
+    message: &uat_decode::UatMessage,
+    received: Instant,
+) -> Option<TimedReport> {
+    let decoded = message.adsb.as_ref()?;
+    let namespace = match decoded.address_qualifier {
+        0 | 2 => 0, // ADS-B ICAO and TIS-B ICAO share an aircraft identity.
+        1 => 1,     // ADS-B other
+        3 => 2,     // TIS-B trackfile
+        4 => 3,     // vehicle
+        5 => 4,     // fixed beacon
+        6 => 5,     // ADS-R other
+        _ => return None,
+    };
+    let heading = decoded.true_heading_deg.or(decoded.magnetic_heading_deg);
+    let altitude = decoded
+        .pressure_altitude_ft
+        .or(decoded.geometric_altitude_ft);
+    let on_ground = match decoded.air_ground_state {
+        Some(uat_decode::AirGroundState::Ground) => Some(true),
+        Some(uat_decode::AirGroundState::Airborne | uat_decode::AirGroundState::Supersonic) => {
+            Some(false)
+        }
+        _ => None,
+    };
+    Some(TimedReport {
+        report: UatReport {
+            key: (namespace << 24) | (decoded.address & 0x00ff_ffff),
+            callsign: decoded
+                .callsign
+                .clone()
+                .or_else(|| decoded.flight_plan_id.clone()),
+            position: decoded.position,
+            altitude_ft: altitude,
+            altitude_geometric: decoded.pressure_altitude_ft.is_none()
+                && decoded.geometric_altitude_ft.is_some(),
+            ground_speed_kt: decoded.ground_speed_kt,
+            heading_deg: heading,
+            heading_true: decoded.true_heading_deg.is_some(),
+            on_ground,
+            track_deg: decoded.true_track_deg,
+        },
+        received,
+    })
+}
+
 pub struct UatReceiver {
     cancel: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
@@ -461,6 +510,79 @@ mod tests {
         assert_ne!(report.key, 0xa1b2c3);
         assert!(report.key > 0xffffff);
         assert_eq!(address_label(report.key), "UAT A1B2C3");
+    }
+
+    #[test]
+    fn native_report_conversion_preserves_address_namespaces_and_aircraft_fields() {
+        let received = Instant::now();
+        let message = uat_decode::UatMessage {
+            kind: uat_decode::MessageKind::DownlinkLong,
+            payload: vec![],
+            corrected_symbols: 1,
+            first_sample: 100,
+            rssi_dbfs: -12.0,
+            adsb: Some(uat_decode::AdsbReport {
+                address_qualifier: 1,
+                address: 0xa1b2c3,
+                callsign: Some("N123AB".into()),
+                flight_plan_id: None,
+                position: Some((40.25, -75.5)),
+                pressure_altitude_ft: None,
+                geometric_altitude_ft: Some(12_000),
+                north_velocity_kt: None,
+                east_velocity_kt: None,
+                vertical_velocity_barometric_fpm: None,
+                vertical_velocity_geometric_fpm: None,
+                ground_speed_kt: Some(142.5),
+                true_track_deg: Some(90.0),
+                magnetic_heading_deg: Some(80.0),
+                true_heading_deg: Some(100.0),
+                air_ground_state: Some(uat_decode::AirGroundState::Airborne),
+            }),
+        };
+        let report = from_native_message(&message, received).unwrap();
+        assert_eq!(report.report.key, 0x01a1_b2c3);
+        assert_eq!(address_label(report.report.key), "UAT A1B2C3");
+        assert_eq!(report.report.position, Some((40.25, -75.5)));
+        assert_eq!(report.report.altitude_ft, Some(12_000));
+        assert!(report.report.altitude_geometric);
+        assert_eq!(report.report.heading_deg, Some(100.0));
+        assert!(report.report.heading_true);
+        assert_eq!(report.report.on_ground, Some(false));
+        assert_eq!(report.received, received);
+    }
+
+    #[test]
+    fn native_uplink_and_unknown_address_qualifier_do_not_create_tracks() {
+        let mut message = uat_decode::UatMessage {
+            kind: uat_decode::MessageKind::Uplink,
+            payload: vec![],
+            corrected_symbols: 0,
+            first_sample: 0,
+            rssi_dbfs: -10.0,
+            adsb: None,
+        };
+        assert!(from_native_message(&message, Instant::now()).is_none());
+        message.kind = uat_decode::MessageKind::DownlinkShort;
+        message.adsb = Some(uat_decode::AdsbReport {
+            address_qualifier: 8,
+            address: 0x123456,
+            callsign: None,
+            flight_plan_id: None,
+            position: None,
+            pressure_altitude_ft: None,
+            geometric_altitude_ft: None,
+            north_velocity_kt: None,
+            east_velocity_kt: None,
+            vertical_velocity_barometric_fpm: None,
+            vertical_velocity_geometric_fpm: None,
+            ground_speed_kt: None,
+            true_track_deg: None,
+            magnetic_heading_deg: None,
+            true_heading_deg: None,
+            air_ground_state: None,
+        });
+        assert!(from_native_message(&message, Instant::now()).is_none());
     }
 
     #[test]

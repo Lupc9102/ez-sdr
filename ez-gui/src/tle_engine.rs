@@ -35,6 +35,99 @@ pub struct TleEngine {
     catalog_revision: u64,
 }
 
+/// Owned, immutable TLE snapshot for background LRPT georeferencing. Capturing
+/// this value lets the projection worker run without holding SharedState's lock.
+#[derive(Debug, Clone)]
+pub struct LrptGeolocationModel {
+    satellite: TleEntry,
+}
+
+impl LrptGeolocationModel {
+    pub fn satellite_name(&self) -> &str {
+        &self.satellite.name
+    }
+
+    pub fn state_at(
+        &self,
+        unix_seconds: f64,
+    ) -> Option<lrpt_decode::geolocation::EarthFixedOrbitState> {
+        let state = propagate_earth_fixed(&self.satellite, unix_seconds)?;
+        Some(lrpt_decode::geolocation::EarthFixedOrbitState {
+            position_km: state.position_km,
+            velocity_km_s: state.velocity_km_s,
+        })
+    }
+
+    pub fn geolocate_lines(
+        &self,
+        width: u32,
+        line_times_unix_seconds: &[Option<f64>],
+        geometry: lrpt_decode::geolocation::ScanGeometry,
+        control_point_stride: u32,
+    ) -> Result<lrpt_decode::geolocation::GeoReferencedImage, String> {
+        let mut times = Vec::with_capacity(line_times_unix_seconds.len());
+        let mut states = Vec::with_capacity(line_times_unix_seconds.len());
+        for time in line_times_unix_seconds {
+            let time = time.ok_or_else(|| "LRPT image has rows without absolute CDS time; georeferencing is unavailable for this product.".to_string())?;
+            let state = self.state_at(time).ok_or_else(|| {
+                format!(
+                    "The loaded TLE for {} cannot propagate at image time {time:.3} UTC.",
+                    self.satellite.name
+                )
+            })?;
+            times.push(time);
+            states.push(state);
+        }
+        lrpt_decode::geolocation::geolocate_scanlines(
+            width,
+            &times,
+            &states,
+            geometry,
+            control_point_stride,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    /// Build sparse source-pixel GCP/GeoJSON geometry and a nearest-neighbor
+    /// WGS84 projected raster from the same actual packet times and orbit
+    /// model. Each source row is propagated independently from the TLE.
+    pub fn georeference_image(
+        &self,
+        image: &image::GrayImage,
+        line_times_unix_seconds: &[Option<f64>],
+        geometry: lrpt_decode::geolocation::ScanGeometry,
+        control_point_stride: u32,
+    ) -> Result<lrpt_decode::geolocation::GeoreferenceProducts, String> {
+        if line_times_unix_seconds.len() != image.height() as usize {
+            return Err("LRPT image rows do not match packet CDS timestamps.".into());
+        }
+        let mut times = Vec::with_capacity(line_times_unix_seconds.len());
+        let mut states = Vec::with_capacity(line_times_unix_seconds.len());
+        for time in line_times_unix_seconds {
+            let time = time.ok_or_else(|| {
+                "LRPT image has rows without absolute CDS time; georeferencing is unavailable for this product.".to_string()
+            })?;
+            let state = self.state_at(time).ok_or_else(|| {
+                format!(
+                    "The loaded TLE for {} cannot propagate at image time {time:.3} UTC.",
+                    self.satellite.name
+                )
+            })?;
+            times.push(time);
+            states.push(state);
+        }
+        let (vectors, projected) = lrpt_decode::geolocation::project_equirectangular_nearest(
+            image,
+            &times,
+            &states,
+            geometry,
+            control_point_stride,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(lrpt_decode::geolocation::GeoreferenceProducts { vectors, projected })
+    }
+}
+
 /// Identity of every observer-dependent orbital product. The catalog is private;
 /// validated imports are its only mutation path and advance the revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,6 +482,51 @@ impl TleEngine {
             lon: state.longitude_deg,
             timestamp: t,
         })
+    }
+
+    /// Return the Earth-fixed position and velocity propagated from the
+    /// selected satellite's loaded TLE. These vectors are the orbit input used
+    /// by LRPT scan-ray/ellipsoid intersection; no location is synthesized when
+    /// a satellite name or propagation instant is missing.
+    pub fn lrpt_geolocation_state(
+        &self,
+        name: &str,
+        unix_seconds: f64,
+    ) -> Option<lrpt_decode::geolocation::EarthFixedOrbitState> {
+        let sat = self.tles.iter().find(|sat| sat.name == name)?;
+        let state = propagate_earth_fixed(sat, unix_seconds)?;
+        Some(lrpt_decode::geolocation::EarthFixedOrbitState {
+            position_km: state.position_km,
+            velocity_km_s: state.velocity_km_s,
+        })
+    }
+
+    pub fn lrpt_geolocation_model(&self, name: &str) -> Option<LrptGeolocationModel> {
+        Some(LrptGeolocationModel {
+            satellite: self.tles.iter().find(|sat| sat.name == name)?.clone(),
+        })
+    }
+
+    /// Georeference an LRPT image using actual packet-derived line times and
+    /// the selected loaded TLE. The caller must supply instrument scan edges;
+    /// incomplete CDS timestamps or stale/unavailable TLE propagation are
+    /// rejected instead of filled with a receive-time approximation.
+    pub fn geolocate_lrpt_lines(
+        &self,
+        name: &str,
+        width: u32,
+        line_times_unix_seconds: &[Option<f64>],
+        geometry: lrpt_decode::geolocation::ScanGeometry,
+        control_point_stride: u32,
+    ) -> Result<lrpt_decode::geolocation::GeoReferencedImage, String> {
+        self.lrpt_geolocation_model(name)
+            .ok_or_else(|| format!("No loaded TLE matches {name}."))?
+            .geolocate_lines(
+                width,
+                line_times_unix_seconds,
+                geometry,
+                control_point_stride,
+            )
     }
 
     /// Compute a ground-track polyline around the next pass in the requested window.
@@ -797,6 +935,70 @@ mod tests {
         assert!((-180.0..180.0).contains(&state.longitude_deg));
         assert!((6_750.0..6_850.0).contains(&vector_norm(state.position_km)));
         assert!((7.0..7.8).contains(&vector_norm(state.velocity_km_s)));
+    }
+
+    #[test]
+    fn lrpt_geolocation_uses_real_tle_vectors_and_packet_times() {
+        let sat = from_tle_lines(&REFERENCE_ISS).unwrap();
+        let epoch = sat.elements.datetime.and_utc().timestamp() as f64;
+        let expected = propagate_earth_fixed(&sat, epoch).unwrap();
+        let engine = TleEngine {
+            tles: vec![sat],
+            observer_lat: 0.0,
+            observer_lon: 0.0,
+            cached_passes: vec![],
+            cached_at: None,
+            cached_key: None,
+            catalog_revision: 1,
+        };
+        let footprint = engine
+            .geolocate_lrpt_lines(
+                "ISS (ZARYA)",
+                3,
+                &[Some(epoch); 1],
+                lrpt_decode::geolocation::ScanGeometry {
+                    first_pixel_angle_rad: 0.0,
+                    last_pixel_angle_rad: 0.0,
+                },
+                1,
+            )
+            .unwrap();
+        let ground = footprint.scanlines[0][1].unwrap();
+        assert!((ground.latitude_deg - expected.latitude_deg).abs() < 0.1);
+        assert!((normalize_longitude(ground.longitude_deg - expected.longitude_deg)).abs() < 0.1);
+        let model = engine.lrpt_geolocation_model("ISS (ZARYA)").unwrap();
+        let source = image::GrayImage::from_pixel(5, 1, image::Luma([42]));
+        let products = model
+            .georeference_image(
+                &source,
+                &[Some(epoch)],
+                lrpt_decode::geolocation::ScanGeometry {
+                    first_pixel_angle_rad: -0.1,
+                    last_pixel_angle_rad: 0.1,
+                },
+                1,
+            )
+            .unwrap();
+        assert_eq!(products.projected.image.dimensions(), source.dimensions());
+        assert!(products
+            .projected
+            .image
+            .pixels()
+            .any(|pixel| pixel[3] == 255 && pixel[0] == 42));
+        assert!(!products.vectors.ground_control_points.is_empty());
+        let error = engine
+            .geolocate_lrpt_lines(
+                "ISS (ZARYA)",
+                1,
+                &[None],
+                lrpt_decode::geolocation::ScanGeometry {
+                    first_pixel_angle_rad: 0.0,
+                    last_pixel_angle_rad: 0.0,
+                },
+                1,
+            )
+            .unwrap_err();
+        assert!(error.contains("without absolute CDS time"));
     }
 
     #[test]

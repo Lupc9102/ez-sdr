@@ -14,6 +14,7 @@
 pub mod app;
 pub mod audio_rate;
 pub mod audio_rf;
+pub mod auth;
 pub mod broadcast;
 pub mod bus;
 pub mod channelizer;

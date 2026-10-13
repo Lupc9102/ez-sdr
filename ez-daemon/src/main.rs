@@ -64,7 +64,7 @@ impl From<ReplayAmplitudeArg> for lrpt_decode::Cf32Amplitude {
 /// `ez-sdr` headless daemon: owns hardware ingestion, wideband channelization, and
 /// multi-tenant DSP pipeline routing. GUI and CLI clients attach over the network on-demand
 /// and never block or interrupt daemon-side processing by attaching or detaching.
-#[derive(Debug, Parser)]
+#[derive(Parser)]
 #[command(name = "ez-daemon", version)]
 struct Args {
     /// IP address to bind both the legacy TCP server and web UI/API to.
@@ -83,6 +83,11 @@ struct Args {
     /// missing, the daemon still serves `/api/*` and `/ws/*` with a warning logged.
     #[arg(long, default_value = "./ez-web/dist")]
     web_static_dir: PathBuf,
+
+    /// Shared bearer token required by REST, WebSocket, and binary TCP clients.
+    /// Can also be supplied through EZ_DAEMON_AUTH_TOKEN.
+    #[arg(long, env = "EZ_DAEMON_AUTH_TOKEN")]
+    auth_token: Option<String>,
 
     /// Initial center frequency in Hz.
     #[arg(long, default_value_t = 433_000_000)]
@@ -177,6 +182,7 @@ impl Args {
             initial_sample_rate_hz: self.sample_rate,
             recording_dir: self.recording_dir,
             web_static_dir: self.web_static_dir,
+            auth_token: self.auth_token,
             source,
             receiver_position: self.receiver_lat.zip(self.receiver_lon),
         })
@@ -189,7 +195,8 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-    tracing::info!(?args, "ez-daemon starting");
+    // Do not log parsed arguments: --auth-token and its environment equivalent are secrets.
+    tracing::info!("ez-daemon starting");
     let config = args.into_daemon_config()?;
 
     let running = Arc::new(AtomicBool::new(true));
@@ -234,5 +241,16 @@ mod tests {
                 .receiver_position,
             None
         );
+    }
+
+    #[test]
+    fn auth_token_is_configurable_from_the_command_line() {
+        let args =
+            Args::try_parse_from(["ez-daemon", "--auth-token", "configured-token-value"]).unwrap();
+        let config = args.into_daemon_config().unwrap();
+        assert_eq!(config.auth_token.as_deref(), Some("configured-token-value"));
+        let debug = format!("{config:?}");
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains("configured-token-value"));
     }
 }

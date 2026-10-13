@@ -244,7 +244,10 @@ fn window_close_keeps_repainting_until_recording_finalization_finishes() {
     }
     assert!(!app.recorder_panel.recording && !app.shared.lock().unwrap().recording);
     assert_eq!(app.recorder_panel.bytes_written, 64);
-    eprintln!("Eight close/repaint ticks with blocked disk: max {} us; close allowed only after final result", maximum.as_micros());
+    eprintln!(
+        "Eight close/repaint ticks with blocked disk: max {} us; close allowed only after final result",
+        maximum.as_micros()
+    );
 }
 
 #[test]
@@ -1113,7 +1116,13 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
         }
         if Instant::now() >= deadline {
             let state = app.shared.lock().unwrap();
-            panic!("initial daemon squelch was not applied: status={:?}, ids={:?}, pending={:?}, error={:?}", state.source.status, state.source.daemon_channel_ids(), state.source.daemon_squelch_pending_db(), state.source.daemon_squelch_error);
+            panic!(
+                "initial daemon squelch was not applied: status={:?}, ids={:?}, pending={:?}, error={:?}",
+                state.source.status,
+                state.source.daemon_channel_ids(),
+                state.source.daemon_squelch_pending_db(),
+                state.source.daemon_squelch_error
+            );
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -1261,6 +1270,10 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     assert_eq!(pending["squelch_db"], 0.0);
     assert_eq!(pending["squelch_pending_db"], -100.0);
     assert_eq!(pending["squelch_applied"], true);
+    // Leave the GUI event loop idle beyond the three-second ACK deadline.
+    // The daemon reply is prioritized in the control queue and must be
+    // applied before the next timeout check when the GUI resumes.
+    tokio::time::sleep(Duration::from_secs(4)).await;
     let reopened = audio_at(&monitor, -100.0, closed.squelch.revision + 1, true).await;
     assert!(reopened.squelch.revision > closed.squelch.revision);
     assert!(reopened.samples.iter().any(|s| s.abs() > 1e-5));
@@ -2135,7 +2148,12 @@ fn native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall() {
     assert_eq!(cf32_meta["capture_input_dropped_blocks"], 0);
     assert_eq!(raw_meta["lost_samples"], 0);
     assert_eq!(cf32_meta["lost_samples"], 0);
-    println!("A09 native recording at 60 Hz + 300 ms GUI/shared-lock stall: {} samples; raw {} bytes, CF32 {} bytes, zero loss", source.samples, raw.len(), cf32.len());
+    println!(
+        "A09 native recording at 60 Hz + 300 ms GUI/shared-lock stall: {} samples; raw {} bytes, CF32 {} bytes, zero loss",
+        source.samples,
+        raw.len(),
+        cf32.len()
+    );
     drop(app);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -2312,7 +2330,11 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
     assert_eq!(meta["audio_samples"], expected.len() as u64);
     assert_eq!(meta["audio_native_lost_samples"], 0);
     assert_eq!(meta["audio_input_dropped_blocks"], 0);
-    println!("A09 native app WAV at 60 Hz + 300 ms GUI/shared-lock stall: {} RF samples, {} PCM samples identical to synchronous DSP, zero loss", source.samples, recorded.len());
+    println!(
+        "A09 native app WAV at 60 Hz + 300 ms GUI/shared-lock stall: {} RF samples, {} PCM samples identical to synchronous DSP, zero loss",
+        source.samples,
+        recorded.len()
+    );
     drop(app);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -2745,4 +2767,76 @@ async fn scan_real_daemon_frames_work_hidden_and_frozen_then_wait_on_stop() {
         assert!(app.scanner.status_text.contains("Waiting for the receiver"));
     }
     daemon.shutdown().await;
+}
+
+#[test]
+fn desktop_live_meteor_controls_start_and_stop_the_owned_capture_worker() {
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx);
+    let mut config = AppConfig::default();
+    config.mqtt_broker.clear();
+    let mut app = CentralApp::new_with_config(&cc, config);
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Simulated;
+        state.source.sample_rate_hz = 288_000;
+    }
+    app.meteor_decoder.live_start_requested = true;
+    app.tick_meteor_workflows();
+    assert!(
+        app.meteor_decoder.live_active,
+        "{:?}",
+        app.meteor_decoder.error
+    );
+    app.meteor_decoder.live_stop_requested = true;
+    app.tick_meteor_workflows();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while app.meteor_decoder.live_active && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+        app.tick_meteor_workflows();
+    }
+    assert!(!app.meteor_decoder.live_active);
+    app.shared.lock().unwrap().source.stop();
+}
+
+#[test]
+fn desktop_live_meteor_does_not_wait_forever_after_capture_open_failure() {
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx);
+    let mut config = AppConfig::default();
+    config.mqtt_broker.clear();
+    let mut app = CentralApp::new_with_config(&cc, config);
+    app.shared.lock().unwrap().source.sample_rate_hz = 0;
+    app.meteor_decoder.live_start_requested = true;
+    app.tick_meteor_workflows();
+    assert!(!app.meteor_decoder.live_active);
+    assert!(app
+        .meteor_decoder
+        .error
+        .as_deref()
+        .is_some_and(|e| e.contains("Receiver could not start")));
+}
+
+#[test]
+fn daemon_live_stop_timeout_is_visible_and_never_claims_complete() {
+    let mut app = offline_test_app();
+    app.meteor_decoder
+        .start_daemon_live(ez_proto::MeteorProfile::default(), Some("NOAA-19".into()));
+    app.meteor_decoder.request_daemon_live_stop();
+    app.shared
+        .lock()
+        .unwrap()
+        .source
+        .set_test_daemon_channel_error("LRPT product finalization timed out after 15 seconds");
+
+    app.tick_meteor_workflows();
+
+    assert!(!app.meteor_decoder.live_active);
+    assert!(app.meteor_decoder.result.is_none());
+    let message = app.meteor_decoder.error.as_deref().unwrap_or_default();
+    assert!(message.contains("15 seconds"), "{message}");
+    assert!(
+        message.contains("use Stop live before disconnecting"),
+        "{message}"
+    );
 }

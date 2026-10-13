@@ -37,6 +37,7 @@ pub struct TelemetryPipeline {
     center_freq_hz: u64,
     source_product: Option<u64>,
     product_id: u64,
+    product_finalized: bool,
     continuity: SampleContinuity,
     progress_rx: crossbeam_channel::Receiver<DecodeProgress>,
     output: Broadcaster<TelemetryFrame>,
@@ -54,6 +55,7 @@ impl TelemetryPipeline {
             center_freq_hz: config.center_freq_hz,
             source_product: None,
             product_id: ez_proto::new_capture_epoch(),
+            product_finalized: false,
             continuity: SampleContinuity::default(),
             progress_rx,
             output: Broadcaster::new(),
@@ -69,11 +71,13 @@ impl TelemetryPipeline {
     }
 
     fn retire_product(&mut self) -> Result<(), LrptError> {
+        self.finalize_product();
         self.decoder
             .start_new_product(self.sample_rate_hz, self.profile)?;
         self.continuity = SampleContinuity::default();
         while self.progress_rx.try_recv().is_ok() {}
         self.product_id = ez_proto::new_capture_epoch();
+        self.product_finalized = false;
         self.output.publish(TelemetryFrame {
             product_id: self.product_id,
             channel_id: self.channel_id,
@@ -81,12 +85,64 @@ impl TelemetryPipeline {
             width: 0,
             height: 0,
             pixels: Vec::new(),
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: false,
             rs_ok: 0,
             rs_failed: 0,
             costas_locked: false,
             frame_locked: false,
         });
         Ok(())
+    }
+
+    /// Publish all full-resolution channel images followed by a completion marker. Repeated
+    /// requests are harmless, which lets stop paths time out and retry without duplicating
+    /// large image payloads.
+    pub fn finalize_product(&mut self) {
+        if self.product_finalized {
+            return;
+        }
+        if let Some(result) = self.decoder.result_snapshot() {
+            for (apid, image) in result.images {
+                let line_times_unix_seconds = result
+                    .line_times_unix_seconds
+                    .get(&apid)
+                    .cloned()
+                    .unwrap_or_default();
+                self.output.publish(TelemetryFrame {
+                    product_id: self.product_id,
+                    channel_id: self.channel_id,
+                    apid,
+                    width: image.width(),
+                    height: image.height(),
+                    pixels: image.into_raw(),
+                    line_times_unix_seconds,
+                    final_product: true,
+                    product_complete: false,
+                    rs_ok: result.rs_ok,
+                    rs_failed: result.rs_failed,
+                    costas_locked: true,
+                    frame_locked: true,
+                });
+            }
+        }
+        self.output.publish(TelemetryFrame {
+            product_id: self.product_id,
+            channel_id: self.channel_id,
+            apid: 0,
+            width: 0,
+            height: 0,
+            pixels: Vec::new(),
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: true,
+            rs_ok: self.decoder.progress_snapshot().rs_ok,
+            rs_failed: self.decoder.progress_snapshot().rs_failed,
+            costas_locked: true,
+            frame_locked: true,
+        });
+        self.product_finalized = true;
     }
 
     /// Retuning to another RF channel starts another product. A rate-only
@@ -134,6 +190,9 @@ impl TelemetryPipeline {
     }
 
     fn process_block(&mut self, block: &SampleBlock) {
+        if self.product_finalized {
+            return;
+        }
         // A queued tail from before a channel retune cannot populate the new product.
         if block.center_freq_hz != self.center_freq_hz {
             return;
@@ -176,6 +235,9 @@ impl TelemetryPipeline {
                 width: image.width(),
                 height: image.height(),
                 pixels: image.as_raw().clone(),
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: false,
                 rs_ok: progress.rs_ok,
                 rs_failed: progress.rs_failed,
                 costas_locked: progress.costas_locked,
@@ -289,7 +351,22 @@ mod tests {
                 assert_eq!(after.rs_ok, 0);
                 assert_eq!(after.segments_decoded, 0);
                 assert!(after.preview.is_empty());
-                let reset = output.try_recv().unwrap();
+                let mut saw_final_image = false;
+                let mut saw_completion = false;
+                let reset = loop {
+                    let frame = output.try_recv().unwrap();
+                    if frame.product_id == product {
+                        saw_final_image |= frame.final_product;
+                        saw_completion |= frame.product_complete;
+                        continue;
+                    }
+                    break frame;
+                };
+                assert!(
+                    saw_final_image,
+                    "old product final raster must precede reset"
+                );
+                assert!(saw_completion, "old product completion must precede reset");
                 assert_eq!(reset.product_id, pipeline.product_id);
                 assert_eq!((reset.apid, reset.width, reset.height), (0, 0, 0));
                 assert!(reset.pixels.is_empty());
@@ -393,5 +470,36 @@ mod tests {
         let output = pipeline.subscribe(8);
         pipeline.publish_progress(&DecodeProgress::default());
         assert!(output.try_recv().is_none());
+    }
+
+    #[test]
+    fn explicit_finalization_emits_full_raster_row_times_then_one_terminal_marker() {
+        let (_bus, mut pipeline) = seeded_product();
+        let output = pipeline.subscribe(16);
+
+        pipeline.finalize_product();
+        let final_frame = output.try_recv().expect("full final image");
+        assert_eq!(final_frame.product_id, pipeline.product_id);
+        assert_eq!(final_frame.apid, 64);
+        assert!(final_frame.final_product);
+        assert_eq!(
+            final_frame.pixels.len(),
+            (final_frame.width * final_frame.height) as usize
+        );
+        assert_eq!(
+            final_frame.line_times_unix_seconds.len(),
+            final_frame.height as usize
+        );
+        let completion = output.try_recv().expect("completion marker");
+        assert_eq!(completion.product_id, pipeline.product_id);
+        assert!(completion.product_complete);
+        assert_eq!(
+            (completion.apid, completion.width, completion.height),
+            (0, 0, 0)
+        );
+        assert!(output.try_recv().is_none());
+
+        pipeline.finalize_product();
+        assert!(output.try_recv().is_none(), "finalization is idempotent");
     }
 }

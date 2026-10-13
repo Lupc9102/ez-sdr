@@ -1,6 +1,14 @@
 #[cfg(feature = "audio")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-#[cfg(feature = "audio")]
+#[cfg(all(
+    feature = "audio",
+    any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    )
+))]
 use cpal::HostId;
 
 /// Return the preferred audio host: PulseAudio when available, else system default.
@@ -8,6 +16,12 @@ use cpal::HostId;
 /// so we prefer the PulseAudio backend directly.
 #[cfg(feature = "audio")]
 fn preferred_host() -> Result<cpal::Host, String> {
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))]
     for host_id in cpal::available_hosts() {
         if host_id == HostId::PulseAudio {
             match cpal::host_from_id(host_id) {
@@ -764,7 +778,15 @@ mod tests {
 
     /// Exercise shared PulseAudio/PipeWire with silence only. This verifies
     /// driver ownership and callbacks, not acoustic output or RF performance.
-    #[cfg(feature = "audio")]
+    #[cfg(all(
+        feature = "audio",
+        any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "dragonfly"
+        )
+    ))]
     #[test]
     #[ignore = "requires a real shared PulseAudio/PipeWire output device"]
     fn silent_real_driver_callbacks_stop_and_restart_release_old_receiver() {

@@ -326,52 +326,114 @@ impl CentralApp {
         };
         let ready = match action {
             RuntimeAction::StartRecording => {
-                if self.recorder_panel.recording && state.recording && !self.recorder_panel.last_filename.is_empty() {
-                    return Some(Ok(format!("Recorder opened {}", self.recorder_panel.last_filename)));
+                if self.recorder_panel.recording
+                    && state.recording
+                    && !self.recorder_panel.last_filename.is_empty()
+                {
+                    return Some(Ok(format!(
+                        "Recorder opened {}",
+                        self.recorder_panel.last_filename
+                    )));
                 }
-                if !self.recorder_panel.last_error.is_empty() && !self.recorder_panel.last_error.starts_with("Starting daemon") { return Some(Err(self.recorder_panel.last_error.clone())); }
+                if !self.recorder_panel.last_error.is_empty()
+                    && !self
+                        .recorder_panel
+                        .last_error
+                        .starts_with("Starting daemon")
+                {
+                    return Some(Err(self.recorder_panel.last_error.clone()));
+                }
                 false
             }
             RuntimeAction::StopRecording => {
-                if !self.recorder_panel.last_error.is_empty() && !self.recorder_panel.last_error.starts_with("Stopping daemon") { return Some(Err(self.recorder_panel.last_error.clone())); }
+                if !self.recorder_panel.last_error.is_empty()
+                    && !self
+                        .recorder_panel
+                        .last_error
+                        .starts_with("Stopping daemon")
+                {
+                    return Some(Err(self.recorder_panel.last_error.clone()));
+                }
                 if !self.recorder_panel.recording && !state.recording {
-                    if self.recorder_panel.last_filename.is_empty() { return Some(Ok("Recorder is already stopped".into())); }
-                    return Some(Ok(format!("Recorder stopped and finalized {} bytes", self.recorder_panel.bytes_written)));
+                    if self.recorder_panel.last_filename.is_empty() {
+                        return Some(Ok("Recorder is already stopped".into()));
+                    }
+                    return Some(Ok(format!(
+                        "Recorder stopped and finalized {} bytes",
+                        self.recorder_panel.bytes_written
+                    )));
                 }
                 false
             }
-            RuntimeAction::StartAdsb => state.adsb_running && capture_ready && source.frequency_hz == 1_090_000_000
-                && source.capture_center_frequency_hz() == 1_090_000_000 && source.sample_rate_hz == 2_400_000
-                && (source.source_mode != SourceMode::Daemon || source.daemon_adsb_ready()),
+            RuntimeAction::StartAdsb => {
+                state.adsb_running
+                    && capture_ready
+                    && source.frequency_hz == 1_090_000_000
+                    && source.capture_center_frequency_hz() == 1_090_000_000
+                    && source.sample_rate_hz == 2_400_000
+                    && (source.source_mode != SourceMode::Daemon || source.daemon_adsb_ready())
+            }
             RuntimeAction::StopAdsb => !state.adsb_running && source.status == SourceStatus::Idle,
             RuntimeAction::Tune(frequency) => {
-                if source.frequency_hz != *frequency { return Some(Err("requested VFO is outside the available capture or was superseded".into())); }
-                if source.status == SourceStatus::Idle { return preference(action.description()); }
+                if source.frequency_hz != *frequency {
+                    return Some(Err(
+                        "requested VFO is outside the available capture or was superseded".into(),
+                    ));
+                }
+                if source.status == SourceStatus::Idle {
+                    return preference(action.description());
+                }
                 capture_ready
             }
             RuntimeAction::Gain(gain) => {
-                if source.source_mode == SourceMode::Simulated { return Some(Ok(format!("Demo gain preference set to {gain:.1} dB"))); }
-                if source.status == SourceStatus::Idle { return preference(action.description()); }
+                if source.source_mode == SourceMode::Simulated {
+                    return Some(Ok(format!("Demo gain preference set to {gain:.1} dB")));
+                }
+                if source.status == SourceStatus::Idle {
+                    return preference(action.description());
+                }
                 capture_ready && source.gain_request_applied(*gain)
             }
             RuntimeAction::SampleRate(rate) => {
-                if source.status == SourceStatus::Idle { return preference(action.description()); }
+                if source.status == SourceStatus::Idle {
+                    return preference(action.description());
+                }
                 capture_ready && source.sample_rate_hz == *rate
             }
             RuntimeAction::BiasTee(_) | RuntimeAction::Ppm(_) => {
-                if source.status == SourceStatus::Idle { return preference(action.description()); }
+                if source.status == SourceStatus::Idle {
+                    return preference(action.description());
+                }
                 capture_ready && source.local_hardware_request_applied()
             }
             RuntimeAction::Squelch(db) => {
-                if let Some(error) = &source.daemon_squelch_error { return Some(Err(error.clone())); }
-                if source.status == SourceStatus::Idle { return preference(action.description()); }
-                if source.source_mode != SourceMode::Daemon { return Some(Ok(format!("Power squelch preference set to {db:.1} dBFS"))); }
-                source.daemon_squelch_pending_db().is_none() && source.daemon_squelch_applied().is_some_and(|applied| applied.db == *db)
+                if let Some(error) = &source.daemon_squelch_error {
+                    return Some(Err(error.clone()));
+                }
+                if source.status == SourceStatus::Idle {
+                    return preference(action.description());
+                }
+                if source.source_mode != SourceMode::Daemon {
+                    return Some(Ok(format!("Power squelch preference set to {db:.1} dBFS")));
+                }
+                source.daemon_squelch_pending_db().is_none()
+                    && source
+                        .daemon_squelch_applied()
+                        .is_some_and(|applied| applied.db == *db)
             }
-            RuntimeAction::Demod(mode) => return Some(Ok(format!("Demodulation preference set to {}; active processing synchronizes it on the app cycle", mode.label()))),
+            RuntimeAction::Demod(mode) => {
+                return Some(Ok(format!(
+                    "Demodulation preference set to {}; active processing synchronizes it on the app cycle",
+                    mode.label()
+                )));
+            }
             RuntimeAction::SelectSatellite(name) => {
-                if name.to_ascii_lowercase().contains("meteor") { return Some(Ok("Meteor orbit selected for tracking; decoding uses existing files in the Meteor tab".into())); }
-                if source.status == SourceStatus::Idle { return preference(action.description()); }
+                if name.to_ascii_lowercase().contains("meteor") {
+                    return Some(Ok("Meteor orbit selected for tracking and live or recording decode in the Meteor tab".into()));
+                }
+                if source.status == SourceStatus::Idle {
+                    return preference(action.description());
+                }
                 capture_ready
             }
         };

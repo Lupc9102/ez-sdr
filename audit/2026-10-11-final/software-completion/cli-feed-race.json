@@ -1,0 +1,83 @@
+{
+  "group": "cli-feed-race",
+  "started_utc": "2026-10-13T13:12:15.187942+00:00",
+  "checks": [
+    {
+      "name": "cli-feeds-default",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "dump1090",
+        "--test",
+        "net_feeds"
+      ],
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "log": "audit/2026-10-11-final/software-completion/cli-feed-race-default.log",
+      "log_sha256": "f5b4c8d4ed416e9edd0b5963c7a76d55cbbd972594f844bc072a0ce696e390a8"
+    },
+    {
+      "name": "cli-feeds-headless",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "dump1090",
+        "--no-default-features",
+        "--test",
+        "net_feeds"
+      ],
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "log": "audit/2026-10-11-final/software-completion/cli-feed-race-headless.log",
+      "log_sha256": "0ca57c99507d6ac1a2a57be0993e1470f1a100b9c57209575174208700b81964"
+    },
+    {
+      "name": "net-io-default",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "dump1090",
+        "net_io::tests"
+      ],
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 54,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "log": "audit/2026-10-11-final/software-completion/net-io-regressions-default.log",
+      "log_sha256": "92047a88d03255da38c2548296a9b08fcd7520c2167df0b6e837ae510610ee6d"
+    },
+    {
+      "name": "net-io-headless",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "dump1090",
+        "--no-default-features",
+        "net_io::tests"
+      ],
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 54,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "log": "audit/2026-10-11-final/software-completion/net-io-regressions-headless.log",
+      "log_sha256": "d0e84d0ce02536d1116c77a5dda12a88887a769612d6914a36d59d01760e197a"
+    }
+  ],
+  "updated_utc": "2026-10-13T13:12:15.187960+00:00"
+}

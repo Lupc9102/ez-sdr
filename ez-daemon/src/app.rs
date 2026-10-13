@@ -50,7 +50,7 @@ pub enum SourceConfig {
     Soapy { device: Option<String> },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DaemonConfig {
     pub listen_addr: SocketAddr,
     /// Address the web UI/API (`crate::web`) listens on — a separate socket from
@@ -64,9 +64,32 @@ pub struct DaemonConfig {
     /// bundles). Served at `/` by `crate::web::serve`; see that function's doc comment for
     /// behavior when the directory doesn't exist.
     pub web_static_dir: PathBuf,
+    /// Optional bearer token shared by REST, browser WebSocket, and binary TCP clients.
+    /// `None` preserves unauthenticated loopback development behavior.
+    pub auth_token: Option<String>,
     pub source: SourceConfig,
     /// Coordinates of the actual capture site, used only to resolve surface CPR.
     pub receiver_position: Option<(f64, f64)>,
+}
+
+impl std::fmt::Debug for DaemonConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DaemonConfig")
+            .field("listen_addr", &self.listen_addr)
+            .field("web_listen_addr", &self.web_listen_addr)
+            .field("initial_freq_hz", &self.initial_freq_hz)
+            .field("initial_sample_rate_hz", &self.initial_sample_rate_hz)
+            .field("recording_dir", &self.recording_dir)
+            .field("web_static_dir", &self.web_static_dir)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("source", &self.source)
+            .field("receiver_position", &self.receiver_position)
+            .finish()
+    }
 }
 
 fn build_source(config: &SourceConfig, initial_sample_rate_hz: u32) -> Result<Box<dyn IqSource>> {
@@ -113,6 +136,9 @@ fn build_source(config: &SourceConfig, initial_sample_rate_hz: u32) -> Result<Bo
 /// to a blocking-pool thread so a slow-to-stop hardware source can't stall the async runtime
 /// during shutdown.
 pub async fn run(config: DaemonConfig, running: Arc<AtomicBool>) -> Result<()> {
+    if config.auth_token.as_deref() == Some("") {
+        anyhow::bail!("authentication token must not be empty");
+    }
     if config.receiver_position.is_some_and(|(lat, lon)| {
         !lat.is_finite()
             || !lon.is_finite()
@@ -135,6 +161,7 @@ pub async fn run(config: DaemonConfig, running: Arc<AtomicBool>) -> Result<()> {
         config.initial_sample_rate_hz,
         config.recording_dir.clone(),
     ));
+    state.set_auth_token(config.auth_token.clone())?;
 
     state.set_receiver_position(config.receiver_position)?;
 
@@ -229,6 +256,7 @@ mod tests {
             initial_sample_rate_hz: 2_000_000,
             recording_dir: dir,
             web_static_dir: std::env::temp_dir().join("ez-daemon-app-tests-nonexistent-static"),
+            auth_token: None,
             receiver_position: None,
             source: SourceConfig::Synthetic,
         };
@@ -271,6 +299,7 @@ mod tests {
             initial_sample_rate_hz: 1_000_000,
             recording_dir: dir,
             web_static_dir: std::env::temp_dir().join("ez-daemon-app-tests-nonexistent-static"),
+            auth_token: None,
             receiver_position: None,
             source: SourceConfig::Replay {
                 path: fixture.to_str().unwrap().to_string(),

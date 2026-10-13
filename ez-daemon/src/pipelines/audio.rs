@@ -60,6 +60,7 @@ pub struct AudioPipeline {
     mode: DemodMode,
     parameters: Option<AudioParameters>,
     rf_selector: Option<(f64, u32, RfSelector)>,
+    cw_rf_filter: ComplexLowpass,
     converter: IqAudioConverter,
     audio_clock: Option<ez_proto::CaptureClock>,
     audio_epoch: u64,
@@ -67,8 +68,21 @@ pub struct AudioPipeline {
     dc_prev_y: f32,
     prev_sample: Complex32,
     deemph_prev: f32,
+    deemph_prev_right: f32,
     ssb_phase: f64,
     ssb_filter: ComplexLowpass,
+    wfm_sum_filter: ComplexLowpass,
+    wfm_difference_filter: ComplexLowpass,
+    cw_audio_filter: ComplexLowpass,
+    pilot_i: [f64; 2],
+    pilot_q: [f64; 2],
+    pilot_phase: f64,
+    pilot_frequency: f64,
+    pilot_amplitude: f64,
+    pilot_error: f64,
+    pilot_locked: bool,
+    stereo_blend: f32,
+    cw_phase: f64,
     volume: f32,
     squelch_db: f32,
     squelch_revision: u64,
@@ -87,6 +101,7 @@ impl AudioPipeline {
             mode: config.mode,
             parameters: config.audio,
             rf_selector: None,
+            cw_rf_filter: ComplexLowpass::default(),
             converter: IqAudioConverter::for_detector(),
             audio_clock: None,
             audio_epoch: 0,
@@ -94,8 +109,21 @@ impl AudioPipeline {
             dc_prev_y: 0.0,
             prev_sample: Complex32::new(0.0, 0.0),
             deemph_prev: 0.0,
+            deemph_prev_right: 0.0,
             ssb_phase: 0.0,
             ssb_filter: ComplexLowpass::default(),
+            wfm_sum_filter: ComplexLowpass::default(),
+            wfm_difference_filter: ComplexLowpass::default(),
+            cw_audio_filter: ComplexLowpass::default(),
+            pilot_i: [0.0; 2],
+            pilot_q: [0.0; 2],
+            pilot_phase: 0.0,
+            pilot_frequency: 0.0,
+            pilot_amplitude: 0.0,
+            pilot_error: 0.0,
+            pilot_locked: false,
+            stereo_blend: 0.0,
+            cw_phase: 0.0,
             volume: 1.0,
             squelch_db: DEFAULT_SQUELCH_DB,
             squelch_revision: 0,
@@ -149,6 +177,15 @@ impl AudioPipeline {
                     "SSB one-sided RF extent must fit within 44% of the channel clock".into(),
                 );
             }
+        } else if mode == DemodMode::Cw {
+            if parameters.rf_bandwidth_hz == 0
+                || f64::from(parameters.rf_bandwidth_hz) > 0.8 * channel_rate_hz
+            {
+                return Err(
+                    "CW RF bandwidth must be positive and fit within 80% of the channel clock"
+                        .into(),
+                );
+            }
         } else if mode != DemodMode::Raw || parameters.rf_bandwidth_hz != 0 {
             RfSelector::validate(channel_rate_hz, parameters.rf_bandwidth_hz)?;
         }
@@ -161,8 +198,22 @@ impl AudioPipeline {
         self.dc_prev_y = 0.0;
         self.prev_sample = Complex32::new(0.0, 0.0);
         self.deemph_prev = 0.0;
+        self.deemph_prev_right = 0.0;
         self.ssb_phase = 0.0;
         self.ssb_filter.reset();
+        self.cw_rf_filter.reset();
+        self.wfm_sum_filter.reset();
+        self.wfm_difference_filter.reset();
+        self.cw_audio_filter.reset();
+        self.pilot_i = [0.0; 2];
+        self.pilot_q = [0.0; 2];
+        self.pilot_phase = 0.0;
+        self.pilot_frequency = 0.0;
+        self.pilot_amplitude = 0.0;
+        self.pilot_error = 0.0;
+        self.pilot_locked = false;
+        self.stereo_blend = 0.0;
+        self.cw_phase = 0.0;
         if let Some((_, _, selector)) = &mut self.rf_selector {
             selector.reset();
         }
@@ -260,7 +311,14 @@ impl AudioPipeline {
             self.reset_history();
             return;
         }
-        let selected = if matches!(self.mode, DemodMode::Usb | DemodMode::Lsb) {
+        let selected = if self.mode == DemodMode::Cw {
+            let cutoff = f64::from(parameters.rf_bandwidth_hz) * 0.5;
+            block
+                .samples
+                .iter()
+                .map(|&sample| self.cw_rf_filter.process(sample, cutoff, rate))
+                .collect()
+        } else if matches!(self.mode, DemodMode::Usb | DemodMode::Lsb) {
             self.select_ssb(
                 &block.samples,
                 rate,
@@ -293,16 +351,19 @@ impl AudioPipeline {
             }
             self.rf_selector.as_mut().unwrap().2.process(&block.samples)
         };
-        let mut samples: Vec<f32> = match self.mode {
-            DemodMode::Raw => selected.iter().map(|s| s.re).collect(),
-            DemodMode::Am => self.demod_am(&selected),
-            DemodMode::Fm => self.demod_fm(&selected, rate, NFM_DEVIATION_HZ),
+        let (mut samples, channels): (Vec<f32>, u8) = match self.mode {
+            DemodMode::Raw => (selected.iter().map(|s| s.re).collect(), 1),
+            DemodMode::Am => (self.demod_am(&selected), 1),
+            DemodMode::Fm => (self.demod_fm(&selected, rate, NFM_DEVIATION_HZ), 1),
+            DemodMode::Wfm if parameters.stereo => (self.demod_wfm_stereo(&selected, rate), 2),
             DemodMode::Wfm => {
                 let mut raw = self.demod_fm(&selected, rate, WFM_DEVIATION_HZ);
                 self.apply_deemphasis(&mut raw, rate);
-                raw
+                (raw, 1)
             }
-            DemodMode::Usb | DemodMode::Lsb => selected.iter().map(|s| 2.0 * s.re).collect(),
+            DemodMode::Usb | DemodMode::Lsb => (selected.iter().map(|s| 2.0 * s.re).collect(), 1),
+            DemodMode::Dsb => (selected.iter().map(|s| s.re).collect(), 1),
+            DemodMode::Cw => (self.demod_cw(&selected, rate, parameters.cw_tone_hz), 1),
         };
         // Measure the same selected complex signal that feeds detection. An
         // excluded neighboring carrier cannot open power squelch.
@@ -321,7 +382,14 @@ impl AudioPipeline {
         let (audio_clock, sample_rate_hz) = if parameters.output_sample_rate_hz == 0 {
             (clock, block.sample_rate_hz)
         } else {
-            let input: Vec<_> = samples.iter().map(|&x| Complex32::new(x, 0.0)).collect();
+            let input: Vec<_> = if channels == 2 {
+                samples
+                    .chunks_exact(2)
+                    .map(|pair| Complex32::new(pair[0], pair[1]))
+                    .collect()
+            } else {
+                samples.iter().map(|&x| Complex32::new(x, 0.0)).collect()
+            };
             samples = self
                 .converter
                 .process_clocked(
@@ -332,7 +400,7 @@ impl AudioPipeline {
                     1.0,
                 )
                 .into_iter()
-                .map(|x| x[0])
+                .flat_map(|x| [x[0], x[1]].into_iter().take(usize::from(channels)))
                 .collect();
             let mut output_clock = *self.audio_clock.get_or_insert_with(|| {
                 ez_proto::CaptureClock::new(
@@ -344,7 +412,7 @@ impl AudioPipeline {
             });
             output_clock.discontinuous = discontinuous;
             self.audio_clock = output_clock
-                .offset_samples(samples.len() as u64)
+                .offset_samples((samples.len() / usize::from(channels)) as u64)
                 .map(|mut c| {
                     c.discontinuous = false;
                     c
@@ -367,8 +435,78 @@ impl AudioPipeline {
             squelch: self.squelch_state(),
             channel_id: self.channel_id,
             sample_rate_hz,
+            channels,
             samples,
         });
+    }
+
+    fn demod_wfm_stereo(&mut self, samples: &[Complex32], rate: f64) -> Vec<f32> {
+        let multiplex = self.demod_fm(samples, rate, WFM_DEVIATION_HZ);
+        let pilot_step = std::f64::consts::TAU * 19_000.0 / rate;
+        let pilot_alpha = 1.0 - (-std::f64::consts::TAU * 300.0 / rate).exp();
+        let observation_alpha = 1.0 - (-std::f64::consts::TAU * 10.0 / rate).exp();
+        let omega = std::f64::consts::TAU * 20.0 / rate;
+        let loop_p = std::f64::consts::SQRT_2 * omega;
+        let loop_i = omega * omega;
+        let max_error = std::f64::consts::TAU * 100.0 / rate;
+        let dt = 1.0 / rate;
+        let deemphasis = (dt / (f64::from(WFM_DEEMPHASIS_TAU) + dt)) as f32;
+        let mut output = Vec::with_capacity(multiplex.len() * 2);
+        for mpx in multiplex {
+            let (sin, cos) = self.pilot_phase.sin_cos();
+            self.pilot_i[0] += pilot_alpha * (f64::from(mpx) * cos - self.pilot_i[0]);
+            self.pilot_q[0] += pilot_alpha * (-f64::from(mpx) * sin - self.pilot_q[0]);
+            self.pilot_i[1] += pilot_alpha * (self.pilot_i[0] - self.pilot_i[1]);
+            self.pilot_q[1] += pilot_alpha * (self.pilot_q[0] - self.pilot_q[1]);
+            let amplitude = self.pilot_i[1].hypot(self.pilot_q[1]);
+            let error = self.pilot_q[1].atan2(self.pilot_i[1]);
+            self.pilot_amplitude += observation_alpha * (amplitude - self.pilot_amplitude);
+            self.pilot_error += observation_alpha * (error.abs() - self.pilot_error);
+            self.pilot_locked = self.pilot_amplitude > 0.02 && self.pilot_error < 0.18;
+            let blend_alpha = (1.0 - (-1.0 / (rate * 0.04)).exp()) as f32;
+            let target_blend = if self.pilot_locked { 1.0 } else { 0.0 };
+            self.stereo_blend += blend_alpha * (target_blend - self.stereo_blend);
+            let difference = f64::from(mpx) * (2.0 * (2.0 * self.pilot_phase).cos());
+            if amplitude > 0.005 {
+                self.pilot_frequency =
+                    (self.pilot_frequency + loop_i * error).clamp(-max_error, max_error);
+                self.pilot_phase += pilot_step + self.pilot_frequency + loop_p * error;
+            } else {
+                self.pilot_phase += pilot_step + self.pilot_frequency;
+            }
+            self.pilot_phase = self.pilot_phase.rem_euclid(std::f64::consts::TAU);
+            let sum = self
+                .wfm_sum_filter
+                .process(Complex32::new(mpx, 0.0), 15_000.0, rate)
+                .re;
+            let difference = self
+                .wfm_difference_filter
+                .process(Complex32::new(difference as f32, 0.0), 15_000.0, rate)
+                .re;
+            // Without a pilot the mono sum is copied to both output channels. The
+            // pilot phase continues tracking so stereo can recover without a reset.
+            let difference = self.stereo_blend * difference;
+            self.deemph_prev += deemphasis * (sum + difference - self.deemph_prev);
+            self.deemph_prev_right += deemphasis * (sum - difference - self.deemph_prev_right);
+            output.extend([self.deemph_prev, self.deemph_prev_right]);
+        }
+        output
+    }
+
+    fn demod_cw(&mut self, samples: &[Complex32], rate: f64, tone_hz: u32) -> Vec<f32> {
+        let tone = f64::from(tone_hz.clamp(100, 2_000)).min(rate * 0.2);
+        let phase_step = std::f64::consts::TAU * tone / rate;
+        samples
+            .iter()
+            .map(|sample| {
+                let (sin, cos) = self.cw_phase.sin_cos();
+                self.cw_phase = (self.cw_phase + phase_step).rem_euclid(std::f64::consts::TAU);
+                let mixed = 2.0 * (sample.re * cos as f32 - sample.im * sin as f32);
+                self.cw_audio_filter
+                    .process(Complex32::new(mixed, 0.0), 2_400.0, rate)
+                    .re
+            })
+            .collect()
     }
 
     fn demod_am(&mut self, samples: &[Complex32]) -> Vec<f32> {
@@ -1057,6 +1195,182 @@ mod tests {
         assert!(
             rms_high < rms_low * 0.35,
             "WFM de-emphasis should attenuate 10kHz audio: rms_low={rms_low}, rms_high={rms_high}"
+        );
+    }
+
+    #[test]
+    fn wfm_stereo_pilot_recovers_separate_audio_and_partition_history() {
+        let rate = 256_000.0;
+        let count = 64_000;
+        let mut phase = 0.0_f64;
+        let iq: Vec<_> = (0..count)
+            .map(|n| {
+                let t = n as f64 / rate;
+                let left = (std::f64::consts::TAU * 1_000.0 * t).sin();
+                let sum = 0.5 * left;
+                let difference = 0.5 * left;
+                let multiplex = sum
+                    + difference * (std::f64::consts::TAU * 38_000.0 * t).cos()
+                    + 0.1 * (std::f64::consts::TAU * 19_000.0 * t).cos();
+                phase += std::f64::consts::TAU * f64::from(WFM_DEVIATION_HZ) * multiplex / rate;
+                Complex32::from_polar(1.0, phase as f32)
+            })
+            .collect();
+        let mut whole = pipeline_with(DemodMode::Wfm).1;
+        let expected = whole.demod_wfm_stereo(&iq, rate);
+        assert!(whole.pilot_locked, "19 kHz pilot should lock");
+
+        let mut fragmented = pipeline_with(DemodMode::Wfm).1;
+        let mut actual = Vec::new();
+        let mut start = 0;
+        for size in [1, 19, 1_003, 37, 4_099].into_iter().cycle() {
+            if start == iq.len() {
+                break;
+            }
+            let end = (start + size).min(iq.len());
+            actual.extend(fragmented.demod_wfm_stereo(&iq[start..end], rate));
+            start = end;
+        }
+        assert_eq!(actual.len(), expected.len());
+        let max_difference = actual
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(max_difference < 1e-6, "partition delta {max_difference}");
+
+        let settled = &expected[40_000..];
+        let left_rms = (settled.iter().step_by(2).map(|x| x * x).sum::<f32>()
+            / (settled.len() / 2) as f32)
+            .sqrt();
+        let right_rms = (settled
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .map(|x| x * x)
+            .sum::<f32>()
+            / (settled.len() / 2) as f32)
+            .sqrt();
+        assert!(left_rms > 0.2, "left output lost its program: {left_rms}");
+        assert!(
+            right_rms < left_rms * 0.2,
+            "stereo separation {left_rms}/{right_rms}"
+        );
+
+        let mut no_pilot_iq = Vec::with_capacity(count);
+        for n in count..count * 2 {
+            let t = n as f64 / rate;
+            let left = (std::f64::consts::TAU * 1_000.0 * t).sin();
+            let sum = 0.5 * left;
+            let difference = 0.5 * left;
+            let multiplex = sum + difference * (std::f64::consts::TAU * 38_000.0 * t).cos();
+            phase += std::f64::consts::TAU * f64::from(WFM_DEVIATION_HZ) * multiplex / rate;
+            no_pilot_iq.push(Complex32::from_polar(1.0, phase as f32));
+        }
+        let faded = whole.demod_wfm_stereo(&no_pilot_iq, rate);
+        assert!(
+            !whole.pilot_locked,
+            "stereo lock must release after pilot loss"
+        );
+        let tail = &faded[faded.len() - 8_000..];
+        let tail_difference = tail
+            .chunks_exact(2)
+            .map(|pair| (pair[0] - pair[1]).abs())
+            .sum::<f32>()
+            / (tail.len() / 2) as f32;
+        assert!(
+            tail_difference < 0.02,
+            "stereo difference did not fade: {tail_difference}"
+        );
+
+        let mut no_pilot = pipeline_with(DemodMode::Wfm).1;
+        let mono_mpx: Vec<_> = (0..4096)
+            .map(|n| {
+                let t = n as f64 / rate;
+                let mpx = (std::f64::consts::TAU * 700.0 * t).sin() * 0.2;
+                Complex32::from_polar(1.0, (mpx * std::f64::consts::TAU * 75_000.0 * t) as f32)
+            })
+            .collect();
+        let fallback = no_pilot.demod_wfm_stereo(&mono_mpx, rate);
+        assert_eq!(fallback.len(), mono_mpx.len() * 2);
+        let imbalance = fallback
+            .chunks_exact(2)
+            .map(|pair| (pair[0] - pair[1]).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(imbalance < 1e-6, "no-pilot fallback was not dual mono");
+    }
+
+    #[test]
+    fn cw_beat_oscillator_preserves_audio_tone_and_dsb_recovers_baseband() {
+        let rate = 48_000.0;
+        let samples = tone(12_000, -300.0, rate);
+        let mut cw = pipeline_with(DemodMode::Cw).1;
+        let tone_audio = cw.demod_cw(&samples, rate, 800);
+        let projection: f64 = tone_audio[1000..]
+            .iter()
+            .enumerate()
+            .map(|(n, x)| {
+                let sample_index = n + 1000;
+                f64::from(*x) * (std::f64::consts::TAU * 500.0 * sample_index as f64 / rate).cos()
+            })
+            .sum();
+        assert!(
+            projection.abs() > 100.0,
+            "CW beat tone was absent: {projection}"
+        );
+
+        let bus = SampleBus::new();
+        let mut parameters = AudioParameters::for_mode(DemodMode::Dsb);
+        parameters.output_sample_rate_hz = 0;
+        let mut dsb = AudioPipeline::new(
+            bus.subscribe(4, BusOverflowPolicy::DropIncoming),
+            AudioConfig {
+                audio: Some(parameters),
+                channel_id: 12,
+                mode: DemodMode::Dsb,
+            },
+        );
+        let output = dsb.subscribe(2);
+        bus.publish(block_of(tone(12_000, 1_000.0, rate), rate as u32));
+        dsb.tick(Duration::from_millis(50));
+        let frame = output.try_recv().expect("DSB audio frame");
+        let rms = (frame.samples[8_000..].iter().map(|x| x * x).sum::<f32>() / 4_000.0).sqrt();
+        assert_eq!(frame.channels, 1);
+        assert!(rms > 0.6, "DSB real baseband projection failed: {rms}");
+    }
+
+    #[test]
+    fn cw_pipeline_filters_rf_and_delivers_configured_beat_tone() {
+        let bus = SampleBus::new();
+        let mut parameters = AudioParameters::for_mode(DemodMode::Cw);
+        parameters.output_sample_rate_hz = 0;
+        parameters.cw_tone_hz = 720;
+        let mut pipeline = AudioPipeline::new(
+            bus.subscribe(4, BusOverflowPolicy::DropIncoming),
+            AudioConfig {
+                audio: Some(parameters),
+                channel_id: 13,
+                mode: DemodMode::Cw,
+            },
+        );
+        pipeline.set_volume(0.4);
+        let output = pipeline.subscribe(2);
+        bus.publish(block_of(vec![Complex32::new(1.0, 0.0); 12_000], 48_000));
+        pipeline.tick(Duration::from_millis(50));
+        let frame = output.try_recv().expect("CW audio frame");
+        assert_eq!(frame.channels, 1);
+        assert_eq!(frame.samples.len(), 12_000);
+        let projection: f64 = frame.samples[2_000..]
+            .iter()
+            .enumerate()
+            .map(|(n, sample)| {
+                f64::from(*sample)
+                    * (std::f64::consts::TAU * 720.0 * (n + 2_000) as f64 / 48_000.0).cos()
+            })
+            .sum();
+        assert!(
+            projection.abs() > 500.0,
+            "configured CW tone missing: {projection}"
         );
     }
 }

@@ -1,4 +1,4 @@
-//! Streaming, band-limited playback conversion for mono daemon audio.
+//! Streaming, band-limited playback conversion for mono or interleaved stereo daemon audio.
 //! Exact rational phase and FIR history survive network frame boundaries.
 //! The passband extends through 0.4 * min(input Fs, output Fs), with a
 //! transition to 0.5 * min(Fs) and at least 80 dB measured alias rejection.
@@ -13,14 +13,20 @@ fn valid_rates(source_rate: u32, stride: u32, output_rate: u32) -> bool {
 }
 
 #[derive(Default)]
-pub(crate) struct AudioResampler {
+struct ResamplerLane {
     rates: (u32, u32, u32),
     filter: Option<RateFilter>,
     // Next output position relative to the current input sample, in units
     // of 1 / (output Fs * source stride). This remains bounded and never
     // accumulates floating-point clock error, including fractional input Fs.
     next: u64,
+}
+
+#[derive(Default)]
+pub(crate) struct AudioResampler {
+    lanes: [ResamplerLane; 2],
     expected: Option<(u32, u64, ez_proto::CaptureClock)>,
+    channels: u8,
 }
 
 impl AudioResampler {
@@ -28,6 +34,7 @@ impl AudioResampler {
         *self = Self::default();
     }
 
+    #[cfg(test)]
     pub fn process(
         &mut self,
         samples: &[f32],
@@ -35,11 +42,18 @@ impl AudioResampler {
         output_rate: u32,
         gain: f32,
     ) -> Vec<f32> {
-        self.process_ratio(samples, input_rate, 1, output_rate, gain)
+        Self::process_ratio(
+            &mut self.lanes[0],
+            samples,
+            input_rate,
+            1,
+            output_rate,
+            gain,
+        )
     }
 
     fn process_ratio(
-        &mut self,
+        lane: &mut ResamplerLane,
         samples: &[f32],
         source_rate: u32,
         stride: u32,
@@ -48,7 +62,7 @@ impl AudioResampler {
     ) -> Vec<f32> {
         // Reject corrupt wire geometry before it can amplify allocation.
         if !valid_rates(source_rate, stride, output_rate) {
-            self.reset();
+            *lane = ResamplerLane::default();
             return Vec::new();
         }
         let clean = |sample: f32| {
@@ -65,26 +79,26 @@ impl AudioResampler {
         };
         let denominator = u64::from(output_rate) * u64::from(stride);
         if u64::from(source_rate) == denominator {
-            self.reset();
+            *lane = ResamplerLane::default();
             return samples.iter().map(|sample| clean(*sample) * gain).collect();
         }
-        if self.rates != (source_rate, stride, output_rate) {
-            self.reset();
-            self.rates = (source_rate, stride, output_rate);
-            self.filter = Some(RateFilter::new(f64::from(source_rate) / denominator as f64));
+        if lane.rates != (source_rate, stride, output_rate) {
+            *lane = ResamplerLane::default();
+            lane.rates = (source_rate, stride, output_rate);
+            lane.filter = Some(RateFilter::new(f64::from(source_rate) / denominator as f64));
         }
-        let filter = self.filter.as_mut().unwrap();
+        let filter = lane.filter.as_mut().unwrap();
         let capacity = (samples.len() as u128 * u128::from(denominator))
             .div_ceil(u128::from(source_rate)) as usize;
         let mut output = Vec::with_capacity(capacity);
         for &sample in samples {
             filter.push(clean(sample));
-            while self.next < denominator {
-                let sample = filter.output(self.next as f64 / denominator as f64);
+            while lane.next < denominator {
+                let sample = filter.output(lane.next as f64 / denominator as f64);
                 output.push((sample * gain).clamp(-1.0, 1.0));
-                self.next += u64::from(source_rate);
+                lane.next += u64::from(source_rate);
             }
-            self.next -= denominator;
+            lane.next -= denominator;
         }
         output
     }
@@ -98,12 +112,17 @@ impl AudioResampler {
         let continuous = self.expected.is_some_and(|(id, sequence, clock)| {
             id == frame.channel_id && sequence == frame.sequence && clock == frame.audio_clock
         });
-        if !continuous {
+        if !continuous || self.channels != frame.channels {
             self.reset();
         }
         let clock = frame.audio_clock;
         if clock.sample_stride == 0
             || frame.sample_rate_hz != clock.source_sample_rate_hz / clock.sample_stride
+            || !matches!(frame.channels, 1 | 2)
+            || !frame
+                .samples
+                .len()
+                .is_multiple_of(usize::from(frame.channels))
             || !valid_rates(
                 clock.source_sample_rate_hz,
                 clock.sample_stride,
@@ -113,25 +132,39 @@ impl AudioResampler {
             self.reset();
             return Vec::new();
         }
-        let output = if clock.sample_stride == 1 {
-            self.process(
-                &frame.samples,
-                clock.source_sample_rate_hz,
-                output_rate,
-                gain,
-            )
-        } else {
-            self.process_ratio(
-                &frame.samples,
+        let channel_count = usize::from(frame.channels);
+        let mut lanes: [Vec<f32>; 2] = std::array::from_fn(|_| Vec::new());
+        for (channel, lane) in lanes.iter_mut().enumerate().take(channel_count) {
+            let samples: Vec<_> = frame
+                .samples
+                .iter()
+                .skip(channel)
+                .step_by(channel_count)
+                .copied()
+                .collect();
+            *lane = Self::process_ratio(
+                &mut self.lanes[channel],
+                &samples,
                 clock.source_sample_rate_hz,
                 clock.sample_stride,
                 output_rate,
                 gain,
-            )
+            );
+        }
+        self.channels = frame.channels;
+        let output = if channel_count == 1 {
+            std::mem::take(&mut lanes[0])
+        } else {
+            let frame_count = lanes[0].len().min(lanes[1].len());
+            let mut interleaved = Vec::with_capacity(frame_count * 2);
+            for (left, right) in lanes[0].iter().zip(&lanes[1]).take(frame_count) {
+                interleaved.extend([*left, *right]);
+            }
+            interleaved
         };
         self.expected = frame
             .audio_clock
-            .offset_samples(frame.samples.len() as u64)
+            .offset_samples((frame.samples.len() / channel_count) as u64)
             .map(|mut clock| {
                 clock.discontinuous = false;
                 (frame.channel_id, frame.sequence.saturating_add(1), clock)
@@ -162,6 +195,7 @@ mod tests {
             },
             channel_id: 7,
             sample_rate_hz: 48_000,
+            channels: 1,
             samples: samples[..333].to_vec(),
         };
         let second = ez_proto::AudioFrame {
@@ -189,6 +223,7 @@ mod tests {
             sequence: 1,
             channel_id: 2,
             sample_rate_hz: 48_000,
+            channels: 1,
             samples: vec![0.8; 64],
             squelch: ez_proto::SquelchState {
                 db: -120.0,
@@ -230,6 +265,46 @@ mod tests {
             actual,
             AudioResampler::default().process(&joined, 48_000, 44_100, 1.0)
         );
+    }
+
+    #[test]
+    fn stereo_frame_resampling_keeps_interleaved_channels_and_frame_clock() {
+        let left = (0..1024)
+            .map(|n| (0.4 * (std::f64::consts::TAU * 1_000.0 * n as f64 / 48_000.0).sin()) as f32)
+            .collect::<Vec<_>>();
+        let right = (0..1024)
+            .map(|n| (0.2 * (std::f64::consts::TAU * 3_000.0 * n as f64 / 48_000.0).sin()) as f32)
+            .collect::<Vec<_>>();
+        let mut interleaved = Vec::with_capacity(2048);
+        for (&l, &r) in left.iter().zip(&right) {
+            interleaved.extend([l, r]);
+        }
+        let mut frame = ez_proto::AudioFrame {
+            audio_clock: ez_proto::CaptureClock::new(4, 0, 48_000, None),
+            clock: ez_proto::CaptureClock::new(4, 0, 48_000, None),
+            sequence: 1,
+            channel_id: 9,
+            sample_rate_hz: 48_000,
+            channels: 2,
+            samples: interleaved,
+            squelch: ez_proto::SquelchState {
+                db: -120.0,
+                revision: 0,
+            },
+        };
+        let mut resampler = AudioResampler::default();
+        let first = resampler.process_frame(&frame, 44_100, 1.0);
+        frame.audio_clock.source_sample_index = 1024;
+        frame.sequence = 2;
+        frame.samples = frame.samples[1024..].to_vec();
+        let second = resampler.process_frame(&frame, 44_100, 1.0);
+        let mut all = first;
+        all.extend(second);
+        assert_eq!(all.len() % 2, 0);
+        let left_energy = all.iter().step_by(2).map(|x| x * x).sum::<f32>();
+        let right_energy = all.iter().skip(1).step_by(2).map(|x| x * x).sum::<f32>();
+        assert!(left_energy > right_energy * 2.0);
+        assert!(right_energy > 1.0, "right channel was lost");
     }
 
     #[test]
@@ -384,7 +459,7 @@ mod tests {
                 actual.len(),
                 (count as u64 * u64::from(output_rate)).div_ceil(u64::from(input_rate)) as usize
             );
-            let filter = resampler.filter.as_ref().unwrap();
+            let filter = resampler.lanes[0].filter.as_ref().unwrap();
             let (taps, phases) = filter.storage_shape();
             assert!(taps <= 4801 && phases <= 257);
             let settling = (filter.storage_shape().0 as f64 * f64::from(output_rate)
@@ -409,7 +484,22 @@ mod tests {
         let rate = f64::from(source_rate) / f64::from(stride);
         let samples = tone(32_000, 17_000.0, rate);
         let mut reference = AudioResampler::default();
-        let whole = reference.process_ratio(&samples, source_rate, stride, 48_000, 1.0);
+        let mut whole_clock = ez_proto::CaptureClock::new(7, 0, source_rate, None);
+        whole_clock.sample_stride = stride;
+        let whole_frame = ez_proto::AudioFrame {
+            audio_clock: whole_clock,
+            clock: whole_clock,
+            sequence: 1,
+            channel_id: 1,
+            sample_rate_hz: source_rate / stride,
+            channels: 1,
+            samples: samples.clone(),
+            squelch: ez_proto::SquelchState {
+                db: -120.0,
+                revision: 0,
+            },
+        };
+        let whole = reference.process_frame(&whole_frame, 48_000, 1.0);
         let mut split = AudioResampler::default();
         let mut actual = Vec::new();
         for (sequence, part) in samples.chunks(137).enumerate() {
@@ -426,6 +516,7 @@ mod tests {
                 sequence: sequence as u64 + 1,
                 channel_id: 1,
                 sample_rate_hz: source_rate / stride,
+                channels: 1,
                 samples: part.to_vec(),
                 squelch: ez_proto::SquelchState {
                     db: -120.0,
@@ -440,7 +531,14 @@ mod tests {
             (samples.len() as u64 * 48_000 * u64::from(stride)).div_ceil(u64::from(source_rate))
                 as usize
         );
-        let delay = (reference.filter.as_ref().unwrap().storage_shape().0 - 1) as f64 / 2.0;
+        let delay = (reference.lanes[0]
+            .filter
+            .as_ref()
+            .unwrap()
+            .storage_shape()
+            .0
+            - 1) as f64
+            / 2.0;
         assert_tone_clock(&actual, rate, 48_000, 17_000.0, delay, 128);
     }
 
@@ -498,6 +596,7 @@ mod tests {
         let parameters = ez_proto::AudioParameters {
             rf_bandwidth_hz: (0.8 * f64::from(rate)) as u32,
             output_sample_rate_hz: 0,
+            ..ez_proto::AudioParameters::for_mode(mode)
         };
         let mut pipeline = AudioPipeline::new(
             bus.subscribe(4, OverflowPolicy::DropIncoming),
@@ -688,13 +787,14 @@ mod tests {
             sequence: 1,
             channel_id: 1,
             sample_rate_hz: 200000,
+            channels: 1,
             samples: vec![0.8; 512],
             squelch: ez_proto::SquelchState {
                 db: -120.0,
                 revision: 0,
             },
         };
-        for invalid in 0..4 {
+        for invalid in 0..6 {
             let mut resampler = AudioResampler::default();
             resampler.process_frame(&valid, 48000, 1.0);
             let mut bad = valid.clone();
@@ -704,13 +804,21 @@ mod tests {
                 0 => bad.audio_clock.sample_stride = 0,
                 1 => bad.audio_clock.source_sample_rate_hz = 0,
                 2 => bad.sample_rate_hz += 1,
-                _ => {
+                3 => {
                     bad.sample_rate_hz = 400000;
                     bad.audio_clock.source_sample_rate_hz = 400000;
                 }
+                4 => bad.channels = 0,
+                _ => {
+                    bad.channels = 2;
+                    bad.samples.pop();
+                }
             }
             assert!(resampler.process_frame(&bad, 48000, 1.0).is_empty());
-            assert!(resampler.expected.is_none() && resampler.filter.is_none());
+            assert!(
+                resampler.expected.is_none()
+                    && resampler.lanes.iter().all(|lane| lane.filter.is_none())
+            );
             assert_eq!(
                 resampler.process_frame(&valid, 48000, 1.0),
                 AudioResampler::default().process_frame(&valid, 48000, 1.0)

@@ -27,6 +27,8 @@ allow = [
     "CDLA-Permissive-2.0",
     # Required by translated dump1090-mutability modules and rtlsdr_sys (GPL-2.0+).
     "GPL-2.0-or-later",
+    # Native UAT Reed-Solomon implementation translated from Phil Karn.
+    "LGPL-2.1-or-later",
 ]
 
 [bans]

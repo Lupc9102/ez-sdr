@@ -88,6 +88,7 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
 #[derive(Debug, Serialize)]
 struct StatusResponse {
     uptime_sec: f64,
+    protocol_version: u32,
     hardware: HardwareStatus,
 }
 
@@ -140,6 +141,7 @@ struct RetuneRequest {
 async fn get_status(State(state): State<Arc<DaemonState>>) -> Json<StatusResponse> {
     Json(StatusResponse {
         uptime_sec: state.uptime_sec(),
+        protocol_version: ez_proto::PROTOCOL_VERSION,
         hardware: state.hardware_status(),
     })
 }
@@ -429,6 +431,7 @@ mod tests {
         assert_eq!(resp.status(), 200);
         let body: serde_json::Value = resp.json().await.unwrap();
         assert!(body["uptime_sec"].as_f64().unwrap() >= 0.0);
+        assert_eq!(body["protocol_version"], ez_proto::PROTOCOL_VERSION);
         assert!(body["hardware"]["source_kind"].is_string());
     }
 

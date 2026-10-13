@@ -174,13 +174,13 @@ Recorded-input demonstration readiness and field readiness are different conclus
 
 ## Implementation follow-up
 
-Three Luna subagents implemented the CLI, transport/headless and
+Luna subagents implemented the CLI, transport/headless, radio, Meteor, UAT and
 licensing/packaging repairs; the coordinating agent reviewed and verified the
 combined work. These changes address the software findings without replacing the
 original audit's field evidence or grade.
 
 - **Finding 1:** `dump1090` now declares `GPL-2.0-or-later AND BSD-3-Clause`,
-  with upstream attribution and full license texts. Combined Linux binaries use
+  with upstream attribution and full license texts. Combined release binaries use
   the compatible GPL-3.0-or-later terms; independently authored components retain
   their original dual-license grants. [License overview](../../../LICENSE.md)
   and [notices](../../../LICENSES/THIRD-PARTY-NOTICES.md) explain the scopes.
@@ -193,30 +193,46 @@ original audit's field evidence or grade.
   ground velocity and timestamps. CPR freshness uses capture time during fast
   replay. Mode A/C raw messages use a valid untimestamped prefix; SBS omits
   namespaced non-ICAO addresses it cannot represent without ambiguity.
-- **Finding 3 remains open:** the user reports an RTL-SDR v4, but the latest
-  device inventory still finds no supported receiver attached to this machine.
-  Antenna reception, audible output, reconnect and extended hardware runs require
-  actual equipment observations. [Field checklist](../../../HARDWARE_VALIDATION.md)
-  and [fresh inventory](fixes/hardware-inventory.json) retain that gate.
-- **Finding 4 remains open:** an original off-air 80k Meteor capture and a matched
-  SatDump comparison are still required. The user is locating a recording.
-  Existing synthetic 80k and public 72k evidence is not relabeled as that proof.
-- **Finding 5:** README now states the single active listening chain, mono and
-  mode-limited daemon audio, imported-only Meteor workflow/image-height limit,
-  external UAT decoder and absent browser frontend. REST and WebSocket requests
-  share a Host/Origin guard. A real synthetic daemon rejects rebinding-shaped
-  controls before tuning changes; valid local clients still work. Native DNS
-  aliases require a proxy with a localhost/numeric upstream Host. The transports
-  remain unauthenticated and retain the documented trusted-network scope.
-- **Finding 6:** release packaging supplies all three binaries, installation
-  instructions, notices, checksums, builder/native-library metadata and matching
-  source with locked Cargo dependencies vendored. It rejects uncommitted release
-  inputs and rebuilds the hardware/audio feature configuration before bundling.
-  Ubuntu 24.04 is pinned; native runtime libraries remain separately installed.
-  No portable installer, Windows/macOS validation or external release is claimed.
-  Headless warnings are fixed and strict headless Clippy is enforced in CI.
-  The yanked `yoke-derive` 0.8.3 is replaced by 0.8.4; the existing bincode
-  maintenance exception and required versioned migration are explicitly tracked.
+- **Findings 3 and 4 — user-owned field testing:** the user will conduct physical
+  reception, listening/reconnect/extended runs and original off-air 80k Meteor
+  comparison later using their RTL-SDR v4. Those observations are not inferred
+  from synthetic tests and do not block this software implementation goal.
+  [Field checklist](../../../HARDWARE_VALIDATION.md) retains the intended checks.
+- **Finding 5 — implemented software coverage:** the desktop has independent
+  simultaneous A/B listening, including a separate authenticated daemon B channel.
+  Daemon audio supports DSB/CW and interleaved WFM stereo with mono fallback.
+  Native 978 MHz UAT decodes short/long downlinks and six-block uplinks in Rust;
+  local Native IQ is the default, and an optional dump978 JSON source remains.
+  Native UAT requires a local 978 MHz capture at 2,083,333 samples/s; daemon mode
+  reports the unavailable local IQ path rather than pretending to decode it.
+  Meteor supports independent live capture workers, imported recordings, RGB,
+  crop/rotation/histogram operations and projected WGS84 PNGs with metadata,
+  GeoJSON, ground control points and GDAL VRT. Geolocation requires real absolute
+  packet times, a selected matching TLE and explicit scan geometry; missing data
+  stays unavailable. Daemon Stop-live finalization sends full-resolution images
+  and row times before removing the channel, with bounded timeout/error handling.
+  The 16,384-line channel limit remains explicit. Protocol 13 includes these
+  contracts, a 32 MiB data-frame bound and a 160 MiB final-product queue envelope;
+  command frames remain limited to 64 KiB.
+  The executable bundles a browser console for spectrum/waterfall, independent
+  audio channels, aircraft, Meteor previews/finalization and recording controls.
+  Optional shared-token authentication protects TCP, REST and both WebSocket
+  planes; Host/Origin guards remain in force. Tokens are redacted in diagnostic
+  formatters. Authentication is configured explicitly for nonlocal deployments.
+  These features close the named software gaps; this is not a claim of every
+  unrelated SDR++ plugin or SatDump instrument/protocol.
+- **Finding 6 — implemented release workflows:** Linux archives include all
+  binaries, instructions, notices, checksums and matching vendored source.
+  Windows has an Inno Setup installer and portable ZIP with native DLLs, verified
+  pinned RTL-SDR/libusb packages and corresponding complete native source.
+  macOS has an Intel app/DMG workflow with source-built pinned RTL-SDR/libusb and
+  relocated library paths. Packaging rejects dirty release inputs and rebuilds
+  the declared hardware/audio configuration. Windows compilation was checked
+  with a real MinGW compiler and UCRT native-library metadata; native Windows
+  installer execution and macOS app loading remain platform CI/runtime checks.
+  No public release or external CI run was dispatched. Headless warnings are
+  fixed, yoke-derive is updated and the bincode maintenance exception remains
+  documented. Native UAT's BSD/LGPL provenance and full terms are shipped.
 
 Fresh [quality checks](fixes/quality.json), [default tests](fixes/full.json),
 [headless tests](fixes/headless.json), [dependency/license scans](fixes/security.json)
@@ -242,3 +258,24 @@ or physical radio/audio test. Final dependency scans report zero known
 vulnerabilities and no yanked dependency warning; bincode's unmaintained warning
 remains documented. [Scanner versions](fixes/verification-tools.json) identify the
 tools used for the refreshed scan.
+
+The expanded software implementation is complete and verified separately in
+[software-completion](software-completion/), preserving the earlier fixes'
+results. [Default release tests](software-completion/final/full.json) passed
+1,873 executions and [headless release tests](software-completion/final/headless.json)
+passed 1,864, with zero failures and 14/13 ignored checks respectively.
+[Final quality checks](software-completion/verified/quality.json) passed formatting,
+strict default/headless Clippy, strict documentation, all-feature compilation and
+the release hardware/audio build. [Public reference checks](software-completion/final/reference.json)
+passed the RDS multiplex, original 72k Meteor CADU comparison and independent image
+oracle. [Fresh dependency/license scans](software-completion/final/security.json)
+passed with no known vulnerabilities or yanked dependency warnings.
+[Windows cross-compilation](software-completion/verified/windows-check.json)
+also passed against the current source with MinGW and the pinned native libraries;
+Windows installer execution and macOS native execution remain unrun.
+[Daemon process checks](software-completion/final/daemon-process.json),
+[browser observations](software-completion/browser.json) and
+[source fingerprints](software-completion/source.json) record additional evidence.
+Initial interrupted or failed attempts remain identifiable and are superseded by
+these completed checks. Physical reception, audio and original off-air 80k Meteor
+field validation remain user-owned.

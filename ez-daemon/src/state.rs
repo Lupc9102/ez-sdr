@@ -24,6 +24,7 @@ use ez_proto::{
     HardwareStatus, PipelineKind, RecordingFormat, RecordingStatus, SpectrumFrame, TelemetryFrame,
 };
 
+use crate::auth::Authenticator;
 use crate::broadcast::BroadcasterHandle;
 use crate::bus::{OverflowPolicy, SampleBus, SampleBusHandle};
 use crate::channelizer::Channelizer;
@@ -87,6 +88,7 @@ pub struct DaemonState {
     recordings: Mutex<RecordingManager>,
     started_at: Instant,
     receiver_position: Mutex<Option<(f64, f64)>>,
+    authenticator: Mutex<Authenticator>,
 }
 
 impl DaemonState {
@@ -119,7 +121,25 @@ impl DaemonState {
             recordings: Mutex::new(RecordingManager::new(recording_dir)),
             started_at: Instant::now(),
             receiver_position: Mutex::new(None),
+            authenticator: Mutex::new(Authenticator::default()),
         }
+    }
+
+    /// Installs the daemon-wide transport authenticator before listeners start accepting
+    /// clients. An empty token is rejected by [`Authenticator::new`].
+    pub fn set_auth_token(&self, token: Option<String>) -> anyhow::Result<()> {
+        *self.authenticator.lock() = Authenticator::new(token)?;
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn authentication_required(&self) -> bool {
+        self.authenticator.lock().is_required()
+    }
+
+    #[must_use]
+    pub fn authenticate(&self, token: &str) -> bool {
+        self.authenticator.lock().accepts(token)
     }
 
     pub fn allocate_client_channels(&self) -> Result<ez_proto::ClientChannels> {
@@ -729,6 +749,23 @@ impl DaemonState {
             }
         };
         pipeline.lock().start_new_product()?;
+        Ok(())
+    }
+
+    /// Finalize the current decoder product without removing the shared pipeline. The live
+    /// subscriber must remain attached until it receives the product-complete marker.
+    pub fn finalize_telemetry_product(&self, channel_id: ChannelId) -> Result<()> {
+        let pipeline = {
+            let channels = self.channels.lock();
+            let active = channels
+                .get(&channel_id)
+                .ok_or_else(|| anyhow!("unknown channel {channel_id}"))?;
+            match &active.pipeline {
+                ActivePipeline::LrptTelemetry(p) => Arc::clone(p),
+                _ => anyhow::bail!("channel {channel_id} is not an LRPT channel"),
+            }
+        };
+        pipeline.lock().finalize_product();
         Ok(())
     }
 

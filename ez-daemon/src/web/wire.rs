@@ -45,14 +45,16 @@ pub fn encode_spectrum(frame: &SpectrumFrame) -> Vec<u8> {
 /// |--------|------|----------------------|
 /// | 0      | 4    | channel_id (u32)     |
 /// | 4      | 4    | sample_rate_hz (u32) |
-/// | 8      | 4    | sample_count (u32)   |
-/// | 12     | 4*N  | samples (f32 * sample_count) |
+/// | 8      | 4    | interleaved_sample_count (u32) |
+/// | 12     | 4    | channels (u32)       |
+/// | 16     | 4*N  | samples (f32 * interleaved_sample_count) |
 #[must_use]
 pub fn encode_audio(frame: &AudioFrame) -> Vec<u8> {
-    let mut out = Vec::with_capacity(12 + frame.samples.len() * 4);
+    let mut out = Vec::with_capacity(16 + frame.samples.len() * 4);
     out.extend_from_slice(&frame.channel_id.to_le_bytes());
     out.extend_from_slice(&frame.sample_rate_hz.to_le_bytes());
     out.extend_from_slice(&(frame.samples.len() as u32).to_le_bytes());
+    out.extend_from_slice(&u32::from(frame.channels).to_le_bytes());
     for sample in &frame.samples {
         out.extend_from_slice(&sample.to_le_bytes());
     }
@@ -73,16 +75,23 @@ pub fn encode_audio(frame: &AudioFrame) -> Vec<u8> {
 /// | 24     | 4    | pixel_count (u32)  |
 /// | 28     | 8    | product_id (u64) |
 /// | 36     | N    | pixels (u8 * pixel_count) |
+/// | 36+N   | 4    | line_time_count (u32) |
+/// | 40+N   | 8*T  | line times (f64 seconds; NaN means absent) |
 ///
 /// The two bools are packed into one `u16` (rather than two trailing bytes) purely to keep
 /// every field up to `pixel_count` at a 4-byte-aligned offset for the JS side's `DataView`
-/// reads; it costs nothing since a `u16` was already the natural size for `apid`'s neighbor.
+/// reads; bits 2 and 3 announce a final APID image and product completion. Progressive
+/// previews use a zero timestamp count. Final timestamps align one-to-one with raster rows.
 #[must_use]
 pub fn encode_telemetry(frame: &TelemetryFrame) -> Vec<u8> {
-    let mut out = Vec::with_capacity(36 + frame.pixels.len());
+    let mut out =
+        Vec::with_capacity(40 + frame.pixels.len() + frame.line_times_unix_seconds.len() * 8);
     out.extend_from_slice(&frame.channel_id.to_le_bytes());
     out.extend_from_slice(&frame.apid.to_le_bytes());
-    let flags: u16 = (frame.costas_locked as u16) | ((frame.frame_locked as u16) << 1);
+    let flags: u16 = (frame.costas_locked as u16)
+        | ((frame.frame_locked as u16) << 1)
+        | ((frame.final_product as u16) << 2)
+        | ((frame.product_complete as u16) << 3);
     out.extend_from_slice(&flags.to_le_bytes());
     out.extend_from_slice(&frame.width.to_le_bytes());
     out.extend_from_slice(&frame.height.to_le_bytes());
@@ -91,6 +100,10 @@ pub fn encode_telemetry(frame: &TelemetryFrame) -> Vec<u8> {
     out.extend_from_slice(&(frame.pixels.len() as u32).to_le_bytes());
     out.extend_from_slice(&frame.product_id.to_le_bytes());
     out.extend_from_slice(&frame.pixels);
+    out.extend_from_slice(&(frame.line_times_unix_seconds.len() as u32).to_le_bytes());
+    for timestamp in &frame.line_times_unix_seconds {
+        out.extend_from_slice(&timestamp.unwrap_or(f64::NAN).to_le_bytes());
+    }
     out
 }
 
@@ -142,16 +155,18 @@ mod tests {
             },
             channel_id: 7,
             sample_rate_hz: 48_000,
+            channels: 2,
             samples: vec![0.5, -0.5],
         };
         let bytes = encode_audio(&frame);
 
-        assert_eq!(bytes.len(), 12 + 2 * 4);
+        assert_eq!(bytes.len(), 16 + 2 * 4);
         assert_eq!(u32::from_le_bytes(bytes[0..4].try_into().unwrap()), 7);
         assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 48_000);
         assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 2);
-        assert_eq!(f32::from_le_bytes(bytes[12..16].try_into().unwrap()), 0.5);
-        assert_eq!(f32::from_le_bytes(bytes[16..20].try_into().unwrap()), -0.5);
+        assert_eq!(u32::from_le_bytes(bytes[12..16].try_into().unwrap()), 2);
+        assert_eq!(f32::from_le_bytes(bytes[16..20].try_into().unwrap()), 0.5);
+        assert_eq!(f32::from_le_bytes(bytes[20..24].try_into().unwrap()), -0.5);
     }
 
     #[test]
@@ -163,6 +178,9 @@ mod tests {
             width: 4,
             height: 2,
             pixels: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            line_times_unix_seconds: vec![Some(1_700_000_000.5), None],
+            final_product: true,
+            product_complete: false,
             rs_ok: 10,
             rs_failed: 1,
             costas_locked: true,
@@ -170,10 +188,10 @@ mod tests {
         };
         let bytes = encode_telemetry(&frame);
 
-        assert_eq!(bytes.len(), 36 + 8);
+        assert_eq!(bytes.len(), 36 + 8 + 4 + 16);
         assert_eq!(u32::from_le_bytes(bytes[0..4].try_into().unwrap()), 3);
         assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 65);
-        assert_eq!(u16::from_le_bytes(bytes[6..8].try_into().unwrap()), 0b01);
+        assert_eq!(u16::from_le_bytes(bytes[6..8].try_into().unwrap()), 0b0101);
         assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 4);
         assert_eq!(u32::from_le_bytes(bytes[12..16].try_into().unwrap()), 2);
         assert_eq!(u32::from_le_bytes(bytes[16..20].try_into().unwrap()), 10);
@@ -181,6 +199,12 @@ mod tests {
         assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), 8);
         assert_eq!(u64::from_le_bytes(bytes[28..36].try_into().unwrap()), 1);
         assert_eq!(&bytes[36..44], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(u32::from_le_bytes(bytes[44..48].try_into().unwrap()), 2);
+        assert_eq!(
+            f64::from_le_bytes(bytes[48..56].try_into().unwrap()),
+            1_700_000_000.5
+        );
+        assert!(f64::from_le_bytes(bytes[56..64].try_into().unwrap()).is_nan());
     }
 
     #[test]
@@ -192,12 +216,15 @@ mod tests {
             width: 0,
             height: 0,
             pixels: Vec::new(),
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: true,
             rs_ok: 0,
             rs_failed: 0,
             costas_locked: true,
             frame_locked: true,
         };
         let bytes = encode_telemetry(&frame);
-        assert_eq!(u16::from_le_bytes(bytes[6..8].try_into().unwrap()), 0b11);
+        assert_eq!(u16::from_le_bytes(bytes[6..8].try_into().unwrap()), 0b1011);
     }
 }

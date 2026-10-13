@@ -1144,6 +1144,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.24.0",
@@ -1189,6 +1190,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.24.0",
  "tokio-util",
+ "uat-decode",
  "ureq",
 ]
 
@@ -4377,6 +4379,13 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "uat-decode"
+version = "0.1.0"
+dependencies = [
+ "num-complex",
+]
 
 [[package]]
 name = "unicase"

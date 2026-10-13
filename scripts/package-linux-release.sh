@@ -22,9 +22,11 @@ mkdir -p "$package_dir/bin" "$package_dir/LICENSES"
 
 release_inputs=(
   Cargo.toml Cargo.lock deny.toml DISTRIBUTION.md LICENSE.md README.md rust-toolchain.toml
-  .github/workflows/release.yml scripts/package-linux-release.sh
-  dump1090 ez-gui ez-daemon ez-proto lrpt-decode
+  .github/workflows/release.yml scripts/package-linux-release.sh scripts/package-windows-release.sh
+  scripts/package-macos-release.sh scripts/ez-sdr-installer.iss
+  dump1090 ez-gui ez-daemon ez-proto lrpt-decode uat-decode
   LICENSES/GPL-2.0.txt LICENSES/GPL-3.0.txt LICENSES/MIT.txt
+  LICENSES/BSD-2-Clause-FlightAware.txt LICENSES/LGPL-2.1-or-later.txt
   LICENSES/Apache-2.0.txt LICENSES/BSD-3-Clause-dump1090.txt
   LICENSES/THIRD-PARTY-NOTICES.md
 )

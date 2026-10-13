@@ -6,7 +6,7 @@ when redistributing the release archive.
 
 ## Combined release binaries
 
-The `ez-gui` binary in the Linux release enables RTL-SDR support and links the
+The release `ez-gui` binary enables RTL-SDR support and links the
 `rtlsdr_sys` Rust binding, whose published Cargo metadata declares `GPL-2.0+`
 (the SPDX equivalent is `GPL-2.0-or-later`). The application also links the
 `dump1090` crate. That crate contains translations of GPL-2.0-or-later code
@@ -17,19 +17,20 @@ BSD-3-Clause. The translated Rust modules identify their upstream files in
 module documentation. The crate metadata therefore records both applicable
 licenses (`GPL-2.0-or-later AND BSD-3-Clause`).
 Because selected project components and dependencies include Apache-2.0 code,
-the combined Linux binaries are offered under GPL-3.0-or-later: the upstream
+the combined release binaries are offered under GPL-3.0-or-later: the upstream
 GPL-2.0-or-later grant permits that later-version choice, and GPLv3 is
 compatible with Apache-2.0. The MIT OR Apache-2.0 grants remain applicable to
 independently authored project components. The full GPL version 2 and version
 3 texts and BSD-3-Clause text are in `GPL-2.0.txt`, `GPL-3.0.txt`, and
 `BSD-3-Clause-dump1090.txt`.
 
-The source archive shipped beside each binary archive contains the complete
-source tree from the exact tagged commit used to build the binaries, all Cargo
-registry dependencies vendored at the locked versions, the workspace,
-packaging script, and build/install instructions. This is the corresponding
-source provision for the GPL-covered portions. It is supplied with the binary
-archive itself.
+The source archive shipped with each release contains the complete source tree
+from the exact tagged commit used to build the binaries and all Cargo registry
+dependencies vendored at the locked versions. Windows additionally includes
+the matching MSYS2 source snapshots for RTL-SDR, libusb, GCC runtime, and
+winpthreads. macOS includes the exact RTL-SDR and libusb source trees used to
+build the bundled native libraries. These files are shipped with their
+corresponding binary artifacts.
 
 ## Independently authored project components
 
@@ -58,16 +59,30 @@ terms without assigning those copyrights to EZ-SDR authors. Primary references:
 
 ## Native runtime libraries
 
-The release binaries dynamically link platform libraries. On Ubuntu 24.04
-x86_64, install the runtime packages listed in `DISTRIBUTION.md`; users may
-install a compatible librtlsdr package from their distribution. Native library
-licenses and notices remain those of their respective package maintainers.
-`NATIVE-LIBRARIES.txt` in the binary archive records actual dynamic links and
-Ubuntu builder package versions. Source projects are glibc
-(<https://sourceware.org/glibc/>), GCC (<https://gcc.gnu.org/>), ALSA
-(<https://github.com/alsa-project/alsa-lib>), PulseAudio
-(<https://gitlab.freedesktop.org/pulseaudio/pulseaudio>), RTL-SDR
-(<https://github.com/steve-m/librtlsdr>), libusb
-(<https://github.com/libusb/libusb>), systemd/libudev
+Native runtime packaging differs by platform. Linux binaries use the system
+libraries listed in `DISTRIBUTION.md`; `NATIVE-LIBRARIES.txt` records their
+runtime links and Ubuntu builder package versions. Windows bundles the RTL-SDR,
+libusb, GNU runtime, and winpthreads DLL dependencies beside each executable and
+includes their notices and matching source snapshots. The macOS app bundle
+contains RTL-SDR and libusb under `Contents/Frameworks`; CoreAudio comes from
+macOS. Their licenses remain those of their respective projects. `NATIVE-LIBRARIES.txt`
+records the native libraries and versions for each build. Native upstream
+projects include glibc (<https://sourceware.org/glibc/>), GCC
+(<https://gcc.gnu.org/>), ALSA (<https://github.com/alsa-project/alsa-lib>),
+PulseAudio (<https://gitlab.freedesktop.org/pulseaudio/pulseaudio>), RTL-SDR
+(<https://github.com/osmocom/rtl-sdr>), libusb (<https://github.com/libusb/libusb>),
+MSYS2 winpthreads (<https://github.com/msys2/MINGW-packages>), systemd/libudev
 (<https://github.com/systemd/systemd>), and libcap
 (<https://git.kernel.org/pub/scm/linux/kernel/git/morgan/libcap.git>).
+
+## Native UAT decoder
+
+`uat-decode` translates the FlightAware dump978 phase discriminator, frame
+synchronizer and ADS-B payload fields (BSD-2-Clause, Oliver Jowett/FlightAware)
+and Phil Karn's Reed–Solomon algorithm (LGPL-2.1-or-later). The crate's
+independently authored code is MIT. Its package expression is
+`MIT AND BSD-2-Clause AND LGPL-2.1-or-later`; full upstream notices remain in
+its source modules and the accompanying `BSD-2-Clause-FlightAware.txt` and
+`LGPL-2.1-or-later.txt`. The combined GPLv3 release includes all corresponding
+Rust source and Cargo dependencies, permitting modification and rebuilding
+of this statically linked component. Primary source: https://github.com/flightaware/dump978.

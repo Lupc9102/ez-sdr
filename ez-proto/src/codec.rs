@@ -16,8 +16,9 @@ use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 /// Prevents unauthenticated clients from forcing multi-megabyte heap allocations.
 pub const MAX_CONTROL_FRAME_LEN: usize = 64 * 1024;
 
-/// Maximum frame length for data frames (1 MiB — ample for 64k-point spectrum frames).
-pub const MAX_DATA_FRAME_LEN: usize = 1024 * 1024;
+/// Maximum frame length for data frames (32 MiB — enough for the largest bounded
+/// LRPT channel raster, 1568 × 16,384 grayscale pixels, plus per-row timestamp metadata).
+pub const MAX_DATA_FRAME_LEN: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodecError {
@@ -33,7 +34,7 @@ pub enum CodecError {
 /// writes, or vice versa on the client side).
 ///
 /// There is deliberately **no** `Default` impl: the frame bound is a security
-/// property (64 KiB control vs 1 MiB data) and must be chosen explicitly via
+/// property (64 KiB control vs 32 MiB image-capable data) and must be chosen explicitly via
 /// [`MessageCodec::for_commands`] or [`MessageCodec::for_data`]. A generic
 /// 1 MiB default previously widened the unauthenticated control path 16×.
 pub struct MessageCodec<T> {
@@ -68,7 +69,7 @@ impl<T> MessageCodec<T> {
         Self::with_max_frame_length(MAX_CONTROL_FRAME_LEN)
     }
 
-    /// Construct a codec bounded to 1 MiB for data frames.
+    /// Construct a codec bounded to 32 MiB for data frames, including maximum-height LRPT images.
     #[must_use]
     pub fn for_data() -> Self {
         Self::with_max_frame_length(MAX_DATA_FRAME_LEN)
@@ -171,6 +172,7 @@ mod tests {
                     },
                 },
                 crate::ClientCommand::StartTelemetryProduct { channel_id: 7 },
+                crate::ClientCommand::FinalizeTelemetryProduct { channel_id: 7 },
             ] {
                 let json = serde_json::to_string(&command).unwrap();
                 let decoded_json: crate::ClientCommand = serde_json::from_str(&json).unwrap();
@@ -359,6 +361,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn maximum_height_lrpt_product_with_line_times_fits_data_codec() {
+        use crate::{ServerEvent, TelemetryFrame};
+
+        // `IMAGE_WIDTH * MAX_CHANNEL_HEIGHT` from lrpt-decode's image builder.
+        // The extra timestamps are present only on final products and must fit
+        // under the data-frame bound along with the full grayscale raster.
+        const WIDTH: u32 = 1_568;
+        const HEIGHT: u32 = 16_384;
+        let frame = ServerEvent::Telemetry(TelemetryFrame {
+            product_id: 42,
+            channel_id: 19,
+            apid: 64,
+            width: WIDTH,
+            height: HEIGHT,
+            pixels: vec![173; WIDTH as usize * HEIGHT as usize],
+            line_times_unix_seconds: vec![Some(1_700_000_000.25); HEIGHT as usize],
+            final_product: true,
+            product_complete: false,
+            rs_ok: 12_345,
+            rs_failed: 67,
+            costas_locked: true,
+            frame_locked: true,
+        });
+        let mut codec = MessageCodec::<ServerEvent>::for_data();
+        let mut bytes = BytesMut::new();
+        codec
+            .encode(frame, &mut bytes)
+            .expect("maximum LRPT product fits");
+        assert!(bytes.len() <= MAX_DATA_FRAME_LEN + 4);
+        let ServerEvent::Telemetry(decoded) = codec
+            .decode(&mut bytes)
+            .expect("decode maximum LRPT product")
+            .expect("one telemetry frame")
+        else {
+            panic!("wrong event type");
+        };
+        assert_eq!((decoded.width, decoded.height), (WIDTH, HEIGHT));
+        assert_eq!(decoded.pixels.len(), WIDTH as usize * HEIGHT as usize);
+        assert_eq!(decoded.line_times_unix_seconds.len(), HEIGHT as usize);
+        assert!(decoded.final_product);
+        assert!(!decoded.product_complete);
+        assert_eq!(
+            decoded.line_times_unix_seconds[HEIGHT as usize - 1],
+            Some(1_700_000_000.25)
+        );
+    }
+
     #[tokio::test]
     async fn command_frame_limit_rejects_oversized_payload() {
         // Issue 21: A frame claiming > MAX_CONTROL_FRAME_LEN must be rejected by for_commands()
@@ -417,6 +467,7 @@ mod tests {
                 sequence: 1,
                 channel_id: 17,
                 sample_rate_hz: 48_000,
+                channels: 1,
                 samples: vec![0.0; 32],
                 squelch: applied,
             }),

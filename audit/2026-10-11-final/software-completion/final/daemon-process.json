@@ -1,0 +1,56 @@
+{
+  "source": "isolated synthetic daemon; no SDR",
+  "checks": [
+    {
+      "name": "REST channel create, invalid retune, recording, deletion guard",
+      "passed": true,
+      "recordings": [
+        {
+          "name": "1791897520236_20811_0_ch77_100.000MHz.cf32",
+          "bytes": 36700160,
+          "sha256": "38146a2c8ea9c452b851d15624a4add5a0d9c88a85b00d5013fac3a60a0dd546"
+        }
+      ]
+    },
+    {
+      "name": "foreign Origin WebSocket control",
+      "response": "HTTP/1.1 403 Forbidden",
+      "synthetic_frequency_changed": false,
+      "origin_rejected": true
+    },
+    {
+      "name": "bundled web frontend",
+      "http_status": 200
+    },
+    {
+      "name": "REST Host/Origin boundary",
+      "http_status": 403,
+      "synthetic_frequency_changed": false,
+      "scope": "server rejects rebinding-shaped HTTP control; browser DNS/private-network behavior not tested"
+    },
+    {
+      "name": "foreign Origin and Host rejected; same-origin REST control works",
+      "passed": true
+    }
+  ],
+  "binary_sha256": "765450fdd0bf1897c567ad73c014215eb0bd26ac456e1eb60831efa24aef9b9f",
+  "shutdown_exit_code": 0,
+  "shutdown_seconds": 0.114,
+  "command": [
+    "/home/lupc/Documents/ez-sdr/target/release/ez-daemon",
+    "--source",
+    "synthetic",
+    "--sample-rate",
+    "256000",
+    "--freq",
+    "100000000",
+    "--listen-port",
+    "55615",
+    "--web-listen-port",
+    "41351",
+    "--recording-dir",
+    "/tmp/ez-final-daemon-a1j21gow",
+    "--web-static-dir",
+    "/tmp/ez-final-daemon-a1j21gow/missing"
+  ]
+}

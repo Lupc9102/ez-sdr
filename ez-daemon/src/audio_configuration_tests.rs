@@ -19,18 +19,22 @@ fn audio_configuration_validates_all_three_rates_before_allocation() {
         AudioParameters {
             rf_bandwidth_hz: 0,
             output_sample_rate_hz: 48_000,
+            ..AudioParameters::for_mode(DemodMode::Raw)
         },
         AudioParameters {
             rf_bandwidth_hz: 180_000,
             output_sample_rate_hz: 48_000,
+            ..AudioParameters::for_mode(DemodMode::Wfm)
         },
         AudioParameters {
             rf_bandwidth_hz: 25_000,
             output_sample_rate_hz: 7_999,
+            ..AudioParameters::for_mode(DemodMode::Fm)
         },
         AudioParameters {
             rf_bandwidth_hz: 25_000,
             output_sample_rate_hz: u32::MAX,
+            ..AudioParameters::for_mode(DemodMode::Fm)
         },
     ] {
         let mut spec = audio_spec(1, 0);
@@ -53,6 +57,7 @@ fn audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions() {
     spec.audio = Some(AudioParameters {
         rf_bandwidth_hz: 25_000,
         output_sample_rate_hz: 44_100,
+        ..AudioParameters::for_mode(DemodMode::Fm)
     });
     let (_subscription, _) = state.subscribe(spec.clone()).unwrap();
     let internal_id = state
@@ -72,6 +77,7 @@ fn audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions() {
             parameters: AudioParameters {
                 rf_bandwidth_hz: rf_width,
                 output_sample_rate_hz: pcm_rate,
+                ..AudioParameters::for_mode(mode)
             },
         };
         state
@@ -121,7 +127,8 @@ fn audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions() {
             DemodMode::Fm,
             Some(AudioParameters {
                 rf_bandwidth_hz: 0,
-                output_sample_rate_hz: 48_000
+                output_sample_rate_hz: 48_000,
+                ..AudioParameters::for_mode(DemodMode::Fm)
             })
         )
         .is_err());

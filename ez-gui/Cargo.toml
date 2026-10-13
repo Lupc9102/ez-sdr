@@ -24,6 +24,7 @@ dump1090 = { path = "../dump1090" }
 lrpt-decode = { path = "../lrpt-decode" }
 ez-proto = { workspace = true }
 ez-daemon = { workspace = true }
+uat-decode = { workspace = true }
 
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.35"

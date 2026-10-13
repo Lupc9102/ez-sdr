@@ -8,7 +8,21 @@ use std::time::Instant;
 
 pub const STREAM_AUDIO_CAPACITY: usize = 8;
 pub const STREAM_CHANNEL_CAPACITY: usize = 32;
-pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+/// Final LRPT products can contain six 1568x16384 rasters plus per-row timestamps.
+/// The envelope is still finite; exceeding it disconnects the stream instead of silently
+/// truncating a completed product.
+pub const STREAM_BYTE_CAPACITY: usize = 160 * 1024 * 1024;
+const TELEMETRY_FINAL_CAPACITY: usize = 8;
+
+fn is_critical_telemetry(event: &ServerEvent) -> bool {
+    matches!(
+        event,
+        ServerEvent::Telemetry(frame)
+            if frame.final_product
+                || frame.product_complete
+                || (frame.width == 0 && frame.height == 0 && frame.pixels.is_empty())
+    )
+}
 
 #[derive(Default)]
 struct Slot {
@@ -43,7 +57,7 @@ impl StreamQueue {
             ServerEvent::Spectrum(frame) => (frame.channel_id, 1),
             ServerEvent::Audio(frame) => (frame.channel_id, STREAM_AUDIO_CAPACITY),
             ServerEvent::Aircraft(frame) => (frame.channel_id, 1),
-            ServerEvent::Telemetry(frame) => (frame.channel_id, 1),
+            ServerEvent::Telemetry(frame) => (frame.channel_id, TELEMETRY_FINAL_CAPACITY),
             ServerEvent::StreamGap {
                 channel_id,
                 dropped_frames,
@@ -59,8 +73,40 @@ impl StreamQueue {
         let weight = weight(&event);
         let slot = self.channels.entry(id).or_default();
         slot.observed_at = Some(observed_at);
+        let final_telemetry = is_critical_telemetry(&event);
+        if final_telemetry && slot.frames.len() >= capacity {
+            return false;
+        }
+        if let ServerEvent::Telemetry(frame) = &event {
+            if !frame.final_product && !frame.product_complete {
+                if let Some(index) = slot.frames.iter().rposition(|(queued, _, _)| {
+                    matches!(queued, ServerEvent::Telemetry(queued)
+                        if !queued.final_product
+                            && !queued.product_complete
+                            && (queued.width != 0 || queued.height != 0 || !queued.pixels.is_empty()))
+                }) {
+                    let (_, _, old_weight) = slot.frames.remove(index).unwrap();
+                    self.bytes -= old_weight;
+                    slot.skipped = slot.skipped.saturating_add(1);
+                    self.skipped = self.skipped.saturating_add(1);
+                }
+            }
+        }
         while slot.frames.len() >= capacity {
-            self.bytes -= slot.frames.pop_front().unwrap().2;
+            let Some(index) = slot
+                .frames
+                .iter()
+                .position(|(queued, _, _)| !is_critical_telemetry(queued))
+            else {
+                if !final_telemetry {
+                    slot.skipped = slot.skipped.saturating_add(1);
+                    self.skipped = self.skipped.saturating_add(1);
+                    return true;
+                }
+                return false;
+            };
+            let (_, _, old_weight) = slot.frames.remove(index).unwrap();
+            self.bytes -= old_weight;
             slot.skipped = slot.skipped.saturating_add(1);
             self.skipped = self.skipped.saturating_add(1);
         }
@@ -70,12 +116,24 @@ impl StreamQueue {
             let id = self
                 .channels
                 .iter()
-                .filter_map(|(&id, slot)| slot.frames.front().map(|(_, at, _)| (id, *at)))
+                .filter_map(|(&id, slot)| {
+                    slot.frames
+                        .iter()
+                        .find(|(event, _, _)| !is_critical_telemetry(event))
+                        .map(|(_, at, _)| (id, *at))
+                })
                 .min_by_key(|(_, at)| *at)
-                .unwrap()
-                .0;
+                .map(|(id, _)| id);
+            let Some(id) = id else {
+                return false;
+            };
             let slot = self.channels.get_mut(&id).unwrap();
-            self.bytes -= slot.frames.pop_front().unwrap().2;
+            let index = slot
+                .frames
+                .iter()
+                .position(|(event, _, _)| !is_critical_telemetry(event))
+                .unwrap();
+            self.bytes -= slot.frames.remove(index).unwrap().2;
             slot.skipped = slot.skipped.saturating_add(1);
             self.skipped = self.skipped.saturating_add(1);
         }
@@ -151,7 +209,9 @@ fn weight(event: &ServerEvent) -> usize {
             ServerEvent::Spectrum(frame) => {
                 (frame.bins.len() + frame.measurement_bins.as_ref().map_or(0, Vec::len)) * 4
             }
-            ServerEvent::Telemetry(frame) => frame.pixels.len(),
+            ServerEvent::Telemetry(frame) => {
+                frame.pixels.len() + frame.line_times_unix_seconds.len() * 8
+            }
             ServerEvent::Aircraft(frame) => frame
                 .aircraft
                 .iter()
@@ -178,6 +238,7 @@ mod tests {
             sequence: n + 1,
             channel_id: 1,
             sample_rate_hz: 48_000,
+            channels: 1,
             samples: vec![0.25; 16],
             squelch: crate::SquelchState {
                 db: -120.0,
@@ -264,6 +325,9 @@ mod tests {
                     width: 1024,
                     height: 1024,
                     pixels: vec![0; 1024 * 1024],
+                    line_times_unix_seconds: Vec::new(),
+                    final_product: false,
+                    product_complete: false,
                     rs_ok: 0,
                     rs_failed: 0,
                     costas_locked: false,
@@ -273,7 +337,7 @@ mod tests {
             );
             assert!(queue.buffered_bytes() <= STREAM_BYTE_CAPACITY);
         }
-        assert!(queue.skipped_frames() >= 16);
+        assert_eq!(queue.skipped_frames(), 0);
         let mut extra = audio(0);
         if let ServerEvent::Audio(frame) = &mut extra {
             frame.channel_id = 32;
@@ -294,7 +358,61 @@ mod tests {
                 _ => unreachable!(),
             }
         }
-        assert!(notices >= 16);
+        assert_eq!(notices, 0);
         assert_eq!(queue.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn final_lrpt_batch_keeps_all_max_height_apids_before_completion() {
+        const WIDTH: u32 = 1568;
+        const HEIGHT: u32 = 16_384;
+        let mut queue = StreamQueue::default();
+        for apid in 64..70 {
+            let frame = crate::TelemetryFrame {
+                product_id: 77,
+                channel_id: 4,
+                apid,
+                width: WIDTH,
+                height: HEIGHT,
+                pixels: vec![apid as u8; (WIDTH * HEIGHT) as usize],
+                line_times_unix_seconds: vec![None; HEIGHT as usize],
+                final_product: true,
+                product_complete: false,
+                rs_ok: 12,
+                rs_failed: 0,
+                costas_locked: true,
+                frame_locked: true,
+            };
+            assert!(queue.push(ServerEvent::Telemetry(frame), Instant::now()));
+        }
+        assert!(queue.push(
+            ServerEvent::Telemetry(crate::TelemetryFrame {
+                product_id: 77,
+                channel_id: 4,
+                apid: 0,
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: true,
+                rs_ok: 12,
+                rs_failed: 0,
+                costas_locked: true,
+                frame_locked: true,
+            }),
+            Instant::now(),
+        ));
+        assert_eq!(queue.queued_frames(), 7);
+        assert!(queue.buffered_bytes() <= STREAM_BYTE_CAPACITY);
+
+        for expected_apid in 64..70 {
+            let (event, _) = queue.pop().expect("final channel frame retained");
+            assert!(matches!(event, ServerEvent::Telemetry(frame)
+                if frame.apid == expected_apid && frame.final_product));
+        }
+        let (event, _) = queue.pop().expect("completion sentinel retained");
+        assert!(matches!(event, ServerEvent::Telemetry(frame) if frame.product_complete));
+        assert_eq!(queue.queued_frames(), 0);
     }
 }

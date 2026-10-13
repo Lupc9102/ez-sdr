@@ -119,6 +119,11 @@ pub struct CentralApp {
     daemon_audio: crate::audio_resampler::AudioResampler,
     audio: AudioOutput,
     local_adsb: crate::local_adsb::LocalAdsbWorker,
+    secondary_vfo: crate::secondary_vfo::SecondaryVfo,
+    georef_jobs: Vec<(
+        bool,
+        std::sync::mpsc::Receiver<Result<lrpt_decode::geolocation::GeoreferenceProducts, String>>,
+    )>,
     last_local_adsb_boundary: Option<(u64, Option<u64>, u64)>,
     #[cfg(test)]
     adsb_decoder: AdsBDecoder,
@@ -185,7 +190,12 @@ impl CentralApp {
             self.recorder_panel.stop_recording();
             self.satellite_panel.stop_cf32_recording();
             self.audio.shutdown();
+            self.secondary_vfo.stop();
+            self.decoding_panel.stop_live();
+            self.meteor_decoder.stop_live();
         }
+        self.decoding_panel.tick_live();
+        self.meteor_decoder.tick_live();
         let source_cancelled = if let Ok(mut state) = self.shared.try_lock() {
             state.source.stop();
             state.adsb_running = false;
@@ -424,6 +434,9 @@ impl CentralApp {
         let demod_worker = crate::demod::DemodWorker::new_capture(capture_stream.clone());
         let mut recorder_panel = RecorderPanel::new(shared.clone());
         recorder_panel.set_audio_stream(demod_worker.audio_stream());
+        let mut adsb_panel = AdsBPanel::new(shared.clone());
+        adsb_panel.attach_native_capture(capture_stream.clone());
+        let secondary_vfo = crate::secondary_vfo::SecondaryVfo::new(capture_stream.clone());
         let mut app = Self {
             shared: shared.clone(),
             event_bus: crate::events::EventBus::new(),
@@ -432,7 +445,7 @@ impl CentralApp {
             frequency_history: crate::frequency_history::FrequencyHistory::new(),
             radio_ui: crate::radio_ui::RadioUi::new(shared.clone()),
             satellite_panel: SatellitePanel::new(shared.clone()),
-            adsb_panel: AdsBPanel::new(shared.clone()),
+            adsb_panel,
             recorder_panel,
             constellation: ConstellationDisplay::new(),
             decoding_panel: DecodingPanel::default(),
@@ -451,6 +464,8 @@ impl CentralApp {
             last_radio_boundary: None,
             last_radio_lost_samples: 0,
             local_adsb: crate::local_adsb::LocalAdsbWorker::new(capture_stream),
+            secondary_vfo,
+            georef_jobs: Vec::new(),
             last_local_adsb_boundary: None,
             #[cfg(test)]
             adsb_decoder: AdsBDecoder::new(),
@@ -1032,6 +1047,141 @@ impl CentralApp {
         }
     }
 
+    fn tick_meteor_workflows(&mut self) {
+        self.decoding_panel.tick_live();
+        self.meteor_decoder.tick_live();
+        let shared = Arc::clone(&self.shared);
+        for meteor in [false, true] {
+            let other_live = if meteor {
+                self.decoding_panel.live_active
+            } else {
+                self.meteor_decoder.live_active
+            };
+            let panel = if meteor {
+                &mut self.meteor_decoder
+            } else {
+                &mut self.decoding_panel
+            };
+            if panel.live_active {
+                if let Ok(state) = shared.try_lock() {
+                    let finalize_error = panel
+                        .is_daemon_live()
+                        .then(|| state.source.daemon_channel_error())
+                        .flatten();
+                    if let Some(error) = finalize_error
+                        .filter(|_| panel.is_daemon_live() && !panel.daemon_workflow_active())
+                    {
+                        panel.abort_daemon_live(&format!("Daemon finalization failed: {error}"));
+                    } else if let crate::source_manager::SourceStatus::Error(error) =
+                        &state.source.status
+                    {
+                        if panel.is_daemon_live() {
+                            panel.abort_daemon_live(&format!("Receiver failed: {error}"));
+                        } else {
+                            panel.stop_live();
+                            panel.error = Some(format!("Live capture failed: {error}"));
+                        }
+                    } else if state.source.status == crate::source_manager::SourceStatus::Idle {
+                        if panel.is_daemon_live() {
+                            panel.abort_daemon_live(
+                                "Receiver stopped before LRPT finalization completed.",
+                            );
+                        } else {
+                            panel.stop_live();
+                        }
+                    }
+                }
+            }
+            if panel.take_live_stop_request() {
+                if panel.is_daemon_live() {
+                    panel.request_daemon_live_stop();
+                } else {
+                    panel.stop_live();
+                }
+            }
+            if panel.take_live_start_request() {
+                if let Ok(mut state) = shared.try_lock() {
+                    if other_live {
+                        panel.error = Some("Stop the other live Meteor decoder first.".into());
+                        continue;
+                    }
+                    let satellite = state
+                        .selected_satellite
+                        .clone()
+                        .or_else(|| panel.satellite_name.clone());
+                    state.source.start();
+                    if let crate::source_manager::SourceStatus::Error(error) = &state.source.status
+                    {
+                        panel.error = Some(format!("Receiver could not start: {error}"));
+                        continue;
+                    }
+                    if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+                        panel.start_daemon_live(panel.mission_profile, satellite);
+                    } else {
+                        let epoch = panel.cds_epoch();
+                        if let Err(error) = panel.start_live(
+                            state.source.capture_stream(),
+                            state.source.sample_rate_hz,
+                            panel.mission_profile,
+                            satellite,
+                            epoch,
+                        ) {
+                            panel.error = Some(error);
+                        }
+                    }
+                } else {
+                    panel.error = Some("Receiver is busy; try live decode again.".into());
+                }
+            }
+            if self.georef_jobs.iter().any(|(target, _)| *target == meteor) {
+                continue;
+            }
+            if let Some(request) = panel.take_georeference_request() {
+                let inputs = panel.georeference_inputs(request.apid);
+                let model = shared
+                    .try_lock()
+                    .ok()
+                    .and_then(|state| state.tle.lrpt_geolocation_model(&request.satellite_name));
+                let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                std::thread::spawn(move || {
+                    let result = match (inputs, model) {
+                        (Some((image, times)), Some(model)) => model.georeference_image(&image, &times, lrpt_decode::geolocation::ScanGeometry {
+                            first_pixel_angle_rad: -request.scan_edge_angle_rad,
+                            last_pixel_angle_rad: request.scan_edge_angle_rad,
+                        }, 100).map_err(|error| error.to_string()),
+                        _ => Err("Complete packet timestamps and a loaded matching satellite TLE are required.".into()),
+                    };
+                    let _ = tx.send(result);
+                });
+                self.georef_jobs.push((meteor, rx));
+            }
+        }
+        let mut index = 0;
+        while index < self.georef_jobs.len() {
+            match self.georef_jobs[index].1.try_recv() {
+                Ok(result) => {
+                    let (meteor, _) = self.georef_jobs.swap_remove(index);
+                    let panel = if meteor {
+                        &mut self.meteor_decoder
+                    } else {
+                        &mut self.decoding_panel
+                    };
+                    panel.complete_georef(result);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => index += 1,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    let (meteor, _) = self.georef_jobs.swap_remove(index);
+                    let panel = if meteor {
+                        &mut self.meteor_decoder
+                    } else {
+                        &mut self.decoding_panel
+                    };
+                    panel.complete_georef(Err("Geolocation worker stopped unexpectedly.".into()));
+                }
+            }
+        }
+    }
+
     fn drain_daemon_events(&mut self) {
         let shared = Arc::clone(&self.shared);
         let Ok(mut state) = shared.try_lock() else {
@@ -1044,14 +1194,22 @@ impl CentralApp {
             && state.config.advanced.squelch_mode == crate::radio_squelch::SquelchMode::Power;
         let adsb_running = state.adsb_running;
         let demod_mode = state.demod_mode;
+        let stereo = state.config.advanced.wfm_stereo;
+        let cw_tone = state.config.advanced.cw_tone_hz;
+        state.source.set_daemon_radio_audio_options(stereo, cw_tone);
+        let meteor_profile = if self.meteor_decoder.live_active {
+            self.meteor_decoder.mission_profile
+        } else {
+            self.decoding_panel.mission_profile
+        };
+        state.source.set_daemon_meteor_profile(meteor_profile);
         state.source.sync_daemon_workflows(
             audio_running || monitor_power,
             adsb_running,
-            false,
+            self.decoding_panel.daemon_workflow_active()
+                || self.meteor_decoder.daemon_workflow_active(),
             demod_mode,
         );
-        let desired_squelch = crate::radio_ui::requested_power_squelch(&state);
-        state.source.sync_daemon_squelch(desired_squelch);
         crate::radio_ui::sync_squelch_level(&mut state);
         for _ in 0..8 {
             let previous_squelch = state.source.daemon_squelch_applied();
@@ -1110,7 +1268,12 @@ impl CentralApp {
                     self.decoding_panel.clear_daemon_telemetry();
                 }
                 Some(ez_proto::ServerEvent::Telemetry(frame)) => {
-                    if let Err(message) = self.decoding_panel.ingest_daemon_telemetry(frame) {
+                    let panel = if self.meteor_decoder.live_active {
+                        &mut self.meteor_decoder
+                    } else {
+                        &mut self.decoding_panel
+                    };
+                    if let Err(message) = panel.ingest_daemon_telemetry(frame) {
                         self.status_bar.warning(format!("⚠ {message}"));
                     }
                 }
@@ -1132,6 +1295,11 @@ impl CentralApp {
                 None => break,
             }
         }
+        // Drain the prioritized control queue before checking the squelch
+        // deadline. A reply may already be queued while the GUI was stalled;
+        // timing it out first would discard that valid correlated ACK.
+        let desired_squelch = crate::radio_ui::requested_power_squelch(&state);
+        state.source.sync_daemon_squelch(desired_squelch);
     }
 }
 
@@ -1460,6 +1628,15 @@ impl eframe::App for CentralApp {
         self.satellite_panel.tick_realtime();
         self.decoding_panel.tick_decode();
         self.meteor_decoder.tick_decode();
+        self.tick_meteor_workflows();
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.config.secondary_vfo.frequency_hz = state.vfo_b;
+            self.secondary_vfo.tick(
+                &state.source,
+                &state.config.secondary_vfo,
+                &state.config.advanced.audio_output,
+            );
+        }
         if let Some(message) = self.meteor_decoder.pending_status.take() {
             self.status_bar.info(message);
         }
@@ -2193,7 +2370,7 @@ impl eframe::App for CentralApp {
                         h(ui, "MSps"); ui.label("Megasamples per second — the SDR's sample rate. Higher = wider spectrum view. RTL-SDR supports 0.25–3.2 MSps."); ui.end_row();
                         h(ui, "LPF"); ui.label("Low-Pass Filter. Removes high-frequency audio hiss above a set cutoff (kHz). Lower cutoff = cleaner audio, narrower bandwidth."); ui.end_row();
                         h(ui, "PPM"); ui.label("Parts Per Million — crystal frequency error correction. If signals appear off-frequency, adjust PPM to shift the whole spectrum. Calibrate using a known signal (e.g. local FM station)."); ui.end_row();
-                        h(ui, "VFO"); ui.label("Variable Frequency Oscillator — your tuned frequency. VFO A is the main frequency; VFO B is a saved alternate you can swap to with 'V'."); ui.end_row();
+                        h(ui, "VFO"); ui.label("Variable Frequency Oscillator — your tuned frequency. VFO A is the main frequency; VFO B can receive simultaneously inside the same capture. Enable it in Independent B receiver, or swap frequencies with 'V'."); ui.end_row();
                         h(ui, "BW"); ui.label("Bandwidth — the frequency range occupied by a signal. WFM stations are ~200 kHz wide; NFM (voice) is ~12.5 kHz; AM ~10 kHz."); ui.end_row();
                         h(ui, "Squelch"); ui.label("A gate that silences audio when signal strength drops below a threshold. Prevents constant static between transmissions. Set 5 dB above noise floor."); ui.end_row();
                         h(ui, "LO"); ui.label("Local Oscillator — the hardware frequency the SDR chip tunes to. The actual receive frequency = LO ± baseband offset (shown if different from VFO)."); ui.end_row();
@@ -2244,6 +2421,7 @@ impl eframe::App for CentralApp {
             cfg.spectrum_max_db = max_db;
             cfg.ppm_correction = state.source.ppm_correction;
             cfg.vfo_b_hz = state.vfo_b;
+            cfg.secondary_vfo = state.config.secondary_vfo.clone();
             cfg.wf_min_db = state.spectrum.wf_min_db;
             cfg.wf_max_db = state.spectrum.wf_max_db;
             cfg.lo_offset_hz = state.lo_offset_hz;
@@ -2287,7 +2465,7 @@ impl CentralApp {
                     ui.label(if self.meteor_decoder.running {
                         "Decoding recording"
                     } else {
-                        "Meteor · offline decoder"
+                        "Meteor · live and recording decoder"
                     });
                     if let Some(message) = self.status_bar.current() {
                         ui.separator();
@@ -2334,7 +2512,23 @@ impl CentralApp {
                 .default_size(crate::radio_ui::SIDEBAR_WIDTH)
                 .size_range(200.0..=400.0)
                 .show(ui, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| self.radio_ui.sidebar(ui));
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.radio_ui.sidebar(ui);
+                        ui.collapsing("Independent B receiver", |ui| {
+                            if let Ok(mut state) = self.shared.try_lock() {
+                                let mut settings = state.config.secondary_vfo.clone();
+                                settings.frequency_hz = state.vfo_b;
+                                self.secondary_vfo.ui(
+                                    ui,
+                                    &mut settings,
+                                    &state.source,
+                                    &state.config.advanced.audio_output,
+                                );
+                                state.vfo_b = settings.frequency_hz;
+                                state.config.secondary_vfo = settings;
+                            }
+                        });
+                    });
                 });
         }
         egui::Panel::right("radio_spectrum_rail")
@@ -2434,6 +2628,7 @@ impl CentralApp {
                 }
                 if let Some(freq) = state.spectrum.pending_vfo_b_freq.take() {
                     state.vfo_b = freq;
+                    state.config.secondary_vfo.frequency_hz = freq;
                     self.status_bar.info(format!("🔷 VFO B → {:.4} MHz", freq as f64 / 1e6));
                 }
                 if let Some(freq) = state.spectrum.pending_bookmark_freq.take() {
@@ -2527,11 +2722,9 @@ impl CentralApp {
                 );
             });
             ui.label(
-                egui::RichText::new(
-                    "Decode Meteor-M2 recordings without touching the live SDR source.",
-                )
-                .small()
-                .color(egui::Color32::GRAY),
+                egui::RichText::new("Decode a live Meteor pass or import an IQ recording.")
+                    .small()
+                    .color(egui::Color32::GRAY),
             );
             ui.add_space(8.0);
             egui::Frame::group(ui.style()).show(ui, |ui| {

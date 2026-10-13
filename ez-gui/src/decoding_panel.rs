@@ -51,6 +51,8 @@ enum FileDecodeOutcome {
 enum FileOperationKind {
     Import,
     Export,
+    Products,
+    Georeference,
 }
 
 enum FileOperationOutcome {
@@ -59,6 +61,14 @@ enum FileOperationOutcome {
         folder: std::path::PathBuf,
         count: usize,
     },
+    Products {
+        folder: std::path::PathBuf,
+        count: usize,
+    },
+    Georeference {
+        folder: std::path::PathBuf,
+        apid: u16,
+    },
 }
 
 struct FileOperation {
@@ -66,13 +76,84 @@ struct FileOperation {
     receiver: Receiver<Result<Option<FileOperationOutcome>, String>>,
 }
 
+#[derive(Clone)]
+struct ProductSettings {
+    rgb_apids: [u16; 3],
+    brightness: f32,
+    contrast: f32,
+    gamma: f32,
+    rotate_quarter_turns: u8,
+    equalize_histogram: bool,
+    crop_enabled: bool,
+    crop_x: u32,
+    crop_y: u32,
+    crop_width: u32,
+    crop_height: u32,
+    scan_half_angle_deg: f32,
+    georeference_apid: u16,
+    cds_epoch: lrpt_decode::CdsEpoch,
+}
+
+impl Default for ProductSettings {
+    fn default() -> Self {
+        Self {
+            rgb_apids: [64, 65, 66],
+            brightness: 0.0,
+            contrast: 1.0,
+            gamma: 1.0,
+            rotate_quarter_turns: 0,
+            equalize_histogram: false,
+            crop_enabled: false,
+            crop_x: 0,
+            crop_y: 0,
+            crop_width: 0,
+            crop_height: 0,
+            scan_half_angle_deg: 55.05,
+            georeference_apid: 64,
+            cds_epoch: lrpt_decode::CdsEpoch::MeteorM2x,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GeoreferenceRequest {
+    pub apid: u16,
+    pub satellite_name: String,
+    pub scan_edge_angle_rad: f64,
+    pub output_dir: std::path::PathBuf,
+}
+
 /// Stream regular files in small, sample-aligned blocks so Cancel remains responsive.
 /// Decoder snapshots are forwarded without blocking or accumulating full-size images.
+#[cfg(test)]
 fn decode_recording(
     path: &Path,
     format: RecordingFormat,
     sample_rate: u32,
     profile: ez_proto::MeteorProfile,
+    progress_tx: crossbeam_channel::Sender<lrpt_decode::DecodeProgress>,
+    cancel: &AtomicBool,
+    bytes_read: &AtomicU64,
+) -> Result<FileDecodeOutcome, String> {
+    decode_recording_with_epoch(
+        path,
+        format,
+        sample_rate,
+        profile,
+        lrpt_decode::CdsEpoch::MeteorM2x,
+        progress_tx,
+        cancel,
+        bytes_read,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decode_recording_with_epoch(
+    path: &Path,
+    format: RecordingFormat,
+    sample_rate: u32,
+    profile: ez_proto::MeteorProfile,
+    cds_epoch: lrpt_decode::CdsEpoch,
     progress_tx: crossbeam_channel::Sender<lrpt_decode::DecodeProgress>,
     cancel: &AtomicBool,
     bytes_read: &AtomicU64,
@@ -99,6 +180,7 @@ fn decode_recording(
     let (decoder_tx, decoder_rx) = crossbeam_channel::bounded(1);
     let mut decoder = lrpt_decode::LrptDecoder::for_mission(sample_rate, profile, decoder_tx)
         .map_err(|error| error.to_string())?;
+    decoder.set_cds_epoch(cds_epoch);
     let mut reader = std::io::BufReader::new(file);
     let mut chunk = vec![0; 16_384 * sample_bytes];
     let mut remaining = metadata.len();
@@ -186,6 +268,99 @@ fn export_pngs(
     Ok(result.images.len())
 }
 
+fn export_processed_products(
+    folder: &Path,
+    recording: &str,
+    result: &lrpt_decode::DecodeResult,
+    rgb_apids: [u16; 3],
+    adjustments: lrpt_decode::product::ImageAdjustments,
+    equalize: bool,
+    crop: Option<lrpt_decode::product::CropRect>,
+) -> Result<usize, String> {
+    let mut processed = Vec::with_capacity(result.images.len());
+    for (apid, image) in &result.images {
+        let mut image = lrpt_decode::product::adjust_image(image, adjustments)
+            .map_err(|error| error.to_string())?;
+        if equalize {
+            image = lrpt_decode::product::equalize_histogram(&image)
+                .map_err(|error| error.to_string())?;
+        }
+        if let Some(crop) = crop {
+            image = lrpt_decode::product::crop_image(&image, crop)
+                .map_err(|error| error.to_string())?;
+        }
+        processed.push((*apid, image));
+    }
+    let rgb = lrpt_decode::product::compose_rgb(&processed, rgb_apids)
+        .map_err(|error| error.to_string())?;
+    let stem = Path::new(recording)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("meteor");
+    let mut count = 0;
+    for (apid, image) in &processed {
+        let path = create_unique_path(folder, &format!("{stem}_processed_apid_{apid}"), "png")?;
+        write_png(&image::DynamicImage::ImageLuma8(image.clone()), &path)?;
+        let bins = lrpt_decode::product::histogram(image);
+        let histogram_path =
+            create_unique_path(folder, &format!("{stem}_apid_{apid}_histogram"), "csv")?;
+        let csv = bins
+            .iter()
+            .enumerate()
+            .map(|(value, count)| format!("{value},{count}\n"))
+            .collect::<String>();
+        std::fs::write(&histogram_path, csv)
+            .map_err(|error| format!("Could not save {}: {error}", histogram_path.display()))?;
+        count += 2;
+    }
+    let rgb_path = create_unique_path(folder, &format!("{stem}_rgb"), "png")?;
+    write_png(&image::DynamicImage::ImageRgb8(rgb), &rgb_path)?;
+    Ok(count + 1)
+}
+
+fn create_unique_path(
+    folder: &Path,
+    stem: &str,
+    extension: &str,
+) -> Result<std::path::PathBuf, String> {
+    for suffix in 0_u32.. {
+        let name = if suffix == 0 {
+            format!("{stem}.{extension}")
+        } else {
+            format!("{stem}_{suffix}.{extension}")
+        };
+        let path = folder.join(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                drop(file);
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("Could not create {}: {error}", path.display())),
+        }
+    }
+    Err("Could not allocate a unique output filename".into())
+}
+
+fn write_png(image: &image::DynamicImage, path: &Path) -> Result<(), String> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|error| format!("Could not save {}: {error}", path.display()))?;
+    if let Err(error) = image.write_to(&mut file, image::ImageFormat::Png) {
+        drop(file);
+        let _ = std::fs::remove_file(path);
+        return Err(format!("Could not save {}: {error}", path.display()));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DecodePreset {
     MeteorM2_3,
@@ -244,6 +419,20 @@ pub struct DecodingPanel {
     pub error: Option<String>,
     pub no_decoder_reason: Option<String>,
     pub pending_status: Option<String>,
+    /// Set by the Meteor controls; the app consumes these requests and supplies
+    /// a fresh independent capture stream.
+    pub live_start_requested: bool,
+    pub live_stop_requested: bool,
+    pub live_active: bool,
+    daemon_live: bool,
+    daemon_stop_pending: bool,
+    pub live_status: Option<String>,
+    live_cancel: Option<Arc<AtomicBool>>,
+    live_event_rx: Option<Receiver<crate::live_meteor::LiveMeteorEvent>>,
+    live_handle: Option<JoinHandle<()>>,
+    georeference_request: Option<GeoreferenceRequest>,
+    active_georeference_request: Option<GeoreferenceRequest>,
+    products: ProductSettings,
     progress_rx: Option<Receiver<lrpt_decode::DecodeProgress>>,
     done_rx: Option<Receiver<Result<FileDecodeOutcome, String>>>,
     handle: Option<JoinHandle<()>>,
@@ -256,6 +445,7 @@ pub struct DecodingPanel {
     preview_textures: Vec<(u16, egui::TextureHandle, egui::Vec2)>,
     preview_dirty: bool,
     daemon_product: Option<(ez_proto::ChannelId, u64)>,
+    daemon_product_error: Option<String>,
     daemon_telemetry: BTreeMap<u16, ez_proto::TelemetryFrame>,
     daemon_textures: BTreeMap<u16, egui::TextureHandle>,
 }
@@ -265,10 +455,336 @@ impl Drop for DecodingPanel {
         // The worker checks between short IQ blocks. Never wait for a whole
         // recording on the UI thread during app shutdown.
         self.cancel.store(true, Ordering::Relaxed);
+        if let Some(stop) = &self.live_cancel {
+            stop.store(true, Ordering::Release);
+        }
     }
 }
 
 impl DecodingPanel {
+    /// Consume a UI request to start a live decoder. The capture stream is
+    /// cloned and subscribed inside the worker, independently of the GUI queue.
+    pub(crate) fn start_live(
+        &mut self,
+        capture: crate::capture_stream::CaptureStream,
+        sample_rate_hz: u32,
+        profile: ez_proto::MeteorProfile,
+        satellite_name: Option<String>,
+        cds_epoch: lrpt_decode::CdsEpoch,
+    ) -> Result<(), String> {
+        if self.live_active || self.input_locked() {
+            return Err("Finish the current Meteor operation before starting live decode.".into());
+        }
+        let (cancel, event_rx, handle) = crate::live_meteor::start(
+            capture,
+            sample_rate_hz,
+            profile,
+            satellite_name.clone(),
+            cds_epoch,
+        )?;
+        self.satellite_name = satellite_name;
+        self.live_cancel = Some(cancel);
+        self.live_event_rx = Some(event_rx);
+        self.live_handle = Some(handle);
+        self.live_active = true;
+        self.daemon_live = false;
+        self.daemon_stop_pending = false;
+        self.live_status = Some("Starting live Meteor decoder…".into());
+        self.result = None;
+        self.progress = None;
+        self.error = None;
+        self.preview_dirty = true;
+        Ok(())
+    }
+
+    /// Signal the capture worker; it exits within one bounded receive timeout.
+    pub fn stop_live(&mut self) {
+        if let Some(stop) = &self.live_cancel {
+            stop.store(true, Ordering::Release);
+        } else {
+            self.live_active = false;
+            self.live_status = Some("Live daemon LRPT telemetry stopped.".into());
+        }
+        self.live_stop_requested = false;
+    }
+
+    /// Keep daemon telemetry routed to this panel while the daemon finalizes its pass.
+    pub fn request_daemon_live_stop(&mut self) {
+        if self.daemon_live && self.live_active {
+            self.daemon_stop_pending = true;
+            self.live_status = Some("Finalizing current daemon LRPT product…".into());
+        } else {
+            self.stop_live();
+        }
+        self.live_stop_requested = false;
+    }
+
+    #[must_use]
+    pub fn daemon_workflow_active(&self) -> bool {
+        self.live_active && !self.daemon_stop_pending
+    }
+
+    #[must_use]
+    pub fn is_daemon_live(&self) -> bool {
+        self.daemon_live
+    }
+
+    /// A receiver shutdown before the completion marker leaves only progressive frames.
+    /// Never present those as an exportable final result.
+    pub fn abort_daemon_live(&mut self, reason: &str) {
+        if !self.daemon_live {
+            self.stop_live();
+            return;
+        }
+        self.live_active = false;
+        self.daemon_live = false;
+        self.daemon_stop_pending = false;
+        self.live_status = Some(format!(
+            "Receiver disconnected before pass finalized; use Stop live before disconnecting to export full products. {reason}"
+        ));
+        self.error = self.live_status.clone();
+        self.live_stop_requested = false;
+    }
+
+    pub fn cds_epoch(&self) -> lrpt_decode::CdsEpoch {
+        self.products.cds_epoch
+    }
+
+    pub fn take_live_start_request(&mut self) -> bool {
+        std::mem::take(&mut self.live_start_requested)
+    }
+
+    pub fn take_live_stop_request(&mut self) -> bool {
+        std::mem::take(&mut self.live_stop_requested)
+    }
+
+    pub fn take_georeference_request(&mut self) -> Option<GeoreferenceRequest> {
+        let request = self.georeference_request.take()?;
+        self.active_georeference_request = Some(request.clone());
+        Some(request)
+    }
+
+    /// Width, height, and absolute per-row packet times needed by the app's
+    /// selected-TLE worker. Missing line times are retained as None.
+    pub fn geolocation_inputs(&self, apid: u16) -> Option<(u32, u32, Vec<Option<f64>>)> {
+        let result = self.result.as_ref()?;
+        let image = &result
+            .images
+            .iter()
+            .find(|(image_apid, _)| *image_apid == apid)?
+            .1;
+        let times = result.line_times_unix_seconds.get(&apid)?.clone();
+        (times.len() == image.height() as usize).then_some((image.width(), image.height(), times))
+    }
+
+    /// Decoded raster and its absolute packet-derived row times for the
+    /// background TLE/georeferencing worker.
+    pub fn georeference_inputs(&self, apid: u16) -> Option<(image::GrayImage, Vec<Option<f64>>)> {
+        let result = self.result.as_ref()?;
+        let image = result
+            .images
+            .iter()
+            .find(|(image_apid, _)| *image_apid == apid)?
+            .1
+            .clone();
+        let times = result.line_times_unix_seconds.get(&apid)?.clone();
+        (times.len() == image.height() as usize).then_some((image, times))
+    }
+
+    /// Complete an app-side TLE propagation request and write only the
+    /// resulting actual GeoJSON/GCP products on a bounded background worker.
+    pub fn complete_georef(
+        &mut self,
+        result: Result<lrpt_decode::geolocation::GeoreferenceProducts, String>,
+    ) {
+        let Some(request) = self.active_georeference_request.take() else {
+            self.error = Some("Georeference response arrived without an active request.".into());
+            return;
+        };
+        let source_image = self.result.as_ref().and_then(|result| {
+            result
+                .images
+                .iter()
+                .find(|(apid, _)| *apid == request.apid)
+                .map(|(_, image)| image.clone())
+        });
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        self.file_operation = Some(FileOperation {
+            kind: FileOperationKind::Georeference,
+            receiver,
+        });
+        self.export_notice = None;
+        std::thread::spawn(move || {
+            let write_result = result.and_then(|georeferenced| {
+                let source_image = source_image.ok_or_else(|| {
+                    format!(
+                        "Decoded APID {} pixels are no longer available.",
+                        request.apid
+                    )
+                })?;
+                if georeferenced.vectors.width != source_image.width()
+                    || georeferenced.vectors.height != source_image.height()
+                    || georeferenced.projected.image.width() != source_image.width()
+                    || georeferenced.projected.image.height() != source_image.height()
+                {
+                    return Err("Georeferenced dimensions do not match the decoded raster.".into());
+                }
+                let geojson = lrpt_decode::geolocation::geojson(&georeferenced.vectors)
+                    .map_err(|error| format!("Could not create GeoJSON: {error}"))?;
+                let gcps = lrpt_decode::geolocation::gcps_json(&georeferenced.vectors)
+                    .map_err(|error| format!("Could not create GCPs: {error}"))?;
+                let projected_sidecar =
+                    lrpt_decode::geolocation::projected_sidecar_json(&georeferenced.projected)
+                        .map_err(|error| format!("Could not create projected metadata: {error}"))?;
+                let raster_path = create_unique_path(
+                    &request.output_dir,
+                    &format!("meteor_apid_{}_georef", request.apid),
+                    "png",
+                )?;
+                write_png(&image::DynamicImage::ImageLuma8(source_image), &raster_path)?;
+                let raster_name = raster_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or_else(|| "Could not name the georeferenced PNG.".to_string())?;
+                let vrt = lrpt_decode::geolocation::vrt_document(
+                    raster_name,
+                    georeferenced.vectors.width,
+                    georeferenced.vectors.height,
+                    &georeferenced.vectors.ground_control_points,
+                )?;
+                let projected_path = create_unique_path(
+                    &request.output_dir,
+                    &format!("meteor_apid_{}_projected", request.apid),
+                    "png",
+                )?;
+                write_png(
+                    &image::DynamicImage::ImageRgba8(georeferenced.projected.image),
+                    &projected_path,
+                )?;
+                let projected_json_path = create_unique_path(
+                    &request.output_dir,
+                    &format!("meteor_apid_{}_projected", request.apid),
+                    "json",
+                )?;
+                if let Err(error) = std::fs::write(&projected_json_path, projected_sidecar) {
+                    let _ = std::fs::remove_file(&projected_json_path);
+                    return Err(format!(
+                        "Could not save {}: {error}",
+                        projected_json_path.display()
+                    ));
+                }
+                let stem = format!("meteor_apid_{}_georef", request.apid);
+                let geojson_path = create_unique_path(&request.output_dir, &stem, "geojson")?;
+                if let Err(error) = std::fs::write(&geojson_path, geojson) {
+                    let _ = std::fs::remove_file(&geojson_path);
+                    return Err(format!(
+                        "Could not save {}: {error}",
+                        geojson_path.display()
+                    ));
+                }
+                let gcps_path = create_unique_path(
+                    &request.output_dir,
+                    &format!("meteor_apid_{}_gcps", request.apid),
+                    "json",
+                )?;
+                if let Err(error) = std::fs::write(&gcps_path, gcps) {
+                    let _ = std::fs::remove_file(&gcps_path);
+                    return Err(format!("Could not save {}: {error}", gcps_path.display()));
+                }
+                let vrt_path = create_unique_path(
+                    &request.output_dir,
+                    &format!("meteor_apid_{}_georef", request.apid),
+                    "vrt",
+                )?;
+                if let Err(error) = std::fs::write(&vrt_path, vrt) {
+                    let _ = std::fs::remove_file(&vrt_path);
+                    return Err(format!("Could not save {}: {error}", vrt_path.display()));
+                }
+                Ok(FileOperationOutcome::Georeference {
+                    folder: request.output_dir,
+                    apid: request.apid,
+                })
+            });
+            let _ = sender.send(write_result.map(Some));
+        });
+    }
+
+    /// Start the daemon-backed live LRPT telemetry view. The daemon owns the
+    /// sample and decoder workers; this panel only consumes telemetry frames.
+    pub fn start_daemon_live(
+        &mut self,
+        profile: ez_proto::MeteorProfile,
+        satellite_name: Option<String>,
+    ) {
+        if self.input_locked() {
+            return;
+        }
+        self.live_start_requested = false;
+        self.live_stop_requested = false;
+        self.live_active = true;
+        self.daemon_live = true;
+        self.daemon_stop_pending = false;
+        self.live_status = Some(format!(
+            "Live daemon LRPT telemetry · {}{}",
+            profile.label(),
+            satellite_name
+                .as_deref()
+                .map(|name| format!(" · {name}"))
+                .unwrap_or_default()
+        ));
+        self.satellite_name = satellite_name;
+        self.progress = None;
+        self.result = None;
+        self.clear_daemon_telemetry();
+        self.preview_dirty = true;
+    }
+
+    /// Drain only the bounded live-worker event queue. Called by the app's
+    /// per-frame poll so progress continues while other tabs are selected.
+    pub fn tick_live(&mut self) {
+        if let Some(rx) = &self.live_event_rx {
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    crate::live_meteor::LiveMeteorEvent::Progress(progress) => {
+                        self.progress = Some(progress);
+                        self.preview_dirty = true;
+                    }
+                    crate::live_meteor::LiveMeteorEvent::Status(status) => {
+                        self.live_status = Some(status);
+                    }
+                    crate::live_meteor::LiveMeteorEvent::Finished(result) => {
+                        if let Some(result) = result {
+                            self.result = Some(Arc::new(result));
+                        }
+                        self.live_active = false;
+                        self.live_cancel = None;
+                        self.live_event_rx = None;
+                        self.live_status = Some("Live Meteor decoder stopped.".into());
+                        self.preview_dirty = true;
+                        break;
+                    }
+                    crate::live_meteor::LiveMeteorEvent::Error(error) => {
+                        self.error = Some(error.clone());
+                        self.live_status = Some(format!("Live decoder failed: {error}"));
+                        self.live_active = false;
+                        self.live_cancel = None;
+                        self.live_event_rx = None;
+                        break;
+                    }
+                }
+            }
+        }
+        if self
+            .live_handle
+            .as_ref()
+            .is_some_and(JoinHandle::is_finished)
+        {
+            if let Some(handle) = self.live_handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
     /// Applies one progressive LRPT image from `ez-daemon`. Frames are keyed by APID so the
     /// latest image for each Meteor channel stays visible while the decoder continues to add
     /// scanlines. Validate dimensions before retaining server-provided pixels.
@@ -281,6 +797,10 @@ impl DecodingPanel {
         }) {
             return Ok(());
         }
+        if self.daemon_product != Some((frame.channel_id, frame.product_id)) {
+            self.clear_daemon_telemetry();
+            self.daemon_product = Some((frame.channel_id, frame.product_id));
+        }
         let expected = usize::try_from(frame.width)
             .ok()
             .and_then(|width| {
@@ -290,21 +810,102 @@ impl DecodingPanel {
             })
             .ok_or_else(|| "LRPT image dimensions overflow this platform".to_string())?;
         if expected != frame.pixels.len() {
-            return Err(format!(
+            let error = format!(
                 "LRPT APID {} image is {}x{} but contains {} pixels",
                 frame.apid,
                 frame.width,
                 frame.height,
                 frame.pixels.len()
-            ));
+            );
+            if frame.final_product {
+                self.daemon_product_error = Some(error.clone());
+            }
+            return Err(error);
         }
-        if self.daemon_product != Some((frame.channel_id, frame.product_id)) {
-            self.clear_daemon_telemetry();
-            self.daemon_product = Some((frame.channel_id, frame.product_id));
+        if frame.final_product
+            && (frame.line_times_unix_seconds.len() != frame.height as usize
+                || frame
+                    .line_times_unix_seconds
+                    .iter()
+                    .flatten()
+                    .any(|timestamp| !timestamp.is_finite()))
+        {
+            let error = format!(
+                "LRPT APID {} has {} row timestamps for {} image rows",
+                frame.apid,
+                frame.line_times_unix_seconds.len(),
+                frame.height
+            );
+            self.daemon_product_error = Some(error.clone());
+            return Err(error);
+        }
+        if frame.product_complete {
+            if frame.apid != 0 || frame.width != 0 || frame.height != 0 || !frame.pixels.is_empty()
+            {
+                let error = "LRPT product completion marker has invalid image dimensions";
+                self.daemon_product_error = Some(error.into());
+                self.result = None;
+                self.error = Some(format!("Final LRPT product was rejected: {error}"));
+                return Err(error.into());
+            }
+            if let Some(error) = self.daemon_product_error.take() {
+                self.result = None;
+                self.error = Some(format!("Final LRPT product was rejected: {error}"));
+                self.live_status =
+                    Some("LRPT product incomplete; the final raster was rejected.".into());
+                if self.daemon_live && self.daemon_stop_pending {
+                    self.live_active = false;
+                    self.daemon_live = false;
+                    self.daemon_stop_pending = false;
+                }
+                return Ok(());
+            }
+            let mut images = Vec::new();
+            let mut line_times_unix_seconds = BTreeMap::new();
+            for (&apid, final_frame) in &self.daemon_telemetry {
+                if !final_frame.final_product {
+                    continue;
+                }
+                let image = image::GrayImage::from_raw(
+                    final_frame.width,
+                    final_frame.height,
+                    final_frame.pixels.clone(),
+                )
+                .ok_or_else(|| format!("LRPT APID {apid} final image is invalid"))?;
+                images.push((apid, image));
+                line_times_unix_seconds.insert(apid, final_frame.line_times_unix_seconds.clone());
+            }
+            let has_images = !images.is_empty();
+            if !has_images {
+                self.result = None;
+                self.live_status = Some("LRPT pass ended before a channel image decoded; nothing is available to export.".into());
+            } else {
+                self.result = Some(Arc::new(lrpt_decode::DecodeResult {
+                    images,
+                    line_times_unix_seconds,
+                    rs_ok: frame.rs_ok,
+                    rs_failed: frame.rs_failed,
+                }));
+            }
+            self.progress = None;
+            self.preview_dirty = true;
+            if self.daemon_live && self.daemon_stop_pending {
+                self.live_active = false;
+                self.daemon_live = false;
+                self.daemon_stop_pending = false;
+                if has_images {
+                    self.live_status =
+                        Some("Daemon LRPT product finalized and ready to export.".into());
+                }
+            }
+            return Ok(());
         }
         if frame.apid == 0 && expected == 0 {
             self.daemon_telemetry.clear();
             self.daemon_textures.clear();
+            self.result = None;
+            self.progress = None;
+            self.daemon_product_error = None;
             return Ok(());
         }
         self.daemon_textures.remove(&frame.apid);
@@ -314,8 +915,12 @@ impl DecodingPanel {
 
     pub fn clear_daemon_telemetry(&mut self) {
         self.daemon_product = None;
+        self.daemon_product_error = None;
         self.daemon_telemetry.clear();
         self.daemon_textures.clear();
+        self.result = None;
+        self.progress = None;
+        self.preview_dirty = true;
     }
 
     /// Called from the app's per-frame pending-request poll. Populates
@@ -369,6 +974,7 @@ impl DecodingPanel {
             self.sample_rate
         };
         let profile = self.mission_profile;
+        let cds_epoch = self.products.cds_epoch;
         if let Err(error) = lrpt_decode::validate_mission_sampling(sample_rate, profile) {
             self.error = Some(error.to_string());
             return;
@@ -382,11 +988,12 @@ impl DecodingPanel {
         let cancel = Arc::clone(&self.cancel);
         let bytes_read = Arc::clone(&self.bytes_read);
         self.handle = Some(std::thread::spawn(move || {
-            let result = decode_recording(
+            let result = decode_recording_with_epoch(
                 Path::new(&path),
                 format,
                 sample_rate,
                 profile,
+                cds_epoch,
                 progress_tx,
                 &cancel,
                 &bytes_read,
@@ -412,7 +1019,7 @@ impl DecodingPanel {
     }
 
     fn input_locked(&self) -> bool {
-        self.running || self.file_operation.is_some()
+        self.running || self.live_active || self.file_operation.is_some()
     }
 
     fn start_file_operation(
@@ -469,6 +1076,52 @@ impl DecodingPanel {
         });
     }
 
+    fn export_products_with(
+        &mut self,
+        ctx: &egui::Context,
+        choose: impl FnOnce() -> Option<std::path::PathBuf> + Send + 'static,
+    ) {
+        let Some(result) = self
+            .result
+            .as_ref()
+            .filter(|result| !result.images.is_empty())
+        else {
+            return;
+        };
+        let result = Arc::clone(result);
+        let recording = self.decoded_recording.clone();
+        let products = self.products.clone();
+        self.start_file_operation(FileOperationKind::Products, ctx, move || {
+            let Some(folder) = choose() else {
+                return Ok(None);
+            };
+            let adjustments = lrpt_decode::product::ImageAdjustments {
+                brightness: products.brightness,
+                contrast: products.contrast,
+                gamma: products.gamma,
+                rotate_quarter_turns: products.rotate_quarter_turns,
+            };
+            let crop = products
+                .crop_enabled
+                .then_some(lrpt_decode::product::CropRect {
+                    x: products.crop_x,
+                    y: products.crop_y,
+                    width: products.crop_width,
+                    height: products.crop_height,
+                });
+            let count = export_processed_products(
+                &folder,
+                &recording,
+                &result,
+                products.rgb_apids,
+                adjustments,
+                products.equalize_histogram,
+                crop,
+            )?;
+            Ok(Some(FileOperationOutcome::Products { folder, count }))
+        });
+    }
+
     fn poll_file_operation(&mut self) {
         let completion = self.file_operation.as_ref().and_then(|operation| {
             match operation.receiver.try_recv() {
@@ -488,6 +1141,24 @@ impl DecodingPanel {
                 }
                 Ok(Some(FileOperationOutcome::Export { folder, count })) => {
                     let notice = format!("Saved {count} PNG(s) to {}", folder.display());
+                    self.export_notice = Some(notice.clone());
+                    self.pending_status = Some(notice);
+                    self.error = None;
+                }
+                Ok(Some(FileOperationOutcome::Products { folder, count })) => {
+                    let notice = format!(
+                        "Saved {count} processed product file(s) to {}",
+                        folder.display()
+                    );
+                    self.export_notice = Some(notice.clone());
+                    self.pending_status = Some(notice);
+                    self.error = None;
+                }
+                Ok(Some(FileOperationOutcome::Georeference { folder, apid })) => {
+                    let notice = format!(
+                        "Saved TLE-projected APID {apid} PNG, VRT, GeoJSON, and GCPs to {}",
+                        folder.display()
+                    );
                     self.export_notice = Some(notice.clone());
                     self.pending_status = Some(notice);
                     self.error = None;
@@ -573,10 +1244,10 @@ impl DecodingPanel {
         self.ui_with_daemon(ui, true);
     }
 
-    /// Render the file-import-only workspace, hiding telemetry arriving from
-    /// live daemon capture. The dedicated Meteor tab is strictly offline.
+    /// Render the dedicated Meteor workspace with both local live capture and
+    /// daemon-provided live telemetry alongside recording import.
     pub fn ui_offline(&mut self, ui: &mut egui::Ui) {
-        self.ui_with_daemon(ui, false);
+        self.ui_with_daemon(ui, true);
     }
 
     fn blocking_notice(&self, show_daemon: bool) -> Option<&str> {
@@ -588,7 +1259,6 @@ impl DecodingPanel {
     fn ui_with_daemon(&mut self, ui: &mut egui::Ui, show_daemon: bool) {
         if let Some(reason) = self.blocking_notice(show_daemon) {
             ui.colored_label(egui::Color32::YELLOW, reason);
-            return;
         }
         ui.horizontal_top(|ui| {
             let controls_height = ui.available_height();
@@ -612,13 +1282,53 @@ impl DecodingPanel {
     }
 
     fn ui_input_controls(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Input recording");
+        ui.heading("Meteor receiver");
         ui.label(
-            egui::RichText::new("Decode an existing Meteor IQ capture")
+            egui::RichText::new("Live capture or an existing IQ recording")
                 .small()
                 .color(egui::Color32::GRAY),
         );
         ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if self.live_active {
+                if ui.button("■ Stop live").clicked() {
+                    self.live_stop_requested = true;
+                }
+            } else if ui
+                .add_enabled(
+                    !self.input_locked() && !self.live_start_requested,
+                    egui::Button::new("● Start live"),
+                )
+                .clicked()
+            {
+                self.live_start_requested = true;
+            }
+            if self.live_start_requested {
+                ui.spinner();
+                ui.label("Connecting to capture stream…");
+            }
+        });
+        if let Some(status) = &self.live_status {
+            ui.label(
+                egui::RichText::new(status)
+                    .small()
+                    .color(egui::Color32::LIGHT_BLUE),
+            );
+        }
+        if self.live_active {
+            if let Some(progress) = &self.progress {
+                ui.label(format!(
+                    "{} complete lines · {} segments · RS {} ok / {} failed",
+                    progress.lines_decoded,
+                    progress.segments_decoded,
+                    progress.rs_ok,
+                    progress.rs_failed
+                ));
+            } else {
+                ui.label("Waiting for a synchronized Meteor LRPT frame…");
+            }
+            ui.separator();
+        }
         let mut input_changed = false;
         ui.add_enabled_ui(!self.input_locked(), |ui| {
             ui.label("File");
@@ -685,6 +1395,23 @@ impl DecodingPanel {
                             .changed();
                     }
                 });
+            egui::ComboBox::from_id_salt("meteor-cds-epoch")
+                .selected_text(match self.products.cds_epoch {
+                    lrpt_decode::CdsEpoch::MeteorM2x => "CDS epoch · Meteor-M2x",
+                    lrpt_decode::CdsEpoch::Ccsds1958 => "CDS epoch · CCSDS 1958",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.products.cds_epoch,
+                        lrpt_decode::CdsEpoch::MeteorM2x,
+                        "Meteor-M2x · 2000-12-31",
+                    );
+                    ui.selectable_value(
+                        &mut self.products.cds_epoch,
+                        lrpt_decode::CdsEpoch::Ccsds1958,
+                        "CCSDS standard · 1958-01-01",
+                    );
+                });
             ui.label(format!(
                 "Symbol rate: {} sps",
                 self.mission_profile.symbol_rate_hz()
@@ -735,6 +1462,8 @@ impl DecodingPanel {
                 ui.label(match operation.kind {
                     FileOperationKind::Import => "Choose a recording in the file dialog…",
                     FileOperationKind::Export => "Choosing a folder / saving PNGs…",
+                    FileOperationKind::Products => "Building channel products and histograms…",
+                    FileOperationKind::Georeference => "Writing TLE-projected georeference files…",
                 });
             });
         }
@@ -799,7 +1528,7 @@ impl DecodingPanel {
         }
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("Offline decoder · no SDR recording controls")
+            egui::RichText::new("Live processing uses its own bounded capture subscriber.")
                 .small()
                 .color(egui::Color32::GRAY),
         );
@@ -860,6 +1589,9 @@ impl DecodingPanel {
                 }
             }
         }
+        if let Some(result) = self.result.clone() {
+            self.ui_product_controls(ui, &result);
+        }
         let mut export_requested = false;
         if let Some(result) = &self.result {
             ui.horizontal(|ui| {
@@ -882,6 +1614,22 @@ impl DecodingPanel {
         }
         if export_requested {
             self.export_recording_with(ui.ctx(), || rfd::FileDialog::new().pick_folder());
+        }
+        let mut products_export_requested = false;
+        if self
+            .result
+            .as_ref()
+            .is_some_and(|result| !result.images.is_empty())
+        {
+            products_export_requested = ui
+                .add_enabled(
+                    !self.input_locked(),
+                    egui::Button::new("Export RGB + processed channels + histograms…"),
+                )
+                .clicked();
+        }
+        if products_export_requested {
+            self.export_products_with(ui.ctx(), || rfd::FileDialog::new().pick_folder());
         }
         if let Some(notice) = &self.export_notice {
             ui.label(notice);
@@ -947,6 +1695,173 @@ impl DecodingPanel {
                 })
                 .color(egui::Color32::GRAY),
             );
+        }
+    }
+
+    fn ui_product_controls(&mut self, ui: &mut egui::Ui, result: &lrpt_decode::DecodeResult) {
+        if result.images.is_empty() {
+            return;
+        }
+        let apids: Vec<u16> = result.images.iter().map(|(apid, _)| *apid).collect();
+        ui.separator();
+        ui.label(egui::RichText::new("Product processing").strong());
+        ui.horizontal(|ui| {
+            for (label, slot) in [("R", 0), ("G", 1), ("B", 2)] {
+                egui::ComboBox::from_id_salt(("meteor-rgb-channel", slot))
+                    .width(95.0)
+                    .selected_text(format!("{label} · APID {}", self.products.rgb_apids[slot]))
+                    .show_ui(ui, |ui| {
+                        for apid in &apids {
+                            ui.selectable_value(
+                                &mut self.products.rgb_apids[slot],
+                                *apid,
+                                format!("APID {apid}"),
+                            );
+                        }
+                    });
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Brightness");
+            ui.add(egui::Slider::new(
+                &mut self.products.brightness,
+                -128.0..=128.0,
+            ));
+            ui.label("Contrast");
+            ui.add(egui::Slider::new(&mut self.products.contrast, 0.1..=4.0));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Gamma");
+            ui.add(egui::Slider::new(&mut self.products.gamma, 0.1..=4.0));
+            egui::ComboBox::from_label("Rotate")
+                .selected_text(format!("{}°", self.products.rotate_quarter_turns * 90))
+                .show_ui(ui, |ui| {
+                    for turns in 0..=3 {
+                        ui.selectable_value(
+                            &mut self.products.rotate_quarter_turns,
+                            turns,
+                            format!("{}°", turns * 90),
+                        );
+                    }
+                });
+            ui.checkbox(&mut self.products.equalize_histogram, "Equalize histogram");
+        });
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_label("Geolocate APID")
+                .selected_text(format!("APID {}", self.products.georeference_apid))
+                .show_ui(ui, |ui| {
+                    for apid in &apids {
+                        ui.selectable_value(
+                            &mut self.products.georeference_apid,
+                            *apid,
+                            format!("APID {apid}"),
+                        );
+                    }
+                });
+            ui.label("Edge scan angle");
+            ui.add(
+                egui::DragValue::new(&mut self.products.scan_half_angle_deg)
+                    .range(1.0..=70.0)
+                    .speed(0.05)
+                    .suffix("° half-angle"),
+            );
+        });
+        let mut georeference_requested = false;
+        let geolocation_inputs = self.geolocation_inputs(self.products.georeference_apid);
+        let has_absolute_times = geolocation_inputs
+            .as_ref()
+            .is_some_and(|(_, _, times)| !times.is_empty() && times.iter().all(Option::is_some));
+        let has_satellite = self.satellite_name.is_some();
+        if !has_satellite {
+            ui.label(
+                egui::RichText::new(
+                    "Choose a Meteor satellite when starting capture to enable TLE georeferencing.",
+                )
+                .small()
+                .color(egui::Color32::GRAY),
+            );
+        } else if !has_absolute_times {
+            ui.label(egui::RichText::new("This product has no complete absolute CDS line times; no locations will be guessed.").small().color(egui::Color32::GRAY));
+        }
+        if ui
+            .add_enabled(
+                !self.input_locked()
+                    && has_absolute_times
+                    && has_satellite
+                    && self.products.scan_half_angle_deg.is_finite(),
+                egui::Button::new("Export TLE GeoJSON + GCPs…"),
+            )
+            .clicked()
+        {
+            georeference_requested = true;
+        }
+        if georeference_requested {
+            if let Some(output_dir) = rfd::FileDialog::new().pick_folder() {
+                self.georeference_request = Some(GeoreferenceRequest {
+                    apid: self.products.georeference_apid,
+                    satellite_name: self.satellite_name.clone().unwrap_or_default(),
+                    scan_edge_angle_rad: f64::from(self.products.scan_half_angle_deg).to_radians(),
+                    output_dir,
+                });
+            }
+        }
+        let mut dimensions = result
+            .images
+            .first()
+            .map(|(_, image)| image.dimensions())
+            .unwrap_or_default();
+        if self.products.rotate_quarter_turns % 2 == 1 {
+            dimensions = (dimensions.1, dimensions.0);
+        }
+        ui.checkbox(&mut self.products.crop_enabled, "Crop");
+        if self.products.crop_enabled {
+            ui.horizontal(|ui| {
+                ui.label("x");
+                ui.add(
+                    egui::DragValue::new(&mut self.products.crop_x)
+                        .range(0..=dimensions.0.saturating_sub(1)),
+                );
+                ui.label("y");
+                ui.add(
+                    egui::DragValue::new(&mut self.products.crop_y)
+                        .range(0..=dimensions.1.saturating_sub(1)),
+                );
+                ui.label("width");
+                ui.add(
+                    egui::DragValue::new(&mut self.products.crop_width)
+                        .range(1..=dimensions.0.max(1)),
+                );
+                ui.label("height");
+                ui.add(
+                    egui::DragValue::new(&mut self.products.crop_height)
+                        .range(1..=dimensions.1.max(1)),
+                );
+            });
+        }
+        if let Some((_, image)) = result
+            .images
+            .iter()
+            .find(|(apid, _)| *apid == self.products.rgb_apids[0])
+        {
+            let bins = lrpt_decode::product::histogram(image);
+            let max_count = bins.iter().copied().max().unwrap_or(1).max(1) as f32;
+            let (rect, _) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), 42.0), egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            for (value, count) in bins.into_iter().enumerate() {
+                let x0 = rect.left() + rect.width() * value as f32 / 256.0;
+                let x1 = rect.left() + rect.width() * (value + 1) as f32 / 256.0;
+                let y = rect.bottom() - rect.height() * count as f32 / max_count;
+                painter.rect_filled(
+                    egui::Rect::from_min_max(
+                        egui::pos2(x0, y),
+                        egui::pos2(x1.max(x0 + 0.5), rect.bottom()),
+                    ),
+                    0.0,
+                    egui::Color32::LIGHT_BLUE,
+                );
+            }
+            ui.label("Intensity histogram · selected red-channel source");
         }
     }
 }
@@ -1233,6 +2148,176 @@ mod tests {
     }
 
     #[test]
+    fn processed_export_writes_adjusted_channels_histograms_and_rgb_composition() {
+        let directory = TestDirectory::new();
+        let result = lrpt_decode::DecodeResult {
+            images: vec![
+                (64, image::GrayImage::from_raw(2, 1, vec![10, 20]).unwrap()),
+                (65, image::GrayImage::from_raw(2, 1, vec![30, 40]).unwrap()),
+                (66, image::GrayImage::from_raw(2, 1, vec![50, 60]).unwrap()),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            export_processed_products(
+                &directory.0,
+                "pass.cs8",
+                &result,
+                [64, 65, 66],
+                lrpt_decode::product::ImageAdjustments::default(),
+                false,
+                None,
+            )
+            .unwrap(),
+            7
+        );
+        let rgb = image::open(directory.0.join("pass_rgb.png"))
+            .unwrap()
+            .to_rgb8();
+        assert_eq!(rgb.get_pixel(1, 0).0, [20, 40, 60]);
+        let red = image::open(directory.0.join("pass_processed_apid_64.png"))
+            .unwrap()
+            .to_luma8();
+        assert_eq!(red.as_raw(), &[10, 20]);
+        let histogram =
+            std::fs::read_to_string(directory.0.join("pass_apid_64_histogram.csv")).unwrap();
+        assert!(histogram.lines().any(|line| line == "10,1"));
+        assert!(histogram.lines().any(|line| line == "20,1"));
+    }
+
+    #[test]
+    fn georeference_files_are_written_by_the_background_file_worker() {
+        let directory = TestDirectory::new();
+        let mut panel = DecodingPanel::default();
+        panel.result = Some(Arc::new(lrpt_decode::DecodeResult {
+            images: vec![(64, image::GrayImage::from_pixel(2, 1, image::Luma([42])))],
+            ..Default::default()
+        }));
+        panel.active_georeference_request = Some(GeoreferenceRequest {
+            apid: 64,
+            satellite_name: "Meteor-M2-4".into(),
+            scan_edge_angle_rad: 0.5,
+            output_dir: directory.0.clone(),
+        });
+        panel.complete_georef(Ok(lrpt_decode::geolocation::GeoreferenceProducts {
+            vectors: lrpt_decode::geolocation::GeoReferencedImage {
+                width: 2,
+                height: 1,
+                scanlines: vec![[Some(lrpt_decode::geolocation::GroundPoint {
+                    longitude_deg: 1.0,
+                    latitude_deg: 2.0,
+                }); 2]
+                    .into()],
+                ground_control_points: vec![lrpt_decode::geolocation::GroundControlPoint {
+                    pixel_x: 0,
+                    pixel_y: 0,
+                    longitude_deg: 1.0,
+                    latitude_deg: 2.0,
+                    unix_time_seconds: 1_700_000_000.0,
+                }],
+            },
+            projected: lrpt_decode::geolocation::ProjectedRaster {
+                image: image::RgbaImage::from_pixel(2, 1, image::Rgba([42, 42, 42, 255])),
+                longitude_bounds_deg: [1.0, 2.0],
+                latitude_bounds_deg: [1.0, 2.0],
+            },
+        }));
+        assert!(panel.file_operation.is_some());
+        wait_for_file_operation(&mut panel);
+        assert!(directory.0.join("meteor_apid_64_georef.geojson").exists());
+        assert!(directory.0.join("meteor_apid_64_georef.png").exists());
+        assert!(directory.0.join("meteor_apid_64_georef.vrt").exists());
+        assert!(directory.0.join("meteor_apid_64_projected.png").exists());
+        let sidecar: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.0.join("meteor_apid_64_projected.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            sidecar["projection"],
+            "WGS84 equirectangular longitude/latitude (EPSG:4326)"
+        );
+        assert_eq!(
+            sidecar["transparent_pixels"],
+            "unobserved: outside sensor rays or where rays miss the ellipsoid"
+        );
+        let gcps: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.0.join("meteor_apid_64_gcps.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(gcps.as_array().unwrap().len(), 1);
+        assert!(panel
+            .export_notice
+            .as_deref()
+            .unwrap()
+            .contains("TLE-projected APID 64"));
+    }
+
+    #[test]
+    fn daemon_live_telemetry_can_be_started_and_stopped_without_local_capture_worker() {
+        let mut panel = DecodingPanel::default();
+        panel.start_daemon_live(ez_proto::MeteorProfile::Oqpsk72, Some("Meteor-M2-4".into()));
+        assert!(panel.live_active);
+        assert!(panel
+            .live_status
+            .as_deref()
+            .unwrap()
+            .contains("daemon LRPT telemetry"));
+        panel.stop_live();
+        assert!(!panel.live_active);
+    }
+
+    #[test]
+    fn daemon_live_stop_waits_for_final_marker_and_disconnect_never_claims_completion() {
+        let mut panel = DecodingPanel::default();
+        panel.start_daemon_live(ez_proto::MeteorProfile::Oqpsk72, Some("Meteor-M2-4".into()));
+        panel.request_daemon_live_stop();
+        assert!(panel.live_active, "keep routing the final daemon frames");
+        assert!(
+            !panel.daemon_workflow_active(),
+            "tell the source manager to finalize"
+        );
+        panel.abort_daemon_live("connection lost");
+        assert!(!panel.live_active);
+        assert!(panel.result.is_none());
+        assert!(panel
+            .live_status
+            .as_deref()
+            .unwrap()
+            .contains("use Stop live before disconnecting"));
+    }
+
+    #[test]
+    fn empty_daemon_completion_does_not_create_an_exportable_result() {
+        let mut panel = DecodingPanel::default();
+        panel.start_daemon_live(ez_proto::MeteorProfile::Oqpsk72, None);
+        panel.request_daemon_live_stop();
+        panel
+            .ingest_daemon_telemetry(ez_proto::TelemetryFrame {
+                product_id: 9,
+                channel_id: 4,
+                apid: 0,
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: true,
+                rs_ok: 0,
+                rs_failed: 0,
+                costas_locked: false,
+                frame_locked: false,
+            })
+            .unwrap();
+        assert!(panel.result.is_none());
+        assert!(!panel.live_active);
+        assert!(panel
+            .live_status
+            .as_deref()
+            .unwrap()
+            .contains("nothing is available to export"));
+    }
+
+    #[test]
     fn long_channel_preview_fits_gpu_limit_and_png_keeps_full_pixels() {
         let directory = TestDirectory::new();
         let decoded =
@@ -1476,7 +2561,7 @@ mod tests {
     }
 
     #[test]
-    fn offline_ui_renders_import_and_progressive_images_without_live_telemetry() {
+    fn meteor_workspace_shows_decoder_notice_import_live_telemetry_and_progress() {
         let mut panel = DecodingPanel::default();
         panel.no_decoder_reason = Some("No decoder for this selected satellite".into());
         panel
@@ -1487,6 +2572,9 @@ mod tests {
                 width: 2,
                 height: 2,
                 pixels: vec![1, 2, 3, 4],
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: false,
                 rs_ok: 3,
                 rs_failed: 1,
                 costas_locked: true,
@@ -1509,9 +2597,10 @@ mod tests {
         let output = render(&mut panel);
         let text = rendered_text(&output.shapes);
         assert!(text.contains("Open recording"));
-        assert!(!text.contains("No decoder for"));
-        assert!(!text.contains("Live daemon LRPT"));
-        assert!(panel.daemon_textures.is_empty());
+        assert!(text.contains("No decoder for this selected satellite"));
+        assert!(text.contains("Live daemon LRPT"));
+        assert!(text.contains("APID 65"));
+        assert_eq!(panel.daemon_textures.len(), 1);
 
         let (tx, rx) = crossbeam_channel::bounded(2);
         panel.progress_rx = Some(rx);
@@ -1532,7 +2621,7 @@ mod tests {
             assert!(text.contains("50%"));
             assert_eq!(panel.preview_textures.len(), 1);
             assert_eq!(panel.preview_textures[0].1.size(), [2, height as usize]);
-            assert!(panel.daemon_textures.is_empty());
+            assert_eq!(panel.daemon_textures.len(), 1);
         }
     }
 
@@ -1592,6 +2681,9 @@ mod tests {
             width: 1,
             height: 1,
             pixels: vec![123],
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: false,
             rs_ok: 4,
             rs_failed: 0,
             costas_locked: true,
@@ -1636,6 +2728,9 @@ mod tests {
                 width: 2,
                 height: 2,
                 pixels: vec![1, 2, 3, 4],
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: false,
                 rs_ok: 3,
                 rs_failed: 1,
                 costas_locked: true,
@@ -1659,6 +2754,9 @@ mod tests {
                 width: 2,
                 height: 2,
                 pixels: vec![1, 2, 3],
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: false,
                 rs_ok: 0,
                 rs_failed: 0,
                 costas_locked: false,
@@ -1667,5 +2765,54 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("contains 3 pixels"));
         assert!(panel.daemon_telemetry.is_empty());
+    }
+
+    #[test]
+    fn daemon_completion_builds_georeference_ready_result_with_row_times() {
+        let mut panel = DecodingPanel::default();
+        panel.start_daemon_live(ez_proto::MeteorProfile::Oqpsk72, Some("Meteor-M2-4".into()));
+        panel.request_daemon_live_stop();
+        panel
+            .ingest_daemon_telemetry(ez_proto::TelemetryFrame {
+                product_id: 5,
+                channel_id: 4,
+                apid: 65,
+                width: 2,
+                height: 2,
+                pixels: vec![10, 20, 30, 40],
+                line_times_unix_seconds: vec![Some(1_700_000_000.0), Some(1_700_000_000.1)],
+                final_product: true,
+                product_complete: false,
+                rs_ok: 12,
+                rs_failed: 1,
+                costas_locked: true,
+                frame_locked: true,
+            })
+            .unwrap();
+        assert!(panel.result.is_none(), "partial products are not exported");
+        panel
+            .ingest_daemon_telemetry(ez_proto::TelemetryFrame {
+                product_id: 5,
+                channel_id: 4,
+                apid: 0,
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: true,
+                rs_ok: 12,
+                rs_failed: 1,
+                costas_locked: true,
+                frame_locked: true,
+            })
+            .unwrap();
+
+        let result = panel.result.as_ref().unwrap();
+        assert_eq!(result.images[0].0, 65);
+        assert_eq!(result.images[0].1.as_raw(), &[10, 20, 30, 40]);
+        assert_eq!(result.line_times_unix_seconds[&65].len(), 2);
+        assert_eq!(result.rs_ok, 12);
+        assert!(!panel.live_active, "completion acknowledges daemon stop");
     }
 }

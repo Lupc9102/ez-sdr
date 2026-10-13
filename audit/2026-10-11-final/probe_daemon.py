@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix="ez-final-daemon-") as directory:
         try:
             with urllib.request.urlopen(req, timeout=5) as response:
                 content = response.read()
-                return response.status, json.loads(content) if content else None
+                return response.status, (json.loads(content) if response.headers.get_content_type() == "application/json" else content.decode()) if content else None
         except urllib.error.HTTPError as error:
             return error.code, error.read().decode()
 
@@ -104,8 +104,8 @@ with tempfile.TemporaryDirectory(prefix="ez-final-daemon-") as directory:
         result["checks"].append({"name": "foreign Origin WebSocket control", "response": response, "synthetic_frequency_changed": changed, "origin_rejected": " 403 " in response})
         assert " 403 " in response and not changed, (response, changed)
         frontend_status = request("/")[0]
-        assert frontend_status == 404, frontend_status
-        result["checks"].append({"name": "missing web frontend", "http_status": frontend_status})
+        assert frontend_status == 200, frontend_status
+        result["checks"].append({"name": "bundled web frontend", "http_status": frontend_status})
         status, removed = request("/api/channels/77", method="DELETE")
         assert status == 204, (status, removed)
         # Server-side rebinding-shaped request. This does not simulate browser

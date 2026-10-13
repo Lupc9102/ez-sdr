@@ -97,6 +97,17 @@ impl DaemonClient {
     /// caller. Poll [`Self::status`] to observe handshake progress or failure.
     #[must_use]
     pub fn connect(addr: SocketAddr, client_name: String) -> Self {
+        Self::connect_with_token(addr, client_name, None)
+    }
+
+    /// Connects to a daemon, optionally authenticating before the protocol Hello.
+    /// The token type redacts Debug output and is never included in error strings.
+    #[must_use]
+    pub fn connect_with_token(
+        addr: SocketAddr,
+        client_name: String,
+        token: Option<ez_proto::AuthToken>,
+    ) -> Self {
         let status = Arc::new(Mutex::new(ConnectionStatus::Connecting));
         let client_channels = Arc::new(Mutex::new(None));
         let worker_channels = Arc::clone(&client_channels);
@@ -128,6 +139,7 @@ impl DaemonClient {
                 runtime.block_on(run_connection(
                     addr,
                     client_name,
+                    token,
                     worker_status,
                     worker_channels,
                     cmd_rx,
@@ -275,6 +287,7 @@ async fn until_stopped<T>(
 async fn connect_and_handshake(
     addr: SocketAddr,
     client_name: &str,
+    token: Option<ez_proto::AuthToken>,
 ) -> Result<(Halves, ez_proto::ClientChannels), String> {
     let stream = TcpStream::connect(addr)
         .await
@@ -284,6 +297,12 @@ async fn connect_and_handshake(
     let mut reader = FramedRead::new(read_half, MessageCodec::<ServerEvent>::for_data());
     let mut writer = FramedWrite::new(write_half, MessageCodec::<ClientCommand>::for_commands());
 
+    if let Some(token) = token {
+        writer
+            .send(ClientCommand::Authenticate { token })
+            .await
+            .map_err(|e| format!("failed to send authentication: {e}"))?;
+    }
     writer
         .send(ClientCommand::Hello {
             client_name: client_name.to_string(),
@@ -325,6 +344,7 @@ async fn connect_and_handshake(
 async fn run_connection(
     addr: SocketAddr,
     client_name: String,
+    token: Option<ez_proto::AuthToken>,
     status: Arc<Mutex<ConnectionStatus>>,
     client_channels: Arc<Mutex<Option<ez_proto::ClientChannels>>>,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<ClientCommand>,
@@ -334,7 +354,10 @@ async fn run_connection(
 ) {
     let Some(handshake) = until_stopped(
         &running,
-        tokio::time::timeout(HANDSHAKE_TIMEOUT, connect_and_handshake(addr, &client_name)),
+        tokio::time::timeout(
+            HANDSHAKE_TIMEOUT,
+            connect_and_handshake(addr, &client_name, token),
+        ),
     )
     .await
     else {
@@ -524,6 +547,7 @@ pub(crate) mod tests {
                         sequence: n + 1,
                         channel_id: 2,
                         sample_rate_hz: 48_000,
+                        channels: 1,
                         samples: vec![0.25; 16],
                         squelch: ez_proto::SquelchState {
                             db: -120.0,
@@ -714,6 +738,7 @@ pub(crate) mod tests {
                 web_static_dir: std::env::temp_dir()
                     .join("ez-gui-daemon-client-nonexistent-static"),
                 source: SourceConfig::Synthetic,
+                auth_token: None,
                 receiver_position: None,
             };
             let running = Arc::new(AtomicBool::new(true));

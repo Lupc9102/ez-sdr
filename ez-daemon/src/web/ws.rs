@@ -68,6 +68,10 @@ async fn data_plane_ws(
     if !browser_origin_allowed(&headers) {
         return (StatusCode::FORBIDDEN, "Cross-origin WebSocket rejected").into_response();
     }
+    let selected_protocol = match authorize_websocket(&state, &headers) {
+        Ok(protocol) => protocol,
+        Err(status) => return (status, "Authentication required").into_response(),
+    };
     let Some(kind) = parse_pipeline_kind(&kind) else {
         return (
             StatusCode::BAD_REQUEST,
@@ -76,7 +80,13 @@ async fn data_plane_ws(
             .into_response();
     };
     match state.subscribe_existing(id, kind) {
-        Ok(sub) => ws.on_upgrade(move |socket| stream_channel(socket, id, sub, state)),
+        Ok(sub) => {
+            let ws = match selected_protocol {
+                Some(protocol) => ws.protocols([protocol]),
+                None => ws,
+            };
+            ws.on_upgrade(move |socket| stream_channel(socket, id, sub, state))
+        }
         Err(e) => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
     }
 }
@@ -164,7 +174,79 @@ async fn control_ws(
     if !browser_origin_allowed(&headers) {
         return (StatusCode::FORBIDDEN, "Cross-origin WebSocket rejected").into_response();
     }
+    let selected_protocol = match authorize_websocket(&state, &headers) {
+        Ok(protocol) => protocol,
+        Err(status) => return (status, "Authentication required").into_response(),
+    };
+    let ws = match selected_protocol {
+        Some(protocol) => ws.protocols([protocol]),
+        None => ws,
+    };
     ws.on_upgrade(move |socket| control_connection(socket, state))
+}
+
+/// Browser WebSocket APIs cannot set `Authorization`, so configured credentials may be
+/// offered as the `ez-sdr-auth.<lowercase-hex-token>` subprotocol. Hex encoding keeps
+/// arbitrary UTF-8 tokens inside RFC WebSocket subprotocol syntax. The successful protocol
+/// is echoed by the handshake, while arbitrary client-selected protocols are never accepted.
+fn authorize_websocket(
+    state: &DaemonState,
+    headers: &HeaderMap,
+) -> Result<Option<String>, StatusCode> {
+    if !state.authentication_required() {
+        return Ok(None);
+    }
+    if let Some(token) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split_once(' '))
+        .filter(|(scheme, token)| scheme.eq_ignore_ascii_case("bearer") && !token.is_empty())
+        .map(|(_, token)| token)
+    {
+        if state.authenticate(token) {
+            return Ok(None);
+        }
+    }
+
+    let protocols = headers
+        .get(axum::http::header::SEC_WEBSOCKET_PROTOCOL)
+        .and_then(|value| value.to_str().ok())
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim);
+    for protocol in protocols {
+        if let Some(encoded) = protocol.strip_prefix("ez-sdr-auth.") {
+            if let Some(token) = decode_hex(encoded) {
+                let Ok(token) = std::str::from_utf8(&token) else {
+                    continue;
+                };
+                if !state.authenticate(token) {
+                    continue;
+                }
+                return Ok(Some(protocol.to_string()));
+            }
+        }
+    }
+    Err(StatusCode::UNAUTHORIZED)
+}
+
+fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    if value.is_empty() || !value.len().is_multiple_of(2) {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let nibble = |byte: u8| match byte {
+                b'0'..=b'9' => Some(byte - b'0'),
+                b'a'..=b'f' => Some(byte - b'a' + 10),
+                b'A'..=b'F' => Some(byte - b'A' + 10),
+                _ => None,
+            };
+            Some(nibble(pair[0])? * 16 + nibble(pair[1])?)
+        })
+        .collect()
 }
 
 async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
@@ -392,9 +474,12 @@ mod tests {
             2_000_000,
             unique_temp_dir("state"),
         ));
-
         let app = crate::web::api::router()
             .merge(router())
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::clone(&state),
+                crate::web::transport_request_guard,
+            ))
             .with_state(Arc::clone(&state));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -460,6 +545,130 @@ mod tests {
             .insert("Origin", "http://localhost:9000".parse().unwrap());
         let (mut socket, _) = connect_async(request).await.unwrap();
         socket.close(None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn configured_auth_protects_rest_and_both_websocket_planes() {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let (base, state) = spawn_test_ws().await;
+        state
+            .set_auth_token(Some("test-token-which-is-long-enough".into()))
+            .unwrap();
+        let initial_frequency = state.hardware_status().frequency_hz;
+        let initial_channels = state.channel_metrics().len();
+
+        let response = reqwest::get(format!("{}/api/status", base.replace("ws://", "http://")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("{}/api/status", base.replace("ws://", "http://")))
+            .bearer_auth("incorrect token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let response = client
+            .post(format!(
+                "{}/api/hardware/frequency",
+                base.replace("ws://", "http://")
+            ))
+            .json(&serde_json::json!({"hz": 109_000_000}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        for path in ["/ws/control", "/ws/stream/spectrum/77"] {
+            let request = format!("{base}{path}").into_client_request().unwrap();
+            let error = connect_async(request).await.unwrap_err();
+            let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
+                panic!("expected HTTP rejection: {error}");
+            };
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+        let mut request = format!("{base}/ws/control").into_client_request().unwrap();
+        request.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            "ez-sdr-auth.696e636f727265637420746f6b656e"
+                .parse()
+                .unwrap(),
+        );
+        let error = connect_async(request).await.unwrap_err();
+        let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
+            panic!("expected HTTP rejection for wrong token: {error}");
+        };
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(state.hardware_status().frequency_hz, initial_frequency);
+        assert_eq!(state.channel_metrics().len(), initial_channels);
+
+        let mut request = format!("{base}/ws/control").into_client_request().unwrap();
+        let auth_protocol = format!(
+            "ez-sdr-auth.{}",
+            "test-token-which-is-long-enough"
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", auth_protocol.parse().unwrap());
+        let (mut socket, response) = connect_async(request).await.unwrap();
+        assert_eq!(response.headers()["Sec-WebSocket-Protocol"], auth_protocol);
+        assert!(matches!(
+            socket.next().await.unwrap().unwrap(),
+            TMessage::Text(_)
+        ));
+        assert!(matches!(
+            socket.next().await.unwrap().unwrap(),
+            TMessage::Text(_)
+        ));
+
+        let response = client
+            .post(format!(
+                "{}/api/hardware/frequency",
+                base.replace("ws://", "http://")
+            ))
+            .bearer_auth("test-token-which-is-long-enough")
+            .json(&serde_json::json!({"hz":109_000_000}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(state.hardware_status().frequency_hz, 109_000_000);
+        socket.close(None).await.unwrap();
+
+        state
+            .subscribe(ChannelSpec {
+                audio: None,
+                meteor_profile: None,
+                id: 77,
+                center_offset_hz: 0,
+                channel_sample_rate_hz: 2_000_000,
+                kind: PipelineKind::Spectrum,
+                demod_mode: None,
+            })
+            .unwrap();
+        let mut request = format!("{base}/ws/stream/spectrum/77")
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", auth_protocol.parse().unwrap());
+        let (mut data, _) = connect_async(request).await.unwrap();
+        let frame = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(Ok(TMessage::Binary(frame))) = data.next().await {
+                    break frame;
+                }
+            }
+        })
+        .await
+        .expect("authenticated data websocket should stream frames");
+        assert!(frame.len() >= 24);
+        data.close(None).await.unwrap();
     }
 
     #[test]

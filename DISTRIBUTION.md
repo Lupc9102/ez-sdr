@@ -1,56 +1,80 @@
-# Linux release installation
+# Installing EZ-SDR releases
 
-The release workflow builds x86_64 Linux binaries with the RTL-SDR backend
-enabled. Each archive contains `bin/ez-gui`, `bin/ez-daemon`, and
-`bin/dump1090`, this guide, license notices, and `SOURCE-CODE.tar.gz` from the
-same tagged commit. The source archive includes the locked Cargo dependencies
-as vendored source. Verify the archive with `sha256sum -c SHA256SUMS` before
-installation.
+Release artifacts are built from a clean version tag. Each archive or installer
+includes the matching application source commit, vendored Cargo dependencies,
+license notices, native dependency source where applicable, and SHA-256 sums.
+Verify an unpacked package with `sha256sum -c SHA256SUMS` on Linux, Git Bash,
+or another system with GNU coreutils, or with `shasum -a 256 -c SHA256SUMS` on
+macOS. The standalone `.sha256` file verifies the downloaded container.
 
-## Ubuntu 24.04 runtime
+## Linux x86_64
 
-Install the native runtime libraries:
+The Linux archive contains `bin/ez-gui`, `bin/ez-daemon`, and `bin/dump1090`.
+It is built on Ubuntu 24.04 and uses system libraries. On Ubuntu 24.04 install:
 
 ```sh
 sudo apt update
 sudo apt install libasound2t64 libpulse0 librtlsdr2 libusb-1.0-0 libudev1 libcap2
 ```
 
-Extract the archive and run a binary from its `bin/` directory. For example:
+Extract the archive and run `./bin/ez-gui`. For RTL-SDR reception, connect a
+supported receiver and make it accessible to the current user. Audio can use
+ALSA or a PulseAudio-compatible service such as PulseAudio or PipeWire's
+PulseAudio server.
 
-```sh
-./bin/ez-gui
-```
+## Windows x86_64
 
-The RTL-SDR backend requires a supported USB receiver and device permissions.
-Without hardware, `ez-gui` can still be used for its other available workflows.
-Audio output can use ALSA (`libasound2`) or PulseAudio (`libpulse0`). The GUI
-enables CPAL's PulseAudio host and prefers it when available; a
-PulseAudio-compatible service such as PulseAudio or PipeWire's PulseAudio
-server should be running for that output path.
+Use either the portable ZIP or the `-setup.exe` installer. The installer adds
+an EZ-SDR Start Menu shortcut and can add a desktop shortcut. The archive and
+installer bundle `librtlsdr.dll`, `libusb-1.0.dll`, and every other non-system
+DLL imported by the release binaries beside the executables; no separate RTL-SDR
+runtime installation is needed.
 
-## Build from the included source
+For RTL-SDR USB reception, install the WinUSB driver for the receiver with
+[Zadig](https://zadig.akeo.ie/). In Zadig, select the receiver, choose WinUSB,
+and install or replace its driver. This replaces the receiver's current Windows
+driver, so restore that driver with Device Manager if another application needs
+it. Audio uses the Windows audio APIs and does not need a separate audio runtime.
 
-The included source tree targets Rust 1.92.0. Cargo is configured to use the
-vendored dependencies in `vendor/`. On Ubuntu 24.04, install the build
-dependencies and compile the same release features offline with:
+The portable ZIP includes the matching `SOURCE-CODE.tar.gz`, `SOURCE-COMMIT.txt`,
+`SOURCE/` native source archives, and `LICENSES/` notices. The installer puts the
+same files under its installation directory.
 
-```sh
-sudo apt update
-sudo apt install build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
-rustup toolchain install 1.92.0
-cargo +1.92.0 build --workspace --locked --offline --release --features ez-daemon/rtlsdr,dump1090/rtlsdr
-```
+The Windows release is built on a Windows 2022 runner in the MSYS2 UCRT64
+environment with Rust 1.92 and the x86_64 GNU target. The packaging script fetches
+the exact signed RTL-SDR and libusb packages named in `NATIVE-LIBRARIES.txt`; it
+includes their matching signed source archives and the versions of the UCRT64
+compiler runtimes actually installed in that build environment.
 
-The resulting executables are in `target/release/`. The release archive's
-`SOURCE-CODE.tar.gz` was generated from the exact source commit for that
-release. License and component provenance are in `LICENSES/`.
+## macOS Intel x86_64
 
-## Platform scope
+Open the DMG and drag `EZ-SDR.app` to Applications. The app bundle contains the
+RTL-SDR and libusb runtime libraries in `Contents/Frameworks`; audio uses
+CoreAudio and needs no separate audio runtime. The bundle also contains the
+`ez-daemon` and `dump1090` command-line executables in `Contents/MacOS`.
 
-This package is for x86_64 Linux. The release workflow does not claim to
-provide Windows or macOS binaries, a portable installer, or bundled native
-system libraries. The documented Ubuntu 24.04 package names are intended for
-the Ubuntu 24.04 release runner and compatible systems; other distributions
-may use different package names. Install the distro packages matching the
-binary's dynamic library requirements.
+The macOS release is an unsigned, unnotarized DMG. On first launch, macOS may
+require opening the app from Finder's context menu. An Apple Developer ID,
+notarization credentials, and a signing workflow are required before distributing
+a notarized build.
+
+The DMG includes `SOURCE-CODE.tar.gz`, which contains the matching EZ-SDR source,
+vendored Cargo dependencies, and the exact libusb and RTL-SDR source trees used
+to build the bundled libraries. License notices are in the app bundle under
+`Contents/Resources/LICENSES/` and alongside the app in the DMG.
+
+## Build from included source
+
+The source archive targets Rust 1.92.0 and includes the locked Cargo registry
+sources. Platform build details and native source versions are recorded in
+`NATIVE-LIBRARIES.txt`. Each platform's source archive and vendor dependencies
+are generated from the same tagged commit as its binaries. See `LICENSES/` for
+license texts and component provenance.
+
+## 978 MHz UAT
+
+All desktop packages include the Rust native UAT decoder. Native IQ mode needs
+no separately installed decoder; the selected capture must be centered on
+978 MHz and run at 2,083,333 complex samples/second. The optional dump978-fa
+JSON source mode requires a separately installed dump978-fa and its compatible
+SDR driver. See the UAT section in the README for setup details.

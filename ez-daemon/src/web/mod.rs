@@ -27,6 +27,7 @@ use tower_http::trace::TraceLayer;
 use crate::state::DaemonState;
 
 pub mod api;
+pub mod frontend;
 pub mod wire;
 pub mod ws;
 
@@ -56,12 +57,16 @@ pub async fn serve(
     } else {
         tracing::warn!(
             ?static_dir,
-            "frontend static directory not found; serving /api and /ws only"
+            "frontend static directory not found; serving bundled browser console"
         );
+        router = router.merge(frontend::router());
     }
 
     let app = router
-        .layer(middleware::from_fn(transport_request_guard))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&state),
+            transport_request_guard,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -163,9 +168,29 @@ fn trusted_host(value: &str) -> bool {
             .is_ok_and(|ip| !ip.is_unspecified())
 }
 
-async fn transport_request_guard(request: Request<Body>, next: Next) -> Response {
+async fn transport_request_guard(
+    axum::extract::State(state): axum::extract::State<Arc<DaemonState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
     if !browser_origin_allowed(request.headers()) {
         return (StatusCode::FORBIDDEN, "Untrusted Host or browser Origin").into_response();
+    }
+    if request.uri().path().starts_with("/api/") && state.authentication_required() {
+        let valid = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split_once(' '))
+            .is_some_and(|(scheme, token)| {
+                scheme.eq_ignore_ascii_case("bearer")
+                    && !token.is_empty()
+                    && !token.contains(' ')
+                    && state.authenticate(token)
+            });
+        if !valid {
+            return (StatusCode::UNAUTHORIZED, "Authentication required").into_response();
+        }
     }
     next.run(request).await
 }
