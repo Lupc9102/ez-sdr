@@ -1866,41 +1866,6 @@ impl SpectrumAnalyzer {
             });
     }
 
-    /// Dedicated Band Plan module controls, used by the SDR++ module drawer.
-    /// This keeps the overlay and ITU region selection backed by the same
-    /// fields that paint the live spectrum.
-    pub fn ui_band_plan_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Band plan");
-        ui.label("Frequency allocations are drawn over the live spectrum.");
-        ui.checkbox(&mut self.show_band_plan, "Show band plan overlay");
-        ui.horizontal(|ui| {
-            ui.label("Region");
-            for region in [ItuRegion::Region1, ItuRegion::Region2, ItuRegion::Region3] {
-                ui.selectable_value(&mut self.band_plan_region, region, region.label());
-            }
-        });
-        ui.separator();
-        ui.label("Overlay categories");
-        for (color, label) in [
-            (egui::Color32::from_rgb(200, 100, 255), "Amateur / ham"),
-            (egui::Color32::from_rgb(255, 140, 60), "Broadcast"),
-            (egui::Color32::from_rgb(100, 180, 255), "Aviation"),
-            (egui::Color32::from_rgb(0, 200, 200), "Marine"),
-            (egui::Color32::from_rgb(80, 220, 80), "Weather"),
-            (
-                egui::Color32::from_rgb(255, 80, 80),
-                "Land mobile / scanner",
-            ),
-        ] {
-            ui.colored_label(color, format!("● {label}"));
-        }
-    }
-
-    #[must_use]
-    pub fn band_plan_visible(&self) -> bool {
-        self.show_band_plan
-    }
-
     /// Compact vertical controls shown along the Radio pane's right edge,
     /// matching SDR++'s Zoom / Max / Min rail.
     pub fn ui_radio_rail(&mut self, ui: &mut egui::Ui) {

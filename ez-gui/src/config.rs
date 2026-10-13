@@ -372,36 +372,6 @@ impl Default for AdvancedConfig {
     }
 }
 
-/// A single togglable/reorderable main workspace tab.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayoutItem {
-    pub id: String,
-    pub visible: bool,
-}
-
-/// Which main workspaces appear, and in what order.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct LayoutConfig {
-    pub main_tabs: Vec<LayoutItem>,
-}
-
-impl Default for LayoutConfig {
-    fn default() -> Self {
-        fn items(ids: &[&str]) -> Vec<LayoutItem> {
-            ids.iter()
-                .map(|id| LayoutItem {
-                    id: (*id).to_string(),
-                    visible: true,
-                })
-                .collect()
-        }
-        Self {
-            main_tabs: items(&["listen", "planes", "meteor"]),
-        }
-    }
-}
-
 /// Default AI provider API endpoint (`OpenRouter`).
 pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 /// Default AI model identifier.
@@ -703,14 +673,9 @@ pub struct AppConfig {
     pub discord: DiscordSettings,
     /// Whether to skip the antenna-setup checklist on startup.
     pub skip_antenna_checklists: bool,
-    /// User experience level string (e.g. "beginner", "advanced").
-    pub user_level: String,
-    /// User-saved named themes (the Customize tab's theme gallery), distinct
-    /// from the built-in presets in [`ThemeConfig::all_presets`].
+    /// Legacy custom theme records retained when reading older configurations.
     pub custom_themes: Vec<NamedTheme>,
-    /// Main workspace tab visibility and ordering.
-    pub layout: LayoutConfig,
-    /// Advanced / experimental tunables (⚙ More → Advanced drawer).
+    /// Advanced / experimental tunables applied to receiver engines.
     pub advanced: AdvancedConfig,
     /// Each demodulator keeps its own radio module controls, like SDR++.
     pub radio_profiles: std::collections::BTreeMap<String, RadioModeProfile>,
@@ -768,9 +733,7 @@ impl Default for AppConfig {
             theme_config: ThemeConfig::default(),
             discord: DiscordSettings::default(),
             skip_antenna_checklists: false,
-            user_level: "beginner".to_string(),
             custom_themes: Vec::new(),
-            layout: LayoutConfig::default(),
             advanced: AdvancedConfig::default(),
             radio_profiles: std::collections::BTreeMap::new(),
             quick_start_completed: false,
@@ -870,39 +833,6 @@ impl AppConfig {
             self.wf_min_db + 1.0,
             60.0,
         );
-        let cfg = self;
-        // Migration: the old 6-tab layout (sdr/adsb/satellite/ai/decoding/…)
-        // collapses to the current task tabs. Any config with invalid tab IDs
-        // is normalized to the new mode set, preserving the
-        // "keep plumbing + migration pattern" contract.
-        let valid_tab_ids = ["listen", "planes", "satellites", "meteor"];
-        if cfg
-            .layout
-            .main_tabs
-            .iter()
-            .all(|i| valid_tab_ids.contains(&i.id.as_str()))
-            && !cfg.layout.main_tabs.iter().any(|i| i.id == "meteor")
-        {
-            let meteor = LayoutItem {
-                id: "meteor".to_string(),
-                visible: true,
-            };
-            let index = cfg
-                .layout
-                .main_tabs
-                .iter()
-                .position(|item| item.id == "satellites")
-                .unwrap_or(cfg.layout.main_tabs.len());
-            cfg.layout.main_tabs.insert(index, meteor);
-        }
-        if !cfg
-            .layout
-            .main_tabs
-            .iter()
-            .all(|i| valid_tab_ids.contains(&i.id.as_str()))
-        {
-            cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
-        }
     }
 
     /// Serialise and write the configuration atomically to `ez_sdr_config.json`.
@@ -1071,31 +1001,6 @@ impl AppConfig {
                     .on_hover_text("TCP port for rigctld clients. Default 4532.");
             });
 
-            ui.colored_label(
-                egui::Color32::GRAY,
-                "🎨 Theme, fonts, effects, and layout have moved to the Customize tab.",
-            );
-
-        ui.collapsing("User Experience", |ui| {
-            ui.label(egui::RichText::new("Knowledge Level").strong())
-                .on_hover_text("Controls which UI controls and features are visible. Beginners see simplified panels with more hints; Experts see everything.");
-            let user_level = crate::user_level::UserLevel::from_name(&self.user_level);
-            let mut level_idx = user_level as usize;
-            ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut level_idx, 0..=3).step_by(1.0).text("Level"))
-                    .on_hover_text("Drag to change your experience level.");
-            });
-            // Show the name + description below the slider
-            if let Some(level) = [crate::user_level::UserLevel::Beginner,
-                                  crate::user_level::UserLevel::Intermediate,
-                                  crate::user_level::UserLevel::Advanced,
-                                  crate::user_level::UserLevel::ClerkMaxwell].get(level_idx) {
-                ui.colored_label(egui::Color32::from_rgb(100, 200, 255),
-                    format!("{} — {}", level.label(), level.description()));
-                self.user_level = level.to_str().to_string();
-            }
-        });
-
             ui.collapsing("Satellite Observer Location", |ui| {
                 ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
                     .on_hover_text("Your latitude in decimal degrees. North positive. Used to predict satellite pass times.");
@@ -1186,7 +1091,6 @@ mod tests {
         assert_eq!(config.default_sample_rate, 2_048_000);
         assert_eq!(config.observer_lat, 90.0);
         assert_eq!(config.observer_lon, -180.0);
-        assert!(config.layout.main_tabs.iter().any(|tab| tab.id == "meteor"));
     }
 
     #[test]
@@ -1379,19 +1283,6 @@ mod tests {
     }
 
     #[test]
-    fn layout_config_default_lists_all_current_tabs_visible() {
-        let layout = LayoutConfig::default();
-        assert_eq!(
-            layout
-                .main_tabs
-                .iter()
-                .map(|i| i.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["listen", "planes", "meteor"]
-        );
-        assert!(layout.main_tabs.iter().all(|i| i.visible));
-    }
-
     #[test]
     fn config_default_has_empty_custom_theme_gallery() {
         let cfg = AppConfig::default();
@@ -1399,68 +1290,10 @@ mod tests {
     }
 
     #[test]
-    fn layout_migration_maps_legacy_tabs_to_current_modes() {
-        let dir = std::env::temp_dir().join(format!("ez_sdr_test_migrate_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("ez_sdr_config.json");
-
-        // Simulate a config saved under the old 6-tab layout.
-        let old_layout = LayoutConfig {
-            main_tabs: vec![
-                LayoutItem {
-                    id: "sdr".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "adsb".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "satellite".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "ai".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "decoding".into(),
-                    visible: true,
-                },
-            ],
-        };
-        let old_cfg = AppConfig {
-            layout: old_layout,
-            ..Default::default()
-        };
-        old_cfg.save_to(&path).unwrap();
-
-        let loaded = AppConfig::load_from(&path);
-        let ids: Vec<&str> = loaded
-            .layout
-            .main_tabs
-            .iter()
-            .map(|i| i.id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["listen", "planes", "meteor"]);
-        assert!(
-            loaded
-                .layout
-                .main_tabs
-                .iter()
-                .find(|i| i.id == "listen")
-                .expect("listen entry should be present")
-                .visible
-        );
-        assert!(!loaded.layout.main_tabs.iter().any(|i| i.id == "decoding"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     #[test]
-    fn config_missing_layout_and_custom_themes_fall_back_to_defaults() {
+    fn config_missing_custom_themes_fall_back_to_defaults() {
         let json = r#"{"default_freq_hz": 144000000}"#;
         let cfg: AppConfig = serde_json::from_str(json).expect("partial deserialize");
-        assert_eq!(cfg.layout, LayoutConfig::default());
         assert!(cfg.custom_themes.is_empty());
     }
 
