@@ -156,7 +156,6 @@ fn approved_ai_local_tools_restart_live_capture_and_record_real_files_while_hidd
         before,
         "approval bypassed the app lifecycle queue"
     );
-    app.active_secondary_tool = None;
     frame(&mut app, &ctx);
     wait(&mut app, &ctx, |app| app.runtime_action.is_none());
     frame(&mut app, &ctx);

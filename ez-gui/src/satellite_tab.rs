@@ -1,11 +1,9 @@
 //! Satellite tab rendering: Track, Alignment, and Decode sub-tabs.
 
-use crate::ai_panel::AiPanel;
 use crate::app::SharedState;
 use crate::constellation::ConstellationDisplay;
 use crate::decoding_panel::DecodingPanel;
 use crate::satellite_panel::{SatellitePanel, SatelliteSubTab};
-use crate::status_bar::StatusBar;
 use std::sync::{Arc, Mutex};
 
 /// Immediate-mode render function: one `&mut` per panel by design.
@@ -18,8 +16,6 @@ pub fn render_satellite_tab(
     satellite_subtab: &mut SatelliteSubTab,
     constellation: &mut ConstellationDisplay,
     decoding_panel: &mut DecodingPanel,
-    ai_panel: &mut AiPanel,
-    status_bar: &mut StatusBar,
 ) {
     let theme = shared
         .try_lock()
@@ -96,11 +92,6 @@ pub fn render_satellite_tab(
         .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 satellite_panel.ui(ui, *satellite_subtab);
-                if let Some(prompt) = satellite_panel.pending_ai_prompt.take() {
-                    ai_panel.input = prompt;
-                    status_bar.info("🤖 Satellite details sent to AI".to_string());
-                }
-
                 // Raw capture geometry, before symbol/carrier/timing recovery.
                 // (SatDump-style) while a pass is active or recording.
                 if *satellite_subtab != SatelliteSubTab::Decode

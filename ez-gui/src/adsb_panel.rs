@@ -26,7 +26,6 @@ pub struct AdsBPanel {
     pub callsign_filter: String,
     pub show_trails: bool,
     aircraft_trails: std::collections::HashMap<u32, std::collections::VecDeque<(f64, f64)>>,
-    pub pending_ai_prompt: Option<String>,
     pub observer_lat: f64,
     pub observer_lon: f64,
     /// Whether the observer position has been explicitly set by the user.
@@ -574,7 +573,6 @@ impl AdsBPanel {
             callsign_filter: String::new(),
             show_trails: true,
             aircraft_trails: std::collections::HashMap::new(),
-            pending_ai_prompt: None,
             observer_lat,
             observer_lon,
             observer_position_set: false,
@@ -832,7 +830,6 @@ impl AdsBPanel {
         self.total_messages = 0;
         self.decode_stats = (0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0);
         self.notifications.clear();
-        self.pending_ai_prompt = None;
         self.pending_status_flash = None;
         self.receiver_rate = 0.0;
         self.info_inflight.write().unwrap().clear();
@@ -2977,13 +2974,6 @@ impl AdsBPanel {
                     ui.label(egui::RichText::new(distance_label).color(row_col).small());
                     let age_color = if age < 10 { theme.success.to_egui() } else if age < 30 { theme.warning.to_egui() } else { theme.text_dim.to_egui() };
                     ui.label(egui::RichText::new(format!("{age}s")).color(age_color).small());
-                    if ui.add_enabled(has_position, egui::Button::new("🤖").small()).clicked() {
-                        let bearing = self.bearing(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
-                        self.pending_ai_prompt = Some(format!(
-                            "Aircraft on ADS-B:\nCallsign: {}\nAddress: {}\nAltitude: {}, Speed: {}, Direction: {}\nPos: {:.4}°N, {:.4}°E\nDist: {:.1} km, Bearing: {:.0}°",
-                            label, address_label(ac.icao), ac.altitude_label(), ac.speed_label(), ac.direction_label(), ac.lat, ac.lon, dist, bearing
-                        ));
-                    }
                     ui.end_row();
                 }
                 if let Some(icao) = fetch_icao {
@@ -3267,7 +3257,6 @@ mod tests {
         assert!(panel.max_age_secs > 0);
         assert!(panel.callsign_filter.is_empty());
         assert!(panel.show_trails);
-        assert!(panel.pending_ai_prompt.is_none());
         assert!(panel.alert_enabled);
         assert!(!panel.desktop_notifications);
         assert!((panel.observer_lat - 51.5).abs() < f64::EPSILON);
@@ -3283,12 +3272,10 @@ mod tests {
             ..Default::default()
         });
         panel.selected_icao = Some(1);
-        panel.pending_ai_prompt = Some("old aircraft".into());
         panel.clear_tracks();
         assert!(old_sender.send((1, AircraftInfo::default())).is_err());
         assert!(panel.aircraft.is_empty());
         assert!(panel.selected_icao.is_none());
-        assert!(panel.pending_ai_prompt.is_none());
         assert!(panel.info_rx.try_recv().is_err());
     }
 

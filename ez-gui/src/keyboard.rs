@@ -4,10 +4,6 @@ use crate::status_bar::StatusBar;
 /// Outcomes from keyboard shortcut processing that require CentralApp fields.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct KeyboardOutcome {
-    /// User requested start/stop recording (`Ctrl+R`).
-    pub toggle_recording: bool,
-    /// User requested toggle of frequency scanner (`S`).
-    pub toggle_scanner: bool,
     /// Frequency was changed through the shared manual-tuning command.
     pub freq_changed: bool,
 }
@@ -27,7 +23,6 @@ impl KeyboardHandler {
         ctx: &egui::Context,
         state: &mut SharedState,
         status_bar: &mut StatusBar,
-        scanner_enabled: bool,
         freq_history_idx: &mut Option<usize>,
         last_history_freq: &mut u64,
     ) -> KeyboardOutcome {
@@ -150,11 +145,6 @@ impl KeyboardHandler {
             if i.modifiers.alt && i.key_pressed(egui::Key::R) {
                 state.demod_mode = crate::sdr_panel::DemodMode::Raw;
                 status_bar.info("RAW".to_string());
-            }
-
-            // Ctrl+R: toggle recording
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::R) {
-                outcome.toggle_recording = true;
             }
 
             // M: toggle audio mute
@@ -381,16 +371,6 @@ impl KeyboardHandler {
                 }
             }
 
-            // S key: toggle scanner on/off
-            if i.key_pressed(egui::Key::S) && !i.modifiers.ctrl && !i.modifiers.alt {
-                outcome.toggle_scanner = true;
-                if scanner_enabled {
-                    status_bar.info("🔍 Scanner: OFF".to_string());
-                } else {
-                    status_bar.info("🔍 Scanner: ON".to_string());
-                }
-            }
-
             // R key: reset spectrum dB range to default (-120 to 0)
             if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl && !i.modifiers.alt {
                 state.spectrum.set_display_range(-120.0, 0.0);
@@ -416,8 +396,6 @@ mod tests {
     fn keyboard_handler_creation() {
         let _handler = KeyboardHandler::new();
         let outcome = KeyboardOutcome::default();
-        assert!(!outcome.toggle_recording);
-        assert!(!outcome.toggle_scanner);
         assert!(!outcome.freq_changed);
     }
 }

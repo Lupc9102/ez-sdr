@@ -476,54 +476,8 @@ pub fn render_advanced(
         );
     });
 
-    // ---------------- Scan / Record / AI / Satellite ----------------
-    ui.collapsing("Scan / Record / AI / Sat", |ui| {
-        ui.horizontal(|ui| {
-            ui.label("Scan direction:");
-            egui::ComboBox::from_label("")
-                .selected_text(shared.config.advanced.scan_direction.clone())
-                .show_ui(ui, |ui| {
-                    for d in ["up", "down"] {
-                        if ui
-                            .selectable_label(shared.config.advanced.scan_direction == d, d)
-                            .clicked()
-                        {
-                            shared.config.advanced.scan_direction = d.to_string();
-                        }
-                    }
-                });
-        });
-        ui.horizontal(|ui| {
-            ui.label("Record format:");
-            egui::ComboBox::from_label("")
-                .selected_text(shared.config.advanced.record_format.clone())
-                .show_ui(ui, |ui| {
-                    for f in ["wav", "raw"] {
-                        if ui
-                            .selectable_label(shared.config.advanced.record_format == f, f)
-                            .clicked()
-                        {
-                            shared.config.advanced.record_format = f.to_string();
-                        }
-                    }
-                });
-        });
-        slider_u32(
-            ui,
-            &mut shared.config.advanced.record_split_mb,
-            0..=2000,
-            "Record split (MB)",
-            demod,
-            |_, _| {},
-        );
-        slider_u32(
-            ui,
-            &mut shared.config.advanced.ai_context_window,
-            0..=128000,
-            "AI context (tok)",
-            demod,
-            |_, _| {},
-        );
+    // ---------------- Satellite ----------------
+    ui.collapsing("Satellite", |ui| {
         slider_f32(
             ui,
             &mut shared.config.advanced.sat_elevation_offset,

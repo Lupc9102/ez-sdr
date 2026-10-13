@@ -372,20 +372,18 @@ impl Default for AdvancedConfig {
     }
 }
 
-/// A single togglable/reorderable entry in the sidebar layout.
+/// A single togglable/reorderable main workspace tab.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutItem {
     pub id: String,
     pub visible: bool,
 }
 
-/// Which main tabs and secondary tools appear in the sidebar, and in what
-/// order. Driven entirely by user customization — see the Layout sub-tab of
-/// the Customize panel.
+/// Which main workspaces appear, and in what order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LayoutConfig {
     pub main_tabs: Vec<LayoutItem>,
-    pub secondary_tools: Vec<LayoutItem>,
 }
 
 impl Default for LayoutConfig {
@@ -400,17 +398,6 @@ impl Default for LayoutConfig {
         }
         Self {
             main_tabs: items(&["listen", "planes", "meteor"]),
-            secondary_tools: items(&[
-                "bookmarks",
-                "scanner",
-                "recorder",
-                "scheduler",
-                "settings",
-                "howto",
-                "setup_guide",
-                "advanced",
-                "customize",
-            ]),
         }
     }
 }
@@ -721,7 +708,7 @@ pub struct AppConfig {
     /// User-saved named themes (the Customize tab's theme gallery), distinct
     /// from the built-in presets in [`ThemeConfig::all_presets`].
     pub custom_themes: Vec<NamedTheme>,
-    /// Sidebar tab/tool visibility and ordering.
+    /// Main workspace tab visibility and ordering.
     pub layout: LayoutConfig,
     /// Advanced / experimental tunables (⚙ More → Advanced drawer).
     pub advanced: AdvancedConfig,
@@ -916,31 +903,6 @@ impl AppConfig {
         {
             cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
         }
-        // Migrate layouts from releases that exposed every integration and
-        // duplicate utility as a side menu. Keep only the curated workflow
-        // tools so old config files cannot repopulate the cluttered menu.
-        let valid_secondary_ids = [
-            "bookmarks",
-            "scanner",
-            "recorder",
-            "scheduler",
-            "settings",
-            "howto",
-            "setup_guide",
-            "advanced",
-            "customize",
-        ];
-        cfg.layout
-            .secondary_tools
-            .retain(|item| valid_secondary_ids.contains(&item.id.as_str()));
-        for id in valid_secondary_ids {
-            if !cfg.layout.secondary_tools.iter().any(|item| item.id == id) {
-                cfg.layout.secondary_tools.push(LayoutItem {
-                    id: id.to_string(),
-                    visible: true,
-                });
-            }
-        }
     }
 
     /// Serialise and write the configuration atomically to `ez_sdr_config.json`.
@@ -1082,144 +1044,6 @@ impl AppConfig {
                 });
                 ui.label(format!("Current: {} ppm", self.ppm_correction))
                     .on_hover_text("Tune a known frequency and adjust this value until it matches exactly.");
-            });
-
-            ui.collapsing("Recording", |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Output directory:").on_hover_text("Where recorded I/Q and audio files are saved.");
-                    ui.add(egui::TextEdit::singleline(&mut self.output_directory).desired_width(200.0));
-                });
-            });
-
-            ui.collapsing("AI Agent", |ui| {
-                // Provider picker
-                ui.label(egui::RichText::new("Provider").strong());
-                let current = self.ai_provider.clone();
-                egui::ComboBox::from_id_salt("ai_provider_combo")
-                    .selected_text(&current)
-                    .show_ui(ui, |ui| {
-                        for preset in PROVIDER_PRESETS {
-                            if ui.selectable_label(current == preset.name, preset.name).clicked() {
-                                self.ai_provider = preset.name.to_string();
-                                if preset.name != "Custom" {
-                                    self.ai_endpoint = preset.endpoint.to_string();
-                                    self.ai_model = preset.default_model.to_string();
-                                }
-                            }
-                        }
-                    });
-
-                if let Some(preset) = PROVIDER_PRESETS.iter().find(|p| p.name == self.ai_provider) {
-                    ui.colored_label(egui::Color32::GRAY, preset.note);
-                    if !preset.needs_key {
-                        ui.colored_label(egui::Color32::from_rgb(100, 220, 100), "No API key required.");
-                    }
-                }
-
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label("API Key:").on_hover_text("Your provider API key. Stored locally in ez_sdr_config.json. Leave blank for Ollama.");
-                    ui.add(egui::TextEdit::singleline(&mut self.ai_api_key).password(true).desired_width(260.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Endpoint:").on_hover_text("The full URL for the /chat/completions API. Auto-filled when you pick a provider.");
-                    ui.add(egui::TextEdit::singleline(&mut self.ai_endpoint).desired_width(360.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Model:").on_hover_text("The model ID to request. Auto-filled from the provider preset, but you can override it.");
-                    ui.add(egui::TextEdit::singleline(&mut self.ai_model).desired_width(260.0));
-                });
-
-                // Suggested models for current provider
-                if let Some(preset) = PROVIDER_PRESETS.iter().find(|p| p.name == self.ai_provider) {
-                    if preset.name == "OpenRouter" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["anthropic/claude-haiku-latest", "anthropic/claude-sonnet-latest", "google/gemini-flash-1.5", "meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-7b-instruct:free"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "Groq" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "Anthropic" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["claude-haiku-4-5-20251001", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "OpenAI" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "Ollama (local)" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models (must be pulled first):").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["llama3.2", "llama3.1", "mistral", "gemma2", "qwen2.5"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    }
-                }
-
-                ui.add_space(4.0);
-                ui.add(egui::Slider::new(&mut self.ai_temperature, 0.0..=2.0)
-                    .step_by(0.05).text("Temperature"))
-                    .on_hover_text("Randomness of responses. 0 = deterministic, 1 = balanced, 2 = very creative. 0.5–0.7 works well for radio control.");
-
-                // Reasoning effort
-                ui.horizontal(|ui| {
-                    ui.label("Reasoning:").on_hover_text("Controls how hard the model thinks. Higher = slower but more thorough. 'Off' uses default behavior.");
-                    let current = self.ai_reasoning_effort.clone();
-                    egui::ComboBox::from_id_salt("ai_reasoning_effort")
-                        .selected_text(&current)
-                        .show_ui(ui, |ui| {
-                            for level in &["off", "low", "medium", "high"] {
-                                if ui.selectable_label(current == *level, *level).clicked() {
-                                    self.ai_reasoning_effort = level.to_string();
-                                }
-                            }
-                        });
-                });
-
-                // Web search toggle
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.ai_web_search, " Enable web search")
-                        .on_hover_text("Ask the selected AI provider to use its native web-search tool when supported. Search terms are sent to that provider; EZ-SDR does not scrape search-engine HTML.");
-                });
-
-                ui.add(egui::Slider::new(&mut self.ai_max_tokens, 256u32..=16384u32)
-                    .step_by(256.0).text("Max tokens"))
-                    .on_hover_text("Maximum response length in tokens (~4 chars each). 2048 is plenty for most tasks.");
-                ui.collapsing("System prompt", |ui| {
-                    ui.label("Leave empty for default (tool-enabled assistant).");
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.ai_system_prompt)
-                            .desired_width(f32::INFINITY));
-                });
             });
 
             ui.collapsing("MQTT", |ui| {
@@ -1555,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn layout_config_default_lists_all_current_tabs_and_tools_visible() {
+    fn layout_config_default_lists_all_current_tabs_visible() {
         let layout = LayoutConfig::default();
         assert_eq!(
             layout
@@ -1565,26 +1389,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["listen", "planes", "meteor"]
         );
-        assert_eq!(
-            layout
-                .secondary_tools
-                .iter()
-                .map(|i| i.id.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "bookmarks",
-                "scanner",
-                "recorder",
-                "scheduler",
-                "settings",
-                "howto",
-                "setup_guide",
-                "advanced",
-                "customize"
-            ]
-        );
         assert!(layout.main_tabs.iter().all(|i| i.visible));
-        assert!(layout.secondary_tools.iter().all(|i| i.visible));
     }
 
     #[test]
@@ -1623,16 +1428,6 @@ mod tests {
                     visible: true,
                 },
             ],
-            secondary_tools: vec![
-                LayoutItem {
-                    id: "discord".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "bookmarks".into(),
-                    visible: false,
-                },
-            ],
         };
         let old_cfg = AppConfig {
             layout: old_layout,
@@ -1658,17 +1453,6 @@ mod tests {
                 .visible
         );
         assert!(!loaded.layout.main_tabs.iter().any(|i| i.id == "decoding"));
-        assert!(!loaded
-            .layout
-            .secondary_tools
-            .iter()
-            .any(|i| i.id == "discord"));
-        assert!(loaded
-            .layout
-            .secondary_tools
-            .iter()
-            .any(|i| i.id == "customize"));
-
         let _ = std::fs::remove_dir_all(&dir);
     }
 

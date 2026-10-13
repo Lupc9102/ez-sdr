@@ -59,10 +59,10 @@ use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
   visibility and SNR smoothing. The waterfall and drawn traces remain bounded in size.
 - Click the spectrum to tune. Frequency changes retune an active local source; changing
   a frequency while stopped does not start reception.
-- The collapsed **SDR++ Modules** section exposes Recorder, Sinks, Frequency Manager,
-  Band Plan, and the loopback **Rigctl Server**. Rigctl accepts Hamlib-style `f/F`,
-  `m/M`, `v/V`, and `q` commands on localhost (default port `4532`).
-- General recording, bookmarks, settings and other utilities are under **Tools**.
+- **Setup Guide** and **Settings** open as separate floating windows from **Tools**.
+- Bookmarks remain available from the spectrum and frequency-jump workflows. The
+  loopback **Rigctl Server** accepts Hamlib-style `f/F`, `m/M`, `v/V`, and `q`
+  commands on localhost (default port `4532`).
 
 The desktop supports two simultaneous listening receivers sharing the same capture.
 Enable **Independent B receiver** in the Radio sidebar; its frequency must fit

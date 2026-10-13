@@ -468,7 +468,7 @@ impl QuickStartWizard {
         } else {
             ui.label("• Click 'Start' if the source was not already running");
             ui.label("• Adjust the frequency if needed");
-            ui.label("• Check the '?' How To tab for detailed guides");
+            ui.label("• Open Settings to adjust receiver and display options");
             ui.label("• Explore the spectrum waterfall");
         }
 

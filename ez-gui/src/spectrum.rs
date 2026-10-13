@@ -452,10 +452,6 @@ pub struct SpectrumAnalyzer {
     pub gradient_fill: bool,
     /// Squelch value pending from a right-click "set squelch here" action.
     pub pending_squelch_db: Option<f32>,
-    /// Scan range start (Hz) pending from context menu.
-    pub pending_scan_start: Option<u64>,
-    /// Scan range stop (Hz) pending from context menu.
-    pub pending_scan_stop: Option<u64>,
     /// Demod mode string pending from context-menu "Apply" action.
     pub pending_demod_mode: Option<String>,
     /// Left edge of the visible frequency range (Hz).
@@ -463,8 +459,6 @@ pub struct SpectrumAnalyzer {
     /// Right edge of the visible frequency range (Hz).
     pub visible_right_hz: u64,
     ctx_menu_pos: Option<egui::Pos2>,
-    /// Frequency (Hz) pending AI agent query from context menu.
-    pub pending_ai_freq: Option<u64>,
     /// When `true`, the main panel should start the SDR source.
     pub pending_start_source: bool,
     /// When `true`, the bookmark list has been modified and needs re-read.
@@ -737,13 +731,10 @@ impl SpectrumAnalyzer {
             persist_buf: vec![-100.0; fft_size],
             gradient_fill: true,
             pending_squelch_db: None,
-            pending_scan_start: None,
-            pending_scan_stop: None,
             pending_demod_mode: None,
             visible_left_hz: 99_000_000,
             visible_right_hz: 101_000_000,
             ctx_menu_pos: None,
-            pending_ai_freq: None,
             pending_start_source: false,
             bookmark_freqs_dirty: true,
             cached_signal_level: -100.0,
@@ -3779,13 +3770,6 @@ impl SpectrumAnalyzer {
                     ui.ctx().copy_text(format!("{freq_mhz:.4}"));
                     ui.close();
                 }
-                if ui.button(format!("🤖 Ask AI about {freq_mhz:.3} MHz"))
-                    .on_hover_text("Pre-fill the AI Agent with a question about this frequency")
-                    .clicked()
-                {
-                    self.pending_ai_freq = Some(freq);
-                    ui.close();
-                }
                 // Instant 3dB bandwidth estimate at cursor frequency
                 if !self.spectrum_dbs.is_empty() {
                     let n = self.spectrum_dbs.len();
@@ -3831,15 +3815,6 @@ impl SpectrumAnalyzer {
                             }
                         });
                     }
-                }
-                ui.separator();
-                if ui.button(format!("▶ Set as scan start ({freq_mhz:.3} MHz)")).clicked() {
-                    self.pending_scan_start = Some(freq);
-                    ui.close();
-                }
-                if ui.button(format!("⏹ Set as scan stop ({freq_mhz:.3} MHz)")).clicked() {
-                    self.pending_scan_stop = Some(freq);
-                    ui.close();
                 }
             }
             // "Set squelch here" based on stored hover position
@@ -4196,14 +4171,6 @@ impl SpectrumAnalyzer {
                     }
                     if ui.button("📋 Copy frequency").clicked() {
                         ui.ctx().copy_text(format!("{freq_mhz:.4}"));
-                        ui.close();
-                    }
-                    if ui
-                        .button(format!("🤖 Ask AI about {freq_mhz:.3} MHz"))
-                        .on_hover_text("Pre-fill the AI Agent with a question about this frequency")
-                        .clicked()
-                    {
-                        self.pending_ai_freq = Some(freq);
                         ui.close();
                     }
                 }

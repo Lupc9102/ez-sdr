@@ -77,7 +77,6 @@ pub struct FrequencyScanner {
     // Exclude list
     pub exclude_hz: Vec<u64>,
     exclude_input: String,
-    pub pending_ai_prompt: Option<String>,
     // Hits sort mode
     hits_sort: HitsSort,
     // Antenna calibration
@@ -159,7 +158,6 @@ impl FrequencyScanner {
             memory_category_filter: String::new(),
             exclude_hz: Vec::new(),
             exclude_input: String::new(),
-            pending_ai_prompt: None,
             hits_sort: HitsSort::Discovery,
             calibration_active: false,
             calibration_phase: CalibrationPhase::Idle,
@@ -1000,25 +998,6 @@ impl FrequencyScanner {
         self.poll_file_dialogs();
         ui.heading("Frequency Scanner");
 
-        // User level check for adaptive UI
-        let user_level = self
-            .shared
-            .try_lock()
-            .map(|s| crate::user_level::UserLevel::from_name(&s.config.user_level))
-            .unwrap_or(crate::user_level::UserLevel::Beginner);
-        if user_level.simplify_layout() {
-            ui.add_space(4.0);
-            if ui.add(egui::Button::new(egui::RichText::new("🤖 Ask AI to configure scanning").size(14.0))
-                .min_size(egui::vec2(240.0, 28.0))
-                .fill(egui::Color32::from_rgb(40, 60, 120)))
-                .on_hover_text("Let the AI assistant set up frequency scanning for you. Tell it what bands you want to scan.")
-                .clicked()
-            {
-                self.pending_ai_prompt = Some("Help me set up the frequency scanner. What frequencies should I scan and how do I configure it?".to_string());
-            }
-            ui.add_space(4.0);
-        }
-
         // Row 1: Transport + sort
         ui.horizontal_wrapped(|ui| {
             if self.enabled {
@@ -1080,29 +1059,6 @@ impl FrequencyScanner {
                     self.stop_hz = vis_stop;
                     if !self.enabled { self.start(); }
                 }
-            }
-            if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("🤖 Ask AI"))
-                .on_hover_text("Send all scan hits to the AI Agent for signal identification")
-                .clicked()
-            {
-                let mut lines = String::from(
-                    "I just ran a frequency scan. Here are the signals found (frequency, strength, hit count):\n"
-                );
-                let mut sorted_hits: Vec<&SignalHit> = self.hits.iter().collect();
-                sorted_hits.sort_by_key(|a| a.freq_hz);
-                for hit in sorted_hits.iter().take(30) {
-                    lines.push_str(&format!(
-                        "  {:.4} MHz  {:.1} dB  ({} hits)\n",
-                        hit.freq_hz as f64 / 1e6,
-                        hit.strength_db,
-                        hit.hit_count,
-                    ));
-                }
-                if self.hits.len() > 30 {
-                    lines.push_str(&format!("  ... and {} more\n", self.hits.len() - 30));
-                }
-                lines.push_str("\nPlease identify each signal: likely service, country/region if relevant, recommended demod mode, and any tips for receiving it better.");
-                self.pending_ai_prompt = Some(lines);
             }
             if ui.add_enabled(!self.hits.is_empty(), egui::Button::new("📌 Bookmark all"))
                 .on_hover_text("Add all scanner hits as bookmarks in the 'Scanner' category. Skips frequencies already bookmarked.")

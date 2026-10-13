@@ -19,7 +19,6 @@ use crate::constellation::ConstellationDisplay;
 use crate::decoding_panel::DecodingPanel;
 use crate::demod::{DemodConfig, DemodWorker};
 use crate::discord::DiscordNotifier;
-use crate::howto_panel::HowToPanel;
 use crate::mqtt::{MqttPublisher, TelemetryView};
 use crate::recorder_panel::RecorderPanel;
 use crate::rigctl::{RigctlRequest, RigctlServer};
@@ -30,7 +29,7 @@ use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
 use crate::web_remote::{RemoteCommand, WebRemote};
 
-pub use crate::mode_bar::{AppTab, SecondaryTool, ALL_SECONDARY_TOOLS, MAIN_TABS};
+pub use crate::mode_bar::{AppTab, MAIN_TABS};
 
 /// Scanner configuration request produced outside the scanner itself (the AI
 /// panel's `configure_scanner` tool call). Fields left `None` keep the
@@ -107,7 +106,6 @@ pub struct CentralApp {
     decoding_panel: DecodingPanel,
     meteor_decoder: DecodingPanel,
     ai_panel: AiPanel,
-    howto_panel: HowToPanel,
     quick_start: crate::quick_start::QuickStartWizard,
     web_remote: WebRemote,
     rigctl: RigctlServer,
@@ -169,10 +167,8 @@ pub struct CentralApp {
     discord_summary_last: std::time::Instant,
     current_tab: AppTab,
     last_traffic_bucket: usize,
-    active_secondary_tool: Option<SecondaryTool>,
-    /// ⚙ More — whether the tool-picker menu (deck of hidden tools) is showing.
-    #[allow(dead_code)]
-    more_menu_open: bool,
+    show_setup_guide: bool,
+    show_settings: bool,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
     close_pending: bool,
 }
@@ -451,7 +447,6 @@ impl CentralApp {
             decoding_panel: DecodingPanel::default(),
             meteor_decoder: DecodingPanel::default(),
             ai_panel: AiPanel::new(shared.clone()),
-            howto_panel: HowToPanel::new(),
             quick_start: crate::quick_start::QuickStartWizard::new(),
             web_remote,
             rigctl,
@@ -505,8 +500,8 @@ impl CentralApp {
             current_tab: AppTab::Listen,
             discord_summary_last: std::time::Instant::now(),
             last_traffic_bucket: 0,
-            active_secondary_tool: None,
-            more_menu_open: false,
+            show_setup_guide: false,
+            show_settings: false,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
         };
         // Apply saved advanced settings onto the live engines so a fresh launch
@@ -1308,7 +1303,7 @@ impl eframe::App for CentralApp {
         if self.tick_close_request(ctx) {
             return;
         }
-        // Apply config changes triggered from Settings tab
+        // Apply config changes triggered from the Settings popup.
         if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {
                 state.config.normalize();
@@ -1618,7 +1613,6 @@ impl eframe::App for CentralApp {
         if let Some(req) = self.satellite_panel.pending_decode_request.take() {
             self.current_tab = AppTab::Satellites;
             self.satellite_subtab = crate::satellite_panel::SatelliteSubTab::Decode;
-            self.active_secondary_tool = None;
             self.decoding_panel.request_from_satellite(req);
         }
         if let Some(msg) = self.decoding_panel.pending_status.take() {
@@ -1684,7 +1678,6 @@ impl eframe::App for CentralApp {
                 ctx,
                 &mut state,
                 &mut self.status_bar,
-                self.scanner.enabled,
                 &mut self.freq_history_idx,
                 &mut self.last_history_freq,
             )
@@ -1702,27 +1695,6 @@ impl eframe::App for CentralApp {
                     });
             }
         }
-        if outcome.toggle_scanner {
-            if self.scanner.enabled {
-                self.scanner.stop();
-            } else {
-                self.scanner.start();
-            }
-        }
-        if outcome.toggle_recording && self.current_tab == AppTab::Listen {
-            if self.recorder_panel.recording {
-                self.recorder_panel.stop();
-                self.event_bus
-                    .publish(crate::events::AppEvent::RecordingStopped { duration_secs: 0 });
-            } else {
-                self.recorder_panel.start();
-                self.event_bus
-                    .publish(crate::events::AppEvent::RecordingStarted {
-                        filename: "recording.wav".to_string(),
-                    });
-            }
-        }
-
         // Keep up with local IQ and daemon audio even when no local sample batch
         // arrived. The daemon emits audio faster than an idle UI refresh rate.
         let receiver_active = self.shared.try_lock().is_ok_and(|state| {
@@ -2151,27 +2123,42 @@ impl eframe::App for CentralApp {
             }
         };
 
-        // Top mode bar: 3 task modes + ambient 🤖 Ask + ⚙ More.
+        // Top mode bar: task modes plus Setup Guide and Settings popups.
         egui::Panel::top("mode_bar")
             .exact_size(30.0)
             .show(ui, |ui| self.render_mode_bar(ui));
 
-        // Secondary tools are utility windows. They stay above the receiver
-        // workspace so opening a tool never resizes the spectrum or controls.
-        if let Some(tool) = self.active_secondary_tool {
-            let mut open = true;
-            egui::Window::new(format!("{} {}", tool.icon(), tool.label()))
-                .id(egui::Id::new(("secondary_tool_window", tool.id())))
+        // Keep utility content in independent floating windows so neither
+        // popup takes space away from the active receiver workspace.
+        if self.show_setup_guide {
+            let mut open = self.show_setup_guide;
+            egui::Window::new("🧭 Setup Guide")
+                .id(egui::Id::new("setup_guide_popup"))
                 .open(&mut open)
-                .default_size([430.0, 560.0])
-                .min_size([320.0, 240.0])
-                .max_size([680.0, 820.0])
+                .default_size([520.0, 620.0])
+                .min_size([420.0, 360.0])
                 .resizable(true)
                 .collapsible(false)
-                .show(ui.ctx(), |ui| self.render_secondary_panel(ui, tool));
-            if !open {
-                self.active_secondary_tool = None;
-            }
+                .show(ui.ctx(), |ui| {
+                    crate::secondary_panel::render_setup_guide(
+                        &mut self.quick_start,
+                        &self.shared,
+                        ui,
+                    )
+                });
+            self.show_setup_guide = open && self.quick_start.is_active();
+        }
+        if self.show_settings {
+            egui::Window::new("⚙ Settings")
+                .id(egui::Id::new("settings_popup"))
+                .open(&mut self.show_settings)
+                .default_size([680.0, 680.0])
+                .min_size([480.0, 360.0])
+                .resizable(true)
+                .collapsible(false)
+                .show(ui.ctx(), |ui| {
+                    crate::secondary_panel::render_settings(&self.shared, &self.mqtt, ui)
+                });
         }
 
         // Humanized status strip: frequency, mode, plain-language signal, REC.
@@ -2443,14 +2430,14 @@ pub struct SharedSnapshot {
 // ── Main tab render methods ───────────────────────────────────────────────────
 
 impl CentralApp {
-    /// Top mode bar: the entire top-level navigation. It exposes the task
-    /// modes, curated utility menu, and compact AI popup toggle.
+    /// Top mode bar: the task workspaces and utility popup menu.
     fn render_mode_bar(&mut self, ui: &mut egui::Ui) {
         crate::mode_bar::render_mode_bar(
             ui,
             &self.shared,
             &mut self.current_tab,
-            &mut self.active_secondary_tool,
+            &mut self.show_setup_guide,
+            &mut self.show_settings,
             &mut self.adsb_panel,
         );
     }
@@ -2488,23 +2475,6 @@ impl CentralApp {
             }
             _ => self.status_bar.render_strip(ui, &self.shared),
         }
-    }
-
-    fn render_secondary_panel(&mut self, ui: &mut egui::Ui, tool: SecondaryTool) {
-        self.recorder_panel
-            .set_audio_sample_rate(self.audio.sample_rate());
-        let mut ctx = crate::secondary_panel::SecondaryPanelContext {
-            shared: &self.shared,
-            active_secondary_tool: &mut self.active_secondary_tool,
-            scanner: &mut self.scanner,
-            howto_panel: &mut self.howto_panel,
-            quick_start: &mut self.quick_start,
-            status_bar: &mut self.status_bar,
-            ai_panel: &mut self.ai_panel,
-            recorder_panel: &mut self.recorder_panel,
-            mqtt: &self.mqtt,
-        };
-        crate::secondary_panel::render_secondary_panel(&mut ctx, ui, tool);
     }
 
     fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
@@ -2648,30 +2618,12 @@ impl CentralApp {
                     state.spectrum.bookmark_freqs_dirty = true;
                 }
                 if let Some(sq) = state.spectrum.pending_squelch_db.take() { if let Err(error) = crate::radio_ui::set_power_squelch_level(&mut state, sq) { self.status_bar.warning(format!("Squelch: {error}")); } }
-                let mut scan_range_changed = false;
-                if let Some(hz) = state.spectrum.pending_scan_start.take() {
-                    self.scanner.start_hz = hz;
-                    scan_range_changed = true;
-                }
-                if let Some(hz) = state.spectrum.pending_scan_stop.take() {
-                    self.scanner.stop_hz = hz;
-                    scan_range_changed = true;
-                }
-                if scan_range_changed {
-                    self.scanner.ensure_current_in_range();
-                }
                 if let Some(mode_str) = state.spectrum.pending_demod_mode.take() {
                     if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) { state.demod_mode = mode; }
                 }
                 if state.spectrum.pending_start_source {
                     state.spectrum.pending_start_source = false;
                     self.radio_ui.start_receiver(&mut state);
-                }
-                if let Some(freq) = state.spectrum.pending_ai_freq.take() {
-                    let freq_mhz = freq as f64 / 1e6;
-                    self.ai_panel.input = format!("I'm looking at {freq_mhz:.4} MHz on the spectrum. What signals might be here? What demod mode?");
-                    self.active_secondary_tool = Some(SecondaryTool::Ai);
-                    self.status_bar.info(format!("🤖 AI prompt for {freq_mhz:.3} MHz"));
                 }
             }
         });
@@ -2683,15 +2635,8 @@ impl CentralApp {
             .default_size(300.0)
             .show(ui, |ui| {
                 self.adsb_panel.ui_list(ui);
-                if let Some(prompt) = self.adsb_panel.pending_ai_prompt.take() {
-                    self.ai_panel.input = prompt;
-                    self.active_secondary_tool = Some(SecondaryTool::Ai);
-                    self.status_bar
-                        .info("🤖 Aircraft details sent to AI".to_string());
-                }
             });
-        // Setup guidance is available from the How To popup; keep the map and
-        // aircraft list unobstructed in the tracking workspace.
+        // Keep the map and aircraft list unobstructed in the tracking workspace.
         egui::Panel::top("adsb_band_picker").show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Region / band");
@@ -2752,8 +2697,6 @@ impl CentralApp {
             &mut self.satellite_subtab,
             &mut self.constellation,
             &mut self.decoding_panel,
-            &mut self.ai_panel,
-            &mut self.status_bar,
         );
     }
 }

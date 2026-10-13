@@ -29,7 +29,6 @@ pub mod fonts;
 pub mod frequency_db;
 pub mod frequency_history;
 pub mod fx;
-pub mod howto_panel;
 pub mod keyboard;
 mod local_adsb;
 mod local_uat;

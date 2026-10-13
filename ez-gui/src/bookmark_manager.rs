@@ -311,8 +311,6 @@ impl BookmarkPanel {
         ui: &mut egui::Ui,
         shared: &Arc<Mutex<crate::app::SharedState>>,
         last_manual_tune_time: &mut std::time::Instant,
-        ai_panel_input: &mut String,
-        status_bar: &mut crate::status_bar::StatusBar,
     ) {
         self.poll_file_task(shared);
         let bm_count = if let Ok(state) = shared.try_lock() {
@@ -666,20 +664,6 @@ impl BookmarkPanel {
                                     .clicked()
                                 {
                                     delete_idx = Some(*orig_idx);
-                                }
-                                let bm_freq_mhz = bm.frequency_hz as f64 / 1e6;
-                                if ui.small_button("🤖")
-                                    .on_hover_text(format!("Ask AI about {}", bm.freq_display()))
-                                    .clicked()
-                                {
-                                    *ai_panel_input = format!(
-                                        "Tell me about the bookmark \"{}\": {:.4} MHz ({} mode). \
-                                         What signals should I expect here, and what are the best settings?",
-                                        bm.name, bm_freq_mhz, bm.mode
-                                    );
-                                    status_bar.info(
-                                        format!("🤖 AI prompt ready for {} — switch to the AI tab", bm.freq_display())
-                                    );
                                 }
                             }
                         });

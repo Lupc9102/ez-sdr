@@ -1,5 +1,5 @@
-//! Mode bar: top navigation bar containing the primary workspaces, a curated
-//! utility menu, and the optional AI assistant popup.
+//! Mode bar: top navigation bar containing the primary workspaces and the
+//! Setup Guide and Settings popups.
 
 use crate::adsb_panel::AdsBPanel;
 use crate::app::SharedState;
@@ -37,164 +37,6 @@ pub const MAIN_TABS: &[(&str, AppTab, &str, &str, &str)] = &[
     ),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SecondaryTool {
-    Bookmarks,
-    Scanner,
-    Recorder,
-    Ai,
-    Sinks,
-    BandPlan,
-    Scheduler,
-    Settings,
-    HowTo,
-    SetupGuide,
-    Discord,
-    Mqtt,
-    WebRemote,
-    Rigctl,
-    Layout,
-    Customize,
-    Advanced,
-    FrequencyManager,
-    VfoColor,
-    Theme,
-    ModuleManager,
-}
-
-impl SecondaryTool {
-    pub fn icon(&self) -> &'static str {
-        match self {
-            SecondaryTool::Bookmarks => "⭐",
-            SecondaryTool::Scanner => "🔍",
-            SecondaryTool::Recorder => "⏺",
-            SecondaryTool::Ai => "🤖",
-            SecondaryTool::Sinks => "🔊",
-            SecondaryTool::BandPlan => "🗺",
-            SecondaryTool::Scheduler => "🗓",
-            SecondaryTool::Settings => "⚙",
-            SecondaryTool::HowTo => "❓",
-            SecondaryTool::SetupGuide => "🧭",
-            SecondaryTool::Discord => "💬",
-            SecondaryTool::Mqtt => "📡",
-            SecondaryTool::WebRemote => "🌐",
-            SecondaryTool::Rigctl => "📻",
-            SecondaryTool::Layout => "🧩",
-            SecondaryTool::Customize => "🎨",
-            SecondaryTool::Advanced => "🧪",
-            SecondaryTool::FrequencyManager => "📋",
-            SecondaryTool::VfoColor => "🎨",
-            SecondaryTool::Theme => "🎭",
-            SecondaryTool::ModuleManager => "📦",
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            SecondaryTool::Bookmarks => "Bookmarks",
-            SecondaryTool::Scanner => "Scanner",
-            SecondaryTool::Recorder => "Recorder",
-            SecondaryTool::Ai => "AI Agent",
-            SecondaryTool::Sinks => "Sinks",
-            SecondaryTool::BandPlan => "Band Plan",
-            SecondaryTool::Scheduler => "Scheduler",
-            SecondaryTool::Settings => "Settings",
-            SecondaryTool::HowTo => "How To",
-            SecondaryTool::SetupGuide => "Setup Guide",
-            SecondaryTool::Discord => "Discord",
-            SecondaryTool::Mqtt => "MQTT",
-            SecondaryTool::WebRemote => "Web Remote",
-            SecondaryTool::Rigctl => "Rigctl Server",
-            SecondaryTool::Layout => "Layout",
-            SecondaryTool::Customize => "Customize",
-            SecondaryTool::Advanced => "Advanced",
-            SecondaryTool::FrequencyManager => "Frequency Manager",
-            SecondaryTool::VfoColor => "VFO Color",
-            SecondaryTool::Theme => "Theme",
-            SecondaryTool::ModuleManager => "Module Manager",
-        }
-    }
-
-    pub fn id(&self) -> &'static str {
-        match self {
-            SecondaryTool::Bookmarks => "bookmarks",
-            SecondaryTool::Scanner => "scanner",
-            SecondaryTool::Recorder => "recorder",
-            SecondaryTool::Ai => "ai_agent",
-            SecondaryTool::Sinks => "sinks",
-            SecondaryTool::BandPlan => "band_plan",
-            SecondaryTool::Scheduler => "scheduler",
-            SecondaryTool::Settings => "settings",
-            SecondaryTool::HowTo => "howto",
-            SecondaryTool::SetupGuide => "setup_guide",
-            SecondaryTool::Discord => "discord",
-            SecondaryTool::Mqtt => "mqtt",
-            SecondaryTool::WebRemote => "webremote",
-            SecondaryTool::Rigctl => "rigctl",
-            SecondaryTool::Layout => "layout",
-            SecondaryTool::Customize => "customize",
-            SecondaryTool::Advanced => "advanced",
-            SecondaryTool::FrequencyManager => "frequency_manager",
-            SecondaryTool::VfoColor => "vfo_color",
-            SecondaryTool::Theme => "theme",
-            SecondaryTool::ModuleManager => "module_manager",
-        }
-    }
-
-    /// Lowest [`crate::user_level::UserLevel`] at which this tool appears in the ⚙ More deck.
-    pub fn min_level(&self) -> crate::user_level::UserLevel {
-        use crate::user_level::UserLevel::*;
-        match self {
-            // Always available.
-            SecondaryTool::Bookmarks
-            | SecondaryTool::Ai
-            | SecondaryTool::Settings
-            | SecondaryTool::HowTo
-            | SecondaryTool::SetupGuide
-            | SecondaryTool::Customize => Beginner,
-            // Power tools.
-            SecondaryTool::Scanner
-            | SecondaryTool::Recorder
-            | SecondaryTool::Sinks
-            | SecondaryTool::BandPlan
-            | SecondaryTool::Scheduler
-            | SecondaryTool::Advanced => Advanced,
-            // Expert integrations.
-            SecondaryTool::Discord
-            | SecondaryTool::Mqtt
-            | SecondaryTool::WebRemote
-            | SecondaryTool::Rigctl
-            | SecondaryTool::Layout => ClerkMaxwell,
-            SecondaryTool::FrequencyManager
-            | SecondaryTool::VfoColor
-            | SecondaryTool::Theme
-            | SecondaryTool::ModuleManager => Advanced,
-        }
-    }
-
-    /// Whether this tool should be listed for a user at `level`.
-    pub fn available_at(&self, level: crate::user_level::UserLevel) -> bool {
-        (level as usize) >= (self.min_level() as usize)
-    }
-}
-
-/// Secondary tools that belong in the primary Tools menu.
-///
-/// The enum below intentionally retains the integration and legacy variants
-/// so saved layouts and the secondary renderer stay backwards compatible, but
-/// the main menu only exposes receiver workflow tools.  Integrations
-/// (Discord/MQTT/Web Remote/Rigctl), duplicate views (Band Plan, Frequency
-/// Manager, Layout), and cosmetic/status-only entries remain available to
-/// existing configuration readers without adding another side menu.
-pub const ALL_SECONDARY_TOOLS: &[SecondaryTool] = &[
-    SecondaryTool::Scanner,
-    SecondaryTool::Recorder,
-    SecondaryTool::Ai,
-    SecondaryTool::HowTo,
-    SecondaryTool::SetupGuide,
-    SecondaryTool::Settings,
-];
-
 /// Immediate-mode render function: one `&mut` per panel/widget by design.
 /// Grouping these into a context struct would just move the field list.
 #[allow(clippy::too_many_arguments)]
@@ -202,7 +44,8 @@ pub fn render_mode_bar(
     ui: &mut egui::Ui,
     shared: &Arc<Mutex<SharedState>>,
     current_tab: &mut AppTab,
-    active_secondary_tool: &mut Option<SecondaryTool>,
+    show_setup_guide: &mut bool,
+    show_settings: &mut bool,
     adsb_panel: &mut AdsBPanel,
 ) {
     let colors = shared
@@ -246,7 +89,6 @@ pub fn render_mode_bar(
             }
             if response.clicked() {
                 *current_tab = tab;
-                *active_secondary_tool = None;
                 if tab == AppTab::Planes {
                     adsb_panel.begin();
                 }
@@ -254,11 +96,13 @@ pub fn render_mode_bar(
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.menu_button("Tools", |ui| {
-                for tool in ALL_SECONDARY_TOOLS.iter().copied() {
-                    if ui.button(tool.label()).clicked() {
-                        *active_secondary_tool = Some(tool);
-                        ui.close();
-                    }
+                if ui.button("Setup Guide").clicked() {
+                    *show_setup_guide = true;
+                    ui.close();
+                }
+                if ui.button("Settings").clicked() {
+                    *show_settings = true;
+                    ui.close();
                 }
             });
             egui::warn_if_debug_build(ui);

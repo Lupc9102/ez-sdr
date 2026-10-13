@@ -296,14 +296,8 @@ impl CustomizePanel {
 
     fn ui_layout(&mut self, ui: &mut egui::Ui, cfg: &mut AppConfig) {
         ui.label(egui::RichText::new("Main tabs").strong())
-            .on_hover_text("Show/hide and reorder the icons in the top of the sidebar. The Customize tab itself is always shown.");
+            .on_hover_text("Show/hide and reorder the main workspace tabs.");
         Self::reorder_list(ui, &mut cfg.layout.main_tabs, "main_tabs");
-
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label(egui::RichText::new("Secondary tools").strong())
-            .on_hover_text("Show/hide and reorder the tool icons below the main tabs.");
-        Self::reorder_list(ui, &mut cfg.layout.secondary_tools, "secondary_tools");
 
         ui.add_space(8.0);
         if ui.button("Reset layout to defaults").clicked() {
