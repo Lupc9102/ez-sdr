@@ -279,3 +279,12 @@ Windows installer execution and macOS native execution remain unrun.
 Initial interrupted or failed attempts remain identifiable and are superseded by
 these completed checks. Physical reception, audio and original off-air 80k Meteor
 field validation remain user-owned.
+
+[Expanded package validation](software-completion/package.json) verifies the fresh
+Linux archive built from implementation commit `62ce413`: its checksums pass,
+all 215 fingerprinted files match the verified source, and all 532 vendored
+packages resolve offline with an empty Cargo cache. Packaged binaries match the
+release build, native libraries resolve, both CLI help commands work, and the
+packaged GUI creates a native window with isolated settings and software GL.
+This is local build/startup proof; physical reception and Windows/macOS native
+installation/runtime tests remain outside this completed software goal.
