@@ -30,6 +30,16 @@ installer bundle `librtlsdr.dll`, `libusb-1.0.dll`, and every other non-system
 DLL imported by the release binaries beside the executables; no separate RTL-SDR
 runtime installation is needed.
 
+On Windows, installed and portable GUI builds store settings, bookmarks, map
+cache and default recordings in `%LOCALAPPDATA%\EZ-SDR`. The GUI creates this
+folder before loading settings, including when launched directly from its EXE.
+Missing settings/bookmarks/signal history are copied from the old launch directory
+or EXE folder; existing per-user files take precedence. Old files are left in
+place. Relative replay paths and custom recording locations retain their original
+base; the default `./recordings` folder now lives under the per-user directory.
+Settings write failures are shown in Settings and the status strip. If the
+per-user folder cannot be prepared, a startup error window explains the failure.
+
 For RTL-SDR USB reception, install the WinUSB driver for the receiver with
 [Zadig](https://zadig.akeo.ie/). In Zadig, select the receiver, choose WinUSB,
 and install or replace its driver. This replaces the receiver's current Windows

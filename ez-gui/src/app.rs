@@ -2459,6 +2459,12 @@ impl CentralApp {
     /// frequency, demod mode, signal strength word, and the REC indicator,
     /// ending with the latest transient status flash.
     fn render_status_strip(&mut self, ui: &mut egui::Ui) {
+        if let Some(error) = self
+            .try_lock_shared("settings save feedback")
+            .and_then(|state| state.config.save_error.clone())
+        {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+        }
         match self.current_tab {
             AppTab::Meteor => {
                 ui.horizontal(|ui| {

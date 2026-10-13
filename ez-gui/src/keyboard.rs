@@ -181,9 +181,12 @@ impl KeyboardHandler {
                 state.config.last_session_freq_hz = state.source.frequency_hz;
                 state.config.last_session_gain_db = state.source.gain_db;
                 state.config.last_session_demod = state.demod_mode.label().to_string();
-                state.config.save();
-                status_bar
-                    .success("💾 Config saved (freq, gain, demod, spectrum range)".to_string());
+                if state.config.save() {
+                    status_bar
+                        .success("💾 Config saved (freq, gain, demod, spectrum range)".to_string());
+                } else if let Some(error) = &state.config.save_error {
+                    status_bar.error(error.clone());
+                }
             }
 
             // F: freeze/unfreeze spectrum

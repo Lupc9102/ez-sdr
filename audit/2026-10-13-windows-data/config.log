@@ -1,0 +1,31 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-b418950003737d73)
+
+running 24 tests
+test config::tests::config_default_has_theme_and_discord ... ok
+test config::tests::config_default_has_empty_custom_theme_gallery ... ok
+test config::tests::config_default_has_reasonable_freq ... ok
+test config::tests::config_default_observer_at_london ... ok
+test config::tests::config_default_sample_rate ... ok
+test config::tests::config_default_theme_is_dark ... ok
+test config::tests::config_edge_values_max_freq ... ok
+test config::tests::config_edge_values_empty_strings ... ok
+test config::tests::config_edge_values_zero_freq ... ok
+test config::tests::config_missing_layout_and_custom_themes_fall_back_to_defaults ... ok
+test config::tests::config_partial_json_missing_fields_get_defaults ... ok
+test config::tests::config_partial_json_theme_and_discord ... ok
+test config::tests::config_load_or_default_nonexistent_returns_default ... ok
+test config::tests::config_custom_themes_roundtrip_through_json ... ok
+test config::tests::layout_config_default_lists_all_current_tabs_and_tools_visible ... ok
+test config::tests::config_serde_roundtrip_preserves_fields ... ok
+test config::tests::legacy_zero_scale_and_sample_rate_are_repaired_before_apply ... ok
+test config::tests::config_save_and_load_roundtrip ... ok
+test config::tests::provider_presets_have_names ... ok
+test config::tests::receiver_parity_settings_upgrade_and_roundtrip ... ok
+test config::tests::layout_migration_maps_legacy_tabs_to_current_modes ... ok
+test config::tests::new_receiver_settings_roundtrip_and_legacy_defaults_are_safe ... ok
+test config::tests::saved_display_normalization_migrates_aliases_and_rejects_invalid_values ... ok
+test config::tests::failed_save_is_visible_and_a_successful_retry_clears_it ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 911 filtered out; finished in 0.06s
+

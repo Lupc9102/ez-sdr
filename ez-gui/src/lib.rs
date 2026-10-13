@@ -7,6 +7,7 @@ pub mod ai_panel;
 pub mod airport_db;
 pub mod antenna_checklist;
 pub mod app;
+pub mod app_data;
 pub mod audio_output;
 mod audio_recording;
 mod audio_resampler;

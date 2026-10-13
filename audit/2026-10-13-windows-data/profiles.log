@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-b418950003737d73)
+
+running 2 tests
+test app::app_ui_tests::saved_receiver_profile_import_applies_calibration_and_only_changed_hardware_restarts ... ok
+test app::app_ui_tests::saved_receiver_profile_restores_before_first_render_and_round_trips ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 933 filtered out; finished in 0.22s
+

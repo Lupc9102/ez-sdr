@@ -674,6 +674,9 @@ pub struct AppConfig {
     pub font_scale: f64,
     /// Flag indicating settings have changed and need to be applied.
     pub needs_apply: bool,
+    /// Persistence errors are visible for this session, never saved as settings.
+    #[serde(skip)]
+    pub save_error: Option<String>,
     /// Recently tuned frequencies (for quick-access menu).
     pub recent_frequencies: Vec<u64>,
     /// Spectrum display minimum (dBFS).
@@ -736,6 +739,7 @@ impl Default for AppConfig {
             default_sample_rate: 2_048_000,
             default_gain: 40.0,
             output_directory: "./recordings".to_string(),
+            save_error: None,
             theme: "dark".to_string(),
             ai_api_key: String::new(),
             ai_endpoint: DEFAULT_AI_ENDPOINT.to_string(),
@@ -940,10 +944,28 @@ impl AppConfig {
     }
 
     /// Serialise and write the configuration atomically to `ez_sdr_config.json`.
-    pub fn save(&self) {
-        if let Err(error) = self.save_to("ez_sdr_config.json") {
-            eprintln!("[config] failed to write config file: {error}");
+    /// Return whether persistence succeeded and retain failures for the GUI.
+    pub fn save(&mut self) -> bool {
+        self.save_with_feedback("ez_sdr_config.json")
+    }
+
+    fn save_with_feedback(&mut self, path: impl AsRef<std::path::Path>) -> bool {
+        let path = path.as_ref();
+        self.save_error = self.save_to(path).err().map(|error| {
+            let location = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir().unwrap_or_default().join(path)
+            };
+            format!(
+                "Could not save settings to {}: {error}. Changes are only kept for this session.",
+                location.display()
+            )
+        });
+        if let Some(error) = &self.save_error {
+            eprintln!("[config] {error}");
         }
+        self.save_error.is_none()
     }
 
     fn save_to(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
@@ -983,6 +1005,9 @@ impl AppConfig {
     /// Render the egui-based settings panel UI.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Settings");
+        if let Some(error) = &self.save_error {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+        }
         let job_id = egui::Id::new("config.file_job");
         let message_id = egui::Id::new("config.file_message");
         let job = ui
@@ -1291,7 +1316,7 @@ impl AppConfig {
             });
             ui.colored_label(
                 egui::Color32::GRAY,
-                "Settings are saved to ez_sdr_config.json in the current directory. Spectrum dB range is saved with Ctrl+S.",
+                format!("Settings file: {}. Spectrum dB range is saved with Ctrl+S.", std::env::current_dir().unwrap_or_default().join("ez_sdr_config.json").display()),
             );
         });
     }
@@ -1470,6 +1495,51 @@ mod tests {
         assert!((loaded.observer_lon - (-74.0060)).abs() < f64::EPSILON);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_save_is_visible_and_a_successful_retry_clears_it() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-settings-save-error-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("settings.json");
+        // A directory at the destination forces a real atomic rename failure,
+        // independently of root privileges or platform permission emulation.
+        std::fs::create_dir_all(&path).unwrap();
+        let mut config = AppConfig {
+            theme: "light".into(),
+            ..Default::default()
+        };
+        assert!(!config.save_with_feedback(&path));
+        let message = config.save_error.as_ref().unwrap();
+        assert!(message.contains("Could not save settings"));
+        assert!(message.contains("settings.json"));
+        assert!(message.contains("only kept for this session"));
+        assert!(serde_json::to_value(&config)
+            .unwrap()
+            .get("save_error")
+            .is_none());
+
+        let ctx = egui::Context::default();
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| config.ui(ui));
+        fn contains_error(shape: &egui::Shape) -> bool {
+            match shape {
+                egui::Shape::Text(text) => text.galley.text().contains("Could not save settings"),
+                egui::Shape::Vec(shapes) => shapes.iter().any(contains_error),
+                _ => false,
+            }
+        }
+        assert!(output
+            .shapes
+            .iter()
+            .any(|shape| contains_error(&shape.shape)));
+        std::fs::remove_dir(&path).unwrap();
+        assert!(config.save_with_feedback(&path));
+        assert!(config.save_error.is_none());
+        assert_eq!(AppConfig::load_from(&path).theme, "light");
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

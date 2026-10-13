@@ -30,6 +30,8 @@ InfoBeforeFile={#SourceDir}\DISTRIBUTION.md
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
+; The executable selects %LOCALAPPDATA%\EZ-SDR before loading user data.
+; Keep a valid initial working directory so first launch can create that folder.
 Name: "{group}\EZ-SDR"; Filename: "{app}\bin\ez-gui.exe"; WorkingDir: "{app}\bin"
 Name: "{autodesktop}\EZ-SDR"; Filename: "{app}\bin\ez-gui.exe"; WorkingDir: "{app}\bin"; Tasks: desktopicon
 
