@@ -68,7 +68,7 @@ pub struct PacketPipeline {
 }
 
 impl PacketPipeline {
-    #[must_use]
+    #[must_use = "handle errors when the configured decoder clock is incompatible"]
     pub fn new(input: SampleBusHandle, expected_sample_rate_hz: u32) -> anyhow::Result<Self> {
         if expected_sample_rate_hz != ADSB_SAMPLE_RATE_HZ {
             return Err(anyhow!(

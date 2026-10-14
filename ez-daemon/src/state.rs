@@ -28,7 +28,7 @@ use crate::auth::Authenticator;
 use crate::broadcast::BroadcasterHandle;
 use crate::bus::{OverflowPolicy, SampleBus, SampleBusHandle};
 use crate::channelizer::Channelizer;
-use crate::ingest::IngestHandle;
+use crate::ingest::{IngestHandle, PendingHardwareCommand};
 use crate::pipelines::audio::{AudioConfig, AudioPipeline};
 use crate::pipelines::packet::PacketPipeline;
 use crate::pipelines::spectrum::{SpectrumConfig, SpectrumPipeline};
@@ -45,6 +45,11 @@ enum ActivePipeline {
     Audio(Arc<Mutex<AudioPipeline>>),
     AdsbPackets(Arc<Mutex<PacketPipeline>>),
     LrptTelemetry(Arc<Mutex<TelemetryPipeline>>),
+}
+
+enum PendingGeometryChange {
+    Frequency(PendingHardwareCommand),
+    SampleRate(PendingHardwareCommand),
 }
 
 struct ActiveChannel {
@@ -83,6 +88,11 @@ pub struct DaemonState {
     channelizer: Arc<Mutex<Channelizer>>,
     channelizer_running: Arc<AtomicBool>,
     channelizer_thread: Option<JoinHandle<()>>,
+    /// Lock order: acquire this before the channel table, recording manager, channelizer,
+    /// or any pipeline lock. It stays held across acknowledged hardware geometry changes,
+    /// but readers, status accessors, and DSP workers never acquire it.
+    geometry_operations: Mutex<()>,
+    pending_geometry_change: Mutex<Option<PendingGeometryChange>>,
     channels: Mutex<HashMap<ChannelId, ActiveChannel>>,
     next_client_channel: AtomicU32,
     recordings: Mutex<RecordingManager>,
@@ -116,6 +126,8 @@ impl DaemonState {
             channelizer,
             channelizer_running,
             channelizer_thread: Some(channelizer_thread),
+            geometry_operations: Mutex::new(()),
+            pending_geometry_change: Mutex::new(None),
             channels: Mutex::new(HashMap::new()),
             next_client_channel: AtomicU32::new(ez_proto::CLIENT_CHANNEL_START),
             recordings: Mutex::new(RecordingManager::new(recording_dir)),
@@ -174,10 +186,126 @@ impl DaemonState {
         }
     }
 
-    pub fn set_frequency(&self, hz: u64) -> anyhow::Result<()> {
-        self.hardware.set_frequency(hz)?;
-        self.channelizer.lock().retune(hz);
+    /// Applies an acknowledged geometry change that outlived the ingestion command's reply
+    /// deadline. The caller holds `geometry_operations`, so no channel can be installed
+    /// between observing the final hardware status and publishing it to the channelizer.
+    fn reconcile_pending_geometry_change(&self) -> Result<()> {
+        let Some(pending) = self.pending_geometry_change.lock().take() else {
+            return Ok(());
+        };
+        let outcome = match &pending {
+            PendingGeometryChange::Frequency(receipt)
+            | PendingGeometryChange::SampleRate(receipt) => receipt.outcome(),
+        };
+        let Some(outcome) = outcome else {
+            *self.pending_geometry_change.lock() = Some(pending);
+            anyhow::bail!(
+                "a hardware geometry change is still applying; channel creation and retuning are paused until its outcome is known"
+            );
+        };
+
+        if matches!(&pending, PendingGeometryChange::SampleRate(_))
+            && self
+                .channels
+                .lock()
+                .values()
+                .any(|active| active.internal_channel_id.is_some())
+        {
+            *self.pending_geometry_change.lock() = Some(pending);
+            anyhow::bail!(
+                "cannot reconcile the hardware sample rate while virtual channels are active"
+            );
+        }
+
+        let status = self.hardware.status();
+        if status.sample_rate_hz == 0 {
+            *self.pending_geometry_change.lock() = Some(pending);
+            anyhow::bail!(
+                "cannot reconcile the hardware geometry change: receiver reports a zero sample rate"
+            );
+        }
+        match pending {
+            PendingGeometryChange::Frequency(_) => {
+                self.channelizer.lock().retune(status.frequency_hz);
+            }
+            PendingGeometryChange::SampleRate(_) => {
+                self.channelizer
+                    .lock()
+                    .set_wideband_rate_hz(status.sample_rate_hz)?;
+            }
+        }
+        if let Err(error) = outcome {
+            if !status.connected {
+                anyhow::bail!(
+                    "hardware geometry change failed and the receiver is disconnected; verified hardware settings are {} Hz at {} Hz: {error}",
+                    status.frequency_hz,
+                    status.sample_rate_hz
+                );
+            }
+        }
         Ok(())
+    }
+
+    /// Geometry mutators call this while holding `geometry_operations`, before reading or
+    /// changing any channelizer state. It also prevents new pipelines from starting against
+    /// a receiver that ingestion has marked disconnected.
+    fn prepare_geometry_operation(&self) -> Result<()> {
+        self.reconcile_pending_geometry_change()?;
+        let status = self.hardware.status();
+        if !status.connected {
+            anyhow::bail!(
+                "receiver is disconnected; channel geometry is unavailable: {}",
+                status
+                    .error
+                    .as_deref()
+                    .unwrap_or("no receiver error details")
+            );
+        }
+        if status.sample_rate_hz == 0 {
+            anyhow::bail!("receiver reports a zero sample rate; channel geometry is unavailable");
+        }
+        Ok(())
+    }
+
+    pub fn set_frequency(&self, hz: u64) -> anyhow::Result<()> {
+        let _geometry = self.geometry_operations.lock();
+        self.prepare_geometry_operation()?;
+        match self.hardware.set_frequency(hz) {
+            Ok(()) => {
+                let status = self.hardware.status();
+                self.channelizer.lock().retune(status.frequency_hz);
+                if !status.connected {
+                    anyhow::bail!(
+                        "frequency change was acknowledged, but the receiver disconnected: {}",
+                        status
+                            .error
+                            .as_deref()
+                            .unwrap_or("no receiver error details")
+                    );
+                }
+                Ok(())
+            }
+            Err(error) => match error.downcast::<PendingHardwareCommand>() {
+                Ok(receipt) => {
+                    *self.pending_geometry_change.lock() =
+                        Some(PendingGeometryChange::Frequency(receipt));
+                    anyhow::bail!(
+                        "frequency change to {hz} Hz is still applying; later geometry changes are paused until receiver status resolves it"
+                    );
+                }
+                Err(error) => {
+                    let status = self.hardware.status();
+                    self.channelizer.lock().retune(status.frequency_hz);
+                    if !status.connected {
+                        anyhow::bail!(
+                            "frequency change failed and the receiver disconnected; hardware reports {} Hz: {error}",
+                            status.frequency_hz
+                        );
+                    }
+                    Err(error)
+                }
+            },
+        }
     }
 
     /// Maximum concurrent virtual channels. Each channel spawns a pipeline OS
@@ -282,6 +410,8 @@ impl DaemonState {
     /// is active. Wideband spectrum channels may remain because they consume source blocks
     /// directly and use each block's own sample-rate metadata.
     pub fn set_sample_rate(&self, hz: u32) -> anyhow::Result<()> {
+        let _geometry = self.geometry_operations.lock();
+        self.prepare_geometry_operation()?;
         if hz == 0 {
             // A zero rate poisons downstream DSP (division by zero in pacing,
             // FIR sizing, and timestamp math) — reject at the control plane
@@ -298,9 +428,55 @@ impl DaemonState {
                 "cannot change sample rate while audio or decoder channels are active; remove them first"
             );
         }
-        self.hardware.set_sample_rate(hz)?;
-        self.channelizer.lock().set_wideband_rate_hz(hz)?;
-        Ok(())
+        let previous_rate = self.channelizer.lock().wideband_rate_hz();
+        match self.hardware.set_sample_rate(hz) {
+            Ok(()) => {
+                let status = self.hardware.status();
+                if status.sample_rate_hz == 0 {
+                    anyhow::bail!(
+                        "sample-rate change was acknowledged, but the receiver reports a zero rate"
+                    );
+                }
+                self.channelizer
+                    .lock()
+                    .set_wideband_rate_hz(status.sample_rate_hz)?;
+                if !status.connected {
+                    anyhow::bail!(
+                        "sample-rate change was acknowledged, but the receiver disconnected: {}",
+                        status
+                            .error
+                            .as_deref()
+                            .unwrap_or("no receiver error details")
+                    );
+                }
+                Ok(())
+            }
+            Err(error) => match error.downcast::<PendingHardwareCommand>() {
+                Ok(receipt) => {
+                    *self.pending_geometry_change.lock() =
+                        Some(PendingGeometryChange::SampleRate(receipt));
+                    anyhow::bail!(
+                        "sample-rate change to {hz} Hz is still applying; the channelizer remains at {previous_rate} Hz and later geometry changes are paused until receiver status resolves it"
+                    );
+                }
+                Err(error) => {
+                    let status = self.hardware.status();
+                    if status.sample_rate_hz != 0 && status.sample_rate_hz != previous_rate {
+                        self.channelizer
+                            .lock()
+                            .set_wideband_rate_hz(status.sample_rate_hz)?;
+                    }
+                    if !status.connected {
+                        anyhow::bail!(
+                            "sample-rate change failed and the receiver disconnected; channelizer remains at {} Hz while hardware reports {} Hz: {error}",
+                            self.channelizer.lock().wideband_rate_hz(),
+                            status.sample_rate_hz
+                        );
+                    }
+                    Err(error)
+                }
+            },
+        }
     }
 
     pub fn set_gain(&self, db: f64) -> anyhow::Result<()> {
@@ -382,6 +558,29 @@ impl DaemonState {
     pub fn subscribe(&self, mut spec: ChannelSpec) -> Result<(ChannelSubscription, bool)> {
         let id = spec.id;
         // Fast path: channel already exists — just return a fresh output subscription.
+        {
+            let channels = self.channels.lock();
+            if let Some(existing) = channels.get(&id) {
+                if existing.spec.kind != spec.kind
+                    || existing.spec.meteor_profile != spec.meteor_profile
+                {
+                    return Err(anyhow!(
+                        "channel {id} already exists with a different kind or Meteor profile; cannot resubscribe with these settings. Remove it or use another channel ID"
+                    ));
+                }
+                return Ok((subscription_for(existing), false));
+            }
+            if channels.len() >= Self::MAX_CHANNELS {
+                return Err(anyhow!(
+                    "channel limit ({}) reached; remove a channel first",
+                    Self::MAX_CHANNELS
+                ));
+            }
+        }
+        let _geometry = self.geometry_operations.lock();
+        self.prepare_geometry_operation()?;
+        // A rate change or another first subscriber may have completed while this caller
+        // waited for the geometry gate. Revalidate the channel identity and capacity now.
         {
             let channels = self.channels.lock();
             if let Some(existing) = channels.get(&id) {
@@ -605,6 +804,8 @@ impl DaemonState {
         mode: DemodMode,
         parameters: Option<AudioParameters>,
     ) -> Result<()> {
+        let _geometry = self.geometry_operations.lock();
+        self.prepare_geometry_operation()?;
         let (mut proposed, pipeline) = {
             let channels = self.channels.lock();
             let active = channels
@@ -660,6 +861,8 @@ impl DaemonState {
         channel_sample_rate_hz: u32,
         audio: Option<AudioConfiguration>,
     ) -> Result<()> {
+        let _geometry = self.geometry_operations.lock();
+        self.prepare_geometry_operation()?;
         let (internal_id, mut proposed, telemetry, audio_pipeline) = {
             let channels = self.channels.lock();
             let active = channels
@@ -727,6 +930,7 @@ impl DaemonState {
     /// Control transports report removal by channel identity to subscribers.
     /// Active recordings must be stopped first.
     pub fn remove_channel(&self, channel_id: ChannelId) -> Result<()> {
+        let _geometry = self.geometry_operations.lock();
         let mut recordings = self.recordings.lock();
         if recordings
             .status(channel_id)
@@ -963,8 +1167,112 @@ mod tests {
     include!("audio_configuration_tests.rs");
     use super::*;
     use crate::bus::SampleBus;
+    use crate::hardware::{IqSource, ReadPending};
     use crate::ingest;
+    use num_complex::Complex32;
     use std::sync::atomic::AtomicBool as StdAtomicBool;
+    use std::sync::mpsc::{Receiver, Sender};
+
+    struct GatedRateSource {
+        frequency_hz: u64,
+        sample_rate_hz: u32,
+        gated_rate_hz: u32,
+        reject_gated_rate: bool,
+        begun: Sender<()>,
+        release: Receiver<()>,
+    }
+
+    struct GatedRateHarness {
+        state: Arc<DaemonState>,
+        running: Arc<StdAtomicBool>,
+        ingest_thread: JoinHandle<()>,
+        begun: Receiver<()>,
+        release: Sender<()>,
+    }
+
+    impl IqSource for GatedRateSource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn stop(&mut self) {}
+
+        fn set_frequency(&mut self, hz: u64) -> anyhow::Result<()> {
+            self.frequency_hz = hz;
+            Ok(())
+        }
+
+        fn set_sample_rate(&mut self, hz: u32) -> anyhow::Result<()> {
+            if hz == self.gated_rate_hz {
+                self.begun.send(()).unwrap();
+                self.release.recv().unwrap();
+                if self.reject_gated_rate {
+                    anyhow::bail!("gated test source rejects rate {hz}");
+                }
+            }
+            self.sample_rate_hz = hz;
+            Ok(())
+        }
+
+        fn set_gain(&mut self, _db: f64) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn read_iq(&mut self, _buf: &mut [Complex32]) -> anyhow::Result<usize> {
+            std::thread::sleep(Duration::from_millis(1));
+            Err(ReadPending::Timeout.into())
+        }
+
+        fn frequency_hz(&self) -> u64 {
+            self.frequency_hz
+        }
+
+        fn sample_rate_hz(&self) -> u32 {
+            self.sample_rate_hz
+        }
+
+        fn gain_db(&self) -> f64 {
+            0.0
+        }
+
+        fn kind(&self) -> &'static str {
+            "gated-test-source"
+        }
+    }
+
+    fn state_with_gated_rate_source(reject_gated_rate: bool) -> GatedRateHarness {
+        let bus = SampleBus::new();
+        let running = Arc::new(StdAtomicBool::new(true));
+        let (begun_tx, begun_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (hardware, ingest_thread) = ingest::spawn(
+            Box::new(GatedRateSource {
+                frequency_hz: 100_000_000,
+                sample_rate_hz: 2_400_000,
+                gated_rate_hz: 1_200_000,
+                reject_gated_rate,
+                begun: begun_tx,
+                release: release_rx,
+            }),
+            bus.clone(),
+            Arc::clone(&running),
+        )
+        .unwrap();
+        let state = Arc::new(DaemonState::new(
+            bus,
+            hardware,
+            100_000_000,
+            2_400_000,
+            std::env::temp_dir(),
+        ));
+        GatedRateHarness {
+            state,
+            running,
+            ingest_thread,
+            begun: begun_rx,
+            release: release_tx,
+        }
+    }
 
     fn test_state() -> DaemonState {
         let bus = SampleBus::new();
@@ -1006,6 +1314,18 @@ mod tests {
             center_offset_hz: 0,
             channel_sample_rate_hz: 2_400_000,
             kind: PipelineKind::AdsbPackets,
+            demod_mode: None,
+        }
+    }
+
+    fn spectrum_spec(id: ChannelId, sample_rate_hz: u32) -> ChannelSpec {
+        ChannelSpec {
+            audio: None,
+            meteor_profile: None,
+            id,
+            center_offset_hz: 0,
+            channel_sample_rate_hz: sample_rate_hz,
+            kind: PipelineKind::Spectrum,
             demod_mode: None,
         }
     }
@@ -1373,6 +1693,176 @@ mod tests {
         assert!(error.to_string().contains("configured 2.4 MHz sample rate"));
         assert!(state.active_channels().is_empty());
         assert_eq!(state.channelizer.lock().channel_count(), 0);
+    }
+
+    #[test]
+    fn rate_change_serializes_first_subscribe_without_blocking_readers() {
+        let GatedRateHarness {
+            state,
+            running,
+            ingest_thread,
+            begun,
+            release,
+        } = state_with_gated_rate_source(false);
+        let state_for_rate = Arc::clone(&state);
+        let rate_thread = std::thread::spawn(move || state_for_rate.set_sample_rate(1_200_000));
+        begun
+            .recv_timeout(Duration::from_secs(2))
+            .expect("hardware sample-rate setter should reach its gate");
+
+        let (read_started_tx, read_started_rx) = std::sync::mpsc::channel();
+        let (read_done_tx, read_done_rx) = std::sync::mpsc::channel();
+        let state_for_reader = Arc::clone(&state);
+        let read_thread = std::thread::spawn(move || {
+            read_started_tx.send(()).unwrap();
+            read_done_tx
+                .send((
+                    state_for_reader.active_channels().len(),
+                    state_for_reader.hardware_status().sample_rate_hz,
+                ))
+                .unwrap();
+        });
+        read_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("status reader should start");
+        let read_before_release = read_done_rx.recv_timeout(Duration::from_millis(250));
+
+        let (subscribe_started_tx, subscribe_started_rx) = std::sync::mpsc::channel();
+        let (subscribe_done_tx, subscribe_done_rx) = std::sync::mpsc::channel();
+        let state_for_subscriber = Arc::clone(&state);
+        let subscribe_thread = std::thread::spawn(move || {
+            subscribe_started_tx.send(()).unwrap();
+            let result = state_for_subscriber
+                .subscribe(audio_spec(61, 0))
+                .map(|(_, created)| created)
+                .map_err(|error| error.to_string());
+            subscribe_done_tx.send(result).unwrap();
+        });
+        subscribe_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("subscriber should reach the geometry operation");
+        let subscribe_before_release = subscribe_done_rx.recv_timeout(Duration::from_millis(250));
+
+        release.send(()).unwrap();
+        let rate_result = rate_thread.join().unwrap();
+        let subscribe_after_release = match &subscribe_before_release {
+            Ok(result) => Ok(result.clone()),
+            Err(_) => subscribe_done_rx.recv_timeout(Duration::from_secs(2)),
+        };
+        read_thread.join().unwrap();
+        subscribe_thread.join().unwrap();
+
+        assert!(
+            read_before_release.is_ok(),
+            "read-only status must remain available during a hardware wait"
+        );
+        assert_eq!(read_before_release.unwrap(), (0, 2_400_000));
+        assert!(
+            matches!(
+                &subscribe_before_release,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ),
+            "first-channel creation should wait for the geometry transaction"
+        );
+        rate_result.unwrap();
+        assert!(subscribe_after_release.unwrap().unwrap());
+        assert_eq!(state.hardware_status().sample_rate_hz, 1_200_000);
+        assert_eq!(state.channelizer.lock().wideband_rate_hz(), 1_200_000);
+        assert!(state.subscribe(spectrum_spec(62, 2_400_000)).is_err());
+
+        state.remove_channel(61).unwrap();
+        running.store(false, Ordering::Relaxed);
+        ingest_thread.join().unwrap();
+        drop(state);
+    }
+
+    #[test]
+    fn rejected_hardware_rate_change_keeps_verified_channelizer_geometry() {
+        let GatedRateHarness {
+            state,
+            running,
+            ingest_thread,
+            begun,
+            release,
+        } = state_with_gated_rate_source(true);
+        let state_for_rate = Arc::clone(&state);
+        let rate_thread = std::thread::spawn(move || state_for_rate.set_sample_rate(1_200_000));
+        begun
+            .recv_timeout(Duration::from_secs(2))
+            .expect("hardware sample-rate setter should reach its gate");
+        release.send(()).unwrap();
+
+        let error = rate_thread
+            .join()
+            .unwrap()
+            .expect_err("rejected hardware request should be reported");
+        let status = state.hardware_status();
+        assert!(status.connected);
+        assert_eq!(status.sample_rate_hz, 2_400_000);
+        assert!(status
+            .error
+            .as_deref()
+            .is_some_and(|message| message.contains("gated test source rejects rate")));
+        assert_eq!(state.channelizer.lock().wideband_rate_hz(), 2_400_000);
+        assert!(
+            state.subscribe(spectrum_spec(63, 2_400_000)).is_ok(),
+            "the verified old geometry remains usable after recovery: {error}"
+        );
+
+        state.remove_channel(63).unwrap();
+        running.store(false, Ordering::Relaxed);
+        ingest_thread.join().unwrap();
+        drop(state);
+    }
+
+    #[test]
+    fn pending_hardware_rate_change_blocks_channels_until_reconciled() {
+        let GatedRateHarness {
+            state,
+            running,
+            ingest_thread,
+            begun,
+            release,
+        } = state_with_gated_rate_source(false);
+        let state_for_rate = Arc::clone(&state);
+        let rate_thread = std::thread::spawn(move || state_for_rate.set_sample_rate(1_200_000));
+        begun
+            .recv_timeout(Duration::from_secs(2))
+            .expect("hardware sample-rate setter should reach its gate");
+
+        let pending_error = rate_thread
+            .join()
+            .unwrap()
+            .expect_err("the acknowledgement deadline should report a pending command");
+        assert!(pending_error.to_string().contains("still applying"));
+        assert_eq!(state.channelizer.lock().wideband_rate_hz(), 2_400_000);
+        assert!(state.subscribe(audio_spec(64, 0)).is_err());
+        assert!(state.active_channels().is_empty());
+
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let outcome = match state.pending_geometry_change.lock().as_ref() {
+                Some(PendingGeometryChange::Frequency(receipt))
+                | Some(PendingGeometryChange::SampleRate(receipt)) => receipt.outcome(),
+                None => None,
+            };
+            if let Some(outcome) = outcome {
+                assert!(outcome.is_ok());
+                break;
+            }
+            assert!(Instant::now() < deadline, "hardware command did not finish");
+            std::thread::yield_now();
+        }
+
+        assert!(state.subscribe(audio_spec(64, 0)).is_ok());
+        assert_eq!(state.hardware_status().sample_rate_hz, 1_200_000);
+        assert_eq!(state.channelizer.lock().wideband_rate_hz(), 1_200_000);
+
+        state.remove_channel(64).unwrap();
+        running.store(false, Ordering::Relaxed);
+        ingest_thread.join().unwrap();
+        drop(state);
     }
 
     #[test]

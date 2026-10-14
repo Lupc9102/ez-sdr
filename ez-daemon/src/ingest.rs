@@ -119,7 +119,7 @@ impl CommandReceipt {
 /// The device call already started when its acknowledgement deadline expired.
 /// It cannot safely be undone or labelled cancelled. This receipt exposes its
 /// eventual applied/rejected result, while ingestion retains hardware ownership.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("hardware command is still applying; outcome pending, check receiver status")]
 pub struct PendingHardwareCommand {
     receipt: Arc<CommandReceipt>,
