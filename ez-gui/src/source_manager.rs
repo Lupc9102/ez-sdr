@@ -928,6 +928,13 @@ impl SourceManager {
         self.rtl_devices.iter().find(|device| device.index == index)
     }
 
+    /// Replace the daemon endpoint and its optional credential as one UI edit.
+    /// The token is never included in diagnostics or formatted output.
+    pub fn set_daemon_credentials(&mut self, address: String, token: String) {
+        self.daemon_addr = address;
+        self.daemon_token = token;
+    }
+
     /// Retune acquisition and the logical VFO to the same frequency and sample rate,
     /// restarting local sources so the worker cannot continue sampling stale settings.
     /// Daemon mode uses its live control channel instead of reconnecting.

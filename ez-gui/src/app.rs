@@ -12,7 +12,7 @@ pub struct FreqMemEntry {
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
 use crate::ai_panel::AiPanel;
-use crate::audio_output::AudioOutput;
+use crate::audio_output::{AudioOutput, AudioOutputSelection};
 use crate::bookmarks::BookmarkDb;
 use crate::config::AppConfig;
 use crate::constellation::ConstellationDisplay;
@@ -148,7 +148,9 @@ pub struct CentralApp {
     show_glossary: bool,
     // First strong signal celebration
     first_strong_signal_seen: bool,
-    last_audio_source: Option<(
+    last_audio_identity: Option<(
+        AudioOutputSelection,
+        usize,
         u64,
         u64,
         crate::radio_iq::RadioIqConfig,
@@ -488,7 +490,7 @@ impl CentralApp {
             freq_jump_matches: Vec::new(),
             show_glossary: false,
             first_strong_signal_seen: false,
-            last_audio_source: None,
+            last_audio_identity: None,
             theme_applied: false,
             recording_start: None,
             bm_last_observed: Vec::new(),
@@ -1427,22 +1429,20 @@ impl eframe::App for CentralApp {
         let desired_audio = self.shared.try_lock().ok().map(|state| {
             let channels = crate::radio_ui::playback_channels(&state);
             (
+                state.config.advanced.audio_output.clone(),
                 channels,
-                (
-                    state.source.frequency_hz,
-                    state.source.capture_center_frequency_hz(),
-                    crate::radio_ui::radio_iq_config(&state),
-                    state.source.source_mode.clone(),
-                    state.source.stream_generation(),
-                ),
+                state.source.frequency_hz,
+                state.source.capture_center_frequency_hz(),
+                crate::radio_ui::radio_iq_config(&state),
+                state.source.source_mode.clone(),
+                state.source.stream_generation(),
             )
         });
-        let reset_audio = desired_audio.as_ref().is_some_and(|(channels, source)| {
-            self.last_audio_source.as_ref() != Some(source)
-                || (self.audio.is_running() && *channels != self.audio.input_channels())
-        });
-        if let Some((_, source)) = desired_audio {
-            self.last_audio_source = Some(source);
+        let reset_audio = desired_audio
+            .as_ref()
+            .is_some_and(|identity| self.last_audio_identity.as_ref() != Some(identity));
+        if let Some(identity) = desired_audio {
+            self.last_audio_identity = Some(identity);
         }
         if reset_audio {
             self.audio.shutdown();
@@ -1863,26 +1863,7 @@ impl eframe::App for CentralApp {
         }
         if let Some((audio_running, selection, input_channels)) = audio_action {
             if audio_running && !self.audio.is_running() {
-                if !self.audio.has_failed() {
-                    match self.audio.start_with_selection_channels(
-                        crossbeam_channel::never::<Vec<f32>>(),
-                        &selection,
-                        input_channels,
-                    ) {
-                        Ok(()) => {
-                            self.recorder_panel
-                                .set_audio_sample_rate(self.audio.sample_rate());
-                            self.demod_worker.request_reset();
-                        }
-                        Err(error) => {
-                            self.audio.mark_failed();
-                            let _ = self.audio.take_error();
-                            self.status_bar.warning(format!(
-                                "Audio: {error}. Stop and restart the receiver to retry."
-                            ));
-                        }
-                    }
-                }
+                self.start_main_audio(&selection, input_channels);
             } else if !audio_running && (self.audio.is_running() || self.audio.has_failed()) {
                 self.audio.stop();
                 self.daemon_audio.reset();
@@ -2515,6 +2496,30 @@ pub struct SharedSnapshot {
 // ── Main tab render methods ───────────────────────────────────────────────────
 
 impl CentralApp {
+    fn start_main_audio(&mut self, selection: &AudioOutputSelection, input_channels: usize) {
+        if self.audio.has_failed() {
+            return;
+        }
+        match self.audio.start_with_selection_channels(
+            crossbeam_channel::never::<Vec<f32>>(),
+            selection,
+            input_channels,
+        ) {
+            Ok(()) => {
+                self.recorder_panel
+                    .set_audio_sample_rate(self.audio.sample_rate());
+                self.demod_worker.request_reset();
+            }
+            Err(error) => {
+                self.audio.mark_failed();
+                let _ = self.audio.take_error();
+                self.status_bar.warning(format!(
+                    "Audio: {error}. Stop and restart the receiver to retry."
+                ));
+            }
+        }
+    }
+
     /// Top mode bar: the task workspaces and utility popup menu.
     fn render_mode_bar(&mut self, ui: &mut egui::Ui) {
         crate::mode_bar::render_mode_bar(

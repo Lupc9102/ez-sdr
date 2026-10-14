@@ -722,6 +722,18 @@ pub(crate) mod tests {
         }
 
         pub(crate) async fn spawn_with_rate(label: &str, rate: u32) -> Self {
+            Self::spawn_with_auth_and_rate(label, rate, None).await
+        }
+
+        pub(crate) async fn spawn_with_auth(label: &str, token: impl Into<String>) -> Self {
+            Self::spawn_with_auth_and_rate(label, 2_000_000, Some(token.into())).await
+        }
+
+        async fn spawn_with_auth_and_rate(
+            label: &str,
+            rate: u32,
+            auth_token: Option<String>,
+        ) -> Self {
             let web_addr = free_addr().await;
             let addr = free_addr().await;
             let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -738,7 +750,7 @@ pub(crate) mod tests {
                 web_static_dir: std::env::temp_dir()
                     .join("ez-gui-daemon-client-nonexistent-static"),
                 source: SourceConfig::Synthetic,
-                auth_token: None,
+                auth_token,
                 receiver_position: None,
             };
             let running = Arc::new(AtomicBool::new(true));

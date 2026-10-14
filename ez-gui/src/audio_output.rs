@@ -602,9 +602,19 @@ impl Drop for AudioWorker {
     }
 }
 
+#[cfg(test)]
+type TestAudioStartHook =
+    Arc<dyn Fn(&AudioOutputSelection, usize) -> Result<u32, String> + Send + Sync>;
+
 pub struct AudioOutput {
     #[cfg(feature = "audio")]
     worker: Option<AudioWorker>,
+    #[cfg(test)]
+    test_start_hook: Option<TestAudioStartHook>,
+    #[cfg(test)]
+    test_sink: Option<AudioSink>,
+    #[cfg(test)]
+    _test_receiver: Option<Receiver<Vec<f32>>>,
     sample_rate: u32,
     running: bool,
     failed: Arc<AtomicBool>,
@@ -622,6 +632,12 @@ impl AudioOutput {
         Self {
             #[cfg(feature = "audio")]
             worker: None,
+            #[cfg(test)]
+            test_start_hook: None,
+            #[cfg(test)]
+            test_sink: None,
+            #[cfg(test)]
+            _test_receiver: None,
             sample_rate: 48_000,
             running: false,
             failed: Arc::new(AtomicBool::new(false)),
@@ -664,6 +680,28 @@ impl AudioOutput {
             };
         }
         self.stop();
+        #[cfg(test)]
+        if let Some(start) = self.test_start_hook.clone() {
+            match start(selection, input_channels) {
+                Ok(sample_rate) => {
+                    let (sink, receiver) = AudioSink::fixture(8);
+                    self.sample_rate = sample_rate;
+                    self.input_channels = input_channels;
+                    self.selection = selection.clone();
+                    self.running = true;
+                    self.test_sink = Some(sink);
+                    self._test_receiver = Some(receiver);
+                    return Ok(());
+                }
+                Err(error) => {
+                    self.failed.store(true, Ordering::Release);
+                    if let Ok(mut message) = self.error_message.lock() {
+                        *message = Some(error.clone());
+                    }
+                    return Err(error);
+                }
+            }
+        }
         #[cfg(feature = "audio")]
         {
             let worker = AudioWorker::new(selection.clone(), input_channels)?;
@@ -690,6 +728,10 @@ impl AudioOutput {
     /// Non-blocking audio send via the worker's internal channel.
     /// Returns `false` if the channel is full (sample is dropped).
     pub fn push_audio(&self, _samples: Vec<f32>) -> bool {
+        #[cfg(test)]
+        if let Some(sink) = &self.test_sink {
+            return sink.push(_samples);
+        }
         #[cfg(feature = "audio")]
         {
             if let Some(worker) = &self.worker {
@@ -700,6 +742,12 @@ impl AudioOutput {
     }
 
     pub(crate) fn sink(&self) -> Option<AudioSink> {
+        #[cfg(test)]
+        if self.is_running() {
+            if let Some(sink) = &self.test_sink {
+                return Some(sink.clone());
+            }
+        }
         #[cfg(feature = "audio")]
         if self.is_running() {
             if let Some(worker) = &self.worker {
@@ -752,6 +800,14 @@ impl AudioOutput {
     pub fn mark_failed(&mut self) {
         self.failed.store(true, Ordering::Release);
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_start_hook(
+        &mut self,
+        hook: impl Fn(&AudioOutputSelection, usize) -> Result<u32, String> + Send + Sync + 'static,
+    ) {
+        self.test_start_hook = Some(Arc::new(hook));
+    }
     /// Alias for stop() so app.rs can call shutdown() on both AudioOutput and AudioWorker.
     pub fn shutdown(&mut self) {
         self.stop();
@@ -763,6 +819,11 @@ impl AudioOutput {
             if let Some(worker) = self.worker.take() {
                 worker.stop();
             }
+        }
+        #[cfg(test)]
+        {
+            self.test_sink = None;
+            self._test_receiver = None;
         }
         self.running = false;
         self.failed.store(false, Ordering::Release);

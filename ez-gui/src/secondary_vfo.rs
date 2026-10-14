@@ -483,6 +483,14 @@ impl SecondaryVfo {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_test_output_start_hook(
+        &mut self,
+        hook: impl Fn(&AudioOutputSelection, usize) -> Result<u32, String> + Send + Sync + 'static,
+    ) {
+        self.output.set_test_start_hook(hook);
+    }
+
     fn fail(&mut self, message: impl Into<String>) {
         self.error = Some(message.into());
         self.status = "B receiver unavailable".into();

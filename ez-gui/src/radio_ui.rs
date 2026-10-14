@@ -277,23 +277,52 @@ impl RadioUi {
         let mut restart = false;
         match state.source.source_mode {
             SourceMode::Daemon => {
-                let reconnect = ui
-                    .horizontal(|ui| {
-                        ui.label("Host");
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut state.source.daemon_addr)
-                                .desired_width(ui.available_width()),
+                let mut address = state.source.daemon_addr.clone();
+                let mut token = state.source.daemon_token.clone();
+                let mut reconnect = false;
+                let mut preferences_changed = false;
+                ui.horizontal(|ui| {
+                    ui.label("Host");
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut address)
+                            .desired_width(ui.available_width()),
+                    );
+                    reconnect |= response.lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                    preferences_changed |= response.changed();
+                    response.on_hover_text("Daemon host and port.");
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Access token");
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut token)
+                            .desired_width((ui.available_width() - 78.0).max(40.0))
+                            .password(true)
+                            .hint_text("optional"),
+                    );
+                    reconnect |= response.lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                    preferences_changed |= response.changed();
+                    #[cfg(test)]
+                    let token_rect = response.rect;
+                    response.on_hover_text("Optional daemon access token. The field is masked.");
+                    let button = ui.small_button("Reconnect");
+                    reconnect |= button.clicked();
+                    #[cfg(test)]
+                    ui.ctx().data_mut(|data| {
+                        data.insert_temp(egui::Id::new("radio.test.daemon_token_rect"), token_rect);
+                        data.insert_temp(
+                            egui::Id::new("radio.test.daemon_reconnect_rect"),
+                            button.rect,
                         );
-                        let enter =
-                            response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        response.on_hover_text("Enter a host:port, then press Enter or Reconnect.");
-                        enter
-                    })
-                    .inner;
-                if ui.small_button("Reconnect").clicked() || reconnect {
-                    state.source.stop();
-                    state.source.start();
-                    state.audio_running = !self.muted;
+                    });
+                });
+                if preferences_changed {
+                    state.source.set_daemon_credentials(address, token);
+                    persist_source_preferences(state);
+                }
+                if reconnect {
+                    reconnect_daemon(state, self.muted);
                 }
             }
             SourceMode::Replay => {
@@ -1555,6 +1584,18 @@ pub(crate) fn restart_if_running(source: &mut SourceManager) {
         source.stop();
         source.start();
     }
+}
+
+fn persist_source_preferences(state: &mut SharedState) {
+    state.config.source_preferences = crate::config::SourcePreferences::capture(&state.source);
+}
+
+/// Shared action for the visible Reconnect button and tests of that control path.
+pub(crate) fn reconnect_daemon(state: &mut SharedState, muted: bool) {
+    persist_source_preferences(state);
+    state.source.stop();
+    state.source.start();
+    state.audio_running = !muted;
 }
 
 pub(crate) fn change_source(state: &mut SharedState, mode: SourceMode) {

@@ -205,6 +205,64 @@ fn render_app_ui(
     ctx.run_ui(input, |ui| app.ui(ui, frame))
 }
 
+fn render_app_ui_events(
+    app: &mut CentralApp,
+    ctx: &egui::Context,
+    frame: &mut eframe::Frame,
+    events: Vec<egui::Event>,
+) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 1000.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    ctx.run_ui(input, |ui| app.ui(ui, frame))
+}
+
+fn pointer_click(rect: egui::Rect) -> Vec<egui::Event> {
+    let pos = rect.center();
+    vec![
+        egui::Event::PointerMoved(pos),
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        },
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        },
+    ]
+}
+
+fn daemon_control_rect(ctx: &egui::Context, name: &str) -> egui::Rect {
+    ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new(name)))
+        .expect("daemon control should have rendered")
+}
+
+async fn wait_for_daemon_source(
+    app: &mut CentralApp,
+    ready: impl Fn(&crate::source_manager::SourceStatus) -> bool,
+    description: &str,
+) -> crate::source_manager::SourceStatus {
+    let deadline = Instant::now() + Duration::from_secs(6);
+    loop {
+        app.drain_daemon_events();
+        let status = app.shared.lock().unwrap().source.status.clone();
+        if ready(&status) {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "{description}: {status:?}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 fn render_app_logic(app: &mut CentralApp, ctx: &egui::Context, frame: &mut eframe::Frame) {
     let _ = ctx.run_ui(egui::RawInput::default(), |_| app.logic(ctx, frame));
 }
@@ -357,6 +415,281 @@ fn restored_file_source_and_mode_stay_idle_with_usable_legacy_settings() {
         serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
     assert_eq!(restored.mode, "file");
     assert_eq!(restored.replay_file.as_deref(), Some("missing.iq"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn active_daemon_controls_mask_authenticate_persist_reconnect_and_clear_token() {
+    use crate::daemon_client::tests::TestDaemon;
+    use crate::source_manager::{SourceMode, SourceStatus};
+
+    let auth = TestDaemon::spawn_with_auth("radio-ui-auth", "valid-ui-secret").await;
+    let local = TestDaemon::spawn("radio-ui-open").await;
+    let mut app = offline_test_app();
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = SourceMode::Daemon;
+        state
+            .source
+            .set_daemon_credentials(auth.addr.to_string(), String::new());
+    }
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+
+    let first = render_app_ui(&mut app, &ctx, &mut frame);
+    let token_rect = daemon_control_rect(&ctx, "radio.test.daemon_token_rect");
+    let _ = render_app_ui_events(&mut app, &ctx, &mut frame, pointer_click(token_rect));
+    let visible = render_app_ui_events(
+        &mut app,
+        &ctx,
+        &mut frame,
+        vec![egui::Event::Paste("valid-ui-secret".into())],
+    );
+    let rendered = rendered_text(&visible);
+    assert!(
+        !rendered.contains("valid-ui-secret"),
+        "password input exposed its contents in rendered text: {rendered}"
+    );
+    {
+        let state = app.shared.lock().unwrap();
+        assert_eq!(state.source.daemon_token, "valid-ui-secret");
+        assert_eq!(
+            state.config.source_preferences.daemon_token, "valid-ui-secret",
+            "editing the mounted credential should update persisted source preferences"
+        );
+        assert!(!format!("{:?}", state.config.source_preferences).contains("valid-ui-secret"));
+    }
+    let reconnect_rect = daemon_control_rect(&ctx, "radio.test.daemon_reconnect_rect");
+    let _ = render_app_ui_events(&mut app, &ctx, &mut frame, pointer_click(reconnect_rect));
+    let connected = wait_for_daemon_source(
+        &mut app,
+        |status| *status == SourceStatus::Running,
+        "valid token did not connect through the Radio Reconnect button",
+    )
+    .await;
+    assert_eq!(connected, SourceStatus::Running);
+
+    let saved = app.exit_config_snapshot().expect("config snapshot");
+    let saved: AppConfig = serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+    let ctx_restart = egui::Context::default();
+    let cc_restart = eframe::CreationContext::_new_kittest(ctx_restart);
+    let restarted = CentralApp::new_with_config(&cc_restart, saved);
+    {
+        let state = restarted.shared.lock().unwrap();
+        assert_eq!(state.source.source_mode, SourceMode::Daemon);
+        assert_eq!(state.source.daemon_addr, auth.addr.to_string());
+        assert_eq!(state.source.daemon_token, "valid-ui-secret");
+        assert_eq!(state.source.status, SourceStatus::Idle);
+    }
+    drop(restarted);
+
+    {
+        let mut state = app.shared.lock().unwrap();
+        state
+            .source
+            .set_daemon_credentials(auth.addr.to_string(), "wrong-ui-secret".into());
+        crate::radio_ui::reconnect_daemon(&mut state, false);
+    }
+    let error = wait_for_daemon_source(
+        &mut app,
+        |status| matches!(status, SourceStatus::Error(_)),
+        "incorrect token did not produce an authentication error",
+    )
+    .await;
+    let SourceStatus::Error(error) = error else {
+        unreachable!()
+    };
+    assert!(error.to_lowercase().contains("auth"), "{error}");
+    assert!(
+        !error.contains("wrong-ui-secret"),
+        "credential leaked: {error}"
+    );
+    assert!(
+        !error.contains("valid-ui-secret"),
+        "credential leaked: {error}"
+    );
+
+    {
+        let mut state = app.shared.lock().unwrap();
+        state
+            .source
+            .set_daemon_credentials(local.addr.to_string(), String::new());
+        crate::radio_ui::reconnect_daemon(&mut state, false);
+    }
+    let cleared = wait_for_daemon_source(
+        &mut app,
+        |status| *status == SourceStatus::Running,
+        "clearing the credential should allow an unauthenticated local daemon",
+    )
+    .await;
+    assert_eq!(cleared, SourceStatus::Running);
+    let saved_cleared = app.exit_config_snapshot().expect("cleared config snapshot");
+    assert!(saved_cleared.source_preferences.daemon_token.is_empty());
+
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.stop();
+        state.source.wait_for_shutdown();
+    }
+    drop(first);
+    auth.shutdown().await;
+    local.shutdown().await;
+}
+
+#[test]
+fn imported_audio_selection_restarts_a_and_b_once_without_changing_capture() {
+    use crate::audio_output::AudioOutputSelection;
+    use crate::source_manager::{SourceMode, SourceStatus};
+
+    let mut app = offline_test_app();
+    let first = AudioOutputSelection {
+        device_id: Some("mock-output-a".into()),
+        sample_rate: 44_100,
+    };
+    let second = AudioOutputSelection {
+        device_id: Some("mock-output-b".into()),
+        sample_rate: 48_000,
+    };
+    let main_requests = Arc::new(Mutex::new(Vec::new()));
+    let main_request_log = Arc::clone(&main_requests);
+    app.audio.set_test_start_hook(move |selection, channels| {
+        main_request_log
+            .lock()
+            .unwrap()
+            .push((selection.clone(), channels));
+        Ok(if selection.sample_rate == 0 {
+            48_000
+        } else {
+            selection.sample_rate
+        })
+    });
+    let b_requests = Arc::new(Mutex::new(Vec::new()));
+    let b_request_log = Arc::clone(&b_requests);
+    app.secondary_vfo
+        .set_test_output_start_hook(move |selection, channels| {
+            b_request_log
+                .lock()
+                .unwrap()
+                .push((selection.clone(), channels));
+            Ok(if selection.sample_rate == 0 {
+                48_000
+            } else {
+                selection.sample_rate
+            })
+        });
+    let capture_before = {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = SourceMode::Simulated;
+        state.source.status = SourceStatus::Running;
+        state.source.center_frequency_hz = Some(100_000_000);
+        state.source.frequency_hz = 100_000_000;
+        state.source.sample_rate_hz = 2_000_000;
+        state.audio_running = true;
+        state.config.secondary_vfo.enabled = true;
+        state.config.secondary_vfo.frequency_hz = 100_000_000;
+        state.config.advanced.audio_output = first.clone();
+        (
+            state.source.frequency_hz,
+            state.source.center_frequency_hz,
+            state.source.sample_rate_hz,
+            state.source.stream_generation(),
+        )
+    };
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.logic(&ctx, &mut frame);
+    assert!(app.audio.is_running());
+    assert!(app.secondary_vfo.status.starts_with("Listening on B"));
+
+    let recording_dir =
+        std::env::temp_dir().join(format!("ez-audio-device-change-{}", std::process::id()));
+    std::fs::create_dir_all(&recording_dir).unwrap();
+    app.recorder_panel.output_dir = recording_dir.display().to_string();
+    app.recorder_panel.filename_template = "before-switch".into();
+    app.recorder_panel.record_iq = false;
+    app.recorder_panel.record_audio = true;
+    app.recorder_panel.set_audio_stream(None);
+    app.recorder_panel.start_recording();
+    assert!(
+        app.recorder_panel.recording,
+        "{}",
+        app.recorder_panel.last_error
+    );
+    app.recorder_panel.write_audio_samples(&vec![0.25; 44_100]);
+
+    let mut imported = app.shared.lock().unwrap().config.clone();
+    imported.advanced.audio_output = second.clone();
+    imported.needs_apply = true;
+    app.pending_settings_apply = Some(imported);
+    app.logic(&ctx, &mut frame);
+    app.logic(&ctx, &mut frame);
+    let finalization_deadline = Instant::now() + Duration::from_secs(2);
+    while app.recorder_panel.is_finalizing() {
+        app.recorder_panel.tick();
+        assert!(
+            Instant::now() < finalization_deadline,
+            "WAV finalization stalled"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    let expected = vec![(first.clone(), 1), (second.clone(), 1)];
+    assert_eq!(*main_requests.lock().unwrap(), expected);
+    assert_eq!(*b_requests.lock().unwrap(), expected);
+    assert_eq!(app.audio.sample_rate(), 48_000);
+    assert!(!app.recorder_panel.recording);
+    assert!(app.recorder_panel.last_error.contains("44100 to 48000 Hz"));
+    let wav = hound::WavReader::open(recording_dir.join("before-switch_audio.wav")).unwrap();
+    assert_eq!(wav.spec().sample_rate, 44_100);
+    assert_eq!(wav.duration(), 44_100);
+    drop(wav);
+    let state = app.shared.lock().unwrap();
+    assert_eq!(
+        (
+            state.source.frequency_hz,
+            state.source.center_frequency_hz,
+            state.source.sample_rate_hz,
+            state.source.stream_generation(),
+        ),
+        capture_before,
+        "output-device changes must preserve the active capture identity"
+    );
+    drop(state);
+    std::fs::remove_dir_all(recording_dir).unwrap();
+}
+
+#[test]
+fn unavailable_main_audio_selection_keeps_exact_request_and_reports_error() {
+    use crate::audio_output::AudioOutputSelection;
+
+    let mut app = offline_test_app();
+    let requested = AudioOutputSelection {
+        device_id: Some("missing-output-4c59".into()),
+        sample_rate: 44_100,
+    };
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let request_log = Arc::clone(&requests);
+    app.audio.set_test_start_hook(move |selection, channels| {
+        request_log
+            .lock()
+            .unwrap()
+            .push((selection.clone(), channels));
+        Err("Selected audio output device is unavailable.".into())
+    });
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.status = crate::source_manager::SourceStatus::Running;
+        state.config.advanced.audio_output = requested.clone();
+        state.audio_running = true;
+    }
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.logic(&ctx, &mut frame);
+
+    assert_eq!(*requests.lock().unwrap(), vec![(requested, 1)]);
+    assert!(app.audio.has_failed());
+    assert!(app.status_bar.current().is_some_and(|message| message
+        .text
+        .contains("Selected audio output device is unavailable")));
 }
 
 #[test]
