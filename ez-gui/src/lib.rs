@@ -19,8 +19,6 @@ pub mod constellation;
 pub mod daemon_client;
 pub mod decoding_panel;
 pub mod demod;
-pub mod discord;
-pub mod discord_panel;
 pub mod error;
 pub mod events;
 pub mod fonts;

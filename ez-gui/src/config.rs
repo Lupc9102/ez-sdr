@@ -1,10 +1,8 @@
 //! Persistent application configuration.
 //!
-//! Provides [`AppConfig`] for serializing/deserializing all SDR, UI, theme,
-//! Discord, and AI settings to/from `ez_sdr_config.json`, including theme
-//! configuration ([`ThemeConfig`]) and Discord integration settings.
+//! Provides [`AppConfig`] for serializing/deserializing SDR, UI, theme,
+//! and AI settings to/from `ez_sdr_config.json`.
 
-use crate::discord::DiscordSettings;
 use crate::theme::{NamedTheme, ThemeConfig};
 use serde::{Deserialize, Serialize};
 
@@ -670,8 +668,6 @@ pub struct AppConfig {
     pub freq_memory_labels: Vec<String>,
     /// Theme configuration (colours, presets).
     pub theme_config: ThemeConfig,
-    /// Discord notification settings.
-    pub discord: DiscordSettings,
     /// Whether to skip the antenna-setup checklist on startup.
     pub skip_antenna_checklists: bool,
     /// Legacy custom theme records retained when reading older configurations.
@@ -694,7 +690,6 @@ impl std::fmt::Debug for AppConfig {
             .field("theme", &self.theme)
             .field("ai_api_key", &"[REDACTED]")
             .field("source_preferences", &self.source_preferences)
-            .field("discord", &self.discord)
             .finish_non_exhaustive()
     }
 }
@@ -747,7 +742,6 @@ impl Default for AppConfig {
             freq_memory_hz: Vec::new(),
             freq_memory_labels: Vec::new(),
             theme_config: ThemeConfig::default(),
-            discord: DiscordSettings::default(),
             skip_antenna_checklists: false,
             custom_themes: Vec::new(),
             advanced: AdvancedConfig::default(),
@@ -773,12 +767,6 @@ impl AppConfig {
                     .and_then(serde_json::Value::as_object_mut)
                 {
                     source.remove("daemon_token");
-                }
-                if let Some(discord) = object
-                    .get_mut("discord")
-                    .and_then(serde_json::Value::as_object_mut)
-                {
-                    discord.remove("bot_token");
                 }
             }
         }
@@ -820,14 +808,6 @@ impl AppConfig {
             if let Some(source) = source.as_object_mut() {
                 source.entry("daemon_token").or_insert_with(|| {
                     serde_json::Value::String(current.source_preferences.daemon_token.clone())
-                });
-            }
-            let discord = object
-                .entry("discord")
-                .or_insert_with(|| serde_json::json!({}));
-            if let Some(discord) = discord.as_object_mut() {
-                discord.entry("bot_token").or_insert_with(|| {
-                    serde_json::Value::String(current.discord.bot_token.clone())
                 });
             }
         }
@@ -1380,12 +1360,10 @@ mod tests {
     }
 
     #[test]
-    fn config_default_has_theme_and_discord() {
+    fn config_default_has_theme_and_service_defaults() {
         let cfg = AppConfig::default();
         // theme_config should have the default preset
         assert_eq!(cfg.theme_config.preset, "dark");
-        // discord should default to disabled
-        assert!(!cfg.discord.enabled);
         assert!(!cfg.rigctl_enabled);
         assert_eq!(cfg.rigctl_port, 4532);
     }
@@ -1469,10 +1447,6 @@ mod tests {
                 daemon_token: "daemon-token-sentinel".into(),
                 ..SourcePreferences::default()
             },
-            discord: DiscordSettings {
-                bot_token: "discord-token-sentinel".into(),
-                ..DiscordSettings::default()
-            },
             theme: "light".into(),
             ..AppConfig::default()
         };
@@ -1481,13 +1455,8 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&exported).unwrap();
         assert!(value.get("ai_api_key").is_none());
         assert!(value["source_preferences"].get("daemon_token").is_none());
-        assert!(value["discord"].get("bot_token").is_none());
         let contents = String::from_utf8(exported).unwrap();
-        for secret in [
-            "ai-key-sentinel",
-            "daemon-token-sentinel",
-            "discord-token-sentinel",
-        ] {
+        for secret in ["ai-key-sentinel", "daemon-token-sentinel"] {
             assert!(!contents.contains(secret));
         }
 
@@ -1498,7 +1467,6 @@ mod tests {
             imported.source_preferences.daemon_token,
             current.source_preferences.daemon_token
         );
-        assert_eq!(imported.discord.bot_token, current.discord.bot_token);
     }
 
     #[test]
@@ -1508,10 +1476,6 @@ mod tests {
             source_preferences: SourcePreferences {
                 daemon_token: "daemon-token-sentinel".into(),
                 ..SourcePreferences::default()
-            },
-            discord: DiscordSettings {
-                bot_token: "discord-token-sentinel".into(),
-                ..DiscordSettings::default()
             },
             ..AppConfig::default()
         };
@@ -1525,17 +1489,11 @@ mod tests {
             imported.source_preferences.daemon_token,
             current.source_preferences.daemon_token
         );
-        assert_eq!(imported.discord.bot_token, current.discord.bot_token);
 
         let debug = format!("{current:?}");
-        for secret in [
-            "ai-key-sentinel",
-            "daemon-token-sentinel",
-            "discord-token-sentinel",
-        ] {
+        for secret in ["ai-key-sentinel", "daemon-token-sentinel"] {
             assert!(!debug.contains(secret));
         }
-        assert!(format!("{:?}", current.discord).contains("[REDACTED]"));
     }
 
     #[test]
@@ -1546,20 +1504,15 @@ mod tests {
                 daemon_token: "daemon-token-sentinel".into(),
                 ..SourcePreferences::default()
             },
-            discord: DiscordSettings {
-                bot_token: "discord-token-sentinel".into(),
-                ..DiscordSettings::default()
-            },
             ..AppConfig::default()
         };
         let imported = AppConfig::import_json_preserving_credentials(
-            r#"{"ai_api_key":"","source_preferences":{"daemon_token":""},"discord":{"bot_token":""}}"#,
+            r#"{"ai_api_key":"","source_preferences":{"daemon_token":""}}"#,
             &current,
         )
         .unwrap();
         assert!(imported.ai_api_key.is_empty());
         assert!(imported.source_preferences.daemon_token.is_empty());
-        assert!(imported.discord.bot_token.is_empty());
     }
 
     #[cfg(unix)]
@@ -1596,17 +1549,12 @@ mod tests {
                 daemon_token: "private-daemon-token".into(),
                 ..SourcePreferences::default()
             },
-            discord: DiscordSettings {
-                bot_token: "private-discord-token".into(),
-                ..DiscordSettings::default()
-            },
             ..AppConfig::default()
         };
         config.export_to(&path, true).unwrap();
         let contents = std::fs::read_to_string(&path).unwrap();
         assert!(contents.contains("private-ai-key"));
         assert!(contents.contains("private-daemon-token"));
-        assert!(contents.contains("private-discord-token"));
         assert_eq!(
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600
@@ -1670,7 +1618,6 @@ mod tests {
         assert_eq!(cfg.theme, "dark");
         assert_eq!(cfg.default_sample_rate, 2_048_000);
         assert_eq!(cfg.font_scale, 1.0);
-        assert!(!cfg.discord.enabled);
     }
 
     #[test]
@@ -1735,16 +1682,6 @@ mod tests {
             serde_json::from_value(serde_json::to_value(loaded).unwrap()).unwrap();
         assert_eq!(roundtrip.ai_api_key, "legacy-key-sentinel");
         assert_eq!(roundtrip.custom_themes[0].theme.preset, "light");
-    }
-
-    #[test]
-    fn config_partial_json_theme_and_discord() {
-        let json = r#"{"theme": "light", "discord": {"enabled": true}}"#;
-        let cfg: AppConfig = serde_json::from_str(json)
-            .expect("config partial JSON should deserialize with defaults");
-        assert_eq!(cfg.theme, "light");
-        assert!(cfg.discord.enabled);
-        assert_eq!(cfg.default_freq_hz, 100_000_000);
     }
 
     #[test]

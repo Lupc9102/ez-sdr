@@ -19,7 +19,6 @@ use crate::config::AppConfig;
 use crate::constellation::ConstellationDisplay;
 use crate::decoding_panel::DecodingPanel;
 use crate::demod::{DemodConfig, DemodWorker};
-use crate::discord::DiscordNotifier;
 use crate::mqtt::{MqttPublisher, TelemetryView};
 use crate::recorder_panel::RecorderPanel;
 use crate::rigctl::{RigctlRequest, RigctlServer};
@@ -137,7 +136,6 @@ pub struct CentralApp {
     last_auto_tuned_job: Option<(u64, u64, u64, u64)>,
     last_history_freq: u64,
     freq_history_idx: Option<usize>,
-    recording_start: Option<std::time::Instant>,
     bm_last_observed: Vec<crate::bookmarks::Bookmark>,
     bookmark_path: std::path::PathBuf,
     bm_dirty_since: Option<std::time::Instant>,
@@ -155,18 +153,10 @@ pub struct CentralApp {
     last_web_remote_status: Option<crate::web_remote::ListenerSnapshot>,
     last_rigctl_status: Option<crate::web_remote::ListenerSnapshot>,
     theme_applied: bool,
-    discord: DiscordNotifier,
-    last_discord_delivery_sequence: u64,
-    last_recording: bool,
-    last_adsb_running: bool,
-    last_scanner_enabled: bool,
-    last_mqtt_connected: bool,
     seen_aircraft: std::collections::HashSet<u32>,
-    notified_aircraft: std::collections::HashSet<u32>,
     last_active_pass_job: Option<(u64, String)>,
-    discord_summary_last: std::time::Instant,
+    last_signal_event: std::time::Instant,
     current_tab: AppTab,
-    last_traffic_bucket: usize,
     show_setup_guide: bool,
     show_settings: bool,
     settings_editor: crate::config::SettingsEditor,
@@ -178,15 +168,6 @@ pub struct CentralApp {
 }
 
 impl CentralApp {
-    fn poll_discord_delivery(&mut self) {
-        let snapshot = self.discord.delivery_snapshot();
-        publish_discord_delivery_status(
-            &mut self.status_bar,
-            &mut self.last_discord_delivery_sequence,
-            snapshot,
-        );
-    }
-
     /// Keep the event loop alive while owned file finalizers finish. A blocked
     /// driver cannot freeze close handling or imply a completed recording.
     fn tick_close_request(&mut self, ctx: &egui::Context) -> bool {
@@ -384,7 +365,6 @@ impl CentralApp {
         let mut web_remote = WebRemote::new();
         let mut rigctl = RigctlServer::new();
         let mut mqtt = MqttPublisher::new();
-        let mut discord = DiscordNotifier::new();
         let service_config = shared
             .lock()
             .expect("shared state mutex poisoned")
@@ -400,7 +380,6 @@ impl CentralApp {
             service_config.mqtt_broker.clone(),
             service_config.mqtt_topic_prefix.clone(),
         );
-        discord.apply_settings(&service_config.discord);
 
         // Restore controls without opening hardware or playing demo audio on launch.
         {
@@ -497,8 +476,6 @@ impl CentralApp {
             web_remote,
             rigctl,
             mqtt,
-            discord,
-            last_discord_delivery_sequence: 0,
             last_radio_profile: None,
             daemon_audio: crate::audio_resampler::AudioResampler::default(),
             audio: AudioOutput::new(),
@@ -529,20 +506,13 @@ impl CentralApp {
             first_strong_signal_seen: false,
             last_audio_identity: None,
             theme_applied: false,
-            recording_start: None,
             bm_last_observed: Vec::new(),
             bookmark_path: paths.bookmarks_file(),
             bm_dirty_since: None,
-            last_recording: false,
-            last_adsb_running: false,
-            last_scanner_enabled: false,
-            last_mqtt_connected: false,
             seen_aircraft: std::collections::HashSet::new(),
-            notified_aircraft: std::collections::HashSet::new(),
             last_active_pass_job: None,
             current_tab: AppTab::Listen,
-            discord_summary_last: std::time::Instant::now(),
-            last_traffic_bucket: 0,
+            last_signal_event: std::time::Instant::now(),
             show_setup_guide: false,
             show_settings: false,
             settings_editor: crate::config::SettingsEditor::default(),
@@ -557,30 +527,6 @@ impl CentralApp {
         // reproduces the user's last profile.
         app.apply_advanced();
         app
-    }
-}
-
-fn publish_discord_delivery_status(
-    status_bar: &mut crate::status_bar::StatusBar,
-    last_sequence: &mut u64,
-    snapshot: crate::discord::DiscordDeliverySnapshot,
-) {
-    if snapshot.sequence == *last_sequence {
-        return;
-    }
-    *last_sequence = snapshot.sequence;
-    match snapshot.latest {
-        Some(crate::discord::DiscordDeliveryOutcome::Queued) => {
-            status_bar.info("Discord notification submitted to delivery queue".into())
-        }
-        Some(crate::discord::DiscordDeliveryOutcome::Delivered) => {
-            status_bar.success("Discord notification delivered".into())
-        }
-        Some(crate::discord::DiscordDeliveryOutcome::Failed(error)) => {
-            status_bar.error(format!("Discord delivery failed: {error}"))
-        }
-        Some(crate::discord::DiscordDeliveryOutcome::Dropped(error)) => status_bar.warning(error),
-        None => {}
     }
 }
 
@@ -791,21 +737,6 @@ impl CentralApp {
                         name: job.satellite.clone(),
                         aos: job.aos.clone(),
                     });
-                if let Some(pass) = state
-                    .tle
-                    .upcoming_passes()
-                    .iter()
-                    .find(|pass| pass.satellite == job.satellite)
-                {
-                    self.discord.fire(
-                        "sat_aos",
-                        crate::discord::embed_sat_aos(
-                            &job.satellite,
-                            job.frequency_hz,
-                            pass.max_elevation,
-                        ),
-                    );
-                }
                 self.last_active_pass_job = Some((job.id, job.satellite.clone()));
             }
             let manual_recent = state
@@ -873,19 +804,12 @@ impl CentralApp {
                     .tle
                     .doppler_shift_for_sat(&job.satellite, job.frequency_hz as f64, now_unix);
         } else {
-            if let Some((_, satellite)) = self.last_active_pass_job.take() {
-                self.discord
-                    .fire("sat_los", crate::discord::embed_sat_los(&satellite));
-            }
+            self.last_active_pass_job = None;
             self.last_auto_tuned_job = None;
             self.satellite_panel.auto_tune_status = None;
         }
-        if let Some((label, frequency)) = state.scheduler.poll_custom_tasks(now_unix) {
+        if let Some((_label, frequency)) = state.scheduler.poll_custom_tasks(now_unix) {
             crate::radio_ui::tune_scheduled(&mut state, frequency);
-            self.discord.fire(
-                "task_fired",
-                crate::discord::embed_task_fired(&label, frequency),
-            );
         }
     }
 
@@ -920,7 +844,6 @@ impl CentralApp {
                 self.last_local_adsb_epoch = None;
                 self.last_local_adsb_boundary = None;
                 self.seen_aircraft.clear();
-                self.notified_aircraft.clear();
                 if self.adsb_panel.region == crate::adsb_panel::AdsbRegion::ModeS1090 {
                     self.adsb_panel.clear_tracks();
                 }
@@ -942,7 +865,6 @@ impl CentralApp {
             self.adsb_decoder = AdsBDecoder::new();
             self.adsb_panel.clear_tracks();
             self.seen_aircraft.clear();
-            self.notified_aircraft.clear();
             self.last_local_adsb_epoch = Some(clock.epoch);
         }
         self.adsb_decoder.feed_iq_with_clock(samples, clock, format);
@@ -987,7 +909,6 @@ impl CentralApp {
             if acquisition_changed {
                 self.adsb_panel.clear_tracks();
                 self.seen_aircraft.clear();
-                self.notified_aircraft.clear();
             }
             self.last_local_adsb_epoch = snapshot.epoch;
             self.last_local_adsb_boundary = Some(boundary);
@@ -1514,7 +1435,6 @@ impl eframe::App for CentralApp {
                 config.mqtt_broker,
                 config.mqtt_topic_prefix,
             );
-            self.discord.apply_settings(&config.discord);
             self.settings_applied_this_session = true;
         }
 
@@ -1563,7 +1483,6 @@ impl eframe::App for CentralApp {
 
         // Process pending events from panels and event bus
         self.handle_events();
-        self.poll_discord_delivery();
         self.status_bar.update();
 
         // Mode profiles also change via keyboard/bookmarks/remote commands.
@@ -1775,7 +1694,7 @@ impl eframe::App for CentralApp {
             }
         }
 
-        // Passive ADS-B: detect newly-arrived aircraft and fire alert toasts + Discord notifications.
+        // Passive ADS-B: detect newly-arrived aircraft and publish app events.
         self.adsb_panel.poll_uat();
         self.apply_local_adsb_snapshot();
         #[cfg(test)]
@@ -1820,7 +1739,7 @@ impl eframe::App for CentralApp {
         if let Some(message) = self.meteor_decoder.pending_status.take() {
             self.status_bar.info(message);
         }
-        // Fire Discord notifications and publish event for new aircraft
+        // Publish an app event for each newly detected aircraft.
         for ac in self
             .adsb_panel
             .aircraft
@@ -1838,26 +1757,7 @@ impl eframe::App for CentralApp {
                         },
                     });
             }
-            if let Some(notification) =
-                crate::discord::positioned_aircraft_notification(ac, &mut self.notified_aircraft)
-            {
-                self.discord.fire_aircraft(notification);
-            }
         }
-        // Check traffic milestone (every 10 aircraft)
-        let current_bucket = self.adsb_panel.aircraft.len() / 10;
-        if current_bucket > self.last_traffic_bucket && current_bucket > 0 {
-            let milestone = current_bucket * 10;
-            let embed = crate::discord::embed_generic(
-                &format!("Traffic Milestone: {milestone} Aircraft"),
-                &format!("You're now tracking **{milestone}** aircraft!"),
-                "📈",
-                0xFF8800,
-            );
-            self.discord.fire("traffic_milestone", embed);
-            self.last_traffic_bucket = current_bucket;
-        }
-
         // Keyboard shortcuts (extracted to KeyboardHandler)
         let outcome = if let Ok(mut state) = self.shared.try_lock() {
             self.keyboard_handler.handle_input(
@@ -2054,12 +1954,10 @@ impl eframe::App for CentralApp {
                         }
                     }
                 }
-                // Publish any new hits to MQTT + Discord
+                // Publish any new hits to MQTT.
                 if self.scanner.hits.len() > prev_hits {
                     for hit in &self.scanner.hits[prev_hits..] {
                         self.mqtt.publish_scanner_hit(hit.freq_hz, hit.strength_db);
-                        let embed = crate::discord::embed_scanner_hit(hit.freq_hz, hit.strength_db);
-                        self.discord.fire("scanner_hit", embed);
                     }
                 }
                 self.apply_scanner_tune();
@@ -2089,89 +1987,6 @@ impl eframe::App for CentralApp {
             let noise = state.spectrum.noise_floor();
             let snr = peak - noise;
 
-            // State transitions for Discord notifications
-            if recording && !self.last_recording {
-                self.recording_start = Some(std::time::Instant::now());
-                let embed = crate::discord::embed_recording_started(
-                    freq,
-                    mode,
-                    self.recorder_panel.record_iq,
-                    self.recorder_panel.record_audio,
-                );
-                self.discord.fire("rec_started", embed);
-            } else if !recording && self.last_recording {
-                let duration = self.recording_start.map_or(0, |t| t.elapsed().as_secs());
-                self.recording_start = None;
-                let embed = crate::discord::embed_recording_stopped(
-                    freq,
-                    mode,
-                    duration,
-                    self.recorder_panel.bytes_written,
-                );
-                self.discord.fire("rec_stopped", embed);
-            }
-            if state.adsb_running && !self.last_adsb_running {
-                let embed = crate::discord::embed_generic(
-                    "ADS-B Started",
-                    "ADS-B decoder activated",
-                    "📡",
-                    0x00AA00,
-                );
-                self.discord.fire("adsb_started", embed);
-            } else if !state.adsb_running && self.last_adsb_running {
-                let embed = crate::discord::embed_generic(
-                    "ADS-B Stopped",
-                    "ADS-B decoder stopped",
-                    "🔌",
-                    0xCC0000,
-                );
-                self.discord.fire("adsb_stopped", embed);
-            }
-            if self.scanner.enabled && !self.last_scanner_enabled {
-                let embed = crate::discord::embed_generic(
-                    "Scanner Started",
-                    "Frequency scanner activated",
-                    "▶️",
-                    0x00AA00,
-                );
-                self.discord.fire("scanner_started", embed);
-            } else if !self.scanner.enabled && self.last_scanner_enabled {
-                let embed = crate::discord::embed_generic(
-                    "Scanner Stopped",
-                    "Frequency scanner stopped",
-                    "⏹",
-                    0xCC0000,
-                );
-                self.discord.fire("scanner_stopped", embed);
-            }
-            if self.mqtt.is_connected() && !self.last_mqtt_connected {
-                let embed = crate::discord::embed_generic(
-                    "MQTT Connected",
-                    &format!(
-                        "Connected to {}",
-                        self.mqtt
-                            .connected_endpoint()
-                            .as_deref()
-                            .unwrap_or("unknown endpoint")
-                    ),
-                    "🔗",
-                    0x00AA00,
-                );
-                self.discord.fire("mqtt_connected", embed);
-            } else if !self.mqtt.is_connected() && self.last_mqtt_connected {
-                let embed = crate::discord::embed_generic(
-                    "MQTT Disconnected",
-                    "MQTT broker disconnected",
-                    "🔌",
-                    0xCC0000,
-                );
-                self.discord.fire("mqtt_disconnected", embed);
-            }
-            self.last_recording = recording;
-            self.last_adsb_running = state.adsb_running;
-            self.last_scanner_enabled = self.scanner.enabled;
-            self.last_mqtt_connected = self.mqtt.is_connected();
-
             // First strong signal celebration
             if !self.first_strong_signal_seen && snr > 20.0 {
                 self.first_strong_signal_seen = true;
@@ -2185,18 +2000,15 @@ impl eframe::App for CentralApp {
                     freq as f64 / 1e6,
                     snr
                 ));
-                let embed = crate::discord::embed_strong_signal(freq, snr);
-                self.discord.fire("first_signal", embed);
             }
             // Any strong signal
-            if snr > 20.0 && (self.discord_summary_last.elapsed().as_secs() > 5) {
+            if snr > 20.0 && self.last_signal_event.elapsed().as_secs() > 5 {
                 self.event_bus
                     .publish(crate::events::AppEvent::SignalDetected {
                         freq_hz: freq,
                         strength_db: snr,
                     });
-                let embed = crate::discord::embed_strong_signal(freq, snr);
-                self.discord.fire("strong_signal", embed);
+                self.last_signal_event = std::time::Instant::now();
             }
             self.web_remote
                 .broadcast_state(&crate::web_remote::StreamState::from_receiver(
@@ -2219,35 +2031,6 @@ impl eframe::App for CentralApp {
                     aircraft: &self.adsb_panel.aircraft,
                 },
             );
-
-            // Periodic session summary report
-            if self.discord.settings.summary_enabled
-                && self.discord_summary_last.elapsed().as_secs()
-                    >= (u64::from(self.discord.settings.summary_interval_min) * 60)
-            {
-                let uptime = self
-                    .recording_start
-                    .as_ref()
-                    .map_or(0, |t| t.elapsed().as_secs());
-                let embed = crate::discord::embed_session_summary(
-                    uptime,
-                    freq as f64 / 1e6,
-                    mode,
-                    ac_count,
-                    self.scanner.hits.len(),
-                    0, // recordings count - would need to track
-                    passes.len(),
-                );
-                self.discord.fire("session_summary", embed);
-                self.discord_summary_last = std::time::Instant::now();
-            }
-
-            // Recording error detection
-            if !self.recorder_panel.last_error.is_empty() {
-                let embed = crate::discord::embed_recording_error(&self.recorder_panel.last_error);
-                self.discord.fire("rec_error", embed);
-                // Note: would need to track whether we've already sent this error
-            }
         }
 
         self.tick_bookmark_autosave();
@@ -2725,7 +2508,6 @@ impl CentralApp {
                         self.adsb_decoder = AdsBDecoder::new();
                     }
                     self.seen_aircraft.clear();
-                    self.notified_aircraft.clear();
                 }
                 ui.separator();
                 ui.label(

@@ -82,14 +82,9 @@ the pass auto-tune switch; the scheduler engine continues to apply pass windows
 and cooldown rules. The reusable `SchedulerPanel` API can expose custom tasks in
 an embedding app, but the desktop does not mount it as a utility window.
 
-Discord notifications run in the background and report delivery results in the
-status strip. Configure them by importing a settings JSON file from **Settings**
-with a `discord` object, for example `{"discord":{"enabled":true,"bot_token":"…","channel_id":"…","ping_user":false}}`.
-The default settings export redacts credentials; opt into a private backup when
-you need to move credentials between installations. The standalone AI and
-Discord panel modules remain available to downstream embedders, but the desktop
-workspaces do not mount those utility panels. Legacy `ai_*` and custom-theme
-fields remain readable in settings files for compatibility.
+The standalone AI panel remains available to downstream embedders, but the
+desktop workspaces do not mount it as a utility panel. Legacy `ai_*` and
+custom-theme fields remain readable in settings files for compatibility.
 
 The desktop supports two simultaneous listening receivers sharing the same capture.
 Enable **Independent B receiver** in the Radio sidebar; its frequency must fit

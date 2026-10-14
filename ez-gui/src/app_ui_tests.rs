@@ -3,41 +3,6 @@ use eframe::App;
 
 use super::software_renderer;
 
-#[test]
-fn discord_delivery_result_reaches_shared_status_surface() {
-    let mut status_bar = crate::status_bar::StatusBar::new();
-    let mut last_sequence = 0;
-    publish_discord_delivery_status(
-        &mut status_bar,
-        &mut last_sequence,
-        crate::discord::DiscordDeliverySnapshot {
-            sequence: 1,
-            submitted: 1,
-            failed: 1,
-            latest: Some(crate::discord::DiscordDeliveryOutcome::Failed(
-                "Discord returned HTTP 401 (Unauthorized)".into(),
-            )),
-            ..Default::default()
-        },
-    );
-    let current = status_bar.current().unwrap();
-    assert_eq!(current.severity, crate::status_bar::StatusSeverity::Error);
-    assert!(current.text.contains("HTTP 401"));
-
-    publish_discord_delivery_status(
-        &mut status_bar,
-        &mut last_sequence,
-        crate::discord::DiscordDeliverySnapshot {
-            sequence: 2,
-            submitted: 2,
-            delivered: 1,
-            latest: Some(crate::discord::DiscordDeliveryOutcome::Queued),
-            ..Default::default()
-        },
-    );
-    assert!(status_bar.current().unwrap().text.contains("HTTP 401"));
-}
-
 /// Render the real application widgets without requiring a display server.
 /// Run explicitly: EZ_SDR_PREVIEW_DIR=/tmp/ez-sdr-previews cargo test -p ez-gui
 /// --no-default-features app_ui_tests::render_workspaces -- --ignored --nocapture
@@ -2912,7 +2877,6 @@ fn hidden_local_capture_epoch_retires_state_but_forward_gap_keeps_fresh_trails()
     app.adsb_panel.tick_model();
     assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 1);
     app.seen_aircraft.insert(0x3c4b12);
-    app.notified_aircraft.insert(0x3c4b12);
     let mut rewind = clock;
     rewind.epoch = 402;
     rewind.discontinuous = true;
@@ -2921,7 +2885,6 @@ fn hidden_local_capture_epoch_retires_state_but_forward_gap_keeps_fresh_trails()
     assert!(!app.adsb_panel.aircraft[0].has_position);
     assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 0);
     assert!(app.seen_aircraft.is_empty());
-    assert!(app.notified_aircraft.is_empty());
     assert_eq!(app.adsb_decoder.total_messages, 1);
     let mut next = rewind.offset_samples(single.len() as u64 / 2).unwrap();
     next.discontinuous = false;
@@ -3068,7 +3031,6 @@ fn native_adsb_coordinates_reach_map_after_callback_loss_and_weak_frames() {
     );
     app.adsb_panel.selected_icao = Some(0x4840d6);
     app.seen_aircraft.insert(0x4840d6);
-    app.notified_aircraft.insert(0x4840d6);
 
     // A native USB/callback queue drop advances the acquisition clock, but
     // the delivered stream's indices are still contiguous. This previously
@@ -3091,7 +3053,6 @@ fn native_adsb_coordinates_reach_map_after_callback_loss_and_weak_frames() {
     assert_eq!(app.adsb_panel.selected_icao, Some(0x4840d6));
     assert_eq!(app.adsb_panel.trail_len(0x4840d6), 1);
     assert!(app.seen_aircraft.contains(&0x4840d6));
-    assert!(app.notified_aircraft.contains(&0x4840d6));
     assert!(app
         .status_bar
         .current()
@@ -3160,7 +3121,6 @@ fn native_adsb_coordinates_reach_map_after_callback_loss_and_weak_frames() {
     app.apply_local_adsb_snapshot();
     assert!(app.adsb_panel.aircraft[0].position_valid());
     assert!(app.adsb_panel.selected_icao.is_none());
-    assert!(app.notified_aircraft.is_empty());
     render_map(&mut app, true, "position-from-weak-frames");
 
     let expired_clock = fresh_clock.offset_samples(61 * 2_400_000).unwrap();
