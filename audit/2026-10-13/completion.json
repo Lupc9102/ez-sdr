@@ -1,0 +1,44 @@
+{
+  "audited_commit": "e0f2d3b6cde2f9601e7a18fdd2d89ae75b2836be",
+  "completed_date": "2026-10-14",
+  "score": 64,
+  "score_maximum": 100,
+  "remaining_crates": {
+    "status": "passed",
+    "passed_executions": 156,
+    "failed": 0,
+    "ignored": 4,
+    "completed_harnesses": 6,
+    "log": "remaining-crates-tests.log"
+  },
+  "default_all_targets_check": "passed",
+  "formatting": "failed",
+  "strict_clippy_no_defaults": "failed",
+  "workspace_no_defaults": {
+    "status": "failed",
+    "passed_executions": 1674,
+    "failed": 1,
+    "ignored": 7,
+    "isolated_failure_rerun": "passed"
+  },
+  "default_workspace_tests": "interrupted; not a complete pass",
+  "probes": "six reproduced defects; combined runner passed",
+  "canvas_scoped_typecheck": "passed",
+  "ui_preview": {
+    "status": "passed",
+    "passed": 1,
+    "failed": 0,
+    "duration_seconds": 247.27,
+    "rendered_frames": 36,
+    "retained_frames": 4,
+    "log": "ui-preview-exact.log",
+    "initial_cargo_wrapper_status": 143,
+    "exact_compiled_test_rerun_status": 0
+  },
+  "graphify": {
+    "status": "passed",
+    "nodes": 8128,
+    "edges": 18136,
+    "mode": "AST only; no API extraction"
+  }
+}

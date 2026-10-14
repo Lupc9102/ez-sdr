@@ -1,0 +1,5 @@
+{
+  "source": "ez-daemon/src/web/frontend/app.js",
+  "stale_close_disconnects_new_session": true,
+  "disconnect_retains_meteor_products": true
+}

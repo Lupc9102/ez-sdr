@@ -1,0 +1,9 @@
+[rigctl] listening on 127.0.0.1:41741
+Hamlib v (get VFO) parsed as GetVolume
+v response: "70.0"
+V VFOB response: "RPRT -1"
+l AF response: "RPRT -1"
+L AF 0.5 response: "RPRT -1"
+Discord threads: before=1, alive=3, after drop=3, 700ms later=3
+Remaining Discord task 46075: CPU tick delta=70
+Remaining Discord task 46076: CPU tick delta=0

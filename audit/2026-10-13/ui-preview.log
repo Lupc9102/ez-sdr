@@ -1,0 +1,91 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling tokio-rustls v0.26.5
+   Compiling hyper-rustls v0.27.10
+   Compiling reqwest v0.12.28
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: duplicated attribute
+    --> ez-gui/src/config.rs:1286:5
+     |
+1286 |     #[test]
+     |     ^^^^^^^
+     |
+     = note: `#[warn(duplicate_macro_attributes)]` on by default
+
+warning: duplicated attribute
+    --> ez-gui/src/config.rs:1293:5
+     |
+1293 |     #[test]
+     |     ^^^^^^^
+
+warning: `ez-gui` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10m 32s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-c99bbe828a7da39e)
+
+running 1 test
+test app::app_ui_tests::render_workspaces has been running for over 60 seconds
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-nfm-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-nfm-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-nfm-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-wfm-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-wfm-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-wfm-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-usb-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-usb-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-usb-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-cw-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-cw-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-cw-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-vfo-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-vfo-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-vfo-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-source-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-source-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-source-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-replay-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-replay-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-replay-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/meteor-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/meteor-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/meteor-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-fixture-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-fixture-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-fixture-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/uat-fixture-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/uat-fixture-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/uat-fixture-1000x700.png
+test app::app_ui_tests::render_workspaces ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 332.17s
+
+     Running unittests src/main.rs (target/debug/deps/ez_gui-ec8173afd64d32e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/debug/deps/event_bus_integration-464ef8e1968ebe31)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/debug/deps/radio_controls-4233ac3b21fa1f5c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/debug/deps/radio_performance-bd1d049038c6129b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

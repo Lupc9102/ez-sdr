@@ -1,0 +1,43 @@
+
+running 1 test
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-nfm-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-nfm-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-nfm-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-wfm-1920x1012.png
+test app::app_ui_tests::render_workspaces has been running for over 60 seconds
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-wfm-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-wfm-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-usb-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-usb-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-usb-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-cw-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-cw-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-cw-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-vfo-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-vfo-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-vfo-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-source-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-source-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-source-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-replay-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-replay-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/radio-replay-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/meteor-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/meteor-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/meteor-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-fixture-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-fixture-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/adsb-fixture-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/uat-fixture-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/uat-fixture-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-13/screenshots/uat-fixture-1000x700.png
+test app::app_ui_tests::render_workspaces ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 247.27s
+

@@ -1,0 +1,4 @@
+RATE_RACE setter=Err(cannot change wideband sample rate while virtual channels are active); hardware=1200000 Hz; new 2.4-MHz spectrum accepted=true (stale state geometry)
+ADS_B_TAP requested=2400000 Hz; actual=3200000 Hz; samples=8192
+ADS_B_STATE accepted=true
+BIND_FAILURE result=Err(Address already in use (os error 98)); running=true; ingest threads before=0, after=1
