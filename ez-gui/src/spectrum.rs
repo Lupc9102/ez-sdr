@@ -2446,7 +2446,7 @@ impl SpectrumAnalyzer {
         let spectrum_height = if self.waterfall_visible {
             300.0_f32.min(avail.y * 0.55)
         } else {
-            avail.y.max(1.0)
+            (avail.y - if self.show_grid { 18.0 } else { 0.0 }).max(1.0)
         };
 
         // Spectrum plot
@@ -2507,13 +2507,8 @@ impl SpectrumAnalyzer {
                     egui::pos2(label_x, y - 1.0),
                     egui::Align2::RIGHT_BOTTOM,
                     format!("{db:.0}"),
-                    egui::FontId::proportional(8.5),
-                    egui::Color32::from_rgba_unmultiplied(
-                        self.grid_color.r(),
-                        self.grid_color.g(),
-                        self.grid_color.b(),
-                        160,
-                    ),
+                    egui::FontId::proportional(12.0),
+                    ui.visuals().weak_text_color(),
                 );
             }
         }
@@ -2529,7 +2524,7 @@ impl SpectrumAnalyzer {
         self.visible_right_hz = (self.center_freq as f64 + right_hz).max(0.0) as u64;
 
         // Vertical grid lines (frequency) with zoom support
-        let n_grid = 8;
+        let n_grid = ((spectrum_rect.width() / 85.0) as u32).clamp(2, 8);
         if self.show_grid {
             for i in 0..=n_grid {
                 let frac = i as f32 / n_grid as f32;
@@ -2553,15 +2548,16 @@ impl SpectrumAnalyzer {
                 );
                 painter.text(
                     egui::pos2(x, spectrum_rect.bottom() + 2.0),
-                    egui::Align2::CENTER_TOP,
+                    if i == 0 {
+                        egui::Align2::LEFT_TOP
+                    } else if i == n_grid {
+                        egui::Align2::RIGHT_TOP
+                    } else {
+                        egui::Align2::CENTER_TOP
+                    },
                     format!("{freq_mhz:.2}"),
-                    egui::FontId::proportional(8.0),
-                    egui::Color32::from_rgba_unmultiplied(
-                        self.grid_color.r(),
-                        self.grid_color.g(),
-                        self.grid_color.b(),
-                        200,
-                    ),
+                    egui::FontId::proportional(12.0),
+                    ui.visuals().weak_text_color(),
                 );
             }
         }
@@ -2863,13 +2859,18 @@ impl SpectrumAnalyzer {
                     );
                     painter.rect_filled(rect, 0.0, band.color);
                     let label_x = f32::midpoint(x1, x2);
-                    painter.text(
-                        egui::pos2(label_x, spectrum_rect.top() + 8.0),
-                        egui::Align2::CENTER_CENTER,
-                        band.name,
-                        egui::FontId::proportional(8.0),
-                        egui::Color32::from_rgba_unmultiplied(180, 180, 180, 100),
+                    let label = painter.layout_no_wrap(
+                        band.name.into(),
+                        egui::FontId::proportional(11.0),
+                        ui.visuals().weak_text_color(),
                     );
+                    if label.size().x + 8.0 < x2 - x1 {
+                        painter.galley(
+                            egui::pos2(label_x - label.size().x / 2.0, spectrum_rect.top() + 2.0),
+                            label,
+                            ui.visuals().weak_text_color(),
+                        );
+                    }
                 }
             }
         }
@@ -3231,10 +3232,10 @@ impl SpectrumAnalyzer {
                 gap_len,
             ));
             painter.text(
-                egui::pos2(spectrum_rect.right() - 4.0, sq_y - 2.0),
-                egui::Align2::RIGHT_BOTTOM,
+                egui::pos2(spectrum_rect.left() + 4.0, sq_y - 2.0),
+                egui::Align2::LEFT_BOTTOM,
                 format!("SQ {:.0} dB", self.squelch_db),
-                egui::FontId::proportional(7.5),
+                egui::FontId::proportional(11.0),
                 egui::Color32::from_rgba_unmultiplied(
                     self.color_warning.r(),
                     self.color_warning.g(),
@@ -3330,7 +3331,11 @@ impl SpectrumAnalyzer {
             } else {
                 self.color_error
             };
-            let badge_text = format!("SNR {snr:.1} dB");
+            let badge_text = if self.source_running {
+                format!("SNR {snr:.1} dB")
+            } else {
+                "SNR —".into()
+            };
             let text_pos = egui::pos2(spectrum_rect.right() - 4.0, spectrum_rect.top() + 4.0);
             let bg_rect = egui::Rect::from_min_size(
                 egui::pos2(text_pos.x - 68.0, text_pos.y - 1.0),
@@ -3346,7 +3351,11 @@ impl SpectrumAnalyzer {
                 egui::Align2::RIGHT_TOP,
                 &badge_text,
                 egui::FontId::monospace(10.0),
-                snr_color,
+                if self.source_running {
+                    snr_color
+                } else {
+                    ui.visuals().weak_text_color()
+                },
             );
         }
 
@@ -3893,6 +3902,9 @@ impl SpectrumAnalyzer {
         // Overlay widgets inside the FFT can advance the UI cursor to their
         // own rectangles. Restore plot flow before allocating the waterfall.
         ui.advance_cursor_after_rect(spectrum_rect);
+        if self.show_grid {
+            ui.add_space(16.0); // Room for the shared frequency axis.
+        }
         let waterfall_height = ui.available_height().max(1.0);
         let (wf_rect, wf_response) = ui.allocate_exact_size(
             egui::vec2(avail.x, waterfall_height),
@@ -3983,20 +3995,28 @@ impl SpectrumAnalyzer {
 
         // Waterfall frequency labels (zoom-aware)
         let wf_painter = ui.painter();
-        for i in 0..=n_grid {
-            let frac = f64::from(i) / f64::from(n_grid);
-            let x = wf_rect.left() + (frac as f32) * wf_rect.width();
-            let offset_hz = left_hz + frac * zoom_span;
-            let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
-            wf_painter.text(
-                egui::pos2(x, wf_rect.top() + 2.0),
-                egui::Align2::CENTER_TOP,
-                format!("{freq_mhz:.2}"),
-                egui::FontId::proportional(8.0),
-                egui::Color32::from_rgba_unmultiplied(180, 180, 180, 160),
-            );
+        // Share the spectrum frequency axis when the grid is visible.
+        if !self.show_grid {
+            for i in 0..=n_grid {
+                let frac = f64::from(i) / f64::from(n_grid);
+                let x = wf_rect.left() + (frac as f32) * wf_rect.width();
+                let offset_hz = left_hz + frac * zoom_span;
+                let freq_mhz = (self.center_freq as f64 + offset_hz) / 1e6;
+                wf_painter.text(
+                    egui::pos2(x, wf_rect.top() + 2.0),
+                    if i == 0 {
+                        egui::Align2::LEFT_TOP
+                    } else if i == n_grid {
+                        egui::Align2::RIGHT_TOP
+                    } else {
+                        egui::Align2::CENTER_TOP
+                    },
+                    format!("{freq_mhz:.2}"),
+                    egui::FontId::proportional(12.0),
+                    ui.visuals().weak_text_color(),
+                );
+            }
         }
-
         // Waterfall time axis labels (left edge)
         {
             let secs_per_row = self.frame_period_seconds * f64::from(self.waterfall_every_n.max(1));
@@ -4018,8 +4038,8 @@ impl SpectrumAnalyzer {
                     egui::pos2(wf_rect.left() + 2.0, y),
                     egui::Align2::LEFT_CENTER,
                     &label,
-                    egui::FontId::proportional(8.0),
-                    egui::Color32::from_rgba_unmultiplied(180, 180, 180, 140),
+                    egui::FontId::proportional(12.0),
+                    ui.visuals().weak_text_color(),
                 );
             }
         }

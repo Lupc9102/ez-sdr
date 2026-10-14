@@ -406,8 +406,16 @@ pub struct DecodeRequest {
     pub satellite_name: Option<String>,
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum MeteorInput {
+    #[default]
+    Recording,
+    Live,
+}
+
 #[derive(Default)]
 pub struct DecodingPanel {
+    input_mode: MeteorInput,
     pub file_path: String,
     pub preset: DecodePreset,
     pub sample_rate: u32,
@@ -936,6 +944,7 @@ impl DecodingPanel {
             return;
         }
         self.clear_decode_state();
+        self.input_mode = MeteorInput::Recording;
         self.file_path = req.file_path;
         self.satellite_name = req.satellite_name;
         self.sample_rate = req.sample_rate;
@@ -1137,6 +1146,7 @@ impl DecodingPanel {
             match completion {
                 Ok(Some(FileOperationOutcome::Import(path))) => {
                     self.clear_decode_state();
+                    self.input_mode = MeteorInput::Recording;
                     self.file_path = path.to_string_lossy().into_owned();
                 }
                 Ok(Some(FileOperationOutcome::Export { folder, count })) => {
@@ -1286,78 +1296,11 @@ impl DecodingPanel {
         ui.label(
             egui::RichText::new("Live capture or an existing IQ recording")
                 .small()
-                .color(egui::Color32::GRAY),
+                .weak(),
         );
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if self.live_active {
-                if ui.button("■ Stop live").clicked() {
-                    self.live_stop_requested = true;
-                }
-            } else if ui
-                .add_enabled(
-                    !self.input_locked() && !self.live_start_requested,
-                    egui::Button::new("● Start live"),
-                )
-                .clicked()
-            {
-                self.live_start_requested = true;
-            }
-            if self.live_start_requested {
-                ui.spinner();
-                ui.label("Connecting to capture stream…");
-            }
-        });
-        if let Some(status) = &self.live_status {
-            ui.label(
-                egui::RichText::new(status)
-                    .small()
-                    .color(egui::Color32::LIGHT_BLUE),
-            );
-        }
-        if self.live_active {
-            if let Some(progress) = &self.progress {
-                ui.label(format!(
-                    "{} complete lines · {} segments · RS {} ok / {} failed",
-                    progress.lines_decoded,
-                    progress.segments_decoded,
-                    progress.rs_ok,
-                    progress.rs_failed
-                ));
-            } else {
-                ui.label("Waiting for a synchronized Meteor LRPT frame…");
-            }
-            ui.separator();
-        }
         let mut input_changed = false;
         ui.add_enabled_ui(!self.input_locked(), |ui| {
-            ui.label("File");
-            input_changed |= ui
-                .add(
-                    egui::TextEdit::singleline(&mut self.file_path)
-                        .desired_width(f32::INFINITY)
-                        .hint_text(".cs8 or .cf32 path"),
-                )
-                .changed();
-            if ui.button("Open recording…").clicked() {
-                self.open_recording_with(ui.ctx(), || {
-                    rfd::FileDialog::new()
-                        .add_filter("Meteor IQ recordings", &["cs8", "cf32"])
-                        .add_filter("All files", &["*"])
-                        .pick_file()
-                });
-            }
-            if !self.file_path.is_empty() {
-                let kind = RecordingFormat::from_path(&self.file_path)
-                    .map(RecordingFormat::label)
-                    .unwrap_or("Unsupported format · choose .cs8 or .cf32");
-                ui.label(
-                    egui::RichText::new(kind)
-                        .small()
-                        .color(egui::Color32::from_rgb(145, 165, 181)),
-                );
-            }
-            ui.add_space(8.0);
             egui::ComboBox::from_label("Preset")
                 .selected_text(self.preset.label())
                 .show_ui(ui, |ui| {
@@ -1376,7 +1319,7 @@ impl DecodingPanel {
                 self.sample_rate = self.preset.sample_rate();
             }
             ui.horizontal(|ui| {
-                ui.label("Sample");
+                ui.label("Sample rate");
                 input_changed |= ui
                     .add(
                         egui::DragValue::new(&mut self.sample_rate)
@@ -1386,74 +1329,186 @@ impl DecodingPanel {
                     )
                     .changed();
             });
-            egui::ComboBox::from_label("Transport")
-                .selected_text(self.mission_profile.label())
-                .show_ui(ui, |ui| {
-                    for profile in ez_proto::MeteorProfile::ALL {
-                        input_changed |= ui
-                            .selectable_value(&mut self.mission_profile, profile, profile.label())
-                            .changed();
-                    }
-                });
-            egui::ComboBox::from_id_salt("meteor-cds-epoch")
-                .selected_text(match self.products.cds_epoch {
-                    lrpt_decode::CdsEpoch::MeteorM2x => "CDS epoch · Meteor-M2x",
-                    lrpt_decode::CdsEpoch::Ccsds1958 => "CDS epoch · CCSDS 1958",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.products.cds_epoch,
-                        lrpt_decode::CdsEpoch::MeteorM2x,
-                        "Meteor-M2x · 2000-12-31",
-                    );
-                    ui.selectable_value(
-                        &mut self.products.cds_epoch,
-                        lrpt_decode::CdsEpoch::Ccsds1958,
-                        "CCSDS standard · 1958-01-01",
-                    );
+            egui::CollapsingHeader::new("Advanced transport & timestamps")
+                .id_salt("meteor-input-advanced")
+                .default_open(false)
+                .show(ui, |ui| {
+                    egui::ComboBox::from_label("Transport")
+                        .selected_text(self.mission_profile.label())
+                        .show_ui(ui, |ui| {
+                            for profile in ez_proto::MeteorProfile::ALL {
+                                input_changed |= ui
+                                    .selectable_value(
+                                        &mut self.mission_profile,
+                                        profile,
+                                        profile.label(),
+                                    )
+                                    .changed();
+                            }
+                        });
+                    egui::ComboBox::from_id_salt("meteor-cds-epoch")
+                        .selected_text(match self.products.cds_epoch {
+                            lrpt_decode::CdsEpoch::MeteorM2x => "CDS epoch · Meteor-M2x",
+                            lrpt_decode::CdsEpoch::Ccsds1958 => "CDS epoch · CCSDS 1958",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.products.cds_epoch,
+                                lrpt_decode::CdsEpoch::MeteorM2x,
+                                "Meteor-M2x · 2000-12-31",
+                            );
+                            ui.selectable_value(
+                                &mut self.products.cds_epoch,
+                                lrpt_decode::CdsEpoch::Ccsds1958,
+                                "CCSDS standard · 1958-01-01",
+                            );
+                        });
                 });
             ui.label(format!(
                 "Symbol rate: {} sps",
                 self.mission_profile.symbol_rate_hz()
             ));
             ui.label(
-                egui::RichText::new("Use the sample rate of your recording.")
+                egui::RichText::new("Match the sample rate to your recording or live capture.")
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .weak(),
             );
         });
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.selectable_value(
+                &mut self.input_mode,
+                MeteorInput::Recording,
+                "Open recording",
+            );
+            ui.selectable_value(&mut self.input_mode, MeteorInput::Live, "Live reception");
+        });
+        ui.add_space(8.0);
+        if self.input_mode == MeteorInput::Live || self.live_active || self.live_start_requested {
+            ui.horizontal(|ui| {
+                if self.live_active {
+                    if ui.button("■ Stop live").clicked() {
+                        self.live_stop_requested = true;
+                    }
+                } else if ui
+                    .add_enabled(
+                        !self.input_locked() && !self.live_start_requested,
+                        egui::Button::new("● Start live"),
+                    )
+                    .clicked()
+                {
+                    self.live_start_requested = true;
+                }
+                if self.live_start_requested {
+                    ui.spinner();
+                    ui.label("Connecting to capture stream…");
+                }
+            });
+            if let Some(status) = &self.live_status {
+                ui.label(
+                    egui::RichText::new(status)
+                        .small()
+                        .color(egui::Color32::LIGHT_BLUE),
+                );
+            }
+            if self.live_active {
+                if let Some(progress) = &self.progress {
+                    ui.label(format!(
+                        "{} complete lines · {} segments · RS {} ok / {} failed",
+                        progress.lines_decoded,
+                        progress.segments_decoded,
+                        progress.rs_ok,
+                        progress.rs_failed
+                    ));
+                } else {
+                    ui.label("Waiting for a synchronized Meteor LRPT frame…");
+                }
+            }
+            if !self.live_active {
+                ui.weak(
+                    "Uses the selected SDR source. Choose a mission preset, then start reception.",
+                );
+                if self.input_locked() {
+                    ui.label("Finish the current operation before starting live reception.");
+                }
+            }
+        }
+        if self.input_mode == MeteorInput::Recording {
+            ui.add_enabled_ui(!self.input_locked(), |ui| {
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 32.0],
+                        egui::Button::new("Open recording…"),
+                    )
+                    .clicked()
+                {
+                    self.open_recording_with(ui.ctx(), || {
+                        rfd::FileDialog::new()
+                            .add_filter("Meteor IQ recordings", &["cs8", "cf32"])
+                            .add_filter("All files", &["*"])
+                            .pick_file()
+                    });
+                }
+                ui.add_space(6.0);
+                ui.label("Recording path");
+                input_changed |= ui
+                    .add(
+                        egui::TextEdit::singleline(&mut self.file_path)
+                            .desired_width(f32::INFINITY)
+                            .hint_text(".cs8 or .cf32 path"),
+                    )
+                    .changed();
+                if !self.file_path.is_empty() {
+                    let kind = RecordingFormat::from_path(&self.file_path)
+                        .map(RecordingFormat::label)
+                        .unwrap_or("Unsupported format · choose .cs8 or .cf32");
+                    ui.label(
+                        egui::RichText::new(kind)
+                            .small()
+                            .color(egui::Color32::from_rgb(145, 165, 181)),
+                    );
+                }
+            });
+            if self.file_path.is_empty() {
+                ui.weak("Open a .cs8 or .cf32 recording, then choose Decode.");
+            } else if self.input_locked() {
+                ui.weak("Recording controls are locked while an operation is active.");
+            }
+        }
         if input_changed {
             self.clear_decode_state();
         }
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(
-                    !self.input_locked() && !self.file_path.is_empty(),
-                    egui::Button::new("▶ Decode"),
-                )
-                .clicked()
-            {
-                self.start_decode();
-            }
-            if ui
-                .add_enabled(!self.input_locked(), egui::Button::new("Clear"))
-                .clicked()
-            {
-                self.file_path.clear();
-                self.clear_decode_state();
-            }
-            if self.running
-                && ui
+        if self.input_mode == MeteorInput::Recording {
+            ui.horizontal(|ui| {
+                if ui
                     .add_enabled(
-                        !self.cancel.load(Ordering::Relaxed),
-                        egui::Button::new("Cancel"),
+                        !self.input_locked() && !self.file_path.is_empty(),
+                        egui::Button::new("▶ Decode"),
                     )
                     .clicked()
-            {
-                self.cancel_decode();
-            }
-        });
+                {
+                    self.start_decode();
+                }
+                if ui
+                    .add_enabled(!self.input_locked(), egui::Button::new("Clear"))
+                    .clicked()
+                {
+                    self.file_path.clear();
+                    self.clear_decode_state();
+                }
+            });
+        }
+        if self.running
+            && ui
+                .add_enabled(
+                    !self.cancel.load(Ordering::Relaxed),
+                    egui::Button::new("Cancel"),
+                )
+                .clicked()
+        {
+            self.cancel_decode();
+        }
         if let Some(operation) = &self.file_operation {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
@@ -1526,12 +1581,6 @@ impl DecodingPanel {
             ui.add_space(6.0);
             ui.colored_label(egui::Color32::from_rgb(225, 105, 105), error);
         }
-        ui.add_space(10.0);
-        ui.label(
-            egui::RichText::new("Live processing uses its own bounded capture subscriber.")
-                .small()
-                .color(egui::Color32::GRAY),
-        );
     }
 
     fn ui_results(&mut self, ui: &mut egui::Ui, show_daemon: bool) {
@@ -1691,9 +1740,9 @@ impl DecodingPanel {
                 egui::RichText::new(if self.running {
                     "Searching for Meteor frames. Channel images will appear as they decode."
                 } else {
-                    "Decoded channel images will appear here."
+                    "Open an IQ recording or choose Live reception to begin. Decoded channel images will appear here."
                 })
-                .color(egui::Color32::GRAY),
+                .weak(),
             );
         }
     }
@@ -1778,10 +1827,10 @@ impl DecodingPanel {
                     "Choose a Meteor satellite when starting capture to enable TLE georeferencing.",
                 )
                 .small()
-                .color(egui::Color32::GRAY),
+                .weak(),
             );
         } else if !has_absolute_times {
-            ui.label(egui::RichText::new("This product has no complete absolute CDS line times; no locations will be guessed.").small().color(egui::Color32::GRAY));
+            ui.label(egui::RichText::new("This product has no complete absolute CDS line times; no locations will be guessed.").small().weak());
         }
         if ui
             .add_enabled(
@@ -2509,6 +2558,47 @@ mod tests {
             append(&shape.shape, &mut text);
         }
         text
+    }
+
+    #[test]
+    fn meteor_input_choices_keep_active_stop_and_cancel_actions_visible() {
+        let context = egui::Context::default();
+        let mut panel = DecodingPanel::default();
+        panel.file_path = "existing-pass.cs8".into();
+        panel.input_mode = MeteorInput::Live;
+        panel.running = true;
+        let render = |panel: &mut DecodingPanel| {
+            context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 700.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| panel.ui_offline(ui),
+            )
+        };
+        let output = render(&mut panel);
+        let text = rendered_text(&output.shapes);
+        assert!(
+            text.contains("Cancel"),
+            "switching to live must keep file cancellation reachable"
+        );
+        assert!(
+            !panel.live_start_requested,
+            "choosing live is not a capture-start request"
+        );
+        assert_eq!(panel.file_path, "existing-pass.cs8");
+        panel.running = false;
+        panel.input_mode = MeteorInput::Recording;
+        panel.live_active = true;
+        let output = render(&mut panel);
+        assert!(
+            rendered_text(&output.shapes).contains("Stop live"),
+            "switching to recordings must keep the active live receiver's stop action reachable"
+        );
+        assert!(!panel.live_stop_requested);
     }
 
     #[test]

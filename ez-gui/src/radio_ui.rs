@@ -17,7 +17,7 @@ pub const TOOLBAR_HEIGHT: f32 = 40.0;
 const MAX_FREQUENCY: u64 = 999_999_999_999;
 const ROW_HEIGHT: f32 = 20.0;
 const LABEL_WIDTH: f32 = 96.0;
-const TOOLBAR_VOLUME_WIDTH: f32 = 160.0;
+const TOOLBAR_VOLUME_WIDTH: f32 = 90.0;
 
 pub struct RadioUi {
     shared: Arc<Mutex<SharedState>>,
@@ -112,16 +112,21 @@ impl RadioUi {
                 } else {
                     ToolbarIcon::Speaker
                 };
-                if icon_button(
-                    ui,
-                    icon,
-                    if self.muted {
-                        "Unmute audio"
-                    } else {
-                        "Mute audio"
-                    },
-                )
-                .clicked()
+                if ui
+                    .add_enabled_ui(cfg!(feature = "audio"), |ui| {
+                        icon_button(
+                            ui,
+                            icon,
+                            if self.muted {
+                                "Unmute audio"
+                            } else {
+                                "Mute audio"
+                            },
+                        )
+                    })
+                    .inner
+                    .on_disabled_hover_text("Audio output is unavailable in this build")
+                    .clicked()
                 {
                     self.muted = !self.muted;
                     state.audio_running = !self.muted
@@ -130,10 +135,14 @@ impl RadioUi {
                             SourceStatus::Running | SourceStatus::Opening
                         );
                 }
-                ui.add_sized(
-                    [TOOLBAR_VOLUME_WIDTH, 28.0],
-                    egui::Slider::new(&mut state.volume, 0.0..=1.0).show_value(false),
-                )
+                ui.add_enabled_ui(cfg!(feature = "audio"), |ui| {
+                    ui.add_sized(
+                        [TOOLBAR_VOLUME_WIDTH, 28.0],
+                        egui::Slider::new(&mut state.volume, 0.0..=1.0).show_value(false),
+                    )
+                })
+                .inner
+                .on_disabled_hover_text("Audio output is unavailable in this build")
                 .on_hover_text(format!("Volume: {:.0}%", state.volume * 100.0));
                 ui.separator();
                 if self.editing_frequency {
@@ -184,32 +193,57 @@ impl RadioUi {
                 } else {
                     "Normal tuning: move the VFO inside the captured band"
                 };
-                if icon_button(ui, tuning_icon, tuning_tip).clicked()
-                    && state.source.source_mode != SourceMode::Replay
-                {
+                let tuning_response = ui
+                    .add_enabled_ui(state.source.source_mode != SourceMode::Replay, |ui| {
+                        ui.horizontal(|ui| {
+                            let response = icon_button(ui, tuning_icon, tuning_tip);
+                            ui.label(if state.config.center_tuning {
+                                "Center"
+                            } else {
+                                "VFO"
+                            });
+                            response
+                        })
+                        .inner
+                    })
+                    .inner
+                    .on_disabled_hover_text(
+                        "File replay tunes inside the recording; its capture center is fixed",
+                    );
+                if tuning_response.clicked() && state.source.source_mode != SourceMode::Replay {
                     state.config.center_tuning = !state.config.center_tuning;
                     reconcile_tuning(&mut state);
                 }
-                if ui.available_width() > 110.0 {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let (label, color) = match &state.source.status {
-                            SourceStatus::Idle => ("Stopped", ui.visuals().weak_text_color()),
-                            SourceStatus::Opening => {
-                                ("Connecting…", egui::Color32::from_rgb(216, 174, 85))
-                            }
-                            SourceStatus::Stopping => {
-                                ("Stopping…", egui::Color32::from_rgb(216, 174, 85))
-                            }
-                            SourceStatus::Running => {
-                                ("Receiving", egui::Color32::from_rgb(109, 190, 146))
-                            }
-                            SourceStatus::Error(_) => {
-                                ("Source error", egui::Color32::from_rgb(220, 113, 105))
-                            }
-                        };
-                        ui.colored_label(color, label);
-                    });
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let theme = &state.config.theme_config;
+                    let (label, color) = match &state.source.status {
+                        SourceStatus::Idle => ("Stopped", theme.text_dim.to_egui()),
+                        SourceStatus::Opening => ("Connecting…", theme.warning.to_egui()),
+                        SourceStatus::Stopping => ("Stopping…", theme.warning.to_egui()),
+                        SourceStatus::Running => ("Receiving", theme.success.to_egui()),
+                        SourceStatus::Error(_) => ("Source error", theme.error.to_egui()),
+                    };
+                    let audio = if !cfg!(feature = "audio") {
+                        "Audio unavailable"
+                    } else if self.muted {
+                        "Muted"
+                    } else if state.audio_running {
+                        "Audio on"
+                    } else {
+                        "Audio idle"
+                    };
+                    let status = format!(
+                        "{} · {label} · {audio}",
+                        source_name(&state.source.source_mode)
+                    );
+                    let detail = if let SourceStatus::Error(error) = &state.source.status {
+                        format!("{status}\n{error}")
+                    } else {
+                        status.clone()
+                    };
+                    ui.add(egui::Label::new(egui::RichText::new(status).color(color)).truncate())
+                        .on_hover_text(detail);
+                });
             });
         });
     }
@@ -222,19 +256,13 @@ impl RadioUi {
         self.sync_audio_preference(&state);
         self.poll_file_picker(&mut state);
         compact_spacing(ui);
-        ui.style_mut()
-            .text_styles
-            .insert(egui::TextStyle::Body, egui::FontId::proportional(16.0));
-        ui.style_mut()
-            .text_styles
-            .insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
         ui.set_min_width(150.0);
         section(ui, "Source", true, |ui| {
             self.source_controls(ui, &mut state)
         });
         section(ui, "Radio", true, |ui| self.radio_controls(ui, &mut state));
         section(ui, "Audio", true, |ui| self.audio_controls(ui, &mut state));
-        section(ui, "Display", true, |ui| {
+        section(ui, "Advanced display", false, |ui| {
             self.display_controls(ui, &mut state);
             state.spectrum.ui_radio_controls(ui);
         });
@@ -476,106 +504,118 @@ impl RadioUi {
                 restart |= commit_control(&r);
             });
         }
-        if state.source.source_mode == SourceMode::Hardware {
-            ui.horizontal(|ui| {
-                restart |= ui.checkbox(&mut state.source.rtl_agc, "RTL AGC").changed();
-                restart |= ui
-                    .checkbox(&mut state.source.tuner_agc, "Tuner AGC")
-                    .changed();
-            });
-            restart |= ui.checkbox(&mut state.source.bias_tee, "Bias T").changed();
-            let previous = (
-                state.source.direct_sampling,
-                state.source.direct_sampling_branch,
-            );
-            let mut branch = if state.source.direct_sampling {
-                Some(state.source.direct_sampling_branch)
-            } else {
-                None
-            };
-            row(ui, "Direct sampling", |ui| {
-                egui::ComboBox::from_id_salt("radio.direct_sampling")
-                    .selected_text(match branch {
-                        None => "Off",
-                        Some(DirectSamplingBranch::I) => "I branch",
-                        Some(DirectSamplingBranch::Q) => "Q branch",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut branch, None, "Off");
-                        ui.selectable_value(&mut branch, Some(DirectSamplingBranch::I), "I branch");
-                        ui.selectable_value(&mut branch, Some(DirectSamplingBranch::Q), "Q branch");
-                    });
-            });
-            state.source.direct_sampling = branch.is_some();
-            if let Some(branch) = branch {
-                state.source.direct_sampling_branch = branch;
-            }
-            restart |= previous
-                != (
+        section(ui, "Source advanced", false, |ui| {
+            if state.source.source_mode == SourceMode::Hardware {
+                ui.horizontal(|ui| {
+                    restart |= ui.checkbox(&mut state.source.rtl_agc, "RTL AGC").changed();
+                    restart |= ui
+                        .checkbox(&mut state.source.tuner_agc, "Tuner AGC")
+                        .changed();
+                });
+                restart |= ui.checkbox(&mut state.source.bias_tee, "Bias T").changed();
+                let previous = (
                     state.source.direct_sampling,
                     state.source.direct_sampling_branch,
                 );
-            restart |= ui
-                .checkbox(&mut state.source.offset_tuning, "Offset Tuning")
-                .changed();
-            row(ui, "PPM correction", |ui| {
-                let r = ui
-                    .add(egui::DragValue::new(&mut state.source.ppm_correction).range(-100..=100));
-                restart |= commit_control(&r);
-            });
-            state.config.advanced.rtl_agc = state.source.rtl_agc;
-            state.config.advanced.tuner_agc = state.source.tuner_agc;
-            state.config.advanced.bias_tee = state.source.bias_tee;
-            state.config.advanced.direct_sampling = state.source.direct_sampling;
-            state.config.advanced.direct_sampling_branch = state.source.direct_sampling_branch;
-            state.config.advanced.offset_tuning = state.source.offset_tuning;
-            state.config.ppm_correction = state.source.ppm_correction;
-            let old_offset = state.lo_offset_hz;
-            row(ui, "Offset", |ui| {
-                egui::ComboBox::from_id_salt("radio.converter")
-                    .width(ui.available_width())
-                    .selected_text(converter_label(old_offset))
-                    .show_ui(ui, |ui| {
-                        for &(label, offset) in CONVERTER_OFFSETS {
-                            ui.selectable_value(&mut state.lo_offset_hz, offset, label);
-                        }
-                    });
-            });
-            row(ui, "Offset (Hz)", |ui| {
-                let response = ui.add(egui::DragValue::new(&mut state.lo_offset_hz).speed(1_000.0));
-                restart |= commit_control(&response);
-            });
-            if old_offset != state.lo_offset_hz {
-                state.source.frequency_offset_hz = state.lo_offset_hz;
-                state.config.lo_offset_hz = state.lo_offset_hz;
-                restart = true;
-            }
-        }
-        ui.add_enabled_ui(
-            state.source.source_mode != SourceMode::Daemon && !state.adsb_running,
-            |ui| {
-                ui.checkbox(&mut state.config.advanced.rf_dc_remove, "IQ correction")
-                    .on_hover_text("Remove source I/Q DC offset before the spectrum and VFO");
-                ui.checkbox(&mut state.config.advanced.invert_iq, "Invert IQ");
-                row(ui, "Decimation", |ui| {
-                    egui::ComboBox::from_id_salt("radio.decimation")
-                        .selected_text(format!("{}×", radio_iq_config(state).decimation))
+                let mut branch = if state.source.direct_sampling {
+                    Some(state.source.direct_sampling_branch)
+                } else {
+                    None
+                };
+                row(ui, "Direct sampling", |ui| {
+                    egui::ComboBox::from_id_salt("radio.direct_sampling")
+                        .selected_text(match branch {
+                            None => "Off",
+                            Some(DirectSamplingBranch::I) => "I branch",
+                            Some(DirectSamplingBranch::Q) => "Q branch",
+                        })
                         .show_ui(ui, |ui| {
-                            for factor in [1, 2, 4, 8, 16, 32, 64] {
-                                ui.selectable_value(
-                                    &mut state.config.advanced.rf_decim,
-                                    factor,
-                                    format!("{factor}×"),
-                                );
+                            ui.selectable_value(&mut branch, None, "Off");
+                            ui.selectable_value(
+                                &mut branch,
+                                Some(DirectSamplingBranch::I),
+                                "I branch",
+                            );
+                            ui.selectable_value(
+                                &mut branch,
+                                Some(DirectSamplingBranch::Q),
+                                "Q branch",
+                            );
+                        });
+                });
+                state.source.direct_sampling = branch.is_some();
+                if let Some(branch) = branch {
+                    state.source.direct_sampling_branch = branch;
+                }
+                restart |= previous
+                    != (
+                        state.source.direct_sampling,
+                        state.source.direct_sampling_branch,
+                    );
+                restart |= ui
+                    .checkbox(&mut state.source.offset_tuning, "Offset Tuning")
+                    .changed();
+                row(ui, "PPM correction", |ui| {
+                    let r = ui.add(
+                        egui::DragValue::new(&mut state.source.ppm_correction).range(-100..=100),
+                    );
+                    restart |= commit_control(&r);
+                });
+                state.config.advanced.rtl_agc = state.source.rtl_agc;
+                state.config.advanced.tuner_agc = state.source.tuner_agc;
+                state.config.advanced.bias_tee = state.source.bias_tee;
+                state.config.advanced.direct_sampling = state.source.direct_sampling;
+                state.config.advanced.direct_sampling_branch = state.source.direct_sampling_branch;
+                state.config.advanced.offset_tuning = state.source.offset_tuning;
+                state.config.ppm_correction = state.source.ppm_correction;
+                let old_offset = state.lo_offset_hz;
+                row(ui, "Offset", |ui| {
+                    egui::ComboBox::from_id_salt("radio.converter")
+                        .width(ui.available_width())
+                        .selected_text(converter_label(old_offset))
+                        .show_ui(ui, |ui| {
+                            for &(label, offset) in CONVERTER_OFFSETS {
+                                ui.selectable_value(&mut state.lo_offset_hz, offset, label);
                             }
                         });
                 });
-            },
-        )
-        .response
-        .on_disabled_hover_text(
-            "Radio IQ controls are local; ADS-B uses the original source stream",
-        );
+                row(ui, "Offset (Hz)", |ui| {
+                    let response =
+                        ui.add(egui::DragValue::new(&mut state.lo_offset_hz).speed(1_000.0));
+                    restart |= commit_control(&response);
+                });
+                if old_offset != state.lo_offset_hz {
+                    state.source.frequency_offset_hz = state.lo_offset_hz;
+                    state.config.lo_offset_hz = state.lo_offset_hz;
+                    restart = true;
+                }
+            }
+            ui.add_enabled_ui(
+                state.source.source_mode != SourceMode::Daemon && !state.adsb_running,
+                |ui| {
+                    ui.checkbox(&mut state.config.advanced.rf_dc_remove, "IQ correction")
+                        .on_hover_text("Remove source I/Q DC offset before the spectrum and VFO");
+                    ui.checkbox(&mut state.config.advanced.invert_iq, "Invert IQ");
+                    row(ui, "Decimation", |ui| {
+                        egui::ComboBox::from_id_salt("radio.decimation")
+                            .selected_text(format!("{}×", radio_iq_config(state).decimation))
+                            .show_ui(ui, |ui| {
+                                for factor in [1, 2, 4, 8, 16, 32, 64] {
+                                    ui.selectable_value(
+                                        &mut state.config.advanced.rf_decim,
+                                        factor,
+                                        format!("{factor}×"),
+                                    );
+                                }
+                            });
+                    });
+                },
+            )
+            .response
+            .on_disabled_hover_text(
+                "Radio IQ controls are local; ADS-B uses the original source stream",
+            );
+        });
         if restart {
             restart_if_running(&mut state.source);
         }
@@ -634,7 +674,7 @@ impl RadioUi {
             row(ui, "Bandwidth", |ui| {
                 let mut bandwidth = f64::from(channel_bandwidth(state));
                 let (min, max) = channel_bandwidth_bounds(state);
-                if stepped_input(
+                if frequency_input(
                     ui,
                     &mut bandwidth,
                     f64::from(min)..=f64::from(max),
@@ -645,9 +685,9 @@ impl RadioUi {
                 }
             });
         });
-        row(ui, "Snap Interval", |ui| {
+        row(ui, "Tune step", |ui| {
             let mut snap = state.tune_step_fine_hz as f64;
-            if stepped_input(ui, &mut snap, 1.0..=MAX_FREQUENCY as f64, 1.0, 100.0) {
+            if frequency_input(ui, &mut snap, 1.0..=MAX_FREQUENCY as f64, 1.0, 100.0) {
                 state.tune_step_fine_hz = snap as u64;
                 state.config.advanced.radio_snap_hz = state.tune_step_fine_hz;
             }
@@ -800,73 +840,6 @@ impl RadioUi {
                     });
                 }
             }
-            if mode_has_noise_blanker(mode) {
-                ui.horizontal(|ui| {
-                    self.dsp_changed |= ui
-                        .checkbox(
-                            &mut state.config.advanced.rf_noise_blanker,
-                            "Noise blanker (W.I.P.)",
-                        )
-                        .changed();
-                    ui.add_enabled_ui(state.config.advanced.rf_noise_blanker, |ui| {
-                        ui.spacing_mut().slider_width =
-                            (ui.available_width() - 60.0).clamp(20.0, 66.0);
-                        self.dsp_changed |= ui
-                            .add(
-                                egui::Slider::new(
-                                    &mut state.config.advanced.rf_noise_blanker_level,
-                                    1.0..=10.0,
-                                )
-                                .max_decimals(1),
-                            )
-                            .on_hover_text(
-                                "Impulse threshold relative to the tracked signal amplitude",
-                            )
-                            .changed();
-                    });
-                });
-            }
-            if matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
-                ui.horizontal(|ui| {
-                    self.dsp_changed |= ui
-                        .checkbox(&mut state.config.advanced.fm_if_nr, "IF Noise Reduction")
-                        .changed();
-                    if mode == DemodMode::Fm {
-                        ui.add_enabled_ui(state.config.advanced.fm_if_nr, |ui| {
-                            let old = state.config.advanced.fm_if_preset;
-                            egui::ComboBox::from_id_salt("radio.fm_if_nr")
-                                .width(ui.available_width())
-                                .selected_text(old.label())
-                                .show_ui(ui, |ui| {
-                                    for preset in [
-                                        crate::demod::FmIfPreset::NoaaApt,
-                                        crate::demod::FmIfPreset::Voice,
-                                        crate::demod::FmIfPreset::NarrowBand,
-                                    ] {
-                                        ui.selectable_value(
-                                            &mut state.config.advanced.fm_if_preset,
-                                            preset,
-                                            preset.label(),
-                                        );
-                                    }
-                                });
-                            self.dsp_changed |= old != state.config.advanced.fm_if_preset;
-                        });
-                    }
-                });
-            }
-            if mode_has_squelch(mode) {
-                let mut high_pass = state.config.advanced.audio_hpf_hz > 0.0;
-                if ui.checkbox(&mut high_pass, "High Pass").changed() {
-                    state.config.advanced.audio_hpf_hz = if high_pass { 100.0 } else { 0.0 };
-                    self.dsp_changed = true;
-                }
-            }
-            if matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
-                self.dsp_changed |= ui
-                    .checkbox(&mut state.config.advanced.fm_lowpass, "Low Pass")
-                    .changed();
-            }
             if mode == DemodMode::Wfm {
                 if local
                     && ui
@@ -927,30 +900,6 @@ impl RadioUi {
                 self.dsp_changed |= ui
                     .checkbox(&mut state.config.advanced.carrier_agc, "Carrier AGC")
                     .changed();
-            }
-            if mode_has_agc(mode) {
-                row(ui, "AGC Attack", |ui| {
-                    self.dsp_changed |= ui
-                        .add(
-                            egui::Slider::new(
-                                &mut state.config.advanced.agc_attack_rate,
-                                1.0..=200.0,
-                            )
-                            .max_decimals(3),
-                        )
-                        .changed();
-                });
-                row(ui, "AGC Decay", |ui| {
-                    self.dsp_changed |= ui
-                        .add(
-                            egui::Slider::new(
-                                &mut state.config.advanced.agc_decay_rate,
-                                1.0..=20.0,
-                            )
-                            .max_decimals(3),
-                        )
-                        .changed();
-                });
             }
             if mode == DemodMode::Dsb {
                 row(ui, "Sideband", |ui| {
@@ -1017,6 +966,99 @@ impl RadioUi {
                     });
                 }
             }
+            section(ui, "Radio advanced", false, |ui| {
+                if mode_has_noise_blanker(mode) {
+                    ui.horizontal(|ui| {
+                        self.dsp_changed |= ui
+                            .checkbox(
+                                &mut state.config.advanced.rf_noise_blanker,
+                                "Noise blanker (W.I.P.)",
+                            )
+                            .changed();
+                        ui.add_enabled_ui(state.config.advanced.rf_noise_blanker, |ui| {
+                            ui.spacing_mut().slider_width =
+                                (ui.available_width() - 60.0).clamp(20.0, 66.0);
+                            self.dsp_changed |= ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut state.config.advanced.rf_noise_blanker_level,
+                                        1.0..=10.0,
+                                    )
+                                    .max_decimals(1),
+                                )
+                                .on_hover_text(
+                                    "Impulse threshold relative to the tracked signal amplitude",
+                                )
+                                .changed();
+                        });
+                    });
+                }
+                if matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
+                    ui.horizontal(|ui| {
+                        self.dsp_changed |= ui
+                            .checkbox(&mut state.config.advanced.fm_if_nr, "IF Noise Reduction")
+                            .changed();
+                        if mode == DemodMode::Fm {
+                            ui.add_enabled_ui(state.config.advanced.fm_if_nr, |ui| {
+                                let old = state.config.advanced.fm_if_preset;
+                                egui::ComboBox::from_id_salt("radio.fm_if_nr")
+                                    .width(ui.available_width())
+                                    .selected_text(old.label())
+                                    .show_ui(ui, |ui| {
+                                        for preset in [
+                                            crate::demod::FmIfPreset::NoaaApt,
+                                            crate::demod::FmIfPreset::Voice,
+                                            crate::demod::FmIfPreset::NarrowBand,
+                                        ] {
+                                            ui.selectable_value(
+                                                &mut state.config.advanced.fm_if_preset,
+                                                preset,
+                                                preset.label(),
+                                            );
+                                        }
+                                    });
+                                self.dsp_changed |= old != state.config.advanced.fm_if_preset;
+                            });
+                        }
+                    });
+                }
+                if mode_has_squelch(mode) {
+                    let mut high_pass = state.config.advanced.audio_hpf_hz > 0.0;
+                    if ui.checkbox(&mut high_pass, "High Pass").changed() {
+                        state.config.advanced.audio_hpf_hz = if high_pass { 100.0 } else { 0.0 };
+                        self.dsp_changed = true;
+                    }
+                }
+                if matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
+                    self.dsp_changed |= ui
+                        .checkbox(&mut state.config.advanced.fm_lowpass, "Low Pass")
+                        .changed();
+                }
+                if mode_has_agc(mode) {
+                    row(ui, "AGC Attack", |ui| {
+                        self.dsp_changed |= ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut state.config.advanced.agc_attack_rate,
+                                    1.0..=200.0,
+                                )
+                                .max_decimals(3),
+                            )
+                            .changed();
+                    });
+                    row(ui, "AGC Decay", |ui| {
+                        self.dsp_changed |= ui
+                            .add(
+                                egui::Slider::new(
+                                    &mut state.config.advanced.agc_decay_rate,
+                                    1.0..=20.0,
+                                )
+                                .max_decimals(3),
+                            )
+                            .changed();
+                    });
+                }
+            });
             if state.config.advanced.squelch_mode.uses_ctcss() && mode == DemodMode::Fm {
                 ui.label(self.received_tone.map_or_else(
                     || "Received Tone: —".into(),
@@ -1039,8 +1081,39 @@ impl RadioUi {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(50));
         }
-        #[cfg(feature = "audio")]
+        #[cfg(not(feature = "audio"))]
+        ui.colored_label(
+            egui::Color32::from_rgb(220, 174, 85),
+            "Audio unavailable in this build",
+        );
+        let mut muted = self.muted;
+        if ui
+            .add_enabled_ui(cfg!(feature = "audio"), |ui| {
+                ui.checkbox(&mut muted, "Mute")
+            })
+            .inner
+            .on_disabled_hover_text("Audio output is unavailable in this build")
+            .changed()
         {
+            self.muted = muted;
+            state.audio_running = !muted
+                && matches!(
+                    state.source.status,
+                    SourceStatus::Running | SourceStatus::Opening
+                );
+        }
+        ui.add_enabled_ui(cfg!(feature = "audio"), |ui| {
+            row(ui, "Volume", |ui| {
+                ui.add(
+                    egui::Slider::new(&mut state.volume, 0.0..=1.0)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                );
+            });
+        })
+        .response
+        .on_disabled_hover_text("Audio output is unavailable in this build");
+        #[cfg(feature = "audio")]
+        section(ui, "Audio output advanced", false, |ui| {
             let previous = state.config.advanced.audio_output.clone();
             let selection = &mut state.config.advanced.audio_output;
             let selected_label = selection
@@ -1118,26 +1191,6 @@ impl RadioUi {
             if let Some(error) = &self.audio_scan_error {
                 ui.colored_label(egui::Color32::from_rgb(220, 113, 105), error);
             }
-        }
-        #[cfg(not(feature = "audio"))]
-        ui.colored_label(
-            egui::Color32::from_rgb(220, 174, 85),
-            "Audio unavailable in this build",
-        );
-        let mut muted = self.muted;
-        if ui.checkbox(&mut muted, "Mute").changed() {
-            self.muted = muted;
-            state.audio_running = !muted
-                && matches!(
-                    state.source.status,
-                    SourceStatus::Running | SourceStatus::Opening
-                );
-        }
-        row(ui, "Volume", |ui| {
-            ui.add(
-                egui::Slider::new(&mut state.volume, 0.0..=1.0)
-                    .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
-            );
         });
     }
 
@@ -1462,6 +1515,39 @@ fn stepped_input(
     step: f64,
     fast_step: f64,
 ) -> bool {
+    numeric_input(ui, value, range, step, fast_step, false)
+}
+
+fn frequency_input(
+    ui: &mut egui::Ui,
+    value: &mut f64,
+    range: std::ops::RangeInclusive<f64>,
+    step: f64,
+    fast_step: f64,
+) -> bool {
+    numeric_input(ui, value, range, step, fast_step, true)
+}
+
+fn parse_hz_value(text: &str) -> Option<f64> {
+    let text = text.trim();
+    if text.to_ascii_lowercase().ends_with("hz") {
+        parse_frequency(text).ok().map(|hz| hz as f64)
+    } else {
+        text.replace('_', "")
+            .parse::<f64>()
+            .ok()
+            .filter(|hz| hz.is_finite() && *hz >= 0.0)
+    }
+}
+
+fn numeric_input(
+    ui: &mut egui::Ui,
+    value: &mut f64,
+    range: std::ops::RangeInclusive<f64>,
+    step: f64,
+    fast_step: f64,
+    frequency_units: bool,
+) -> bool {
     let before = *value;
     let minimum = *range.start();
     let maximum = *range.end();
@@ -1469,12 +1555,24 @@ fn stepped_input(
         ui.spacing_mut().item_spacing.x = 4.0;
         let size = ui.spacing().interact_size.y;
         let width = (ui.available_width() - 2.0 * size - 8.0).max(24.0);
-        ui.add_sized(
-            [width, size],
-            egui::DragValue::new(value)
-                .range(range)
-                .speed(step)
-                .max_decimals(0),
+        let mut input = egui::DragValue::new(value)
+            .range(range)
+            .speed(step)
+            .max_decimals(0);
+        if frequency_units {
+            input = input
+                .custom_formatter(|hz, _| {
+                    if hz >= 1_000.0 {
+                        format!("{} kHz", (format!("{:.3}", hz / 1_000.0)).trim_end_matches('0').trim_end_matches('.'))
+                    } else {
+                        format!("{hz:.0} Hz")
+                    }
+                })
+                .custom_parser(parse_hz_value);
+        }
+        ui.add_sized([width, size], input).on_hover_text(
+            if frequency_units { "Enter a value with Hz, kHz or MHz. A bare number is Hz. Ctrl selects the larger step." }
+            else { "Drag or type a value. Ctrl selects the larger step." }
         );
         let delta = if ui.input(|i| i.modifiers.ctrl) {
             fast_step
@@ -2048,12 +2146,15 @@ fn parse_frequency(text: &str) -> Result<u64, &'static str> {
 
 fn frequency_digits(ui: &mut egui::Ui, frequency: &mut u64) -> egui::Response {
     *frequency = (*frequency).min(MAX_FREQUENCY);
-    let digits = format!("{:012}", *frequency);
+    let digits = format!("{:07}", *frequency);
+    let mhz_digits = digits.len() - 6;
+    let large_digits = mhz_digits + 3;
+    let width = large_digits as f32 * 23.0 + 3.0 * 13.0 + 8.0 + 40.0;
     let (rect, mut response) =
-        ui.allocate_exact_size(egui::vec2(300.0, 36.0), egui::Sense::click());
+        ui.allocate_exact_size(egui::vec2(width, 36.0), egui::Sense::click());
     let mut x = rect.left();
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && index % 3 == 0 {
+        if index == mhz_digits {
             ui.painter().text(
                 egui::pos2(x + 4.0, rect.center().y),
                 egui::Align2::CENTER_CENTER,
@@ -2063,11 +2164,16 @@ fn frequency_digits(ui: &mut egui::Ui, frequency: &mut u64) -> egui::Response {
             );
             x += 8.0;
         }
-        let digit_rect =
-            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(23.0, rect.height()));
+        let digit_rect = egui::Rect::from_min_size(
+            egui::pos2(x, rect.top()),
+            egui::vec2(
+                if index < large_digits { 23.0 } else { 13.0 },
+                rect.height(),
+            ),
+        );
         let digit_response = ui.interact(
             digit_rect,
-            ui.id().with(("frequency_digit", index)),
+            ui.id().with(("frequency_digit", digits.len() - index - 1)),
             egui::Sense::click(),
         );
         if digit_response.hovered() {
@@ -2087,31 +2193,37 @@ fn frequency_digits(ui: &mut egui::Ui, frequency: &mut u64) -> egui::Response {
                     .sum()
             });
             if wheel != 0.0 {
-                *frequency = step_digit(*frequency, (11 - index) as u32, wheel > 0.0);
+                *frequency = step_digit(*frequency, (digits.len() - index - 1) as u32, wheel > 0.0);
             }
         }
         if digit_response.clicked() {
             let up = digit_response
                 .interact_pointer_pos()
                 .is_none_or(|p| p.y < digit_rect.center().y);
-            *frequency = step_digit(*frequency, (11 - index) as u32, up);
+            *frequency = step_digit(*frequency, (digits.len() - index - 1) as u32, up);
         }
         response = response.union(digit_response);
-        let color = if index < 3 && *frequency < 1_000_000_000 {
-            ui.visuals().weak_text_color()
-        } else {
-            ui.visuals().text_color()
-        };
         ui.painter().text(
             digit_rect.center(),
             egui::Align2::CENTER_CENTER,
             digit,
-            egui::FontId::monospace(32.0),
-            color,
+            egui::FontId::monospace(if index < large_digits { 32.0 } else { 18.0 }),
+            if index < large_digits {
+                ui.visuals().text_color()
+            } else {
+                ui.visuals().weak_text_color()
+            },
         );
-        x += 23.0;
+        x += digit_rect.width();
     }
-    response.on_hover_text("Hz · Scroll over a digit or click its top/bottom half to tune. Right-click to enter a frequency.")
+    ui.painter().text(
+        egui::pos2(x + 6.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        "MHz",
+        egui::FontId::proportional(14.0),
+        ui.visuals().text_color(),
+    );
+    response.on_hover_text("MHz with 1 Hz precision · Scroll over a digit or click its top/bottom half to tune. Right-click to enter a frequency.")
 }
 
 #[derive(Clone, Copy)]
@@ -2390,8 +2502,8 @@ mod tests {
         };
         frame(vec![], &mut frequency); // First Area pass measures its contents.
         let first = frame(vec![], &mut frequency);
-        // The sixth digit is MHz: five 23px cells plus the first separator.
-        let position = first.rect.min + egui::vec2(130.0, 7.0);
+        // The third displayed digit is MHz (118.000000 MHz).
+        let position = first.rect.min + egui::vec2(57.5, 7.0);
         let button = |pressed, button| egui::Event::PointerButton {
             pos: position,
             button,
@@ -2436,6 +2548,16 @@ mod tests {
             "digit response must bubble right-click to manual entry"
         );
         assert_eq!(frequency, 118_000_000, "manual-entry click must not tune");
+    }
+
+    #[test]
+    fn bandwidth_and_step_inputs_keep_hz_precision_with_explicit_units() {
+        assert_eq!(parse_hz_value("10.001 kHz"), Some(10_001.0));
+        assert_eq!(parse_hz_value("0.001 MHz"), Some(1_000.0));
+        assert_eq!(parse_hz_value("1001"), Some(1_001.0));
+        assert_eq!(parse_hz_value("1 Hz"), Some(1.0));
+        assert_eq!(parse_hz_value("NaN"), None);
+        assert_eq!(parse_hz_value("-1"), None);
     }
 
     #[test]
@@ -2695,30 +2817,8 @@ mod tests {
         assert_eq!(shared.lock().unwrap().source.status, SourceStatus::Idle);
     }
 
-    // ------------------------------------------------------------------
-    // Mode-specific control integration tests.
-    //
-    // The sidebar is rendered at a fixed 300px width inside a dedicated
-    // egui context. With the default egui style every control row is
-    // 18px tall (interact_size.y) and the mode button rows are 20px, so
-    // the mode-specific rows land at deterministic offsets:
-    //
-    //   DSB mode rows:  mode buttons [0,20)+[23,43), Bandwidth [46,64),
-    //     Snap [67,85), Squelch Mode [88,106), Noise blanker [109,127),
-    //     High Pass [130,148), AGC Attack [151,169), AGC Decay [172,190),
-    //     Sideband [193,211)
-    //   CW mode rows:   mode buttons, Bandwidth [46,64), Snap [67,85),
-    //     AGC Attack [88,106), AGC Decay [109,127), Tone Freq [130,148),
-    //     CW Offset [151,169), CW Volume [172,190), CW Squelch [193,211),
-    //     Squelch Level [214,232) (only while CW squelch is enabled)
-    //
-    // In a stepped_input row the trailing "+" button always ends flush
-    // with the 300px row edge, so its center is x = 291 regardless of
-    // label width. The combo popup anchors below its button (gap 0) and
-    // its rows start 6px (menu margin) below the popup top; each row is
-    // 18px tall with 3px item spacing.
-    // ------------------------------------------------------------------
-
+    // Mode-specific controls are located from the rendered labels so layout
+    // changes still exercise the production widgets with real pointer events.
     /// Render `radio_controls` for one frame inside a fixed 300px-wide
     /// sidebar anchored at the origin.
     fn run_controls_frame(
@@ -2735,7 +2835,7 @@ mod tests {
             events,
             ..Default::default()
         };
-        let _ = ctx.run_ui(input, |ctx| {
+        let output = ctx.run_ui(input, |ctx| {
             egui::Area::new(egui::Id::new("__radio_ui_test"))
                 .fixed_pos(egui::Pos2::ZERO)
                 .show(ctx, |ui| {
@@ -2748,6 +2848,34 @@ mod tests {
                     radio.radio_controls(ui, &mut state);
                 });
         });
+        let mut labels = std::collections::HashMap::<String, egui::Rect>::new();
+        for shape in &output.shapes {
+            if let egui::Shape::Text(text) = &shape.shape {
+                labels.insert(
+                    text.galley.text().to_owned(),
+                    egui::Rect::from_min_size(text.pos, text.galley.size()),
+                );
+            }
+        }
+        ctx.data_mut(|data| data.insert_temp(egui::Id::new("radio.test.control_labels"), labels));
+    }
+
+    fn control_position(ctx: &egui::Context, label: &str, x: f32) -> egui::Pos2 {
+        let labels = ctx
+            .data(|data| {
+                data.get_temp::<std::collections::HashMap<String, egui::Rect>>(egui::Id::new(
+                    "radio.test.control_labels",
+                ))
+            })
+            .unwrap();
+        egui::pos2(
+            x,
+            labels
+                .get(label)
+                .unwrap_or_else(|| panic!("missing control {label}"))
+                .center()
+                .y,
+        )
     }
 
     /// Render two idle frames. egui hit-tests pointer events against the
@@ -2832,13 +2960,28 @@ mod tests {
         settle_controls(&ctx, &mut radio, &shared);
         assert_eq!(shared.lock().unwrap().demod_mode, DemodMode::Cw);
         // CW Offset "+" button (right edge of the stepped offset row).
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(291.0, 178.0));
+        click_controls(
+            &ctx,
+            &mut radio,
+            &shared,
+            control_position(&ctx, "CW Offset", 291.0),
+        );
         assert_eq!(shared.lock().unwrap().config.advanced.cw_offset_hz, 10.0);
         // CW Volume slider: clicking the track jumps to the clicked value.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 202.0));
+        click_controls(
+            &ctx,
+            &mut radio,
+            &shared,
+            control_position(&ctx, "CW Volume", 150.0),
+        );
         assert_ne!(shared.lock().unwrap().config.advanced.cw_volume, 1.0);
         // CW Squelch checkbox at the start of its row.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(30.0, 226.0));
+        click_controls(
+            &ctx,
+            &mut radio,
+            &shared,
+            control_position(&ctx, "CW Squelch", 30.0),
+        );
         assert!(shared.lock().unwrap().config.advanced.cw_squelch_enabled);
     }
 
@@ -2881,7 +3024,12 @@ mod tests {
         let ctx = egui::Context::default();
         settle_controls(&ctx, &mut radio, &shared);
         // The stepped offset row's "+" button adds one 10Hz step.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(291.0, 178.0));
+        click_controls(
+            &ctx,
+            &mut radio,
+            &shared,
+            control_position(&ctx, "CW Offset", 291.0),
+        );
         let state = shared.lock().unwrap();
         assert_eq!(state.config.advanced.cw_offset_hz, 10.0);
         assert!(
@@ -2901,7 +3049,12 @@ mod tests {
         let ctx = egui::Context::default();
         settle_controls(&ctx, &mut radio, &shared);
         // Clicking the volume slider track sets it to the clicked fraction.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 202.0));
+        click_controls(
+            &ctx,
+            &mut radio,
+            &shared,
+            control_position(&ctx, "CW Volume", 150.0),
+        );
         let state = shared.lock().unwrap();
         assert_ne!(
             state.config.advanced.cw_volume, 1.0,
@@ -2924,12 +3077,22 @@ mod tests {
         let ctx = egui::Context::default();
         settle_controls(&ctx, &mut radio, &shared);
         // Toggle the CW Squelch checkbox on.
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(30.0, 226.0));
+        click_controls(
+            &ctx,
+            &mut radio,
+            &shared,
+            control_position(&ctx, "CW Squelch", 30.0),
+        );
         assert!(shared.lock().unwrap().config.advanced.cw_squelch_enabled);
         // The squelch level slider appears below the checkbox; let it settle,
         // then click it to move the level off its -60dB default.
         settle_controls(&ctx, &mut radio, &shared);
-        click_controls(&ctx, &mut radio, &shared, egui::pos2(150.0, 250.0));
+        click_controls(
+            &ctx,
+            &mut radio,
+            &shared,
+            control_position(&ctx, "Squelch Level", 150.0),
+        );
         let state = shared.lock().unwrap();
         assert!(state.config.advanced.cw_squelch_enabled);
         assert_ne!(state.config.advanced.cw_squelch_level_db, -60.0);

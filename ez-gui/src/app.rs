@@ -2710,7 +2710,7 @@ impl CentralApp {
     fn render_adsb_tab(&mut self, ui: &mut egui::Ui) {
         egui::Panel::right("aircraft_list")
             .resizable(true)
-            .default_size(300.0)
+            .default_size(460.0)
             .show(ui, |ui| {
                 self.adsb_panel.ui_list(ui);
             });
@@ -2746,14 +2746,12 @@ impl CentralApp {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 ui.heading("Meteor LRPT decoder");
-                ui.label(
-                    egui::RichText::new("· offline .cs8 / .cf32 import").color(egui::Color32::GRAY),
-                );
+                ui.label(egui::RichText::new("· live reception & recordings").weak());
             });
             ui.label(
                 egui::RichText::new("Decode a live Meteor pass or import an IQ recording.")
                     .small()
-                    .color(egui::Color32::GRAY),
+                    .weak(),
             );
             ui.add_space(8.0);
             egui::Frame::group(ui.style()).show(ui, |ui| {

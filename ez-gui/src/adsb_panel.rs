@@ -2935,14 +2935,13 @@ impl AdsBPanel {
                 }
             });
 
-            let row_height = ui
-                .text_style_height(&egui::TextStyle::Small)
-                .max(ui.spacing().interact_size.y);
-            egui::ScrollArea::vertical()
+            let row_height = ui.text_style_height(&egui::TextStyle::Body).max(28.0);
+            const WIDTHS: [f32; 6] = [94.0, 86.0, 58.0, 48.0, 54.0, 40.0];
+            egui::ScrollArea::both()
                 .id_salt("adsb_aircraft_rows")
                 .show_rows(ui, row_height, aircraft.len() + 1, |ui, rows| {
                     egui::Grid::new("adsb_list_compact")
-                        .num_columns(7)
+                        .num_columns(6)
                         .striped(true)
                         .min_row_height(row_height)
                         .start_row(rows.start)
@@ -2952,19 +2951,39 @@ impl AdsBPanel {
                                     ("Flight", 0),
                                     ("Alt", 1),
                                     ("Spd", 2),
-                                    ("Hdg", 3),
+                                    ("Dir", 3),
                                     ("Dist", 4),
                                     ("Age", 5),
                                 ] {
-                                    let text = if sort_col == col {
-                                        format!("{} {}", label, if sort_asc { "▲" } else { "▼" })
-                                    } else {
-                                        label.to_string()
-                                    };
-                                    if ui
-                                        .button(egui::RichText::new(text).small().strong())
-                                        .clicked()
-                                    {
+                                    let response = ui
+                                        .add_sized(
+                                            [WIDTHS[usize::from(col)], row_height],
+                                            egui::Button::selectable(
+                                                sort_col == col,
+                                                egui::RichText::new(label).strong(),
+                                            ),
+                                        )
+                                        .on_hover_text(
+                                            "Click to sort; click again to reverse the order",
+                                        );
+                                    if sort_col == col {
+                                        // Draw the indicator so it works with every font family.
+                                        let center = egui::pos2(
+                                            response.rect.right() - 8.0,
+                                            response.rect.center().y,
+                                        );
+                                        let direction = if sort_asc { -1.0 } else { 1.0 };
+                                        ui.painter().add(egui::Shape::convex_polygon(
+                                            vec![
+                                                center + egui::vec2(0.0, 3.0 * direction),
+                                                center + egui::vec2(-3.0, -2.0 * direction),
+                                                center + egui::vec2(3.0, -2.0 * direction),
+                                            ],
+                                            ui.visuals().text_color(),
+                                            egui::Stroke::NONE,
+                                        ));
+                                    }
+                                    if response.clicked() {
                                         if sort_col == col {
                                             sort_asc = !sort_asc;
                                         } else {
@@ -2973,7 +2992,6 @@ impl AdsBPanel {
                                         }
                                     }
                                 }
-                                ui.label(egui::RichText::new("").small());
                                 ui.end_row();
                             }
                             let now = std::time::Instant::now();
@@ -2986,7 +3004,7 @@ impl AdsBPanel {
                                 let is_selected = self.selected_icao == Some(ac.icao);
                                 let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
                                 let row_col = if is_selected {
-                                    theme.accent.to_egui()
+                                    theme.text_heading.to_egui()
                                 } else {
                                     let n = theme.text_normal;
                                     let d = theme.text_dim;
@@ -3021,13 +3039,13 @@ impl AdsBPanel {
                                     None => "Emergency status unavailable",
                                 };
                                 if ui
-                                    .add(
-                                        egui::Label::new(
-                                            egui::RichText::new(&display_label)
-                                                .color(row_col)
-                                                .small(),
+                                    .add_sized(
+                                        [WIDTHS[0], row_height],
+                                        egui::Button::selectable(
+                                            is_selected,
+                                            egui::RichText::new(&display_label).color(row_col),
                                         )
-                                        .sense(egui::Sense::click()),
+                                        .truncate(),
                                     )
                                     .on_hover_text(format!(
                                         "{status}\nSquawk: {}\nSource: {} ({})\nPosition: {}",
@@ -3045,17 +3063,36 @@ impl AdsBPanel {
                                     self.selected_icao = Some(ac.icao);
                                     fetch_icao = Some(ac.icao);
                                 }
-                                ui.label(
-                                    egui::RichText::new(ac.altitude_label())
-                                        .color(row_col)
-                                        .small(),
+                                aircraft_cell(
+                                    ui,
+                                    WIDTHS[1],
+                                    row_height,
+                                    ac.altitude.map_or("—".into(), |alt| {
+                                        format!("{} ft", grouped_integer(alt))
+                                    }),
+                                    row_col,
+                                    ac.altitude_label(),
                                 );
-                                ui.label(
-                                    egui::RichText::new(ac.speed_label()).color(row_col).small(),
+                                aircraft_cell(
+                                    ui,
+                                    WIDTHS[2],
+                                    row_height,
+                                    ac.speed
+                                        .or(ac.airspeed)
+                                        .map_or("—".into(), |speed| format!("{speed} kt")),
+                                    row_col,
+                                    ac.speed_label(),
                                 );
-                                // I6: Heading column
-                                let hdg_label = ac.direction_label();
-                                ui.label(egui::RichText::new(hdg_label).color(row_col).small());
+                                aircraft_cell(
+                                    ui,
+                                    WIDTHS[3],
+                                    row_height,
+                                    ac.direction().map_or("—".into(), |direction| {
+                                        format!("{:03}°", direction % 360)
+                                    }),
+                                    row_col,
+                                    ac.direction_label(),
+                                );
                                 let has_position = self.has_position(ac);
                                 let dist = self.haversine_distance(
                                     self.observer_lat,
@@ -3064,12 +3101,18 @@ impl AdsBPanel {
                                     ac.lon,
                                 );
                                 let distance_label = if has_position {
-                                    format!("{dist:.0}km")
+                                    format!("{dist:.0} km")
                                 } else {
                                     "—".into()
                                 };
-                                ui.label(
-                                    egui::RichText::new(distance_label).color(row_col).small(),
+                                aircraft_cell(
+                                    ui,
+                                    WIDTHS[4],
+                                    row_height,
+                                    distance_label,
+                                    row_col,
+                                    "Distance from the observer to the latest decoded position"
+                                        .into(),
                                 );
                                 let age_color = if age < 10 {
                                     theme.success.to_egui()
@@ -3078,10 +3121,13 @@ impl AdsBPanel {
                                 } else {
                                     theme.text_dim.to_egui()
                                 };
-                                ui.label(
-                                    egui::RichText::new(format!("{age}s"))
-                                        .color(age_color)
-                                        .small(),
+                                aircraft_cell(
+                                    ui,
+                                    WIDTHS[5],
+                                    row_height,
+                                    format!("{age}s"),
+                                    age_color,
+                                    "Time since the last aircraft message".into(),
                                 );
                                 ui.end_row();
                             }
@@ -3094,6 +3140,38 @@ impl AdsBPanel {
             self.sort_ascending = sort_asc;
         });
     }
+}
+
+fn grouped_integer(value: i32) -> String {
+    let digits = value.unsigned_abs().to_string();
+    let mut grouped = String::new();
+    if value < 0 {
+        grouped.push('-');
+    }
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
+fn aircraft_cell(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    text: String,
+    color: egui::Color32,
+    detail: String,
+) {
+    ui.add_sized(
+        [width, height],
+        egui::Label::new(egui::RichText::new(text).color(color))
+            .halign(egui::Align::RIGHT)
+            .truncate(),
+    )
+    .on_hover_text(detail);
 }
 
 #[cfg(test)]
@@ -3158,7 +3236,8 @@ mod tests {
                 egui::Event::PointerMoved(pos),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(0.0, -60_000.0),
+                    // Scroll to the end even with larger accessible row heights.
+                    delta: egui::vec2(0.0, -1_000_000.0),
                     phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::NONE,
                 },

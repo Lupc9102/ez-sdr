@@ -201,6 +201,13 @@ fn render_workspaces() {
         // The 1920×1012 software render can be compared directly to the
         // installed SDR++ window captured at the same physical pixel size.
         for [width, height] in [[1920, 1012], [1400, 900], [1000, 700]] {
+            if std::env::var("EZ_SDR_PREVIEW_SIZE").is_ok_and(|requested| {
+                !requested
+                    .split(',')
+                    .any(|size| size == format!("{width}x{height}"))
+            }) {
+                continue;
+            }
             for pass in 0..3 {
                 let input = egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(

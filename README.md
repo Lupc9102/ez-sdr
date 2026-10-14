@@ -29,9 +29,13 @@ use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
 
 - Play/stop, per-digit frequency tuning, direct frequency entry, mute and volume are
   in the top receiver bar. Scroll a digit or click its upper/lower half; double-click
-  the readout to type a frequency with a unit such as `118.1 MHz`.
+  the readout to type a frequency with a unit such as `118.1 MHz`. The readout shows
+  MHz with smaller digits retaining 1 Hz precision; the bar also shows source and audio status.
 - The sidebar exposes source selection, sample rate, gain, hardware options, modulation,
   bandwidth, squelch, audio processing, and spectrum/waterfall display controls.
+  **Source advanced** contains hardware/IQ options; **Radio advanced** contains filters
+  and AGC timing; **Advanced display** contains FFT and waterfall settings.
+  **Bandwidth** and **Tune step** accept explicit Hz/kHz/MHz values (bare numbers are Hz).
 - RTL-SDR device discovery runs in the background. Use **Refresh** after plugging in a
   receiver; a unique USB serial keeps the selected receiver stable across index changes.
   **Offset Tuning** is available when the tuner supports it.
@@ -53,7 +57,7 @@ use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
 - Replay scans validate the requested scan grid and bookmark passbands against the
   file's fixed coverage. An unavailable channel stops the scan with its frequency
   and available tuning range; valid scans still require fresh observations after tuning.
-- Choose the output device and sample rate under **Audio**. An unavailable saved device
+- Choose the output device and sample rate under **Audio → Audio output advanced**. An unavailable saved device
   produces an error; it is not silently replaced by another device.
 - Display controls support streaming FFT sizes through 65,536, FFT rate, waterfall
   visibility and SNR smoothing. The waterfall and drawn traces remain bounded in size.
@@ -99,7 +103,8 @@ Native reception and audible output still require hardware validation.
 ## ADS-B
 
 The map shows heading-rotated SVG aircraft, trails, an aircraft list and OpenStreetMap
-attribution. Set your observer position in Settings to center reception coverage. Map
+attribution. Aircraft columns use compact measurements; hover for altitude, speed
+and direction provenance. The list scrolls horizontally when narrowed. Set your observer position in Settings to center reception coverage. Map
 image tiles are downloaded as needed and cached locally; uncached areas need internet.
 
 ### 1090 MHz — Mode S / 1090ES
@@ -141,7 +146,7 @@ Anonymous/non-ICAO addresses remain separate from ICAO aircraft in either source
 
 ## Meteor — live passes and imported recordings
 
-1. Open **Meteor** and browse for an existing `.cs8` or `.cf32` recording.
+1. Open **Meteor**, choose **Open recording**, and browse for an existing `.cs8` or `.cf32` recording.
 2. Set the recording's actual sample rate and symbol rate. CS8 means signed interleaved
    8-bit I/Q; CF32 means little-endian float32 I/Q. These formats are not interchangeable.
 3. Choose a Meteor preset or Custom, then Decode. Progress and reconstructed channels
@@ -149,7 +154,9 @@ Anonymous/non-ICAO addresses remain separate from ICAO aircraft in either source
 4. Cancel a running decode or export the decoded channels as PNGs. Repeated exports
    get unique filenames rather than overwriting an earlier pass.
 
-Meteor has independent live and imported-file decode state. **Start live** starts
+Meteor has independent live and imported-file decode state. Choose **Live reception**
+to reveal live controls. Transport and timestamp settings are under **Advanced transport & timestamps**.
+**Start live** starts
 the selected receiver; **Stop live** finalizes decoded channels for export.
 No SDR, observer location or TLE is needed to decode an existing recording. The decoder targets
 Meteor-M2-3/M2-4 LRPT OQPSK at 80 or 72 ksym/s. NOAA APT, HRPT and GOES are not implemented.
