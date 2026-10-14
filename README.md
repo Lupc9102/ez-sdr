@@ -109,6 +109,15 @@ receiver uses 2.4 MSPS. A daemon source can deliver decoded aircraft instead. Th
 source does not simulate real local aircraft. Reception requires a suitable 1090 MHz
 antenna and line of sight.
 
+An aircraft can appear in the list with a callsign, altitude and heading before
+its position is available. The map requires fresh decoded coordinates; the
+sidebar explains when they are unavailable. The first airborne ADS-B fix
+normally needs both an even and an odd position message received within ten
+seconds. That pair does not require an observer location. Setting your actual
+receiver location provides the reference needed for surface positions, but
+cannot supply coordinates when position messages are missing. Online trackers
+may receive position data from other receivers.
+
 ### 978 MHz — UAT (United States)
 
 The **Native IQ** source is selected by default. EZ-SDR decodes UAT downlink and

@@ -2763,6 +2763,20 @@ impl AdsBPanel {
         ui.label(format!(
             "✈ {active_count} aircraft  ({with_pos} w/pos)  {now_rate:.0} msg/s"
         ));
+        if active_count > 0 && with_pos == 0 {
+            ui.label(
+                egui::RichText::new("Position unavailable — waiting for decoded coordinates")
+                    .small()
+                    .color(theme.warning.to_egui()),
+            )
+            .on_hover_text(
+                "Callsign, altitude and heading can be received without a position. \
+                 Airborne ADS-B normally needs an even/odd position-message pair within \
+                 10 seconds for the first fix; setting the observer location is not \
+                 required for that pair. Surface positions need a nearby reference. \
+                 An online tracker may have position data from other receivers.",
+            );
+        }
 
         module_card(
             ui,
@@ -2835,7 +2849,7 @@ impl AdsBPanel {
 
         // Selected aircraft detail
         if let Some(icao) = self.selected_icao {
-            if let Some(info) = self.aircraft_info.get(&icao) {
+            if let Some(aircraft) = self.aircraft.iter().find(|ac| ac.icao == icao) {
                 ui.separator();
                 egui::Frame::new()
                     .fill(theme.surface.to_egui())
@@ -2851,18 +2865,27 @@ impl AdsBPanel {
                                 .strong()
                                 .color(theme.accent.to_egui()),
                         );
-                        if info.model != "Loading..." && info.model != "Unknown" {
-                            ui.label(egui::RichText::new(&info.model).small());
-                            if !info.operator.is_empty() && info.operator != "Unknown" {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{} | {}",
-                                        info.operator, info.registration
-                                    ))
-                                    .small()
-                                    .color(theme.text_dim.to_egui()),
-                                );
+                        if let Some(info) = self.aircraft_info.get(&icao) {
+                            if info.model != "Loading..." && info.model != "Unknown" {
+                                ui.label(egui::RichText::new(&info.model).small());
+                                if !info.operator.is_empty() && info.operator != "Unknown" {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} | {}",
+                                            info.operator, info.registration
+                                        ))
+                                        .small()
+                                        .color(theme.text_dim.to_egui()),
+                                    );
+                                }
                             }
+                        }
+                        if !self.has_position(aircraft) {
+                            ui.label(
+                                egui::RichText::new("Not on map: no current decoded position")
+                                    .small()
+                                    .color(theme.warning.to_egui()),
+                            );
                         }
                     });
             }
@@ -3007,10 +3030,15 @@ impl AdsBPanel {
                                         .sense(egui::Sense::click()),
                                     )
                                     .on_hover_text(format!(
-                                        "{status}\nSquawk: {}\nSource: {} ({})",
+                                        "{status}\nSquawk: {}\nSource: {} ({})\nPosition: {}",
                                         ac.squawk.map_or("—".into(), |s| format!("{s:04}")),
                                         ac.source,
-                                        ac.address_type
+                                        ac.address_type,
+                                        if self.has_position(ac) {
+                                            "available"
+                                        } else {
+                                            "unavailable — no current decoded coordinates"
+                                        }
                                     ))
                                     .clicked()
                                 {
