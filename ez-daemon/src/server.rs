@@ -53,9 +53,15 @@ pub async fn serve(
     let local_addr = listener.local_addr().ok();
     tracing::info!(?local_addr, "ez-daemon listening");
     let sem = Arc::new(tokio::sync::Semaphore::new(64));
+    let mut connections = tokio::task::JoinSet::new();
 
     while running.load(Ordering::Relaxed) {
         tokio::select! {
+            joined = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    tracing::warn!(%error, "TCP connection task panicked");
+                }
+            }
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, peer)) => {
@@ -68,17 +74,22 @@ pub async fn serve(
                         };
                         let state = Arc::clone(&state);
                         let conn_running = Arc::clone(&running);
-                        tokio::spawn(async move {
+                        connections.spawn(async move {
                             if let Err(e) = handle_connection(stream, peer, state, conn_running).await {
                                 tracing::warn!(%peer, error = %e, "connection ended with error");
                             }
                             drop(permit);
                         });
                     }
-                    Err(e) => tracing::warn!(error = %e, "accept failed"),
+                    Err(e) => return Err(e.into()),
                 }
             }
             () = tokio::time::sleep(ACCEPT_POLL) => {}
+        }
+    }
+    while let Some(result) = connections.join_next().await {
+        if let Err(error) = result {
+            tracing::warn!(%error, "TCP connection task panicked during shutdown");
         }
     }
     tracing::info!("ez-daemon TCP server shutting down");

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -39,10 +39,11 @@ const CONTROL_HW_TICK: Duration = Duration::from_millis(250);
 /// Assembles the `/ws/*` routes. `Router<Arc<DaemonState>>`, same reasoning as
 /// `crate::web::api::router` — left unattached so `crate::web::serve` can merge this with
 /// `api::router()` before a single `.with_state(...)`.
-pub fn router() -> Router<Arc<DaemonState>> {
+pub fn router(running: Arc<AtomicBool>) -> Router<Arc<DaemonState>> {
     Router::new()
         .route("/ws/control", get(control_ws))
         .route("/ws/stream/{kind}/{id}", get(data_plane_ws))
+        .layer(Extension(running))
 }
 
 fn parse_pipeline_kind(s: &str) -> Option<PipelineKind> {
@@ -61,6 +62,7 @@ fn parse_pipeline_kind(s: &str) -> Option<PipelineKind> {
 /// immediately have to close.
 async fn data_plane_ws(
     State(state): State<Arc<DaemonState>>,
+    Extension(running): Extension<Arc<AtomicBool>>,
     Path((kind, id)): Path<(String, ChannelId)>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
@@ -85,7 +87,7 @@ async fn data_plane_ws(
                 Some(protocol) => ws.protocols([protocol]),
                 None => ws,
             };
-            ws.on_upgrade(move |socket| stream_channel(socket, id, sub, state))
+            ws.on_upgrade(move |socket| stream_channel(socket, id, sub, state, running))
         }
         Err(e) => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
     }
@@ -102,6 +104,7 @@ async fn stream_channel(
     channel_id: ChannelId,
     sub: ChannelSubscription,
     state: Arc<DaemonState>,
+    running: Arc<AtomicBool>,
 ) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = crate::outbound::channel(CONTROL_EVENT_CHANNEL_CAPACITY);
@@ -110,10 +113,12 @@ async fn stream_channel(
     let keep_running = forwarders.remove(&channel_id).unwrap();
     drop(tx);
 
+    let writer_running = Arc::clone(&running);
     let mut writer = tokio::spawn(async move {
         let mut lifecycle = tokio::time::interval(CONTROL_HW_TICK);
         loop {
             tokio::select! {
+                _ = wait_for_stop(Arc::clone(&writer_running)) => break,
                 _ = lifecycle.tick() => {
                     if !state.channel_exists(channel_id) {
                         let removed = ServerEvent::ChannelRemoved { channel_id };
@@ -133,6 +138,7 @@ async fn stream_channel(
     loop {
         let msg = tokio::select! {
             _ = &mut writer => { keep_running.store(false, Ordering::Relaxed); return; }
+            _ = wait_for_stop(Arc::clone(&running)) => break,
             msg = stream.next() => { let Some(msg) = msg else { break; }; msg }
         };
         match msg {
@@ -168,6 +174,7 @@ fn stream_message(event: ServerEvent) -> Message {
 /// instead of waiting on a first client message.
 async fn control_ws(
     State(state): State<Arc<DaemonState>>,
+    Extension(running): Extension<Arc<AtomicBool>>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
@@ -182,7 +189,13 @@ async fn control_ws(
         Some(protocol) => ws.protocols([protocol]),
         None => ws,
     };
-    ws.on_upgrade(move |socket| control_connection(socket, state))
+    ws.on_upgrade(move |socket| control_connection(socket, state, running))
+}
+
+async fn wait_for_stop(running: Arc<AtomicBool>) {
+    while running.load(Ordering::Acquire) {
+        tokio::time::sleep(CONTROL_HW_TICK).await;
+    }
 }
 
 /// Browser WebSocket APIs cannot set `Authorization`, so configured credentials may be
@@ -249,7 +262,7 @@ fn decode_hex(value: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
+async fn control_connection(socket: WebSocket, state: Arc<DaemonState>, running: Arc<AtomicBool>) {
     let Ok(client_channels) = state.allocate_client_channels() else {
         return;
     };
@@ -354,6 +367,7 @@ async fn control_connection(socket: WebSocket, state: Arc<DaemonState>) {
 
     loop {
         tokio::select! {
+            _ = wait_for_stop(Arc::clone(&running)) => break,
             msg = stream.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
@@ -462,11 +476,51 @@ mod tests {
         ))
     }
 
-    async fn spawn_test_ws() -> (String, Arc<DaemonState>) {
+    struct TestWsGuard {
+        running: Arc<StdAtomicBool>,
+        server: Option<tokio::task::JoinHandle<()>>,
+        ingest_thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Drop for TestWsGuard {
+        fn drop(&mut self) {
+            self.running.store(false, StdOrdering::Release);
+            if let Some(server) = self.server.take() {
+                server.abort();
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    runtime.spawn(async move {
+                        let _ = server.await;
+                    });
+                }
+            }
+            if let Some(ingest_thread) = self.ingest_thread.take() {
+                match tokio::runtime::Handle::try_current() {
+                    Ok(runtime) => {
+                        runtime.spawn_blocking(move || {
+                            let _ = ingest_thread.join();
+                        });
+                    }
+                    Err(_) => {
+                        let _ = std::thread::Builder::new()
+                            .name("ez-daemon-ws-test-ingest-reaper".into())
+                            .spawn(move || {
+                                let _ = ingest_thread.join();
+                            });
+                    }
+                }
+            }
+        }
+    }
+
+    async fn spawn_test_ws() -> (String, Arc<DaemonState>, TestWsGuard) {
         let bus = SampleBus::new();
         let running = Arc::new(StdAtomicBool::new(true));
-        let (hardware, _ingest_thread) =
-            ingest::spawn(Box::new(SyntheticSource::default()), bus.clone(), running).unwrap();
+        let (hardware, ingest_thread) = ingest::spawn(
+            Box::new(SyntheticSource::default()),
+            bus.clone(),
+            Arc::clone(&running),
+        )
+        .unwrap();
         let state = Arc::new(DaemonState::new(
             bus,
             hardware,
@@ -475,7 +529,7 @@ mod tests {
             unique_temp_dir("state"),
         ));
         let app = crate::web::api::router()
-            .merge(router())
+            .merge(router(Arc::clone(&running)))
             .layer(axum::middleware::from_fn_with_state(
                 Arc::clone(&state),
                 crate::web::transport_request_guard,
@@ -483,12 +537,22 @@ mod tests {
             .with_state(Arc::clone(&state));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
+        let server_running = Arc::clone(&running);
+        let server = tokio::spawn(async move {
             axum::serve(listener, app.into_make_service())
+                .with_graceful_shutdown(wait_for_stop(server_running))
                 .await
                 .unwrap();
         });
-        (format!("ws://{addr}"), state)
+        (
+            format!("ws://{addr}"),
+            state,
+            TestWsGuard {
+                running,
+                server: Some(server),
+                ingest_thread: Some(ingest_thread),
+            },
+        )
     }
 
     #[test]
@@ -525,7 +589,7 @@ mod tests {
     #[tokio::test]
     async fn foreign_browser_cannot_upgrade_control_or_data_websocket() {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        let (base, state) = spawn_test_ws().await;
+        let (base, state, _server_guard) = spawn_test_ws().await;
         let initial = state.hardware_status().frequency_hz;
         for path in ["/ws/control", "/ws/stream/spectrum/77"] {
             let mut request = format!("{base}{path}").into_client_request().unwrap();
@@ -550,7 +614,7 @@ mod tests {
     #[tokio::test]
     async fn configured_auth_protects_rest_and_both_websocket_planes() {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        let (base, state) = spawn_test_ws().await;
+        let (base, state, _server_guard) = spawn_test_ws().await;
         state
             .set_auth_token(Some("test-token-which-is-long-enough".into()))
             .unwrap();
@@ -693,7 +757,7 @@ mod tests {
 
     #[tokio::test]
     async fn control_ws_sends_welcome_then_hardware_and_answers_ping() {
-        let (base, _state) = spawn_test_ws().await;
+        let (base, _state, _server_guard) = spawn_test_ws().await;
         let (mut ws, _resp) = connect_async(format!("{base}/ws/control")).await.unwrap();
 
         let welcome = ws.next().await.unwrap().unwrap();
@@ -728,7 +792,7 @@ mod tests {
 
     #[tokio::test]
     async fn control_ws_set_frequency_is_reflected_in_hardware_status() {
-        let (base, state) = spawn_test_ws().await;
+        let (base, state, _server_guard) = spawn_test_ws().await;
         let (mut ws, _resp) = connect_async(format!("{base}/ws/control")).await.unwrap();
         let _welcome = ws.next().await.unwrap().unwrap();
         let _hardware = ws.next().await.unwrap().unwrap();
@@ -755,7 +819,7 @@ mod tests {
 
     #[tokio::test]
     async fn data_plane_ws_rejects_unknown_channel_without_upgrading() {
-        let (base, _state) = spawn_test_ws().await;
+        let (base, _state, _server_guard) = spawn_test_ws().await;
         let url = format!("{base}/ws/stream/spectrum/999");
         let result = connect_async(url).await;
         assert!(result.is_err());
@@ -763,7 +827,7 @@ mod tests {
 
     #[tokio::test]
     async fn data_plane_ws_rejects_unknown_kind() {
-        let (base, state) = spawn_test_ws().await;
+        let (base, state, _server_guard) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
                 audio: None,
@@ -782,7 +846,7 @@ mod tests {
 
     #[tokio::test]
     async fn data_plane_ws_streams_binary_spectrum_frames_for_an_existing_channel() {
-        let (base, state) = spawn_test_ws().await;
+        let (base, state, _server_guard) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
                 audio: None,
@@ -820,7 +884,7 @@ mod tests {
 
     #[tokio::test]
     async fn data_plane_ws_mismatched_kind_for_existing_channel_is_rejected() {
-        let (base, state) = spawn_test_ws().await;
+        let (base, state, _server_guard) = spawn_test_ws().await;
         state
             .subscribe(ChannelSpec {
                 audio: None,

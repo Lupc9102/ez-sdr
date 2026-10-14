@@ -48,7 +48,7 @@ pub async fn serve(
     let local_addr = listener.local_addr().ok();
     tracing::info!(?local_addr, ?static_dir, "ez-daemon web server listening");
 
-    let mut router = api::router().merge(ws::router());
+    let mut router = api::router().merge(ws::router(Arc::clone(&running)));
 
     if static_dir.is_dir() {
         let index = static_dir.join("index.html");

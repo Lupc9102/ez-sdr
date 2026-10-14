@@ -153,6 +153,14 @@ impl Drop for QueuedCommand {
 const COMMAND_CAPACITY: usize = 64;
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+struct StartedSource(Box<dyn IqSource>);
+
+impl Drop for StartedSource {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
+}
+
 /// Cheap-to-clone handle for sending rare, acknowledged control commands to the ingestion
 /// thread and reading its latest published [`HardwareStatus`] snapshot, without ever touching
 /// the source itself (only the ingestion thread ever does that).
@@ -225,14 +233,17 @@ impl IngestHandle {
 /// Spawns the ingestion thread, which runs until `running` clears. Each loop iteration
 /// applies any queued `HardwareCommand`s (non-blocking), then does one blocking `read_iq`
 /// pull and publishes the result to `bus`. Returns once `source.start()` succeeds; the
-/// thread itself calls `source.stop()` on exit (clean shutdown or a source error/EOF).
+/// ingestion thread owns a stop guard so the source is stopped on every thread exit.
 pub fn spawn(
     mut source: Box<dyn IqSource>,
     bus: SampleBus,
     running: Arc<AtomicBool>,
 ) -> anyhow::Result<(IngestHandle, JoinHandle<()>)> {
     let (commands, command_rx) = bounded(COMMAND_CAPACITY);
-    source.start()?;
+    if let Err(error) = source.start() {
+        source.stop();
+        return Err(error);
+    }
     let status = Arc::new(ArcSwap::from_pointee(status_snapshot(
         source.as_ref(),
         true,
@@ -243,9 +254,33 @@ pub fn spawn(
         status: Arc::clone(&status),
     };
 
+    let source_slot = Arc::new(Mutex::new(Some(source)));
+    let worker_source = Arc::clone(&source_slot);
     let thread = std::thread::Builder::new()
         .name("ez-daemon-ingest".to_string())
-        .spawn(move || run(source.as_mut(), &bus, &command_rx, &running, &status))?;
+        .spawn(move || {
+            let source = worker_source
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+                .expect("ingestion source owner");
+            let mut source = StartedSource(source);
+            run(source.0.as_mut(), &bus, &command_rx, &running, &status);
+        });
+
+    let thread = match thread {
+        Ok(thread) => thread,
+        Err(error) => {
+            if let Some(mut source) = source_slot
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+            {
+                source.stop();
+            }
+            return Err(error.into());
+        }
+    };
 
     Ok((handle, thread))
 }
@@ -430,7 +465,6 @@ fn run(
     while let Ok(command) = commands.try_recv() {
         drop(command);
     }
-    source.stop();
     // A deliberate shutdown is terminal too; retain an existing read failure.
     let mut terminal = (**status.load()).clone();
     terminal.connected = false;
