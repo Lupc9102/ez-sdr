@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A collection of radio frequency bookmarks stored in memory
 /// and persisted to `ez_sdr_bookmarks.json`.
@@ -233,16 +235,82 @@ impl Default for BookmarkDb {
     }
 }
 
+static ATOMIC_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 pub fn atomic_write_file(path: impl AsRef<std::path::Path>, content: &[u8]) -> std::io::Result<()> {
-    let path = path.as_ref();
+    atomic_write_file_with_mode(path.as_ref(), content, false)
+}
+
+pub(crate) fn atomic_write_private_file(
+    path: impl AsRef<std::path::Path>,
+    content: &[u8],
+) -> std::io::Result<()> {
+    atomic_write_file_with_mode(path.as_ref(), content, true)
+}
+
+fn atomic_write_file_with_mode(
+    path: &std::path::Path,
+    content: &[u8],
+    private: bool,
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
     }
-    let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
-    std::fs::write(&tmp_path, content)?;
-    std::fs::rename(&tmp_path, path)
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "destination has no filename",
+        )
+    })?;
+
+    for _ in 0..32 {
+        let sequence = ATOMIC_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let tmp_path = parent.join(format!(
+            ".{}.tmp.{}.{}",
+            file_name.to_string_lossy(),
+            std::process::id(),
+            sequence
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(if private { 0o600 } else { 0o666 });
+        }
+        #[cfg(not(unix))]
+        let _ = private;
+
+        let mut temporary = match options.open(&tmp_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let write_result = temporary
+            .write_all(content)
+            .and_then(|()| temporary.sync_all());
+        drop(temporary);
+        if let Err(error) = write_result {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(error);
+        }
+        if let Err(error) = std::fs::rename(&tmp_path, path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a unique temporary filename",
+    ))
 }
 
 const BOOKMARKS_FILE: &str = "ez_sdr_bookmarks.json";
@@ -528,5 +596,79 @@ mod tests {
         let _ = std::fs::remove_file(csv_path);
 
         assert_eq!(count, 0, "should not import duplicate frequency");
+    }
+
+    #[test]
+    fn atomic_writes_use_distinct_temporary_files_for_concurrent_saves() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-atomic-writes-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settings.json");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let writers: Vec<_> = (0..8)
+            .map(|index| {
+                let path = path.clone();
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let content = format!("{index}:").repeat(16_384);
+                    barrier.wait();
+                    atomic_write_file(&path, content.as_bytes()).unwrap();
+                    content
+                })
+            })
+            .collect();
+        let expected: Vec<_> = writers
+            .into_iter()
+            .map(|writer| writer.join().unwrap())
+            .collect();
+
+        let actual = std::fs::read_to_string(&path).unwrap();
+        assert!(expected.iter().any(|content| content == &actual));
+        let entries: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("settings.json")]);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_atomic_rename_cleans_temporary_file_and_preserves_destination() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-atomic-write-failure-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let destination = directory.join("existing-settings");
+        std::fs::create_dir(&destination).unwrap();
+
+        assert!(atomic_write_file(&destination, b"new settings").is_err());
+        assert!(destination.is_dir());
+        let entries: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("existing-settings")]);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_atomic_write_creates_owner_only_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "ez-private-write-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("credentials.json");
+        atomic_write_private_file(&path, b"private").unwrap();
+        let permissions = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(permissions, 0o600);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

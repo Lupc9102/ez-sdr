@@ -161,6 +161,7 @@ pub struct CentralApp {
     last_rigctl_status: Option<crate::web_remote::ListenerSnapshot>,
     theme_applied: bool,
     discord: DiscordNotifier,
+    last_discord_delivery_sequence: u64,
     last_recording: bool,
     last_adsb_running: bool,
     last_scanner_enabled: bool,
@@ -182,6 +183,15 @@ pub struct CentralApp {
 }
 
 impl CentralApp {
+    fn poll_discord_delivery(&mut self) {
+        let snapshot = self.discord.delivery_snapshot();
+        publish_discord_delivery_status(
+            &mut self.status_bar,
+            &mut self.last_discord_delivery_sequence,
+            snapshot,
+        );
+    }
+
     /// Keep the event loop alive while owned file finalizers finish. A blocked
     /// driver cannot freeze close handling or imply a completed recording.
     fn tick_close_request(&mut self, ctx: &egui::Context) -> bool {
@@ -459,6 +469,7 @@ impl CentralApp {
             rigctl,
             mqtt,
             discord,
+            last_discord_delivery_sequence: 0,
             last_radio_profile: None,
             daemon_audio: crate::audio_resampler::AudioResampler::default(),
             audio: AudioOutput::new(),
@@ -521,6 +532,30 @@ impl CentralApp {
         // reproduces the user's last profile.
         app.apply_advanced();
         app
+    }
+}
+
+fn publish_discord_delivery_status(
+    status_bar: &mut crate::status_bar::StatusBar,
+    last_sequence: &mut u64,
+    snapshot: crate::discord::DiscordDeliverySnapshot,
+) {
+    if snapshot.sequence == *last_sequence {
+        return;
+    }
+    *last_sequence = snapshot.sequence;
+    match snapshot.latest {
+        Some(crate::discord::DiscordDeliveryOutcome::Queued) => {
+            status_bar.info("Discord notification submitted to delivery queue".into())
+        }
+        Some(crate::discord::DiscordDeliveryOutcome::Delivered) => {
+            status_bar.success("Discord notification delivered".into())
+        }
+        Some(crate::discord::DiscordDeliveryOutcome::Failed(error)) => {
+            status_bar.error(format!("Discord delivery failed: {error}"))
+        }
+        Some(crate::discord::DiscordDeliveryOutcome::Dropped(error)) => status_bar.warning(error),
+        None => {}
     }
 }
 
@@ -1496,6 +1531,7 @@ impl eframe::App for CentralApp {
 
         // Process pending events from panels and event bus
         self.handle_events();
+        self.poll_discord_delivery();
         self.status_bar.update();
 
         // Mode profiles also change via keyboard/bookmarks/remote commands.

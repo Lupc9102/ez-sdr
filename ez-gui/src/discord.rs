@@ -6,13 +6,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Configuration for the Discord notification bot.
 ///
 /// Controls whether the bot is enabled, which channel/user to post to, which
 /// event kinds are enabled, and rate-limiting parameters.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DiscordSettings {
     /// Whether the Discord bot is active.
     #[serde(default)]
@@ -44,6 +45,22 @@ pub struct DiscordSettings {
     /// Minimum interval (ms) between successive sends (rate limiting).
     #[serde(default)]
     pub min_send_interval_ms: u64,
+}
+
+impl std::fmt::Debug for DiscordSettings {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DiscordSettings")
+            .field("enabled", &self.enabled)
+            .field("bot_token", &"[REDACTED]")
+            .field("ping_user", &self.ping_user)
+            .field("enabled_kinds", &self.enabled_kinds)
+            .field("starred_kinds", &self.starred_kinds)
+            .field("summary_enabled", &self.summary_enabled)
+            .field("summary_interval_min", &self.summary_interval_min)
+            .field("min_send_interval_ms", &self.min_send_interval_ms)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for DiscordSettings {
@@ -996,6 +1013,164 @@ enum QueuedNotification {
     Aircraft(AircraftData, DiscordSettings),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiscordDeliveryOutcome {
+    Queued,
+    Delivered,
+    Failed(String),
+    Dropped(String),
+}
+
+/// Bounded, lock-protected summary of Discord queue and delivery activity.
+/// `sequence` changes whenever a new status is published, allowing the UI to
+/// consume changes without an unbounded event queue.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiscordDeliverySnapshot {
+    pub sequence: u64,
+    pub submitted: u64,
+    pub delivered: u64,
+    pub failed: u64,
+    pub dropped: u64,
+    pub latest: Option<DiscordDeliveryOutcome>,
+}
+
+#[derive(Clone)]
+struct DiscordTransport {
+    client: reqwest::blocking::Client,
+    api_base: String,
+}
+
+impl DiscordTransport {
+    fn new(api_base: impl Into<String>, timeout: Duration) -> Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: reqwest::blocking::Client::builder()
+                .timeout(timeout)
+                .build()?,
+            api_base: api_base.into(),
+        })
+    }
+
+    fn production() -> Result<Self, String> {
+        Self::new("https://discord.com/api/v10", Duration::from_secs(10))
+            .map_err(|_| "Could not initialize the Discord HTTP client".to_string())
+    }
+
+    fn message_url(&self, channel_id: &str) -> String {
+        format!(
+            "{}/channels/{channel_id}/messages",
+            self.api_base.trim_end_matches('/')
+        )
+    }
+
+    fn post_embed(&self, embed: &DiscordEmbed, settings: &DiscordSettings) -> Result<(), String> {
+        let response = self
+            .client
+            .post(self.message_url(&settings.channel_id))
+            .header("Authorization", format!("Bot {}", settings.bot_token))
+            .json(&embed.to_json(settings))
+            .send()
+            .map_err(sanitize_request_error)?;
+        check_discord_response(response.status())
+    }
+
+    fn post_embed_with_attachment(
+        &self,
+        embed: &DiscordEmbed,
+        settings: &DiscordSettings,
+        file_bytes: Vec<u8>,
+        file_name: String,
+    ) -> Result<(), String> {
+        let body = embed.to_json(settings);
+        let form = reqwest::blocking::multipart::Form::new()
+            .text("payload_json", body.to_string())
+            .part(
+                "files[0]",
+                reqwest::blocking::multipart::Part::bytes(file_bytes).file_name(file_name),
+            );
+        let response = self
+            .client
+            .post(self.message_url(&settings.channel_id))
+            .header("Authorization", format!("Bot {}", settings.bot_token))
+            .multipart(form)
+            .send()
+            .map_err(sanitize_request_error)?;
+        check_discord_response(response.status())
+    }
+}
+
+fn sanitize_request_error(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        "Discord request timed out".to_string()
+    } else if error.is_connect() {
+        "Could not connect to Discord".to_string()
+    } else {
+        "Discord request failed due to a network or TLS error".to_string()
+    }
+}
+
+fn check_discord_response(status: reqwest::StatusCode) -> Result<(), String> {
+    if status.is_success() {
+        Ok(())
+    } else {
+        let reason = status.canonical_reason().unwrap_or("request failed");
+        Err(format!(
+            "Discord returned HTTP {} ({reason})",
+            status.as_u16()
+        ))
+    }
+}
+
+fn publish_delivery_result(
+    snapshot: &Arc<Mutex<DiscordDeliverySnapshot>>,
+    result: Result<(), String>,
+) {
+    let mut snapshot = snapshot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    snapshot.sequence = snapshot.sequence.wrapping_add(1);
+    match result {
+        Ok(()) => {
+            snapshot.delivered = snapshot.delivered.saturating_add(1);
+            snapshot.latest = Some(DiscordDeliveryOutcome::Delivered);
+        }
+        Err(error) => {
+            snapshot.failed = snapshot.failed.saturating_add(1);
+            snapshot.latest = Some(DiscordDeliveryOutcome::Failed(error));
+        }
+    }
+}
+
+fn publish_submission(
+    snapshot: &Arc<Mutex<DiscordDeliverySnapshot>>,
+    result: Result<(), crossbeam_channel::TrySendError<QueuedNotification>>,
+) -> bool {
+    let mut snapshot = snapshot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    snapshot.sequence = snapshot.sequence.wrapping_add(1);
+    match result {
+        Ok(()) => {
+            snapshot.submitted = snapshot.submitted.saturating_add(1);
+            snapshot.latest = Some(DiscordDeliveryOutcome::Queued);
+            true
+        }
+        Err(crossbeam_channel::TrySendError::Full(_)) => {
+            snapshot.dropped = snapshot.dropped.saturating_add(1);
+            snapshot.latest = Some(DiscordDeliveryOutcome::Dropped(
+                "Discord notification queue is full; notification dropped".into(),
+            ));
+            false
+        }
+        Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+            snapshot.dropped = snapshot.dropped.saturating_add(1);
+            snapshot.latest = Some(DiscordDeliveryOutcome::Dropped(
+                "Discord delivery worker is unavailable; notification dropped".into(),
+            ));
+            false
+        }
+    }
+}
+
 /// Manages Discord notification dispatch with rate-limiting.
 ///
 /// Holds a background thread that receives [`DiscordEmbed`] messages via a
@@ -1005,6 +1180,8 @@ pub struct DiscordNotifier {
     pub settings: DiscordSettings,
     tx: crossbeam_channel::Sender<QueuedNotification>,
     _worker_done: crossbeam_channel::Receiver<()>,
+    delivery: Arc<Mutex<DiscordDeliverySnapshot>>,
+    transport: DiscordTransport,
     last_send: Instant,
 }
 
@@ -1017,30 +1194,35 @@ impl Default for DiscordNotifier {
 impl DiscordNotifier {
     /// Create a new `DiscordNotifier`, spawning a background dispatch thread.
     pub fn new() -> Self {
+        let transport = DiscordTransport::production().expect("valid Discord HTTP client");
+        Self::with_transport(transport)
+    }
+
+    fn with_transport(transport: DiscordTransport) -> Self {
         let (tx, rx) = crossbeam_channel::bounded(64);
         let (worker_done_tx, worker_done) = crossbeam_channel::bounded(1);
+        let delivery = Arc::new(Mutex::new(DiscordDeliverySnapshot::default()));
+        let worker_delivery = Arc::clone(&delivery);
+        let worker_transport = transport.clone();
         std::thread::spawn(move || {
-            let client = reqwest::blocking::Client::new();
             while let Ok(notification) = rx.recv() {
                 // Receive a batch to send (the main thread will rate-limit via Instant)
                 let result = match notification {
                     QueuedNotification::Plain(embed, settings) => {
-                        Self::post_embed(&client, &embed, &settings)
+                        worker_transport.post_embed(&embed, &settings)
                     }
                     QueuedNotification::WithAttachment(embed, settings, bytes, name) => {
-                        Self::post_embed_with_attachment(&client, &embed, &settings, bytes, name)
+                        worker_transport.post_embed_with_attachment(&embed, &settings, bytes, name)
                     }
                     QueuedNotification::Aircraft(ac, settings) => {
                         // Blocking HEAD lookup happens here (background),
                         // not in the egui render loop.
                         let image_url = fetch_aircraft_image(&ac.icao);
                         let embed = embed_aircraft(&ac, image_url);
-                        Self::post_embed(&client, &embed, &settings)
+                        worker_transport.post_embed(&embed, &settings)
                     }
                 };
-                if let Err(e) = result {
-                    eprintln!("[discord] POST failed: {e}");
-                }
+                publish_delivery_result(&worker_delivery, result);
             }
             let _ = worker_done_tx.send(());
         });
@@ -1049,52 +1231,23 @@ impl DiscordNotifier {
             settings: DiscordSettings::default(),
             tx,
             _worker_done: worker_done,
+            delivery,
+            transport,
             last_send: Instant::now(),
         }
     }
 
-    fn post_embed(
-        client: &reqwest::blocking::Client,
-        embed: &DiscordEmbed,
-        settings: &DiscordSettings,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let url = format!(
-            "https://discord.com/api/v10/channels/{}/messages",
-            settings.channel_id
-        );
-        let body = embed.to_json(settings);
-        client
-            .post(&url)
-            .header("Authorization", format!("Bot {}", settings.bot_token))
-            .json(&body)
-            .send()?;
-        Ok(())
+    #[cfg(test)]
+    fn with_test_api(api_base: String, timeout: Duration) -> Self {
+        Self::with_transport(DiscordTransport::new(api_base, timeout).unwrap())
     }
 
-    fn post_embed_with_attachment(
-        client: &reqwest::blocking::Client,
-        embed: &DiscordEmbed,
-        settings: &DiscordSettings,
-        file_bytes: Vec<u8>,
-        file_name: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let url = format!(
-            "https://discord.com/api/v10/channels/{}/messages",
-            settings.channel_id
-        );
-        let body = embed.to_json(settings);
-        let form = reqwest::blocking::multipart::Form::new()
-            .text("payload_json", body.to_string())
-            .part(
-                "files[0]",
-                reqwest::blocking::multipart::Part::bytes(file_bytes).file_name(file_name),
-            );
-        client
-            .post(&url)
-            .header("Authorization", format!("Bot {}", settings.bot_token))
-            .multipart(form)
-            .send()?;
-        Ok(())
+    /// Latest bounded delivery counters and result for the application status surface.
+    pub fn delivery_snapshot(&self) -> DiscordDeliverySnapshot {
+        self.delivery
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Update the notifier's settings from a new [`DiscordSettings`] snapshot.
@@ -1102,13 +1255,17 @@ impl DiscordNotifier {
         self.settings = settings.clone();
     }
 
-    /// Returns `true` when all required Discord credentials (token, channel, user)
+    /// Returns `true` when the credentials required by the selected ping behavior
     /// are set and the notifier is enabled.
     pub fn is_configured(&self) -> bool {
         self.settings.enabled
             && !self.settings.bot_token.is_empty()
             && !self.settings.channel_id.is_empty()
-            && !self.settings.user_id.is_empty()
+            && (!self.settings.ping_user || !self.settings.user_id.is_empty())
+    }
+
+    fn enqueue(&self, notification: QueuedNotification) -> bool {
+        publish_submission(&self.delivery, self.tx.try_send(notification))
     }
 
     /// Enqueue a notification embed for dispatch.
@@ -1127,10 +1284,9 @@ impl DiscordNotifier {
         if elapsed < self.settings.min_send_interval_ms {
             return;
         }
-        let _ = self
-            .tx
-            .try_send(QueuedNotification::Plain(embed, self.settings.clone()));
-        self.last_send = Instant::now();
+        if self.enqueue(QueuedNotification::Plain(embed, self.settings.clone())) {
+            self.last_send = Instant::now();
+        }
     }
 
     /// Enqueue a new-aircraft notification. The blocking image lookup runs on
@@ -1148,10 +1304,9 @@ impl DiscordNotifier {
         if elapsed < self.settings.min_send_interval_ms {
             return;
         }
-        let _ = self
-            .tx
-            .try_send(QueuedNotification::Aircraft(ac, self.settings.clone()));
-        self.last_send = Instant::now();
+        if self.enqueue(QueuedNotification::Aircraft(ac, self.settings.clone())) {
+            self.last_send = Instant::now();
+        }
     }
 
     /// Enqueue a notification embed with a local file attachment for dispatch.
@@ -1179,13 +1334,14 @@ impl DiscordNotifier {
         if elapsed < self.settings.min_send_interval_ms {
             return;
         }
-        let _ = self.tx.try_send(QueuedNotification::WithAttachment(
+        if self.enqueue(QueuedNotification::WithAttachment(
             embed,
             self.settings.clone(),
             file_bytes,
             file_name,
-        ));
-        self.last_send = Instant::now();
+        )) {
+            self.last_send = Instant::now();
+        }
     }
 
     /// Send a test notification to Discord to verify the bot credentials and
@@ -1212,7 +1368,9 @@ impl DiscordNotifier {
         if !self.is_configured() {
             return Err("Not configured".into());
         }
-        Self::send_embed_blocking(&self.settings, &embed).map_err(|e| e.into())
+        self.transport
+            .post_embed(&embed, &self.settings)
+            .map_err(|e| e.into())
     }
 
     /// Post one embed, blocking the caller. Static so UI code can run it on a
@@ -1222,28 +1380,130 @@ impl DiscordNotifier {
         settings: &DiscordSettings,
         embed: &DiscordEmbed,
     ) -> Result<(), String> {
-        if settings.bot_token.is_empty() || settings.channel_id.is_empty() {
-            return Err("Not configured".to_string());
+        let transport = DiscordTransport::production()?;
+        Self::send_embed_with_transport(settings, embed, &transport)
+    }
+
+    fn send_embed_with_transport(
+        settings: &DiscordSettings,
+        embed: &DiscordEmbed,
+        transport: &DiscordTransport,
+    ) -> Result<(), String> {
+        if settings.bot_token.is_empty()
+            || settings.channel_id.is_empty()
+            || (settings.ping_user && settings.user_id.is_empty())
+        {
+            return Err("Not configured: bot token and channel are required; user ID is required when pinging is enabled".into());
         }
-        let client = reqwest::blocking::Client::new();
-        let url = format!(
-            "https://discord.com/api/v10/channels/{}/messages",
-            settings.channel_id
-        );
-        let body = embed.to_json(settings);
-        client
-            .post(&url)
-            .header("Authorization", format!("Bot {}", settings.bot_token))
-            .json(&body)
-            .send()
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        transport.post_embed(embed, settings)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+
+    fn test_settings(ping_user: bool) -> DiscordSettings {
+        DiscordSettings {
+            enabled: true,
+            bot_token: "bot-token-sentinel".into(),
+            channel_id: "channel-test".into(),
+            user_id: String::new(),
+            ping_user,
+            min_send_interval_ms: 0,
+            ..DiscordSettings::default()
+        }
+    }
+
+    fn mock_discord_server(
+        status: u16,
+        response_delay: Duration,
+    ) -> (
+        String,
+        crossbeam_channel::Receiver<String>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = crossbeam_channel::bounded(1);
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let request = read_http_request(&mut stream);
+            let _ = request_tx.send(request);
+            std::thread::sleep(response_delay);
+            let reason = match status {
+                201 => "Created",
+                204 => "No Content",
+                401 => "Unauthorized",
+                403 => "Forbidden",
+                429 => "Too Many Requests",
+                500 => "Internal Server Error",
+                _ => "Response",
+            };
+            let response = format!(
+                "HTTP/1.1 {status} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            let _ = stream.write_all(response.as_bytes());
+        });
+        (format!("http://{address}/api/v10"), request_rx, server)
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> String {
+        let mut bytes = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        while let Ok(count) = stream.read(&mut chunk) {
+            if count == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..count]);
+            if let Some(header_end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&bytes[..header_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if bytes.len() >= header_end + 4 + content_length {
+                    break;
+                }
+            }
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    fn wait_for_delivery(
+        notifier: &DiscordNotifier,
+        predicate: impl Fn(&DiscordDeliverySnapshot) -> bool,
+    ) -> DiscordDeliverySnapshot {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let snapshot = notifier.delivery_snapshot();
+            if predicate(&snapshot) {
+                return snapshot;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "delivery status was not published"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn stop_test_notifier(notifier: DiscordNotifier) {
+        let done = notifier._worker_done.clone();
+        drop(notifier);
+        done.recv_timeout(Duration::from_secs(3))
+            .expect("test notifier worker should terminate");
+    }
 
     #[test]
     fn partial_and_stale_aircraft_do_not_consume_position_notification() {
@@ -1295,6 +1555,172 @@ mod tests {
                 .recv_deadline(deadline)
                 .expect("notifier worker should stop after its sender is dropped");
         }
+    }
+
+    #[test]
+    fn http_status_codes_are_checked_for_plain_and_test_sends() {
+        let settings = test_settings(false);
+        let embed = embed_generic("Loopback test", "local response", "🧪", 0x123456);
+        for status in [201, 401, 403, 429, 500] {
+            let (api_base, requests, server) = mock_discord_server(status, Duration::ZERO);
+            let transport = DiscordTransport::new(api_base, Duration::from_secs(1)).unwrap();
+            let result = DiscordNotifier::send_embed_with_transport(&settings, &embed, &transport);
+            let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(request.starts_with("POST /api/v10/channels/channel-test/messages HTTP/1.1"));
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("authorization: bot bot-token-sentinel"));
+            if status == 201 {
+                assert!(result.is_ok());
+            } else {
+                let error = result.unwrap_err();
+                assert!(error.contains(&format!("HTTP {status}")));
+                assert!(!error.contains("bot-token-sentinel"));
+            }
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn attachment_send_checks_http_failures_and_uses_multipart() {
+        let (api_base, requests, server) = mock_discord_server(500, Duration::ZERO);
+        let transport = DiscordTransport::new(api_base, Duration::from_secs(1)).unwrap();
+        let error = transport
+            .post_embed_with_attachment(
+                &embed_generic("Attachment", "local image", "🖼️", 0x123456),
+                &test_settings(false),
+                vec![1, 2, 3, 4],
+                "test.png".into(),
+            )
+            .unwrap_err();
+        assert!(error.contains("HTTP 500"));
+        let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(request.starts_with("POST /api/v10/channels/channel-test/messages HTTP/1.1"));
+        assert!(request.to_ascii_lowercase().contains("multipart/form-data"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_send_path_surfaces_http_failure_from_loopback_server() {
+        let (api_base, requests, server) = mock_discord_server(401, Duration::ZERO);
+        let mut notifier = DiscordNotifier::with_test_api(api_base, Duration::from_secs(1));
+        notifier.apply_settings(&test_settings(false));
+        let error = notifier
+            .send_test_embed(embed_generic("Test", "loopback", "🧪", 0x123456))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("HTTP 401"));
+        assert!(!error.contains("bot-token-sentinel"));
+        assert!(requests
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .contains("POST /api/v10/channels/channel-test/messages"));
+        server.join().unwrap();
+        stop_test_notifier(notifier);
+    }
+
+    #[test]
+    fn request_timeout_is_finite_and_reported_without_echoing_secrets() {
+        let (api_base, requests, server) = mock_discord_server(204, Duration::from_millis(200));
+        let transport = DiscordTransport::new(api_base, Duration::from_millis(30)).unwrap();
+        let result = transport.post_embed(
+            &embed_generic("Timeout", "local timeout", "⏱️", 0x123456),
+            &test_settings(false),
+        );
+        assert_eq!(result.unwrap_err(), "Discord request timed out");
+        let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(request.contains("POST /api/v10/channels/channel-test/messages"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn worker_reports_queued_then_delivered_from_bounded_snapshot() {
+        let (api_base, requests, server) = mock_discord_server(204, Duration::ZERO);
+        let mut notifier = DiscordNotifier::with_test_api(api_base, Duration::from_secs(1));
+        notifier.apply_settings(&test_settings(false));
+        notifier.fire(
+            "source_error",
+            embed_generic("Worker", "loopback", "📡", 0x123456),
+        );
+        let queued = notifier.delivery_snapshot();
+        assert_eq!(queued.submitted, 1);
+        assert_eq!(queued.latest, Some(DiscordDeliveryOutcome::Queued));
+        assert!(requests
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .contains("POST /api/v10/channels/channel-test/messages"));
+        let delivered = wait_for_delivery(&notifier, |snapshot| snapshot.delivered == 1);
+        assert_eq!(delivered.failed, 0);
+        assert_eq!(delivered.latest, Some(DiscordDeliveryOutcome::Delivered));
+        server.join().unwrap();
+        stop_test_notifier(notifier);
+    }
+
+    #[test]
+    fn worker_reports_http_failures_in_delivery_snapshot() {
+        let (api_base, requests, server) = mock_discord_server(403, Duration::ZERO);
+        let mut notifier = DiscordNotifier::with_test_api(api_base, Duration::from_secs(1));
+        notifier.apply_settings(&test_settings(false));
+        notifier.fire(
+            "source_error",
+            embed_generic("Worker", "loopback", "📡", 0x123456),
+        );
+        requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        let failed = wait_for_delivery(&notifier, |snapshot| snapshot.failed == 1);
+        let Some(DiscordDeliveryOutcome::Failed(error)) = failed.latest else {
+            panic!("expected failed delivery outcome")
+        };
+        assert!(error.contains("HTTP 403"));
+        assert!(!error.contains("bot-token-sentinel"));
+        server.join().unwrap();
+        stop_test_notifier(notifier);
+    }
+
+    #[test]
+    fn full_notification_queue_is_visible_as_a_drop() {
+        let (api_base, requests, server) = mock_discord_server(429, Duration::from_millis(200));
+        let mut notifier = DiscordNotifier::with_test_api(api_base, Duration::from_millis(30));
+        notifier.apply_settings(&test_settings(false));
+        let embed = embed_generic("Queue", "loopback", "📡", 0x123456);
+        notifier.fire("source_error", embed.clone());
+        requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        for _ in 0..100 {
+            notifier.fire("source_error", embed.clone());
+        }
+        let snapshot = notifier.delivery_snapshot();
+        assert!(snapshot.dropped > 0);
+        assert!(matches!(
+            snapshot.latest,
+            Some(DiscordDeliveryOutcome::Dropped(_))
+        ));
+        server.join().unwrap();
+        stop_test_notifier(notifier);
+    }
+
+    #[test]
+    fn user_id_is_required_only_when_pinging_is_enabled() {
+        let mut notifier = DiscordNotifier::with_test_api(
+            "http://127.0.0.1:9/api/v10".into(),
+            Duration::from_millis(50),
+        );
+        notifier.apply_settings(&test_settings(false));
+        assert!(notifier.is_configured());
+        notifier.settings.ping_user = true;
+        assert!(!notifier.is_configured());
+        notifier.settings.user_id = "user-test".into();
+        assert!(notifier.is_configured());
+        stop_test_notifier(notifier);
+    }
+
+    #[test]
+    fn discord_debug_output_redacts_bot_token() {
+        let settings = DiscordSettings {
+            bot_token: "discord-debug-secret".into(),
+            ..DiscordSettings::default()
+        };
+        let debug = format!("{settings:?}");
+        assert!(!debug.contains("discord-debug-secret"));
+        assert!(debug.contains("[REDACTED]"));
     }
 
     #[test]

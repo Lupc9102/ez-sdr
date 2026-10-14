@@ -3,6 +3,41 @@ use eframe::App;
 
 use super::software_renderer;
 
+#[test]
+fn discord_delivery_result_reaches_shared_status_surface() {
+    let mut status_bar = crate::status_bar::StatusBar::new();
+    let mut last_sequence = 0;
+    publish_discord_delivery_status(
+        &mut status_bar,
+        &mut last_sequence,
+        crate::discord::DiscordDeliverySnapshot {
+            sequence: 1,
+            submitted: 1,
+            failed: 1,
+            latest: Some(crate::discord::DiscordDeliveryOutcome::Failed(
+                "Discord returned HTTP 401 (Unauthorized)".into(),
+            )),
+            ..Default::default()
+        },
+    );
+    let current = status_bar.current().unwrap();
+    assert_eq!(current.severity, crate::status_bar::StatusSeverity::Error);
+    assert!(current.text.contains("HTTP 401"));
+
+    publish_discord_delivery_status(
+        &mut status_bar,
+        &mut last_sequence,
+        crate::discord::DiscordDeliverySnapshot {
+            sequence: 2,
+            submitted: 2,
+            delivered: 1,
+            latest: Some(crate::discord::DiscordDeliveryOutcome::Queued),
+            ..Default::default()
+        },
+    );
+    assert!(status_bar.current().unwrap().text.contains("HTTP 401"));
+}
+
 /// Render the real application widgets without requiring a display server.
 /// Run explicitly: EZ_SDR_PREVIEW_DIR=/tmp/ez-sdr-previews cargo test -p ez-gui
 /// --no-default-features app_ui_tests::render_workspaces -- --ignored --nocapture

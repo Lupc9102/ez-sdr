@@ -578,7 +578,7 @@ impl SourcePreferences {
 ///
 /// Contains all SDR, UI, theme, AI, MQTT, web remote, satellite, and Discord
 /// settings. Serialised/deserialised with serde.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     /// Schema version string.
@@ -684,6 +684,21 @@ pub struct AppConfig {
     pub quick_start_completed: bool,
 }
 
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppConfig")
+            .field("version", &self.version)
+            .field("default_freq_hz", &self.default_freq_hz)
+            .field("default_sample_rate", &self.default_sample_rate)
+            .field("theme", &self.theme)
+            .field("ai_api_key", &"[REDACTED]")
+            .field("source_preferences", &self.source_preferences)
+            .field("discord", &self.discord)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -743,6 +758,82 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Serialize settings for export. Credentials are omitted by default so importing a
+    /// redacted file can preserve the credentials already stored on this device.
+    pub(crate) fn export_json(
+        &self,
+        include_credentials: bool,
+    ) -> Result<Vec<u8>, serde_json::Error> {
+        let mut value = serde_json::to_value(self)?;
+        if !include_credentials {
+            if let Some(object) = value.as_object_mut() {
+                object.remove("ai_api_key");
+                if let Some(source) = object
+                    .get_mut("source_preferences")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    source.remove("daemon_token");
+                }
+                if let Some(discord) = object
+                    .get_mut("discord")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    discord.remove("bot_token");
+                }
+            }
+        }
+        serde_json::to_vec_pretty(&value)
+    }
+
+    pub(crate) fn export_to(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        include_credentials: bool,
+    ) -> std::io::Result<()> {
+        let json = self
+            .export_json(include_credentials)
+            .map_err(std::io::Error::other)?;
+        if include_credentials {
+            crate::bookmarks::atomic_write_private_file(path, &json)
+        } else {
+            crate::bookmarks::atomic_write_file(path, &json)
+        }
+    }
+
+    /// Import settings while keeping credentials whose keys were omitted. An explicit
+    /// empty string remains a deliberate request to clear a credential.
+    pub(crate) fn import_json_preserving_credentials(
+        json: &str,
+        current: &Self,
+    ) -> Result<Self, serde_json::Error> {
+        let mut value: serde_json::Value = serde_json::from_str(json)?;
+        if let Some(object) = value.as_object_mut() {
+            if !object.contains_key("ai_api_key") {
+                object.insert(
+                    "ai_api_key".into(),
+                    serde_json::Value::String(current.ai_api_key.clone()),
+                );
+            }
+            let source = object
+                .entry("source_preferences")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(source) = source.as_object_mut() {
+                source.entry("daemon_token").or_insert_with(|| {
+                    serde_json::Value::String(current.source_preferences.daemon_token.clone())
+                });
+            }
+            let discord = object
+                .entry("discord")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(discord) = discord.as_object_mut() {
+                discord.entry("bot_token").or_insert_with(|| {
+                    serde_json::Value::String(current.discord.bot_token.clone())
+                });
+            }
+        }
+        serde_json::from_value(value)
+    }
+
     /// Load configuration from `ez_sdr_config.json`, or return defaults if the file does not exist or cannot be parsed.
     pub fn load_or_default() -> Self {
         Self::load_from("ez_sdr_config.json")
@@ -863,7 +954,7 @@ impl AppConfig {
 
     pub(crate) fn save_to(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        crate::bookmarks::atomic_write_file(path, json.as_bytes())
+        crate::bookmarks::atomic_write_private_file(path, json.as_bytes())
     }
 }
 
@@ -882,6 +973,10 @@ fn config_file_job_id(session_id: u64) -> egui::Id {
 
 fn config_file_message_id(session_id: u64) -> egui::Id {
     egui::Id::new(("config.file_message", session_id))
+}
+
+fn config_export_private_id(session_id: u64) -> egui::Id {
+    egui::Id::new(("config.export.include_credentials", session_id))
 }
 
 fn begin_config_file_job(
@@ -944,6 +1039,7 @@ impl SettingsEditor {
         ctx.data_mut(|data| {
             data.remove::<ConfigFileJob>(config_file_job_id(self.session_id));
             data.remove::<String>(config_file_message_id(self.session_id));
+            data.remove::<bool>(config_export_private_id(self.session_id));
         });
         self.draft = None;
         self.session_id = self.session_id.wrapping_add(1).max(1);
@@ -1120,6 +1216,16 @@ impl AppConfig {
             });
 
             ui.add_space(8.0);
+            let include_credentials_id = config_export_private_id(session_id);
+            let mut include_credentials = ui
+                .ctx()
+                .data_mut(|data| data.get_temp::<bool>(include_credentials_id))
+                .unwrap_or(false);
+            ui.checkbox(&mut include_credentials, "Include credentials in private backup")
+                .on_hover_text("Includes API keys and tokens. The exported file will be owner-only on Unix; store it securely.");
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(include_credentials_id, include_credentials);
+            });
             ui.horizontal(|ui| {
                 if ui.button("💾 Save & Apply").on_hover_text("Save settings to ez_sdr_config.json and apply them immediately.").clicked() {
                     self.save_and_apply(save_path);
@@ -1127,27 +1233,33 @@ impl AppConfig {
                 if ui.button("Reset to defaults").on_hover_text("Restore all settings to factory defaults. Does not delete saved recordings.").clicked() {
                     self.reset_to_defaults();
                 }
-                if ui.add_enabled(job.is_none(), egui::Button::new("📤 Export…")).on_hover_text("Export config to a custom file path via file dialog.").clicked() {
+                let export_label = if include_credentials {
+                    "📤 Export private backup…"
+                } else {
+                    "📤 Export redacted…"
+                };
+                if ui.add_enabled(job.is_none(), egui::Button::new(export_label)).on_hover_text("Choose a destination for a redacted settings export, or opt in above to include credentials in a private backup.").clicked() {
                     let config = self.clone();
+                    let export_private = include_credentials;
                     begin_config_file_job(ui.ctx(), session_id, move || {
                         let Some(path) = rfd::FileDialog::new()
-                            .set_file_name("ez_sdr_config_backup.json")
+                            .set_file_name(if export_private { "ez_sdr_private_config_backup.json" } else { "ez_sdr_config_backup.json" })
                             .add_filter("JSON", &["json"])
                             .save_file() else { return Ok(None); };
-                        let json = serde_json::to_vec_pretty(&config).map_err(|e| format!("Cannot export settings: {e}"))?;
-                        crate::bookmarks::atomic_write_file(&path, &json)
+                        config.export_to(&path, export_private)
                             .map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
                         Ok(None)
                     });
                 }
                 if ui.add_enabled(job.is_none(), egui::Button::new("📥 Import…")).on_hover_text("Load config from a previously exported JSON file.").clicked() {
-                    begin_config_file_job(ui.ctx(), session_id, || {
+                    let current = self.clone();
+                    begin_config_file_job(ui.ctx(), session_id, move || {
                         let Some(path) = rfd::FileDialog::new()
                             .add_filter("JSON", &["json"])
                             .pick_file() else { return Ok(None); };
                         let data = std::fs::read_to_string(&path)
                             .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-                        serde_json::from_str::<AppConfig>(&data).map(Some)
+                        AppConfig::import_json_preserving_credentials(&data, &current).map(Some)
                             .map_err(|e| format!("Invalid settings in {}: {e}", path.display()))
                     });
                 }
@@ -1347,6 +1459,159 @@ mod tests {
         assert!((loaded.observer_lon - (-74.0060)).abs() < f64::EPSILON);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn redacted_exports_omit_credentials_and_import_keeps_existing_values() {
+        let current = AppConfig {
+            ai_api_key: "ai-key-sentinel".into(),
+            source_preferences: SourcePreferences {
+                daemon_token: "daemon-token-sentinel".into(),
+                ..SourcePreferences::default()
+            },
+            discord: DiscordSettings {
+                bot_token: "discord-token-sentinel".into(),
+                ..DiscordSettings::default()
+            },
+            theme: "light".into(),
+            ..AppConfig::default()
+        };
+
+        let exported = current.export_json(false).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&exported).unwrap();
+        assert!(value.get("ai_api_key").is_none());
+        assert!(value["source_preferences"].get("daemon_token").is_none());
+        assert!(value["discord"].get("bot_token").is_none());
+        let contents = String::from_utf8(exported).unwrap();
+        for secret in [
+            "ai-key-sentinel",
+            "daemon-token-sentinel",
+            "discord-token-sentinel",
+        ] {
+            assert!(!contents.contains(secret));
+        }
+
+        let imported = AppConfig::import_json_preserving_credentials(&contents, &current).unwrap();
+        assert_eq!(imported.theme, "light");
+        assert_eq!(imported.ai_api_key, current.ai_api_key);
+        assert_eq!(
+            imported.source_preferences.daemon_token,
+            current.source_preferences.daemon_token
+        );
+        assert_eq!(imported.discord.bot_token, current.discord.bot_token);
+    }
+
+    #[test]
+    fn private_backup_roundtrips_credentials_and_debug_redacts_them() {
+        let current = AppConfig {
+            ai_api_key: "ai-key-sentinel".into(),
+            source_preferences: SourcePreferences {
+                daemon_token: "daemon-token-sentinel".into(),
+                ..SourcePreferences::default()
+            },
+            discord: DiscordSettings {
+                bot_token: "discord-token-sentinel".into(),
+                ..DiscordSettings::default()
+            },
+            ..AppConfig::default()
+        };
+        let exported = current.export_json(true).unwrap();
+        let contents = String::from_utf8(exported).unwrap();
+        let imported =
+            AppConfig::import_json_preserving_credentials(&contents, &AppConfig::default())
+                .unwrap();
+        assert_eq!(imported.ai_api_key, current.ai_api_key);
+        assert_eq!(
+            imported.source_preferences.daemon_token,
+            current.source_preferences.daemon_token
+        );
+        assert_eq!(imported.discord.bot_token, current.discord.bot_token);
+
+        let debug = format!("{current:?}");
+        for secret in [
+            "ai-key-sentinel",
+            "daemon-token-sentinel",
+            "discord-token-sentinel",
+        ] {
+            assert!(!debug.contains(secret));
+        }
+        assert!(format!("{:?}", current.discord).contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn import_with_explicit_empty_credentials_clears_them() {
+        let current = AppConfig {
+            ai_api_key: "ai-key-sentinel".into(),
+            source_preferences: SourcePreferences {
+                daemon_token: "daemon-token-sentinel".into(),
+                ..SourcePreferences::default()
+            },
+            discord: DiscordSettings {
+                bot_token: "discord-token-sentinel".into(),
+                ..DiscordSettings::default()
+            },
+            ..AppConfig::default()
+        };
+        let imported = AppConfig::import_json_preserving_credentials(
+            r#"{"ai_api_key":"","source_preferences":{"daemon_token":""},"discord":{"bot_token":""}}"#,
+            &current,
+        )
+        .unwrap();
+        assert!(imported.ai_api_key.is_empty());
+        assert!(imported.source_preferences.daemon_token.is_empty());
+        assert!(imported.discord.bot_token.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_config_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "ez-settings-private-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("settings.json");
+        AppConfig::default().save_to(&path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_config_export_is_owner_only_and_keeps_credentials() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "ez-private-export-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("private-backup.json");
+        let config = AppConfig {
+            ai_api_key: "private-ai-key".into(),
+            source_preferences: SourcePreferences {
+                daemon_token: "private-daemon-token".into(),
+                ..SourcePreferences::default()
+            },
+            discord: DiscordSettings {
+                bot_token: "private-discord-token".into(),
+                ..DiscordSettings::default()
+            },
+            ..AppConfig::default()
+        };
+        config.export_to(&path, true).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("private-ai-key"));
+        assert!(contents.contains("private-daemon-token"));
+        assert!(contents.contains("private-discord-token"));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
