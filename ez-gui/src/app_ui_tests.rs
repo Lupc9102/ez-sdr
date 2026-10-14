@@ -190,6 +190,103 @@ fn offline_test_app() -> CentralApp {
     CentralApp::new_with_config(&cc, config)
 }
 
+#[test]
+fn rigctl_subset_uses_hamlib_vfo_modes_and_normalized_audio_gain() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::thread;
+    use std::time::Duration;
+
+    fn exchange(
+        app: &mut CentralApp,
+        stream: &mut TcpStream,
+        replies: &mut BufReader<TcpStream>,
+        command: &str,
+    ) -> String {
+        stream.write_all(command.as_bytes()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            app.process_rigctl_requests();
+            let mut response = String::new();
+            match replies.read_line(&mut response) {
+                Ok(count) if count > 0 => return response,
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(error) => panic!("rigctl reply failed: {error}"),
+            }
+            assert!(
+                Instant::now() < deadline,
+                "rigctl did not reply to {command:?}"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    let mut app = offline_test_app();
+    app.rigctl.set_enabled(true, 0);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let port = loop {
+        let port = app.rigctl.bound_port();
+        if port != 0 {
+            break port;
+        }
+        assert!(Instant::now() < deadline, "rigctl listener did not start");
+        thread::sleep(Duration::from_millis(5));
+    };
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(10)))
+        .unwrap();
+    let mut replies = BufReader::new(stream.try_clone().unwrap());
+
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "v\n"),
+        "VFOA\n"
+    );
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "V VFOA\n"),
+        "RPRT 0\n"
+    );
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "V VFOB\n"),
+        "RPRT -1\n"
+    );
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "M FM 12500\n"),
+        "RPRT 0\n"
+    );
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "m\n"),
+        "FM 12500\n"
+    );
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "M RAW 12500\n"),
+        "RPRT -1\n"
+    );
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "L AF 0.42\n"),
+        "RPRT 0\n"
+    );
+    assert!((app.shared.lock().unwrap().volume - 0.42).abs() < f32::EPSILON);
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "l AF\n"),
+        "0.420\n"
+    );
+    assert_eq!(
+        exchange(&mut app, &mut stream, &mut replies, "L AF NaN\n"),
+        "RPRT -1\n"
+    );
+    assert!((app.shared.lock().unwrap().volume - 0.42).abs() < f32::EPSILON);
+
+    drop(replies);
+    drop(stream);
+    app.rigctl.stop();
+}
+
 fn render_app_ui(
     app: &mut CentralApp,
     ctx: &egui::Context,

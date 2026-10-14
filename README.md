@@ -61,8 +61,11 @@ use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
   a frequency while stopped does not start reception.
 - **Setup Guide** and **Settings** open as separate floating windows from **Tools**.
 - Bookmarks remain available from the spectrum and frequency-jump workflows. The
-  loopback **Rigctl Server** accepts Hamlib-style `f/F`, `m/M`, `v/V`, and `q`
-  commands on localhost (default port `4532`).
+  loopback **Rigctl Server** provides a small Hamlib command subset on localhost
+  (default port `4532`): frequency `f/F`; the receiver's supported `m/M` modes and
+  passband; `v` returns `VFOA`, while `V` accepts only `VFOA`/`currVFO`; and `l AF`/
+  `L AF` read or set normalized audio gain from `0.0` to `1.0`. It does not implement
+  full rigctld or a second VFO; `q` closes the client connection.
 
 The desktop supports two simultaneous listening receivers sharing the same capture.
 Enable **Independent B receiver** in the Radio sidebar; its frequency must fit

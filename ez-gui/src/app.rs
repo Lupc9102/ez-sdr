@@ -634,11 +634,16 @@ impl CentralApp {
                         .shared
                         .try_lock()
                         .map(|state| {
-                            format!(
-                                "{} {}\n",
-                                state.demod_mode.label(),
-                                crate::radio_ui::channel_bandwidth(&state).round() as u32
-                            )
+                            let mode = state.demod_mode.resolve(state.source.frequency_hz);
+                            if mode == crate::sdr_panel::DemodMode::Raw {
+                                crate::rigctl::error_response(-1)
+                            } else {
+                                format!(
+                                    "{} {}\n",
+                                    mode.label(),
+                                    crate::radio_ui::channel_bandwidth(&state).round() as u32
+                                )
+                            }
                         })
                         .unwrap_or_else(|_| crate::rigctl::error_response(-5));
                     let _ = reply.send(response);
@@ -649,11 +654,24 @@ impl CentralApp {
                     reply,
                 } => {
                     let response = if let Ok(mut state) = self.shared.try_lock() {
-                        if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode) {
+                        let mode = match mode.as_str() {
+                            "AM" => Some(crate::sdr_panel::DemodMode::Am),
+                            "FM" => Some(crate::sdr_panel::DemodMode::Fm),
+                            "WFM" => Some(crate::sdr_panel::DemodMode::Wfm),
+                            "USB" => Some(crate::sdr_panel::DemodMode::Usb),
+                            "LSB" => Some(crate::sdr_panel::DemodMode::Lsb),
+                            "DSB" => Some(crate::sdr_panel::DemodMode::Dsb),
+                            "CW" => Some(crate::sdr_panel::DemodMode::Cw),
+                            _ => None,
+                        };
+                        if let Some(mode) = mode {
+                            let previous_bandwidth = state.config.advanced.radio_bandwidth_hz;
                             crate::radio_ui::select_demod(&mut state, mode);
-                            if let Some(width) = bandwidth_hz {
-                                state.config.advanced.radio_bandwidth_hz = width as f32;
-                            }
+                            state.config.advanced.radio_bandwidth_hz = match bandwidth_hz {
+                                -1 => previous_bandwidth,
+                                0 => mode.default_rf_bandwidth_hz(),
+                                width => width as f32,
+                            };
                             crate::rigctl::ok_response()
                         } else {
                             crate::rigctl::error_response(-1)
@@ -663,17 +681,28 @@ impl CentralApp {
                     };
                     let _ = reply.send(response);
                 }
-                RigctlRequest::GetVolume { reply } => {
+                RigctlRequest::GetVfo { reply } => {
+                    let _ = reply.send("VFOA\n".to_string());
+                }
+                RigctlRequest::SetVfo { vfo, reply } => {
+                    let response = if matches!(vfo.as_str(), "VFOA" | "CURRVFO") {
+                        crate::rigctl::ok_response()
+                    } else {
+                        crate::rigctl::error_response(-1)
+                    };
+                    let _ = reply.send(response);
+                }
+                RigctlRequest::GetAudioLevel { reply } => {
                     let response = self
                         .shared
                         .try_lock()
-                        .map(|state| format!("{:.1}\n", state.volume.clamp(0.0, 1.0) * 100.0))
+                        .map(|state| format!("{:.3}\n", state.volume.clamp(0.0, 1.0)))
                         .unwrap_or_else(|_| crate::rigctl::error_response(-5));
                     let _ = reply.send(response);
                 }
-                RigctlRequest::SetVolume { percent, reply } => {
+                RigctlRequest::SetAudioLevel { level, reply } => {
                     let response = if let Ok(mut state) = self.shared.try_lock() {
-                        state.volume = (percent / 100.0).clamp(0.0, 1.0);
+                        state.volume = level;
                         crate::rigctl::ok_response()
                     } else {
                         crate::rigctl::error_response(-5)

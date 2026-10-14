@@ -1,7 +1,7 @@
 //! Small loopback-only Hamlib/rigctld compatible control server.
 //!
 //! The server deliberately implements the handful of commands that are useful
-//! for a desktop receiver (`f/F`, `m/M`, `v/V`, and `q`).  Socket handling is
+//! for a desktop receiver (`f/F`, `m/M`, `v/V`, `l/L`, and `q`). Socket handling is
 //! kept off the egui thread; requests are handed to `CentralApp` so the shared
 //! radio state remains the single source of truth.
 
@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{
     atomic::{AtomicBool, AtomicU16, Ordering},
-    mpsc::{self, Receiver, Sender},
+    mpsc::{self, Receiver, SyncSender, TrySendError},
     Arc, Mutex,
 };
 use std::thread;
@@ -17,30 +17,40 @@ use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(750);
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
+const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+const MAX_CLIENTS: usize = 8;
+const COMMAND_QUEUE_CAPACITY: usize = 64;
 
 /// A command waiting for the egui/app thread to apply it.
 pub enum RigctlRequest {
     GetFrequency {
-        reply: Sender<String>,
+        reply: SyncSender<String>,
     },
     SetFrequency {
         hz: u64,
-        reply: Sender<String>,
+        reply: SyncSender<String>,
     },
     GetMode {
-        reply: Sender<String>,
+        reply: SyncSender<String>,
     },
     SetMode {
         mode: String,
-        bandwidth_hz: Option<u32>,
-        reply: Sender<String>,
+        bandwidth_hz: i32,
+        reply: SyncSender<String>,
     },
-    GetVolume {
-        reply: Sender<String>,
+    GetVfo {
+        reply: SyncSender<String>,
     },
-    SetVolume {
-        percent: f32,
-        reply: Sender<String>,
+    SetVfo {
+        vfo: String,
+        reply: SyncSender<String>,
+    },
+    GetAudioLevel {
+        reply: SyncSender<String>,
+    },
+    SetAudioLevel {
+        level: f32,
+        reply: SyncSender<String>,
     },
 }
 
@@ -48,7 +58,7 @@ pub struct RigctlServer {
     pub enabled: bool,
     pub port: u16,
     bound_port: Arc<AtomicU16>,
-    tx: Option<Sender<RigctlRequest>>,
+    tx: Option<SyncSender<RigctlRequest>>,
     rx: Option<Receiver<RigctlRequest>>,
     stop: Option<Arc<AtomicBool>>,
     join: Option<thread::JoinHandle<()>>,
@@ -227,7 +237,7 @@ impl RigctlServer {
     }
 
     fn start_generation(&mut self, generation: u64) {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(COMMAND_QUEUE_CAPACITY);
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
         let bound_port = Arc::clone(&self.bound_port);
@@ -267,9 +277,33 @@ impl RigctlServer {
                     println!("[rigctl] listening on 127.0.0.1:{}", address.port());
                 }
 
+                let mut client_workers = Vec::with_capacity(MAX_CLIENTS);
+                let mut accept_failed = false;
                 while !stop_worker.load(Ordering::Acquire) {
+                    reap_client_workers(&mut client_workers);
                     match listener.accept() {
-                        Ok((stream, _)) => handle_connection(stream, &tx_worker, &stop_worker),
+                        Ok((stream, _)) => {
+                            if client_workers.len() >= MAX_CLIENTS {
+                                let mut stream = stream;
+                                let _ = stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT));
+                                let _ = stream.write_all(b"RPRT -11\n");
+                                continue;
+                            }
+                            let mut rejected_stream = stream.try_clone().ok();
+                            let tx_client = tx_worker.clone();
+                            let stop_client = Arc::clone(&stop_worker);
+                            match thread::Builder::new()
+                                .name("ez-sdr-rigctl-client".into())
+                                .spawn(move || handle_connection(stream, &tx_client, &stop_client))
+                            {
+                                Ok(worker) => client_workers.push(worker),
+                                Err(_) => {
+                                    if let Some(stream) = &mut rejected_stream {
+                                        let _ = stream.write_all(b"RPRT -11\n");
+                                    }
+                                }
+                            }
+                        }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(POLL_INTERVAL);
                         }
@@ -282,9 +316,14 @@ impl RigctlServer {
                                     "accept failed: {error}"
                                 )),
                             );
+                            accept_failed = true;
                             break;
                         }
                     }
+                }
+                stop_worker.store(true, Ordering::Release);
+                for client in client_workers {
+                    let _ = client.join();
                 }
                 if stop_worker.load(Ordering::Acquire) {
                     let stopping_current_generation = status
@@ -297,11 +336,13 @@ impl RigctlServer {
                     {
                         bound_port.store(0, Ordering::Release);
                     }
-                    crate::web_remote::publish_listener_state(
-                        &status,
-                        generation,
-                        crate::web_remote::ListenerState::Stopped,
-                    );
+                    if !accept_failed {
+                        crate::web_remote::publish_listener_state(
+                            &status,
+                            generation,
+                            crate::web_remote::ListenerState::Stopped,
+                        );
+                    }
                 } else if worker_generation.load(Ordering::Acquire) == generation {
                     bound_port.store(0, Ordering::Release);
                 }
@@ -354,9 +395,21 @@ impl Drop for RigctlServer {
     }
 }
 
-fn handle_connection(stream: TcpStream, tx: &Sender<RigctlRequest>, stop: &AtomicBool) {
+fn reap_client_workers(workers: &mut Vec<thread::JoinHandle<()>>) {
+    let mut index = 0;
+    while index < workers.len() {
+        if workers[index].is_finished() {
+            let worker = workers.swap_remove(index);
+            let _ = worker.join();
+        } else {
+            index += 1;
+        }
+    }
+}
+
+fn handle_connection(stream: TcpStream, tx: &SyncSender<RigctlRequest>, stop: &AtomicBool) {
     let _ = stream.set_read_timeout(Some(POLL_INTERVAL));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
+    let _ = stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT));
     let mut stream = stream;
     let mut line = Vec::new();
     let mut discarding = false;
@@ -397,9 +450,12 @@ fn handle_connection(stream: TcpStream, tx: &Sender<RigctlRequest>, stop: &Atomi
                         }
                         continue;
                     };
-                    if tx.send(request).is_err() {
-                        let _ = stream.write_all(b"RPRT -11\n");
-                        return;
+                    match tx.try_send(request) {
+                        Ok(()) => {}
+                        Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                            let _ = stream.write_all(b"RPRT -11\n");
+                            return;
+                        }
                     }
                     let response = wait_for_reply(&reply, stop);
                     if stream.write_all(response.as_bytes()).is_err() {
@@ -439,40 +495,67 @@ fn wait_for_reply(reply: &Receiver<String>, stop: &AtomicBool) -> String {
     }
 }
 
-type ParsedRequest = (RigctlRequest, ReceiverReply);
-type ReceiverReply = Receiver<String>;
+type ParsedRequest = (RigctlRequest, Receiver<String>);
 
 fn parse_command(command: &str) -> Option<ParsedRequest> {
     let mut fields = command.split_whitespace();
     let op = fields.next()?;
-    let (reply_tx, reply_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = mpsc::sync_channel(1);
     let request = match op {
-        "f" => RigctlRequest::GetFrequency { reply: reply_tx },
+        "f" if fields.next().is_none() => RigctlRequest::GetFrequency { reply: reply_tx },
         "F" => {
             let hz = fields.next()?.parse::<u64>().ok()?;
+            if fields.next().is_some() {
+                return None;
+            }
             RigctlRequest::SetFrequency {
                 hz,
                 reply: reply_tx,
             }
         }
-        "m" => RigctlRequest::GetMode { reply: reply_tx },
+        "m" if fields.next().is_none() => RigctlRequest::GetMode { reply: reply_tx },
         "M" => {
             let mode = fields.next()?.to_ascii_uppercase();
-            let bandwidth_hz = fields.next().and_then(|value| value.parse().ok());
+            let bandwidth_hz = fields.next()?.parse::<i32>().ok()?;
+            if fields.next().is_some() || bandwidth_hz < -1 {
+                return None;
+            }
             RigctlRequest::SetMode {
                 mode,
                 bandwidth_hz,
                 reply: reply_tx,
             }
         }
-        "v" => RigctlRequest::GetVolume { reply: reply_tx },
+        "v" if fields.next().is_none() => RigctlRequest::GetVfo { reply: reply_tx },
         "V" => {
-            let percent = fields.next()?.parse::<f32>().ok()?;
-            if !percent.is_finite() {
+            let vfo = fields.next()?.to_ascii_uppercase();
+            if fields.next().is_some() || !matches!(vfo.as_str(), "VFOA" | "CURRVFO") {
                 return None;
             }
-            RigctlRequest::SetVolume {
-                percent: percent.clamp(0.0, 100.0),
+            RigctlRequest::SetVfo {
+                vfo,
+                reply: reply_tx,
+            }
+        }
+        "l" => {
+            let level = fields.next()?.to_ascii_uppercase();
+            if fields.next().is_some() || level != "AF" {
+                return None;
+            }
+            RigctlRequest::GetAudioLevel { reply: reply_tx }
+        }
+        "L" => {
+            let level_name = fields.next()?.to_ascii_uppercase();
+            let level = fields.next()?.parse::<f32>().ok()?;
+            if fields.next().is_some()
+                || level_name != "AF"
+                || !level.is_finite()
+                || !(0.0..=1.0).contains(&level)
+            {
+                return None;
+            }
+            RigctlRequest::SetAudioLevel {
+                level,
                 reply: reply_tx,
             }
         }
@@ -500,7 +583,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(COMMAND_QUEUE_CAPACITY);
         let worker = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             handle_connection(stream, &tx, &worker_stop);
@@ -514,10 +597,12 @@ mod tests {
         for command in [
             "F 1090000000\n",
             "M AM 12000\n",
-            "V 50\n",
+            "V VFOA\n",
             "f\n",
             "m\n",
             "v\n",
+            "L AF 0.5\n",
+            "l AF\n",
         ] {
             for split in 1..command.len() {
                 client.write_all(&command.as_bytes()[..split]).unwrap();
@@ -541,12 +626,12 @@ mod tests {
                     } => {
                         assert_eq!(command, "M AM 12000\n");
                         assert_eq!(mode, "AM");
-                        assert_eq!(bandwidth_hz, Some(12_000));
+                        assert_eq!(bandwidth_hz, 12_000);
                         reply
                     }
-                    RigctlRequest::SetVolume { percent, reply } => {
-                        assert_eq!(command, "V 50\n");
-                        assert_eq!(percent, 50.0);
+                    RigctlRequest::SetVfo { vfo, reply } => {
+                        assert_eq!(command, "V VFOA\n");
+                        assert_eq!(vfo, "VFOA");
                         reply
                     }
                     RigctlRequest::GetFrequency { reply } => {
@@ -557,8 +642,17 @@ mod tests {
                         assert_eq!(command, "m\n");
                         reply
                     }
-                    RigctlRequest::GetVolume { reply } => {
+                    RigctlRequest::GetVfo { reply } => {
                         assert_eq!(command, "v\n");
+                        reply
+                    }
+                    RigctlRequest::SetAudioLevel { level, reply } => {
+                        assert_eq!(command, "L AF 0.5\n");
+                        assert_eq!(level, 0.5);
+                        reply
+                    }
+                    RigctlRequest::GetAudioLevel { reply } => {
+                        assert_eq!(command, "l AF\n");
                         reply
                     }
                 };
@@ -605,12 +699,25 @@ mod tests {
             Some((RigctlRequest::GetMode { .. }, _))
         ));
         assert!(matches!(
-            parse_command("M NFM 12500"),
-            Some((RigctlRequest::SetMode { ref mode, bandwidth_hz: Some(12500), .. }, _)) if mode == "NFM"
+            parse_command("M FM 12500"),
+            Some((RigctlRequest::SetMode { ref mode, bandwidth_hz: 12500, .. }, _)) if mode == "FM"
+        ));
+        assert!(parse_command("V VFOB").is_none());
+        assert!(matches!(
+            parse_command("V VFOA"),
+            Some((RigctlRequest::SetVfo { ref vfo, .. }, _)) if vfo == "VFOA"
         ));
         assert!(matches!(
-            parse_command("V 72.5"),
-            Some((RigctlRequest::SetVolume { percent, .. }, _)) if (percent - 72.5).abs() < f32::EPSILON
+            parse_command("v"),
+            Some((RigctlRequest::GetVfo { .. }, _))
+        ));
+        assert!(matches!(
+            parse_command("L AF 0.75"),
+            Some((RigctlRequest::SetAudioLevel { level, .. }, _)) if (level - 0.75).abs() < f32::EPSILON
+        ));
+        assert!(matches!(
+            parse_command("l AF"),
+            Some((RigctlRequest::GetAudioLevel { .. }, _))
         ));
     }
 
@@ -618,14 +725,15 @@ mod tests {
     fn rejects_malformed_and_unknown_commands() {
         assert!(parse_command("").is_none());
         assert!(parse_command("F nope").is_none());
-        assert!(parse_command("V nan").is_none());
+        assert!(parse_command("L AF nan").is_none());
+        assert!(parse_command("L AF -0.01").is_none());
+        assert!(parse_command("L AF 1.01").is_none());
+        assert!(parse_command("L RF 0.5").is_none());
+        assert!(parse_command("l RF").is_none());
+        assert!(parse_command("M FM nope").is_none());
+        assert!(parse_command("F 100 200").is_none());
+        assert!(parse_command("f extra").is_none());
         assert!(parse_command("z").is_none());
-    }
-
-    #[test]
-    fn volume_is_bounded() {
-        let (request, _) = parse_command("V 500").expect("volume command");
-        assert!(matches!(request, RigctlRequest::SetVolume { percent, .. } if percent == 100.0));
     }
 
     fn wait_for_state(
@@ -762,6 +870,107 @@ mod tests {
             *state == crate::web_remote::ListenerState::Stopped
         });
         drop(client);
+        wait_for_port_release(port);
+    }
+
+    #[test]
+    fn idle_client_does_not_block_a_second_client_request() {
+        let mut server = RigctlServer::new();
+        server.set_enabled(true, 0);
+        wait_for_state(&mut server, |state| {
+            matches!(state, crate::web_remote::ListenerState::Listening(_))
+        });
+        let port = server.bound_port();
+        let idle = TcpStream::connect(("127.0.0.1", port)).expect("first idle rigctl client");
+        let mut active = TcpStream::connect(("127.0.0.1", port)).expect("second rigctl client");
+        active
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        active.write_all(b"f\n").unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let request = loop {
+            if let Some(request) = server.poll_requests().into_iter().next() {
+                break request;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "second client was starved"
+            );
+            thread::sleep(POLL_INTERVAL);
+        };
+        let RigctlRequest::GetFrequency { reply } = request else {
+            panic!("frequency request expected from second client");
+        };
+        reply.send("118700000\n".into()).unwrap();
+        let mut response = String::new();
+        BufReader::new(active.try_clone().unwrap())
+            .read_line(&mut response)
+            .unwrap();
+        assert_eq!(response, "118700000\n");
+
+        drop(active);
+        drop(idle);
+        server.stop();
+        wait_for_state(&mut server, |state| {
+            *state == crate::web_remote::ListenerState::Stopped
+        });
+        wait_for_port_release(port);
+    }
+
+    #[test]
+    fn client_cap_and_command_queue_are_bounded_during_stop() {
+        let mut server = RigctlServer::new();
+        server.set_enabled(true, 0);
+        wait_for_state(&mut server, |state| {
+            matches!(state, crate::web_remote::ListenerState::Listening(_))
+        });
+        let port = server.bound_port();
+        let mut clients = (0..MAX_CLIENTS)
+            .map(|_| {
+                let stream = TcpStream::connect(("127.0.0.1", port)).expect("rigctl client");
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                stream
+            })
+            .collect::<Vec<_>>();
+        thread::sleep(POLL_INTERVAL * 6);
+
+        let excess = TcpStream::connect(("127.0.0.1", port)).expect("excess client");
+        excess
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let mut rejected = String::new();
+        BufReader::new(excess.try_clone().unwrap())
+            .read_line(&mut rejected)
+            .unwrap();
+        assert_eq!(rejected, "RPRT -11\n");
+
+        let tx = server.tx.as_ref().expect("active request queue").clone();
+        for _ in 0..COMMAND_QUEUE_CAPACITY {
+            let (reply, _receiver) = mpsc::sync_channel(1);
+            assert!(matches!(
+                tx.try_send(RigctlRequest::GetFrequency { reply }),
+                Ok(())
+            ));
+        }
+        let (reply, _receiver) = mpsc::sync_channel(1);
+        assert!(matches!(
+            tx.try_send(RigctlRequest::GetFrequency { reply }),
+            Err(TrySendError::Full(_))
+        ));
+
+        clients[0].write_all(b"f\n").unwrap(); // This client deliberately never reads its reply.
+        let started = std::time::Instant::now();
+        server.stop();
+        assert!(started.elapsed() < Duration::from_millis(100));
+        wait_for_state(&mut server, |state| {
+            *state == crate::web_remote::ListenerState::Stopped
+        });
+        drop(tx);
+        drop(excess);
+        drop(clients);
         wait_for_port_release(port);
     }
 
