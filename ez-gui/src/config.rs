@@ -1283,13 +1283,11 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn config_default_has_empty_custom_theme_gallery() {
         let cfg = AppConfig::default();
         assert!(cfg.custom_themes.is_empty());
     }
 
-    #[test]
     #[test]
     fn config_missing_custom_themes_fall_back_to_defaults() {
         let json = r#"{"default_freq_hz": 144000000}"#;

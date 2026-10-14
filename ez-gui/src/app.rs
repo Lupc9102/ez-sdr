@@ -2528,8 +2528,12 @@ impl CentralApp {
         egui::CentralPanel::default().show(ui, |ui| {
             if let Ok(mut state) = self.shared.try_lock() {
                 if state.spectrum.bookmark_freqs_dirty {
-                    state.spectrum.bookmark_freqs = state.bookmarks.bookmarks.iter()
-                        .map(|b| (b.frequency_hz, b.name.clone(), b.category.clone())).collect();
+                    state.spectrum.bookmark_freqs = state
+                        .bookmarks
+                        .bookmarks
+                        .iter()
+                        .map(|b| (b.frequency_hz, b.name.clone(), b.category.clone()))
+                        .collect();
                     state.spectrum.bookmark_freqs_dirty = false;
                 }
                 if state.source.source_mode != crate::source_manager::SourceMode::Daemon {
@@ -2541,19 +2545,37 @@ impl CentralApp {
                 state.spectrum.dsb_sideband = state.config.advanced.dsb_sideband;
                 state.spectrum.vfo_freq_hz = Some(state.source.frequency_hz);
                 state.spectrum.vfo_b_freq = state.vfo_b;
-                state.spectrum.demod_mode = state.demod_mode.resolve(state.source.frequency_hz).label().to_string();
+                state.spectrum.demod_mode = state
+                    .demod_mode
+                    .resolve(state.source.frequency_hz)
+                    .label()
+                    .to_string();
                 state.spectrum.scan_marker = if self.scanner.enabled && !self.scanner.paused {
                     Some(self.scanner.current_freq_hz)
-                } else { None };
+                } else {
+                    None
+                };
                 state.spectrum.squelch_db = state.squelch;
-                state.spectrum.source_running = state.source.status == crate::source_manager::SourceStatus::Running;
-                state.spectrum.fill_top = state.config.theme_config.spectrum_gradient.sample(0.0).to_egui();
-                state.spectrum.fill_bot = state.config.theme_config.spectrum_gradient.sample(1.0).to_egui();
+                state.spectrum.source_running =
+                    state.source.status == crate::source_manager::SourceStatus::Running;
+                state.spectrum.fill_top = state
+                    .config
+                    .theme_config
+                    .spectrum_gradient
+                    .sample(0.0)
+                    .to_egui();
+                state.spectrum.fill_bot = state
+                    .config
+                    .theme_config
+                    .spectrum_gradient
+                    .sample(1.0)
+                    .to_egui();
                 state.spectrum.signal_glow = state.config.theme_config.glow;
                 state.spectrum.plot_bg = state.config.theme_config.waterfall_bg.to_egui();
                 state.spectrum.grid_color = state.config.theme_config.spectrum_grid.to_egui();
                 state.spectrum.curve_color = state.config.theme_config.spectrum_line.to_egui();
-                state.spectrum.noise_floor_color = state.config.theme_config.noise_floor_line.to_egui();
+                state.spectrum.noise_floor_color =
+                    state.config.theme_config.noise_floor_line.to_egui();
                 state.spectrum.color_success = state.config.theme_config.success.to_egui();
                 state.spectrum.color_warning = state.config.theme_config.warning.to_egui();
                 state.spectrum.color_error = state.config.theme_config.error.to_egui();
@@ -2583,43 +2605,58 @@ impl CentralApp {
                     state.spectrum.bandplan_mobile = translucent(mob);
                     state.spectrum.bandplan_ism = translucent(ism);
                 }
-                let sq_active = state.squelch > -90.0 && state.spectrum.vfo_signal_level() > state.squelch;
+                let sq_active =
+                    state.squelch > -90.0 && state.spectrum.vfo_signal_level() > state.squelch;
                 state.spectrum.signal_active = sq_active;
                 if sq_active {
                     let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0);
                     state.spectrum.last_signal_unix = Some(now);
                 }
                 let previous_bandwidth = state.spectrum.vfo_bw_hz;
-                state.spectrum.fft_controls_enabled = state.source.source_mode != crate::source_manager::SourceMode::Daemon;
+                state.spectrum.fft_controls_enabled =
+                    state.source.source_mode != crate::source_manager::SourceMode::Daemon;
                 state.spectrum.ui_radio_workspace(ui);
                 crate::radio_ui::persist_display_settings(&mut state);
                 if state.source.source_mode != crate::source_manager::SourceMode::Daemon
-                    && state.spectrum.vfo_bw_hz != previous_bandwidth {
+                    && state.spectrum.vfo_bw_hz != previous_bandwidth
+                {
                     state.config.advanced.radio_bandwidth_hz = state.spectrum.vfo_bw_hz as f32;
                 }
                 if let Some(freq) = state.spectrum.clicked_tune_freq.take() {
                     crate::radio_ui::tune(&mut state, freq);
-
                 }
                 if let Some(freq) = state.spectrum.pending_vfo_b_freq.take() {
                     state.vfo_b = freq;
                     state.config.secondary_vfo.frequency_hz = freq;
-                    self.status_bar.info(format!("🔷 VFO B → {:.4} MHz", freq as f64 / 1e6));
+                    self.status_bar
+                        .info(format!("🔷 VFO B → {:.4} MHz", freq as f64 / 1e6));
                 }
                 if let Some(freq) = state.spectrum.pending_bookmark_freq.take() {
                     let mode = state.demod_mode.label().to_string();
                     state.bookmarks.bookmarks.push(crate::bookmarks::Bookmark {
                         name: format!("{:.4} MHz {}", freq as f64 / 1e6, mode),
-                        frequency_hz: freq, mode, bandwidth_hz: 12_500,
-                        category: "Quick".to_string(), notes: String::new(), starred: false,
+                        frequency_hz: freq,
+                        mode,
+                        bandwidth_hz: 12_500,
+                        category: "Quick".to_string(),
+                        notes: String::new(),
+                        starred: false,
                     });
                     state.bookmarks_modified = true;
                     state.spectrum.bookmark_freqs_dirty = true;
                 }
-                if let Some(sq) = state.spectrum.pending_squelch_db.take() { if let Err(error) = crate::radio_ui::set_power_squelch_level(&mut state, sq) { self.status_bar.warning(format!("Squelch: {error}")); } }
+                if let Some(sq) = state.spectrum.pending_squelch_db.take() {
+                    if let Err(error) = crate::radio_ui::set_power_squelch_level(&mut state, sq) {
+                        self.status_bar.warning(format!("Squelch: {error}"));
+                    }
+                }
                 if let Some(mode_str) = state.spectrum.pending_demod_mode.take() {
-                    if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) { state.demod_mode = mode; }
+                    if let Some(mode) = crate::sdr_panel::DemodMode::from_label(&mode_str) {
+                        state.demod_mode = mode;
+                    }
                 }
                 if state.spectrum.pending_start_source {
                     state.spectrum.pending_start_source = false;

@@ -2895,92 +2895,153 @@ impl AdsBPanel {
             let row_height = ui
                 .text_style_height(&egui::TextStyle::Small)
                 .max(ui.spacing().interact_size.y);
-            egui::ScrollArea::vertical().id_salt("adsb_aircraft_rows")
+            egui::ScrollArea::vertical()
+                .id_salt("adsb_aircraft_rows")
                 .show_rows(ui, row_height, aircraft.len() + 1, |ui, rows| {
-            egui::Grid::new("adsb_list_compact").num_columns(7).striped(true)
-                .min_row_height(row_height).start_row(rows.start).show(ui, |ui| {
-                if rows.start == 0 {
-                    for (label, col) in [
-                        ("Flight", 0),
-                        ("Alt", 1),
-                        ("Spd", 2),
-                        ("Hdg", 3),
-                        ("Dist", 4),
-                        ("Age", 5),
-                    ] {
-                        let text = if sort_col == col {
-                            format!("{} {}", label, if sort_asc { "▲" } else { "▼" })
-                        } else {
-                            label.to_string()
-                        };
-                        if ui
-                            .button(egui::RichText::new(text).small().strong())
-                            .clicked()
-                        {
-                            if sort_col == col {
-                                sort_asc = !sort_asc;
-                            } else {
-                                sort_col = col;
-                                sort_asc = true;
+                    egui::Grid::new("adsb_list_compact")
+                        .num_columns(7)
+                        .striped(true)
+                        .min_row_height(row_height)
+                        .start_row(rows.start)
+                        .show(ui, |ui| {
+                            if rows.start == 0 {
+                                for (label, col) in [
+                                    ("Flight", 0),
+                                    ("Alt", 1),
+                                    ("Spd", 2),
+                                    ("Hdg", 3),
+                                    ("Dist", 4),
+                                    ("Age", 5),
+                                ] {
+                                    let text = if sort_col == col {
+                                        format!("{} {}", label, if sort_asc { "▲" } else { "▼" })
+                                    } else {
+                                        label.to_string()
+                                    };
+                                    if ui
+                                        .button(egui::RichText::new(text).small().strong())
+                                        .clicked()
+                                    {
+                                        if sort_col == col {
+                                            sort_asc = !sort_asc;
+                                        } else {
+                                            sort_col = col;
+                                            sort_asc = true;
+                                        }
+                                    }
+                                }
+                                ui.label(egui::RichText::new("").small());
+                                ui.end_row();
                             }
-                        }
-                    }
-                    ui.label(egui::RichText::new("").small());
-                    ui.end_row();
-                }
-                let now = std::time::Instant::now();
-                let max_age = self.max_age_secs;
-                let mut fetch_icao: Option<u32> = None;
-                for ac in &aircraft[rows.start.saturating_sub(1)..rows.end.saturating_sub(1)] {
-                    let age = now.duration_since(ac.seen).as_secs();
-                    let is_selected = self.selected_icao == Some(ac.icao);
-                    let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
-                    let row_col = if is_selected {
-                        theme.accent.to_egui()
-                    } else {
-                        let n = theme.text_normal;
-                        let d = theme.text_dim;
-                        let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * age_frac * 0.85) as u8;
-                        egui::Color32::from_rgb(lerp(n.0, d.0), lerp(n.1, d.1), lerp(n.2, d.2))
-                    };
-                    let label = if ac.callsign.is_empty() { address_label(ac.icao) } else { ac.callsign.clone() };
-                    let display_label = if ac.emergency.is_some_and(|code| code != 0) {
-                        format!("⚠ {label}")
-                    } else { label.clone() };
-                    let status = match ac.emergency {
-                        Some(0) => "No emergency",
-                        Some(1) => "General emergency",
-                        Some(2) => "Medical / lifeguard",
-                        Some(3) => "Minimum fuel",
-                        Some(4) => "No communications",
-                        Some(5) => "Unlawful interference",
-                        Some(6) => "Downed aircraft",
-                        Some(_) => "Reserved emergency code",
-                        None => "Emergency status unavailable",
-                    };
-                    if ui.add(egui::Label::new(egui::RichText::new(&display_label).color(row_col).small()).sense(egui::Sense::click()))
-                        .on_hover_text(format!("{status}\nSquawk: {}\nSource: {} ({})", ac.squawk.map_or("—".into(), |s| format!("{s:04}")), ac.source, ac.address_type)).clicked() {
-                        self.selected_icao = Some(ac.icao);
-                        fetch_icao = Some(ac.icao);
-                    }
-                    ui.label(egui::RichText::new(ac.altitude_label()).color(row_col).small());
-                    ui.label(egui::RichText::new(ac.speed_label()).color(row_col).small());
-                    // I6: Heading column
-                    let hdg_label = ac.direction_label();
-                    ui.label(egui::RichText::new(hdg_label).color(row_col).small());
-                    let has_position = self.has_position(ac);
-                    let dist = self.haversine_distance(self.observer_lat, self.observer_lon, ac.lat, ac.lon);
-                    let distance_label = if has_position { format!("{dist:.0}km") } else { "—".into() };
-                    ui.label(egui::RichText::new(distance_label).color(row_col).small());
-                    let age_color = if age < 10 { theme.success.to_egui() } else if age < 30 { theme.warning.to_egui() } else { theme.text_dim.to_egui() };
-                    ui.label(egui::RichText::new(format!("{age}s")).color(age_color).small());
-                    ui.end_row();
-                }
-                if let Some(icao) = fetch_icao {
-                    self.fetch_aircraft_info(icao);
-                }
-            });
-            });
+                            let now = std::time::Instant::now();
+                            let max_age = self.max_age_secs;
+                            let mut fetch_icao: Option<u32> = None;
+                            for ac in
+                                &aircraft[rows.start.saturating_sub(1)..rows.end.saturating_sub(1)]
+                            {
+                                let age = now.duration_since(ac.seen).as_secs();
+                                let is_selected = self.selected_icao == Some(ac.icao);
+                                let age_frac = (age as f32 / max_age as f32).clamp(0.0, 1.0);
+                                let row_col = if is_selected {
+                                    theme.accent.to_egui()
+                                } else {
+                                    let n = theme.text_normal;
+                                    let d = theme.text_dim;
+                                    let lerp = |a: u8, b: u8| {
+                                        (a as f32 + (b as f32 - a as f32) * age_frac * 0.85) as u8
+                                    };
+                                    egui::Color32::from_rgb(
+                                        lerp(n.0, d.0),
+                                        lerp(n.1, d.1),
+                                        lerp(n.2, d.2),
+                                    )
+                                };
+                                let label = if ac.callsign.is_empty() {
+                                    address_label(ac.icao)
+                                } else {
+                                    ac.callsign.clone()
+                                };
+                                let display_label = if ac.emergency.is_some_and(|code| code != 0) {
+                                    format!("⚠ {label}")
+                                } else {
+                                    label.clone()
+                                };
+                                let status = match ac.emergency {
+                                    Some(0) => "No emergency",
+                                    Some(1) => "General emergency",
+                                    Some(2) => "Medical / lifeguard",
+                                    Some(3) => "Minimum fuel",
+                                    Some(4) => "No communications",
+                                    Some(5) => "Unlawful interference",
+                                    Some(6) => "Downed aircraft",
+                                    Some(_) => "Reserved emergency code",
+                                    None => "Emergency status unavailable",
+                                };
+                                if ui
+                                    .add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&display_label)
+                                                .color(row_col)
+                                                .small(),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    )
+                                    .on_hover_text(format!(
+                                        "{status}\nSquawk: {}\nSource: {} ({})",
+                                        ac.squawk.map_or("—".into(), |s| format!("{s:04}")),
+                                        ac.source,
+                                        ac.address_type
+                                    ))
+                                    .clicked()
+                                {
+                                    self.selected_icao = Some(ac.icao);
+                                    fetch_icao = Some(ac.icao);
+                                }
+                                ui.label(
+                                    egui::RichText::new(ac.altitude_label())
+                                        .color(row_col)
+                                        .small(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(ac.speed_label()).color(row_col).small(),
+                                );
+                                // I6: Heading column
+                                let hdg_label = ac.direction_label();
+                                ui.label(egui::RichText::new(hdg_label).color(row_col).small());
+                                let has_position = self.has_position(ac);
+                                let dist = self.haversine_distance(
+                                    self.observer_lat,
+                                    self.observer_lon,
+                                    ac.lat,
+                                    ac.lon,
+                                );
+                                let distance_label = if has_position {
+                                    format!("{dist:.0}km")
+                                } else {
+                                    "—".into()
+                                };
+                                ui.label(
+                                    egui::RichText::new(distance_label).color(row_col).small(),
+                                );
+                                let age_color = if age < 10 {
+                                    theme.success.to_egui()
+                                } else if age < 30 {
+                                    theme.warning.to_egui()
+                                } else {
+                                    theme.text_dim.to_egui()
+                                };
+                                ui.label(
+                                    egui::RichText::new(format!("{age}s"))
+                                        .color(age_color)
+                                        .small(),
+                                );
+                                ui.end_row();
+                            }
+                            if let Some(icao) = fetch_icao {
+                                self.fetch_aircraft_info(icao);
+                            }
+                        });
+                });
             self.sort_column = sort_col;
             self.sort_ascending = sort_asc;
         });

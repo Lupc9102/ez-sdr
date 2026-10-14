@@ -1004,6 +1004,7 @@ enum QueuedNotification {
 pub struct DiscordNotifier {
     pub settings: DiscordSettings,
     tx: crossbeam_channel::Sender<QueuedNotification>,
+    _worker_done: crossbeam_channel::Receiver<()>,
     last_send: Instant,
 }
 
@@ -1017,38 +1018,37 @@ impl DiscordNotifier {
     /// Create a new `DiscordNotifier`, spawning a background dispatch thread.
     pub fn new() -> Self {
         let (tx, rx) = crossbeam_channel::bounded(64);
+        let (worker_done_tx, worker_done) = crossbeam_channel::bounded(1);
         std::thread::spawn(move || {
             let client = reqwest::blocking::Client::new();
-            loop {
-                if let Ok(notification) = rx.recv() {
-                    // Receive a batch to send (the main thread will rate-limit via Instant)
-                    let result = match notification {
-                        QueuedNotification::Plain(embed, settings) => {
-                            Self::post_embed(&client, &embed, &settings)
-                        }
-                        QueuedNotification::WithAttachment(embed, settings, bytes, name) => {
-                            Self::post_embed_with_attachment(
-                                &client, &embed, &settings, bytes, name,
-                            )
-                        }
-                        QueuedNotification::Aircraft(ac, settings) => {
-                            // Blocking HEAD lookup happens here (background),
-                            // not in the egui render loop.
-                            let image_url = fetch_aircraft_image(&ac.icao);
-                            let embed = embed_aircraft(&ac, image_url);
-                            Self::post_embed(&client, &embed, &settings)
-                        }
-                    };
-                    if let Err(e) = result {
-                        eprintln!("[discord] POST failed: {e}");
+            while let Ok(notification) = rx.recv() {
+                // Receive a batch to send (the main thread will rate-limit via Instant)
+                let result = match notification {
+                    QueuedNotification::Plain(embed, settings) => {
+                        Self::post_embed(&client, &embed, &settings)
                     }
+                    QueuedNotification::WithAttachment(embed, settings, bytes, name) => {
+                        Self::post_embed_with_attachment(&client, &embed, &settings, bytes, name)
+                    }
+                    QueuedNotification::Aircraft(ac, settings) => {
+                        // Blocking HEAD lookup happens here (background),
+                        // not in the egui render loop.
+                        let image_url = fetch_aircraft_image(&ac.icao);
+                        let embed = embed_aircraft(&ac, image_url);
+                        Self::post_embed(&client, &embed, &settings)
+                    }
+                };
+                if let Err(e) = result {
+                    eprintln!("[discord] POST failed: {e}");
                 }
             }
+            let _ = worker_done_tx.send(());
         });
 
         Self {
             settings: DiscordSettings::default(),
             tx,
+            _worker_done: worker_done,
             last_send: Instant::now(),
         }
     }
@@ -1277,6 +1277,24 @@ mod tests {
     fn categories_not_empty() {
         let cats = categories();
         assert!(!cats.is_empty());
+    }
+
+    #[test]
+    fn notifier_workers_stop_after_all_senders_are_dropped() {
+        let mut worker_done_receivers = Vec::new();
+
+        for _ in 0..16 {
+            let notifier = DiscordNotifier::new();
+            worker_done_receivers.push(notifier._worker_done.clone());
+            drop(notifier);
+        }
+
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        for worker_done in worker_done_receivers {
+            worker_done
+                .recv_deadline(deadline)
+                .expect("notifier worker should stop after its sender is dropped");
+        }
     }
 
     #[test]
