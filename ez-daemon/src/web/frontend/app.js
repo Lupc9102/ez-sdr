@@ -1,11 +1,16 @@
 'use strict';
 // No receiver secrets or telemetry are persisted in browser storage.
 const $ = id => document.getElementById(id);
-let connected = false, token = '', control = null, status = null, refreshTimer = null;
+let connected = false, token = '', control = null, status = null, refreshTimer = null, sessionGeneration = 0;
 let nextId = 100, audioContext = null, channelSignature = '';
 const streams = new Map(), playing = new Map(), products = new Map();
 const error = message => { $('error').textContent = String(message); $('error').hidden = !message; };
-function report(promise) { promise.catch(e => error(e.message)); }
+function ownsSession(generation, controlSocket) {
+  return generation === sessionGeneration && (!controlSocket || control === controlSocket);
+}
+function report(promise, generation = sessionGeneration, controlSocket = null) {
+  promise.catch(e => { if (ownsSession(generation, controlSocket)) error(e.message); });
+}
 function element(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 async function api(path, data, method) {
   if (!connected && (data !== undefined || method === 'DELETE')) throw new Error('Connect before changing the receiver.');
@@ -17,23 +22,27 @@ async function api(path, data, method) {
   if (!response.ok) throw new Error(response.status === 401 ? 'Access denied. Enter the daemon access token.' : (body?.error || `${response.status}: ${text}`));
   return body;
 }
-function socket(path) {
+function socket(path, generation, isCurrent = () => ownsSession(generation)) {
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
   const protocol = token ? 'ez-sdr-auth.' + [...new TextEncoder().encode(token)].map(v => v.toString(16).padStart(2,'0')).join('') : null;
   const ws = protocol ? new WebSocket(url, protocol) : new WebSocket(url);
   ws.binaryType = 'arraybuffer';
-  ws.addEventListener('error', () => error('Stream connection failed. Check authentication and receiver status.'));
+  ws.addEventListener('error', () => { if (isCurrent()) error('Stream connection failed. Check authentication and receiver status.'); });
   return ws;
 }
 function subscribe(kind, id, receive) {
   if(!connected)return;
+  const generation = sessionGeneration, controlSocket = control;
   const key = `${kind}/${id}`; if (streams.has(key)) return;
-  const ws = socket(`/ws/stream/${key}`); streams.set(key, ws);
-  ws.onmessage = event => { try { if(typeof event.data === 'string'){const message=JSON.parse(event.data);if(message.StreamGap){const gap=message.StreamGap;$('stream-status').hidden=false;$('stream-status').textContent=`${kind === 'spectrum' ? 'Spectrum' : 'Stream'} display skipped ${gap.dropped_frames} updates to keep up`;const playback=playing.get(id);if(playback&&audioContext)flushPlayback(id);return;}if(message.Error){error(message.Error.message);return;}if(message.ChannelRemoved){flushPlayback(id);playing.delete(id);return;}} receive(event.data); } catch(e) { error(e.message); } };
-  ws.onclose = () => { if (streams.get(key) === ws) streams.delete(key); };
+  let ws;
+  const isCurrent = () => ownsSession(generation, controlSocket) && connected && streams.get(key) === ws;
+  ws = socket(`/ws/stream/${key}`, generation, isCurrent); streams.set(key, ws);
+  ws.onmessage = event => { if (!isCurrent()) return; try { if(typeof event.data === 'string'){const message=JSON.parse(event.data);if(message.StreamGap){const gap=message.StreamGap;$('stream-status').hidden=false;$('stream-status').textContent=`${kind === 'spectrum' ? 'Spectrum' : 'Stream'} display skipped ${gap.dropped_frames} updates to keep up`;const playback=playing.get(id);if(playback&&audioContext)flushPlayback(id);return;}if(message.Error){error(message.Error.message);return;}if(message.ChannelRemoved){flushPlayback(id);playing.delete(id);return;}} receive(event.data); } catch(e) { if (isCurrent()) error(e.message); } };
+  ws.onclose = () => { if (isCurrent()) streams.delete(key); };
 }
 function unsubscribe(kind,id) { const key=`${kind}/${id}`; streams.get(key)?.close(); streams.delete(key); }
 function disconnect() {
+  sessionGeneration++;
   connected=false; clearInterval(refreshTimer); refreshTimer=null;
   control?.close(); control=null;
   for (const id of playing.keys())flushPlayback(id);
@@ -43,29 +52,52 @@ function disconnect() {
   $('connect').disabled=false; $('disconnect').disabled=true;
 }
 async function connect() {
-  disconnect(); token=$('token').value; error('');
+  disconnect();
+  const generation = ++sessionGeneration;
+  token=$('token').value; error('');
+  $('connection').textContent='Connecting…'; $('connection').className='badge';
+  $('connect').disabled=true; $('disconnect').disabled=false;
   try {
-    status=await api('status'); connected=true;
+    const initialStatus=await api('status');
+    if (!ownsSession(generation)) return;
+    status=initialStatus;
     $('frequency').value=status.hardware.frequency_hz; $('sample-rate').value=status.hardware.sample_rate_hz; $('gain').value=status.hardware.gain_db;
-    $('connect').disabled=true; $('disconnect').disabled=false;
-    $('connection').textContent='Connected'; $('connection').className='badge connected';
-    control=socket('/ws/control');
-    control.onopen=()=>error('');
-    control.onmessage=event=>{
-      const data=JSON.parse(event.data);
+    let welcomed = false, controlSocket;
+    controlSocket=socket('/ws/control',generation,()=>ownsSession(generation,controlSocket));
+    control=controlSocket;
+    controlSocket.onopen=()=>{ if (ownsSession(generation,controlSocket)) { $('connection').textContent='Establishing control…'; error(''); } };
+    controlSocket.onmessage=async event=>{
+      if (!ownsSession(generation,controlSocket)) return;
+      let data;
+      try { data=JSON.parse(event.data); }
+      catch (e) { if (ownsSession(generation,controlSocket)) error(e.message); return; }
       if (data.Welcome) {
+        if (welcomed) return;
+        welcomed = true;
+        connected=true;
+        $('connection').textContent='Connected'; $('connection').className='badge connected';
         const channel=data.Welcome.client_channels.spectrum;
-        control.send(JSON.stringify({Subscribe:{channel:{id:channel,center_offset_hz:0,channel_sample_rate_hz:status.hardware.sample_rate_hz,kind:'Spectrum',demod_mode:null,audio:null,meteor_profile:null}}}));
+        controlSocket.send(JSON.stringify({Subscribe:{channel:{id:channel,center_offset_hz:0,channel_sample_rate_hz:status.hardware.sample_rate_hz,kind:'Spectrum',demod_mode:null,audio:null,meteor_profile:null}}}));
         subscribe('spectrum',channel,drawSpectrum);
+        try {
+          await refresh(generation,controlSocket);
+          if (!ownsSession(generation,controlSocket) || !connected) return;
+          refreshTimer=setInterval(()=>report(refresh(generation,controlSocket),generation,controlSocket),2000);
+        } catch (e) { if (ownsSession(generation,controlSocket)) error(e.message); }
       } else if (data.Error) error(data.Error.message || data.Error);
     };
-    control.onclose=()=>{ if (connected) { disconnect(); error('Control connection closed. Reconnect to resume streams.'); } };
-    await refresh(); refreshTimer=setInterval(()=>report(refresh()),2000);
-  } catch(e) { disconnect(); throw e; }
+    controlSocket.onclose=()=>{ if (ownsSession(generation,controlSocket)) { disconnect(); error('Control connection closed. Reconnect to resume streams.'); } };
+  } catch(e) {
+    if (!ownsSession(generation)) return;
+    disconnect(); error(e.message);
+    $('connect').disabled=false; $('disconnect').disabled=true;
+  }
 }
-async function refresh() {
-  if (!connected) return;
-  const [updated,channels,recordings]=await Promise.all([api('status'),api('channels'),api('recordings')]); status=updated;
+async function refresh(generation = sessionGeneration, controlSocket = control) {
+  if (!connected || !ownsSession(generation,controlSocket)) return;
+  const [updated,channels,recordings]=await Promise.all([api('status'),api('channels'),api('recordings')]);
+  if (!connected || !ownsSession(generation,controlSocket)) return;
+  status=updated;
   for(const c of channels)c.recording=recordings.find(r=>r.channel_id===c.spec.id&&r.active);
   $('source').textContent=`${status.hardware.source_kind} · ${(status.hardware.sample_rate_hz/1e6).toFixed(3)} MS/s · ${(status.hardware.frequency_hz/1e6).toFixed(6)} MHz`;
   nextId=Math.max(nextId,...channels.filter(c=>c.spec.id<0x80000000).map(c=>c.spec.id+1));
@@ -165,7 +197,7 @@ function drawTelemetry(data) {
 }
 function saveImage(key){const p=products.get(key);if(!p)return;const canvas=document.createElement('canvas');canvas.width=p.width;canvas.height=p.height;const ctx=canvas.getContext('2d'),image=ctx.createImageData(p.width,p.height);for(let i=0;i<p.pixels.length;i++){const j=i*4;image.data[j]=image.data[j+1]=image.data[j+2]=p.pixels[i];image.data[j+3]=255;}ctx.putImageData(image,0,0);canvas.toBlob(blob=>{if(!blob)return;const url=URL.createObjectURL(blob),a=element('a');a.href=url;a.download=`meteor-${p.product}-${key.replace('/','-')}.png`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});}
 function showTab(name){for(const id of ['radio','aircraft','meteor'])$(id).hidden=id!==name;for(const b of document.querySelectorAll('.tab'))b.classList.toggle('active',b.dataset.tab===name);}
-$('connect').onclick=()=>report(connect());$('disconnect').onclick=disconnect;$('refresh').onclick=()=>report(refresh());
+$('connect').onclick=connect;$('disconnect').onclick=disconnect;$('refresh').onclick=()=>report(refresh(sessionGeneration,control),sessionGeneration,control);
 for(const b of document.querySelectorAll('.tab'))b.onclick=()=>showTab(b.dataset.tab);
 $('capture').onsubmit=e=>{e.preventDefault();report((async()=>{await api('hardware/sample-rate',{hz:Number($('sample-rate').value)});await api('hardware/frequency',{hz:Number($('frequency').value)});await api('hardware/gain',{db:Number($('gain').value)});await refresh();})());};
 const widths={Wfm:180000,Fm:25000,Am:15000,Usb:3300,Lsb:3300,Dsb:4600,Cw:200,Raw:0};$('mode').onchange=()=>$('rf-width').value=widths[$('mode').value];
