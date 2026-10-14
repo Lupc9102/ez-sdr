@@ -305,7 +305,7 @@ fn approved_ai_local_failures_report_device_and_recording_errors_without_success
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn approved_ai_daemon_tools_acknowledge_capture_files_and_adsb_from_initial_two_msps() {
     let daemon = crate::daemon_client::tests::TestDaemon::spawn("ai-actions").await;
-    let mut app = offline_test_app();
+    let mut app = tokio::task::block_in_place(offline_test_app);
     app.current_tab = AppTab::Meteor;
     let ctx = egui::Context::default();
     {
@@ -501,7 +501,7 @@ fn approved_ai_waits_for_daemon_acknowledgement_and_reports_rejection_or_timeout
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn approved_ai_adsb_request_survives_initial_daemon_handshake() {
     let daemon = crate::daemon_client::tests::TestDaemon::spawn("ai-adsb-initial").await;
-    let mut app = offline_test_app();
+    let mut app = tokio::task::block_in_place(offline_test_app);
     app.current_tab = AppTab::Meteor;
     {
         let mut state = app.shared.lock().unwrap();

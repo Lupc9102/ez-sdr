@@ -1,18 +1,20 @@
-/// Non-blocking web remote implementation.
-///
-/// This replaces the blocking sleep() calls in web_remote.rs with proper
-/// async I/O, eliminating UI freezes.
+//! Deprecated compatibility facade with a heartbeat-only task.
+//!
+//! This module does not implement an HTTP remote. Use [`crate::web_remote::WebRemote`]
+//! for the desktop's actual loopback control server.
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::sleep;
 
-/// Background task manager for web remote operations.
+/// Heartbeat-only compatibility type; it does not serve HTTP or control SDR state.
+#[deprecated(note = "heartbeat-only stub; use web_remote::WebRemote for the HTTP remote")]
 pub struct WebRemoteAsync {
     last_heartbeat: Arc<TokioMutex<Instant>>,
     running: Arc<TokioMutex<bool>>,
 }
 
+#[allow(deprecated)]
 impl WebRemoteAsync {
     pub fn new() -> Self {
         Self {
@@ -53,6 +55,7 @@ impl WebRemoteAsync {
     }
 }
 
+#[allow(deprecated)]
 impl Default for WebRemoteAsync {
     fn default() -> Self {
         Self::new()
@@ -60,6 +63,7 @@ impl Default for WebRemoteAsync {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 

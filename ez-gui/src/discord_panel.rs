@@ -1,3 +1,8 @@
+//! Reusable Discord settings panel component for downstream embedding.
+//!
+//! The desktop app routes notification settings through Settings JSON import;
+//! it does not mount this standalone panel as a utility window.
+
 use crate::discord::{self, DiscordNotifier};
 use std::sync::{Arc, Mutex};
 

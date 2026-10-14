@@ -576,8 +576,8 @@ impl SourcePreferences {
 
 /// Top-level application configuration persisted to `ez_sdr_config.json`.
 ///
-/// Contains all SDR, UI, theme, AI, MQTT, web remote, satellite, and Discord
-/// settings. Serialised/deserialised with serde.
+/// Contains SDR and integration settings plus legacy AI/theme fields preserved
+/// for existing JSON files and reusable library components.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -591,13 +591,13 @@ pub struct AppConfig {
     pub default_gain: f64,
     /// Directory for saving recorded I/Q and audio files.
     pub output_directory: String,
-    /// UI theme name ("dark" / "light").
+    /// Legacy UI theme label retained for older settings files.
     pub theme: String,
-    /// AI provider API key.
+    /// Legacy AI provider API key, retained for settings-file compatibility.
     pub ai_api_key: String,
-    /// AI provider API endpoint URL.
+    /// Legacy AI provider endpoint, retained for settings-file compatibility.
     pub ai_endpoint: String,
-    /// AI model identifier.
+    /// Legacy AI model identifier, retained for settings-file compatibility.
     pub ai_model: String,
     /// Maximum tokens per AI response.
     pub ai_max_tokens: u32,
@@ -1699,6 +1699,42 @@ mod tests {
         assert_eq!(back.custom_themes.len(), 1);
         assert_eq!(back.custom_themes[0].name, "My Custom");
         assert_eq!(back.custom_themes[0].theme.preset, "cyberpunk");
+    }
+
+    #[test]
+    fn config_keeps_unmounted_legacy_ai_and_theme_fields_readable() {
+        let theme = serde_json::to_value(ThemeConfig::light()).unwrap();
+        let legacy_json = serde_json::json!({
+            "ai_api_key": "legacy-key-sentinel",
+            "ai_endpoint": "https://ai.example.invalid/v1",
+            "ai_model": "legacy-model",
+            "ai_max_tokens": 512,
+            "ai_temperature": 0.4,
+            "ai_system_prompt": "legacy prompt",
+            "ai_provider": "Legacy Provider",
+            "ai_reasoning_effort": "low",
+            "ai_web_search": true,
+            "custom_themes": [{
+                "id": "legacy-theme",
+                "name": "Legacy Theme",
+                "theme": theme
+            }]
+        });
+        let loaded: AppConfig = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(loaded.ai_api_key, "legacy-key-sentinel");
+        assert_eq!(loaded.ai_endpoint, "https://ai.example.invalid/v1");
+        assert_eq!(loaded.ai_model, "legacy-model");
+        assert_eq!(loaded.ai_max_tokens, 512);
+        assert_eq!(loaded.ai_temperature, 0.4);
+        assert_eq!(loaded.ai_system_prompt, "legacy prompt");
+        assert_eq!(loaded.ai_provider, "Legacy Provider");
+        assert_eq!(loaded.ai_reasoning_effort, "low");
+        assert!(loaded.ai_web_search);
+        assert_eq!(loaded.custom_themes[0].name, "Legacy Theme");
+        let roundtrip: AppConfig =
+            serde_json::from_value(serde_json::to_value(loaded).unwrap()).unwrap();
+        assert_eq!(roundtrip.ai_api_key, "legacy-key-sentinel");
+        assert_eq!(roundtrip.custom_themes[0].theme.preset, "light");
     }
 
     #[test]

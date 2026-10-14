@@ -1,3 +1,8 @@
+//! Reusable AI panel component for downstream embedding.
+//!
+//! The desktop workspaces do not mount this panel; its `AppConfig::ai_*` values
+//! remain available for compatibility with older configuration files.
+
 use std::io::{BufRead, BufReader};
 use std::sync::{
     atomic::{AtomicBool, Ordering},

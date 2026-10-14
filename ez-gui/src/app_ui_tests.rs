@@ -556,7 +556,7 @@ async fn active_daemon_controls_mask_authenticate_persist_reconnect_and_clear_to
 
     let auth = TestDaemon::spawn_with_auth("radio-ui-auth", "valid-ui-secret").await;
     let local = TestDaemon::spawn("radio-ui-open").await;
-    let mut app = offline_test_app();
+    let mut app = tokio::task::block_in_place(offline_test_app);
     {
         let mut state = app.shared.lock().unwrap();
         state.source.source_mode = SourceMode::Daemon;
@@ -604,7 +604,7 @@ async fn active_daemon_controls_mask_authenticate_persist_reconnect_and_clear_to
     let saved: AppConfig = serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
     let ctx_restart = egui::Context::default();
     let cc_restart = eframe::CreationContext::_new_kittest(ctx_restart);
-    let restarted = CentralApp::new_with_config(&cc_restart, saved);
+    let restarted = tokio::task::block_in_place(|| CentralApp::new_with_config(&cc_restart, saved));
     {
         let state = restarted.shared.lock().unwrap();
         assert_eq!(state.source.source_mode, SourceMode::Daemon);
@@ -1719,7 +1719,7 @@ fn applying_observer_settings_invalidates_fresh_pass_cache_and_updates_hidden_tr
 
 /// Exercises both real GUI command entry points against an isolated synthetic
 /// daemon. This test never starts a physical audio device or external provider.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     use crate::daemon_client::{ConnectionStatus, DaemonClient};
     use ez_proto::{ClientCommand, ServerEvent};
@@ -1728,13 +1728,15 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     use tokio_tungstenite::tungstenite::Message;
 
     let daemon = crate::daemon_client::tests::TestDaemon::spawn("squelch-app").await;
-    let mut app = offline_test_app();
+    let mut app = tokio::task::block_in_place(offline_test_app);
     {
         let mut state = app.shared.lock().unwrap();
         state.source.source_mode = crate::source_manager::SourceMode::Daemon;
         state.source.daemon_addr = daemon.addr.to_string();
         state.source.center_frequency_hz = Some(100_000_000);
-        state.source.frequency_hz = 100_250_000;
+        // The synthetic daemon's modulated FM carrier is at -400 kHz. The
+        // +250 kHz carrier is intentionally unmodulated and produces silence.
+        state.source.frequency_hz = 99_600_000;
         state.source.sample_rate_hz = 2_000_000;
         state.demod_mode = crate::sdr_panel::DemodMode::Fm;
         state.audio_running = true;
@@ -1767,24 +1769,74 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    // Observe the same real pipeline's PCM without opening a speaker.
+    // Use a second connection to observe real pipeline PCM without opening a speaker.
     let monitor = DaemonClient::connect(daemon.addr, "squelch-audio-observer".into());
     while monitor.status() != ConnectionStatus::Connected {
         assert!(Instant::now() < deadline);
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let audio_id = app.shared.lock().unwrap().source.daemon_channel_ids().audio;
+    // Channel IDs are connection-owned; subscribe with the observer's assigned ID,
+    // rather than reusing the GUI client's independent audio channel ID.
+    let audio_id = loop {
+        if let Some(channels) = monitor.client_channels() {
+            break channels.audio;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "observer did not receive channel IDs"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
     monitor.send(ClientCommand::Subscribe {
         channel: ez_proto::ChannelSpec {
             audio: None,
             meteor_profile: None,
             id: audio_id,
-            center_offset_hz: 250_000,
+            center_offset_hz: -400_000,
             channel_sample_rate_hz: 200_000,
             kind: ez_proto::PipelineKind::Audio,
-            demod_mode: Some(ez_proto::DemodMode::Fm),
+            // A separate RAW monitor confirms nonzero IQ-derived PCM. The app's
+            // FM path is covered by the daemon pipeline regression test.
+            demod_mode: Some(ez_proto::DemodMode::Raw),
         },
     });
+    async fn set_monitor_squelch(
+        client: &DaemonClient,
+        channel_id: u32,
+        request_id: u64,
+        db: f32,
+    ) -> ez_proto::SquelchState {
+        use ez_proto::ServerEvent;
+
+        client.send(ClientCommand::SetSquelch {
+            request_id,
+            channel_id,
+            db,
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(ServerEvent::Squelch {
+                channel_id: reply_channel,
+                request_id: reply_id,
+                result,
+            }) = client.try_recv_event()
+            {
+                if reply_channel == channel_id && reply_id == request_id {
+                    let applied = result.expect("observer squelch request must apply");
+                    assert_eq!(applied.db, db);
+                    return applied;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "observer squelch was not applied"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+    // The observer owns a separate audio pipeline, so mirror each requested threshold
+    // on that pipeline before comparing its actual PCM with the GUI's acknowledged state.
+    let initial_squelch = set_monitor_squelch(&monitor, audio_id, 100, -100.0).await;
     async fn audio_at(
         client: &DaemonClient,
         db: f32,
@@ -1792,35 +1844,71 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
         require_audible: bool,
     ) -> ez_proto::AudioFrame {
         let deadline = Instant::now() + Duration::from_secs(10);
+        let mut matching_audio_frames = 0;
+        let mut audio_frames = 0;
+        let mut last_matching_audio = None;
+        let mut last_audio_summary = None;
+        let mut other_events = 0;
         loop {
-            if let Some(ServerEvent::Audio(frame)) = client.try_recv_event() {
-                // A correctly revised frame can be silent during acquisition
-                // or after a stream gap. Opening still must produce actual
-                // nonzero PCM within the deadline, not merely an applied ack.
-                if frame.squelch.db == db
-                    && frame.squelch.revision >= min_revision
-                    && (!require_audible || frame.samples.iter().any(|s| s.abs() > 1e-5))
-                {
-                    return frame;
+            match client.try_recv_event() {
+                Some(ServerEvent::Audio(frame)) => {
+                    audio_frames += 1;
+                    let max_amplitude = frame
+                        .samples
+                        .iter()
+                        .fold(0.0_f32, |largest, sample| largest.max(sample.abs()));
+                    last_audio_summary = Some((
+                        frame.channel_id,
+                        frame.squelch.db,
+                        frame.squelch.revision,
+                        frame.samples.len(),
+                        max_amplitude,
+                    ));
+                    if frame.squelch.db == db && frame.squelch.revision >= min_revision {
+                        matching_audio_frames += 1;
+                        last_matching_audio = Some(max_amplitude);
+                        // A correctly revised frame can be silent during acquisition
+                        // or after a stream gap. Opening still must produce actual
+                        // nonzero PCM within the deadline, not merely an applied ack.
+                        if !require_audible || last_matching_audio.unwrap() > 1e-5 {
+                            return frame;
+                        }
+                    }
                 }
+                Some(ServerEvent::Error { message }) => {
+                    panic!("daemon rejected the audio subscription: {message}")
+                }
+                Some(_) => other_events += 1,
+                None => {}
             }
             assert!(
                 Instant::now() < deadline,
-                "no audio at applied squelch {db}"
+                "no audible audio at applied squelch {db}; matching frames={matching_audio_frames}, all audio frames={audio_frames}, last matching max amplitude={last_matching_audio:?}, last audio summary={last_audio_summary:?}, other events={other_events}, connection={:?}",
+                client.status()
             );
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
-    let open = audio_at(&monitor, -100.0, 0, true).await;
+    let open = audio_at(&monitor, -100.0, initial_squelch.revision, true).await;
     assert!(open.samples.iter().any(|s| s.abs() > 1e-5));
+    let app_audio_id = app.shared.lock().unwrap().source.daemon_channel_ids().audio;
+    let open_for_app = ez_proto::AudioFrame {
+        channel_id: app_audio_id,
+        squelch: app
+            .shared
+            .lock()
+            .unwrap()
+            .source
+            .daemon_squelch_applied()
+            .unwrap(),
+        ..open.clone()
+    };
     {
         let mut state = app.shared.lock().unwrap();
         state.spectrum.pending_squelch_db = Some(0.0);
     }
     let ctx = egui::Context::default();
-    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-        app.render_sdr_tab(ui, &None)
-    });
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| app.render_sdr_tab(ui));
     {
         let state = app.shared.lock().unwrap();
         assert_eq!(state.source.daemon_squelch_pending_db(), Some(0.0));
@@ -1829,9 +1917,10 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
             "request must not pretend to be applied"
         );
         assert_eq!(crate::radio_ui::requested_power_squelch(&state), 0.0);
-        assert!(!state.source.accept_daemon_audio(&open));
+        assert!(!state.source.accept_daemon_audio(&open_for_app));
     }
-    let closed = audio_at(&monitor, 0.0, open.squelch.revision + 1, false).await;
+    let closed_squelch = set_monitor_squelch(&monitor, audio_id, 101, 0.0).await;
+    let closed = audio_at(&monitor, 0.0, closed_squelch.revision, false).await;
     assert!(closed.squelch.revision > open.squelch.revision);
     assert!(closed.samples.iter().all(|s| *s == 0.0));
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -1841,8 +1930,13 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
             let state = app.shared.lock().unwrap();
             let ready = state.squelch == 0.0 && state.source.daemon_squelch_pending_db().is_none();
             if ready {
-                assert!(state.source.accept_daemon_audio(&closed));
-                assert!(!state.source.accept_daemon_audio(&open));
+                let closed_for_app = ez_proto::AudioFrame {
+                    channel_id: app_audio_id,
+                    squelch: state.source.daemon_squelch_applied().unwrap(),
+                    ..closed.clone()
+                };
+                assert!(state.source.accept_daemon_audio(&closed_for_app));
+                assert!(!state.source.accept_daemon_audio(&open_for_app));
             }
             ready
         };
@@ -1915,7 +2009,8 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     // The daemon reply is prioritized in the control queue and must be
     // applied before the next timeout check when the GUI resumes.
     tokio::time::sleep(Duration::from_secs(4)).await;
-    let reopened = audio_at(&monitor, -100.0, closed.squelch.revision + 1, true).await;
+    let reopened_squelch = set_monitor_squelch(&monitor, audio_id, 102, -100.0).await;
+    let reopened = audio_at(&monitor, -100.0, reopened_squelch.revision, true).await;
     assert!(reopened.squelch.revision > closed.squelch.revision);
     assert!(reopened.samples.iter().any(|s| s.abs() > 1e-5));
     loop {
@@ -1936,8 +2031,18 @@ async fn daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio() {
     {
         let state = app.shared.lock().unwrap();
         assert_eq!(state.squelch, -100.0);
-        assert!(state.source.accept_daemon_audio(&reopened));
-        assert!(!state.source.accept_daemon_audio(&closed));
+        let reopened_for_app = ez_proto::AudioFrame {
+            channel_id: app_audio_id,
+            squelch: state.source.daemon_squelch_applied().unwrap(),
+            ..reopened.clone()
+        };
+        let closed_for_app = ez_proto::AudioFrame {
+            channel_id: app_audio_id,
+            squelch: closed.squelch,
+            ..closed.clone()
+        };
+        assert!(state.source.accept_daemon_audio(&reopened_for_app));
+        assert!(!state.source.accept_daemon_audio(&closed_for_app));
     }
     {
         let state = app.shared.lock().unwrap();
@@ -2161,9 +2266,7 @@ fn saved_receiver_profile_restores_before_first_render_and_round_trips() {
     );
     assert_eq!(app.shared.lock().unwrap().source.stream_generation(), 0);
     let before = app.shared.lock().unwrap().config.advanced.clone();
-    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-        app.render_sdr_tab(ui, &None)
-    });
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| app.render_sdr_tab(ui));
     assert_imported_receiver_profile(&app);
     assert_eq!(app.shared.lock().unwrap().config.advanced, before);
     wait_for_saved_dsp_profile(&app);
@@ -2258,7 +2361,7 @@ async fn repeated_satellite_passes_honor_gui_web_rigctl_and_scanner_manual_coold
         .unwrap()
         .as_secs_f64();
     for route in ["GUI", "web", "rigctl", "scanner"] {
-        let mut app = offline_test_app();
+        let mut app = tokio::task::block_in_place(offline_test_app);
         app.current_tab = AppTab::Planes;
         let pass = |aos, los| PassInfo {
             satellite: "ISS".into(),
@@ -2436,11 +2539,11 @@ async fn repeated_satellite_passes_honor_gui_web_rigctl_and_scanner_manual_coold
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unrelated_settings_apply_preserves_web_remote_and_rigctl_workers() {
     use futures_util::StreamExt;
 
-    let mut app = offline_test_app();
+    let mut app = tokio::task::block_in_place(offline_test_app);
     let free_port = || {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -3324,7 +3427,7 @@ async fn daemon_recording_epoch_stop_reason_reaches_hidden_app_and_allows_a_new_
     use crate::daemon_client::tests::TestDaemon;
     use crate::source_manager::SourceMode;
     let daemon = TestDaemon::spawn_with_rate("r05-recording", 2_000_000).await;
-    let mut app = offline_test_app();
+    let mut app = tokio::task::block_in_place(offline_test_app);
     app.current_tab = AppTab::Meteor;
     {
         let mut state = app.shared.lock().unwrap();
@@ -3547,7 +3650,7 @@ async fn scan_real_daemon_frames_work_hidden_and_frozen_then_wait_on_stop() {
         (AppTab::Meteor, false),
         (AppTab::Planes, true),
     ] {
-        let mut app = offline_test_app();
+        let mut app = tokio::task::block_in_place(offline_test_app);
         app.current_tab = tab;
         {
             let mut state = app.shared.lock().unwrap();

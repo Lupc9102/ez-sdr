@@ -60,12 +60,32 @@ use `--no-default-features`; to retain only RTL-SDR, add `--features rtlsdr`.
 - Click the spectrum to tune. Frequency changes retune an active local source; changing
   a frequency while stopped does not start reception.
 - **Setup Guide** and **Settings** open as separate floating windows from **Tools**.
-- Bookmarks remain available from the spectrum and frequency-jump workflows. The
+- Bookmarks remain available from the spectrum. Tune with direct frequency entry
+  or by selecting a frequency marker. The
   loopback **Rigctl Server** provides a small Hamlib command subset on localhost
   (default port `4532`): frequency `f/F`; the receiver's supported `m/M` modes and
   passband; `v` returns `VFOA`, while `V` accepts only `VFOA`/`currVFO`; and `l AF`/
   `L AF` read or set normalized audio gain from `0.0` to `1.0`. It does not implement
   full rigctld or a second VFO; `q` closes the client connection.
+
+### Settings and retained integrations
+
+Open **Tools → Settings** to configure MQTT publishing, the loopback Web Remote,
+and the loopback rigctl server. The Web Remote is available at
+`http://localhost:5259` by default and carries the browser's recording and
+scanner controls (`start_scan` / `stop_scan`). The **Satellite** workspace has
+the pass auto-tune switch; the scheduler engine continues to apply pass windows
+and cooldown rules. The reusable `SchedulerPanel` API can expose custom tasks in
+an embedding app, but the desktop does not mount it as a utility window.
+
+Discord notifications run in the background and report delivery results in the
+status strip. Configure them by importing a settings JSON file from **Settings**
+with a `discord` object, for example `{"discord":{"enabled":true,"bot_token":"…","channel_id":"…","ping_user":false}}`.
+The default settings export redacts credentials; opt into a private backup when
+you need to move credentials between installations. The standalone AI and
+Discord panel modules remain available to downstream embedders, but the desktop
+workspaces do not mount those utility panels. Legacy `ai_*` and custom-theme
+fields remain readable in settings files for compatibility.
 
 The desktop supports two simultaneous listening receivers sharing the same capture.
 Enable **Independent B receiver** in the Radio sidebar; its frequency must fit

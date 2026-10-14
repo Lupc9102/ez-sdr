@@ -270,3 +270,63 @@ fn audio_parameter_geometry_is_validated_even_when_raw_selection_is_bypassed() {
     )
     .is_ok());
 }
+
+#[test]
+fn synthetic_daemon_voice_tone_emits_fm_pcm_after_channelization() {
+    use crate::channelizer::Channelizer;
+    use crate::hardware::synthetic::SyntheticSource;
+    use crate::hardware::IqSource;
+    use std::time::Duration;
+
+    const CENTER_HZ: u64 = 100_000_000;
+    const SOURCE_RATE_HZ: u32 = 2_000_000;
+    const CHANNEL_RATE_HZ: u32 = 200_000;
+    const BLOCK_SIZE: usize = 16_384;
+
+    let mut source = SyntheticSource::default();
+    source.set_frequency(CENTER_HZ).unwrap();
+    source.set_sample_rate(SOURCE_RATE_HZ).unwrap();
+    source.start().unwrap();
+
+    let wideband = SampleBus::new();
+    let mut channelizer = Channelizer::new(
+        wideband.subscribe(2, BusOverflowPolicy::DropIncoming),
+        CENTER_HZ,
+        SOURCE_RATE_HZ,
+    );
+    let (_, channel_input) = channelizer
+        .add_channel(CENTER_HZ - 400_000, CHANNEL_RATE_HZ)
+        .unwrap();
+    let mut audio = AudioPipeline::new(
+        channel_input,
+        AudioConfig {
+            channel_id: 71,
+            mode: DemodMode::Fm,
+            audio: None,
+        },
+    );
+    let output = audio.subscribe(2);
+
+    let mut input = vec![Complex32::new(0.0, 0.0); BLOCK_SIZE];
+    for block_index in 0..8 {
+        source.read_iq(&mut input).unwrap();
+        wideband.publish(SampleBlock {
+            product_session: 1,
+            observed_at: None,
+            capture: None,
+            start_sample: block_index * BLOCK_SIZE as u64,
+            sample_rate_hz: SOURCE_RATE_HZ,
+            center_freq_hz: CENTER_HZ,
+            samples: Arc::from(input.clone()),
+        });
+        assert!(channelizer.tick(Duration::ZERO));
+        assert!(audio.tick(Duration::ZERO));
+    }
+
+    let frame = output.try_recv().expect("synthetic FM PCM frame");
+    assert!(
+        frame.samples.iter().any(|sample| sample.abs() > 1e-5),
+        "the synthetic source's -400 kHz modulated FM carrier must produce nonzero PCM"
+    );
+    source.stop();
+}

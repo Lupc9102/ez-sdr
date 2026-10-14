@@ -125,6 +125,11 @@ impl Scheduler {
     }
 }
 
+/// Reusable standalone scheduler UI.
+///
+/// The desktop currently renders pass status and auto-tune control in its
+/// Satellite workspace; embedding applications can mount this panel to expose
+/// the optional custom-task editor.
 pub struct SchedulerPanel {
     pub new_task_label: String,
     pub new_task_freq_mhz: String,

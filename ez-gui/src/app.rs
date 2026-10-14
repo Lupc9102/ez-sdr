@@ -11,6 +11,7 @@ pub struct FreqMemEntry {
 #[cfg(test)]
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
+#[cfg(test)]
 use crate::ai_panel::AiPanel;
 use crate::audio_output::{AudioOutput, AudioOutputSelection};
 use crate::bookmarks::BookmarkDb;
@@ -97,7 +98,6 @@ pub struct CentralApp {
     event_bus: crate::events::EventBus,
     keyboard_handler: crate::keyboard::KeyboardHandler,
     status_bar: crate::status_bar::StatusBar,
-    frequency_history: crate::frequency_history::FrequencyHistory,
     radio_ui: crate::radio_ui::RadioUi,
     satellite_panel: SatellitePanel,
     adsb_panel: AdsBPanel,
@@ -105,6 +105,7 @@ pub struct CentralApp {
     constellation: ConstellationDisplay,
     decoding_panel: DecodingPanel,
     meteor_decoder: DecodingPanel,
+    #[cfg(test)]
     ai_panel: AiPanel,
     quick_start: crate::quick_start::QuickStartWizard,
     web_remote: WebRemote,
@@ -140,12 +141,6 @@ pub struct CentralApp {
     bm_last_observed: Vec<crate::bookmarks::Bookmark>,
     bookmark_path: std::path::PathBuf,
     bm_dirty_since: Option<std::time::Instant>,
-    // Frequency jump dialog
-    show_freq_jump: bool,
-    freq_jump_input: String,
-    freq_jump_matches: Vec<(String, u64)>,
-    // SDR glossary popup
-    show_glossary: bool,
     // First strong signal celebration
     first_strong_signal_seen: bool,
     last_audio_identity: Option<(
@@ -274,10 +269,10 @@ impl CentralApp {
         let events = self.event_bus.drain();
         for event in events {
             match event {
-                crate::events::AppEvent::FrequencyChanged { hz } => {
-                    self.frequency_history.add(hz, None);
+                crate::events::AppEvent::FrequencyChanged { .. } => {
                     // This reports an already-applied change. Replaying it as
-                    // a command would overwrite a newer manual frequency.
+                    // a command would overwrite a newer manual frequency. The
+                    // active history lives in SharedState for keyboard routes.
                 }
                 crate::events::AppEvent::RecordingStateChanged { recording } => {
                     if recording {
@@ -489,7 +484,6 @@ impl CentralApp {
             event_bus: crate::events::EventBus::new(),
             keyboard_handler: crate::keyboard::KeyboardHandler::new(),
             status_bar: crate::status_bar::StatusBar::new(),
-            frequency_history: crate::frequency_history::FrequencyHistory::new(),
             radio_ui: crate::radio_ui::RadioUi::new(shared.clone()),
             satellite_panel,
             adsb_panel,
@@ -497,6 +491,7 @@ impl CentralApp {
             constellation: ConstellationDisplay::new(),
             decoding_panel: DecodingPanel::default(),
             meteor_decoder: DecodingPanel::default(),
+            #[cfg(test)]
             ai_panel: AiPanel::new(shared.clone()),
             quick_start: crate::quick_start::QuickStartWizard::new(),
             web_remote,
@@ -531,10 +526,6 @@ impl CentralApp {
                 state.source.frequency_hz
             },
             freq_history_idx: None,
-            show_freq_jump: false,
-            freq_jump_input: String::new(),
-            freq_jump_matches: Vec::new(),
-            show_glossary: false,
             first_strong_signal_seen: false,
             last_audio_identity: None,
             theme_applied: false,
@@ -1521,6 +1512,7 @@ impl eframe::App for CentralApp {
             self.settings_applied_this_session = true;
         }
 
+        #[cfg(test)]
         self.ai_panel.tick();
         self.tick_runtime_actions();
         self.recorder_panel.tick();
@@ -2279,19 +2271,6 @@ impl eframe::App for CentralApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // Take a snapshot of the shared state once per frame
-        let snapshot = {
-            if let Ok(state) = self.shared.try_lock() {
-                Some(SharedSnapshot {
-                    jobs: state.scheduler.jobs.clone(),
-                    custom_tasks: state.scheduler.custom_tasks.clone(),
-                    auto_tune_enabled: state.scheduler.auto_tune_enabled,
-                })
-            } else {
-                return;
-            }
-        };
-
         // Top mode bar: task modes plus Setup Guide and Settings popups.
         egui::Panel::top("mode_bar")
             .exact_size(30.0)
@@ -2377,216 +2356,10 @@ impl eframe::App for CentralApp {
             .show(ui, |ui| self.render_status_strip(ui));
 
         match self.current_tab {
-            AppTab::Listen => self.render_sdr_tab(ui, &snapshot),
+            AppTab::Listen => self.render_sdr_tab(ui),
             AppTab::Planes => self.render_adsb_tab(ui),
-            AppTab::Satellites => self.render_satellite_tab(ui, &snapshot),
+            AppTab::Satellites => self.render_satellite_tab(ui),
             AppTab::Meteor => self.render_meteor_tab(ui),
-        }
-
-        // Frequency jump dialog (J key)
-        if self.show_freq_jump {
-            let mut close = false;
-            let mut tune_to: Option<u64> = None;
-            egui::Window::new("⤵ Jump to Frequency")
-                .id(egui::Id::new("freq_jump_dialog"))
-                .default_size([380.0, 400.0])
-                .collapsible(false)
-                .resizable(false)
-                .show(ui.ctx(), |ui| {
-                    ui.label("Enter a frequency (MHz) or band name:");
-                    let edit = ui.add(
-                        egui::TextEdit::singleline(&mut self.freq_jump_input)
-                            .desired_width(340.0)
-                            .hint_text("e.g. '145.5', '88.0', 'aviation', 'weather', 'noaa'"),
-                    );
-                    if edit.changed() {
-                        self.freq_jump_matches.clear();
-                        let q = self.freq_jump_input.trim().to_lowercase();
-                        if !q.is_empty() {
-                            // Try numeric parse first
-                            if let Ok(mhz) = q.parse::<f64>() {
-                                self.freq_jump_matches
-                                    .push((format!("{mhz:.3} MHz"), (mhz * 1e6) as u64));
-                            } else {
-                                // Search built-in frequency database
-                                for preset in crate::frequency_db::FrequencyDatabase::search(&q) {
-                                    self.freq_jump_matches.push((
-                                        format!(
-                                            "{} {} ({:.3} MHz)",
-                                            preset.category.icon(),
-                                            preset.name,
-                                            preset.frequency_hz as f64 / 1e6
-                                        ),
-                                        preset.frequency_hz,
-                                    ));
-                                }
-                            }
-                            // Also search bookmarks
-                            if let Ok(state) = self.shared.try_lock() {
-                                for bm in &state.bookmarks.bookmarks {
-                                    if bm.name.to_lowercase().contains(&q)
-                                        || bm.category.to_lowercase().contains(&q)
-                                    {
-                                        self.freq_jump_matches.push((
-                                            format!(
-                                                "⭐ {} ({:.3} MHz)",
-                                                bm.name,
-                                                bm.frequency_hz as f64 / 1e6
-                                            ),
-                                            bm.frequency_hz,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // Focus the text field when dialog opens
-                    if edit.hovered() || self.freq_jump_input.is_empty() {
-                        edit.request_focus();
-                    }
-
-                    // Show matches or suggestions if empty
-                    let has_input = !self.freq_jump_input.trim().is_empty();
-                    let should_show_suggestions = self.freq_jump_matches.is_empty() && !has_input;
-
-                    if !self.freq_jump_matches.is_empty() || should_show_suggestions {
-                        ui.separator();
-                        egui::ScrollArea::vertical()
-                            .max_height(180.0)
-                            .show(ui, |ui| {
-                                // Show search matches if any
-                                for (label, freq) in self.freq_jump_matches.clone() {
-                                    if ui.selectable_label(false, &label).clicked() {
-                                        tune_to = Some(freq);
-                                        close = true;
-                                    }
-                                }
-
-                                // Show suggestions (presets, recent freqs + bookmarks) when input is empty
-                                if should_show_suggestions {
-                                    ui.label(egui::RichText::new("Preset Bands:").italics().small());
-                                    ui.horizontal_wrapped(|ui| {
-                                        for cat in crate::frequency_db::PresetCategory::all() {
-                                            if ui.small_button(format!("{} {}", cat.icon(), cat.label())).clicked() {
-                                                self.freq_jump_matches = crate::frequency_db::FrequencyDatabase::by_category(*cat)
-                                                    .into_iter()
-                                                    .map(|p| (format!("{} {} ({:.3} MHz)", cat.icon(), p.name, p.frequency_hz as f64 / 1e6), p.frequency_hz))
-                                                    .collect();
-                                            }
-                                        }
-                                    });
-
-                                    ui.add_space(4.0);
-                                    ui.label(egui::RichText::new("Recent:").italics().small());
-                                    for entry in self.frequency_history.recent(5) {
-                                        let label = if let Some(ref l) = entry.label {
-                                            format!("  {:.3} MHz ({})", entry.freq_hz as f64 / 1e6, l)
-                                        } else {
-                                            format!("  {:.3} MHz", entry.freq_hz as f64 / 1e6)
-                                        };
-                                        if ui.selectable_label(false, &label).clicked() {
-                                            tune_to = Some(entry.freq_hz);
-                                            close = true;
-                                        }
-                                    }
-
-                                    ui.add_space(4.0);
-                                    ui.label(egui::RichText::new("Bookmarks:").italics().small());
-                                    if let Ok(state) = self.shared.try_lock() {
-                                        let bookmarks_to_show =
-                                            state.bookmarks.bookmarks.iter().take(5);
-                                        for bm in bookmarks_to_show {
-                                            let label = format!(
-                                                "  ⭐ {} ({:.3} MHz)",
-                                                bm.name,
-                                                bm.frequency_hz as f64 / 1e6
-                                            );
-                                            if ui.selectable_label(false, &label).clicked() {
-                                                tune_to = Some(bm.frequency_hz);
-                                                close = true;
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                    }
-
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        // Enter key tunes to first match or numeric entry
-                        if ui.button("Tune").clicked()
-                            || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                        {
-                            if let Some((_, freq)) = self.freq_jump_matches.first() {
-                                tune_to = Some(*freq);
-                            } else if let Ok(mhz) = self.freq_jump_input.trim().parse::<f64>() {
-                                tune_to = Some((mhz * 1e6) as u64);
-                            }
-                            close = true;
-                        }
-                        if ui.button("Cancel").clicked()
-                            || ui.input(|i| i.key_pressed(egui::Key::Escape))
-                        {
-                            close = true;
-                        }
-                    });
-                });
-            if close {
-                self.show_freq_jump = false;
-            }
-            if let Some(freq) = tune_to {
-                if let Ok(mut state) = self.shared.try_lock() {
-                    crate::radio_ui::tune(&mut state, freq);
-
-                    self.status_bar
-                        .info(format!("⤵ {:.3} MHz", freq as f64 / 1e6));
-                }
-            }
-        }
-
-        // SDR Glossary popup
-        if self.show_glossary {
-            let mut open = true;
-            egui::Window::new("SDR Glossary")
-                .id(egui::Id::new("sdr_glossary"))
-                .default_size([480.0, 600.0])
-                .open(&mut open)
-                .show(ui.ctx(), |ui| {
-                    ui.label(egui::RichText::new("Common SDR terms and what they mean:").italics());
-                    ui.add_space(4.0);
-                    egui::Grid::new("glossary_grid").num_columns(2).striped(true).min_col_width(90.0).show(ui, |ui| {
-                        let h = |ui: &mut egui::Ui, term: &str| {
-                            ui.label(egui::RichText::new(term).strong().color(egui::Color32::from_rgb(100, 200, 255)));
-                        };
-                        h(ui, "dBFS"); ui.label("Decibels relative to Full Scale. 0 dBFS = maximum possible signal; −120 dBFS ≈ noise floor. Negative is normal."); ui.end_row();
-                        h(ui, "SNR"); ui.label("Signal-to-Noise Ratio. How much stronger your signal is vs background noise. >20 dB = great, 8–20 dB = weak but readable, <8 dB = noise."); ui.end_row();
-                        h(ui, "MSps"); ui.label("Megasamples per second — the SDR's sample rate. Higher = wider spectrum view. RTL-SDR supports 0.25–3.2 MSps."); ui.end_row();
-                        h(ui, "LPF"); ui.label("Low-Pass Filter. Removes high-frequency audio hiss above a set cutoff (kHz). Lower cutoff = cleaner audio, narrower bandwidth."); ui.end_row();
-                        h(ui, "PPM"); ui.label("Parts Per Million — crystal frequency error correction. If signals appear off-frequency, adjust PPM to shift the whole spectrum. Calibrate using a known signal (e.g. local FM station)."); ui.end_row();
-                        h(ui, "VFO"); ui.label("Variable Frequency Oscillator — your tuned frequency. VFO A is the main frequency; VFO B can receive simultaneously inside the same capture. Enable it in Independent B receiver, or swap frequencies with 'V'."); ui.end_row();
-                        h(ui, "BW"); ui.label("Bandwidth — the frequency range occupied by a signal. WFM stations are ~200 kHz wide; NFM (voice) is ~12.5 kHz; AM ~10 kHz."); ui.end_row();
-                        h(ui, "Squelch"); ui.label("A gate that silences audio when signal strength drops below a threshold. Prevents constant static between transmissions. Set 5 dB above noise floor."); ui.end_row();
-                        h(ui, "LO"); ui.label("Local Oscillator — the hardware frequency the SDR chip tunes to. The actual receive frequency = LO ± baseband offset (shown if different from VFO)."); ui.end_row();
-                        h(ui, "Gain"); ui.label("RF amplification in dB. Higher = more sensitive but increases noise and overload risk. Start at 30–40 dB and adjust for best SNR."); ui.end_row();
-                        h(ui, "IQ / I-Q"); ui.label("In-phase and Quadrature — two channels the SDR captures to preserve both amplitude and phase. Together they describe the complex baseband signal."); ui.end_row();
-                        h(ui, "FFT"); ui.label("Fast Fourier Transform — converts the raw IQ time-domain data into the frequency-domain spectrum display you see."); ui.end_row();
-                        h(ui, "Waterfall"); ui.label("A time-frequency plot: frequencies on the X axis, time scrolling down. Bright spots = signals. Great for spotting intermittent transmissions."); ui.end_row();
-                        h(ui, "WFM"); ui.label("Wideband FM — used for broadcast FM radio stations (~88–108 MHz). Requires ≥200 kHz bandwidth."); ui.end_row();
-                        h(ui, "NFM"); ui.label("Narrowband FM — used for VHF/UHF voice (police, aircraft, amateur). ~12.5 kHz bandwidth."); ui.end_row();
-                        h(ui, "AM"); ui.label("Amplitude Modulation — used for shortwave/HF broadcasts and aircraft voice (108–137 MHz). Envelope of the carrier carries audio."); ui.end_row();
-                        h(ui, "SSB/USB/LSB"); ui.label("Single Sideband — used for amateur radio HF voice. USB = Upper Sideband (>10 MHz), LSB = Lower Sideband (<10 MHz). Very efficient."); ui.end_row();
-                        h(ui, "Bias Tee"); ui.label("Passes DC voltage (4.5V) through the antenna port to power an external LNA (low-noise amplifier). Only on compatible hardware (RTL-SDR Blog V3+)."); ui.end_row();
-                        h(ui, "ADS-B"); ui.label("Automatic Dependent Surveillance-Broadcast — 1090 MHz signals from aircraft reporting position, altitude, speed. Received by the ADS-B tab."); ui.end_row();
-                        h(ui, "S-meter"); ui.label("Signal strength meter using the IARU S-unit scale: S1 ≈ −121 dBm, each S-unit = 6 dB. S9 ≈ −73 dBm. 'S9+20dB' means 20 dB above S9."); ui.end_row();
-                    });
-                    ui.add_space(4.0);
-                    if ui.button("Close").clicked() {
-                        self.show_glossary = false;
-                    }
-                });
-            if !open {
-                self.show_glossary = false;
-            }
         }
 
         // Passive ADS-B alert toasts — drawn over any tab.
@@ -2608,6 +2381,8 @@ impl eframe::App for CentralApp {
     }
 }
 
+/// Snapshot consumed by the public standalone [`crate::scheduler::SchedulerPanel`]
+/// component. The desktop workspace renders pass status in the Satellite tab.
 pub struct SharedSnapshot {
     pub jobs: Vec<crate::scheduler::ScheduledJob>,
     pub custom_tasks: Vec<crate::scheduler::CustomTask>,
@@ -2738,8 +2513,7 @@ impl CentralApp {
         });
     }
 
-    fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
-        let _ = snapshot;
+    fn render_sdr_tab(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("radio_transport")
             .exact_size(crate::radio_ui::TOOLBAR_HEIGHT)
             .show(ui, |ui| self.radio_ui.toolbar(ui));
@@ -2986,8 +2760,7 @@ impl CentralApp {
         });
     }
 
-    fn render_satellite_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {
-        let _ = snapshot;
+    fn render_satellite_tab(&mut self, ui: &mut egui::Ui) {
         crate::satellite_tab::render_satellite_tab(
             ui,
             &self.shared,
