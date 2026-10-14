@@ -1100,7 +1100,7 @@ impl AppConfig {
 
             ui.collapsing("Web Remote", |ui| {
                 ui.checkbox(&mut self.web_remote_enabled, "Enable web remote")
-                    .on_hover_text("Starts a local HTTP server so you can control the SDR from a browser on your LAN.");
+                    .on_hover_text("Starts a local HTTP server on this computer only (127.0.0.1). It is not available to other devices on your LAN.");
                 ui.add(egui::Slider::new(&mut self.web_remote_port, 1024..=65535).text("Port"))
                     .on_hover_text("TCP port for the web remote. Default 5259. Open http://localhost:5259 in a browser.");
             });

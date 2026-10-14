@@ -22,6 +22,8 @@ pub fn render_setup_guide(
 pub fn render_settings(
     shared: &Arc<Mutex<SharedState>>,
     mqtt: &crate::mqtt::MqttPublisher,
+    web_remote: &crate::web_remote::ListenerSnapshot,
+    rigctl: &crate::web_remote::ListenerSnapshot,
     editor: &mut crate::config::SettingsEditor,
     config_path: &std::path::Path,
     ui: &mut egui::Ui,
@@ -34,6 +36,24 @@ pub fn render_settings(
     egui::ScrollArea::vertical()
         .id_salt("settings_popup_scroll")
         .show(ui, |ui| {
+            let error_color = ui.visuals().error_fg_color;
+            let normal_color = ui.visuals().text_color();
+            let status_color = |status: &crate::web_remote::ListenerSnapshot| {
+                if matches!(status.state, crate::web_remote::ListenerState::Failed(_)) {
+                    error_color
+                } else {
+                    normal_color
+                }
+            };
+            ui.horizontal(|ui| {
+                ui.label("Web Remote actual status:");
+                ui.colored_label(status_color(web_remote), web_remote.state.to_string());
+            });
+            ui.horizontal(|ui| {
+                ui.label("rigctl actual status:");
+                ui.colored_label(status_color(rigctl), rigctl.state.to_string());
+            });
+            ui.separator();
             let stats = mqtt.stats();
             ui.label(format!(
                 "MQTT: {}",

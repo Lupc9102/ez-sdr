@@ -157,6 +157,8 @@ pub struct CentralApp {
         crate::source_manager::SourceMode,
         u64,
     )>,
+    last_web_remote_status: Option<crate::web_remote::ListenerSnapshot>,
+    last_rigctl_status: Option<crate::web_remote::ListenerSnapshot>,
     theme_applied: bool,
     discord: DiscordNotifier,
     last_recording: bool,
@@ -347,23 +349,22 @@ impl CentralApp {
         let mut rigctl = RigctlServer::new();
         let mut mqtt = MqttPublisher::new();
         let mut discord = DiscordNotifier::new();
-        {
-            let state = shared.lock().expect("shared state mutex poisoned");
-            if state.config.web_remote_enabled {
-                web_remote.set_enabled(true, state.config.web_remote_port);
-            }
-            if state.config.rigctl_enabled {
-                rigctl.set_enabled(true, state.config.rigctl_port);
-            }
-            if !state.config.mqtt_broker.is_empty() {
-                mqtt.set_enabled(
-                    true,
-                    state.config.mqtt_broker.clone(),
-                    state.config.mqtt_topic_prefix.clone(),
-                );
-            }
-            discord.apply_settings(&state.config.discord);
-        }
+        let service_config = shared
+            .lock()
+            .expect("shared state mutex poisoned")
+            .config
+            .clone();
+        web_remote.set_enabled(
+            service_config.web_remote_enabled,
+            service_config.web_remote_port,
+        );
+        rigctl.set_enabled(service_config.rigctl_enabled, service_config.rigctl_port);
+        mqtt.set_enabled(
+            !service_config.mqtt_broker.is_empty(),
+            service_config.mqtt_broker.clone(),
+            service_config.mqtt_topic_prefix.clone(),
+        );
+        discord.apply_settings(&service_config.discord);
 
         // Restore controls without opening hardware or playing demo audio on launch.
         {
@@ -512,6 +513,8 @@ impl CentralApp {
             pending_settings_apply: None,
             settings_applied_this_session: false,
             config_path: "ez_sdr_config.json".into(),
+            last_web_remote_status: None,
+            last_rigctl_status: None,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
         };
         // Apply saved advanced settings onto the live engines so a fresh launch
@@ -1384,37 +1387,37 @@ impl eframe::App for CentralApp {
             return;
         }
         // Apply config changes triggered from the Settings popup.
-        let mut applied_settings = false;
-        if let Ok(mut state) = self.shared.try_lock() {
+        let applied_config = if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {
                 state.config.normalize();
                 state.config.needs_apply = false;
-                // Apply runtime appearance, DSP and integrations. Source defaults
-                // are startup preferences; live tuning stays in receiver controls.
+                // Apply runtime appearance and DSP while the live configuration
+                // is locked. Integration changes are cloned and applied below,
+                // after releasing SharedState.
                 crate::advanced_panel::push_advanced(&mut self.demod_worker, &mut state);
-                // Apply theme
                 state.config.theme_config.apply_to_ctx(ctx);
-                // Apply font scale
                 let scale = state.config.font_scale as f32;
                 ctx.set_pixels_per_point(scale);
                 let observer = (state.config.observer_lat, state.config.observer_lon);
                 state.tle.set_observer(observer.0, observer.1);
-                self.web_remote.set_enabled(
-                    state.config.web_remote_enabled,
-                    state.config.web_remote_port,
-                );
-                self.rigctl
-                    .set_enabled(state.config.rigctl_enabled, state.config.rigctl_port);
-                self.mqtt.set_enabled(
-                    !state.config.mqtt_broker.is_empty(),
-                    state.config.mqtt_broker.clone(),
-                    state.config.mqtt_topic_prefix.clone(),
-                );
-                self.discord.apply_settings(&state.config.discord);
-                applied_settings = true;
+                Some(state.config.clone())
+            } else {
+                None
             }
-        }
-        if applied_settings {
+        } else {
+            None
+        };
+        if let Some(config) = applied_config {
+            self.web_remote
+                .set_enabled(config.web_remote_enabled, config.web_remote_port);
+            self.rigctl
+                .set_enabled(config.rigctl_enabled, config.rigctl_port);
+            self.mqtt.set_enabled(
+                !config.mqtt_broker.is_empty(),
+                config.mqtt_broker,
+                config.mqtt_topic_prefix,
+            );
+            self.discord.apply_settings(&config.discord);
             self.settings_applied_this_session = true;
         }
 
@@ -1458,6 +1461,7 @@ impl eframe::App for CentralApp {
         // every other mode) so the frame below renders on the freshest daemon state.
         self.sync_adsb_capture();
         self.drain_daemon_events();
+        self.observe_listener_statuses();
 
         // Process pending events from panels and event bus
         self.handle_events();
@@ -2219,6 +2223,8 @@ impl eframe::App for CentralApp {
         if self.show_settings {
             let mut open = self.show_settings;
             let mut pending_apply = None;
+            let web_remote_status = self.web_remote.status_snapshot();
+            let rigctl_status = self.rigctl.status_snapshot();
             let editor = &mut self.settings_editor;
             let shared = &self.shared;
             let mqtt = &self.mqtt;
@@ -2234,6 +2240,8 @@ impl eframe::App for CentralApp {
                     pending_apply = crate::secondary_panel::render_settings(
                         shared,
                         mqtt,
+                        &web_remote_status,
+                        &rigctl_status,
                         editor,
                         config_path,
                         ui,
@@ -2496,6 +2504,26 @@ pub struct SharedSnapshot {
 // ── Main tab render methods ───────────────────────────────────────────────────
 
 impl CentralApp {
+    fn observe_listener_statuses(&mut self) {
+        let web = self.web_remote.status_snapshot();
+        if self.last_web_remote_status.as_ref() != Some(&web) {
+            if let crate::web_remote::ListenerState::Failed(error) = &web.state {
+                self.status_bar
+                    .error(format!("Web Remote listener failed: {error}"));
+            }
+            self.last_web_remote_status = Some(web);
+        }
+
+        let rigctl = self.rigctl.status_snapshot();
+        if self.last_rigctl_status.as_ref() != Some(&rigctl) {
+            if let crate::web_remote::ListenerState::Failed(error) = &rigctl.state {
+                self.status_bar
+                    .error(format!("rigctl listener failed: {error}"));
+            }
+            self.last_rigctl_status = Some(rigctl);
+        }
+    }
+
     fn start_main_audio(&mut self, selection: &AudioOutputSelection, input_channels: usize) {
         if self.audio.has_failed() {
             return;

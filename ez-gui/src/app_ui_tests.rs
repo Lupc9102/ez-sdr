@@ -2304,6 +2304,171 @@ async fn repeated_satellite_passes_honor_gui_web_rigctl_and_scanner_manual_coold
     }
 }
 
+#[tokio::test]
+async fn unrelated_settings_apply_preserves_web_remote_and_rigctl_workers() {
+    use futures_util::StreamExt;
+
+    let mut app = offline_test_app();
+    let free_port = || {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port
+    };
+    let web_port = free_port();
+    let rigctl_port = free_port();
+    app.web_remote.set_enabled(true, web_port);
+    app.rigctl.set_enabled(true, rigctl_port);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let web = app.web_remote.status_snapshot();
+        let rigctl = app.rigctl.status_snapshot();
+        if matches!(web.state, crate::web_remote::ListenerState::Listening(_))
+            && matches!(rigctl.state, crate::web_remote::ListenerState::Listening(_))
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "integration listeners did not start: {web:?}, {rigctl:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{web_port}/ws"))
+        .await
+        .expect("connect WebSocket before config apply");
+    let socket_deadline = Instant::now() + Duration::from_secs(1);
+    while app
+        .web_remote
+        .tx
+        .as_ref()
+        .is_none_or(|tx| tx.receiver_count() == 0)
+        && Instant::now() < socket_deadline
+    {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(app
+        .web_remote
+        .tx
+        .as_ref()
+        .is_some_and(|tx| tx.receiver_count() > 0));
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.config.web_remote_enabled = true;
+        state.config.web_remote_port = web_port;
+        state.config.rigctl_enabled = true;
+        state.config.rigctl_port = rigctl_port;
+        state.config.needs_apply = true;
+    }
+    let web_generation = app.web_remote.status_snapshot().generation;
+    let rigctl_generation = app.rigctl.status_snapshot().generation;
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    render_app_logic(&mut app, &ctx, &mut frame);
+    assert_eq!(app.web_remote.status_snapshot().generation, web_generation);
+    assert_eq!(app.rigctl.status_snapshot().generation, rigctl_generation);
+
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.config.observer_lat = 47.5;
+        state.config.observer_lon = 19.0;
+        state.config.ppm_correction = 37;
+        state.config.font_scale = 1.1;
+        state.config.needs_apply = true;
+    }
+    render_app_logic(&mut app, &ctx, &mut frame);
+    assert_eq!(app.web_remote.status_snapshot().generation, web_generation);
+    assert_eq!(app.rigctl.status_snapshot().generation, rigctl_generation);
+
+    {
+        let state = app.shared.lock().unwrap();
+        app.web_remote
+            .broadcast_state(&crate::web_remote::StreamState::from_receiver(
+                &state,
+                0,
+                &[],
+                false,
+                0.0,
+            ));
+    }
+    let message = tokio::time::timeout(Duration::from_secs(1), socket.next())
+        .await
+        .expect("existing WebSocket should receive state after apply")
+        .expect("WebSocket should remain open")
+        .expect("read state frame");
+    assert!(message.into_text().unwrap().contains("frequency_hz"));
+
+    socket.close(None).await.unwrap();
+    app.web_remote.stop();
+    app.rigctl.stop();
+}
+
+#[test]
+fn occupied_web_remote_port_is_visible_in_settings_and_status_surface() {
+    let blocker = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = blocker.local_addr().unwrap().port();
+    let ctx = egui::Context::default();
+    let mut app = offline_test_app();
+    let mut frame = eframe::Frame::_new_kittest();
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.config.web_remote_enabled = true;
+        state.config.web_remote_port = port;
+        state.config.needs_apply = true;
+    }
+    render_app_logic(&mut app, &ctx, &mut frame);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let snapshot = app.web_remote.status_snapshot();
+        if matches!(snapshot.state, crate::web_remote::ListenerState::Failed(_)) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "listener did not report bind failure: {snapshot:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    render_app_logic(&mut app, &ctx, &mut frame);
+    let message = app
+        .status_bar
+        .current()
+        .expect("failure should reach status surface");
+    assert!(message.text.contains("Web Remote listener failed"));
+    assert!(message.text.contains(&port.to_string()));
+
+    let web_status = app.web_remote.status_snapshot();
+    let rigctl_status = app.rigctl.status_snapshot();
+    let mut editor = crate::config::SettingsEditor::default();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(900.0, 1000.0),
+        )),
+        ..Default::default()
+    };
+    let output = ctx.run_ui(input, |ui| {
+        app.status_bar.render_strip(ui, &app.shared);
+        crate::secondary_panel::render_settings(
+            &app.shared,
+            &app.mqtt,
+            &web_status,
+            &rigctl_status,
+            &mut editor,
+            std::path::Path::new("unused-test-config.json"),
+            ui,
+        );
+    });
+    let text = rendered_text(&output);
+    assert!(text.contains("Web Remote actual status"), "{text}");
+    assert!(text.contains("Failed"), "{text}");
+    assert!(text.contains(&port.to_string()), "{text}");
+    assert!(text.contains("Web Remote listener failed"), "{text}");
+}
+
 #[test]
 fn scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state() {
     use ez_proto::{HardwareStatus, ServerEvent};
