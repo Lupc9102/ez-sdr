@@ -260,12 +260,16 @@ git rev-parse HEAD > "$package_dir/SOURCE-COMMIT.txt"
   echo "The matching MSYS2 source snapshots for RTL-SDR, libusb, GCC runtime, and winpthreads are in SOURCE/."
 } > "$package_dir/NATIVE-LIBRARIES.txt"
 
+# Inno Setup recursively copies the package directory, so create the internal
+# manifest before compiling the installer. The portable ZIP uses this same
+# directory and therefore carries the identical manifest.
+(cd "$package_dir" && sha256sum bin/* SOURCE/* SOURCE-CODE.tar.gz SOURCE-COMMIT.txt DISTRIBUTION.md LICENSE.md NATIVE-LIBRARIES.txt LICENSES/* > SHA256SUMS)
+
 cp scripts/ez-sdr-installer.iss "$stage/installer.iss"
 "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
   "/DAppVersion=${version#v}" "/DSourceDir=$(cygpath -w "$package_dir")" "/DOutputDir=$(cygpath -w "$out_dir")" \
   "$stage/installer.iss"
 
-(cd "$package_dir" && sha256sum bin/* SOURCE/* SOURCE-CODE.tar.gz SOURCE-COMMIT.txt DISTRIBUTION.md LICENSE.md NATIVE-LIBRARIES.txt LICENSES/* > SHA256SUMS)
 (cd "$stage" && 7z a -tzip "$out_dir/$name.zip" "$name") >/dev/null
 (cd "$out_dir" && sha256sum "$name.zip" "$name-setup.exe" > "$name.sha256")
 echo "$out_dir/$name.zip"

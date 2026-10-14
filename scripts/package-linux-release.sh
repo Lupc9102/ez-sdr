@@ -82,4 +82,6 @@ git rev-parse HEAD > "$package_dir/SOURCE-COMMIT.txt"
 
 (cd "$package_dir" && sha256sum bin/* SOURCE-CODE.tar.gz SOURCE-COMMIT.txt DISTRIBUTION.md LICENSE.md NATIVE-LIBRARIES.txt LICENSES/* > SHA256SUMS)
 tar -czf "$out_dir/$name.tar.gz" -C "$stage" "$name"
+(cd "$out_dir" && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
 echo "$out_dir/$name.tar.gz"
+echo "$out_dir/$name.tar.gz.sha256"

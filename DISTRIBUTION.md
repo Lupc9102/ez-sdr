@@ -2,10 +2,21 @@
 
 Release artifacts are built from a clean version tag. Each archive or installer
 includes the matching application source commit, vendored Cargo dependencies,
-license notices, native dependency source where applicable, and SHA-256 sums.
-Verify an unpacked package with `sha256sum -c SHA256SUMS` on Linux, Git Bash,
-or another system with GNU coreutils, or with `shasum -a 256 -c SHA256SUMS` on
-macOS. The standalone `.sha256` file verifies the downloaded container.
+license notices, native dependency source where applicable, and an internal
+`SHA256SUMS` manifest. Extract the Linux archive or portable ZIP, or mount the
+macOS DMG, then change into the package directory (or mounted volume root)
+containing `SHA256SUMS`. Run `sha256sum -c SHA256SUMS` on Linux/Git Bash or
+`shasum -a 256 -c SHA256SUMS` on macOS. The Windows installer copies the same
+package directory, including that manifest, into its installation directory.
+
+The Linux download checksum is named
+`ez-sdr-<version>-linux-x86_64.tar.gz.sha256`; the Windows checksum file
+`ez-sdr-<version>-windows-x86_64.sha256` covers both the portable ZIP and setup
+EXE; the macOS checksum is `ez-sdr-<version>-macos-x86_64.dmg.sha256`. Keep the
+matching `.sha256` file beside the downloaded container and verify it from that
+directory with `sha256sum -c <filename>.sha256` (Linux/Windows GNU coreutils) or
+`shasum -a 256 -c <filename>.sha256` (macOS). The checksum file records the
+container's filename, so run the command from the directory containing both.
 
 ## Linux x86_64
 

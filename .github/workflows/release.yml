@@ -25,7 +25,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ez-sdr-${{ github.ref_name }}-linux-x86_64
-          path: dist/ez-sdr-${{ github.ref_name }}-linux-x86_64.tar.gz
+          path: |
+            dist/ez-sdr-${{ github.ref_name }}-linux-x86_64.tar.gz
+            dist/ez-sdr-${{ github.ref_name }}-linux-x86_64.tar.gz.sha256
           if-no-files-found: error
 
   windows:
