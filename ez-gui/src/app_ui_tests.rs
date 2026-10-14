@@ -190,6 +190,54 @@ fn offline_test_app() -> CentralApp {
     CentralApp::new_with_config(&cc, config)
 }
 
+fn render_app_ui(
+    app: &mut CentralApp,
+    ctx: &egui::Context,
+    frame: &mut eframe::Frame,
+) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 1000.0),
+        )),
+        ..Default::default()
+    };
+    ctx.run_ui(input, |ui| app.ui(ui, frame))
+}
+
+fn render_app_logic(app: &mut CentralApp, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    let _ = ctx.run_ui(egui::RawInput::default(), |_| app.logic(ctx, frame));
+}
+
+fn set_settings_source_section_open(ctx: &egui::Context, open: bool) {
+    let header_id = ctx
+        .data(|data| {
+            data.get_temp::<egui::Id>(egui::Id::new(crate::config::SETTINGS_SOURCE_HEADER_TEST_ID))
+        })
+        .expect("Settings should have rendered the Source header");
+    let mut state = egui::containers::collapsing_header::CollapsingState::load_with_default_open(
+        ctx, header_id, false,
+    );
+    state.set_open(open);
+    state.store(ctx);
+}
+
+fn rendered_text(output: &egui::FullOutput) -> String {
+    fn append(shape: &egui::Shape, text: &mut String) {
+        match shape {
+            egui::Shape::Text(shape) => text.push_str(shape.galley.text()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| append(shape, text)),
+            _ => {}
+        }
+    }
+    let mut text = String::new();
+    output
+        .shapes
+        .iter()
+        .for_each(|shape| append(&shape.shape, &mut text));
+    text
+}
+
 #[test]
 fn window_close_keeps_repainting_until_recording_finalization_finishes() {
     let mut app = offline_test_app();
@@ -735,6 +783,301 @@ fn save_and_apply_preserves_live_capture_when_defaults_and_unrelated_settings_ch
         assert!(!state.config.needs_apply);
     }
     assert_eq!(ctx.pixels_per_point(), 1.25);
+}
+
+#[test]
+fn settings_popup_draft_keeps_ppm_with_source_section_open_or_closed() {
+    let mut app = offline_test_app();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.current_tab = AppTab::Listen;
+    app.show_settings = true;
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.source_mode = crate::source_manager::SourceMode::Hardware;
+        state.source.ppm_correction = 3;
+        state.config.ppm_correction = 3;
+    }
+
+    render_app_ui(&mut app, &ctx, &mut frame);
+    set_settings_source_section_open(&ctx, true);
+    assert!(
+        egui::containers::collapsing_header::CollapsingState::load_with_default_open(
+            &ctx,
+            ctx.data(|data| {
+                data.get_temp::<egui::Id>(egui::Id::new(
+                    crate::config::SETTINGS_SOURCE_HEADER_TEST_ID,
+                ))
+                .unwrap()
+            }),
+            false
+        )
+        .is_open()
+    );
+    app.settings_editor.draft_mut().unwrap().ppm_correction = 37;
+    render_app_ui(&mut app, &ctx, &mut frame);
+    {
+        let state = app.shared.lock().unwrap();
+        assert_eq!(state.source.ppm_correction, 3);
+        assert_eq!(state.config.ppm_correction, 3);
+    }
+    assert_eq!(app.settings_editor.draft().unwrap().ppm_correction, 37);
+
+    set_settings_source_section_open(&ctx, false);
+    render_app_ui(&mut app, &ctx, &mut frame);
+    assert_eq!(app.settings_editor.draft().unwrap().ppm_correction, 37);
+    assert_eq!(app.shared.lock().unwrap().config.ppm_correction, 3);
+
+    app.current_tab = AppTab::Planes;
+    render_app_ui(&mut app, &ctx, &mut frame);
+    assert_eq!(app.settings_editor.draft().unwrap().ppm_correction, 37);
+    assert_eq!(app.shared.lock().unwrap().config.ppm_correction, 3);
+    app.current_tab = AppTab::Listen;
+
+    app.settings_editor.draft_mut().unwrap().needs_apply = true;
+    render_app_ui(&mut app, &ctx, &mut frame);
+    assert_eq!(
+        app.pending_settings_apply.as_ref().unwrap().ppm_correction,
+        37
+    );
+    let before = {
+        let state = app.shared.lock().unwrap();
+        (
+            state.source.frequency_hz,
+            state.source.sample_rate_hz,
+            state.source.gain_db,
+        )
+    };
+    render_app_logic(&mut app, &ctx, &mut frame);
+    let state = app.shared.lock().unwrap();
+    assert_eq!(state.source.ppm_correction, 37);
+    assert_eq!(
+        (
+            state.source.frequency_hz,
+            state.source.sample_rate_hz,
+            state.source.gain_db,
+        ),
+        before,
+        "applying calibration must not apply startup frequency, rate, or gain"
+    );
+}
+
+#[test]
+fn settings_import_snapshot_reaches_spectrum_before_radio_persists_it() {
+    let mut app = offline_test_app();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.current_tab = AppTab::Listen;
+    app.show_settings = true;
+    render_app_ui(&mut app, &ctx, &mut frame);
+
+    let imported = imported_receiver_profile();
+    app.settings_editor
+        .inject_import_result(&ctx, Ok(Some(imported.clone())));
+    render_app_ui(&mut app, &ctx, &mut frame);
+    assert_eq!(
+        app.pending_settings_apply
+            .as_ref()
+            .unwrap()
+            .advanced
+            .fft_size,
+        8192
+    );
+    assert_ne!(
+        app.shared.lock().unwrap().config.advanced.fft_size,
+        8192,
+        "import must stay queued until the logic boundary"
+    );
+
+    render_app_logic(&mut app, &ctx, &mut frame);
+    assert_imported_receiver_profile(&app);
+    render_app_ui(&mut app, &ctx, &mut frame);
+    let state = app.shared.lock().unwrap();
+    assert_eq!(state.config.advanced.fft_size, imported.advanced.fft_size);
+    assert_eq!(state.config.advanced.window, imported.advanced.window);
+    assert_eq!(state.config.advanced.fft_rate, imported.advanced.fft_rate);
+    assert_eq!(state.config.advanced.wf_depth, imported.advanced.wf_depth);
+    assert_eq!(state.config.advanced.wf_speed, imported.advanced.wf_speed);
+    assert_eq!(state.config.advanced.grid, imported.advanced.grid);
+    assert_eq!(state.config.color_map, imported.color_map);
+    assert_eq!(state.config.spectrum_min_db, imported.advanced.db_min);
+    assert_eq!(state.config.spectrum_max_db, imported.advanced.db_max);
+    assert_eq!(state.config.wf_min_db, imported.wf_min_db);
+    assert_eq!(state.config.wf_max_db, imported.wf_max_db);
+}
+
+#[test]
+fn settings_reset_replaces_a_nondefault_live_spectrum() {
+    let mut app = offline_test_app();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.current_tab = AppTab::Listen;
+    app.shared.lock().unwrap().config = imported_receiver_profile();
+    app.apply_advanced();
+    assert_eq!(
+        app.shared
+            .lock()
+            .unwrap()
+            .spectrum
+            .display_settings()
+            .fft_size,
+        8192
+    );
+    app.show_settings = true;
+    render_app_ui(&mut app, &ctx, &mut frame);
+
+    app.settings_editor.draft_mut().unwrap().reset_to_defaults();
+    render_app_ui(&mut app, &ctx, &mut frame);
+    assert!(app.pending_settings_apply.is_some());
+    render_app_logic(&mut app, &ctx, &mut frame);
+    render_app_ui(&mut app, &ctx, &mut frame);
+
+    let defaults = AppConfig::default();
+    let state = app.shared.lock().unwrap();
+    let display = state.spectrum.display_settings();
+    assert_eq!(display.fft_size, defaults.advanced.fft_size);
+    assert_eq!(display.fft_rate, defaults.advanced.fft_rate);
+    assert_eq!(
+        display.window,
+        crate::advanced_panel::window_from_str(&defaults.advanced.window)
+    );
+    assert_eq!(display.waterfall_history, defaults.advanced.wf_depth);
+    assert_eq!(display.waterfall_every_n, defaults.advanced.wf_speed);
+    assert_eq!(display.grid, defaults.advanced.grid);
+    assert_eq!(
+        display.color_map,
+        crate::advanced_panel::color_from_str(&defaults.color_map)
+    );
+    assert_eq!(
+        (display.db_min, display.db_max),
+        (defaults.advanced.db_min, defaults.advanced.db_max)
+    );
+    assert_eq!(
+        (display.wf_min_db, display.wf_max_db),
+        (defaults.wf_min_db, defaults.wf_max_db)
+    );
+    assert_eq!(state.config.advanced.fft_size, defaults.advanced.fft_size);
+    drop(state);
+    app.mqtt.disconnect();
+}
+
+#[test]
+fn settings_close_discards_draft_and_late_import_from_old_session() {
+    let mut app = offline_test_app();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    app.show_settings = true;
+    render_app_ui(&mut app, &ctx, &mut frame);
+    let old_session = app.settings_editor.session_id();
+    let effective_prefix = app.shared.lock().unwrap().config.mqtt_topic_prefix.clone();
+    app.settings_editor.draft_mut().unwrap().mqtt_topic_prefix = "unapplied draft".into();
+    app.settings_editor
+        .inject_import_result(&ctx, Ok(Some(imported_receiver_profile())));
+
+    app.show_settings = false;
+    render_app_ui(&mut app, &ctx, &mut frame);
+    assert!(app.settings_editor.draft().is_none());
+    app.show_settings = true;
+    render_app_ui(&mut app, &ctx, &mut frame);
+    let new_session = app.settings_editor.session_id();
+    assert_ne!(new_session, old_session);
+    assert_eq!(
+        app.settings_editor.draft().unwrap().mqtt_topic_prefix,
+        effective_prefix
+    );
+
+    let mut stale = imported_receiver_profile();
+    stale.mqtt_topic_prefix = "stale import".into();
+    app.settings_editor
+        .inject_import_result_for_session(&ctx, old_session, Ok(Some(stale)));
+    render_app_ui(&mut app, &ctx, &mut frame);
+    assert!(app.pending_settings_apply.is_none());
+    assert_eq!(
+        app.settings_editor.draft().unwrap().mqtt_topic_prefix,
+        effective_prefix
+    );
+}
+
+#[test]
+fn settings_save_failure_is_visible_retry_succeeds_and_queued_save_survives_close() {
+    let mut app = offline_test_app();
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    let directory = std::env::temp_dir().join(format!(
+        "ez-settings-editor-{}-{}",
+        std::process::id(),
+        ez_proto::new_capture_epoch()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("settings.json");
+    std::fs::create_dir_all(&path).unwrap();
+    app.config_path = path.clone();
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.source.sample_rate_hz = 2_400_000;
+        state.source.ppm_correction = 3;
+        state.config.default_sample_rate = 2_400_000;
+        state.config.ppm_correction = 3;
+    }
+    app.show_settings = true;
+    render_app_ui(&mut app, &ctx, &mut frame);
+    app.settings_editor.draft_mut().unwrap().default_sample_rate = 1_024_000;
+    assert!(!app
+        .settings_editor
+        .draft_mut()
+        .unwrap()
+        .save_and_apply(&path));
+    let failed_output = render_app_ui(&mut app, &ctx, &mut frame);
+    assert!(rendered_text(&failed_output).contains("Could not save settings"));
+    render_app_logic(&mut app, &ctx, &mut frame);
+    assert_eq!(
+        app.shared.lock().unwrap().config.default_sample_rate,
+        1_024_000
+    );
+
+    std::fs::remove_dir(&path).unwrap();
+    {
+        let draft = app.settings_editor.draft_mut().unwrap();
+        draft.default_sample_rate = 1_536_000;
+        draft.ppm_correction = 37;
+        draft.color_map = "Inferno".into();
+        draft.advanced.fft_size = 8192;
+        draft.advanced.window = "Blackman".into();
+    }
+    assert!(app
+        .settings_editor
+        .draft_mut()
+        .unwrap()
+        .save_and_apply(&path));
+    assert!(app.settings_editor.draft().unwrap().save_error.is_none());
+    render_app_ui(&mut app, &ctx, &mut frame);
+    let mut close_input = egui::RawInput::default();
+    close_input
+        .viewports
+        .get_mut(&egui::ViewportId::ROOT)
+        .unwrap()
+        .events
+        .push(egui::ViewportEvent::Close);
+    ctx.begin_pass(close_input);
+    app.logic(&ctx, &mut frame);
+    let _ = ctx.end_pass();
+    assert!(app.pending_settings_apply.is_none());
+    assert!(app.shared.lock().unwrap().config.needs_apply);
+    let saved_snapshot = app.exit_config_snapshot().unwrap();
+    saved_snapshot.save_to(&path).unwrap();
+    let reloaded: AppConfig = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(reloaded.default_sample_rate, 1_536_000);
+    assert_eq!(reloaded.ppm_correction, 37);
+    assert_eq!(reloaded.color_map, "Inferno");
+    assert_eq!(reloaded.advanced.fft_size, 8192);
+    assert_eq!(reloaded.advanced.window, "Blackman");
+    assert_eq!(app.shared.lock().unwrap().source.sample_rate_hz, 2_400_000);
+    assert_eq!(app.shared.lock().unwrap().source.ppm_correction, 3);
+    assert_eq!(
+        app.shared.lock().unwrap().config.default_sample_rate,
+        1_536_000
+    );
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]

@@ -22,8 +22,15 @@ pub fn render_setup_guide(
 pub fn render_settings(
     shared: &Arc<Mutex<SharedState>>,
     mqtt: &crate::mqtt::MqttPublisher,
+    editor: &mut crate::config::SettingsEditor,
+    config_path: &std::path::Path,
     ui: &mut egui::Ui,
-) {
+) -> Option<crate::config::AppConfig> {
+    if editor.draft().is_none() {
+        if let Ok(state) = shared.try_lock() {
+            editor.ensure_draft(&state.config);
+        }
+    }
     egui::ScrollArea::vertical()
         .id_salt("settings_popup_scroll")
         .show(ui, |ui| {
@@ -52,8 +59,15 @@ pub fn render_settings(
                 ui.label(egui::RichText::new(error).color(egui::Color32::LIGHT_RED));
             }
             ui.separator();
-            if let Ok(mut state) = shared.try_lock() {
-                state.config.ui(ui);
+            let session_id = editor.session_id();
+            let mut apply = None;
+            if let Some(draft) = editor.draft_mut() {
+                if draft.ui(ui, session_id, config_path) {
+                    draft.normalize();
+                    apply = Some(draft.clone());
+                }
             }
-        });
+            apply
+        })
+        .inner
 }

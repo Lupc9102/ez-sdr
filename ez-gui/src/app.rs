@@ -169,6 +169,10 @@ pub struct CentralApp {
     last_traffic_bucket: usize,
     show_setup_guide: bool,
     show_settings: bool,
+    settings_editor: crate::config::SettingsEditor,
+    pending_settings_apply: Option<AppConfig>,
+    settings_applied_this_session: bool,
+    config_path: std::path::PathBuf,
     satellite_subtab: crate::satellite_panel::SatelliteSubTab,
     close_pending: bool,
 }
@@ -502,6 +506,10 @@ impl CentralApp {
             last_traffic_bucket: 0,
             show_setup_guide: false,
             show_settings: false,
+            settings_editor: crate::config::SettingsEditor::default(),
+            pending_settings_apply: None,
+            settings_applied_this_session: false,
+            config_path: "ez_sdr_config.json".into(),
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
         };
         // Apply saved advanced settings onto the live engines so a fresh launch
@@ -512,6 +520,75 @@ impl CentralApp {
 }
 
 impl CentralApp {
+    fn commit_pending_settings(&mut self, ctx: &egui::Context) {
+        let Some(mut snapshot) = self.pending_settings_apply.take() else {
+            return;
+        };
+        snapshot.normalize();
+        snapshot.needs_apply = true;
+        match self.shared.try_lock() {
+            Ok(mut state) => {
+                state.config = snapshot;
+            }
+            Err(_) => {
+                self.pending_settings_apply = Some(snapshot);
+                ctx.request_repaint();
+            }
+        }
+    }
+
+    fn exit_config_snapshot(&mut self) -> Option<AppConfig> {
+        let mut state = self
+            .shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let had_pending_settings =
+            self.pending_settings_apply.is_some() || state.config.needs_apply;
+        if let Some(mut pending) = self.pending_settings_apply.take() {
+            pending.normalize();
+            pending.needs_apply = false;
+            state.config = pending;
+            self.settings_applied_this_session = true;
+        }
+        let mut config = state.config.clone();
+        config.last_session_freq_hz = state.source.frequency_hz;
+        config.last_session_center_hz = state.source.center_frequency_hz;
+        config.last_session_gain_db = state.source.gain_db;
+        config.last_session_demod = state.demod_mode.label().to_string();
+        if !had_pending_settings {
+            if !self.settings_applied_this_session {
+                config.default_sample_rate = state.source.sample_rate_hz;
+            }
+            config.source_preferences = crate::config::SourcePreferences::capture(&state.source);
+            config.radio_profiles.insert(
+                state.demod_mode.label().to_string(),
+                crate::config::RadioModeProfile::capture(&state.config.advanced),
+            );
+            config.recent_frequencies = state.freq_history.iter().copied().collect();
+            let (min_db, max_db) = state.spectrum.display_range();
+            config.spectrum_min_db = min_db;
+            config.spectrum_max_db = max_db;
+            config.ppm_correction = state.source.ppm_correction;
+            config.vfo_b_hz = state.vfo_b;
+            config.secondary_vfo = state.config.secondary_vfo.clone();
+            config.wf_min_db = state.spectrum.wf_min_db;
+            config.wf_max_db = state.spectrum.wf_max_db;
+            config.lo_offset_hz = state.lo_offset_hz;
+            config.color_map = state.spectrum.color_map.name().to_string();
+            config.freq_memory_hz = state
+                .freq_memory
+                .iter()
+                .map(|memory| memory.freq_hz)
+                .collect();
+            config.freq_memory_labels = state
+                .freq_memory
+                .iter()
+                .map(|memory| memory.label.clone())
+                .collect();
+        }
+        Some(config)
+    }
+
     /// Apply saved receiver, display and DSP settings before capture starts.
     pub fn apply_advanced(&mut self) {
         let mut shared = self.shared.lock().expect("shared state mutex poisoned");
@@ -1300,10 +1377,12 @@ impl CentralApp {
 
 impl eframe::App for CentralApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.commit_pending_settings(ctx);
         if self.tick_close_request(ctx) {
             return;
         }
         // Apply config changes triggered from the Settings popup.
+        let mut applied_settings = false;
         if let Ok(mut state) = self.shared.try_lock() {
             if state.config.needs_apply {
                 state.config.normalize();
@@ -1330,7 +1409,11 @@ impl eframe::App for CentralApp {
                     state.config.mqtt_topic_prefix.clone(),
                 );
                 self.discord.apply_settings(&state.config.discord);
+                applied_settings = true;
             }
+        }
+        if applied_settings {
+            self.settings_applied_this_session = true;
         }
 
         self.ai_panel.tick();
@@ -2128,6 +2211,10 @@ impl eframe::App for CentralApp {
             .exact_size(30.0)
             .show(ui, |ui| self.render_mode_bar(ui));
 
+        if !self.show_settings && self.settings_editor.draft().is_some() {
+            self.settings_editor.discard(ui.ctx());
+        }
+
         // Keep utility content in independent floating windows so neither
         // popup takes space away from the active receiver workspace.
         if self.show_setup_guide {
@@ -2149,16 +2236,35 @@ impl eframe::App for CentralApp {
             self.show_setup_guide = open && self.quick_start.is_active();
         }
         if self.show_settings {
+            let mut open = self.show_settings;
+            let mut pending_apply = None;
+            let editor = &mut self.settings_editor;
+            let shared = &self.shared;
+            let mqtt = &self.mqtt;
+            let config_path = &self.config_path;
             egui::Window::new("⚙ Settings")
                 .id(egui::Id::new("settings_popup"))
-                .open(&mut self.show_settings)
+                .open(&mut open)
                 .default_size([680.0, 680.0])
                 .min_size([480.0, 360.0])
                 .resizable(true)
                 .collapsible(false)
                 .show(ui.ctx(), |ui| {
-                    crate::secondary_panel::render_settings(&self.shared, &self.mqtt, ui)
+                    pending_apply = crate::secondary_panel::render_settings(
+                        shared,
+                        mqtt,
+                        editor,
+                        config_path,
+                        ui,
+                    );
                 });
+            self.show_settings = open;
+            if let Some(snapshot) = pending_apply {
+                self.pending_settings_apply = Some(snapshot);
+            }
+            if !open {
+                self.settings_editor.discard(ui.ctx());
+            }
         }
 
         // Humanized status strip: frequency, mode, plain-language signal, REC.
@@ -2390,33 +2496,12 @@ impl eframe::App for CentralApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.flush_bookmarks();
         // Auto-save session state on clean exit so next launch resumes where we left off.
-        if let Ok(state) = self.shared.try_lock() {
-            let mut cfg = state.config.clone();
-            cfg.last_session_freq_hz = state.source.frequency_hz;
-            cfg.last_session_center_hz = state.source.center_frequency_hz;
-            cfg.last_session_gain_db = state.source.gain_db;
-            cfg.default_sample_rate = state.source.sample_rate_hz;
-            cfg.last_session_demod = state.demod_mode.label().to_string();
-            cfg.source_preferences = crate::config::SourcePreferences::capture(&state.source);
-            cfg.radio_profiles.insert(
-                state.demod_mode.label().to_string(),
-                crate::config::RadioModeProfile::capture(&state.config.advanced),
-            );
-            cfg.recent_frequencies = state.freq_history.iter().copied().collect();
-            let (min_db, max_db) = state.spectrum.display_range();
-            cfg.spectrum_min_db = min_db;
-            cfg.spectrum_max_db = max_db;
-            cfg.ppm_correction = state.source.ppm_correction;
-            cfg.vfo_b_hz = state.vfo_b;
-            cfg.secondary_vfo = state.config.secondary_vfo.clone();
-            cfg.wf_min_db = state.spectrum.wf_min_db;
-            cfg.wf_max_db = state.spectrum.wf_max_db;
-            cfg.lo_offset_hz = state.lo_offset_hz;
-            cfg.color_map = state.spectrum.color_map.name().to_string();
-            cfg.freq_memory_hz = state.freq_memory.iter().map(|m| m.freq_hz).collect();
-            cfg.freq_memory_labels = state.freq_memory.iter().map(|m| m.label.clone()).collect();
-            cfg.save();
-            state.spectrum.save_signal_history();
+        if let Some(config) = self.exit_config_snapshot() {
+            if let Ok(state) = self.shared.lock() {
+                state.spectrum.save_signal_history();
+            }
+            let mut config = config;
+            config.save_with_feedback(&self.config_path);
         }
     }
 }

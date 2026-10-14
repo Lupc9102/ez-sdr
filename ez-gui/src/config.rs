@@ -630,6 +630,7 @@ pub struct AppConfig {
     /// UI font scale multiplier.
     pub font_scale: f64,
     /// Flag indicating settings have changed and need to be applied.
+    #[serde(skip)]
     pub needs_apply: bool,
     /// Persistence errors are visible for this session, never saved as settings.
     #[serde(skip)]
@@ -841,7 +842,7 @@ impl AppConfig {
         self.save_with_feedback("ez_sdr_config.json")
     }
 
-    fn save_with_feedback(&mut self, path: impl AsRef<std::path::Path>) -> bool {
+    pub(crate) fn save_with_feedback(&mut self, path: impl AsRef<std::path::Path>) -> bool {
         let path = path.as_ref();
         self.save_error = self.save_to(path).err().map(|error| {
             let location = if path.is_absolute() {
@@ -860,7 +861,7 @@ impl AppConfig {
         self.save_error.is_none()
     }
 
-    fn save_to(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    pub(crate) fn save_to(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         crate::bookmarks::atomic_write_file(path, json.as_bytes())
     }
@@ -869,15 +870,27 @@ impl AppConfig {
 type ConfigJobReceiver =
     std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>;
 
+#[cfg(test)]
+pub(crate) const SETTINGS_SOURCE_HEADER_TEST_ID: &str = "settings.source.header_test_id";
+
 #[derive(Clone)]
 struct ConfigFileJob(ConfigJobReceiver);
 
+fn config_file_job_id(session_id: u64) -> egui::Id {
+    egui::Id::new(("config.file_job", session_id))
+}
+
+fn config_file_message_id(session_id: u64) -> egui::Id {
+    egui::Id::new(("config.file_message", session_id))
+}
+
 fn begin_config_file_job(
     ctx: &egui::Context,
+    session_id: u64,
     work: impl FnOnce() -> Result<Option<AppConfig>, String> + Send + 'static,
 ) {
     let (tx, rx) = std::sync::mpsc::channel();
-    let id = egui::Id::new("config.file_job");
+    let id = config_file_job_id(session_id);
     ctx.data_mut(|data| {
         data.insert_temp(
             id,
@@ -893,15 +906,106 @@ fn begin_config_file_job(
     });
 }
 
+/// Ephemeral state for the Settings popup. Drafts and file-dialog jobs are kept
+/// outside `SharedState::config`, so rendering Settings cannot replace the live
+/// configuration halfway through an application frame.
+#[derive(Default)]
+pub struct SettingsEditor {
+    draft: Option<AppConfig>,
+    session_id: u64,
+}
+
+impl SettingsEditor {
+    pub(crate) fn ensure_draft(&mut self, current: &AppConfig) {
+        if self.draft.is_some() {
+            return;
+        }
+        self.session_id = self.session_id.wrapping_add(1).max(1);
+        let mut draft = current.clone();
+        draft.needs_apply = false;
+        draft.save_error = None;
+        draft.normalize();
+        self.draft = Some(draft);
+    }
+
+    pub(crate) fn draft(&self) -> Option<&AppConfig> {
+        self.draft.as_ref()
+    }
+
+    pub(crate) fn draft_mut(&mut self) -> Option<&mut AppConfig> {
+        self.draft.as_mut()
+    }
+
+    pub(crate) fn session_id(&self) -> u64 {
+        self.session_id
+    }
+
+    pub(crate) fn discard(&mut self, ctx: &egui::Context) {
+        ctx.data_mut(|data| {
+            data.remove::<ConfigFileJob>(config_file_job_id(self.session_id));
+            data.remove::<String>(config_file_message_id(self.session_id));
+        });
+        self.draft = None;
+        self.session_id = self.session_id.wrapping_add(1).max(1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_import_result(
+        &self,
+        ctx: &egui::Context,
+        result: Result<Option<AppConfig>, String>,
+    ) {
+        inject_config_file_result(ctx, self.session_id, result);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_import_result_for_session(
+        &self,
+        ctx: &egui::Context,
+        session_id: u64,
+        result: Result<Option<AppConfig>, String>,
+    ) {
+        inject_config_file_result(ctx, session_id, result);
+    }
+}
+
+#[cfg(test)]
+fn inject_config_file_result(
+    ctx: &egui::Context,
+    session_id: u64,
+    result: Result<Option<AppConfig>, String>,
+) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(result).expect("test receiver is alive");
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            config_file_job_id(session_id),
+            ConfigFileJob(std::sync::Arc::new(std::sync::Mutex::new(rx))),
+        )
+    });
+}
+
 impl AppConfig {
+    pub(crate) fn save_and_apply(&mut self, path: impl AsRef<std::path::Path>) -> bool {
+        self.normalize();
+        let saved = self.save_with_feedback(path);
+        self.needs_apply = true;
+        saved
+    }
+
+    pub(crate) fn reset_to_defaults(&mut self) {
+        *self = Self::default();
+        self.needs_apply = true;
+    }
+
     /// Render the egui-based settings panel UI.
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, session_id: u64, save_path: &std::path::Path) -> bool {
         ui.heading("Settings");
         if let Some(error) = &self.save_error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
-        let job_id = egui::Id::new("config.file_job");
-        let message_id = egui::Id::new("config.file_message");
+        let job_id = config_file_job_id(session_id);
+        let message_id = config_file_message_id(session_id);
         let job = ui
             .ctx()
             .data_mut(|data| data.get_temp::<ConfigFileJob>(job_id));
@@ -939,7 +1043,7 @@ impl AppConfig {
         }
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.collapsing("Source", |ui| {
+            let _source_section = ui.collapsing("Source", |ui| {
                 ui.add(egui::Slider::new(&mut self.default_freq_hz, 500_000..=1_770_000_000)
                     .text("Default frequency")
                     .custom_formatter(|v, _| format!("{:.3} MHz", v / 1e6)))
@@ -953,6 +1057,13 @@ impl AppConfig {
                     .text("Default gain (dB)")
                     .custom_formatter(|v, _| format!("{v:.1} dB")))
                     .on_hover_text("Startup gain when no saved session is available. Use the Radio source controls to change live RF amplification.");
+            });
+            #[cfg(test)]
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new(SETTINGS_SOURCE_HEADER_TEST_ID),
+                    _source_section.header_response.id,
+                );
             });
 
             ui.collapsing("Frequency Calibration", |ui| {
@@ -1011,16 +1122,14 @@ impl AppConfig {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button("💾 Save & Apply").on_hover_text("Save settings to ez_sdr_config.json and apply them immediately.").clicked() {
-                    self.save();
-                    self.needs_apply = true;
+                    self.save_and_apply(save_path);
                 }
                 if ui.button("Reset to defaults").on_hover_text("Restore all settings to factory defaults. Does not delete saved recordings.").clicked() {
-                    *self = Self::default();
-                    self.needs_apply = true;
+                    self.reset_to_defaults();
                 }
                 if ui.add_enabled(job.is_none(), egui::Button::new("📤 Export…")).on_hover_text("Export config to a custom file path via file dialog.").clicked() {
                     let config = self.clone();
-                    begin_config_file_job(ui.ctx(), move || {
+                    begin_config_file_job(ui.ctx(), session_id, move || {
                         let Some(path) = rfd::FileDialog::new()
                             .set_file_name("ez_sdr_config_backup.json")
                             .add_filter("JSON", &["json"])
@@ -1032,7 +1141,7 @@ impl AppConfig {
                     });
                 }
                 if ui.add_enabled(job.is_none(), egui::Button::new("📥 Import…")).on_hover_text("Load config from a previously exported JSON file.").clicked() {
-                    begin_config_file_job(ui.ctx(), || {
+                    begin_config_file_job(ui.ctx(), session_id, || {
                         let Some(path) = rfd::FileDialog::new()
                             .add_filter("JSON", &["json"])
                             .pick_file() else { return Ok(None); };
@@ -1045,9 +1154,12 @@ impl AppConfig {
             });
             ui.colored_label(
                 egui::Color32::GRAY,
-                format!("Settings file: {}. Spectrum dB range is saved with Ctrl+S.", std::env::current_dir().unwrap_or_default().join("ez_sdr_config.json").display()),
+                format!("Settings file: {}. Spectrum dB range is saved with Ctrl+S.", save_path.display()),
             );
         });
+        let apply = self.needs_apply;
+        self.needs_apply = false;
+        apply
     }
 }
 
@@ -1179,6 +1291,18 @@ mod tests {
     }
 
     #[test]
+    fn queued_apply_flag_is_transient_and_never_serialized() {
+        let config = AppConfig {
+            needs_apply: true,
+            ..AppConfig::default()
+        };
+        let encoded = serde_json::to_value(&config).unwrap();
+        assert!(encoded.get("needs_apply").is_none());
+        let decoded: AppConfig = serde_json::from_value(encoded).unwrap();
+        assert!(!decoded.needs_apply);
+    }
+
+    #[test]
     fn provider_presets_have_names() {
         for p in PROVIDER_PRESETS {
             assert!(!p.name.is_empty());
@@ -1251,7 +1375,9 @@ mod tests {
             .is_none());
 
         let ctx = egui::Context::default();
-        let output = ctx.run_ui(egui::RawInput::default(), |ui| config.ui(ui));
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            config.ui(ui, 1, &path);
+        });
         fn contains_error(shape: &egui::Shape) -> bool {
             match shape {
                 egui::Shape::Text(text) => text.galley.text().contains("Could not save settings"),
