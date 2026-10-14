@@ -60,6 +60,7 @@ pub struct PacketPipeline {
     capture_now: Option<CprTimestamp>,
     capture_observed_at: Option<Instant>,
     last_capture_clock: Option<ez_proto::CaptureClock>,
+    next_capture: Option<(u64, ez_proto::CaptureClock, u64)>,
     blocks_since_publish: u32,
     last_publish: Instant,
     receiver_position: Option<(f64, f64)>,
@@ -90,6 +91,7 @@ impl PacketPipeline {
             capture_now: None,
             capture_observed_at: None,
             last_capture_clock: None,
+            next_capture: None,
             blocks_since_publish: 0,
             last_publish: Instant::now(),
             receiver_position: None,
@@ -197,9 +199,23 @@ impl PacketPipeline {
         let mut data = std::mem::take(&mut self.mag_buf);
         data.clear();
         let contiguous = self.continuity.observe(block);
+        // Preserve complete, validated messages across known forward sample
+        // loss, while the demodulator discards its incomplete waveform tail.
+        let forward_acquisition = clock.epoch != 0
+            && self.next_capture.is_some_and(|(sample, expected, center)| {
+                block.start_sample.checked_sub(sample).is_some_and(|gap| {
+                    expected.offset_samples(gap).is_some_and(|expected| {
+                        center == block.center_freq_hz
+                            && expected.epoch == clock.epoch
+                            && expected.source_sample_index == clock.source_sample_index
+                            && expected.source_sample_rate_hz == clock.source_sample_rate_hz
+                            && expected.sample_stride == clock.sample_stride
+                            && expected.origin_unix_ns == clock.origin_unix_ns
+                    })
+                })
+            });
         if !contiguous {
             self.overlap_tail.clear();
-            self.cpr.clear();
             let changed_epoch = self.last_capture_clock.is_some_and(|previous| {
                 previous.epoch != clock.epoch
                     || previous.source_sample_rate_hz != clock.source_sample_rate_hz
@@ -207,12 +223,14 @@ impl PacketPipeline {
                     || previous.origin_unix_ns != clock.origin_unix_ns
             });
             if changed_epoch {
+                self.cpr.clear();
                 self.demod.icao_filter = Default::default();
                 self.tracker = Tracker::new();
                 self.aircraft.clear();
                 self.capture_seen.clear();
                 self.capture_position_seen.clear();
-            } else {
+            } else if !forward_acquisition {
+                self.cpr.clear();
                 for aircraft in self.aircraft.values_mut() {
                     aircraft.lat = None;
                     aircraft.lon = None;
@@ -224,6 +242,11 @@ impl PacketPipeline {
             }
         }
         self.last_capture_clock = Some(clock);
+        self.next_capture = block
+            .start_sample
+            .checked_add(block.samples.len() as u64)
+            .zip(clock.offset_samples(block.samples.len() as u64))
+            .map(|(sample, clock)| (sample, clock, block.center_freq_hz));
         self.capture_observed_at = Some(Instant::now());
         self.capture_now = clock
             .message_timestamp_2400(block.samples.len() as i128 * 5)
@@ -296,6 +319,7 @@ impl PacketPipeline {
         self.cpr.clear();
         self.demod = Demod2400::new();
         self.last_capture_clock = None;
+        self.next_capture = None;
         self.capture_now = None;
         self.capture_observed_at = None;
         self.capture_position_seen.clear();

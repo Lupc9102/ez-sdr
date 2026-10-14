@@ -2892,7 +2892,7 @@ fn scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state() {
 mod runtime_action_tests;
 
 #[test]
-fn hidden_local_capture_epoch_and_gap_retire_trails_notifications_and_decoder_state() {
+fn hidden_local_capture_epoch_retires_state_but_forward_gap_keeps_fresh_trails() {
     use crate::adsb_decoder::capture_tests::position_messages;
     use ez_daemon::hardware::adsb::encode_uc8;
     let mut app = offline_test_app();
@@ -2925,8 +2925,8 @@ fn hidden_local_capture_epoch_and_gap_retire_trails_notifications_and_decoder_st
     gap.discontinuous = true;
     app.feed_local_adsb_capture(&single, gap, dump1090::demod::InputFormat::Uc8);
     app.adsb_panel.tick_model();
-    assert!(!app.adsb_panel.aircraft[0].has_position);
-    assert_eq!(app.adsb_panel.trail_len(0x3c4b12), 0);
+    assert!(app.adsb_panel.aircraft[0].has_position);
+    assert!(app.adsb_panel.trail_len(0x3c4b12) > 0);
 }
 
 #[test]
@@ -2997,6 +2997,176 @@ fn continuous_adsb_keeps_up_with_60_hz_app_and_a_held_shared_state_lock() {
         "A09 real app at 60 Hz plus 200 ms shared-lock stall: {} samples, {} cross-block messages, zero lost samples",
         progress.samples, snapshot.receiver.total_messages,
     );
+}
+
+#[test]
+fn native_adsb_coordinates_reach_map_after_callback_loss_and_weak_frames() {
+    use crate::adsb_decoder::capture_tests::position_messages;
+    use crate::source_manager::{CaptureBlock, SourceMode};
+    use ez_daemon::hardware::adsb::{encode_uc8, EXAMPLE_DF17_CALLSIGN};
+    use ez_proto::CaptureClock;
+
+    let mut app = offline_test_app();
+    let stream = {
+        let mut state = app.shared.lock().unwrap();
+        state.adsb_running = true;
+        state.source.source_mode = SourceMode::Hardware;
+        state.source.frequency_hz = 1_090_000_000;
+        state.source.sample_rate_hz = 2_400_000;
+        state.config.observer_lat = 52.2572;
+        state.config.observer_lon = 8.6676;
+        // Allocate a real source generation, then inject acquisition-clocked
+        // blocks through its native bus without using a physical SDR.
+        state
+            .source
+            .test_set_hardware_open(|_| Err("manual ADS-B capture fixture".into()));
+        state.source.start();
+        state.source.wait_for_shutdown();
+        state.source.capture_stream()
+    };
+    app.sync_adsb_capture();
+    let generation = app.shared.lock().unwrap().source.stream_generation();
+    let publish = |samples: Vec<u8>, clock: CaptureClock, stream_sample: u64| {
+        let count = samples.len() as u64 / 2;
+        let mut block = CaptureBlock::fixture(samples, clock, generation, stream_sample);
+        block.session = Some(stream.session());
+        stream.publish(&block);
+        count
+    };
+    let wait = |app: &CentralApp, received: u64| {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(snapshot) = app
+                .local_adsb
+                .snapshot()
+                .filter(|s| s.received_samples >= received)
+            {
+                return snapshot;
+            }
+            assert!(Instant::now() < deadline, "native ADS-B snapshot stalled");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let [odd, even] = position_messages(0x4840d6);
+    let first = encode_uc8(&[EXAMPLE_DF17_CALLSIGN, odd, even]);
+    let clock = CaptureClock::new(701, 0, 2_400_000, None);
+    let mut delivered = publish(first, clock, 0);
+    wait(&app, delivered);
+    app.apply_local_adsb_snapshot();
+    app.adsb_panel.tick_model();
+    assert!(app.adsb_panel.aircraft[0].position_valid());
+    let original = (
+        app.adsb_panel.aircraft[0].lat,
+        app.adsb_panel.aircraft[0].lon,
+    );
+    app.adsb_panel.selected_icao = Some(0x4840d6);
+    app.seen_aircraft.insert(0x4840d6);
+    app.notified_aircraft.insert(0x4840d6);
+
+    // A native USB/callback queue drop advances the acquisition clock, but
+    // the delivered stream's indices are still contiguous. This previously
+    // erased the coordinates and also cleared the GUI's selection/trails.
+    let mut after_loss = clock.offset_samples(delivered + 16_384).unwrap();
+    after_loss.discontinuous = true;
+    delivered += publish(encode_uc8(&[EXAMPLE_DF17_CALLSIGN]), after_loss, delivered);
+    let snapshot = wait(&app, delivered);
+    assert_eq!(snapshot.total_lost_samples, 0); // counts native bus loss, not USB loss
+    app.apply_local_adsb_snapshot();
+    app.adsb_panel.tick_model();
+    assert!(app.adsb_panel.aircraft[0].position_valid());
+    assert_eq!(
+        (
+            app.adsb_panel.aircraft[0].lat,
+            app.adsb_panel.aircraft[0].lon
+        ),
+        original
+    );
+    assert_eq!(app.adsb_panel.selected_icao, Some(0x4840d6));
+    assert_eq!(app.adsb_panel.trail_len(0x4840d6), 1);
+    assert!(app.seen_aircraft.contains(&0x4840d6));
+    assert!(app.notified_aircraft.contains(&0x4840d6));
+    assert!(app
+        .status_bar
+        .current()
+        .unwrap()
+        .text
+        .contains("ADS-B capture gap"));
+
+    let ctx = egui::Context::default();
+    app.adsb_panel.observer_lat = 52.2572;
+    app.adsb_panel.observer_lon = 8.6676;
+    app.adsb_panel.test_offline_map(&ctx);
+    let mut renderer = software_renderer::SoftwareRenderer::default();
+    let mut render_map = |app: &mut CentralApp, expected_marker: bool, name: &str| {
+        for pass in 0..3 {
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 700.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| app.adsb_panel.ui_map(ui));
+                },
+            );
+            if pass == 2 {
+                let marker_label = output.shapes.iter().any(|shape| {
+                    matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == "KLM 63EW")
+                });
+                assert_eq!(
+                    marker_label, expected_marker,
+                    "incorrect map visibility in {name}"
+                );
+                if expected_marker {
+                    assert!(output.shapes.iter().any(|shape| {
+                        matches!(&shape.shape, egui::Shape::Mesh(mesh)
+                            if mesh.vertices.len() == 4 && mesh.calc_bounds().width() < 40.0
+                            && mesh.calc_bounds().width() > 10.0 && shape.clip_rect.intersects(mesh.calc_bounds()))
+                    }), "callsign had no visible aircraft mesh");
+                }
+            }
+            if let Ok(folder) = std::env::var("EZ_SDR_ADSB_AUDIT_DIR") {
+                let pixels = renderer.render(&ctx, output, 1000, 700);
+                if pass == 2 {
+                    pixels.save(format!("{folder}/{name}.png")).unwrap();
+                }
+            }
+        }
+    };
+    render_map(&mut app, true, "position-after-callback-loss");
+
+    // A new epoch cannot borrow the previous fix; a fresh weak pair must
+    // pass CRC, semantic merging, native snapshot publication and rendering.
+    let fresh_clock = CaptureClock::new(702, 0, 2_400_000, None);
+    let mut weak_pair = encode_uc8(&[odd, even]);
+    for iq in weak_pair.chunks_exact_mut(2) {
+        if iq[0] > 127 {
+            iq[0] = 132;
+        }
+    }
+    let mut fresh = encode_uc8(&[EXAMPLE_DF17_CALLSIGN]);
+    fresh.extend(weak_pair);
+    delivered += publish(fresh, fresh_clock, delivered);
+    wait(&app, delivered);
+    app.apply_local_adsb_snapshot();
+    assert!(app.adsb_panel.aircraft[0].position_valid());
+    assert!(app.adsb_panel.selected_icao.is_none());
+    assert!(app.notified_aircraft.is_empty());
+    render_map(&mut app, true, "position-from-weak-frames");
+
+    let expired_clock = fresh_clock.offset_samples(61 * 2_400_000).unwrap();
+    delivered += publish(
+        encode_uc8(&[EXAMPLE_DF17_CALLSIGN]),
+        expired_clock,
+        delivered,
+    );
+    wait(&app, delivered);
+    app.apply_local_adsb_snapshot();
+    assert_eq!(app.adsb_panel.aircraft[0].callsign, "KLM 63EW");
+    assert!(!app.adsb_panel.aircraft[0].position_valid());
+    render_map(&mut app, false, "expired-position-hidden");
 }
 
 #[test]

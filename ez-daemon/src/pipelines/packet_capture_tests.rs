@@ -60,6 +60,98 @@ fn merge_at(pipeline: &mut PacketPipeline, mm: &ModesMessage, capture: CaptureTi
 }
 
 #[test]
+fn daemon_forward_iq_loss_keeps_fresh_published_fix_and_cpr_pair() {
+    let frames = position_messages();
+    let pair = encode_uc8(&[frames[0].msg, frames[1].msg]);
+    let mut callsign = EXAMPLE_DF17_CALLSIGN;
+    callsign[1..4].copy_from_slice(&[0x3c, 0x4b, 0x12]);
+    let crc = dump1090::crc::crc24(&callsign[..11]);
+    callsign[11..].copy_from_slice(&crc.to_be_bytes()[1..]);
+    let identity = encode_uc8(&[callsign]);
+    let clock = CaptureClock::new(71, 0, 2_400_000, None);
+    let mut pipeline = pipeline();
+    let output = pipeline.subscribe(8);
+    pipeline.process_block(&block(&pair, 0, clock));
+    let original = pipeline.aircraft[&0x3c4b12].clone();
+    assert!(original.lat.is_some());
+    let stamp = pipeline.capture_position_seen[&0x3c4b12];
+    let offset = pair.len() as u64 / 2 + 16_384;
+    let mut next = clock.offset_samples(offset).unwrap();
+    next.discontinuous = true;
+    pipeline.process_block(&block(&identity, offset, next));
+    pipeline.prune_and_publish();
+    let aircraft = output.try_recv().unwrap().aircraft.pop().unwrap();
+    assert_eq!(aircraft.callsign.as_deref(), Some("KLM 63EW"));
+    assert_eq!(
+        aircraft.lat.zip(aircraft.lon),
+        original.lat.zip(original.lon)
+    );
+    assert_eq!(pipeline.capture_position_seen[&0x3c4b12], stamp);
+
+    let expired_offset = offset + 61 * 2_400_000;
+    let mut expired = clock.offset_samples(expired_offset).unwrap();
+    expired.discontinuous = true;
+    pipeline.process_block(&block(&identity, expired_offset, expired));
+    pipeline.prune_and_publish();
+    assert!(output.try_recv().unwrap().aircraft[0].lat.is_none());
+
+    for seconds in [1, 11] {
+        let mut pipeline = self::pipeline();
+        pipeline.process_block(&block(&encode_uc8(&[frames[0].msg]), 0, clock));
+        let offset = seconds * 2_400_000;
+        let mut next = clock.offset_samples(offset).unwrap();
+        next.discontinuous = true;
+        pipeline.process_block(&block(&encode_uc8(&[frames[1].msg]), offset, next));
+        assert_eq!(pipeline.aircraft[&0x3c4b12].lat.is_some(), seconds == 1);
+    }
+}
+
+#[test]
+fn daemon_unknown_regressed_or_changed_geometry_cannot_retain_a_fix() {
+    let frames = position_messages();
+    let pair = encode_uc8(&[frames[0].msg, frames[1].msg]);
+    let single = encode_uc8(&[frames[0].msg]);
+    for mode in [
+        "unknown",
+        "backwards",
+        "center",
+        "origin",
+        "stride",
+        "incompatible",
+    ] {
+        let mut pipeline = pipeline();
+        let clock = CaptureClock::new(if mode == "unknown" { 0 } else { 71 }, 0, 2_400_000, None);
+        pipeline.process_block(&block(&pair, 0, clock));
+        assert!(pipeline.aircraft[&0x3c4b12].lat.is_some());
+        let mut offset = pair.len() as u64 / 2 + 16_384;
+        let mut next = clock.offset_samples(offset).unwrap();
+        next.discontinuous = true;
+        match mode {
+            "backwards" => {
+                offset = 0;
+                next.source_sample_index = 0;
+            }
+            "origin" => next.origin_unix_ns = Some(1_000),
+            "stride" => {
+                next.sample_stride = 2;
+                next.source_sample_rate_hz = 4_800_000;
+            }
+            "incompatible" => next.source_sample_rate_hz = 3_200_000,
+            _ => {}
+        }
+        let mut next_block = block(&single, offset, next);
+        if mode == "center" {
+            next_block.center_freq_hz += 1_000_000;
+        }
+        pipeline.process_block(&next_block);
+        assert!(
+            pipeline.aircraft[&0x3c4b12].lat.is_none(),
+            "retained fix across {mode}"
+        );
+    }
+}
+
+#[test]
 fn daemon_capture_pairing_and_position_age_ignore_arrival_timestamps() {
     let [mut odd, mut even] = position_messages();
     let clock = CaptureClock::new(4, 0, 2_400_000, None);
@@ -190,7 +282,7 @@ fn packet_decoder_rejects_incompatible_capture_clocks_and_resets_overlap() {
 }
 
 #[test]
-fn daemon_epoch_and_gap_remove_global_pairs_relative_fixes_and_split_messages() {
+fn daemon_forward_gap_preserves_messages_but_epoch_and_split_loss_reset() {
     let frames = position_messages();
     let pair = encode_uc8(&[frames[0].msg, frames[1].msg]);
     let odd = encode_uc8(&[frames[0].msg]);
@@ -210,7 +302,7 @@ fn daemon_epoch_and_gap_remove_global_pairs_relative_fixes_and_split_messages() 
             start += 1;
         }
         pipeline.process_block(&block(&odd, start, next));
-        assert!(pipeline.aircraft[&0x3c4b12].lat.is_none());
+        assert_eq!(pipeline.aircraft[&0x3c4b12].lat.is_some(), !rewind);
     }
     let raw = encode_uc8(&[EXAMPLE_DF17_CALLSIGN]);
     let mut pipeline = pipeline();

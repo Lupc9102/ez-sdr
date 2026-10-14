@@ -944,8 +944,6 @@ impl CentralApp {
             self.seen_aircraft.clear();
             self.notified_aircraft.clear();
             self.last_local_adsb_epoch = Some(clock.epoch);
-        } else if clock.discontinuous {
-            self.adsb_panel.clear_tracks();
         }
         self.adsb_decoder.feed_iq_with_clock(samples, clock, format);
         if self.adsb_decoder.sample_rate_mismatch() {
@@ -983,8 +981,11 @@ impl CentralApp {
             snapshot.discontinuity_revision,
         );
         if self.last_local_adsb_boundary != Some(boundary) {
-            self.adsb_panel.clear_tracks();
-            if self.last_local_adsb_epoch != snapshot.epoch {
+            let acquisition_changed = self.last_local_adsb_boundary.is_none_or(|previous| {
+                previous.0 != snapshot.generation || previous.1 != snapshot.epoch
+            });
+            if acquisition_changed {
+                self.adsb_panel.clear_tracks();
                 self.seen_aircraft.clear();
                 self.notified_aircraft.clear();
             }
@@ -995,6 +996,11 @@ impl CentralApp {
                     "ADS-B input overflow: {} samples lost in {} blocks",
                     snapshot.total_lost_samples, snapshot.dropped_blocks,
                 ));
+            } else if !acquisition_changed {
+                // USB callback loss is visible in the acquisition clock even
+                // when the downstream native bus did not drop any blocks.
+                self.status_bar
+                    .warning("ADS-B capture gap; position updates may be delayed".into());
             }
         }
         if snapshot.sample_rate_mismatch {

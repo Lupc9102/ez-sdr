@@ -155,6 +155,18 @@ impl AdsBDecoder {
                     && expected.sample_stride == clock.sample_stride
                     && expected.origin_unix_ns == clock.origin_unix_ns
             });
+        // Losing samples breaks a waveform, not already CRC-validated messages.
+        // A known acquisition clock can still age/pair independent CPR frames
+        // across forward loss. Explicit resets and clock regressions cannot.
+        let forward_acquisition = clock.epoch != 0
+            && self.last_format == Some(format)
+            && self.next_capture.is_some_and(|expected| {
+                expected.epoch == clock.epoch
+                    && expected.source_sample_index <= clock.source_sample_index
+                    && expected.source_sample_rate_hz == clock.source_sample_rate_hz
+                    && expected.sample_stride == clock.sample_stride
+                    && expected.origin_unix_ns == clock.origin_unix_ns
+            });
         if !contiguous {
             let changed_epoch = self.last_capture_clock.is_some_and(|previous| {
                 previous.epoch != clock.epoch
@@ -164,11 +176,12 @@ impl AdsBDecoder {
             }) || self.last_format.is_some_and(|previous| previous != format);
             self.overlap_tail.clear();
             self.pending_i.clear();
-            self.cpr_decoder.clear();
             if changed_epoch {
+                self.cpr_decoder.clear();
                 self.demod.icao_filter = Default::default();
                 self.aircraft.clear();
-            } else {
+            } else if !forward_acquisition {
+                self.cpr_decoder.clear();
                 for aircraft in self.aircraft.values_mut() {
                     aircraft.latitude = None;
                     aircraft.longitude = None;
@@ -348,7 +361,7 @@ impl AdsBDecoder {
         icao: u32,
         msgtype: u8,
         msg: [u8; 14],
-        signal_level: f64,
+        _signal_level: f64,
         reliable: bool,
         correctedbits: usize,
         score: dump1090::demod::ScoreRank,
@@ -363,13 +376,9 @@ impl AdsBDecoder {
             None
         };
         let icao = identity.map_or(icao, |identity| identity.key);
-        // Reject weak signals that are likely noise. Real ADS-B signals are
-        // typically >0.1% of full scale; anything below this is almost certainly
-        // RF noise that happened to pass CRC.
-        const MIN_SIGNAL_LEVEL: f64 = 0.001;
-        if signal_level < MIN_SIGNAL_LEVEL {
-            return;
-        }
+        // Demod2400 has already validated the frame's CRC/address and score.
+        // Absolute RF power is not a second validity test: valid weak CPR
+        // messages must reach the same semantic merge as stronger identities.
 
         let now = std::time::Instant::now();
         let cpr_time = capture

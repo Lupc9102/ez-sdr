@@ -34,6 +34,91 @@ fn merge_at(decoder: &mut AdsBDecoder, raw: [u8; 14], stamp: CaptureTimestamp) {
 }
 
 #[test]
+fn forward_iq_loss_keeps_fresh_fix_and_independent_cpr_frames() {
+    let [odd, even] = position_messages(0x4840d6);
+    let pair = encode_uc8(&[odd, even]);
+    let callsign = encode_uc8(&[EXAMPLE_DF17_CALLSIGN]);
+    let clock = CaptureClock::new(71, 0, 2_400_000, None);
+    let mut decoder = AdsBDecoder::new();
+    decoder.feed_iq_with_clock(&pair, clock, InputFormat::Uc8);
+    let original = decoder.get_aircraft().pop().unwrap();
+    assert!(original.position_valid());
+    let position_stamp = decoder.aircraft[&0x4840d6].capture_position_seen;
+
+    // Lose one normal input buffer, then receive only identity data. Dropped
+    // samples are not grounds for erasing a previously validated coordinate.
+    let mut next = clock
+        .offset_samples(pair.len() as u64 / 2 + 16_384)
+        .unwrap();
+    next.discontinuous = true;
+    decoder.feed_iq_with_clock(&callsign, next, InputFormat::Uc8);
+    let aircraft = decoder.get_aircraft().pop().unwrap();
+    assert_eq!(aircraft.callsign, "KLM 63EW");
+    assert!(
+        aircraft.position_valid(),
+        "lost buffer erased a fresh position"
+    );
+    assert_eq!((aircraft.lat, aircraft.lon), (original.lat, original.lon));
+    assert_eq!(
+        decoder.aircraft[&0x4840d6].capture_position_seen,
+        position_stamp
+    );
+
+    // Freshness still follows acquisition time; identity cannot rejuvenate it.
+    let mut expired = next.offset_samples(61 * 2_400_000).unwrap();
+    expired.discontinuous = true;
+    decoder.feed_iq_with_clock(&callsign, expired, InputFormat::Uc8);
+    assert!(!decoder.get_aircraft()[0].position_valid());
+
+    for seconds in [1, 11] {
+        let mut decoder = AdsBDecoder::new();
+        decoder.feed_iq_with_clock(&encode_uc8(&[odd]), clock, InputFormat::Uc8);
+        let mut next = clock.offset_samples(seconds * 2_400_000).unwrap();
+        next.discontinuous = true;
+        decoder.feed_iq_with_clock(&encode_uc8(&[even]), next, InputFormat::Uc8);
+        assert_eq!(decoder.get_aircraft()[0].position_valid(), seconds == 1);
+    }
+}
+
+#[test]
+fn crc_valid_weak_position_frames_survive_the_semantic_merge() {
+    let [odd, even] = position_messages(0x4840d6);
+    let mut decoder = AdsBDecoder::new();
+    decoder.feed_iq(&encode_uc8(&[EXAMPLE_DF17_CALLSIGN]), 2_400_000);
+    let mut weak = encode_uc8(&[odd, even]);
+    for components in weak.chunks_exact_mut(2) {
+        if components[0] > 127 {
+            components[0] = 132;
+        }
+    }
+    let mut invalid = [odd, even];
+    for frame in &mut invalid {
+        frame[11] ^= 1; // CRC parity damage must still be rejected.
+    }
+    let mut invalid_weak = encode_uc8(&invalid);
+    for components in invalid_weak.chunks_exact_mut(2) {
+        if components[0] > 127 {
+            components[0] = 132;
+        }
+    }
+    decoder.feed_iq(&invalid_weak, 2_400_000);
+    assert_eq!(decoder.stats().1, 1);
+    assert!(!decoder.get_aircraft()[0].position_valid());
+    decoder.feed_iq(&weak, 2_400_000);
+    assert_eq!(
+        decoder.stats().1,
+        3,
+        "demodulator must validate both weak frames"
+    );
+    let aircraft = decoder.get_aircraft().pop().unwrap();
+    assert_eq!(aircraft.callsign, "KLM 63EW");
+    assert!(
+        aircraft.position_valid(),
+        "accepted position frames were discarded during merging"
+    );
+}
+
+#[test]
 fn capture_pairing_ignores_processing_age_and_rejects_fast_stale_capture() {
     let [odd, even] = position_messages(0x3c4b12);
     for (interval, eligible) in [(9, true), (15, false)] {
@@ -116,7 +201,7 @@ fn real_iq_message_timestamp_retains_overlap_phase_epoch_and_exact_native_rate()
 }
 
 #[test]
-fn real_iq_gap_and_loop_epoch_clear_pairing_relative_reference_and_overlap() {
+fn real_iq_forward_gap_preserves_messages_but_loop_epoch_and_split_loss_reset() {
     let [odd, even] = position_messages(0x3c4b12);
     let first = encode_uc8(&[odd, even]);
     let single = encode_uc8(&[odd]);
@@ -133,10 +218,7 @@ fn real_iq_gap_and_loop_epoch_clear_pairing_relative_reference_and_overlap() {
             next.source_sample_index += 1;
         }
         decoder.feed_iq_with_clock(&single, next, InputFormat::Uc8);
-        assert!(
-            !decoder.get_aircraft()[0].has_position,
-            "old relative fix bridged a capture boundary"
-        );
+        assert_eq!(decoder.get_aircraft()[0].has_position, !new_epoch);
         assert_eq!(
             decoder.aircraft[&0x3c4b12].capture_seen.unwrap().epoch,
             next.epoch
@@ -164,6 +246,39 @@ fn real_iq_gap_and_loop_epoch_clear_pairing_relative_reference_and_overlap() {
         InputFormat::Uc8,
     );
     assert_eq!(decoder.total_messages, 1);
+}
+
+#[test]
+fn unknown_or_regressed_clock_and_explicit_reset_discard_old_position() {
+    let [odd, even] = position_messages(0x4840d6);
+    let pair = encode_uc8(&[odd, even]);
+    let identity = encode_uc8(&[EXAMPLE_DF17_CALLSIGN]);
+    for mode in ["unknown", "backwards", "reset", "origin", "format"] {
+        let mut decoder = AdsBDecoder::new();
+        let clock = CaptureClock::new(if mode == "unknown" { 0 } else { 71 }, 0, 2_400_000, None);
+        decoder.feed_iq_with_clock(&pair, clock, InputFormat::Uc8);
+        assert!(decoder.get_aircraft()[0].position_valid());
+        let mut next = clock
+            .offset_samples(pair.len() as u64 / 2 + 16_384)
+            .unwrap();
+        next.discontinuous = true;
+        match mode {
+            "backwards" => next.source_sample_index = 0,
+            "reset" => decoder.mark_discontinuous(),
+            "origin" => next.origin_unix_ns = Some(1_000),
+            "format" => {
+                decoder.feed_iq_with_clock(&[0; 4096], next, InputFormat::Sc16);
+                assert!(decoder.get_aircraft().is_empty());
+                continue;
+            }
+            _ => {}
+        }
+        decoder.feed_iq_with_clock(&identity, next, InputFormat::Uc8);
+        assert!(
+            !decoder.get_aircraft()[0].position_valid(),
+            "retained fix across {mode}"
+        );
+    }
 }
 
 #[test]
