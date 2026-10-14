@@ -860,28 +860,40 @@ pub(crate) mod tests {
         )
         .await;
 
-        client.send(ClientCommand::Subscribe {
-            channel: ChannelSpec {
-                audio: None,
-                meteor_profile: None,
-                id: 1,
-                center_offset_hz: 0,
-                channel_sample_rate_hz: 2_000_000,
-                kind: PipelineKind::Spectrum,
-                demod_mode: None,
-            },
-        });
+        assert!(
+            client.try_send(ClientCommand::Subscribe {
+                channel: ChannelSpec {
+                    audio: None,
+                    meteor_profile: None,
+                    id: 1,
+                    center_offset_hz: 0,
+                    channel_sample_rate_hz: 2_000_000,
+                    kind: PipelineKind::Spectrum,
+                    demod_mode: None,
+                },
+            }),
+            "daemon client worker is closed: {:?}",
+            client.status()
+        );
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
-            if let Some(ServerEvent::Spectrum(frame)) = client.try_recv_event() {
-                assert!(!frame.bins.is_empty());
-                break;
+            match client.try_recv_event() {
+                Some(ServerEvent::Spectrum(frame)) => {
+                    assert!(!frame.bins.is_empty());
+                    break;
+                }
+                Some(ServerEvent::Error { message }) => {
+                    panic!("daemon rejected spectrum subscription: {message}");
+                }
+                _ => {}
             }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "timed out waiting for a spectrum frame"
-            );
+            if tokio::time::Instant::now() >= deadline {
+                panic!(
+                    "timed out waiting for a spectrum frame; client status: {:?}",
+                    client.status()
+                );
+            }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
 

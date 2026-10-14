@@ -29,6 +29,8 @@ struct Slot {
     frames: VecDeque<(ServerEvent, Instant, usize)>,
     skipped: u64,
     observed_at: Option<Instant>,
+    // Preserve the queued front after emitting a gap so a fast producer cannot starve it.
+    protect_front: bool,
 }
 
 #[derive(Default)]
@@ -79,12 +81,21 @@ impl StreamQueue {
         }
         if let ServerEvent::Telemetry(frame) = &event {
             if !frame.final_product && !frame.product_complete {
-                if let Some(index) = slot.frames.iter().rposition(|(queued, _, _)| {
-                    matches!(queued, ServerEvent::Telemetry(queued)
-                        if !queued.final_product
-                            && !queued.product_complete
-                            && (queued.width != 0 || queued.height != 0 || !queued.pixels.is_empty()))
-                }) {
+                let protected = if slot.protect_front { 1 } else { 0 };
+                if let Some(index) = slot
+                    .frames
+                    .iter()
+                    .enumerate()
+                    .skip(protected)
+                    .filter_map(|(index, (queued, _, _))| {
+                        matches!(queued, ServerEvent::Telemetry(queued)
+                            if !queued.final_product
+                                && !queued.product_complete
+                                && (queued.width != 0 || queued.height != 0 || !queued.pixels.is_empty()))
+                        .then_some(index)
+                    })
+                    .next_back()
+                {
                     let (_, _, old_weight) = slot.frames.remove(index).unwrap();
                     self.bytes -= old_weight;
                     slot.skipped = slot.skipped.saturating_add(1);
@@ -93,11 +104,10 @@ impl StreamQueue {
             }
         }
         while slot.frames.len() >= capacity {
-            let Some(index) = slot
-                .frames
-                .iter()
-                .position(|(queued, _, _)| !is_critical_telemetry(queued))
-            else {
+            let protected = if slot.protect_front { 1 } else { 0 };
+            let Some(index) = slot.frames.iter().enumerate().skip(protected).find_map(
+                |(index, (queued, _, _))| (!is_critical_telemetry(queued)).then_some(index),
+            ) else {
                 if !final_telemetry {
                     slot.skipped = slot.skipped.saturating_add(1);
                     self.skipped = self.skipped.saturating_add(1);
@@ -117,10 +127,10 @@ impl StreamQueue {
                 .channels
                 .iter()
                 .filter_map(|(&id, slot)| {
-                    slot.frames
-                        .iter()
-                        .find(|(event, _, _)| !is_critical_telemetry(event))
-                        .map(|(_, at, _)| (id, *at))
+                    let protected = if slot.protect_front { 1 } else { 0 };
+                    slot.frames.iter().enumerate().skip(protected).find_map(
+                        |(_, (event, at, _))| (!is_critical_telemetry(event)).then_some((id, *at)),
+                    )
                 })
                 .min_by_key(|(_, at)| *at)
                 .map(|(id, _)| id);
@@ -128,10 +138,13 @@ impl StreamQueue {
                 return false;
             };
             let slot = self.channels.get_mut(&id).unwrap();
+            let protected = if slot.protect_front { 1 } else { 0 };
             let index = slot
                 .frames
                 .iter()
-                .position(|(event, _, _)| !is_critical_telemetry(event))
+                .enumerate()
+                .skip(protected)
+                .find_map(|(index, (event, _, _))| (!is_critical_telemetry(event)).then_some(index))
                 .unwrap();
             self.bytes -= slot.frames.remove(index).unwrap().2;
             slot.skipped = slot.skipped.saturating_add(1);
@@ -155,6 +168,8 @@ impl StreamQueue {
     }
 
     /// Fair across channels, with the loss notice preceding retained data.
+    /// Protect the next retained frame after a gap so a continuous producer cannot keep
+    /// replacing it between polls and make the consumer observe gaps forever.
     pub fn pop(&mut self) -> Option<(ServerEvent, Instant)> {
         let id = self
             .channels
@@ -164,7 +179,8 @@ impl StreamQueue {
             .or_else(|| self.channels.keys().next().copied())?;
         self.last_channel = Some(id);
         let slot = self.channels.get_mut(&id).unwrap();
-        let event = if slot.skipped > 0 {
+        let event = if slot.skipped > 0 && !slot.protect_front {
+            slot.protect_front = !slot.frames.is_empty();
             Some((
                 ServerEvent::StreamGap {
                     channel_id: id,
@@ -173,10 +189,14 @@ impl StreamQueue {
                 slot.observed_at.unwrap(),
             ))
         } else {
-            slot.frames.pop_front().map(|(event, at, weight)| {
+            let next = slot.frames.pop_front().map(|(event, at, weight)| {
                 self.bytes -= weight;
                 (event, at)
-            })
+            });
+            if next.is_some() {
+                slot.protect_front = false;
+            }
+            next
         };
         if slot.frames.is_empty() && slot.skipped == 0 {
             self.channels.remove(&id);
@@ -247,6 +267,18 @@ mod tests {
         })
     }
 
+    fn spectrum(timestamp_ms: u64) -> ServerEvent {
+        ServerEvent::Spectrum(crate::SpectrumFrame {
+            channel_id: 2,
+            center_hz: 100_000_000,
+            sample_rate_hz: 2_000_000,
+            bins: vec![timestamp_ms as f32; 16],
+            timestamp_ms,
+            observation_revision: 0,
+            measurement_bins: None,
+        })
+    }
+
     #[test]
     fn mixed_stream_queue_retains_fresh_snapshots_and_exact_audio_tail_and_gaps() {
         let mut queue = StreamQueue::default();
@@ -311,6 +343,45 @@ mod tests {
         assert_eq!(losses, BTreeMap::from([(1, 992), (2, 999), (3, 999)]));
         assert_eq!(snapshots, 2);
         assert_eq!(queue.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn continuous_snapshot_overflow_reports_gaps_without_starving_frames() {
+        let mut queue = StreamQueue::default();
+        let now = Instant::now();
+        queue.push(spectrum(1), now);
+        queue.push(spectrum(2), now);
+
+        assert!(matches!(
+            queue.pop().map(|(event, _)| event),
+            Some(ServerEvent::StreamGap {
+                channel_id: 2,
+                dropped_frames: 1
+            })
+        ));
+
+        // Keep the frame announced by the gap until the consumer can read it, even
+        // when a newer snapshot arrives in between polls.
+        queue.push(spectrum(3), Instant::now());
+        assert!(matches!(
+            queue.pop().map(|(event, _)| event),
+            Some(ServerEvent::Spectrum(frame)) if frame.timestamp_ms == 2
+        ));
+
+        queue.push(spectrum(4), Instant::now());
+        assert!(matches!(
+            queue.pop().map(|(event, _)| event),
+            Some(ServerEvent::StreamGap {
+                channel_id: 2,
+                dropped_frames: 1
+            })
+        ));
+        assert!(matches!(
+            queue.pop().map(|(event, _)| event),
+            Some(ServerEvent::Spectrum(frame)) if frame.timestamp_ms == 4
+        ));
+        assert_eq!(queue.skipped_frames(), 2);
+        assert_eq!(queue.queued_frames(), 0);
     }
 
     #[test]
