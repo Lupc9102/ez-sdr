@@ -80,6 +80,8 @@ fn render_workspaces() {
         ("meteor", AppTab::Meteor),
         ("adsb-fixture", AppTab::Planes),
         ("uat-fixture", AppTab::Planes),
+        ("settings", AppTab::Listen),
+        ("setup", AppTab::Listen),
     ] {
         if std::env::var("EZ_SDR_PREVIEW_WORKSPACE")
             .is_ok_and(|requested| !requested.split(',').any(|item| item == name))
@@ -87,6 +89,8 @@ fn render_workspaces() {
             continue;
         }
         app.current_tab = tab;
+        app.show_settings = name == "settings";
+        app.show_setup_guide = name == "setup";
         if matches!(name, "radio-nfm" | "radio-wfm" | "radio-cw" | "radio-usb") {
             let mut state = app.shared.lock().unwrap();
             let mode = match name {
