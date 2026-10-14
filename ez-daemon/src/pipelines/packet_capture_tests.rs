@@ -10,6 +10,7 @@ fn pipeline() -> PacketPipeline {
         SampleBus::new().subscribe(8, OverflowPolicy::DropIncoming),
         2_400_000,
     )
+    .unwrap()
 }
 
 fn position_messages() -> [ModesMessage; 2] {
@@ -44,6 +45,12 @@ fn block(raw: &[u8], start_sample: u64, clock: CaptureClock) -> SampleBlock {
         center_freq_hz: 1_090_000_000,
         samples: Arc::from(lrpt_decode::uc8_bytes_to_normalized(raw)),
     }
+}
+
+fn capture_clock(source_sample_rate_hz: u32, sample_stride: u32) -> CaptureClock {
+    let mut clock = CaptureClock::new(1, 0, source_sample_rate_hz, None);
+    clock.sample_stride = sample_stride;
+    clock
 }
 
 fn merge_at(pipeline: &mut PacketPipeline, mm: &ModesMessage, capture: CaptureTimestamp) {
@@ -118,17 +125,17 @@ fn daemon_capture_pairing_and_position_age_ignore_arrival_timestamps() {
 }
 
 #[test]
-fn daemon_real_iq_overlap_phase_and_fractional_capture_clock_survive_merging() {
+fn daemon_real_iq_overlap_phase_and_exact_capture_clock_survive_merging() {
     let frames = position_messages();
     let raw = encode_uc8(&[frames[0].msg, frames[1].msg]);
-    let mut clock = CaptureClock::new(8, 1_001, 16_800_003, Some(1_500_000_000));
+    let mut clock = CaptureClock::new(8, 1_001, 16_800_000, Some(1_500_000_000));
     clock.sample_stride = 7;
     let mut split = pipeline();
     split.process_block(&block(&raw[..260], 143, clock));
     split.process_block(&block(&raw[260..], 273, clock.offset_samples(130).unwrap()));
     let stamp = split.capture_position_seen[&0x3c4b12];
     assert_eq!(stamp.epoch, 8);
-    assert_eq!(stamp.source_sample_rate_hz, 16_800_003);
+    assert_eq!(stamp.source_sample_rate_hz, 16_800_000);
     assert!(stamp.unix_time_ns().unwrap() > 1_500_000_000);
     let mut whole = pipeline();
     whole.process_block(&block(&raw, 143, clock));
@@ -146,6 +153,40 @@ fn daemon_real_iq_overlap_phase_and_fractional_capture_clock_survive_merging() {
             .unwrap()
     );
     assert!((split.aircraft[&0x3c4b12].lat.unwrap() - 52.2572).abs() < 0.001);
+}
+
+#[test]
+fn packet_decoder_rejects_incompatible_capture_clocks_and_resets_overlap() {
+    let raw = encode_uc8(&[EXAMPLE_DF17_CALLSIGN]);
+    let cut = raw.len() / 2;
+    let mut pipeline = pipeline();
+
+    pipeline.process_block(&block(&raw[..cut], 0, capture_clock(2_400_000, 1)));
+    assert!(!pipeline.overlap_tail.is_empty());
+
+    pipeline.process_block(&block(&raw[cut..], cut as u64, capture_clock(4_800_001, 2)));
+    assert_eq!(pipeline.stats.demod_accepted.iter().sum::<u64>(), 0);
+    assert!(pipeline.overlap_tail.is_empty());
+
+    let zero_stride = capture_clock(4_800_000, 0);
+    pipeline.process_block(&block(&raw, 0, zero_stride));
+    let direct_3_2_mhz = SampleBlock {
+        product_session: 0,
+        observed_at: None,
+        capture: None,
+        start_sample: 0,
+        sample_rate_hz: 3_200_000,
+        center_freq_hz: 1_090_000_000,
+        samples: Arc::from(lrpt_decode::uc8_bytes_to_normalized(&raw)),
+    };
+    pipeline.process_block(&direct_3_2_mhz);
+    assert_eq!(pipeline.stats.demod_accepted.iter().sum::<u64>(), 0);
+    assert!(pipeline.overlap_tail.is_empty());
+
+    let mut exact_2_4_mhz = capture_clock(4_800_000, 2);
+    exact_2_4_mhz.epoch = 2;
+    pipeline.process_block(&block(&raw, 0, exact_2_4_mhz));
+    assert_eq!(pipeline.stats.demod_accepted.iter().sum::<u64>(), 1);
 }
 
 #[test]

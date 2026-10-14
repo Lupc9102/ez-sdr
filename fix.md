@@ -292,7 +292,8 @@ For each finding marked fixed, provide: commit, changed behavior, meaningful reg
 
 - [x] Batch 0: F15 worker teardown; F20 duplicate attributes/formatting repaired.
   - Verification: `cargo test -p ez-gui --locked --no-default-features discord::tests::` (31 passed); `cargo test -p ez-gui --locked --no-default-features demod::tests::demod_frame_versions_identify_latest_controls_under_iq_backlog -- --exact --nocapture` (1 passed in 0.49s); `cargo fmt --check` passed; `cargo clippy --workspace --locked --all-targets --no-default-features -- -D warnings` passed; `graphify update .` completed.
-- [ ] Batch 1: F02 exact ADS-B clock checks and failed-retune invariants.
+- [x] Batch 1: F02 exact ADS-B clock checks and failed-retune invariants.
+  - Verification: `cargo test -p ez-daemon --locked --no-default-features state::tests::` (34 passed); `cargo test -p ez-daemon --locked --no-default-features pipelines::packet::` (33 passed); `cargo fmt --check` passed; `graphify update .` completed. The pre-fix local `core-probe` reproduced a 3.2 MHz tap and accepted ADS-B subscription.
 - [ ] Batch 2: F03 serialized geometry changes and deterministic race tests.
 - [ ] Batch 3A: F01/F04 popup draft/import/reset ownership and persistence ordering.
 - [ ] Batch 3B: F06 authenticated source UI; F07 audio A/B reconciliation.

@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use anyhow::anyhow;
 use dump1090::cpr::{CprDecoder, CprFrame, CprTimestamp, CprType};
 use dump1090::crc::check_crc;
 use dump1090::demod::{
@@ -36,6 +37,7 @@ use crate::bus::{SampleBlock, SampleBusHandle};
 /// instead to a fixed count of processed blocks — simple, predictable, and independent of
 /// whatever sample rate/block size the channelizer feeds this pipeline.
 const PUBLISH_EVERY_N_BLOCKS: u32 = 25;
+const ADSB_SAMPLE_RATE_HZ: u32 = 2_400_000;
 
 /// An aircraft with no message in this long is dropped from both `Tracker` and the
 /// published snapshot.
@@ -67,14 +69,13 @@ pub struct PacketPipeline {
 
 impl PacketPipeline {
     #[must_use]
-    pub fn new(input: SampleBusHandle, sample_rate_hz: u32) -> Self {
-        if sample_rate_hz != 2_400_000 {
-            tracing::error!(
-                "PacketPipeline expects 2.4 MHz input, got {} Hz",
-                sample_rate_hz
-            );
+    pub fn new(input: SampleBusHandle, expected_sample_rate_hz: u32) -> anyhow::Result<Self> {
+        if expected_sample_rate_hz != ADSB_SAMPLE_RATE_HZ {
+            return Err(anyhow!(
+                "ADS-B packet decoder requires a configured 2.4 MHz sample rate, got {expected_sample_rate_hz} Hz"
+            ));
         }
-        Self {
+        Ok(Self {
             input,
             demod: Demod2400::new(),
             stats: DemodStats::default(),
@@ -94,7 +95,7 @@ impl PacketPipeline {
             receiver_position: None,
             rate_window: Default::default(),
             output: Broadcaster::new(),
-        }
+        })
     }
 
     /// Subscribes to published aircraft snapshots. Each value is a full replacement of
@@ -176,11 +177,25 @@ impl PacketPipeline {
     }
 
     fn process_block(&mut self, block: &SampleBlock) {
+        let clock = block.capture_clock();
+        let Some(expected_source_rate) =
+            u64::from(ADSB_SAMPLE_RATE_HZ).checked_mul(u64::from(clock.sample_stride))
+        else {
+            self.reset_after_incompatible_clock();
+            return;
+        };
+        if clock.sample_stride == 0
+            || u64::from(clock.source_sample_rate_hz) != expected_source_rate
+            || block.sample_rate_hz != ADSB_SAMPLE_RATE_HZ
+        {
+            self.reset_after_incompatible_clock();
+            return;
+        }
+
         let mut sum_level = 0.0_f64;
         let mut sum_power = 0.0_f64;
         let mut data = std::mem::take(&mut self.mag_buf);
         data.clear();
-        let clock = block.capture_clock();
         let contiguous = self.continuity.observe(block);
         if !contiguous {
             self.overlap_tail.clear();
@@ -272,6 +287,24 @@ impl PacketPipeline {
         if self.blocks_since_publish >= PUBLISH_EVERY_N_BLOCKS {
             self.blocks_since_publish = 0;
             self.prune_and_publish();
+        }
+    }
+
+    fn reset_after_incompatible_clock(&mut self) {
+        self.overlap_tail.clear();
+        self.continuity = Default::default();
+        self.cpr.clear();
+        self.demod = Demod2400::new();
+        self.last_capture_clock = None;
+        self.capture_now = None;
+        self.capture_observed_at = None;
+        self.capture_position_seen.clear();
+        for aircraft in self.aircraft.values_mut() {
+            aircraft.lat = None;
+            aircraft.lon = None;
+            aircraft.position_seen_ms = None;
+            aircraft.position_source = None;
+            aircraft.position_quality = None;
         }
     }
 
@@ -613,7 +646,17 @@ mod tests {
     fn test_pipeline() -> (SampleBus, PacketPipeline) {
         let bus = SampleBus::new();
         let handle = bus.subscribe(8, OverflowPolicy::DropIncoming);
-        (bus, PacketPipeline::new(handle, 2_400_000))
+        (bus, PacketPipeline::new(handle, 2_400_000).unwrap())
+    }
+
+    #[test]
+    fn constructor_rejects_a_non_adsb_decoder_rate() {
+        let bus = SampleBus::new();
+        let handle = bus.subscribe(8, OverflowPolicy::DropIncoming);
+        let error = PacketPipeline::new(handle, 3_200_000)
+            .err()
+            .expect("non-2.4 MHz decoder rate should be rejected");
+        assert!(error.to_string().contains("configured 2.4 MHz sample rate"));
     }
 
     #[test]
@@ -844,7 +887,7 @@ mod tests {
                 2_400_000,
             );
             let (_, input) = channelizer.add_channel(1_090_000_000, 2_400_000).unwrap();
-            let mut decoder = PacketPipeline::new(input, 2_400_000);
+            let mut decoder = PacketPipeline::new(input, 2_400_000).unwrap();
             let samples =
                 lrpt_decode::uc8_bytes_to_normalized(&encode_uc8(&[EXAMPLE_DF17_CALLSIGN]));
             let cut = samples.len() / 2;
@@ -873,7 +916,7 @@ mod tests {
         let (_, packet_input) = channelizer
             .add_channel(1_090_000_000, 2_400_000)
             .expect("ADS-B channel should fit the 2.4 MSPS capture");
-        let mut pipeline = PacketPipeline::new(packet_input, 2_400_000);
+        let mut pipeline = PacketPipeline::new(packet_input, 2_400_000).unwrap();
 
         let mut source = AdsbEmulatorSource::example(false);
         source.start().unwrap();

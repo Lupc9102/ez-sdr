@@ -224,6 +224,17 @@ impl DaemonState {
                 wideband_rate
             );
         }
+        if spec.kind == PipelineKind::AdsbPackets {
+            let decimation = wideband_rate / spec.channel_sample_rate_hz;
+            let expected_source_rate = u64::from(spec.channel_sample_rate_hz)
+                .checked_mul(u64::from(decimation))
+                .ok_or_else(|| anyhow!("ADS-B source-rate calculation overflowed"))?;
+            if u64::from(wideband_rate) != expected_source_rate {
+                anyhow::bail!(
+                    "ADS-B cannot produce an exact 2.4 MHz clock from source rate {wideband_rate} Hz with integer decimation {decimation}; expected {expected_source_rate} Hz"
+                );
+            }
+        }
         if spec.kind == PipelineKind::Audio {
             let decimation = (wideband_rate / spec.channel_sample_rate_hz).max(1);
             let rate = f64::from(wideband_rate) / f64::from(decimation);
@@ -511,12 +522,14 @@ impl DaemonState {
             }
             PipelineKind::AdsbPackets => {
                 let (internal_id, input) = self.add_virtual_channel(&spec)?;
-                let sample_rate_hz = self
-                    .channelizer
-                    .lock()
-                    .channel_output_rate_hz(internal_id)
-                    .unwrap_or(spec.channel_sample_rate_hz);
-                let mut packet_pipeline = PacketPipeline::new(input, sample_rate_hz);
+                let mut packet_pipeline =
+                    match PacketPipeline::new(input, spec.channel_sample_rate_hz) {
+                        Ok(pipeline) => pipeline,
+                        Err(error) => {
+                            self.channelizer.lock().remove_channel(internal_id);
+                            return Err(error);
+                        }
+                    };
                 packet_pipeline.set_receiver_position(*self.receiver_position.lock());
                 let pipeline = Arc::new(Mutex::new(packet_pipeline));
                 let (running, _thread) =
@@ -967,6 +980,12 @@ mod tests {
         DaemonState::new(bus, hardware, 100_000_000, 2_000_000, dir)
     }
 
+    fn test_state_at_rate(sample_rate_hz: u32) -> DaemonState {
+        let state = test_state();
+        state.set_sample_rate(sample_rate_hz).unwrap();
+        state
+    }
+
     fn audio_spec(id: ChannelId, offset_hz: i64) -> ChannelSpec {
         ChannelSpec {
             audio: None,
@@ -976,6 +995,18 @@ mod tests {
             channel_sample_rate_hz: 200_000,
             kind: PipelineKind::Audio,
             demod_mode: Some(DemodMode::Fm),
+        }
+    }
+
+    fn adsb_spec(id: ChannelId) -> ChannelSpec {
+        ChannelSpec {
+            audio: None,
+            meteor_profile: None,
+            id,
+            center_offset_hz: 0,
+            channel_sample_rate_hz: 2_400_000,
+            kind: PipelineKind::AdsbPackets,
+            demod_mode: None,
         }
     }
 
@@ -1288,6 +1319,93 @@ mod tests {
         assert!(state.subscribe(bad).is_err());
         // Nothing was allocated for the rejected requests.
         assert_eq!(state.active_channels().len(), 0);
+    }
+
+    #[test]
+    fn adsb_accepts_only_exact_integer_decimation_clocks_before_tap_allocation() {
+        for (source_rate, accepted) in [
+            (2_400_000, true),
+            (4_800_000, true),
+            (3_200_000, false),
+            (4_800_001, false),
+        ] {
+            let state = test_state_at_rate(source_rate);
+            let result = state.subscribe(adsb_spec(51));
+            assert_eq!(result.is_ok(), accepted, "source rate {source_rate}");
+
+            if accepted {
+                let channel = state.channels.lock();
+                let active = channel.get(&51).expect("accepted channel is active");
+                let internal_id = active.internal_channel_id.expect("ADS-B uses a tap");
+                assert_eq!(
+                    state.channelizer.lock().channel_output_rate_hz(internal_id),
+                    Some(2_400_000),
+                    "source rate {source_rate}"
+                );
+            } else {
+                let error = result
+                    .err()
+                    .expect("incompatible ADS-B source clock rejected");
+                assert!(error.to_string().contains("exact 2.4 MHz clock"));
+                assert!(state.active_channels().is_empty());
+                assert_eq!(state.channelizer.lock().channel_count(), 0);
+            }
+        }
+
+        let state = test_state();
+        let mut zero_rate = adsb_spec(52);
+        zero_rate.channel_sample_rate_hz = 0;
+        assert!(state.subscribe(zero_rate).is_err());
+        assert!(state.subscribe(adsb_spec(53)).is_err()); // 2.0 MHz source is too narrow.
+        assert_eq!(state.channelizer.lock().channel_count(), 0);
+    }
+
+    #[test]
+    fn adsb_pipeline_construction_failure_removes_its_allocated_tap() {
+        let state = test_state_at_rate(4_800_000);
+        let mut incompatible = adsb_spec(55);
+        incompatible.channel_sample_rate_hz = 3_200_000;
+
+        let error = state
+            .create_channel(incompatible)
+            .err()
+            .expect("invalid packet decoder construction should fail");
+        assert!(error.to_string().contains("configured 2.4 MHz sample rate"));
+        assert!(state.active_channels().is_empty());
+        assert_eq!(state.channelizer.lock().channel_count(), 0);
+    }
+
+    #[test]
+    fn invalid_adsb_retune_preserves_spec_tap_and_active_recording() {
+        let state = test_state_at_rate(4_800_000);
+        let (subscription, created) = state.subscribe(adsb_spec(54)).unwrap();
+        assert!(created);
+        let spec_before = state.active_channels()[0].clone();
+        let internal_id = state
+            .channels
+            .lock()
+            .get(&54)
+            .and_then(|active| active.internal_channel_id)
+            .expect("ADS-B tap is live");
+        let rate_before = state.channelizer.lock().channel_output_rate_hz(internal_id);
+        let recording_before = state
+            .start_recording(54, RecordingFormat::Cf32)
+            .expect("recording should start");
+
+        let error = state.retune(54, 0, 3_200_000).unwrap_err();
+        assert!(error.to_string().contains("requires exactly 2.4 MHz"));
+        assert_eq!(state.active_channels(), vec![spec_before]);
+        assert_eq!(state.channelizer.lock().channel_count(), 1);
+        assert_eq!(
+            state.channelizer.lock().channel_output_rate_hz(internal_id),
+            rate_before
+        );
+        let recording_after = state.recording_status(54).unwrap();
+        assert!(recording_after.active);
+        assert_eq!(recording_after.path, recording_before.path);
+
+        state.stop_recording(54).unwrap();
+        drop(subscription);
     }
 
     #[test]
