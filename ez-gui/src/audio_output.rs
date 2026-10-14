@@ -247,6 +247,21 @@ fn choose_stream_config(
         .ok_or_else(|| format!("Audio output does not support {rate} Hz with F32, I16, or U16 samples. Choose a supported rate."))
 }
 
+/// Bound playback latency instead of accepting a server-sized buffer (the
+/// PulseAudio default can queue seconds of old radio audio). A callback period
+/// near 10 ms gives that backend a roughly 20 ms double-buffer target.
+#[cfg(feature = "audio")]
+fn playback_stream_config(supported: &cpal::SupportedStreamConfig) -> cpal::StreamConfig {
+    let mut config: cpal::StreamConfig = (*supported).into();
+    if let cpal::SupportedBufferSize::Range { min, max } = *supported.buffer_size() {
+        if max >= min && max > 0 {
+            let frames = (config.sample_rate / 100).max(1).next_power_of_two();
+            config.buffer_size = cpal::BufferSize::Fixed(frames.clamp(min.max(1), max));
+        }
+    }
+    config
+}
+
 #[cfg(feature = "audio")]
 struct AudioBuffer {
     input: AudioInputReceiver,
@@ -400,9 +415,7 @@ fn create_cpal_stream(
         .map_err(|error| format!("{device}: {error}"))?;
     let sample_rate = supported.sample_rate();
     let format = supported.sample_format();
-    let config: cpal::StreamConfig = supported.into();
-    // Use the device's supported buffer configuration. The separate timeout
-    // in build_output_stream only bounds backend initialization.
+    let config = playback_stream_config(&supported);
     let stream = match format {
         cpal::SampleFormat::F32 => build_output_stream::<f32>(
             &device,
@@ -836,6 +849,117 @@ impl AudioOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "audio")]
+    #[test]
+    fn playback_buffer_tracks_rate_and_respects_device_limits() {
+        let config = |rate, buffer| {
+            cpal::SupportedStreamConfig::new(2, rate, buffer, cpal::SampleFormat::F32)
+        };
+        for (rate, frames) in [(8_000, 128), (44_100, 512), (48_000, 512), (192_000, 2048)] {
+            let supported = config(
+                rate,
+                cpal::SupportedBufferSize::Range { min: 64, max: 4096 },
+            );
+            assert_eq!(
+                playback_stream_config(&supported).buffer_size,
+                cpal::BufferSize::Fixed(frames)
+            );
+        }
+        for (min, max, expected) in [(1024, 2048, 1024), (64, 256, 256)] {
+            let supported = config(48_000, cpal::SupportedBufferSize::Range { min, max });
+            assert_eq!(
+                playback_stream_config(&supported).buffer_size,
+                cpal::BufferSize::Fixed(expected)
+            );
+        }
+        let supported = config(48_000, cpal::SupportedBufferSize::Unknown);
+        assert_eq!(
+            playback_stream_config(&supported).buffer_size,
+            cpal::BufferSize::Default
+        );
+    }
+
+    #[cfg(all(feature = "audio", target_os = "linux"))]
+    #[test]
+    #[ignore = "compares real shared PulseAudio/PipeWire playback latency with silence"]
+    fn silent_real_driver_compares_default_and_bounded_playback_latency() {
+        use std::time::{Duration, Instant};
+        assert_eq!(std::env::var("EZ_AUDIT_SILENT_AUDIO").as_deref(), Ok("1"));
+        let host = preferred_host().unwrap();
+        assert_eq!(host.id(), HostId::PulseAudio);
+        let device = host.default_output_device().unwrap();
+        let supported = device
+            .supported_output_configs()
+            .unwrap()
+            .find(|range| {
+                range.channels() == 2
+                    && range.sample_format() == cpal::SampleFormat::F32
+                    && range.contains_rate(48_000)
+            })
+            .unwrap()
+            .with_sample_rate(48_000);
+        let mut cases = Vec::new();
+        for (name, config) in [
+            ("server-default", supported.into()),
+            ("bounded", playback_stream_config(&supported)),
+        ] {
+            let observations = Arc::new(Mutex::new(Vec::new()));
+            let callback_observations = Arc::clone(&observations);
+            let (error_tx, error_rx) = crossbeam_channel::bounded(4);
+            let stream = device
+                .build_output_stream(
+                    config,
+                    move |samples: &mut [f32], info: &cpal::OutputCallbackInfo| {
+                        samples.fill(0.0);
+                        let time = info.timestamp();
+                        let latency_us =
+                            time.playback.duration_since(time.callback).as_micros() as u64;
+                        let mut observations = callback_observations.lock().unwrap();
+                        if observations.len() < 256 {
+                            observations.push((samples.len() / 2, latency_us));
+                        }
+                    },
+                    move |error| {
+                        let _ = error_tx.try_send(error.to_string());
+                    },
+                    Some(STREAM_INITIALIZATION_TIMEOUT),
+                )
+                .unwrap();
+            stream.play().unwrap();
+            let started = Instant::now();
+            std::thread::sleep(Duration::from_millis(600));
+            assert!(
+                error_rx.is_empty(),
+                "audio driver errors: {:?}",
+                error_rx.try_iter().collect::<Vec<_>>()
+            );
+            let actual_callback_frames = stream.buffer_size().unwrap();
+            drop(stream);
+            let observations = observations.lock().unwrap();
+            assert!(!observations.is_empty());
+            let mut latency: Vec<_> = observations.iter().map(|o| o.1).collect();
+            latency.sort_unstable();
+            let median = latency[latency.len() / 2];
+            if name == "bounded" {
+                assert!(
+                    actual_callback_frames <= 1024,
+                    "oversized callback: {actual_callback_frames}"
+                );
+                assert!(
+                    median < 200_000,
+                    "reported playback latency remained too high: {median} us"
+                );
+            }
+            cases.push(serde_json::json!({"case":name,"callback_frames":actual_callback_frames,
+                "callbacks":observations.len(),"reported_latency_p50_us":median,
+                "reported_latency_max_us":latency.last(),"elapsed_ms":started.elapsed().as_millis(),"silence_only":true}));
+        }
+        println!(
+            "RADIO_PLAYBACK_LATENCY {}",
+            serde_json::json!({"sample_rate_hz":48000,"cases":cases})
+        );
+    }
 
     /// Exercise shared PulseAudio/PipeWire with silence only. This verifies
     /// driver ownership and callbacks, not acoustic output or RF performance.

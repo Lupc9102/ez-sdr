@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "callback_frames": 960,
+      "callbacks": 15,
+      "case": "server-default",
+      "elapsed_ms": 606,
+      "reported_latency_max_us": 2005078,
+      "reported_latency_p50_us": 2004289,
+      "silence_only": true
+    },
+    {
+      "callback_frames": 512,
+      "callbacks": 52,
+      "case": "bounded",
+      "elapsed_ms": 605,
+      "reported_latency_max_us": 38487,
+      "reported_latency_p50_us": 36296,
+      "silence_only": true
+    }
+  ],
+  "sample_rate_hz": 48000
+}
