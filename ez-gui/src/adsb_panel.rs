@@ -75,7 +75,7 @@ pub struct AdsBPanel {
     info_inflight: Arc<std::sync::RwLock<std::collections::HashSet<u32>>>,
 }
 
-/// Mode S is decoded locally; UAT reports come from dump978-fa's JSON TCP feed.
+/// Mode S and native UAT are decoded locally; dump978-fa JSON remains an optional UAT input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdsbRegion {
     ModeS1090,
@@ -109,7 +109,7 @@ impl AdsbRegion {
     pub fn sample_rate_hz(self) -> u32 {
         match self {
             Self::ModeS1090 => 2_400_000,
-            // FlightAware dump978's receive rate (external decoder owns tuning).
+            // Exact native UAT decoder clock; also accepted by dump978-fa.
             Self::Uat978 => 2_083_333,
         }
     }

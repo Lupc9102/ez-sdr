@@ -373,6 +373,16 @@ impl RecorderPanel {
         }
     }
 
+    pub(crate) fn failure_message(&self) -> Option<&str> {
+        (self.recording_failure && !self.last_error.is_empty()).then_some(&self.last_error)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_inject_failure(&mut self, message: impl Into<String>) {
+        self.recording_failure = true;
+        self.last_error = message.into();
+    }
+
     #[cfg(test)]
     fn new_direct(shared: Arc<Mutex<SharedState>>) -> Self {
         let mut panel = Self::new(shared);

@@ -1311,7 +1311,7 @@ impl CentralApp {
                 Some(ez_proto::ServerEvent::Error { message }) => {
                     self.runtime_error_serial = self.runtime_error_serial.wrapping_add(1);
                     self.runtime_last_error.clone_from(&message);
-                    self.status_bar.warning(format!("⚠ {message}"));
+                    self.status_bar.error(format!("Daemon: {message}"));
                 }
                 Some(ez_proto::ServerEvent::Squelch { .. }) => {
                     crate::radio_ui::sync_squelch_level(&mut state);
@@ -1342,6 +1342,8 @@ impl CentralApp {
                         .collect();
                 }
                 Some(ez_proto::ServerEvent::Welcome { .. }) => {
+                    self.runtime_last_error.clear();
+                    self.status_bar.clear_if_current_prefix("Daemon:");
                     self.decoding_panel.clear_daemon_telemetry();
                 }
                 Some(ez_proto::ServerEvent::Telemetry(frame)) => {
@@ -1861,7 +1863,7 @@ impl eframe::App for CentralApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         }
         if let Some(error) = self.audio.take_error() {
-            self.status_bar.warning(format!(
+            self.status_bar.error(format!(
                 "Audio: {error}. Stop and restart the receiver to retry."
             ));
         }
@@ -2215,6 +2217,7 @@ impl eframe::App for CentralApp {
                     crate::secondary_panel::render_setup_guide(
                         &mut self.quick_start,
                         &self.shared,
+                        &self.config_path,
                         ui,
                     )
                 });
@@ -2259,11 +2262,20 @@ impl eframe::App for CentralApp {
         // Humanized status strip: frequency, mode, plain-language signal, REC.
         // Declared before the central mode content (egui requires side panels
         // to precede the CentralPanel).
-        if self.current_tab != AppTab::Listen {
-            egui::Panel::bottom("status_strip")
-                .exact_size(26.0)
-                .show(ui, |ui| self.render_status_strip(ui));
-        }
+        self.status_bar.update();
+        let shared_alert = self.shared.try_lock().is_ok_and(|state| {
+            state.config.save_error.is_some()
+                || matches!(
+                    &state.source.status,
+                    crate::source_manager::SourceStatus::Error(_)
+                )
+        });
+        let has_alert = self.status_bar.current().is_some()
+            || shared_alert
+            || self.recorder_panel.failure_message().is_some();
+        egui::Panel::bottom("status_strip")
+            .exact_size(if has_alert { 64.0 } else { 26.0 })
+            .show(ui, |ui| self.render_status_strip(ui));
 
         match self.current_tab {
             AppTab::Listen => self.render_sdr_tab(ui, &snapshot),
@@ -2510,6 +2522,9 @@ impl CentralApp {
             if let crate::web_remote::ListenerState::Failed(error) = &web.state {
                 self.status_bar
                     .error(format!("Web Remote listener failed: {error}"));
+            } else {
+                self.status_bar
+                    .clear_if_current_prefix("Web Remote listener failed:");
             }
             self.last_web_remote_status = Some(web);
         }
@@ -2519,6 +2534,9 @@ impl CentralApp {
             if let crate::web_remote::ListenerState::Failed(error) = &rigctl.state {
                 self.status_bar
                     .error(format!("rigctl listener failed: {error}"));
+            } else {
+                self.status_bar
+                    .clear_if_current_prefix("rigctl listener failed:");
             }
             self.last_rigctl_status = Some(rigctl);
         }
@@ -2536,12 +2554,13 @@ impl CentralApp {
             Ok(()) => {
                 self.recorder_panel
                     .set_audio_sample_rate(self.audio.sample_rate());
+                self.status_bar.clear_if_current_prefix("Audio:");
                 self.demod_worker.request_reset();
             }
             Err(error) => {
                 self.audio.mark_failed();
                 let _ = self.audio.take_error();
-                self.status_bar.warning(format!(
+                self.status_bar.error(format!(
                     "Audio: {error}. Stop and restart the receiver to retry."
                 ));
             }
@@ -2561,38 +2580,61 @@ impl CentralApp {
     }
 
     /// Bottom status strip: plain-language summary of what's happening —
-    /// frequency, demod mode, signal strength word, and the REC indicator,
-    /// ending with the latest transient status flash.
+    /// the active workspace summary and shared actionable errors.
     fn render_status_strip(&mut self, ui: &mut egui::Ui) {
-        if let Some(error) = self
+        let (save_error, source_error) = self
             .try_lock_shared("settings save feedback")
-            .and_then(|state| state.config.save_error.clone())
-        {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            .map(|state| {
+                let source_error = match &state.source.status {
+                    crate::source_manager::SourceStatus::Error(error) => Some(error.clone()),
+                    _ => None,
+                };
+                (state.config.save_error.clone(), source_error)
+            })
+            .unwrap_or_default();
+        let recording_error = self.recorder_panel.failure_message().map(str::to_owned);
+        let workspace = self.current_tab;
+        let meteor_status = if self.meteor_decoder.running {
+            "Decoding recording"
+        } else {
+            "Meteor · live and recording decoder"
+        };
+        let aircraft_status = self.adsb_panel.receiver_status();
+        let aircraft_count = self.adsb_panel.aircraft.len();
+        let mut state_errors = Vec::new();
+        if let Some(error) = save_error {
+            state_errors.push(error);
         }
-        match self.current_tab {
-            AppTab::Meteor => {
-                ui.horizontal(|ui| {
-                    ui.label(if self.meteor_decoder.running {
-                        "Decoding recording"
-                    } else {
-                        "Meteor · live and recording decoder"
-                    });
-                    if let Some(message) = self.status_bar.current() {
-                        ui.separator();
-                        ui.label(&message.text);
-                    }
-                });
-            }
-            AppTab::Planes => {
-                ui.horizontal(|ui| {
-                    ui.label(self.adsb_panel.receiver_status());
+        if let Some(error) = source_error {
+            state_errors.push(format!("Receiver: {error}"));
+        }
+        if let Some(error) = recording_error {
+            state_errors.push(format!("Recording: {error}"));
+        }
+        let state_errors = state_errors.join(" · ");
+        let status_bar = &mut self.status_bar;
+        let shared = &self.shared;
+        ui.vertical(|ui| {
+            ui.horizontal_wrapped(|ui| match workspace {
+                AppTab::Meteor => {
+                    ui.label(meteor_status);
+                }
+                AppTab::Planes => {
+                    ui.label(aircraft_status);
                     ui.separator();
-                    ui.label(format!("{} aircraft", self.adsb_panel.aircraft.len()));
+                    ui.label(format!("{aircraft_count} aircraft"));
+                }
+                _ => {
+                    status_bar.render_strip(ui, shared);
+                }
+            });
+            if !state_errors.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(ui.visuals().error_fg_color, state_errors);
                 });
             }
-            _ => self.status_bar.render_strip(ui, &self.shared),
-        }
+            status_bar.render_alert(ui);
+        });
     }
 
     fn render_sdr_tab(&mut self, ui: &mut egui::Ui, snapshot: &Option<SharedSnapshot>) {

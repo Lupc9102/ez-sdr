@@ -75,6 +75,15 @@ impl StatusBar {
             self.message_history.remove(0);
         }
 
+        // Keep a persistent failure visible while routine notifications arrive.
+        // The user can dismiss it from the shared status surface.
+        if self.current_message.as_ref().is_some_and(|current| {
+            current.severity == StatusSeverity::Error
+                && current.duration == Duration::MAX
+                && severity != StatusSeverity::Error
+        }) {
+            return;
+        }
         self.current_message = Some(message);
     }
 
@@ -93,9 +102,9 @@ impl StatusBar {
         self.show(text, StatusSeverity::Warning, Duration::from_secs(5));
     }
 
-    /// Show error message (default 10 seconds).
+    /// Show a persistent error until the user dismisses it or another error replaces it.
     pub fn error(&mut self, text: String) {
-        self.show(text, StatusSeverity::Error, Duration::from_secs(10));
+        self.show(text, StatusSeverity::Error, Duration::MAX);
     }
 
     /// Update status bar (check expiry).
@@ -122,6 +131,35 @@ impl StatusBar {
         self.current_message = None;
     }
 
+    pub fn clear_if_current_prefix(&mut self, prefix: &str) {
+        if self
+            .current_message
+            .as_ref()
+            .is_some_and(|message| message.text.starts_with(prefix))
+        {
+            self.clear();
+        }
+    }
+
+    /// Render the latest visible alert on the shared workspace status surface.
+    pub fn render_alert(&mut self, ui: &mut egui::Ui) {
+        self.update();
+        let Some(message) = self.current_message.clone() else {
+            return;
+        };
+        let mut dismiss = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(message.severity.icon());
+            ui.colored_label(message.severity.color(), &message.text);
+            if message.severity == StatusSeverity::Error && ui.small_button("Dismiss").clicked() {
+                dismiss = true;
+            }
+        });
+        if dismiss {
+            self.clear();
+        }
+    }
+
     /// Render status bar UI.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.update();
@@ -131,16 +169,16 @@ impl StatusBar {
                 ui.label(msg.severity.icon());
                 ui.colored_label(msg.severity.color(), &msg.text);
 
-                // Progress bar for remaining time
-                let elapsed = msg.created_at.elapsed().as_secs_f32();
-                let total = msg.duration.as_secs_f32();
-                let remaining = (1.0 - (elapsed / total)).max(0.0);
-
-                ui.add(
-                    egui::ProgressBar::new(remaining)
-                        .desired_width(50.0)
-                        .show_percentage(),
-                );
+                if msg.severity != StatusSeverity::Error {
+                    let elapsed = msg.created_at.elapsed().as_secs_f32();
+                    let total = msg.duration.as_secs_f32();
+                    let remaining = (1.0 - (elapsed / total)).max(0.0);
+                    ui.add(
+                        egui::ProgressBar::new(remaining)
+                            .desired_width(50.0)
+                            .show_percentage(),
+                    );
+                }
             });
         }
     }
@@ -183,17 +221,6 @@ impl StatusBar {
             if state.recording {
                 ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "● REC");
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(msg) = self.current() {
-                    if msg.created_at.elapsed() < msg.duration {
-                        ui.label(
-                            egui::RichText::new(&msg.text)
-                                .small()
-                                .color(msg.severity.color()),
-                        );
-                    }
-                }
-            });
         });
     }
 }
@@ -246,5 +273,17 @@ mod tests {
         }
 
         assert_eq!(bar.history().len(), 5);
+    }
+
+    #[test]
+    fn persistent_error_survives_routine_messages_until_dismissed() {
+        let mut bar = StatusBar::new();
+        bar.error("listener failed".into());
+        bar.info("tuned to 100 MHz".into());
+        assert_eq!(bar.current().unwrap().text, "listener failed");
+        assert_eq!(bar.current().unwrap().duration, Duration::MAX);
+        bar.clear();
+        bar.info("receiver ready".into());
+        assert_eq!(bar.current().unwrap().text, "receiver ready");
     }
 }

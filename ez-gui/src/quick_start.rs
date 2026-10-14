@@ -64,7 +64,7 @@ impl Workflow {
         match self {
             Workflow::FmRadio => "Listen to local FM radio stations (88-108 MHz)",
             Workflow::Aircraft => {
-                "Track nearby aircraft using 1090ES ADS-B (978 MHz UAT requires external dump978-fa)"
+                "Track nearby aircraft using 1090ES ADS-B or native 978 MHz UAT IQ at 2,083,333 samples/s; dump978-fa JSON is optional"
             }
             Workflow::MeteorLrpt => "Decode an existing Meteor LRPT recording (.cs8 or .cf32)",
             Workflow::HamRadio => "Monitor amateur radio bands (HF/VHF/UHF)",
@@ -74,18 +74,26 @@ impl Workflow {
 
     /// Configure a workflow and persist completion. Meteor leaves the source alone.
     pub fn apply(&self, shared: &Arc<Mutex<SharedState>>) -> Result<(), String> {
-        self.apply_with_source(shared, None)
+        self.apply_with_source_at(shared, None, std::path::Path::new("ez_sdr_config.json"))
     }
 
-    fn apply_with_source(
+    fn apply_with_source_at(
         &self,
         shared: &Arc<Mutex<SharedState>>,
         selected_source: Option<crate::source_manager::SourceMode>,
+        save_path: &std::path::Path,
     ) -> Result<(), String> {
         let mut state = shared.lock().map_err(|_| "Failed to lock state")?;
         self.configure_state(&mut state, selected_source);
-        state.config.save();
-        Ok(())
+        if state.config.save_with_feedback(save_path) {
+            Ok(())
+        } else {
+            Err(state
+                .config
+                .save_error
+                .clone()
+                .unwrap_or_else(|| "Could not save workflow settings".into()))
+        }
     }
 
     /// Apply in-memory setup separately from persistence so the offline contract
@@ -155,6 +163,7 @@ pub struct QuickStartWizard {
     pub state: QuickStartState,
     selected_source: Option<crate::source_manager::SourceMode>,
     selected_workflow: Option<Workflow>,
+    apply_error: Option<String>,
 }
 
 impl Default for QuickStartWizard {
@@ -163,6 +172,7 @@ impl Default for QuickStartWizard {
             state: QuickStartState::Inactive,
             selected_source: None,
             selected_workflow: None,
+            apply_error: None,
         }
     }
 }
@@ -174,11 +184,13 @@ impl QuickStartWizard {
 
     /// Start the wizard.
     pub fn start(&mut self) {
+        self.apply_error = None;
         self.state = QuickStartState::Welcome;
     }
 
     /// Dismiss the wizard.
     pub fn dismiss(&mut self) {
+        self.apply_error = None;
         self.state = QuickStartState::Inactive;
     }
 
@@ -199,21 +211,26 @@ impl QuickStartWizard {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.set_min_width(500.0);
-                self.render_content(ui, shared);
+                self.render_content(ui, shared, std::path::Path::new("ez_sdr_config.json"));
             });
     }
 
     /// Render the wizard steps into an existing UI. Used by the Setup Guide
     /// utility window so the guided workflow lives inside that window instead
     /// of a nested pop-up.
-    pub fn render_content(&mut self, ui: &mut egui::Ui, shared: &Arc<Mutex<SharedState>>) {
+    pub fn render_content(
+        &mut self,
+        ui: &mut egui::Ui,
+        shared: &Arc<Mutex<SharedState>>,
+        save_path: &std::path::Path,
+    ) {
         match &self.state {
             QuickStartState::Inactive => {}
             QuickStartState::Welcome => self.ui_welcome(ui),
             QuickStartState::DeviceSelection => self.ui_device_selection(ui, shared),
             QuickStartState::WorkflowSelection => self.ui_workflow_selection(ui),
             QuickStartState::WorkflowConfiguration(workflow) => {
-                self.ui_workflow_config(ui, shared, *workflow)
+                self.ui_workflow_config(ui, shared, *workflow, save_path)
             }
             QuickStartState::Complete => self.ui_complete(ui),
         }
@@ -363,6 +380,7 @@ impl QuickStartWizard {
                 .clicked()
             {
                 if let Some(workflow) = self.selected_workflow {
+                    self.apply_error = None;
                     self.state = QuickStartState::WorkflowConfiguration(workflow);
                 }
             }
@@ -374,6 +392,7 @@ impl QuickStartWizard {
         ui: &mut egui::Ui,
         shared: &Arc<Mutex<SharedState>>,
         workflow: Workflow,
+        save_path: &std::path::Path,
     ) {
         ui.heading(format!("Configure: {}", workflow.label()));
         ui.add_space(20.0);
@@ -401,8 +420,9 @@ impl QuickStartWizard {
                     ui.label("• Gain: 40 dB");
                 }
                 Workflow::Aircraft => {
-                    ui.label("• Frequency: 1090 MHz (1090ES ADS-B; 978 MHz UAT uses external dump978-fa)");
-                    ui.label("• Sample rate: 2.4 MSps");
+                    ui.label("• 1090ES: 1090 MHz at 2.4 MS/s");
+                    ui.label("• Native UAT: 978 MHz at exactly 2,083,333 samples/s");
+                    ui.label("• Optional compatibility input: dump978-fa direct JSON feed");
                     ui.label("• Mode: RAW (for Mode-S decoding)");
                     ui.label("• Gain: 49 dB (max)");
                 }
@@ -426,25 +446,45 @@ impl QuickStartWizard {
             }
         });
 
+        if let Some(error) = &self.apply_error {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+            ui.label("Your workflow settings remain available for this session. Fix the save destination or permissions, then retry.");
+        }
+
         ui.add_space(30.0);
 
         ui.horizontal(|ui| {
             if ui.button("← Back").clicked() {
+                self.apply_error = None;
                 self.state = QuickStartState::WorkflowSelection;
             }
             ui.add_space(20.0);
-            let apply_label = if workflow == Workflow::MeteorLrpt {
+            let apply_label = if self.apply_error.is_some() {
+                "Retry Save & Finish →"
+            } else if workflow == Workflow::MeteorLrpt {
                 "Finish Offline Setup →"
             } else {
                 "Apply Configuration →"
             };
             if ui.button(apply_label).clicked() {
-                if let Err(e) = workflow.apply_with_source(shared, self.selected_source.clone()) {
-                    eprintln!("Failed to apply workflow config: {}", e);
-                }
-                self.state = QuickStartState::Complete;
+                self.apply_workflow(shared, workflow, save_path);
             }
         });
+    }
+
+    fn apply_workflow(
+        &mut self,
+        shared: &Arc<Mutex<SharedState>>,
+        workflow: Workflow,
+        save_path: &std::path::Path,
+    ) {
+        match workflow.apply_with_source_at(shared, self.selected_source.clone(), save_path) {
+            Ok(()) => {
+                self.apply_error = None;
+                self.state = QuickStartState::Complete;
+            }
+            Err(error) => self.apply_error = Some(error),
+        }
     }
 
     fn ui_complete(&mut self, ui: &mut egui::Ui) {
@@ -564,6 +604,93 @@ mod tests {
             assert!(!workflow.description().is_empty());
             assert!(!workflow.icon().is_empty());
         }
+    }
+
+    #[test]
+    fn aircraft_workflow_describes_native_uat_and_optional_json_compatibility() {
+        let description = Workflow::Aircraft.description();
+        assert!(description.contains("978 MHz"));
+        assert!(description.contains("2,083,333 samples/s"));
+        assert!(description.contains("dump978-fa JSON is optional"));
+        assert_eq!(
+            crate::adsb_panel::AdsbRegion::Uat978.frequency_hz(),
+            978_000_000
+        );
+        assert_eq!(
+            crate::adsb_panel::AdsbRegion::Uat978.sample_rate_hz(),
+            2_083_333
+        );
+    }
+
+    #[test]
+    fn failed_workflow_save_stays_retryable_until_persistence_succeeds() {
+        let shared = crate::test_helpers::make_shared_state();
+        let directory = std::env::temp_dir().join(format!(
+            "ez-quick-start-save-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settings.json");
+        std::fs::create_dir_all(&path).unwrap();
+
+        let mut wizard = QuickStartWizard::new();
+        wizard.state = QuickStartState::WorkflowConfiguration(Workflow::Aircraft);
+        wizard.apply_workflow(&shared, Workflow::Aircraft, &path);
+        assert!(matches!(
+            wizard.state,
+            QuickStartState::WorkflowConfiguration(Workflow::Aircraft)
+        ));
+        assert!(wizard
+            .apply_error
+            .as_deref()
+            .is_some_and(|error| error.contains("Could not save settings")));
+        let ctx = egui::Context::default();
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 900.0),
+                )),
+                ..Default::default()
+            },
+            |ui| wizard.render_content(ui, &shared, &path),
+        );
+        fn gather(shape: &egui::Shape, text: &mut String) {
+            match shape {
+                egui::Shape::Text(shape) => text.push_str(shape.galley.text()),
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| gather(shape, text)),
+                _ => {}
+            }
+        }
+        let mut rendered = String::new();
+        output
+            .shapes
+            .iter()
+            .for_each(|shape| gather(&shape.shape, &mut rendered));
+        assert!(rendered.contains("Could not save settings"), "{rendered}");
+        assert!(rendered.contains("Retry Save & Finish"), "{rendered}");
+        assert!(rendered.contains("Fix the save destination"), "{rendered}");
+        {
+            let state = shared.lock().unwrap();
+            assert_eq!(state.config.default_freq_hz, 1_090_000_000);
+            assert_eq!(
+                state.source.status,
+                crate::source_manager::SourceStatus::Idle
+            );
+            assert_eq!(state.source.stream_generation(), 0);
+        }
+
+        std::fs::remove_dir(&path).unwrap();
+        wizard.apply_workflow(&shared, Workflow::Aircraft, &path);
+        assert_eq!(wizard.state, QuickStartState::Complete);
+        assert!(wizard.apply_error.is_none());
+        let saved: crate::config::AppConfig =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.default_freq_hz, 1_090_000_000);
+        assert!(saved.quick_start_completed);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[test]

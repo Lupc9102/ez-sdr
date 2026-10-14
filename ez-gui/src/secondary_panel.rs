@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 pub fn render_setup_guide(
     quick_start: &mut QuickStartWizard,
     shared: &Arc<Mutex<SharedState>>,
+    save_path: &std::path::Path,
     ui: &mut egui::Ui,
 ) {
     egui::ScrollArea::vertical()
@@ -15,7 +16,7 @@ pub fn render_setup_guide(
             if !quick_start.is_active() {
                 quick_start.start();
             }
-            quick_start.render_content(ui, shared);
+            quick_start.render_content(ui, shared, save_path);
         });
 }
 

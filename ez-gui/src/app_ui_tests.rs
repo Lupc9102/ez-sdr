@@ -2452,6 +2452,7 @@ fn occupied_web_remote_port_is_visible_in_settings_and_status_surface() {
     };
     let output = ctx.run_ui(input, |ui| {
         app.status_bar.render_strip(ui, &app.shared);
+        app.status_bar.render_alert(ui);
         crate::secondary_panel::render_settings(
             &app.shared,
             &app.mqtt,
@@ -2467,6 +2468,40 @@ fn occupied_web_remote_port_is_visible_in_settings_and_status_surface() {
     assert!(text.contains("Failed"), "{text}");
     assert!(text.contains(&port.to_string()), "{text}");
     assert!(text.contains("Web Remote listener failed"), "{text}");
+}
+
+#[test]
+fn shared_failure_surface_renders_on_radio_adsb_and_meteor() {
+    let mut app = offline_test_app();
+    app.status_bar
+        .error("Audio output unavailable · Daemon control failed".into());
+    app.recorder_panel
+        .test_inject_failure("Recording finalization failed");
+    {
+        let mut state = app.shared.lock().unwrap();
+        state.config.save_error = Some("Could not save settings to test path".into());
+        state.source.status =
+            crate::source_manager::SourceStatus::Error("daemon connection lost".into());
+    }
+    let ctx = egui::Context::default();
+    let mut frame = eframe::Frame::_new_kittest();
+    for tab in [AppTab::Listen, AppTab::Planes, AppTab::Meteor] {
+        app.current_tab = tab;
+        let output = render_app_ui(&mut app, &ctx, &mut frame);
+        let text = rendered_text(&output);
+        assert!(text.contains("Audio output unavailable"), "{tab:?}: {text}");
+        assert!(
+            text.contains("Recording finalization failed"),
+            "{tab:?}: {text}"
+        );
+        assert!(text.contains("Could not save settings"), "{tab:?}: {text}");
+        assert!(text.contains("daemon connection lost"), "{tab:?}: {text}");
+        if tab == AppTab::Planes {
+            assert!(text.contains("Mode S · local decoder"), "{text}");
+            assert!(text.contains("0 aircraft"), "{text}");
+            assert!(text.contains("© OpenStreetMap contributors"), "{text}");
+        }
+    }
 }
 
 #[test]
