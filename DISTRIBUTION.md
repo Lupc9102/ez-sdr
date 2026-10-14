@@ -22,6 +22,14 @@ supported receiver and make it accessible to the current user. Audio can use
 ALSA or a PulseAudio-compatible service such as PulseAudio or PipeWire's
 PulseAudio server.
 
+On Linux, settings are stored under `${XDG_CONFIG_HOME:-~/.config}/ez-sdr`,
+bookmarks and signal history under `${XDG_DATA_HOME:-~/.local/share}/ez-sdr`,
+map tiles under `${XDG_CACHE_HOME:-~/.cache}/ez-sdr/tile_cache`, and default
+recordings under the data directory's `recordings/` folder. Relative XDG roots
+are ignored in favor of the HOME-based location. These paths are independent of
+the launch directory; migrated replay and custom recording paths keep their old
+location.
+
 ## Windows x86_64
 
 Use either the portable ZIP or the `-setup.exe` installer. The installer adds
@@ -39,6 +47,16 @@ place. Relative replay paths and custom recording locations retain their origina
 base; the default `./recordings` folder now lives under the per-user directory.
 Settings write failures are shown in Settings and the status strip. If the
 per-user folder cannot be prepared, a startup error window explains the failure.
+
+## macOS data locations
+
+The GUI stores settings, bookmarks, signal history and default recordings in
+`~/Library/Application Support/EZ-SDR`; map tiles use
+`~/Library/Caches/EZ-SDR/tile_cache`. These paths are independent of whether the
+app was launched from Finder or a terminal. Relative replay and custom recording
+paths from a portable configuration are anchored to the original launch folder
+when preferences are migrated. A startup window reports any user-folder
+preparation failure.
 
 For RTL-SDR USB reception, install the WinUSB driver for the receiver with
 [Zadig](https://zadig.akeo.ie/). In Zadig, select the receiver, choose WinUSB,

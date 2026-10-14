@@ -39,6 +39,7 @@ pub struct AdsBPanel {
     notif_counter: u64,
     checklist: crate::antenna_checklist::AntennaChecklist,
     tile_cache: std::collections::HashMap<(u32, u32, u32), egui::TextureHandle>,
+    tile_cache_dir: std::path::PathBuf,
     tile_pending: std::collections::HashSet<(u32, u32, u32)>,
     tile_download_tx: std::sync::mpsc::Sender<TileDownloadResult>,
     tile_download_rx: std::sync::mpsc::Receiver<TileDownloadResult>,
@@ -547,6 +548,14 @@ fn draw_plane_model(
 
 impl AdsBPanel {
     pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
+        Self::new_with_cache_dir(shared, "tile_cache")
+    }
+
+    pub fn new_with_cache_dir(
+        shared: Arc<Mutex<SharedState>>,
+        tile_cache_dir: impl Into<std::path::PathBuf>,
+    ) -> Self {
+        let tile_cache_dir = tile_cache_dir.into();
         let (info_tx, info_rx) = std::sync::mpsc::channel();
         let (tile_download_tx, tile_download_rx) = std::sync::mpsc::channel();
         let (tile_request_tx, tile_request_rx) = crossbeam_channel::unbounded();
@@ -585,6 +594,7 @@ impl AdsBPanel {
             notif_counter: 0,
             checklist: crate::antenna_checklist::AntennaChecklist::for_adsb(shared),
             tile_cache: std::collections::HashMap::new(),
+            tile_cache_dir: tile_cache_dir.clone(),
             tile_pending: std::collections::HashSet::new(),
             tile_download_tx,
             tile_download_rx,
@@ -624,13 +634,15 @@ impl AdsBPanel {
             let tile_request_rx = panel.tile_request_rx.clone();
             let tile_download_tx = panel.tile_download_tx.clone();
             let tile_inflight = Arc::clone(&panel.tile_inflight);
+            let tile_cache_dir = panel.tile_cache_dir.clone();
             for _ in 0..Self::TILE_WORKER_THREADS {
                 let tile_request_rx = tile_request_rx.clone();
                 let tile_download_tx = tile_download_tx.clone();
                 let tile_inflight = Arc::clone(&tile_inflight);
+                let tile_cache_dir = tile_cache_dir.clone();
                 std::thread::spawn(move || {
                     while let Ok((z, x, y)) = tile_request_rx.recv() {
-                        let image = Self::load_or_fetch_tile(z, x, y);
+                        let image = Self::load_or_fetch_tile(&tile_cache_dir, z, x, y);
                         let _ = tile_download_tx.send(((z, x, y), image));
                         tile_inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -1648,8 +1660,11 @@ impl AdsBPanel {
         self.zoom_accum = 0.0;
     }
 
-    fn tile_disk_path(z: u32, x: u32, y: u32) -> std::path::PathBuf {
-        std::path::PathBuf::from(format!("tile_cache/{z}/{x}/{y}.png"))
+    fn tile_disk_path(cache_dir: &std::path::Path, z: u32, x: u32, y: u32) -> std::path::PathBuf {
+        cache_dir
+            .join(z.to_string())
+            .join(x.to_string())
+            .join(format!("{y}.png"))
     }
 
     fn read_tile_bytes(reader: &mut impl Read) -> std::io::Result<Vec<u8>> {
@@ -1686,8 +1701,13 @@ impl AdsBPanel {
         ))
     }
 
-    fn load_or_fetch_tile(z: u32, x: u32, y: u32) -> Result<egui::ColorImage, String> {
-        let path = Self::tile_disk_path(z, x, y);
+    fn load_or_fetch_tile(
+        cache_dir: &std::path::Path,
+        z: u32,
+        x: u32,
+        y: u32,
+    ) -> Result<egui::ColorImage, String> {
+        let path = Self::tile_disk_path(cache_dir, z, x, y);
         if let Ok(mut file) = std::fs::File::open(&path) {
             if let Ok(cached) = Self::read_tile_bytes(&mut file) {
                 if let Ok(image) = Self::decode_tile(&cached) {

@@ -839,7 +839,7 @@ impl AppConfig {
         Self::load_from("ez_sdr_config.json")
     }
 
-    fn load_from(path: impl AsRef<std::path::Path>) -> Self {
+    pub(crate) fn load_from(path: impl AsRef<std::path::Path>) -> Self {
         let mut cfg: AppConfig = std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())

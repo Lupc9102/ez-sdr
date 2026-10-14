@@ -411,6 +411,8 @@ pub struct SpectrumAnalyzer {
     pub pending_vfo_b_freq: Option<u64>,
     signal_history: std::collections::VecDeque<f32>,
     signal_history_max: usize,
+    signal_history_path: std::path::PathBuf,
+    signal_history_error: Option<String>,
     show_signal_history: bool,
     /// Buffer of the last ~2048 demodulated audio samples for waveform display.
     pub audio_waveform: VecDeque<f32>,
@@ -701,6 +703,8 @@ impl SpectrumAnalyzer {
             pending_vfo_b_freq: None,
             signal_history: std::collections::VecDeque::new(),
             signal_history_max: 600,
+            signal_history_path: "signal_history.json".into(),
+            signal_history_error: None,
             show_signal_history: false,
             audio_waveform: VecDeque::with_capacity(2048),
             show_audio_waveform: false,
@@ -1187,17 +1191,27 @@ impl SpectrumAnalyzer {
         self.signal_history_max
     }
 
-    /// Save the current signal history to `signal_history.json`.
-    pub fn save_signal_history(&self) {
-        let data: Vec<f32> = self.signal_history.iter().copied().collect();
-        if let Ok(json) = serde_json::to_string_pretty(&data) {
-            let _ = std::fs::write("signal_history.json", json);
-        }
+    pub fn set_signal_history_path(&mut self, path: impl Into<std::path::PathBuf>) {
+        self.signal_history_path = path.into();
     }
 
-    /// Load signal history from `signal_history.json`.
+    /// Save the current signal history to the configured per-user file.
+    pub fn save_signal_history(&mut self) -> Result<(), String> {
+        let data: Vec<f32> = self.signal_history.iter().copied().collect();
+        let json = serde_json::to_vec_pretty(&data).map_err(|error| error.to_string())?;
+        crate::bookmarks::atomic_write_private_file(&self.signal_history_path, &json).map_err(
+            |error| {
+                format!(
+                    "Could not save signal history to {}: {error}",
+                    self.signal_history_path.display()
+                )
+            },
+        )
+    }
+
+    /// Load signal history from the configured per-user file.
     pub fn load_signal_history(&mut self) {
-        if let Ok(s) = std::fs::read_to_string("signal_history.json") {
+        if let Ok(s) = std::fs::read_to_string(&self.signal_history_path) {
             if let Ok(data) = serde_json::from_str::<Vec<f32>>(&s) {
                 self.signal_history = data.into_iter().collect();
             }
@@ -1932,6 +1946,9 @@ impl SpectrumAnalyzer {
 
     fn ui_inner(&mut self, ui: &mut egui::Ui, radio_workspace: bool) {
         self.frame_counter = self.frame_counter.wrapping_add(1);
+        if let Some(error) = &self.signal_history_error {
+            ui.colored_label(self.color_error, error);
+        }
 
         // Controls bar — compact strip: high-frequency toggles stay inline,
         // everything else groups into Display/Waterfall/View & Export menus.
@@ -3803,7 +3820,7 @@ impl SpectrumAnalyzer {
                 ui.close();
             }
             if ui.button("📈 Save signal history").on_hover_text("Save the signal history to signal_history.json (auto-saves on exit).").clicked() {
-                self.save_signal_history();
+                self.signal_history_error = self.save_signal_history().err();
                 ui.close();
             }
             if ui.button("🔍 Reset zoom (1x)").clicked() {
@@ -4341,6 +4358,36 @@ fn waterfall_color_classic(norm: f32) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signal_history_uses_configured_path_and_reports_save_errors() {
+        let root = std::env::temp_dir().join(format!(
+            "ez-sdr-signal-history-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("history.json");
+        let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.signal_history.push_back(-42.0);
+        spectrum.set_signal_history_path(&path);
+        spectrum.save_signal_history().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "[\n  -42.0\n]");
+        spectrum.signal_history.clear();
+        spectrum.load_signal_history();
+        assert_eq!(spectrum.signal_history_snapshot(), vec![-42.0]);
+
+        let blocked = root.join("blocked");
+        std::fs::write(&blocked, b"file").unwrap();
+        spectrum.set_signal_history_path(blocked.join("history.json"));
+        let error = spectrum.save_signal_history().unwrap_err();
+        assert!(error.contains("Could not save signal history"));
+        assert!(error.contains("blocked"));
+        let _ = std::fs::remove_dir_all(root);
+    }
     use std::time::{Duration, Instant};
 
     fn wait_for_spectrum_frames(spectrum: &mut SpectrumAnalyzer, expected: u64) {

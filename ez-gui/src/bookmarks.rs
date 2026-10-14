@@ -335,7 +335,11 @@ impl BookmarkDb {
     /// doesn't exist or is malformed.
     #[must_use]
     pub fn load_saved() -> Option<Vec<Bookmark>> {
-        let s = std::fs::read_to_string(BOOKMARKS_FILE).ok()?;
+        Self::load_saved_from(BOOKMARKS_FILE)
+    }
+
+    pub fn load_saved_from(path: impl AsRef<std::path::Path>) -> Option<Vec<Bookmark>> {
+        let s = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&s).ok()
     }
 
@@ -343,6 +347,11 @@ impl BookmarkDb {
     /// saved file exists.
     pub fn load_or_default() -> Self {
         let bookmarks = Self::load_saved().unwrap_or_else(|| Self::default().bookmarks);
+        Self { bookmarks }
+    }
+
+    pub fn load_or_default_from(path: impl AsRef<std::path::Path>) -> Self {
+        let bookmarks = Self::load_saved_from(path).unwrap_or_else(|| Self::default().bookmarks);
         Self { bookmarks }
     }
 }

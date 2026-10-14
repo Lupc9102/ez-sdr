@@ -316,19 +316,50 @@ impl CentralApp {
     }
 
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        Self::new_with_config(cc, AppConfig::load_or_default())
+        let launch_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let executable_dir = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(std::path::Path::to_path_buf));
+        let paths = crate::app_data::AppDataPaths::from_process(&launch_dir)
+            .unwrap_or_else(|_| crate::app_data::AppDataPaths::current_directory_compatibility());
+        let legacy = crate::app_data::legacy_directories(&launch_dir, executable_dir.as_deref());
+        if let Err(error) = paths.prepare(&legacy) {
+            eprintln!("Could not prepare EZ-SDR user data folders: {error}");
+        }
+        Self::new_with_paths(cc, paths)
     }
 
-    fn new_with_config(_cc: &eframe::CreationContext<'_>, mut config: AppConfig) -> Self {
+    pub fn new_with_paths(
+        cc: &eframe::CreationContext<'_>,
+        paths: crate::app_data::AppDataPaths,
+    ) -> Self {
+        let mut config = AppConfig::load_from(paths.config_file());
+        paths.normalize_config_paths(&mut config);
+        Self::new_with_config_and_paths(cc, config, paths)
+    }
+
+    #[cfg(test)]
+    fn new_with_config(_cc: &eframe::CreationContext<'_>, config: AppConfig) -> Self {
+        let paths = crate::app_data::AppDataPaths::current_directory_compatibility();
+        Self::new_with_config_and_paths(_cc, config, paths)
+    }
+
+    fn new_with_config_and_paths(
+        _cc: &eframe::CreationContext<'_>,
+        mut config: AppConfig,
+        paths: crate::app_data::AppDataPaths,
+    ) -> Self {
         config.normalize();
+        let output_directory = config.output_directory.clone();
         let mut spectrum = SpectrumAnalyzer::new();
+        spectrum.set_signal_history_path(paths.history_file());
         spectrum.load_signal_history();
         let shared = Arc::new(Mutex::new(SharedState {
             input_format: dump1090::demod::InputFormat::Uc8,
             source: SourceManager::new(),
             spectrum,
             config,
-            bookmarks: BookmarkDb::load_or_default(),
+            bookmarks: BookmarkDb::load_or_default_from(paths.bookmarks_file()),
             scheduler: Scheduler::new(),
             tle: TleEngine::new(),
             demod_mode: crate::sdr_panel::DemodMode::Fm,
@@ -446,9 +477,12 @@ impl CentralApp {
             .capture_stream();
         let demod_worker = crate::demod::DemodWorker::new_capture(capture_stream.clone());
         let mut recorder_panel = RecorderPanel::new(shared.clone());
+        recorder_panel.output_dir = output_directory.clone();
         recorder_panel.set_audio_stream(demod_worker.audio_stream());
-        let mut adsb_panel = AdsBPanel::new(shared.clone());
+        let mut adsb_panel = AdsBPanel::new_with_cache_dir(shared.clone(), paths.tile_cache_dir());
         adsb_panel.attach_native_capture(capture_stream.clone());
+        let mut satellite_panel = SatellitePanel::new(shared.clone());
+        satellite_panel.cf32_output_dir = output_directory;
         let secondary_vfo = crate::secondary_vfo::SecondaryVfo::new(capture_stream.clone());
         let mut app = Self {
             shared: shared.clone(),
@@ -457,7 +491,7 @@ impl CentralApp {
             status_bar: crate::status_bar::StatusBar::new(),
             frequency_history: crate::frequency_history::FrequencyHistory::new(),
             radio_ui: crate::radio_ui::RadioUi::new(shared.clone()),
-            satellite_panel: SatellitePanel::new(shared.clone()),
+            satellite_panel,
             adsb_panel,
             recorder_panel,
             constellation: ConstellationDisplay::new(),
@@ -506,7 +540,7 @@ impl CentralApp {
             theme_applied: false,
             recording_start: None,
             bm_last_observed: Vec::new(),
-            bookmark_path: "ez_sdr_bookmarks.json".into(),
+            bookmark_path: paths.bookmarks_file(),
             bm_dirty_since: None,
             last_recording: false,
             last_adsb_running: false,
@@ -523,7 +557,7 @@ impl CentralApp {
             settings_editor: crate::config::SettingsEditor::default(),
             pending_settings_apply: None,
             settings_applied_this_session: false,
-            config_path: "ez_sdr_config.json".into(),
+            config_path: paths.config_file(),
             last_web_remote_status: None,
             last_rigctl_status: None,
             satellite_subtab: crate::satellite_panel::SatelliteSubTab::Track,
@@ -2563,8 +2597,10 @@ impl eframe::App for CentralApp {
         self.flush_bookmarks();
         // Auto-save session state on clean exit so next launch resumes where we left off.
         if let Some(config) = self.exit_config_snapshot() {
-            if let Ok(state) = self.shared.lock() {
-                state.spectrum.save_signal_history();
+            if let Ok(mut state) = self.shared.lock() {
+                if let Err(error) = state.spectrum.save_signal_history() {
+                    eprintln!("[spectrum] {error}");
+                }
             }
             let mut config = config;
             config.save_with_feedback(&self.config_path);
