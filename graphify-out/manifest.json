@@ -1500,8 +1500,8 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app_ui_tests.rs": {
-    "mtime": 1791986290.785468,
-    "ast_hash": "a97a16237e1ac351fb4a1cde8461b844",
+    "mtime": 1792074336.6632333,
+    "ast_hash": "0244b10356aa84d5cc37e56bbf881aef",
     "semantic_hash": ""
   },
   "ez-gui/src/audio_output.rs": {
@@ -1995,8 +1995,8 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1791739845.0794795,
-    "ast_hash": "71478019dd458939d446683efe334a88",
+    "mtime": 1792074336.6632333,
+    "ast_hash": "7080f70789132a18512b531c5e484c28",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
