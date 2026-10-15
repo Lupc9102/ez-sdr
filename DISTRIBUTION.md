@@ -18,6 +18,10 @@ directory with `sha256sum -c <filename>.sha256` (Linux/Windows GNU coreutils) or
 `shasum -a 256 -c <filename>.sha256` (macOS). The checksum file records the
 container's filename, so run the command from the directory containing both.
 
+The standalone `dump1090` executable is not shipped. Its decoding library remains
+compiled into EZ-SDR for built-in ADS-B reception; the corresponding source and
+license notices are retained.
+
 ## Linux x86_64
 
 Download the `.deb` or `.AppImage` from the repository's GitHub Releases page.
@@ -27,7 +31,7 @@ or newer). These are not ARM or older Ubuntu builds.
 For Debian/Ubuntu, run `sudo apt install ./ez-sdr_<version>_amd64.deb`.
 Use apt rather than `dpkg -i` so runtime dependencies are installed automatically.
 Launch **EZ-SDR** from the applications menu, or run `ez-gui` from a terminal.
-The package also installs `ez-daemon` and `dump1090` in `/usr/bin`.
+The package also installs `ez-daemon` in `/usr/bin`.
 
 For the AppImage, run `chmod +x ez-sdr-<version>-x86_64.AppImage`, then open
 it or run it from a terminal. If FUSE is unavailable, append
@@ -44,7 +48,7 @@ and `usr/share/doc/ez-sdr` inside the AppImage. The release verification report
 records package hashes and native window startup checks; it does not certify
 physical hardware reception or audio output.
 
-The Linux archive contains `bin/ez-gui`, `bin/ez-daemon`, and `bin/dump1090`.
+The Linux archive contains `bin/ez-gui` and `bin/ez-daemon`.
 It is built on Ubuntu 24.04 and uses system libraries. On Ubuntu 24.04 install:
 
 ```sh
@@ -114,7 +118,7 @@ compiler runtimes actually installed in that build environment.
 Open the DMG and drag `EZ-SDR.app` to Applications. The app bundle contains the
 RTL-SDR and libusb runtime libraries in `Contents/Frameworks`; audio uses
 CoreAudio and needs no separate audio runtime. The bundle also contains the
-`ez-daemon` and `dump1090` command-line executables in `Contents/MacOS`.
+`ez-daemon` command-line executable in `Contents/MacOS`.
 
 The macOS release is an unsigned, unnotarized DMG. On first launch, macOS may
 require opening the app from Finder's context menu. An Apple Developer ID,

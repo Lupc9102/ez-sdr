@@ -85,6 +85,7 @@ def main():
         root = Path(temp)
         extracted = root / "deb"
         run(["dpkg-deb", "--extract", str(deb), str(extracted)])
+        assert {p.name for p in (extracted / "usr/bin").iterdir()} == {"ez-gui", "ez-daemon"}
         doc = extracted / "usr/share/doc/ez-sdr"
         commit = (doc / "SOURCE-COMMIT.txt").read_text().strip()
         assert (doc / "SOURCE-CODE.tar.gz").stat().st_size > 0
@@ -92,11 +93,12 @@ def main():
         run(["dpkg-deb", "--control", str(deb), str(control)])
         run(["md5sum", "--check", str(control / "md5sums")], cwd=extracted)
         run(["desktop-file-validate", str(extracted / "usr/share/applications/ez-sdr.desktop")])
-        for binary in ("ez-daemon", "dump1090"):
+        for binary in ("ez-daemon",):
             assert run([str(extracted / "usr/bin" / binary), "--help"]).strip()
         checks.append(launch([str(extracted / "usr/bin/ez-gui")], root, "debian-payload"))
         run([str(appimage), "--appimage-extract"], cwd=root)
         appdir = root / "squashfs-root"
+        assert {p.name for p in (appdir / "usr/bin").iterdir()} == {"ez-gui", "ez-daemon"}
         run(["sha256sum", "--check", "usr/share/doc/ez-sdr/SHA256SUMS"], cwd=appdir)
         assert (appdir / "usr/lib/librtlsdr.so.2").is_file()
         assert (appdir / "usr/lib/libpulse.so.0").is_file()
@@ -117,10 +119,11 @@ def main():
             assert Path("/usr/share/applications/ez-sdr.desktop").exists()
             # Minimal Ubuntu images may exclude /usr/share/doc through dpkg
             # policy. Verify the installed executables themselves match instead.
-            for binary in ("ez-gui", "ez-daemon", "dump1090"):
+            for binary in ("ez-gui", "ez-daemon"):
                 assert sha256(Path("/usr/bin") / binary) == sha256(extracted / "usr/bin" / binary)
             checks.append(launch(["/usr/bin/ez-gui"], root, "apt-installed"))
     report = {"source_commit": commit, "checks": checks,
+              "standalone_dump1090_absent": True,
               "package_checksums": True, "internal_manifests": True,
               "cli_help": True, "bundled_library_resolution": True,
               "sha256": {path.name: sha256(path)

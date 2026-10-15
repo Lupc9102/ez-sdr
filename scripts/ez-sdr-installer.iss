@@ -26,6 +26,9 @@ PrivilegesRequired=admin
 LicenseFile={#SourceDir}\LICENSES\GPL-3.0.txt
 InfoBeforeFile={#SourceDir}\DISTRIBUTION.md
 
+[InstallDelete]
+Type: files; Name: "{app}\bin\dump1090.exe"
+
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 

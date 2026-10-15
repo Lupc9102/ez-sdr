@@ -128,10 +128,10 @@ for module in libusb-1.0 librtlsdr; do
     exit 1
   fi
 done
-cargo build --workspace --locked --release --target x86_64-pc-windows-gnu \
-  --features ez-daemon/rtlsdr,dump1090/rtlsdr
+cargo build --locked --release -p ez-gui -p ez-daemon --target x86_64-pc-windows-gnu \
+  --features ez-daemon/rtlsdr
 
-for binary in ez-gui.exe ez-daemon.exe dump1090.exe; do
+for binary in ez-gui.exe ez-daemon.exe; do
   source="target/x86_64-pc-windows-gnu/release/$binary"
   [[ -s "$source" ]] || { echo "Missing release binary: $source" >&2; exit 1; }
   install -m 0755 "$source" "$package_dir/bin/$binary"
@@ -141,7 +141,7 @@ done
 # builds. Fail if a dependency is absent rather than emitting an unusable ZIP.
 # Recursively collect non-system DLL imports reported by the PE linker.
 install -m 0644 /ucrt64/bin/librtlsdr.dll "$package_dir/bin/librtlsdr.dll"
-queue=("$package_dir/bin/ez-gui.exe" "$package_dir/bin/ez-daemon.exe" "$package_dir/bin/dump1090.exe" /ucrt64/bin/librtlsdr.dll)
+queue=("$package_dir/bin/ez-gui.exe" "$package_dir/bin/ez-daemon.exe" /ucrt64/bin/librtlsdr.dll)
 declare -A copied
 while ((${#queue[@]})); do
   binary="${queue[0]}"

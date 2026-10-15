@@ -11,7 +11,7 @@ deb_version="${version#v}"
 [[ "$(uname -m)" == x86_64 ]] || { echo "Linux installers require x86_64." >&2; exit 2; }
 # Ubuntu's librtlsdr2 provides SONAME 2. A developer's /usr/local build may
 # provide SONAME 0 instead, which apt cannot satisfy with the declared package.
-for binary in "$package_dir"/bin/*; do
+for binary in "$package_dir"/bin/ez-gui "$package_dir"/bin/ez-daemon; do
   if readelf -d "$binary" | grep -q 'Shared library: \[librtlsdr.so.0\]'; then
     echo "Rebuild against Ubuntu librtlsdr-dev, not /usr/local's librtlsdr.so.0." >&2
     exit 1
@@ -24,7 +24,7 @@ deb="$stage/deb"
 doc="usr/share/doc/ez-sdr"
 mkdir -p "$app/usr/bin" "$app/usr/lib" "$app/$doc" "$deb/usr/bin" "$deb/$doc" "$deb/DEBIAN"
 for root in "$app" "$deb"; do
-  install -m 0755 "$package_dir"/bin/* "$root/usr/bin/"
+  install -m 0755 "$package_dir/bin/ez-gui" "$package_dir/bin/ez-daemon" "$root/usr/bin/"
   cp -a "$package_dir/LICENSES" "$root/$doc/"
   install -m 0644 "$package_dir"/{DISTRIBUTION.md,LICENSE.md,SOURCE-COMMIT.txt,NATIVE-LIBRARIES.txt,SOURCE-CODE.tar.gz} "$root/$doc/"
   install -Dm0644 packaging/linux/ez-sdr.desktop "$root/usr/share/applications/ez-sdr.desktop"
@@ -45,7 +45,7 @@ Depends: libc6 (>= 2.39), libgcc-s1, libasound2t64, libpulse0, librtlsdr2, libus
 Installed-Size: $(du -sk "$deb/usr" | cut -f1)
 Description: Software defined radio desktop application
  Receive and inspect radio signals, ADS-B aircraft and satellite imagery.
- Includes the EZ-SDR desktop GUI, headless daemon, dump1090 and matching source.
+ Includes the EZ-SDR desktop GUI, headless daemon and matching source.
 CONTROL
 cp LICENSES/THIRD-PARTY-NOTICES.md "$deb/$doc/copyright"
 (cd "$deb" && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)
@@ -56,7 +56,7 @@ dpkg-deb --root-owner-group --build "$deb" "$out_dir/ez-sdr_${deb_version}_amd64
 # supplied by the host to avoid mixing incompatible drivers or libc versions.
 declare -A bundled=()
 declare -A source_packages=()
-queue=("$package_dir"/bin/* /usr/lib/x86_64-linux-gnu/libpulse.so.0)
+queue=("$package_dir/bin/ez-gui" "$package_dir/bin/ez-daemon" /usr/lib/x86_64-linux-gnu/libpulse.so.0)
 for ((index=0; index<${#queue[@]}; index++)); do
   while read -r soname arrow path rest; do
     [[ "$arrow" == '=>' ]] || continue

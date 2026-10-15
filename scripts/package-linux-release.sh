@@ -39,9 +39,9 @@ git ls-files --error-unmatch "${release_inputs[@]}" >/dev/null
 
 # Build after the source check: earlier headless tests may have replaced the
 # executables in target/release with a different feature configuration.
-cargo build --workspace --locked --release --features ez-daemon/rtlsdr,dump1090/rtlsdr
+cargo build --locked --release -p ez-gui -p ez-daemon --features ez-daemon/rtlsdr
 
-for binary in ez-gui ez-daemon dump1090; do
+for binary in ez-gui ez-daemon; do
   source="target/release/$binary"
   if [[ ! -x "$source" ]]; then
     echo "Missing release binary: $source" >&2

@@ -83,10 +83,10 @@ cmake --install "$native/rtlsdr-build" --config Release
 
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:$PKG_CONFIG_PATH"
 rustup target add x86_64-apple-darwin
-cargo build --workspace --locked --release --target x86_64-apple-darwin \
-  --features ez-daemon/rtlsdr,dump1090/rtlsdr
+cargo build --locked --release -p ez-gui -p ez-daemon --target x86_64-apple-darwin \
+  --features ez-daemon/rtlsdr
 
-for binary in ez-gui ez-daemon dump1090; do
+for binary in ez-gui ez-daemon; do
   source="target/x86_64-apple-darwin/release/$binary"
   [[ -s "$source" ]] || { echo "Missing release binary: $source" >&2; exit 1; }
   install -m 0755 "$source" "$contents/MacOS/$binary"

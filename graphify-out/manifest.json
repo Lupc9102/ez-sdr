@@ -1950,18 +1950,18 @@
     "semantic_hash": ""
   },
   "scripts/package-linux-release.sh": {
-    "mtime": 1792077038.2143574,
-    "ast_hash": "519e244d992522cc93dc4d06f1ea3384",
+    "mtime": 1792078467.7682827,
+    "ast_hash": "da86a3719282781fcd30a24b54985fe4",
     "semantic_hash": ""
   },
   "scripts/package-macos-release.sh": {
-    "mtime": 1791817540.3654318,
-    "ast_hash": "8c1c23ab1d43b91f359a0a214899ff4a",
+    "mtime": 1792078467.768679,
+    "ast_hash": "7136b7b1f96e04b91c5a484767355570",
     "semantic_hash": ""
   },
   "scripts/package-windows-release.sh": {
-    "mtime": 1791972719.9913945,
-    "ast_hash": "dc5bd28b31ea4e958edfd1a41d5ddf7d",
+    "mtime": 1792078467.768546,
+    "ast_hash": "080186928a0681f2d58193a852edf6da",
     "semantic_hash": ""
   },
   "signal_history.json": {
@@ -2000,7 +2000,7 @@
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1792077038.2153573,
+    "mtime": 1792077777.6564648,
     "ast_hash": "aaa8a9d94bb5b5b5cddf06e454aa3dc4",
     "semantic_hash": ""
   },
@@ -2140,8 +2140,8 @@
     "semantic_hash": ""
   },
   "DISTRIBUTION.md": {
-    "mtime": 1792077092.4646342,
-    "ast_hash": "9fe9a7e30efc3698e1c3d119a84e4c30",
+    "mtime": 1792078467.7689319,
+    "ast_hash": "fa46cfe2ba8e91ded3387f279abff0db",
     "semantic_hash": ""
   },
   "DSP_PARITY_SUMMARY.md": {
@@ -2295,7 +2295,7 @@
     "semantic_hash": ""
   },
   "LICENSES/THIRD-PARTY-NOTICES.md": {
-    "mtime": 1792077092.4716344,
+    "mtime": 1792077777.6567986,
     "ast_hash": "0604a56a61aa0f798247402f975bf521",
     "semantic_hash": ""
   },
@@ -2425,7 +2425,7 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1792077129.1134968,
+    "mtime": 1792077777.6570375,
     "ast_hash": "1995c903f4443aa9907030d8851f98f7",
     "semantic_hash": ""
   },
@@ -4860,27 +4860,27 @@
     "semantic_hash": ""
   },
   "packaging/linux/AppRun": {
-    "mtime": 1792076974.9308677,
+    "mtime": 1792077777.6587772,
     "ast_hash": "7cd0b3e659ff6bf62ed73430f71a8512",
     "semantic_hash": ""
   },
   "scripts/package-linux-installers.sh": {
-    "mtime": 1792077441.6399844,
-    "ast_hash": "8cd66ec5dd7da0f0b03031ca9e0298f1",
+    "mtime": 1792078467.7687998,
+    "ast_hash": "518220f39398e358c4cd00664a23a481",
     "semantic_hash": ""
   },
   "scripts/verify-linux-packages.py": {
-    "mtime": 1792077651.2843843,
-    "ast_hash": "1f85fce69ff2718b841f94383c0023a4",
+    "mtime": 1792078467.76916,
+    "ast_hash": "235ea9a43441863e267486969937dd9e",
     "semantic_hash": ""
   },
   "packaging/linux/RELEASE_NOTES.md": {
-    "mtime": 1792077038.2153573,
-    "ast_hash": "a5cb2e8f1a4166d2c8e418a71b7bc797",
+    "mtime": 1792078467.7690487,
+    "ast_hash": "405632e784c8e64f155a575816bad92c",
     "semantic_hash": ""
   },
   "packaging/linux/ez-sdr.svg": {
-    "mtime": 1792076974.9308677,
+    "mtime": 1792077777.659028,
     "ast_hash": "83a210160ab79b92db19448fb337ed54",
     "semantic_hash": ""
   }
