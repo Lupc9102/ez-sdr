@@ -1,0 +1,14 @@
+{
+  "source_sha256": {
+    "DISTRIBUTION.md": "d24c575db3c2d29328daa808bb10e42e4555e262ee02435581c6450eb440e8c9",
+    "ez-gui/src/app.rs": "8bc234b3818eb10432072103fe1973153103c59161be88f8d9a295676bb57763",
+    "ez-gui/src/app_data.rs": "6bbd594933fba2df29386eb259c4212b7237c966d65bf8d67c24f7132d4f221f",
+    "ez-gui/src/config.rs": "bea4156eadb471a2bf13706a2eba77d28011fab4152ee50a82b0e10ed8f95891",
+    "ez-gui/src/keyboard.rs": "28bc8412418a1d5ced5de36b30bd0b98338058f499de39806771f830ce967567",
+    "ez-gui/src/lib.rs": "321f469a31858896ef1f7fe7196abb4991f13926e3d0be59ad3dabfaced4c690",
+    "ez-gui/src/main.rs": "077526f8f1b4cdd9407d0b23ce8344766ee3fc6f3934ca711d1499487c864b55",
+    "scripts/ez-sdr-installer.iss": "d70c99f91efae6531cda7e8a7697573cb745c01e667bcc3c84133fc3555e0ced"
+  },
+  "graph_updated": true,
+  "preserved_user_deletions": 672
+}

@@ -1,0 +1,156 @@
+{
+  "group": "runtime",
+  "started_utc": "2026-10-11T16:12:36.633029+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "headless-final",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "--workspace",
+        "--locked",
+        "--no-default-features"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1790,
+      "tests_failed": 0,
+      "tests_ignored": 13,
+      "seconds": 299.02,
+      "log": "audit/2026-10-11-final/evidence/headless-final.log",
+      "log_sha256": "33eccf60f7345c0b889591f9c79aac482216e82c10e9f604b3745b2ed8afa8fc"
+    },
+    {
+      "name": "ui-previews",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--lib",
+        "app::app_ui_tests::render_workspaces",
+        "--",
+        "--exact",
+        "--ignored",
+        "--nocapture"
+      ],
+      "environment": {
+        "EZ_SDR_PREVIEW_DIR": "/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews"
+      },
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 741.683,
+      "log": "audit/2026-10-11-final/evidence/ui-previews.log",
+      "log_sha256": "195a86693b37ffb9bccb72ca3fe81a592a83ce6ce647569b42512cb8923c2d3c"
+    },
+    {
+      "name": "tcp-iq",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-daemon",
+        "--locked",
+        "hardware::tcp_iq::tests::",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 2,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 233.895,
+      "log": "audit/2026-10-11-final/evidence/tcp-iq.log",
+      "log_sha256": "c73899441fb0c927e89c1f4f7c75c173be63bb7c1483a23cffaf04a15f5f78d5"
+    },
+    {
+      "name": "rigctl",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "rigctl::tests::",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 2,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 437.582,
+      "log": "audit/2026-10-11-final/evidence/rigctl.log",
+      "log_sha256": "bce26f6c30979af21c769b1387b538be1d5411dd31f4ea57f423c217969f1900"
+    },
+    {
+      "name": "fractional-fft",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "spectrum::tests::complex_large_fft_preserves_weak_tone_and_fractional_sample_rate",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 136.488,
+      "log": "audit/2026-10-11-final/evidence/fractional-fft.log",
+      "log_sha256": "6de4291b0220efc167e3bfafbff5db139b2b55872c1d783dfc143bb312a3baf7"
+    },
+    {
+      "name": "silent-audio-driver",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver",
+        "--",
+        "--exact",
+        "--ignored",
+        "--nocapture"
+      ],
+      "environment": {
+        "EZ_AUDIT_SILENT_AUDIO": "1"
+      },
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 143.057,
+      "log": "audit/2026-10-11-final/evidence/silent-audio-driver.log",
+      "log_sha256": "ec66870091fd54ea12a8969cb29ff36f73dcc6be45e8adeeeb4ce0d78735287c"
+    }
+  ],
+  "updated_utc": "2026-10-11T17:03:03.383393+00:00",
+  "earlier_failure_manifest": "audit/2026-10-11-final/before-final-rerun/runtime/manifest.json"
+}

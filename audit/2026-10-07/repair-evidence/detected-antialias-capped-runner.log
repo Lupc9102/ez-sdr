@@ -1,0 +1,55 @@
+Resource policy: {"cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r09-verification-final.service", "cpu_max": "10000 100000", "nice": 19, "build_jobs": 1, "test_threads": 1}
+START focused-final
+DONE focused-final 0 valid True
+START default-clock
+DONE default-clock 0 valid True
+START regression-00
+DONE regression-00 0 valid True
+START regression-01
+DONE regression-01 0 valid True
+START regression-02
+DONE regression-02 0 valid True
+START regression-03
+DONE regression-03 0 valid True
+START regression-04
+DONE regression-04 0 valid True
+START regression-05
+DONE regression-05 0 valid True
+START regression-06
+DONE regression-06 0 valid True
+START regression-07
+DONE regression-07 0 valid True
+START regression-08
+DONE regression-08 0 valid True
+START regression-09
+DONE regression-09 0 valid True
+START regression-10
+DONE regression-10 0 valid True
+START regression-11
+DONE regression-11 0 valid True
+START regression-12
+DONE regression-12 0 valid True
+START regression-13
+DONE regression-13 0 valid True
+START regression-14
+DONE regression-14 0 valid True
+START regression-15
+DONE regression-15 0 valid True
+START regression-16
+DONE regression-16 0 valid True
+START regression-17
+DONE regression-17 0 valid True
+START regression-18
+DONE regression-18 0 valid True
+START regression-19
+DONE regression-19 0 valid True
+START regression-20
+DONE regression-20 0 valid True
+START clippy
+DONE clippy 0 valid True
+START build
+DONE build 0 valid True
+START fmt
+DONE fmt 0 valid True
+START graph-update
+DONE graph-update 0 valid True

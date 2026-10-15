@@ -1,0 +1,15 @@
+
+running 1 test
+test app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall ... 
+thread 'app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall' (137354) panicked at ez-gui/src/app_ui_tests.rs:2270:5:
+WAV differs from continuous synchronous DSP
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 891 filtered out; finished in 1.51s
+

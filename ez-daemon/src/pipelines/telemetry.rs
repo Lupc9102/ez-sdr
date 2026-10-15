@@ -13,39 +13,153 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use lrpt_decode::{DecodeProgress, LrptDecoder};
+use lrpt_decode::{validate_mission_sampling, DecodeProgress, LrptDecoder, LrptError};
 
-use ez_proto::{ChannelId, TelemetryFrame};
+use ez_proto::{ChannelId, MeteorProfile, TelemetryFrame};
 
 use crate::broadcast::{Broadcaster, BroadcasterHandle, OverflowPolicy};
-use crate::bus::{SampleBlock, SampleBusHandle};
+use crate::bus::{SampleBlock, SampleBusHandle, SampleContinuity};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TelemetryConfig {
     pub channel_id: ChannelId,
     pub sample_rate_hz: u32,
-    pub symbol_rate_hz: u32,
+    pub profile: MeteorProfile,
+    pub center_freq_hz: u64,
 }
 
 pub struct TelemetryPipeline {
     input: SampleBusHandle,
     channel_id: ChannelId,
     decoder: LrptDecoder,
+    profile: MeteorProfile,
+    sample_rate_hz: u32,
+    center_freq_hz: u64,
+    source_product: Option<u64>,
+    product_id: u64,
+    product_finalized: bool,
+    continuity: SampleContinuity,
     progress_rx: crossbeam_channel::Receiver<DecodeProgress>,
     output: Broadcaster<TelemetryFrame>,
 }
 
 impl TelemetryPipeline {
-    #[must_use]
-    pub fn new(input: SampleBusHandle, config: TelemetryConfig) -> Self {
+    pub fn new(input: SampleBusHandle, config: TelemetryConfig) -> Result<Self, LrptError> {
         let (progress_tx, progress_rx) = crossbeam_channel::unbounded();
-        Self {
+        Ok(Self {
             input,
             channel_id: config.channel_id,
-            decoder: LrptDecoder::new(config.sample_rate_hz, config.symbol_rate_hz, progress_tx),
+            decoder: LrptDecoder::for_mission(config.sample_rate_hz, config.profile, progress_tx)?,
+            profile: config.profile,
+            sample_rate_hz: config.sample_rate_hz,
+            center_freq_hz: config.center_freq_hz,
+            source_product: None,
+            product_id: ez_proto::new_capture_epoch(),
+            product_finalized: false,
+            continuity: SampleContinuity::default(),
             progress_rx,
             output: Broadcaster::new(),
+        })
+    }
+
+    /// Explicit same-frequency pass/product boundary. Retire queued old IQ.
+    pub fn start_new_product(&mut self) -> Result<(), LrptError> {
+        for _ in 0..self.input.queued_len() {
+            let _ = self.input.try_recv();
         }
+        self.retire_product()
+    }
+
+    fn retire_product(&mut self) -> Result<(), LrptError> {
+        self.finalize_product();
+        self.decoder
+            .start_new_product(self.sample_rate_hz, self.profile)?;
+        self.continuity = SampleContinuity::default();
+        while self.progress_rx.try_recv().is_ok() {}
+        self.product_id = ez_proto::new_capture_epoch();
+        self.product_finalized = false;
+        self.output.publish(TelemetryFrame {
+            product_id: self.product_id,
+            channel_id: self.channel_id,
+            apid: 0,
+            width: 0,
+            height: 0,
+            pixels: Vec::new(),
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: false,
+            rs_ok: 0,
+            rs_failed: 0,
+            costas_locked: false,
+            frame_locked: false,
+        });
+        Ok(())
+    }
+
+    /// Publish all full-resolution channel images followed by a completion marker. Repeated
+    /// requests are harmless, which lets stop paths time out and retry without duplicating
+    /// large image payloads.
+    pub fn finalize_product(&mut self) {
+        if self.product_finalized {
+            return;
+        }
+        if let Some(result) = self.decoder.result_snapshot() {
+            for (apid, image) in result.images {
+                let line_times_unix_seconds = result
+                    .line_times_unix_seconds
+                    .get(&apid)
+                    .cloned()
+                    .unwrap_or_default();
+                self.output.publish(TelemetryFrame {
+                    product_id: self.product_id,
+                    channel_id: self.channel_id,
+                    apid,
+                    width: image.width(),
+                    height: image.height(),
+                    pixels: image.into_raw(),
+                    line_times_unix_seconds,
+                    final_product: true,
+                    product_complete: false,
+                    rs_ok: result.rs_ok,
+                    rs_failed: result.rs_failed,
+                    costas_locked: true,
+                    frame_locked: true,
+                });
+            }
+        }
+        self.output.publish(TelemetryFrame {
+            product_id: self.product_id,
+            channel_id: self.channel_id,
+            apid: 0,
+            width: 0,
+            height: 0,
+            pixels: Vec::new(),
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: true,
+            rs_ok: self.decoder.progress_snapshot().rs_ok,
+            rs_failed: self.decoder.progress_snapshot().rs_failed,
+            costas_locked: true,
+            frame_locked: true,
+        });
+        self.product_finalized = true;
+    }
+
+    /// Retuning to another RF channel starts another product. A rate-only
+    /// adjustment discards partial transport and preserves the same image.
+    pub fn retune(&mut self, sample_rate_hz: u32, center_freq_hz: u64) -> Result<(), LrptError> {
+        validate_mission_sampling(sample_rate_hz, self.profile)?;
+        self.sample_rate_hz = sample_rate_hz;
+        if self.center_freq_hz != center_freq_hz {
+            self.center_freq_hz = center_freq_hz;
+            self.source_product = None;
+            self.start_new_product()?;
+        } else {
+            self.decoder.reset_mission_stream(sample_rate_hz)?;
+            self.continuity = SampleContinuity::default();
+            while self.progress_rx.try_recv().is_ok() {}
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -76,6 +190,36 @@ impl TelemetryPipeline {
     }
 
     fn process_block(&mut self, block: &SampleBlock) {
+        if self.product_finalized {
+            return;
+        }
+        // A queued tail from before a channel retune cannot populate the new product.
+        if block.center_freq_hz != self.center_freq_hz {
+            return;
+        }
+        if validate_mission_sampling(block.sample_rate_hz, self.profile).is_err() {
+            self.decoder
+                .reset_mission_stream(self.sample_rate_hz)
+                .expect("validated configuration");
+            self.continuity = SampleContinuity::default();
+            while self.progress_rx.try_recv().is_ok() {}
+            return;
+        }
+        self.sample_rate_hz = block.sample_rate_hz;
+        if self
+            .source_product
+            .is_some_and(|session| session != block.product_session)
+        {
+            // Source-session identity survives channelizer/gap epoch changes.
+            self.retire_product().expect("validated configuration");
+        }
+        self.source_product = Some(block.product_session);
+        if !self.continuity.observe(block) {
+            self.decoder
+                .reset_mission_stream(block.sample_rate_hz)
+                .expect("validated configuration");
+            while self.progress_rx.try_recv().is_ok() {}
+        }
         self.decoder.push_complex(&block.samples);
         while let Ok(progress) = self.progress_rx.try_recv() {
             self.publish_progress(&progress);
@@ -85,11 +229,15 @@ impl TelemetryPipeline {
     fn publish_progress(&mut self, progress: &DecodeProgress) {
         for (apid, image) in &progress.preview {
             self.output.publish(TelemetryFrame {
+                product_id: self.product_id,
                 channel_id: self.channel_id,
                 apid: *apid,
                 width: image.width(),
                 height: image.height(),
                 pixels: image.as_raw().clone(),
+                line_times_unix_seconds: Vec::new(),
+                final_product: false,
+                product_complete: false,
                 rs_ok: progress.rs_ok,
                 rs_failed: progress.rs_failed,
                 costas_locked: progress.costas_locked,
@@ -113,13 +261,17 @@ mod tests {
         let config = TelemetryConfig {
             channel_id: 7,
             sample_rate_hz: 288_000,
-            symbol_rate_hz: 72_000,
+            profile: MeteorProfile::Oqpsk72,
+            center_freq_hz: 137_100_000,
         };
-        (bus, TelemetryPipeline::new(handle, config))
+        (bus, TelemetryPipeline::new(handle, config).unwrap())
     }
 
     fn silence_block(len: usize) -> SampleBlock {
         SampleBlock {
+            product_session: 0,
+            observed_at: None,
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 288_000,
             center_freq_hz: 137_100_000,
@@ -130,6 +282,109 @@ mod tests {
     fn test_image(width: u32, height: u32, fill: u8) -> GrayImage {
         GrayImage::from_raw(width, height, vec![fill; (width * height) as usize])
             .expect("width*height matches buffer length")
+    }
+
+    fn seeded_product() -> (SampleBus, TelemetryPipeline) {
+        let (bus, mut pipeline) = test_pipeline();
+        let bytes = include_bytes!("../../../audit/2026-10-07/fixtures/meteor-product-72k.cf32");
+        let samples = lrpt_decode::cf32_le_bytes_to_complex(bytes);
+        let mut at = 0;
+        for chunk in samples.chunks(4096) {
+            let mut block = silence_block(chunk.len());
+            block.product_session = 42;
+            block.start_sample = at;
+            block.capture = Some(ez_proto::CaptureClock::new(7, at, 288_000, None));
+            block.samples = Arc::from(chunk);
+            pipeline.process_block(&block);
+            at += chunk.len() as u64;
+        }
+        let decoded = pipeline.decoder.progress_snapshot();
+        assert_eq!(decoded.rs_ok, 12);
+        assert_eq!(decoded.segments_decoded, 3);
+        assert_eq!(decoded.preview.len(), 1);
+        (bus, pipeline)
+    }
+
+    #[test]
+    fn received_images_survive_gap_epochs_but_retire_on_real_product_boundaries() {
+        for boundary in 0..4 {
+            let (bus, mut pipeline) = seeded_product();
+            let output = pipeline.subscribe(16);
+            let before = pipeline.decoder.progress_snapshot();
+            let product = pipeline.product_id;
+            let mut block = silence_block(32);
+            block.product_session = 42;
+            block.start_sample = 800_000;
+            block.capture = Some(ez_proto::CaptureClock::new(999, 800_000, 288_000, None));
+            block.capture.as_mut().unwrap().discontinuous = true;
+            match boundary {
+                0 => pipeline.process_block(&block),
+                1 => {
+                    block.product_session = 43;
+                    bus.publish(block.clone());
+                    pipeline.process_block(&block);
+                    assert_eq!(
+                        pipeline.input.queued_len(),
+                        1,
+                        "new-source queued IQ was discarded"
+                    );
+                }
+                2 => {
+                    pipeline.retune(288_000, 137_900_000).unwrap();
+                    // The old channel tail must never populate the new product.
+                    pipeline.process_block(&block);
+                }
+                _ => {
+                    bus.publish(block);
+                    pipeline.start_new_product().unwrap();
+                    assert_eq!(pipeline.input.queued_len(), 0);
+                }
+            }
+            let after = pipeline.decoder.progress_snapshot();
+            if boundary == 0 {
+                assert_eq!(pipeline.product_id, product);
+                assert_eq!(after.rs_ok, before.rs_ok);
+                assert_eq!(after.segments_decoded, before.segments_decoded);
+                assert_eq!(after.preview, before.preview);
+            } else {
+                assert_ne!(pipeline.product_id, product);
+                assert_eq!(after.rs_ok, 0);
+                assert_eq!(after.segments_decoded, 0);
+                assert!(after.preview.is_empty());
+                let mut saw_final_image = false;
+                let mut saw_completion = false;
+                let reset = loop {
+                    let frame = output.try_recv().unwrap();
+                    if frame.product_id == product {
+                        saw_final_image |= frame.final_product;
+                        saw_completion |= frame.product_complete;
+                        continue;
+                    }
+                    break frame;
+                };
+                assert!(
+                    saw_final_image,
+                    "old product final raster must precede reset"
+                );
+                assert!(saw_completion, "old product completion must precede reset");
+                assert_eq!(reset.product_id, pipeline.product_id);
+                assert_eq!((reset.apid, reset.width, reset.height), (0, 0, 0));
+                assert!(reset.pixels.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_dynamic_sampling_cannot_consume_or_complete_a_frame() {
+        let (_, mut pipeline) = seeded_product();
+        let before = pipeline.decoder.progress_snapshot();
+        let mut block = silence_block(4096);
+        block.sample_rate_hz = 100_000;
+        pipeline.process_block(&block);
+        let after = pipeline.decoder.progress_snapshot();
+        assert_eq!(before.rs_ok, after.rs_ok);
+        assert_eq!(before.preview, after.preview);
+        assert!(!after.frame_locked);
     }
 
     #[test]
@@ -215,5 +470,36 @@ mod tests {
         let output = pipeline.subscribe(8);
         pipeline.publish_progress(&DecodeProgress::default());
         assert!(output.try_recv().is_none());
+    }
+
+    #[test]
+    fn explicit_finalization_emits_full_raster_row_times_then_one_terminal_marker() {
+        let (_bus, mut pipeline) = seeded_product();
+        let output = pipeline.subscribe(16);
+
+        pipeline.finalize_product();
+        let final_frame = output.try_recv().expect("full final image");
+        assert_eq!(final_frame.product_id, pipeline.product_id);
+        assert_eq!(final_frame.apid, 64);
+        assert!(final_frame.final_product);
+        assert_eq!(
+            final_frame.pixels.len(),
+            (final_frame.width * final_frame.height) as usize
+        );
+        assert_eq!(
+            final_frame.line_times_unix_seconds.len(),
+            final_frame.height as usize
+        );
+        let completion = output.try_recv().expect("completion marker");
+        assert_eq!(completion.product_id, pipeline.product_id);
+        assert!(completion.product_complete);
+        assert_eq!(
+            (completion.apid, completion.width, completion.height),
+            (0, 0, 0)
+        );
+        assert!(output.try_recv().is_none());
+
+        pipeline.finalize_product();
+        assert!(output.try_recv().is_none(), "finalization is idempotent");
     }
 }

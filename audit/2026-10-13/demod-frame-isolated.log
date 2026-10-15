@@ -1,0 +1,47 @@
+warning: duplicated attribute
+    --> ez-gui/src/config.rs:1286:5
+     |
+1286 |     #[test]
+     |     ^^^^^^^
+     |
+     = note: `#[warn(duplicate_macro_attributes)]` on by default
+
+warning: duplicated attribute
+    --> ez-gui/src/config.rs:1293:5
+     |
+1293 |     #[test]
+     |     ^^^^^^^
+
+warning: `ez-gui` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.54s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-c99bbe828a7da39e)
+
+running 1 test
+test demod::tests::demod_frame_versions_identify_latest_controls_under_iq_backlog ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.50s
+
+     Running unittests src/main.rs (target/debug/deps/ez_gui-ec8173afd64d32e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/debug/deps/event_bus_integration-464ef8e1968ebe31)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/debug/deps/radio_controls-4233ac3b21fa1f5c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/debug/deps/radio_performance-bd1d049038c6129b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

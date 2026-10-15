@@ -1,0 +1,168 @@
+{
+  "date": "2026-10-08",
+  "scope": [
+    "S04",
+    "S10 (partial; remains open)"
+  ],
+  "commands": [
+    {
+      "command": "cargo test -p lrpt-decode --lib -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/lane-lrpt-tests.log",
+      "log_sha256": "a63bbb295eac5bc730180a4b17b9edad6177605f608f9bdfbb61431e73b1a57b",
+      "test_harnesses": [
+        {
+          "passed": 90,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/lane-workspace-tests.log",
+      "log_sha256": "a09df0845c2249ee42dd47db848a23fe51699922ab7c757c74e25c0523f2d4e6",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 214,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 831,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 19,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 90,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo run -p lrpt-decode --example audit_logic --release",
+      "exit_code": 0,
+      "log": "repair-evidence/lane-audit-probe.log",
+      "log_sha256": "7cffb4f6942f5405e0e0e315176d3a5e982f0e7ef30589e0e7a3f44b0e64999e"
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/lane-workspace-clippy.log",
+      "log_sha256": "e6c15936dcf57b6a9df06ce05d8e3873b256aa90b145472c4832acec2a8b7586"
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/lane-workspace-build.log",
+      "log_sha256": "b10cf71dc983e5b351c318daa54b2431cd1578a4580843158d760d4dbd57cb52"
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/lane-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "log": "repair-evidence/lane-graphify.log",
+      "log_sha256": "60221e1c3c4a0cec3bb8b35bff14688d53d421ee0de1bb2110ed5a9cd0f9b0d6"
+    }
+  ],
+  "sources": {
+    "lrpt-decode/src/lib.rs": "69e415310b3ff113d679b41d7a758bf1f061b2020ba6d54e7bddaec096625bd0",
+    "lrpt-decode/src/frame_sync.rs": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+    "lrpt-decode/src/qpsk.rs": "edc03ad0fbb39ec824346cc63e90b12d6883fbc8da11143029df8fc40bb590d1"
+  },
+  "independent_capture": "public-meteor-reference.json",
+  "limits": [
+    "The S02 phase/fractional-rate audit cases still fail; this batch fixes hypothesis reacquisition after symbol mapping changes, not absolute-phase OQPSK recovery.",
+    "S01 transport profiles and public capture comparison remain pending.",
+    "S10 sparse-image line accounting remains pending with S08.",
+    "All eight hypotheses now run continuously, increasing CPU relative to a single selected lane.",
+    "No physical/off-air acceptance is claimed for this batch."
+  ]
+}

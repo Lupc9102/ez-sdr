@@ -1,0 +1,221 @@
+{
+  "date": "2026-10-08",
+  "scope": [
+    "R01",
+    "R02",
+    "R08",
+    "R11",
+    "R21",
+    "S03",
+    "S05",
+    "S06",
+    "S07",
+    "S09"
+  ],
+  "commands": [
+    {
+      "name": "workspace-tests",
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/workspace-tests.log",
+      "log_sha256": "f1b5eb182cdccc14a67b674584ad07553e8ed035bd52bdf82a03c336560f7a29",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 197,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 828,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 18,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 85,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "default-feature-check",
+      "command": "cargo check --workspace --all-targets",
+      "exit_code": 0,
+      "log": "repair-evidence/default-feature-check.log",
+      "log_sha256": "8ca1b197b6f934ef8c72ca4384de9f40e95667888e3654ddb9b00b1ce2c2da3a",
+      "test_harnesses": []
+    },
+    {
+      "name": "hardware-feature-check",
+      "command": "cargo check -p ez-daemon --all-features --all-targets",
+      "exit_code": 0,
+      "log": "repair-evidence/hardware-feature-check.log",
+      "log_sha256": "9e94217cf424c941dd36e05f59c46fc90f7299f85553a07080cfc92c94d3c376",
+      "test_harnesses": []
+    },
+    {
+      "name": "lrpt-tests",
+      "command": "cargo test -p lrpt-decode --lib",
+      "exit_code": 0,
+      "log": "repair-evidence/lrpt-tests.log",
+      "log_sha256": "3d16f4cc39a86e10873ba5e853b9128c5b0ad2ae263c5162fb355c8ddd43d7ab",
+      "test_harnesses": [
+        {
+          "passed": 85,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "native-float-audio",
+      "command": "cargo test -p ez-gui --no-default-features --lib native_float_replay_reaches",
+      "exit_code": 0,
+      "log": "repair-evidence/native-float-audio.log",
+      "log_sha256": "21e78f8ae90d1f31398e2c8aaa273f670ae716674009067c36a22d4a61a3d6c4",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "long-viterbi",
+      "command": "EZ_AUDIT_LONG_VITERBI=1 cargo run -p lrpt-decode --example audit_logic --release",
+      "exit_code": 0,
+      "log": "repair-evidence/long-viterbi.log",
+      "log_sha256": "e637836929a72d9079652c3f13158fa5bae6165709db31d357236a1583bd2387",
+      "test_harnesses": []
+    },
+    {
+      "name": "satellite-probes",
+      "command": "cargo run -p lrpt-decode --example audit_logic --release",
+      "exit_code": 0,
+      "log": "repair-evidence/satellite-probes.log",
+      "log_sha256": "6be795eeeab94b9963df2af19658c2d0b2f1b4bac2690335adf895c0c06e1212",
+      "test_harnesses": []
+    },
+    {
+      "name": "default-build",
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/default-build.log",
+      "log_sha256": "12b17224713be4eb4906d63d7e53855201dc56e92ba323714ccb5c3f59754a1c"
+    },
+    {
+      "name": "clippy",
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/clippy.log",
+      "log_sha256": "70b2d7db6f5feae79da84c2f700d498e3b8f52eb4ff5a867380f68988d6467e7"
+    },
+    {
+      "name": "format",
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    }
+  ],
+  "source_sha256": {
+    "ez-gui/src/app_ui_tests.rs": "73757c5a05dc4c297579692acae949ad5f59f38dea86f9882f4c8e7ec21535f8",
+    "ez-gui/src/capture_recording.rs": "ce6a47a16182a5499853d8138184a1b3b57c34dd8ee02f976371da750a971a4c",
+    "ez-gui/src/capture_stream.rs": "7bea323bd83ce029dc5350b496c4bd3a6d0b3e82c48361c6d0177036abb49bef",
+    "ez-gui/src/demod.rs": "da42176ec00f404ad93bd0045e7619b7b6557554da26e1bd7504230c717f3120",
+    "ez-gui/src/demod_native.rs": "9902d7bbfacf658b71b6a6dd443ea65df1c6457e84a6ea0f7e9c0214922ff92e",
+    "ez-gui/src/demod_native_audit.rs": "90066c369136defe58c4d0416a2b340191cb64d7b43391530218527c33a4e4c2",
+    "ez-gui/src/radio_iq.rs": "46be002c402706968fbf7480847a222612597d557304413e40fcececbbc5c708",
+    "ez-gui/src/raw_recording.rs": "39b4e88297464fd8bc75dcc6345c510a7356a57f5e649da86436180f94974ce5",
+    "ez-gui/src/recorder_panel.rs": "9f377877ddbbd5dd3b8145d8aafdd6b5d93a0f468968d29c4c71603f379b8af6",
+    "ez-gui/src/satellite/recorder.rs": "0c69891b271943213d0aaf56d777fedbd24643f82b29b2ab7b4e43a5e4fa15a2",
+    "ez-gui/src/source_manager.rs": "e62e05f0125242652075bb262fc19213188000780bc6c2d9329c2b8f946bac8a",
+    "lrpt-decode/src/ccsds.rs": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+    "lrpt-decode/src/frame_sync.rs": "d01c68bea3066dfb098eac9e56aa2a666905af8665f1d7bddc14f84c9efc8cba",
+    "lrpt-decode/src/image_builder.rs": "03c35f92428f6431cb74472a995caeee6f62ded0f1cf62aa3d2c64a94c8cbf09",
+    "lrpt-decode/src/lib.rs": "122152fc8b1ca6844e1d4483182c419a53974766896ade6d79ae7bf0a35bf84b",
+    "lrpt-decode/src/viterbi.rs": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+    "lrpt-decode/examples/audit_logic.rs": "1f4e5715caa7d3749c4f398a40f9238ea90ea68275aeb1975cc50fd728e603ee"
+  },
+  "status": "Software verification for first repair batch; full audit and release gates are incomplete.",
+  "log_normalization": "Trailing blank lines removed; command output otherwise unchanged."
+}

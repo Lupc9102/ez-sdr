@@ -1,0 +1,846 @@
+{
+  "date": "2026-10-07",
+  "base_commit": "25f98f6264a0fcd85058d0ccff25d269ec542048",
+  "scope": "Satellite decoder and complete local/daemon radio listening logic",
+  "production_fixes": false,
+  "counts": {
+    "P1": 9,
+    "P2": 24
+  },
+  "findings": [
+    {
+      "id": "S01",
+      "priority": "P1",
+      "title": "Advertised interleaved 80 ksym/s Meteor transport is missing",
+      "evidence": "Protocol comparison + complete source trace",
+      "trigger": "Import an actual Meteor interleaved 80 ksym/s OQPSK recording using either Meteor preset, which defaults to 80,000 symbols/s.",
+      "logic": "Recovered symbol signs go directly to hypothesis lanes and Viterbi. The only deinterleaver reverses the four RS codewords after frame synchronization. That is a different layer. No code removes the 8-bit interleaver markers, tracks their 80-bit spacing, or reverses the 36-branch convolutional interleaver. SatDump's 80k profile explicitly enables that stage before Viterbi; its 72k profile uses a different transport chain. Selecting a symbol rate alone cannot supply the missing transport operation.",
+      "impact": "The advertised interleaved 80k signal cannot be treated as a supported end-to-end mode. Existing generated fixtures encode a simpler, uninterleaved transport and cannot prove this compatibility. This is a protocol gap, not an assertion that every conceivable 80k synthetic waveform must fail.",
+      "repair_gate": "Add explicit mission/transport profiles. Decode marker-bearing interleaved symbols with streaming state and validate the resulting CADUs against an independently decoded 80k recording. Also validate the separate 72k NRZ-M profile. Compare packet bytes and images, not just lock flags.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/lib.rs",
+          "line": 262,
+          "anchor": "fn push_symbols("
+        },
+        {
+          "file": "lrpt-decode/src/reed_solomon.rs",
+          "line": 86,
+          "anchor": "pub fn deinterleave("
+        },
+        {
+          "file": "ez-gui/src/decoding_panel.rs",
+          "line": 209,
+          "anchor": "pub fn symbol_rate(&self)"
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S02",
+      "priority": "P1",
+      "title": "OQPSK carrier/timing recovery depends on absolute RF phase",
+      "evidence": "Reproduced at 640 kS/s and 2.048 MS/s",
+      "trigger": "Feed otherwise identical noiseless OQPSK at initial phases 0\u00b0, 15\u00b0, 30\u00b0, 45\u00b0, 60\u00b0, 90\u00b0 and 180\u00b0.",
+      "logic": "Timing uses uncorrected I alone. The demodulator combines I at one instant with Q half a symbol later, then applies carrier correction to that combination. An arbitrary RF rotation already mixes the staggered branches before this deskew. A subsequent complex rotation cannot undo the cross-time mixing; at 90\u00b0 the branch delay orientation is also reversed. Digital bit sign/swap hypotheses after symbol recovery cannot repair those damaged symbol values.",
+      "impact": "At both sample rates, three clean CADUs yield 12 valid RS codewords at 0\u00b0, 15\u00b0, 30\u00b0 and 180\u00b0, but zero at 45\u00b0, 60\u00b0 and 90\u00b0. A satellite's unknown carrier phase is ordinary input, not an exceptional format. The 2.048 MS/s probe uses continuous-time symbol indexing at 25.6 samples/symbol; it does not round the input clock as the existing fixture does.",
+      "repair_gate": "Test a full phase sweep with pulse-shaped independent OQPSK, both stagger orientations, frequency offset, fractional sampling and clock drift. Correct carrier/timing recovery in a way valid for staggered branches. Require payload equality across phases.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/qpsk.rs",
+          "line": 339,
+          "anchor": "let timing_error = if self.config.oqpsk"
+        },
+        {
+          "file": "lrpt-decode/src/qpsk.rs",
+          "line": 298,
+          "anchor": "pub fn process("
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S03",
+      "priority": "P1",
+      "title": "Viterbi metrics saturate and permanently kill the decoder",
+      "evidence": "Long deterministic noise-to-clean reproduction, with fresh-decoder control",
+      "trigger": "A continuous receiver/file contains a long noise interval before or between useful frames.",
+      "logic": "Path metrics accumulate Hamming costs indefinitely without subtracting the minimum metric. INF is 1,000,000 and states at or above it are skipped. Once every state reaches INF, no transition can revive a finite state. Output then becomes all zero regardless of later clean symbols. Resetting frame synchronization does not reset these metrics.",
+      "impact": "After 8,192,000 noisy trellis steps, the clean section has 823 errors in 1,920 aligned comparison bits and zero output ones. A fresh decoder receives the identical clean code and has zero comparison errors and 851 output ones. The noisy interval corresponds to about 102.4 seconds at 80k trellis steps/s; this is a constructed counterexample, not a measured off-air failure time.",
+      "repair_gate": "Normalize finite metrics periodically and retain valid traceback ordering. Require arbitrarily long noisy/weak intervals to recover a subsequent known clean payload without restarting the app. Compare fresh and aged decoders and test multiple chunk partitions.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/viterbi.rs",
+          "line": 15,
+          "anchor": "const INF"
+        },
+        {
+          "file": "lrpt-decode/src/viterbi.rs",
+          "line": 55,
+          "anchor": "pub fn push_bits("
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S04",
+      "priority": "P1",
+      "title": "First successful ambiguity lane is selected forever",
+      "evidence": "Continuous six-frame phase-slip reproduction + state trace",
+      "trigger": "After three clean CADUs, apply a 180\u00b0 phase slip to one continuous six-CADU IQ stream.",
+      "logic": "Once selected_lane is set, only that lane receives subsequent symbols. Other lanes stop advancing, and no frame-loss or BER condition releases the selection. The selected lane is also used as the public frame-lock condition. FrameSync's own reacquisition cannot change the bit hypothesis that feeds it.",
+      "impact": "The continuous phase-slip stream produces 12 valid RS codewords; the identical six-frame stream without the slip produces 24. The entire later section is lost. A single seam may legitimately corrupt a frame, but staying on a dead hypothesis prevents sustained recovery after the seam.",
+      "repair_gate": "Expire lane selection on a defined loss/BER criterion and rebuild or continuously advance alternative hypotheses. Test phase slips, fades, polarity/conjugation changes and valid later frames without an external reset. Publish current frame synchronization, not historical selection.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/lib.rs",
+          "line": 387,
+          "anchor": "if let Some(selected) = self.selected_lane"
+        },
+        {
+          "file": "lrpt-decode/src/lib.rs",
+          "line": 505,
+          "anchor": "frame_locked: self.selected_lane.is_some()"
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S05",
+      "priority": "P2",
+      "title": "Frame search skips an earlier valid marker in favor of a later cleaner one",
+      "evidence": "Direct frame-synchronizer reproduction",
+      "trigger": "An unlocked input chunk holds two CADUs: the first marker has two allowed bit errors, the second is perfect.",
+      "logic": "find_sync searches for the globally lowest Hamming distance and stops on a perfect match. FrameSync drains everything before that chosen position. It can discard a complete earlier admissible frame even though no bytes are missing from the input.",
+      "impact": "The probe extracts one frame instead of two. Loss depends on read/chunk boundaries and marker noise, so a clean one-frame-at-a-time round trip misses it.",
+      "repair_gate": "Search in chronological order with frame/RS validation, or retain candidates until rejected. Require identical recovered frame sequences across chunk partitions containing imperfect and perfect markers, false payload markers and truncated suffixes.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/frame_sync.rs",
+          "line": 86,
+          "anchor": "pub fn find_sync("
+        },
+        {
+          "file": "lrpt-decode/src/frame_sync.rs",
+          "line": 150,
+          "anchor": "pub fn push_bits("
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S06",
+      "priority": "P1",
+      "title": "Space-packet headers split across transfer frames are discarded",
+      "evidence": "Direct parser reproduction + CCSDS AOS requirement",
+      "trigger": "A packet begins in the last 1\u20135 bytes of a VCDU packet zone; its remaining primary header arrives in the next frame.",
+      "logic": "The parser opens a buffer only after it can parse all six primary-header bytes in the current payload. A shorter trailing header is forgotten. A NO_PACKET_START continuation cannot reconstruct it because no packet buffer was opened. Body fragmentation works, masking this boundary case.",
+      "impact": "Splitting the same valid packet after three bytes yields zero completed packets; splits after six or nine bytes yield one. Ordinary variable-length packet packing eventually crosses this boundary, losing image segments despite valid RS correction.",
+      "repair_gate": "Keep partial primary headers per virtual channel until the length field is available, then continue the packet body. Test every split position, multiple continuations, frame gaps, idle-only frames and subsequent new-header pointers. Preserve the CCSDS rule that idle-only frames can occur during a fragmented packet.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/ccsds.rs",
+          "line": 237,
+          "anchor": "pub fn push_mpdu_payload("
+        },
+        {
+          "file": "lrpt-decode/src/ccsds.rs",
+          "line": 300,
+          "anchor": "while cursor + SPACE_PACKET_HEADER_LEN"
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S07",
+      "priority": "P2",
+      "title": "Same-APID packets on different virtual channels overwrite each other",
+      "evidence": "Direct parser reproduction",
+      "trigger": "Two virtual channels simultaneously hold incomplete packets with APID 64.",
+      "logic": "Continuation contexts are per VCID, but actual buffers are keyed only by APID. Opening channel B's packet replaces channel A's bytes; channel A's continuation then appends to B's buffer. A frame gap on one virtual channel can likewise clear the other's buffer. The top-level decoder does not constrain processing to one configured VCID.",
+      "impact": "Fragments of AAAA on VCID 1 and BBBB on VCID 2 produce a completed packet with BBAA. This is deterministic cross-channel data corruption. A capture using one VCID avoids the trigger; generic multiple-VCID support does not.",
+      "repair_gate": "Own pending packet bytes by VCID, or by a full validated channel identity, and deliver APID only after reassembly. Require independent results and gap handling for interleaved channels sharing APIDs.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/ccsds.rs",
+          "line": 204,
+          "anchor": "apid_buffers:"
+        },
+        {
+          "file": "lrpt-decode/src/ccsds.rs",
+          "line": 205,
+          "anchor": "vcid_contexts:"
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S08",
+      "priority": "P2",
+      "title": "Image origin is the satellite's sequence zero rather than the received pass",
+      "evidence": "Image-builder reproduction + reference comparison",
+      "trigger": "A recording starts partway through an ongoing packet-sequence cycle.",
+      "logic": "The per-channel offset retains only phase modulo 43. Raster height is computed from the absolute packet sequence and zero-filled up to that row. There is no received first-row origin. SatDump retains first/last received segment bounds and crops output to those bounds. Counting allocated channel height as decoded lines also counts the black prefix and missing rows.",
+      "impact": "One valid 8-pixel-high segment at sequence 16,300 allocates a 3,040-pixel-high image. Preview scaling and progress then spend most of their area/count on data never received. Multiple sequence rollovers consume the 16,384-row cap sooner because the missing prefix remains part of the allocation.",
+      "repair_gate": "Retain absolute sequence/time identities for placement but render relative to the received pass bounds. Track valid segments separately from allocated height. Verify late starts, rollover, missing packets, reordering and cross-channel row alignment with an independently decoded pass.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/image_builder.rs",
+          "line": 71,
+          "anchor": "let offset = *channel.offset"
+        },
+        {
+          "file": "lrpt-decode/src/image_builder.rs",
+          "line": 150,
+          "anchor": "pub fn total_line_count("
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S09",
+      "priority": "P2",
+      "title": "JPEG dequantization retains an extra half-unit in every table entry",
+      "evidence": "Independent Pillow/libjpeg fixture and exact DC-only counterexample",
+      "trigger": "Decode a valid MSU-MR-style segment with nonzero JPEG coefficients at quality 50.",
+      "logic": "quantization_table computes scale * Q + 0.5 and clamps it, but never rounds/truncates to the integer quantizer. At quality 50, the DC quantizer should be 16; this code uses 16.5. The current all-gray fixture has zero coefficients, so it cannot expose any dequantization error.",
+      "impact": "A standard DC coefficient of +16 should give every pixel 160: 128 + (16*16)/8. The app gives 161. On 896 independently decoded non-flat pixels, maximum absolute error is 5 and mean error is 1.956473. Libjpeg IDCT rounding can contribute small differences; the exact DC-only counterexample isolates the table error.",
+      "repair_gate": "Use the mission's integer quantization convention. Test nonzero DC/AC, quality values on both scale branches, run-length/ZRL/EOB cases and orientation against independent JPEG vectors. Retain a stated pixel-rounding tolerance for differing IDCT implementations.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/image_builder.rs",
+          "line": 246,
+          "anchor": "fn quantization_table("
+        },
+        {
+          "file": "lrpt-decode/src/image_builder.rs",
+          "line": 286,
+          "anchor": "fn decode_segment("
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S10",
+      "priority": "P2",
+      "title": "Lock and decoded-line diagnostics can report success without current reception",
+      "evidence": "Zero-IQ reproduction + diagnostic source trace",
+      "trigger": "Silence is fed to the carrier loop, or a previously selected frame lane stops receiving useful data.",
+      "logic": "Near-zero symbols have zero phase error, so averaged error can satisfy the lock threshold with no signal energy. frame_locked means selected_lane exists, not that current frames synchronize. lines_decoded sums allocated raster heights, including gaps and the late-start prefix. These are three distinct quantities presented as current decoder progress.",
+      "impact": "10,000 zero complex samples set Costas lock true. S04 preserves the selected-lane lock state while later frames fail. S08 makes one segment appear as thousands of lines. These diagnostics can hide the other failures during a pass.",
+      "repair_gate": "Gate carrier lock on energy/SNR and sustained valid loop behavior; expire frame lock on recent validation; count actual valid scanlines/segments separately from output extent. Test noise, silence, stale lock and sparse images with explicit time/observation bounds.",
+      "sources": [
+        {
+          "file": "lrpt-decode/src/qpsk.rs",
+          "line": 262,
+          "anchor": "pub fn is_locked("
+        },
+        {
+          "file": "lrpt-decode/src/lib.rs",
+          "line": 500,
+          "anchor": "let progress = DecodeProgress"
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "S11",
+      "priority": "P2",
+      "title": "Daemon LRPT accepts unusable sampling and cannot select the 72k profile",
+      "evidence": "Daemon configuration source trace",
+      "trigger": "A client subscribes to LRPT telemetry with a narrow channel, or expects a 72 ksym/s signal.",
+      "logic": "DaemonState fixes LRPT symbol rate at 80,000. Channel validation checks source geometry but has no LRPT minimum sample-rate/profile check. Channel bandwidth controls output sampling, so an otherwise accepted subscription can undersample the symbol stream. Telemetry resets stream DSP at discontinuities but preserves accumulated image state; a retune to a different pass also needs an explicit product boundary.",
+      "impact": "The API can create a decoder that is incapable of meeting the sampling requirement. Unlike the offline GUI's validate_rates check, this path provides no early configuration error or 72k selector. Normal Meteor UI currently uses offline imports, so this is daemon telemetry scope.",
+      "repair_gate": "Make transport/symbol rate explicit in telemetry configuration, enforce the demodulator's real sampling and occupied-band requirements, and distinguish capture gaps from new satellite/product sessions. Reject unsupported subscriptions before allocating threads.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/state.rs",
+          "line": 39,
+          "anchor": "const LRPT_SYMBOL_RATE_HZ"
+        },
+        {
+          "file": "ez-daemon/src/state.rs",
+          "line": 174,
+          "anchor": "fn validate_spec("
+        },
+        {
+          "file": "ez-daemon/src/pipelines/telemetry.rs",
+          "line": 82,
+          "anchor": "fn process_block("
+        }
+      ],
+      "area": "Satellite"
+    },
+    {
+      "id": "R01",
+      "priority": "P1",
+      "title": "Listen-tab CS8 replay interprets signed bytes as unsigned IQ",
+      "evidence": "Real SourceManager file-replay acceptance probe",
+      "trigger": "Open a .cs8 file through the Listen source picker, which advertises this extension.",
+      "logic": "Format dispatch recognizes only CF32/fc32 specially; all other files are copied directly into the CU8 capture data plane. RadioIqProcessor then subtracts the unsigned midpoint. CS8 requires a signed interpretation or a midpoint conversion first. This is not merely a harmless constant phase rotation: the mapping jumps at signed zero.",
+      "impact": "Signed [0,1,-1,64,-64,127,-128,0] reaches the CU8 consumer as [0,1,255,64,192,127,128,0], instead of [128,129,127,192,64,255,0,128]. Waveform amplitudes, spectra and demodulation are corrupted. Meteor's separate CS8 import correctly uses the signed conversion, so one tab working does not validate the other.",
+      "repair_gate": "Carry an explicit sample format through capture or convert CS8 before CU8 publication. Compare spectra and demodulated payload/audio for equivalent CU8, CS8 and CF32 files at multiple amplitudes and across zero crossings.",
+      "sources": [
+        {
+          "file": "ez-gui/src/source_manager.rs",
+          "line": 993,
+          "anchor": "let is_cf32 ="
+        },
+        {
+          "file": "ez-gui/src/source_manager.rs",
+          "line": 1073,
+          "anchor": "let chunk = if is_cf32"
+        },
+        {
+          "file": "ez-gui/src/radio_iq.rs",
+          "line": 160,
+          "anchor": "pub fn process("
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R02",
+      "priority": "P2",
+      "title": "Local float replay discards CF32 dynamic range before radio DSP",
+      "evidence": "Conversion-to-production-IQ probe + file source trace",
+      "trigger": "Replay weak normalized floating-point IQ or floats exceeding unit amplitude.",
+      "logic": "SourceManager converts every CF32 component to an unsigned byte before publishing CaptureBlock. The later float demodulation API receives already quantized/clipped values. Correct float handling in the daemon and Meteor import does not rescue this local bridge.",
+      "impact": "0.0001 and 0.0002 both become byte 128 and the same restored component 0.004687488; 1.2 and -1.3 clip to 255/0. Weak recordings lose their signal variation entirely. Existing round trips start with original CU8 data and therefore cannot detect this lost float precision.",
+      "repair_gate": "Preserve native floating-point IQ through the local data plane, with format/unit metadata, or explicitly limit float replay to an 8-bit compatibility mode. Validate sub-byte amplitudes and headroom against a float reference, not an 8-bit encoder round trip.",
+      "sources": [
+        {
+          "file": "ez-gui/src/source_manager.rs",
+          "line": 1074,
+          "anchor": "lrpt_decode::cf32_le_bytes_to_uc8"
+        },
+        {
+          "file": "lrpt-decode/src/iq_source.rs",
+          "line": 115,
+          "anchor": "pub fn normalized_component_to_uc8("
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R03",
+      "priority": "P1",
+      "title": "Daemon narrow-channel decimation aliases strong adjacent signals",
+      "evidence": "Real Channelizer frequency-response reproduction",
+      "trigger": "Create a 12.5 kS/s virtual channel from 2 MS/s wideband IQ, a decimation of 160.",
+      "logic": "A fixed 63-tap FIR is used for every decimation. The normalized cutoff is also clamped to at least 0.01; at 2 MS/s this floor is above the 6.25 kHz output Nyquist for this channel. Even without that floor, the fixed length cannot provide narrow enough transitions for arbitrary high decimation.",
+      "impact": "A wanted 1 kHz, amplitude-0.5 carrier gives output RMS 0.499629. A 13.5 kHz interferer folds to the same output frequency with RMS 0.436185: only about 1.18 dB rejection. A 26 kHz carrier still gives 0.296863. This destroys channel isolation and aliases before every downstream demodulator. The GUI's fixed ~200k audio channel uses a different decimation; these exact figures apply to the supported narrow backend channel configuration.",
+      "repair_gate": "Design filtering from actual passband, transition width and stopband rejection; use staged/polyphase decimation where needed. Sweep frequencies and source rates, and assert the rejection requirement before downsampling. Test adjacent-channel mixtures, not only wanted tones.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/channelizer.rs",
+          "line": 163,
+          "anchor": "fn make_decimator("
+        },
+        {
+          "file": "ez-daemon/src/channelizer.rs",
+          "line": 18,
+          "anchor": "const FIR_TAPS"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R04",
+      "priority": "P2",
+      "title": "Daemon playback downsamples mono PCM without an anti-alias filter",
+      "evidence": "Resampler frequency probe and real WFM-pipeline-to-playback probe",
+      "trigger": "The daemon sends audio at ~200 kS/s and the sound device runs at 48 kS/s.",
+      "logic": "AudioPipeline publishes a demodulated sample for each virtual-channel IQ sample. The GUI's AudioResampler uses linear interpolation but never removes content above the destination Nyquist. WFM de-emphasis is not a brick-wall anti-alias filter. AM/NFM also lack a final destination-rate audio low-pass in this route.",
+      "impact": "A 49 kHz PCM sine at amplitude 0.5 becomes a 1 kHz audible alias at amplitude 0.410990. Through actual daemon WFM demodulation and de-emphasis, 57 kHz modulation with 12 kHz deviation produces a 9 kHz alias at amplitude 0.004411. The latter is a constructed subcarrier-like input, not a claim about every broadcast station's RDS level.",
+      "repair_gate": "Low-pass to the destination audio passband before decimation, using a streaming rational-rate converter with known rejection. Test real demodulator output, stereo/RDS-range MPX components, source rates, 44.1/48 kHz output and arbitrary frame splits.",
+      "sources": [
+        {
+          "file": "ez-gui/src/audio_resampler.rs",
+          "line": 17,
+          "anchor": "pub fn process("
+        },
+        {
+          "file": "ez-daemon/src/pipelines/audio.rs",
+          "line": 207,
+          "anchor": "fn process_block("
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R05",
+      "priority": "P2",
+      "title": "Local FM loudness changes with RF sample rate and RF decimation",
+      "evidence": "Identical deviation/tone reproduction at two RF rates",
+      "trigger": "Listen to the same NFM signal after changing source sample rate or local RF decimation.",
+      "logic": "FM output scales raw phase difference by 0.5 (WFM by its own constant) rather than converting phase difference to deviation using the discriminator's actual clock. Phase difference per sample is proportional to 1/Fs. FM mode disables the audio AGC. The optional FM IF stage intentionally compensates back to this source-rate-dependent convention.",
+      "impact": "A 1 kHz tone with 2.5 kHz deviation gives amplitude 0.040641 at 192 kS/s and 0.003805 at 2.048 MS/s, a factor 10.68 or about 20.57 dB. The station can become very quiet when selecting a normal high RF sampling rate, even though its RF deviation is unchanged. Daemon FM already uses deviation normalization, so routes behave differently.",
+      "repair_gate": "Define a physical deviation-to-audio scale and normalize with the actual discriminator clock. Require constant gain, pitch and reported deviation across source rates, RF decimation, IF noise reduction and mono/stereo paths.",
+      "sources": [
+        {
+          "file": "ez-gui/src/demod.rs",
+          "line": 1614,
+          "anchor": "fn demod_fm("
+        },
+        {
+          "file": "ez-gui/src/demod.rs",
+          "line": 1682,
+          "anchor": "fn demod_wfm("
+        },
+        {
+          "file": "ez-daemon/src/pipelines/audio.rs",
+          "line": 276,
+          "anchor": "let gain = sample_rate_hz as f32"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R06",
+      "priority": "P2",
+      "title": "USB/LSB power squelch measures a symmetric band instead of the selected sideband",
+      "evidence": "Native PowerMeter acceptance probe + mode routing",
+      "trigger": "Enable power squelch or power-dependent recording while listening to USB/LSB.",
+      "logic": "PowerMeter tests absolute distance from the VFO against bandwidth/2 for every mode. USB selection actually spans [0, bandwidth]; LSB spans [-bandwidth, 0]. SpectrumAnalyzer correctly renders/measures those asymmetric edges, so the displayed channel and audio gate disagree.",
+      "impact": "With 3 kHz USB bandwidth at 300 kS/s, a wanted +2197 Hz carrier measures -120 dBFS, while an unwanted -1099 Hz carrier measures -6.021 dBFS. The upper half of the wanted voice band can be muted, while the opposite sideband can open the gate or trigger recording.",
+      "repair_gate": "Share the demodulator's actual passband geometry with power measurement. Test wanted and opposite tones throughout both SSB sidebands, combined signals, VFO offsets and recording/scanning consumers.",
+      "sources": [
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 130,
+          "anchor": "fn process(&mut self, samples:"
+        },
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 328,
+          "anchor": "let signal = if radio.measure_power"
+        },
+        {
+          "file": "ez-gui/src/spectrum.rs",
+          "line": 847,
+          "anchor": "fn vfo_band_edges("
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R07",
+      "priority": "P2",
+      "title": "Narrow power measurements can return silence because no FFT bin fits",
+      "evidence": "Native PowerMeter acceptance probe",
+      "trigger": "Use an allowed 50 Hz CW channel with the VFO between bins of the fixed 4096-point power FFT.",
+      "logic": "Only bins whose center lies inside the channel contribute. At 300 kS/s, bin spacing is 73.2421875 Hz, larger than a 50 Hz band. If no bin center fits, amplitude remains zero, even with a strong carrier precisely at the VFO. CW's own audio squelch is separate; this finding concerns the RF power measurement/monitoring primitive.",
+      "impact": "An amplitude-0.5 carrier centered at offset 36.621094 Hz measures -120 dBFS. The error is a hard blind spot, not merely a few dB of FFT scalloping loss.",
+      "repair_gate": "Measure a filtered/time-domain channel or account for partial bins with suitable resolution and leakage control. Validate off-bin carriers at every supported narrow width, and state whether the metric is peak-bin amplitude or integrated RF power.",
+      "sources": [
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 109,
+          "anchor": "let size = 4096;"
+        },
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 150,
+          "anchor": "if (bin * rate / size as f64 - offset)"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R08",
+      "priority": "P2",
+      "title": "Old capture generations are accepted under a new receiver session's controls",
+      "evidence": "Native Processor acceptance probe",
+      "trigger": "Restart/change source with the same center frequency and sample rate while the old session still has queued blocks.",
+      "logic": "RadioConfig carries generation, but process rejects only disabled state, center mismatch and rate mismatch. A generation change updates snapshot state and resets continuity; it does not compare the block to the requested radio generation. The accepted block is stamped with the new control version and can reach the new sink/recording consumer.",
+      "impact": "For requested generation 2 and a generation-1 block, the probe emits 327 audio samples and counts zero skipped RF samples. The geometry-only boundary tests do not exercise this same-geometry stale-session case; an existing reset test even feeds a changed generation while keeping the old desired config.",
+      "repair_gate": "Reject blocks that do not belong to the active requested capture generation before demodulation/publication. Account for the rejected tail separately. Test rapid same-frequency restarts, format/source changes and simultaneous recorder/audio reopening.",
+      "sources": [
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 268,
+          "anchor": "if self.snapshot.generation != block.source_generation"
+        },
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 302,
+          "anchor": "if !radio.enabled"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R09",
+      "priority": "P2",
+      "title": "AM audio aliases when the selected RF band exceeds output audio Nyquist",
+      "evidence": "Local AM demodulator reproduction at a UI-allowed bandwidth",
+      "trigger": "Use an 8 kHz audio device, AM RF bandwidth 15 kHz and 6 kHz envelope modulation.",
+      "logic": "Complex channel filtering precedes envelope detection, which is good, but its cutoff is RF bandwidth/2. The envelope is then subsampled before an audio anti-alias filter. The later audio LPF cannot remove a component already folded into baseband. Unlike local FM, AM does not run the pre-decimation audio anti-alias stage.",
+      "impact": "Amplitude-0.1 modulation at 6 kHz becomes a 2 kHz output alias of amplitude 0.071554. An 8 kHz audio clock is accepted by output selection, and 15 kHz AM bandwidth is allowed by the Listen controls. This can make unwanted modulation audible as an unrelated low-frequency tone.",
+      "repair_gate": "Low-pass the detected envelope before subsampling, with cutoff tied to the destination/effective output rate. Apply the same requirement to product/SSB routes where configured passbands can exceed audio Nyquist. Test rate/bandwidth combinations and nonlinear envelope harmonics.",
+      "sources": [
+        {
+          "file": "ez-gui/src/demod.rs",
+          "line": 1577,
+          "anchor": "fn demod_am("
+        },
+        {
+          "file": "ez-gui/src/demod.rs",
+          "line": 1365,
+          "anchor": "let filtered = if matches!"
+        },
+        {
+          "file": "ez-gui/src/radio_ui.rs",
+          "line": 1839,
+          "anchor": "DemodMode::Am => (1_000.0, 15_000.0)"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R10",
+      "priority": "P2",
+      "title": "RAW output has the wrong channel count and timebase for playback/WAV",
+      "evidence": "Output-count reproduction + native publication trace",
+      "trigger": "Select RAW in the local Listen tab and play or record its output.",
+      "logic": "demod_raw pushes I then Q for every IQ sample. demodulate_complex explicitly bypasses resampling in RAW. Native radio publishes that vector as mono at the sound-device audio rate; only WFM stereo is treated as two-channel audio. The callback then bounds excess backlog by dropping frames, concealing the rate mismatch during live playback.",
+      "impact": "One second of 192 kS/s IQ yields 384,000 mono samples declared as 48 kHz: eight seconds in a WAV timebase. Live playback discards most samples and interleaves I/Q into one audible channel. Higher RF rates increase the mismatch further. The daemon UI disables RAW, so this finding applies to the local exposed mode.",
+      "repair_gate": "Define RAW semantics explicitly: properly resampled stereo I/Q audio, an RF-rate IQ export, or an analysis-only mode. Carry correct channels/rate through playback and recording. Require duration and sample-count equality for each supported source clock.",
+      "sources": [
+        {
+          "file": "ez-gui/src/demod.rs",
+          "line": 1566,
+          "anchor": "fn demod_raw("
+        },
+        {
+          "file": "ez-gui/src/demod.rs",
+          "line": 1377,
+          "anchor": "let audio = if matches!(mode, DemodMode::Raw"
+        },
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 394,
+          "anchor": "let mono = if desired.config.stereo"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R11",
+      "priority": "P2",
+      "title": "Reset disables the configured audio high-pass until coefficients are recomputed",
+      "evidence": "Public Demodulator reset reproduction + native lifecycle trace",
+      "trigger": "Reset after configuring an audio HPF; native capture discontinuities/resume reset after configure.",
+      "logic": "reset clears hpf_alpha_computed to zero while leaving audio_hpf_hz configured. post_process interprets zero as disabled. Native configure recomputes coefficients, but process then calls reset on discontinuity or resumed demodulation. The next configure restores coefficients, limiting the native symptom to the reset/resume block; the standalone API remains disabled until a setter/rate recomputation.",
+      "impact": "With a 1 kHz HPF and 200 Hz AM tone, amplitude changes from 0.019258 to 0.098395 after reset. This is a temporary passband change/click risk in native listening and a persistent reset-contract bug for direct callers. It is not claimed to disable the filter for the whole native session.",
+      "repair_gate": "Reset state without erasing configured coefficients, or recompute immediately after reset. Require a reset processor to match a freshly configured processor with every advanced filter active, including the first block after a capture gap.",
+      "sources": [
+        {
+          "file": "ez-gui/src/demod.rs",
+          "line": 851,
+          "anchor": "self.hpf_alpha_computed = 0.0;"
+        },
+        {
+          "file": "ez-gui/src/demod_native.rs",
+          "line": 287,
+          "anchor": "if !continuous || missing > 0"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R12",
+      "priority": "P2",
+      "title": "Daemon SSB rejection degrades sharply at the actual GUI channel rate",
+      "evidence": "Real AudioPipeline 48k/200k comparative reproduction",
+      "trigger": "Use daemon USB/LSB through the GUI, which requests a ~200 kS/s channel.",
+      "logic": "The sideband selector uses 257 taps, a fixed 1650 Hz shift and 1450 Hz low-pass at the incoming channel rate. Its transition width grows with rate. Existing sideband rejection tests run at 48 kS/s, substantially below the ~200k GUI route.",
+      "impact": "At +300/-300 Hz, 48k USB produces wanted RMS 0.326282 and opposite 0.000498 (~56.3 dB rejection). At 200k it produces 0.240538 and 0.079689 (~9.6 dB). Strong lower-sideband voice therefore leaks into USB near the voice-band edge. At 1 kHz the rejection is better; the problem is not a total sideband swap.",
+      "repair_gate": "Bring SSB to a suitable intermediate rate with anti-alias filtering or scale the filter design to a defined transition/rejection. Sweep the entire voice passband at actual production rates for both sidebands and mixed adjacent signals.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/pipelines/audio.rs",
+          "line": 37,
+          "anchor": "const SSB_FIR_TAPS"
+        },
+        {
+          "file": "ez-daemon/src/pipelines/audio.rs",
+          "line": 299,
+          "anchor": "fn demod_ssb("
+        },
+        {
+          "file": "ez-gui/src/source_manager.rs",
+          "line": 1927,
+          "anchor": "bandwidth_hz: 200_000.min"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R13",
+      "priority": "P2",
+      "title": "Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed",
+      "evidence": "Trigger and application-call source trace",
+      "trigger": "Enable squelch recording/signal monitoring with a power threshold of -95 dBFS, or use a daemon source.",
+      "logic": "tick_squelch_record requires squelch_db > -90 in addition to signal > threshold, despite a -100..0 power slider. The caller always takes power from the local native DSP snapshot; with a daemon source that processor is disabled, so it supplies no daemon RF power and the fallback is -120. This must be distinguished from intentionally disabling squelch via its explicit mode.",
+      "impact": "A valid above-threshold weak signal cannot trigger below -90. Daemon listening cannot drive this monitor from its available remote observations through the current caller. The event count also increments after start even if opening a recording failed, making diagnosis harder.",
+      "repair_gate": "Use explicit enabled/mode state instead of a magic threshold sentinel. Route acknowledged, fresh daemon RF measurements when supported or disable the feature with a clear reason. Increment recording count only after successful start. Test the full threshold range and both sources.",
+      "sources": [
+        {
+          "file": "ez-gui/src/recorder_panel.rs",
+          "line": 444,
+          "anchor": "let signal_active = signal_db > squelch_db"
+        },
+        {
+          "file": "ez-gui/src/app.rs",
+          "line": 1692,
+          "anchor": "// Squelch-triggered recording tick"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R14",
+      "priority": "P1",
+      "title": "Rejected hardware tuning changes capture metadata anyway",
+      "evidence": "Real backend source trace + fault-injected production-ingestion reproduction",
+      "trigger": "An active RTL-SDR, HackRF or Soapy frequency/sample-rate setter returns an error; TCP command writing can fail similarly.",
+      "logic": "These setters assign the cached requested value before the fallible hardware/API call. On error there is no rollback. Ingest reports the backend's now-mutated getters as status and uses them for subsequent SampleBlock center/rate, but resets epoch only in the success branch. DaemonState also skips channelizer retuning after the rejected setter, splitting its control state from labeled samples.",
+      "impact": "A fake source modeling the exact cache-before-error pattern, passed through real ingest::spawn, returns a rejected tune while status and the next block both claim 101 MHz; the epoch does not change and discontinuity is false. Physical samples may still be at the old 100 MHz. This can silently mislabel RF, make digital tuning wrong and produce inaccurate recording metadata. No real receiver rejection was injected in this audit.",
+      "repair_gate": "Commit applied settings only after successful hardware calls; recover/read back actual state after partial failures. Do not publish normal samples with unverified geometry. Test mutation-before-error sources, not just mocks whose rejecting setters preserve state automatically.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/hardware/rtlsdr.rs",
+          "line": 228,
+          "anchor": "fn set_frequency("
+        },
+        {
+          "file": "ez-daemon/src/hardware/hackrf.rs",
+          "line": 302,
+          "anchor": "fn set_frequency("
+        },
+        {
+          "file": "ez-daemon/src/hardware/soapy.rs",
+          "line": 320,
+          "anchor": "fn set_frequency("
+        },
+        {
+          "file": "ez-daemon/src/ingest.rs",
+          "line": 152,
+          "anchor": "Err(error) =>"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R15",
+      "priority": "P1",
+      "title": "HackRF callback overflow is silently stitched into continuous capture",
+      "evidence": "Hardware callback-to-ingestion source trace",
+      "trigger": "The bounded HackRF callback queue fills because ingestion/processing cannot keep up.",
+      "logic": "rx_callback ignores the result of try_send. Dropped transfers are neither counted nor represented in IqSource's clock. read_iq returns the next retained bytes, and ingest constructs a contiguous source_sample_index from retained sample counts. The downstream buses can track their own drops, but cannot detect loss that happened before publication.",
+      "impact": "Radio DSP, LRPT, and recording consumers receive a false continuous clock across an unknown RF gap. They can carry filter/decoder state across missing samples and mark a recording complete despite acquisition loss. This failure path is source-proven; the audit did not overload a physical HackRF.",
+      "repair_gate": "Maintain acquisition sample indices/drop counters at the callback boundary, preserve complete sample pairs, and mark a new discontinuity/gap after loss. Require downstream recording completeness and DSP resets to agree with injected callback overflow.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/hardware/hackrf.rs",
+          "line": 142,
+          "anchor": "let _ = ctx.tx.try_send(data)"
+        },
+        {
+          "file": "ez-daemon/src/ingest.rs",
+          "line": 174,
+          "anchor": "let mut clock = if let Some(clock)"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R16",
+      "priority": "P2",
+      "title": "Soapy timeout is treated as a fatal driver failure on its first occurrence",
+      "evidence": "Official API constant + backend-to-ingestion source trace",
+      "trigger": "SoapySDR readStream returns SOAPY_SDR_TIMEOUT (-1) after its 500 ms timeout.",
+      "logic": "The code's retry branch handles only zero. Every negative return immediately bails, including the documented timeout -1; ingest then marks disconnected and stops the source. The stated three-timeout retry policy therefore does not apply to the real timeout return. Overflow -4 is also terminal rather than a recoverable gap policy.",
+      "impact": "A transient delayed read terminates daemon listening instead of exercising the intended timeout retry. RF silence is not itself a reason for an SDR to stop producing IQ; the condition concerns read/driver delays. No physical device latency was measured.",
+      "repair_gate": "Handle documented timeout/overflow/error codes separately with bounded cancellation-aware retries and explicit discontinuity policy. Inject -1, -4 and real errors through the backend seam and verify connection, clocks and shutdown.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/hardware/soapy.rs",
+          "line": 379,
+          "anchor": "if samples_read < 0"
+        },
+        {
+          "file": "ez-daemon/src/ingest.rs",
+          "line": 207,
+          "anchor": "source read failed"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R17",
+      "priority": "P2",
+      "title": "Daemon RTL gain control reports success without checking the hardware result",
+      "evidence": "Backend gain source trace",
+      "trigger": "RTL-SDR gain mode or tuner gain application fails, including during startup.",
+      "logic": "apply_gain discards return codes from rtlsdr_set_tuner_gain_mode and rtlsdr_set_tuner_gain. set_gain stores the requested value and unconditionally returns Ok. Gain selection also reports the requested dB value rather than the selected supported step. The local GUI RTL open path checks these calls; daemon RTL does not.",
+      "impact": "An acknowledged gain change can leave actual gain/mode unchanged, while status and recording sidecars describe the request as applied. The existing ingestion rejection test cannot catch this because the backend never returns the rejected gain result.",
+      "repair_gate": "Propagate setter errors, expose actual selected gain/mode, and keep requested/applied states separate. Test unsupported steps, zero/auto semantics and failed mode/gain calls during both startup and live changes.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/hardware/rtlsdr.rs",
+          "line": 131,
+          "anchor": "fn apply_gain("
+        },
+        {
+          "file": "ez-daemon/src/hardware/rtlsdr.rs",
+          "line": 252,
+          "anchor": "fn set_gain("
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R18",
+      "priority": "P2",
+      "title": "rtl_tcp gain is a successful no-op",
+      "evidence": "TCP backend command source trace",
+      "trigger": "Request gain on the daemon's rtl_tcp source.",
+      "logic": "The frequency and rate setters send rtl_tcp commands, but set_gain only changes gain_db and returns Ok. Startup likewise sends cached frequency/rate but no gain/mode command. The remote RTL tuner therefore never receives the requested gain from this implementation.",
+      "impact": "The app can display an accepted gain that has not reached the receiver. This applies to rtl_tcp mode; manual metadata for a headerless raw IQ stream has different semantics and is not evidence of a tunable receiver.",
+      "repair_gate": "Implement the supported rtl_tcp gain mode/value commands with clear lack-of-readback semantics, or reject unsupported gain control. Verify exact wire commands and server behavior with an independent rtl_tcp endpoint.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/hardware/tcp_iq.rs",
+          "line": 109,
+          "anchor": "fn set_gain("
+        },
+        {
+          "file": "ez-daemon/src/hardware/tcp_iq.rs",
+          "line": 89,
+          "anchor": "self.send_command(0x01, self.frequency_hz"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R19",
+      "priority": "P2",
+      "title": "Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection",
+      "evidence": "GUI subscription and daemon demodulator source trace",
+      "trigger": "Use daemon NFM/AM with strong neighboring carriers.",
+      "logic": "The GUI requests 200,000 Hz (or source rate if smaller) for every supported audio mode. The daemon FM/AM demodulators consume that entire channel and its mean RF power; they add no NFM/AM channel low-pass matched to the desired station width before nonlinear demodulation. SSB has a separate selector. The GUI correctly disables local bandwidth/de-emphasis/stereo controls for daemon mode, so this is an actual backend capability gap, not a falsely claimed working bandwidth knob.",
+      "impact": "Neighboring carriers tens of kHz away can capture/distort the NFM discriminator or open squelch, and AM can include multiple stations. A ~200k audio transport rate should not be confused with the wanted RF channel width. R03 and R04 address different aliasing stages.",
+      "repair_gate": "Separate RF passband width, channel sample rate and audio output rate in the protocol. Apply mode-specific complex channel selection before AM/FM detection, and measure squelch on that selected signal. Test desired/adjacent mixtures at realistic amplitude ratios.",
+      "sources": [
+        {
+          "file": "ez-gui/src/source_manager.rs",
+          "line": 1927,
+          "anchor": "bandwidth_hz: 200_000.min"
+        },
+        {
+          "file": "ez-daemon/src/pipelines/audio.rs",
+          "line": 270,
+          "anchor": "fn demod_fm("
+        },
+        {
+          "file": "ez-daemon/src/pipelines/audio.rs",
+          "line": 229,
+          "anchor": "let mean_power:"
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R20",
+      "priority": "P2",
+      "title": "Scanning can wait forever on a frequency a fixed replay capture cannot contain",
+      "evidence": "Scanner-to-tuning reconciliation source trace",
+      "trigger": "Start a scan/bookmark scan extending outside a replay file's fixed RF span.",
+      "logic": "apply_scanner_tune consumes the requested frequency, while radio tuning reconciliation clamps the actual VFO to the available replay band. The scanner retains its original current_freq_hz. tick_spectrum rejects a mismatched VFO and waits without skipping/rejecting the impossible scan channel.",
+      "impact": "The scan stops making progress with a generic waiting-for-receiver message even though the requested station is physically unavailable in the file. Freshness and tuner-settle guards are useful and should remain; they need a terminal unsupported-range decision.",
+      "repair_gate": "Validate scan geometry against fixed capture bounds before starting or skip unavailable bookmarks with an explicit result. Test out-of-span, edge-passband and source-transition cases while preserving fresh-measurement requirements.",
+      "sources": [
+        {
+          "file": "ez-gui/src/app.rs",
+          "line": 711,
+          "anchor": "fn apply_scanner_tune("
+        },
+        {
+          "file": "ez-gui/src/scanner.rs",
+          "line": 648,
+          "anchor": "if !receiver_ready || spectrum.vfo_frequency_hz()"
+        },
+        {
+          "file": "ez-gui/src/radio_ui.rs",
+          "line": 1628,
+          "anchor": "pub(crate) fn reconcile_tuning("
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R21",
+      "priority": "P2",
+      "title": "IQ-only recording does not finish when the capture session ends",
+      "evidence": "CaptureRecorder EOF/lifecycle source trace",
+      "trigger": "Record IQ without a duration deadline; the replay reaches EOF or the source stops/errors, with no next block.",
+      "logic": "CaptureRecorder retains a session only for overflow accounting. Its receive-timeout branch exits only after an explicit stop/deadline. It never checks that the owning CaptureSession is no longer live after queued input drains. RecorderPanel observes progress.stopped, which never becomes true by EOF alone. AudioRecorder has different session-end logic; recording audio simultaneously may end the combined session and hide this IQ-only case.",
+      "impact": "IQ-only REC can remain active with an increasing wall duration and no new bytes; final metadata is delayed until manual stop. Satellite CF32 uses the same generic capture recorder outside the offline Meteor mode. A new session with matching geometry can also require an explicit recorder session boundary.",
+      "repair_gate": "On an ended owning session, drain the accepted prefix and finalize with a source-end reason without waiting for another sample. Test finite EOF, read failure, manual source stop, same-geometry restart and empty sessions independently of WAV recording.",
+      "sources": [
+        {
+          "file": "ez-gui/src/capture_recording.rs",
+          "line": 68,
+          "anchor": "let block = input.recv_timeout"
+        },
+        {
+          "file": "ez-gui/src/recorder_panel.rs",
+          "line": 97,
+          "anchor": "if let Some(recorder) = &self.continuous_iq"
+        },
+        {
+          "file": "ez-gui/src/satellite/recorder.rs",
+          "line": 294,
+          "anchor": "pub fn is_running("
+        }
+      ],
+      "area": "Radio"
+    },
+    {
+      "id": "R22",
+      "priority": "P2",
+      "title": "Read cancellation and timed-out hardware commands lack a terminal contract",
+      "evidence": "Blocking-read/control/shutdown source trace + librtlsdr implementation",
+      "trigger": "Hardware stalls while marked streaming, or a control acknowledgement times out before the ingestion read returns.",
+      "logic": "Running/command flags are checked outside blocking read_iq. HackRF loops on 200 ms timeouts indefinitely while hackrf_is_streaming says true, without reading the stop flag. RTL sync reads use librtlsdr's zero bulk timeout in the inspected implementation. Daemon shutdown awaits the ingestion join. IngestHandle's reply timeout drops the waiter but does not cancel the queued command, which may execute after an error was returned.",
+      "impact": "A stalled device can keep the local source in Stopping and prevent replacement, or keep daemon shutdown/control pending indefinitely. A previously timed-out tune can later change RF state after the user acts on the error. Local UI shutdown avoids a direct UI-thread join, but that does not make the device read cancellable. These are conditional source-proven failure paths, not a measured physical USB hang.",
+      "repair_gate": "Use a cancellable bounded read contract and correlate command lifecycle through queued/applied/rejected/cancelled states. Ensure shutdown/control latency is bounded even when the driver keeps reporting streaming without data. Test late acknowledgements and avoid releasing hardware ownership before the read actually ends.",
+      "sources": [
+        {
+          "file": "ez-daemon/src/hardware/hackrf.rs",
+          "line": 340,
+          "anchor": "while self.byte_buf.len() < want_bytes"
+        },
+        {
+          "file": "ez-daemon/src/hardware/rtlsdr.rs",
+          "line": 270,
+          "anchor": "ffi::rtlsdr_read_sync("
+        },
+        {
+          "file": "ez-daemon/src/ingest.rs",
+          "line": 64,
+          "anchor": "fn request("
+        },
+        {
+          "file": "ez-daemon/src/app.rs",
+          "line": 162,
+          "anchor": "ingest_thread.join()"
+        }
+      ],
+      "area": "Radio"
+    }
+  ]
+}

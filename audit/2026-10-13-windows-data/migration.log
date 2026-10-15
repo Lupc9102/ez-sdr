@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-b418950003737d73)
+
+running 3 tests
+test app_data::tests::invalid_or_unwritable_storage_fails_instead_of_using_install_directory ... ok
+test app_data::tests::newer_user_data_wins_and_custom_relative_output_keeps_its_location ... ok
+test app_data::tests::migration_preserves_preferences_and_replay_locations_without_touching_legacy ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 932 filtered out; finished in 0.00s
+

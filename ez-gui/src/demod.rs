@@ -1,6 +1,9 @@
+use crate::config::AdvancedConfig;
 use crate::sdr_panel::DemodMode;
 use num_complex::Complex32;
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// 2nd-order IIR biquad (RBJ cookbook) used for audio notch + bass/treble shelves.
 struct Biquad {
@@ -99,9 +102,11 @@ impl Biquad {
 /// Sixth-order Butterworth channel filter. Double-precision state avoids the
 /// pole-rounding instability of narrow CW filters at MHz input rates. Coefficients
 /// are cached, so no trigonometry or divisions occur in the filter sample loop.
+type BiquadStage = ([f64; 3], [f64; 2], [[f64; 2]; 2]);
+
 #[derive(Default)]
 struct ComplexChannelLowpass {
-    stages: [([f64; 3], [f64; 2], [[f64; 2]; 2]); 3],
+    stages: [BiquadStage; 3],
     cutoff: f32,
     rate: f64,
 }
@@ -111,7 +116,7 @@ impl ComplexChannelLowpass {
         let rate = sample_rate_hz.max(1.0);
         let cutoff = cutoff_hz.max(1.0).min(rate as f32 * 0.45);
         if self.cutoff != cutoff || self.rate != rate {
-            let omega = std::f64::consts::TAU * f64::from(cutoff) / f64::from(rate);
+            let omega = std::f64::consts::TAU * f64::from(cutoff) / rate;
             let (sin, cos) = omega.sin_cos();
             for (stage, quality) in self.stages.iter_mut().zip([
                 0.517_638_090_205_041_5,
@@ -201,7 +206,7 @@ impl MultiplexDecimator {
         self.phase = 0;
         self.write = 0;
         let count = (self.factor * 24 + 1).clamp(63, 513) | 1;
-        let cutoff = (65_000.0 / f64::from(rate)).min(0.4 / self.factor as f64);
+        let cutoff = (65_000.0 / rate).min(0.4 / self.factor as f64);
         let middle = (count - 1) as f64 * 0.5;
         self.taps = (0..count)
             .map(|index| {
@@ -271,7 +276,7 @@ impl StereoFmDecoder {
         tau_us: f32,
     ) -> (Vec<f32>, Vec<f32>, f64) {
         self.multiplex.configure(input_rate);
-        let rate = f64::from(input_rate) / self.multiplex.factor as f64;
+        let rate = input_rate / self.multiplex.factor as f64;
         let decimation = (rate / f64::from(audio_rate)).floor().max(1.0) as usize;
         let output_rate = rate / decimation as f64;
         let pilot_step = std::f64::consts::TAU * 19_000.0 / rate;
@@ -383,13 +388,17 @@ struct FmIfNoiseReducer {
     history: Vec<Complex32>,
     spectrum: Vec<Complex32>,
     write: usize,
+    envelope_sum: f64,
+    envelope_squared_sum: f64,
+    observations: usize,
+    window_gain: f32,
 }
 
 impl FmIfNoiseReducer {
     fn new(bins: usize) -> Self {
         let mut planner = rustfft::FftPlanner::new();
         let fft = planner.plan_fft_forward(bins);
-        let window = (0..bins)
+        let window: Vec<f32> = (0..bins)
             .map(|index| {
                 let angle = std::f64::consts::TAU * index as f64 / (bins - 1) as f64;
                 (0.355768 - 0.487396 * angle.cos() + 0.144232 * (2.0 * angle).cos()
@@ -404,6 +413,7 @@ impl FmIfNoiseReducer {
                 )
             })
             .collect();
+        let window_gain = window.iter().sum();
         Self {
             scratch: vec![Complex32::new(0.0, 0.0); fft.get_inplace_scratch_len()],
             fft,
@@ -412,11 +422,21 @@ impl FmIfNoiseReducer {
             history: vec![Complex32::new(0.0, 0.0); bins * 2],
             spectrum: vec![Complex32::new(0.0, 0.0); bins],
             write: 0,
+            envelope_sum: 0.0,
+            envelope_squared_sum: 0.0,
+            observations: 0,
+            window_gain,
         }
     }
 
     fn push(&mut self, sample: Complex32) -> Complex32 {
         let bins = self.window.len();
+        let magnitude = f64::from(sample.re).hypot(f64::from(sample.im));
+        let old = self.history[self.write];
+        let old_magnitude = f64::from(old.re).hypot(f64::from(old.im));
+        self.envelope_sum += magnitude - old_magnitude;
+        self.envelope_squared_sum += magnitude * magnitude - old_magnitude * old_magnitude;
+        self.observations = (self.observations + 1).min(bins);
         self.history[self.write] = sample;
         self.history[self.write + bins] = sample;
         self.write = (self.write + 1) % bins;
@@ -443,6 +463,31 @@ impl FmIfNoiseReducer {
         // amplitude-independent, so preserve that scaling rather than clip IQ.
         self.spectrum[best] * self.center_phase[best]
     }
+
+    fn push_preserving_clean_fm(&mut self, sample: Complex32) -> Complex32 {
+        let reconstructed = self.push(sample) / self.window_gain;
+        let bins = self.window.len();
+        if self.observations < bins {
+            return reconstructed;
+        }
+        // Clean FM has a constant RF envelope. Single-bin reconstruction
+        // smooths its phase modulation even without noise, changing physical
+        // deviation when NR is toggled. Blend with the original center sample
+        // using the measured envelope variation, with identical time alignment
+        // and carrier units on both branches. No empirical audio gain boost.
+        let mean = self.envelope_sum / bins as f64;
+        let variance = (self.envelope_squared_sum / bins as f64 - mean * mean).max(0.0);
+        let variation = variance.sqrt() / mean.max(f64::MIN_POSITIVE);
+        let strength = ((variation - 0.01) / 0.09).clamp(0.0, 1.0) as f32;
+        let original = self.history[self.write + bins / 2];
+        if strength == 0.0 || !reconstructed.re.is_finite() || !reconstructed.im.is_finite() {
+            return original;
+        }
+        if strength == 1.0 {
+            return reconstructed;
+        }
+        original + (reconstructed - original) * strength
+    }
 }
 
 /// Bring the channel to its real IF clock before sliding FFT processing. A
@@ -451,7 +496,7 @@ struct FmIfStage {
     filter: ComplexChannelLowpass,
     reducer: FmIfNoiseReducer,
     rate: f64,
-    previous: Option<Complex32>,
+    history: [Complex32; 4],
     input_index: u64,
     next_output: f64,
 }
@@ -479,7 +524,7 @@ impl FmIfStage {
             filter: ComplexChannelLowpass::default(),
             reducer: FmIfNoiseReducer::new(bins),
             rate,
-            previous: None,
+            history: [Complex32::new(0.0, 0.0); 4],
             input_index: 0,
             next_output: 0.0,
         }
@@ -499,18 +544,30 @@ impl FmIfStage {
                 .filter
                 .process(sample.re, sample.im, cutoff, input_rate);
             let sample = Complex32::new(i, q);
-            if let Some(previous) = self.previous {
-                self.input_index += 1;
-                while self.next_output <= self.input_index as f64 {
-                    let fraction = (self.next_output - (self.input_index - 1) as f64) as f32;
-                    output.push(self.reducer.push(previous + (sample - previous) * fraction));
-                    self.next_output += step;
-                }
-            } else {
-                output.push(self.reducer.push(sample));
-                self.next_output = step;
+            self.history.rotate_left(1);
+            self.history[3] = sample;
+            while self.next_output <= self.input_index as f64 {
+                // Four-point Lagrange interpolation with one input-sample
+                // causal delay. Linear IQ interpolation bends the received
+                // phase and attenuates the stereo difference channel. The
+                // extra history preserves the complex waveform's curvature.
+                let x = (self.next_output - self.input_index as f64 + 1.0) as f32;
+                let weights = [
+                    -x * (x - 1.0) * (x - 2.0) / 6.0,
+                    (x + 1.0) * (x - 1.0) * (x - 2.0) / 2.0,
+                    -(x + 1.0) * x * (x - 2.0) / 2.0,
+                    (x + 1.0) * x * (x - 1.0) / 6.0,
+                ];
+                let interpolated = self
+                    .history
+                    .iter()
+                    .zip(weights)
+                    .map(|(&sample, weight)| sample * weight)
+                    .sum();
+                output.push(self.reducer.push_preserving_clean_fm(interpolated));
+                self.next_output += step;
             }
-            self.previous = Some(sample);
+            self.input_index += 1;
         }
         output
     }
@@ -535,10 +592,132 @@ fn envelope_gain(
     (f64::from(target) / envelope.max(1e-9)).clamp(0.01, 40.0) as f32
 }
 
+/// Unit audio amplitude represents this physical peak deviation. These are
+/// the same conventions as the daemon FM producers, before user audio gain.
+const NFM_DEVIATION_HZ: f32 = 5_000.0;
+const WFM_DEVIATION_HZ: f32 = 75_000.0;
+
+/// Undo the sample-interval averaging of a phase difference over the FM
+/// passband. H(w) = (w/2)/sin(w/2); expand arcsin(x)/x through x^16, where
+/// x=sin(w/2). Each power of x^2 is the symmetric FIR [-1/4,1/2,-1/4].
+/// This gives a fixed 17-tap FIR, exact DC gain and bounded high-frequency
+/// gain, rather than a noisy ideal differentiator. Essential for preserving
+/// the 38 kHz stereo difference channel at lower discriminator clocks.
+struct FmFrequencyEqualizer {
+    history: [f32; 34],
+    write: usize,
+}
+
+impl Default for FmFrequencyEqualizer {
+    fn default() -> Self {
+        Self {
+            history: [0.0; 34],
+            write: 0,
+        }
+    }
+}
+
+impl FmFrequencyEqualizer {
+    fn taps() -> &'static [f32; 17] {
+        static TAPS: std::sync::OnceLock<[f32; 17]> = std::sync::OnceLock::new();
+        TAPS.get_or_init(|| {
+            let mut taps = [0.0_f64; 17];
+            taps[8] = 1.0;
+            let mut power = vec![1.0_f64];
+            let mut coefficient = 1.0;
+            for k in 1..=8 {
+                coefficient *= ((2 * k - 1) * (2 * k - 1)) as f64 / (2 * k * (2 * k + 1)) as f64;
+                let mut next = vec![0.0; power.len() + 2];
+                for (n, &value) in power.iter().enumerate() {
+                    for (offset, weight) in [-0.25, 0.5, -0.25].into_iter().enumerate() {
+                        next[n + offset] += value * weight;
+                    }
+                }
+                for (n, &value) in next.iter().enumerate() {
+                    taps[8 - k + n] += coefficient * value;
+                }
+                power = next;
+            }
+            taps.map(|x| x as f32)
+        })
+    }
+
+    fn process(&mut self, sample: f32) -> f32 {
+        self.history[self.write] = sample;
+        self.history[self.write + 17] = sample;
+        self.write = (self.write + 1) % 17;
+        self.history[self.write..self.write + 17]
+            .iter()
+            .zip(Self::taps())
+            .map(|(&x, &tap)| f64::from(x) * f64::from(tap))
+            .sum::<f64>() as f32
+    }
+}
+
+/// Half of the instantaneous-frequency span in completed 100 ms windows.
+/// A carrier offset does not masquerade as modulation deviation. Ignore the
+/// initial 10 ms of filter acquisition; timing and publication are independent
+/// of caller block sizes. Values are observations, not nominal mode widths.
+#[derive(Default)]
+struct FmDeviationMeter {
+    rate: f64,
+    warmup: usize,
+    window: usize,
+    count: usize,
+    minimum: f32,
+    maximum: f32,
+    value: f32,
+    previous: [f32; 2],
+}
+
+impl FmDeviationMeter {
+    fn observe(&mut self, frequency_hz: f32, rate: f64) -> f32 {
+        if self.rate != rate {
+            *self = Self {
+                rate,
+                warmup: (rate * 0.01).ceil() as usize,
+                window: (rate * 0.1).ceil().max(1.0) as usize,
+                ..Self::default()
+            };
+        }
+        let [a, b] = self.previous;
+        self.previous = [b, frequency_hz];
+        if self.warmup > 0 {
+            self.warmup -= 1;
+            return self.value;
+        }
+        if self.count == 0 {
+            self.minimum = frequency_hz;
+            self.maximum = frequency_hz;
+        } else {
+            self.minimum = self.minimum.min(frequency_hz);
+            self.maximum = self.maximum.max(frequency_hz);
+        }
+        self.count += 1;
+        // MPX extrema can lie between capture samples. Refine only a local
+        // extremum with the bounded vertex of its three-point parabola; a
+        // raw sample maximum otherwise underreports the same pilot/stereo
+        // waveform at lower clocks. Units and time windows stay unchanged.
+        let curvature = a - 2.0 * b + frequency_hz;
+        if curvature != 0.0 && ((b >= a && b >= frequency_hz) || (b <= a && b <= frequency_hz)) {
+            let phase = (0.5 * (a - frequency_hz) / curvature).clamp(-0.5, 0.5);
+            let peak = b - 0.25 * (a - frequency_hz) * phase;
+            self.minimum = self.minimum.min(peak);
+            self.maximum = self.maximum.max(peak);
+        }
+        if self.count == self.window {
+            self.value = (self.maximum - self.minimum) * 0.5;
+            self.count = 0;
+        }
+        self.value
+    }
+}
+
 pub struct Demodulator {
-    prev_i: f32,
-    prev_q: f32,
     prev_phase: f32,
+    fm_previous_valid: bool,
+    fm_deviation: FmDeviationMeter,
+    fm_frequency_eq: FmFrequencyEqualizer,
     decimation: usize,
     decim_counter: usize,
     audio_sample_rate: u32,
@@ -556,6 +735,9 @@ pub struct Demodulator {
     cw_squelch_level_db: f32,
     cw_squelch_envelope: f64,
     resampler: AudioResampler,
+    raw_audio: crate::raw_audio::RawIqAudio,
+    detected_audio: crate::raw_audio::RawIqAudio,
+    detected_mode: Option<DemodMode>,
     stereo: Option<StereoFmDecoder>,
     stereo_right: Option<Box<Demodulator>>,
     pub last_stereo_locked: bool,
@@ -630,8 +812,7 @@ pub struct Demodulator {
     rf_notch: bool,
     rf_notch_hz: f32,
     rf_decim: u32,
-    rf_decim_counter: u32,
-    rf_decim_filter: ComplexChannelLowpass,
+    rf_decim_filter: ez_daemon::channelizer::FirDecimator,
     rf_dc_estimate: [f64; 2],
     rf_nb_avg: f32,
     rf_notch_b: (f32, f32, f32, f32, f32),
@@ -650,9 +831,10 @@ impl Default for Demodulator {
 impl Demodulator {
     pub fn new() -> Self {
         Self {
-            prev_i: 0.0,
-            prev_q: 0.0,
             prev_phase: 0.0,
+            fm_previous_valid: false,
+            fm_deviation: FmDeviationMeter::default(),
+            fm_frequency_eq: FmFrequencyEqualizer::default(),
             decimation: 1,
             decim_counter: 0,
             audio_sample_rate: 48000,
@@ -670,13 +852,18 @@ impl Demodulator {
             cw_squelch_level_db: -60.0,
             cw_squelch_envelope: 0.0,
             resampler: AudioResampler::default(),
+            raw_audio: crate::raw_audio::RawIqAudio::default(),
+            detected_audio: crate::raw_audio::RawIqAudio::for_detector(),
+            detected_mode: None,
             stereo: None,
             stereo_right: None,
             last_stereo_locked: false,
             last_fm_deviation_hz: 0.0,
             last_audio_peak: 0.0,
-            source_rate: 2_048_000.0,
-            input_rate: 2_048_000.0,
+            // Match the initial 1:1 decimation and 48 kHz audio clock.
+            // Capture workers install their actual source rate before DSP.
+            source_rate: 48_000.0,
+            input_rate: 48_000.0,
             agc_gain: 1.0,
             agc_enabled: true,
             agc_target: 0.25,
@@ -732,8 +919,7 @@ impl Demodulator {
             rf_notch: false,
             rf_notch_hz: 10_000.0,
             rf_decim: 1,
-            rf_decim_counter: 0,
-            rf_decim_filter: ComplexChannelLowpass::default(),
+            rf_decim_filter: ez_daemon::channelizer::FirDecimator::new(1),
             rf_dc_estimate: [0.0; 2],
             rf_nb_avg: 0.0,
             rf_notch_b: (1.0, 0.0, 0.0, 0.0, 0.0),
@@ -800,6 +986,10 @@ impl Demodulator {
         } else {
             mode.default_rf_bandwidth_hz()
         }
+    }
+
+    pub(crate) fn rf_passband(&self, mode: DemodMode) -> crate::radio_power::RfPassband {
+        crate::radio_power::RfPassband::for_mode(mode, self.rf_bandwidth_hz, self.dsb_sideband)
     }
 
     pub fn set_sample_rates(&mut self, input_rate: u32, audio_rate: u32) {
@@ -881,6 +1071,43 @@ impl Demodulator {
         );
     }
 
+    /// Push every demod-related setting from the Advanced panel onto this
+    /// demodulator. Used by the UI thread and by [`DemodWorker`] when the
+    /// user edits DSP settings.
+    pub fn apply_advanced(&mut self, a: &AdvancedConfig, mode: DemodMode) {
+        self.set_agc_enabled(a.agc_enabled && crate::radio_ui::mode_has_agc(mode));
+        self.set_agc_target(a.agc_target);
+        self.set_agc_attack(a.agc_attack);
+        self.set_agc_decay(a.agc_decay);
+        self.set_agc_rates(a.agc_attack_rate, a.agc_decay_rate);
+        self.set_carrier_agc_enabled(a.carrier_agc);
+        self.set_fm_lowpass_enabled(a.fm_lowpass);
+        self.set_fm_if_noise_reduction(a.fm_if_nr, a.fm_if_preset);
+        self.set_rds_tap_enabled(a.rds_enabled && mode == DemodMode::Wfm);
+        self.set_audio_hpf(a.audio_hpf_hz);
+        self.set_dc_blocker(a.dc_blocker);
+        self.set_deemph_tau(a.deemph_tau_us);
+        self.set_audio_gain(a.audio_gain);
+        self.set_notch(a.notch_hz, a.notch_width_hz);
+        self.set_bass(a.bass_db);
+        self.set_treble(a.treble_db);
+        self.set_noise_blanker(a.noise_blanker);
+        self.set_pitch(a.pitch_octaves);
+        // Source IQ processing owns correction/decimation before the spectrum and VFO.
+        self.set_rf_dc_remove(false);
+        self.set_rf_noise_blanker(
+            a.rf_noise_blanker && crate::radio_ui::mode_has_noise_blanker(mode),
+        );
+        self.set_rf_noise_blanker_level(a.rf_noise_blanker_level);
+        self.set_rf_notch(a.rf_notch, a.rf_notch_hz);
+        self.set_rf_decim(1);
+        self.set_cw_tone(a.cw_tone_hz);
+        self.set_dsb_sideband(a.dsb_sideband);
+        self.set_cw_offset(a.cw_offset_hz);
+        self.set_cw_volume(a.cw_volume);
+        self.set_cw_squelch(a.cw_squelch_enabled, a.cw_squelch_level_db);
+    }
+
     // ---------------- Setters (driven by the Advanced panel) ----------------
 
     pub fn set_audio_hpf(&mut self, hz: f32) {
@@ -938,6 +1165,9 @@ impl Demodulator {
         if self.fm_if_enabled != enabled || self.fm_if_preset != preset {
             self.fm_if_stage = None;
             self.fm_if_settings = None;
+            self.reset_fm_discriminator();
+            self.wfm_deemph_state = 0.0;
+            self.fm_channel_lpf.reset();
             self.fm_audio_antialias.reset();
             self.decim_counter = 0;
             self.resampler = AudioResampler::default();
@@ -1106,19 +1336,7 @@ impl Demodulator {
             self.rf_notch_y2 = (y2, y2q);
         }
         if self.rf_decim > 1 {
-            let mut output = Vec::with_capacity(samples.len() / self.rf_decim as usize + 1);
-            let cutoff = self.source_rate as f32 / self.rf_decim as f32 * 0.35;
-            for sample in samples {
-                let (i, q) =
-                    self.rf_decim_filter
-                        .process(sample.re, sample.im, cutoff, self.source_rate);
-                self.rf_decim_counter += 1;
-                if self.rf_decim_counter >= self.rf_decim {
-                    self.rf_decim_counter = 0;
-                    output.push(Complex32::new(i, q));
-                }
-            }
-            samples = output;
+            samples = self.rf_decim_filter.process(&samples);
         }
         Cow::Owned(samples)
     }
@@ -1239,6 +1457,7 @@ impl Demodulator {
         samples
     }
 
+    #[allow(clippy::type_complexity)]
     fn prepare_fm_if<'a>(
         &mut self,
         iq: Cow<'a, [Complex32]>,
@@ -1257,6 +1476,8 @@ impl Demodulator {
                 bandwidth,
             ));
             self.fm_if_settings = Some(settings);
+            self.reset_fm_discriminator();
+            self.wfm_deemph_state = 0.0;
             self.decim_counter = 0;
             self.resampler = AudioResampler::default();
             self.nfm_subaudible_resampler = AudioResampler::default();
@@ -1293,16 +1514,45 @@ impl Demodulator {
     /// Demodulate normalized floating-point I/Q without clipping or requantizing
     /// the output of source correction, decimation or digital VFO translation.
     pub fn demodulate_complex(&mut self, iq: &[Complex32], mode: DemodMode) -> Vec<f32> {
+        self.demodulate_capture_complex(iq, mode, iq.len(), self.source_rate)
+    }
+
+    pub(crate) fn demodulate_capture_complex(
+        &mut self,
+        iq: &[Complex32],
+        mode: DemodMode,
+        source_samples: usize,
+        source_rate: f64,
+    ) -> Vec<f32> {
         self.last_stereo_locked = false;
         self.nfm_subaudible_audio.clear();
         self.wfm_multiplex.clear();
         self.wfm_multiplex_rate = 0.0;
         let iq = self.iq_preprocess(iq);
+        if matches!(mode, DemodMode::Raw | DemodMode::Auto) {
+            self.detected_audio.reset();
+            self.detected_mode = None;
+            self.reset_fm_discriminator();
+            let audio = self.raw_audio.process_capture(
+                &iq,
+                self.input_rate,
+                self.audio_sample_rate,
+                0.3 * self.audio_gain,
+                source_samples,
+                source_rate,
+            );
+            self.last_audio_peak = audio.iter().flatten().map(|x| x.abs()).fold(0.0, f32::max);
+            return audio.into_iter().flatten().collect();
+        }
+        self.raw_audio.reset();
         let (iq, previous_clock) = self.prepare_fm_if(iq, mode);
-        let mut samples = match mode {
+        if !matches!(mode, DemodMode::Fm | DemodMode::Wfm) {
+            self.reset_fm_discriminator();
+        }
+        let samples = match mode {
             // Auto should be resolved to a concrete mode before reaching here
             // (see `DemodMode::resolve`); pass through if it ever slips by.
-            DemodMode::Auto | DemodMode::Raw => self.demod_raw(&iq),
+            DemodMode::Auto | DemodMode::Raw => unreachable!("RAW handled above"),
             DemodMode::Am => self.demod_am(&iq),
             DemodMode::Fm => self.demod_fm(&iq),
             DemodMode::Wfm => self.demod_wfm(&iq),
@@ -1311,14 +1561,37 @@ impl Demodulator {
             DemodMode::Dsb => self.demod_product(&iq, false),
             DemodMode::Cw => self.demod_product(&iq, true),
         };
-        if let Some((source_clock, _, _)) = previous_clock {
-            // Phase increments grow when IF is downsampled. Preserve the
-            // established discriminator loudness when toggling FMIF.
-            let scale = (self.input_rate / source_clock) as f32;
-            for sample in samples.iter_mut().chain(&mut self.nfm_subaudible_audio) {
-                *sample *= scale;
+        let detected = !matches!(mode, DemodMode::Fm | DemodMode::Wfm);
+        let old_output_rate = self.effective_output_rate;
+        let samples = if detected {
+            if self.detected_mode != Some(mode) {
+                self.detected_audio.reset();
+                self.detected_mode = Some(mode);
             }
-        }
+            let input: Vec<_> = samples
+                .into_iter()
+                .map(|x| Complex32::new(x, 0.0))
+                .collect();
+            // Envelope detection and CW mixing can create frequencies absent
+            // from the selected RF band. Filter this detected signal before
+            // reducing its rate, then run audio controls at the device clock.
+            let audio = self.detected_audio.process_capture(
+                &input,
+                self.input_rate,
+                self.audio_sample_rate,
+                1.0,
+                source_samples,
+                source_rate,
+            );
+            self.effective_output_rate = f64::from(self.audio_sample_rate);
+            self.set_lpf_cutoff(self.lpf_cutoff);
+            self.recompute_audio_filters();
+            self.finish_detected_audio(audio.into_iter().map(|frame| frame[0]).collect(), mode)
+        } else {
+            self.detected_audio.reset();
+            self.detected_mode = None;
+            samples
+        };
         let filtered = if matches!(mode, DemodMode::Fm | DemodMode::Wfm) && !self.fm_lowpass_enabled
         {
             samples
@@ -1331,7 +1604,7 @@ impl Demodulator {
             filtered
         };
         let processed = self.post_process(agc);
-        let audio = if matches!(mode, DemodMode::Raw | DemodMode::Auto) {
+        let audio = if detected {
             processed
         } else {
             self.resampler.process(
@@ -1340,11 +1613,24 @@ impl Demodulator {
                 self.audio_sample_rate,
             )
         };
+        if detected {
+            self.effective_output_rate = old_output_rate;
+        }
         self.restore_fm_clock(previous_clock);
         audio
     }
 
-    /// Local broadcast-FM stereo, expressed as frames rather than interleaved
+    pub(crate) fn demodulate_raw_capture_complex(
+        &mut self,
+        iq: &[Complex32],
+        source_samples: usize,
+        source_rate: f64,
+    ) -> Vec<f32> {
+        self.demodulate_capture_complex(iq, DemodMode::Raw, source_samples, source_rate)
+    }
+
+    /// RAW returns stereo I/Q frames; local broadcast-FM stereo is expressed
+    /// as frames rather than interleaved
     /// samples. Other modes and sources too narrow to hold an FM multiplex
     /// return identical left/right channels through the existing mono path.
     pub fn demodulate_stereo(&mut self, iq: &[u8], mode: DemodMode) -> Vec<[f32; 2]> {
@@ -1357,6 +1643,13 @@ impl Demodulator {
         iq: &[Complex32],
         mode: DemodMode,
     ) -> Vec<[f32; 2]> {
+        if matches!(mode, DemodMode::Raw | DemodMode::Auto) {
+            return self
+                .demodulate_complex(iq, mode)
+                .chunks_exact(2)
+                .map(|pair| [pair[0], pair[1]])
+                .collect();
+        }
         if mode != DemodMode::Wfm || self.input_rate < 120_000.0 {
             return self
                 .demodulate_complex(iq, mode)
@@ -1370,24 +1663,20 @@ impl Demodulator {
         let iq = self.iq_preprocess(iq);
         let (iq, previous_clock) = self.prepare_fm_if(iq, mode);
         let cutoff = self.rf_bandwidth(DemodMode::Wfm) / 2.0;
-        let discriminator_scale = self.input_rate as f32 / (std::f32::consts::TAU * 75_000.0);
+        let frequency_scale = self.input_rate as f32 / std::f32::consts::TAU;
         let mut multiplex = Vec::with_capacity(iq.len());
         for sample in iq.iter() {
             let i = sample.re;
             let q = sample.im;
-            let (i, q) = self.fm_channel_lpf.process(i, q, cutoff, self.input_rate);
-            let dot = i * self.prev_i + q * self.prev_q;
-            let cross = q * self.prev_i - i * self.prev_q;
-            multiplex.push(cross.atan2(dot) * discriminator_scale);
-            self.prev_i = i;
-            self.prev_q = q;
+            let (i, q) = self.fm_channel_sample(i, q, cutoff);
+            multiplex.push(self.fm_frequency_hz(i, q, frequency_scale) / WFM_DEVIATION_HZ);
         }
         if self.rds_tap_enabled {
             self.wfm_multiplex.clone_from(&multiplex);
             self.wfm_multiplex_rate = self.input_rate;
         }
         let mut decoder = self.stereo.take().unwrap_or_default();
-        let (mut left, mut right, rate) = decoder.process(
+        let (left, right, rate) = decoder.process(
             &multiplex,
             self.input_rate,
             self.audio_sample_rate,
@@ -1395,14 +1684,7 @@ impl Demodulator {
         );
         self.last_stereo_locked = decoder.locked;
         self.stereo = Some(decoder);
-        // Keep the established mono-WFM gain when the user toggles stereo.
-        // MPX decoding uses normalized deviation for a consistent pilot lock
-        // threshold, then restores the mono discriminator's output scale.
-        let discriminator_clock = previous_clock.map_or(self.input_rate, |clock| clock.0);
-        let mono_gain = std::f32::consts::TAU * 75_000.0 / discriminator_clock as f32 * 0.8;
-        for sample in left.iter_mut().chain(&mut right) {
-            *sample *= mono_gain;
-        }
+        // Stereo MPX and mono WFM share deviation / 75 kHz units.
         self.effective_output_rate = rate;
         self.set_lpf_cutoff(self.lpf_cutoff);
         self.recompute_audio_filters();
@@ -1440,12 +1722,10 @@ impl Demodulator {
         }
         let left = self.post_process(left);
         let right = right_chain.post_process(right);
-        let left = self
-            .resampler
-            .process(left, f64::from(rate), self.audio_sample_rate);
+        let left = self.resampler.process(left, rate, self.audio_sample_rate);
         let right = right_chain
             .resampler
-            .process(right, f64::from(rate), self.audio_sample_rate);
+            .process(right, rate, self.audio_sample_rate);
         self.stereo_right = Some(right_chain);
         debug_assert_eq!(left.len(), right.len());
         self.last_audio_peak = left
@@ -1522,19 +1802,8 @@ impl Demodulator {
         out
     }
 
-    fn demod_raw(&mut self, iq: &[Complex32]) -> Vec<f32> {
-        let mut out = Vec::with_capacity(iq.len());
-        for sample in iq {
-            let i = sample.re;
-            let q = sample.im;
-            out.push(i * 0.3);
-            out.push(q * 0.3);
-        }
-        out
-    }
-
     fn demod_am(&mut self, iq: &[Complex32]) -> Vec<f32> {
-        let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
+        let mut out = Vec::with_capacity(iq.len());
         let channel_cutoff = self.rf_bandwidth(DemodMode::Am) / 2.0;
         for sample in iq {
             let i = sample.re;
@@ -1556,23 +1825,58 @@ impl Demodulator {
                 1.0
             };
             let env = (i * gain).hypot(q * gain);
-            self.decim_counter += 1;
-            if self.decim_counter >= self.decimation {
-                self.decim_counter = 0;
-                // AM envelopes contain a large carrier/DC term. Block it by default so a
-                // steady carrier settles to silence while modulation remains audible.
-                let audio = env - self.am_dc_prev_x + 0.995 * self.am_dc_prev_y;
-                self.am_dc_prev_x = env;
-                self.am_dc_prev_y = audio;
-                out.push(audio);
-            }
+            out.push(env);
         }
         out
     }
 
+    fn fm_channel_sample(&mut self, i: f32, q: f32, cutoff: f32) -> (f32, f32) {
+        if self.fm_if_enabled && self.fm_if_stage.is_some() {
+            // The IF stage already applies the configured RF channel filter
+            // before resampling/reconstruction. Applying it a second time
+            // changes modulation shape and deviation when NR is toggled.
+            (i, q)
+        } else {
+            self.fm_channel_lpf.process(i, q, cutoff, self.input_rate)
+        }
+    }
+
+    fn reset_fm_discriminator(&mut self) {
+        self.prev_phase = 0.0;
+        self.fm_previous_valid = false;
+        self.fm_deviation = FmDeviationMeter::default();
+        self.fm_frequency_eq = FmFrequencyEqualizer::default();
+        self.last_fm_deviation_hz = 0.0;
+    }
+
+    fn fm_frequency_hz(&mut self, i: f32, q: f32, scale: f32) -> f32 {
+        if !i.is_finite() || !q.is_finite() || (i == 0.0 && q == 0.0) {
+            self.reset_fm_discriminator();
+            return 0.0;
+        }
+        let phase = q.atan2(i);
+        let frequency = if self.fm_previous_valid {
+            let mut diff = phase - self.prev_phase;
+            if diff > std::f32::consts::PI {
+                diff -= std::f32::consts::TAU;
+            }
+            if diff < -std::f32::consts::PI {
+                diff += std::f32::consts::TAU;
+            }
+            let frequency = self.fm_frequency_eq.process(diff * scale);
+            self.last_fm_deviation_hz = self.fm_deviation.observe(frequency, self.input_rate);
+            frequency
+        } else {
+            0.0
+        };
+        self.prev_phase = phase;
+        self.fm_previous_valid = true;
+        frequency
+    }
+
     fn demod_fm(&mut self, iq: &[Complex32]) -> Vec<f32> {
         let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
-        let mut max_diff: f32 = 0.0;
+        let frequency_scale = self.input_rate as f32 / std::f32::consts::TAU;
         let mut subaudible = Vec::with_capacity(out.capacity());
         let cutoff = self.audio_sample_rate as f32 * 0.4;
         let dt = 1.0 / self.input_rate as f32;
@@ -1584,37 +1888,18 @@ impl Demodulator {
 
             // A complex channel filter must precede the non-linear discriminator and
             // decimator; an audio LPF after raw subsampling is too late to prevent aliasing.
-            let (i, q) = self
-                .fm_channel_lpf
-                .process(i, q, channel_cutoff, self.input_rate);
-            let phase = q.atan2(i);
-            let mut diff = phase - self.prev_phase;
-
-            // Phase unwrap
-            while diff > std::f32::consts::PI {
-                diff -= 2.0 * std::f32::consts::PI;
-            }
-            while diff < -std::f32::consts::PI {
-                diff += 2.0 * std::f32::consts::PI;
-            }
-
-            if diff.abs() > max_diff {
-                max_diff = diff.abs();
-            }
-
-            self.prev_i = i;
-            self.prev_q = q;
-            self.prev_phase = phase;
+            let (i, q) = self.fm_channel_sample(i, q, channel_cutoff);
+            let normalized = self.fm_frequency_hz(i, q, frequency_scale) / NFM_DEVIATION_HZ;
             let filtered = self
                 .fm_audio_antialias
-                .process(diff, 0.0, cutoff, self.input_rate)
+                .process(normalized, 0.0, cutoff, self.input_rate)
                 .0;
             self.wfm_deemph_state += deemph_alpha * (filtered - self.wfm_deemph_state);
             self.decim_counter += 1;
             if self.decim_counter >= self.decimation {
                 self.decim_counter = 0;
-                subaudible.push(filtered * 0.5);
-                out.push(self.wfm_deemph_state * 0.5);
+                subaudible.push(filtered);
+                out.push(self.wfm_deemph_state);
             }
         }
         self.nfm_subaudible_audio = self.nfm_subaudible_resampler.process(
@@ -1622,11 +1907,6 @@ impl Demodulator {
             self.effective_output_rate,
             self.audio_sample_rate,
         );
-        // FM deviation = max_phase_diff * sample_rate / (2π)
-        if self.input_rate > 0.0 {
-            self.last_fm_deviation_hz =
-                max_diff * self.input_rate as f32 / (2.0 * std::f32::consts::PI);
-        }
         // Track audio peak
         if let Some(&p) = out.iter().max_by(|a, b| {
             a.abs()
@@ -1643,6 +1923,7 @@ impl Demodulator {
         // user-selectable (50 µs EU / 75 µs US). τ = 1/(2π·f_c).
         // Discrete IIR: alpha = dt/(τ + dt) where dt = 1/sample_rate
         let tau = self.deemph_tau_us * 1e-6_f32;
+        let frequency_scale = self.input_rate as f32 / std::f32::consts::TAU;
         // The de-emphasis IIR advances once per input IQ pair, so dt must use
         // the input sample rate (≈2.048 MHz), NOT the audio rate. Using the
         // audio rate here (≈48 kHz) made alpha ~0.294 instead of the correct
@@ -1661,29 +1942,17 @@ impl Demodulator {
             let i = sample.re;
             let q = sample.im;
 
-            let (i, q) = self
-                .fm_channel_lpf
-                .process(i, q, channel_cutoff, self.input_rate);
+            let (i, q) = self.fm_channel_sample(i, q, channel_cutoff);
 
-            let phase = q.atan2(i);
-            let mut diff = phase - self.prev_phase;
-            while diff > std::f32::consts::PI {
-                diff -= 2.0 * std::f32::consts::PI;
-            }
-            while diff < -std::f32::consts::PI {
-                diff += 2.0 * std::f32::consts::PI;
-            }
-
-            self.prev_phase = phase;
+            let normalized = self.fm_frequency_hz(i, q, frequency_scale) / WFM_DEVIATION_HZ;
             if self.rds_tap_enabled {
-                self.wfm_multiplex
-                    .push(diff * self.input_rate as f32 / (std::f32::consts::TAU * 75_000.0));
+                self.wfm_multiplex.push(normalized);
             }
 
             // 1st-order IIR low-pass de-emphasis: y[n] = y[n-1] + α*(x[n] - y[n-1]).
             // State persists across chunks (field) to avoid a settling transient
             // at every source-buffer boundary.
-            self.wfm_deemph_state += alpha * (diff - self.wfm_deemph_state);
+            self.wfm_deemph_state += alpha * (normalized - self.wfm_deemph_state);
             let audio = self
                 .fm_audio_antialias
                 .process(
@@ -1697,7 +1966,7 @@ impl Demodulator {
             self.decim_counter += 1;
             if self.decim_counter >= self.decimation {
                 self.decim_counter = 0;
-                out.push(audio * 0.8);
+                out.push(audio);
             }
         }
         out
@@ -1707,9 +1976,9 @@ impl Demodulator {
         // Select [0, width] for USB or [-width, 0] for LSB by translating that
         // passband to DC, filtering, then translating it back. Restoring the
         // shift is essential: otherwise every received voice tone changes pitch.
-        let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
+        let mut out = Vec::with_capacity(iq.len());
         let mode = if usb { DemodMode::Usb } else { DemodMode::Lsb };
-        let shift_hz = self.rf_bandwidth(mode) / 2.0;
+        let shift_hz = self.rf_passband(mode).center().abs() as f32;
         let shift_rad = 2.0 * std::f32::consts::PI * shift_hz / self.input_rate.max(1.0) as f32;
         let sign = if usb { -1.0 } else { 1.0 };
 
@@ -1729,11 +1998,7 @@ impl Demodulator {
                 self.ssb_channel_lpf
                     .process(i_shift, q_shift, shift_hz, self.input_rate);
 
-            self.decim_counter += 1;
-            if self.decim_counter >= self.decimation {
-                self.decim_counter = 0;
-                out.push(i_filtered * cos + q_filtered * sin);
-            }
+            out.push(i_filtered * cos + q_filtered * sin);
         }
         out
     }
@@ -1746,10 +2011,9 @@ impl Demodulator {
         }
         let mode = if cw { DemodMode::Cw } else { DemodMode::Dsb };
         let cutoff = self.rf_bandwidth(mode) / 2.0;
-        let mut out = Vec::with_capacity(iq.len() / self.decimation.max(1));
+        let mut out = Vec::with_capacity(iq.len());
         let beat = self.cw_tone_hz + self.cw_offset_hz;
-        let beat_step =
-            std::f64::consts::TAU * f64::from(beat) / f64::from(self.effective_output_rate);
+        let beat_step = std::f64::consts::TAU * f64::from(beat) / self.input_rate;
         for sample in iq.iter() {
             let i = sample.re;
             let q = sample.im;
@@ -1757,11 +2021,6 @@ impl Demodulator {
             // frequency. A narrow 500 Hz RF channel can therefore emit 700 Hz
             // audio while rejecting a carrier a few kHz away.
             let (i, q) = self.am_channel_lpf.process(i, q, cutoff, self.input_rate);
-            self.decim_counter += 1;
-            if self.decim_counter < self.decimation {
-                continue;
-            }
-            self.decim_counter = 0;
             let mut sample = if cw {
                 let (sin, cos) = self.cw_osc_phase.sin_cos();
                 self.cw_osc_phase =
@@ -1775,27 +2034,40 @@ impl Demodulator {
             if cw && self.cw_volume != 1.0 {
                 sample *= self.cw_volume;
             }
-            let mut audio = sample - self.am_dc_prev_x + 0.995 * self.am_dc_prev_y;
-            self.am_dc_prev_x = sample;
-            self.am_dc_prev_y = audio;
-            if cw && self.cw_squelch_enabled {
-                let power = f64::from(audio * audio);
-                let alpha = 1.0 - (-std::f64::consts::TAU * 5.0 / self.effective_output_rate).exp();
-                self.cw_squelch_envelope += alpha * (power - self.cw_squelch_envelope);
-                let threshold = 10.0_f64.powf(f64::from(self.cw_squelch_level_db) / 10.0);
-                if self.cw_squelch_envelope < threshold {
-                    audio = 0.0;
-                }
-            }
-            out.push(audio);
+            out.push(sample);
         }
         out
     }
 
+    fn finish_detected_audio(&mut self, mut audio: Vec<f32>, mode: DemodMode) -> Vec<f32> {
+        let cw = mode == DemodMode::Cw;
+        let dc = matches!(mode, DemodMode::Am | DemodMode::Cw)
+            || (mode == DemodMode::Dsb && self.dsb_sideband == DsbSideband::Both);
+        for value in &mut audio {
+            if dc {
+                let filtered = *value - self.am_dc_prev_x + 0.995 * self.am_dc_prev_y;
+                self.am_dc_prev_x = *value;
+                self.am_dc_prev_y = filtered;
+                *value = filtered;
+            }
+            if cw && self.cw_squelch_enabled {
+                let power = f64::from(*value * *value);
+                let alpha = 1.0 - (-std::f64::consts::TAU * 5.0 / self.effective_output_rate).exp();
+                self.cw_squelch_envelope += alpha * (power - self.cw_squelch_envelope);
+                let threshold = 10.0_f64.powf(f64::from(self.cw_squelch_level_db) / 10.0);
+                if self.cw_squelch_envelope < threshold {
+                    *value = 0.0;
+                }
+            }
+        }
+        audio
+    }
+
     pub fn reset(&mut self) {
-        self.prev_i = 0.0;
-        self.prev_q = 0.0;
-        self.prev_phase = 0.0;
+        self.raw_audio.reset();
+        self.detected_audio.reset();
+        self.detected_mode = None;
+        self.reset_fm_discriminator();
         self.decim_counter = 0;
         self.lpf_state_l = 0.0;
         self.wfm_deemph_state = 0.0;
@@ -1823,7 +2095,7 @@ impl Demodulator {
         self.am_dc_prev_y = 0.0;
         self.hpf_state = 0.0;
         self.hpf_x_prev = 0.0;
-        self.hpf_alpha_computed = 0.0;
+        // Reset delay state while retaining configured HPF coefficients.
         self.dc_block_state = 0.0;
         self.dc_block_x_prev = 0.0;
         self.notch.reset();
@@ -1835,14 +2107,383 @@ impl Demodulator {
         self.pitch_write_idx = 0;
         self.rf_nb_avg = 0.0;
         self.rf_dc_estimate = [0.0; 2];
-        self.rf_decim_counter = 0;
-        self.rf_decim_filter.reset();
+        self.rf_decim_filter = ez_daemon::channelizer::FirDecimator::new(self.rf_decim as usize);
+        // Preserve the local RF path's original sample grid: first output at D-1.
+        self.rf_decim_filter.reset(self.rf_decim as usize - 1);
         self.rf_notch_x1 = (0.0, 0.0);
         self.rf_notch_x2 = (0.0, 0.0);
         self.rf_notch_y1 = (0.0, 0.0);
         self.rf_notch_y2 = (0.0, 0.0);
     }
 }
+
+// ---------------- Dedicated demod worker thread ----------------
+
+// Compile-time guard: the worker thread moves a Demodulator across threads,
+// so fail the build if a non-Send/Sync field is ever introduced.
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Demodulator>();
+};
+
+/// Per-batch demodulation settings applied by [`DemodWorker`] before it
+/// demodulates the next IQ batch. All fields are plain data, so the struct
+/// is cheap to clone into the control channel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DemodConfig {
+    /// Concrete demodulation mode for the next batch.
+    pub mode: DemodMode,
+    /// VFO-mixed sample rate entering the demodulator (Hz).
+    pub input_rate: f64,
+    /// Audio output rate (Hz).
+    pub audio_rate: u32,
+    /// Audio low-pass cutoff (Hz).
+    pub lpf_cutoff: f32,
+    /// RF channel bandwidth (Hz); zero selects the mode default.
+    pub rf_bandwidth: f32,
+    /// Demodulate with the FM stereo multiplex decoder.
+    pub stereo: bool,
+}
+
+impl Default for DemodConfig {
+    fn default() -> Self {
+        Self {
+            mode: DemodMode::Fm,
+            input_rate: 2_048_000.0,
+            audio_rate: 48_000,
+            lpf_cutoff: 15_000.0,
+            rf_bandwidth: 0.0,
+            stereo: false,
+        }
+    }
+}
+
+/// One finished demodulation frame returned to the UI thread.
+///
+/// The audio and the demodulator's side taps travel together so the UI can
+/// run CTCSS/RDS and read metrics without touching the demodulator itself.
+#[derive(Debug)]
+pub struct DemodFrame {
+    /// Latest control revision applied before this batch began.
+    pub control_version: u64,
+    /// Advanced-profile revision applied to the demodulator.
+    pub advanced_version: u64,
+    /// Concrete per-batch settings used for these samples.
+    pub config: DemodConfig,
+    /// Demodulation mode that produced this frame.
+    pub mode: DemodMode,
+    /// Demodulated audio: mono samples, or interleaved L/R when stereo.
+    pub audio: Vec<f32>,
+    /// True when `audio` is interleaved stereo.
+    pub stereo: bool,
+    /// FM stereo pilot lock for this frame (false for mono modes).
+    pub stereo_locked: bool,
+    /// FM deviation measured over the block (Hz).
+    pub fm_deviation_hz: f32,
+    /// Smoothed audio peak of the block.
+    pub audio_peak: f32,
+    /// NFM sub-audible tap at the audio clock; populated for FM batches.
+    pub nfm_subaudible: Vec<f32>,
+    /// WFM multiplex tap for RDS; populated only when the RDS tap is enabled.
+    pub wfm_multiplex: Vec<f32>,
+    /// Exact sample clock of `wfm_multiplex`.
+    pub wfm_multiplex_rate: f64,
+}
+
+/// Replaceable control state. Config/profile/reset revisions travel together;
+/// a capacity-one wakeup is a notification, never a queue of settings to lose.
+#[derive(Clone, Default)]
+struct WorkerControl {
+    config: DemodConfig,
+    radio: Option<native::RadioConfig>,
+    advanced: Option<(AdvancedConfig, DemodMode)>,
+    version: u64,
+    advanced_version: u64,
+    reset_version: u64,
+}
+
+/// A [`Demodulator`] that lives and runs on a dedicated OS thread.
+///
+/// The UI thread queues demodulated [`Complex32`] batches with
+/// [`DemodWorker::push_iq`] and drains finished frames with the non-blocking
+/// [`DemodWorker::try_recv_frame`]; when no frame is ready the UI skips a
+/// cycle instead of blocking playback on the DSP thread. Per-batch settings
+/// are pushed with [`DemodWorker::configure`] and bulk Advanced-panel
+/// settings with [`DemodWorker::configure_advanced`]; both are coalesced
+/// control messages, never a blocking hand-off.
+pub struct DemodWorker {
+    native: Option<native::RadioState>,
+    /// IQ batches waiting to be demodulated. Wrapped in Option so Drop can
+    /// take and drop it before joining the worker thread (unblocking recv()).
+    iq_tx: Option<crossbeam_channel::Sender<Vec<Complex32>>>,
+    control: Arc<Mutex<WorkerControl>>,
+    control_wake_tx: crossbeam_channel::Sender<()>,
+    applied_version: Arc<AtomicU64>,
+    running: Arc<AtomicBool>,
+    /// Finished demod frames waiting for the UI thread.
+    audio_rx: crossbeam_channel::Receiver<DemodFrame>,
+    /// The dedicated thread; the Demodulator is owned inside this thread.
+    handle: Option<std::thread::JoinHandle<()>>,
+    /// IQ batches dropped because the worker queue was full.
+    dropped_iq: Arc<AtomicU64>,
+    /// Demod frames dropped because the UI was behind.
+    dropped_frames: Arc<AtomicU64>,
+}
+
+impl DemodWorker {
+    /// Create a dummy DemodWorker without spawning a thread.
+    /// Used in test environments where thread spawning may cause hangs.
+    pub fn new_uninitialized(_capacity: usize) -> Self {
+        let (iq_tx, _iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(4);
+        let (control_wake_tx, _control_wake_rx) = crossbeam_channel::bounded(1);
+        let (_audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(4);
+        Self {
+            native: None,
+            iq_tx: Some(iq_tx),
+            control: Default::default(),
+            control_wake_tx,
+            applied_version: Default::default(),
+            running: Arc::new(AtomicBool::new(false)),
+            audio_rx,
+            handle: None,
+            dropped_iq: Arc::new(AtomicU64::new(0)),
+            dropped_frames: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Spawn the worker thread. `capacity` bounds both the IQ and frame
+    /// queues; controls use replaceable state and one bounded wakeup.
+    pub fn new(capacity: usize) -> Self {
+        let (iq_tx, iq_rx) = crossbeam_channel::bounded::<Vec<Complex32>>(capacity);
+        let (control_wake_tx, control_wake_rx) = crossbeam_channel::bounded(1);
+        let control = Arc::new(Mutex::new(WorkerControl::default()));
+        let worker_control = Arc::clone(&control);
+        let applied_version = Arc::new(AtomicU64::new(0));
+        let worker_applied = Arc::clone(&applied_version);
+        let running = Arc::new(AtomicBool::new(true));
+        let worker_running = Arc::clone(&running);
+        let (audio_tx, audio_rx) = crossbeam_channel::bounded::<DemodFrame>(capacity);
+        let dropped_iq = Arc::new(AtomicU64::new(0));
+        let dropped_frames = Arc::new(AtomicU64::new(0));
+        let _worker_dropped_iq = Arc::clone(&dropped_iq);
+        let worker_dropped_frames = Arc::clone(&dropped_frames);
+        let handle = std::thread::spawn(move || {
+            let mut demod = Demodulator::new();
+            let mut advanced_version = 0;
+            let mut reset_version = 0;
+            loop {
+                let iq = crossbeam_channel::select! {
+                    recv(iq_rx) -> input => match input { Ok(iq) => Some(iq), Err(_) => break },
+                    recv(control_wake_rx) -> wake => {
+                        if wake.is_err() { break; }
+                        None
+                    },
+                };
+                let desired = worker_control
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone();
+                let config = desired.config;
+                if desired.advanced_version != advanced_version {
+                    if let Some((advanced, mode)) = &desired.advanced {
+                        demod.apply_advanced(advanced, *mode);
+                    }
+                    advanced_version = desired.advanced_version;
+                }
+                if desired.reset_version != reset_version {
+                    demod.reset();
+                    reset_version = desired.reset_version;
+                }
+                demod.set_sample_rates_exact(config.input_rate, config.audio_rate);
+                demod.set_lpf_cutoff(config.lpf_cutoff);
+                demod.set_rf_bandwidth(config.rf_bandwidth);
+                worker_applied.store(desired.version, Ordering::Release);
+                let Some(iq) = iq else {
+                    continue;
+                };
+                let frame = if config.stereo {
+                    let frames = demod.demodulate_stereo_complex(&iq, config.mode);
+                    let mut audio = Vec::with_capacity(frames.len() * 2);
+                    for [left, right] in frames {
+                        audio.push(left);
+                        audio.push(right);
+                    }
+                    DemodFrame {
+                        control_version: desired.version,
+                        advanced_version,
+                        config,
+                        mode: config.mode,
+                        audio,
+                        stereo: true,
+                        stereo_locked: demod.last_stereo_locked,
+                        fm_deviation_hz: demod.last_fm_deviation_hz,
+                        audio_peak: demod.last_audio_peak,
+                        nfm_subaudible: demod.take_nfm_subaudible_audio(),
+                        wfm_multiplex: Vec::new(),
+                        wfm_multiplex_rate: 0.0,
+                    }
+                } else {
+                    let audio = demod.demodulate_complex(&iq, config.mode);
+                    DemodFrame {
+                        control_version: desired.version,
+                        advanced_version,
+                        config,
+                        mode: config.mode,
+                        audio,
+                        stereo: false,
+                        stereo_locked: false,
+                        fm_deviation_hz: demod.last_fm_deviation_hz,
+                        audio_peak: demod.last_audio_peak,
+                        nfm_subaudible: demod.take_nfm_subaudible_audio(),
+                        wfm_multiplex: Vec::new(),
+                        wfm_multiplex_rate: 0.0,
+                    }
+                };
+                // The RDS tap is populated inside both demod paths when the
+                // tap is enabled; collect it once after demodulation.
+                let mut frame = frame;
+                (frame.wfm_multiplex, frame.wfm_multiplex_rate) = demod.take_wfm_multiplex();
+                if audio_tx.try_send(frame).is_err() {
+                    worker_dropped_frames.fetch_add(1, Ordering::Relaxed);
+                    continue; // UI thread is behind or gone; drop frame, keep looping.
+                }
+            }
+            worker_running.store(false, Ordering::Release);
+        });
+        Self {
+            native: None,
+            iq_tx: Some(iq_tx),
+            control,
+            control_wake_tx,
+            applied_version,
+            running,
+            audio_rx,
+            handle: Some(handle),
+            dropped_iq,
+            dropped_frames,
+        }
+    }
+
+    /// Non-blocking: queue one IQ batch for demodulation. Returns `false`
+    /// when the worker is full or gone and the batch must be dropped.
+    pub fn push_iq(&self, iq: Vec<Complex32>) -> bool {
+        match self.iq_tx.as_ref() {
+            Some(tx) => match tx.try_send(iq) {
+                Ok(()) => true,
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => false,
+                Err(crossbeam_channel::TrySendError::Full(_)) => {
+                    self.dropped_iq.fetch_add(1, Ordering::Relaxed);
+                    false
+                }
+            },
+            None => false,
+        }
+    }
+
+    /// Number of IQ batches dropped due to worker queue overflow.
+    pub fn dropped_iq(&self) -> u64 {
+        self.dropped_iq.load(Ordering::Relaxed)
+    }
+
+    /// Number of demod frames dropped because the UI was behind.
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
+    }
+
+    /// Non-blocking: replace the per-batch demodulation configuration.
+    /// Coalesced while a request is queued; the worker applies the newest
+    /// one before its next batch.
+    pub fn configure(&self, config: DemodConfig) -> bool {
+        self.update_control(|desired| {
+            if desired.config == config {
+                return false;
+            }
+            desired.config = config;
+            true
+        })
+    }
+
+    /// Replace the full Advanced profile without discarding pending batch settings.
+    pub fn configure_advanced(&self, advanced: &AdvancedConfig, mode: DemodMode) -> bool {
+        self.update_control(|desired| {
+            if desired
+                .advanced
+                .as_ref()
+                .is_some_and(|(a, m)| a == advanced && *m == mode)
+            {
+                return false;
+            }
+            desired.advanced = Some((advanced.clone(), mode));
+            desired.advanced_version = desired.version + 1;
+            true
+        })
+    }
+
+    fn update_control(&self, update: impl FnOnce(&mut WorkerControl) -> bool) -> bool {
+        if !self.running.load(Ordering::Acquire) {
+            return false;
+        }
+        {
+            let mut desired = self.control.lock().unwrap_or_else(|p| p.into_inner());
+            if !update(&mut desired) {
+                return true;
+            }
+            desired.version += 1;
+        }
+        match self.control_wake_tx.try_send(()) {
+            Ok(()) | Err(crossbeam_channel::TrySendError::Full(())) => true,
+            Err(crossbeam_channel::TrySendError::Disconnected(())) => false,
+        }
+    }
+
+    pub fn requested_version(&self) -> u64 {
+        self.control
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .version
+    }
+
+    /// Acknowledges control application even while IQ input is idle.
+    pub fn applied_version(&self) -> u64 {
+        self.applied_version.load(Ordering::Acquire)
+    }
+
+    /// Non-blocking: take the next finished demod frame, if any. The UI
+    /// thread skips playback when this returns `None`.
+    pub fn try_recv_frame(&self) -> Option<DemodFrame> {
+        self.audio_rx.try_recv().ok()
+    }
+
+    /// Ask the worker thread to call [`Demodulator::reset`] before
+    /// demodulating the next batch. Coalesced while a request is queued.
+    pub fn request_reset(&self) -> bool {
+        self.update_control(|desired| {
+            desired.reset_version = desired.version + 1;
+            true
+        })
+    }
+}
+
+impl Drop for DemodWorker {
+    fn drop(&mut self) {
+        if self.native.is_some() {
+            self.running.store(false, Ordering::Release);
+        }
+        // Drain pending frames so a worker blocked on a full audio queue can
+        // observe the closed IQ channel and exit, then reap the thread.
+        while self.audio_rx.try_recv().is_ok() {}
+        // Drop iq_tx BEFORE joining: this unblocks the worker's recv() so
+        // the thread can exit. Without this, join() would block forever.
+        self.iq_tx = None;
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+#[path = "demod_native.rs"]
+mod native;
+pub(crate) use native::{RadioAudio, RadioAudioStream, RadioConfig, RadioSnapshot};
 
 #[cfg(test)]
 mod tests {
@@ -1974,6 +2615,185 @@ mod tests {
             alias < bypass * 0.02,
             "LPF bypass admitted aliased multiplex: {alias}/{bypass}"
         );
+    }
+
+    #[test]
+    fn physical_nfm_gain_and_deviation_survive_rf_decimation_and_all_if_presets() {
+        for (rate, decimation) in [(192003, 4), (2048003, 8)] {
+            let input = complex_fm(
+                f64::from(rate),
+                (f64::from(rate) * 0.24) as usize,
+                1000.0,
+                2500.0,
+            );
+            for preset in [
+                None,
+                Some(FmIfPreset::NoaaApt),
+                Some(FmIfPreset::Voice),
+                Some(FmIfPreset::NarrowBand),
+            ] {
+                let mut demod = configured_demod(rate, 15000.0);
+                demod.set_rf_decim(decimation);
+                demod.set_deemph_tau(0.0);
+                demod.set_fm_lowpass_enabled(false);
+                demod.set_fm_if_noise_reduction(preset.is_some(), preset.unwrap_or_default());
+                let audio = demod.demodulate_complex(&input, DemodMode::Fm);
+                let gain = tone_amplitude(&audio[7200..], 1000.0, 48000) / 0.5;
+                let db = 20.0 * gain.log10();
+                assert!(
+                    db.abs() <= 0.15,
+                    "rate={rate} RF={decimation} preset={preset:?} gain={db} dB"
+                );
+                assert!(
+                    (demod.last_fm_deviation_hz / 2500.0 - 1.0).abs() <= 0.03,
+                    "physical deviation {:?}: {}",
+                    preset,
+                    demod.last_fm_deviation_hz
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn physical_fm_meter_is_partition_invariant_and_retires_on_gaps_and_clock_changes() {
+        let rate = 192003;
+        let input = complex_fm(f64::from(rate), 48000, 1000.0, 2500.0);
+        for mode in [DemodMode::Fm, DemodMode::Wfm] {
+            for nr in [false, true] {
+                let create = || {
+                    let mut d = configured_demod(rate, 25000.0);
+                    d.set_deemph_tau(0.0);
+                    d.set_fm_if_noise_reduction(nr, FmIfPreset::Voice);
+                    d
+                };
+                let mut whole = create();
+                let expected = whole.demodulate_complex(&input, mode);
+                let mut split = create();
+                let actual: Vec<_> = input
+                    .chunks(137)
+                    .flat_map(|x| split.demodulate_complex(x, mode))
+                    .collect();
+                assert_eq!(actual, expected);
+                assert_eq!(split.last_fm_deviation_hz, whole.last_fm_deviation_hz);
+                assert!((split.last_fm_deviation_hz / 2500.0 - 1.0).abs() < 0.03);
+                split.reset();
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+                split.demodulate_complex(&input, mode);
+                split.demodulate_complex(&[Complex32::new(0.0, 0.0); 4096], mode);
+                // A channel filter can ring briefly into missing RF input;
+                // explicitly reset at the acquisition gap, as native capture does.
+                split.reset();
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+                split.demodulate_complex(&input, mode);
+                split.set_sample_rates(384000, 48000);
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+                split.demodulate_complex(&input[..100], DemodMode::Am);
+                assert_eq!(split.last_fm_deviation_hz, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn physical_fm_meter_ignores_initial_phase_carrier_offset_and_no_energy() {
+        let rate = 192000;
+        let input: Vec<_> = (0..rate / 4)
+            .map(|n| {
+                let time = f64::from(n) / f64::from(rate);
+                let phase = 2.7
+                    + std::f64::consts::TAU * 1200.0 * time
+                    + 2.5 * (std::f64::consts::TAU * 1000.0 * time).sin();
+                Complex32::new((0.5 * phase.cos()) as f32, (0.5 * phase.sin()) as f32)
+            })
+            .collect();
+        let mut demod = configured_demod(rate, 25000.0);
+        demod.demodulate_complex(&input, DemodMode::Fm);
+        assert!((demod.last_fm_deviation_hz / 2500.0 - 1.0).abs() < 0.03);
+        demod.reset();
+        let silence = vec![Complex32::new(0.0, 0.0); rate as usize / 4];
+        assert!(demod
+            .demodulate_complex(&silence, DemodMode::Fm)
+            .iter()
+            .all(|x| *x == 0.0));
+        assert_eq!(demod.last_fm_deviation_hz, 0.0);
+    }
+
+    fn independent_float_stereo_fm(rate: u32, count: usize) -> Vec<Complex32> {
+        let components = [
+            (1000.0, 0.04),
+            (2000.0, 0.02),
+            (39000.0, 0.02),
+            (37000.0, 0.02),
+            (40000.0, -0.01),
+            (36000.0, -0.01),
+            (19000.0, 0.1),
+        ];
+        (0..count)
+            .map(|n| {
+                let time = n as f64 / f64::from(rate);
+                let phase = 75000.0
+                    * components
+                        .iter()
+                        .map(|&(f, a)| a / f * (std::f64::consts::TAU * f * time).sin())
+                        .sum::<f64>();
+                Complex32::new((0.5 * phase.cos()) as f32, (0.5 * phase.sin()) as f32)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks() {
+        for (rate, decimation) in [(192000, 1), (384000, 2), (2048003, 4)] {
+            let input = independent_float_stereo_fm(rate, (f64::from(rate) * 0.4) as usize);
+            for audio_rate in [44_100, 48_000] {
+                for nr in [false, true] {
+                    let create = || {
+                        let mut d = configured_demod(rate, 150000.0);
+                        d.set_sample_rates(rate, audio_rate);
+                        d.set_rf_decim(decimation);
+                        d.set_fm_if_noise_reduction(nr, FmIfPreset::Voice);
+                        d.set_fm_lowpass_enabled(false);
+                        d.set_deemph_tau(0.0);
+                        d
+                    };
+                    let mut stereo = create();
+                    let frames = stereo.demodulate_stereo_complex(&input, DemodMode::Wfm);
+                    assert!(stereo.last_stereo_locked);
+                    let skip = audio_rate as usize / 4;
+                    let left: Vec<_> = frames[skip..].iter().map(|x| x[0]).collect();
+                    let right: Vec<_> = frames[skip..].iter().map(|x| x[1]).collect();
+                    let levels = [
+                        tone_amplitude(&left, 1000.0, audio_rate) / 0.08,
+                        tone_amplitude(&right, 2000.0, audio_rate) / 0.04,
+                    ];
+                    println!("physical_stereo audio_rate={audio_rate} rate={rate} rf_decim={decimation} nr={nr} left_gain={} right_gain={} deviation={}", levels[0], levels[1], stereo.last_fm_deviation_hz);
+                    for gain in levels {
+                        assert!(
+                        (20.0 * gain.log10()).abs() <= 0.15,
+                        "stereo gain audio={audio_rate} rate={rate} RF={decimation} NR={nr} levels={levels:?}"
+                    );
+                    }
+                    let mut mono = create();
+                    let mono_audio = mono.demodulate_complex(&input, DemodMode::Wfm);
+                    let downmix: Vec<_> =
+                        frames[skip..].iter().map(|x| (x[0] + x[1]) * 0.5).collect();
+                    for f in [1000.0, 2000.0] {
+                        let ratio = tone_amplitude(&downmix, f, audio_rate)
+                            / tone_amplitude(&mono_audio[skip..], f, audio_rate);
+                        println!("physical_downmix audio_rate={audio_rate} rate={rate} rf_decim={decimation} nr={nr} frequency={f} ratio={ratio}");
+                        assert!(
+                            (20.0 * ratio.log10()).abs() <= 0.15,
+                            "stereo toggle changed gain {ratio}"
+                        );
+                    }
+                    assert_eq!(stereo.last_fm_deviation_hz, mono.last_fm_deviation_hz);
+                    assert!(
+                    (stereo.last_fm_deviation_hz / 13500.0 - 1.0).abs() < 0.03,
+                    "stereo physical deviation audio={audio_rate} rate={rate} RF={decimation} NR={nr}: {}",
+                    stereo.last_fm_deviation_hz
+                );
+                }
+            }
+        }
     }
 
     #[test]
@@ -2326,6 +3146,260 @@ mod tests {
         demod.set_lpf_cutoff(15_000.0);
         demod.set_rf_bandwidth(bandwidth);
         demod
+    }
+
+    fn antialias_demod(rate: u32, rf_factor: u32, audio_rate: u32, bandwidth: f32) -> Demodulator {
+        let mut demod = configured_demod(rate, bandwidth);
+        demod.set_rf_decim(rf_factor);
+        demod.set_sample_rates(rate, audio_rate);
+        demod.set_lpf_cutoff(20_000.0);
+        demod
+    }
+
+    #[test]
+    fn detected_antialias_am_ssb_and_product_reject_above_device_nyquist() {
+        let mut cases = 0;
+        let mut max_alias = 0.0_f64;
+        for (rate, factor) in [(48_000_u32, 1_u32), (192_000, 4), (384_003, 8)] {
+            for mode in [
+                DemodMode::Am,
+                DemodMode::Usb,
+                DemodMode::Lsb,
+                DemodMode::Dsb,
+            ] {
+                let width = if matches!(mode, DemodMode::Usb | DemodMode::Lsb) {
+                    12_000.0
+                } else {
+                    15_000.0
+                };
+                let n = rate as usize / 4;
+                let make = |wanted: bool, adjacent: bool| {
+                    (0..n)
+                        .map(|index| {
+                            let t = index as f64 / f64::from(rate);
+                            let (w, a) = (
+                                if wanted { 0.1 } else { 0.0 },
+                                if adjacent { 0.2 } else { 0.0 },
+                            );
+                            if mode == DemodMode::Am {
+                                Complex32::new(
+                                    (0.5 + w * (std::f64::consts::TAU * 1000.0 * t).cos()
+                                        + a * (std::f64::consts::TAU * 6000.0 * t).cos())
+                                        as f32,
+                                    0.0,
+                                )
+                            } else {
+                                let sign = if mode == DemodMode::Lsb { -1.0 } else { 1.0 };
+                                let w = std::f64::consts::TAU * sign * 1000.0 * t;
+                                let a = std::f64::consts::TAU * sign * 6000.0 * t;
+                                Complex32::new(
+                                    ((if wanted { 0.1 } else { 0.0 }) * w.cos()
+                                        + (if adjacent { 0.2 } else { 0.0 }) * a.cos())
+                                        as f32,
+                                    if mode == DemodMode::Dsb {
+                                        0.0
+                                    } else {
+                                        ((if wanted { 0.1 } else { 0.0 }) * w.sin()
+                                            + (if adjacent { 0.2 } else { 0.0 }) * a.sin())
+                                            as f32
+                                    },
+                                )
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let measure = |input: &[Complex32], audio_rate| {
+                    let mut demod = antialias_demod(rate, factor, audio_rate, width);
+                    let output = demod.demodulate_complex(input, mode);
+                    assert_eq!(
+                        output.len(),
+                        (n as u128 * u128::from(audio_rate)).div_ceil(u128::from(rate)) as usize
+                    );
+                    output[output.len() - audio_rate as usize / 10..].to_vec()
+                };
+                let reference = measure(&make(true, false), 8000);
+                let mixture = measure(&make(true, true), 8000);
+                let rejected = measure(&make(false, true), 8000);
+                let wanted = tone_amplitude(&reference, 1000.0, 8000);
+                assert!(wanted > 0.04, "wanted {mode:?} {rate}/{factor}: {wanted}");
+                let mixed = tone_amplitude(&mixture, 1000.0, 8000);
+                assert!((20.0 * (mixed / wanted).log10()).abs() < 0.1);
+                let alias = tone_amplitude(&rejected, 2000.0, 8000);
+                max_alias = max_alias.max(alias);
+                assert!(alias < 0.2 * 1e-4, "{mode:?} {rate}/{factor} alias={alias}");
+                for audio_rate in [44_100, 48_000] {
+                    let audible = measure(&make(false, true), audio_rate);
+                    assert!(
+                        tone_amplitude(&audible, 6000.0, audio_rate) > 0.05,
+                        "6k should remain below Nyquist at {audio_rate} {mode:?}"
+                    );
+                }
+                cases += 1;
+            }
+        }
+        eprintln!("detected_antialias modes_and_rf_clock_cases={cases} output_rates=8000,44100,48000 max_6k_to_2k_alias={max_alias:.10}");
+    }
+
+    #[test]
+    fn detected_antialias_nonlinear_envelope_harmonics_are_filtered_before_conversion() {
+        for (rate, factor) in [(48_000_u32, 1_u32), (192_003, 4)] {
+            let input: Vec<_> = (0..rate / 4)
+                .map(|n| {
+                    Complex32::new(
+                        (0.5 * (std::f64::consts::TAU * 3000.0 * f64::from(n) / f64::from(rate))
+                            .cos()) as f32,
+                        0.0,
+                    )
+                })
+                .collect();
+            for (audio_rate, alias_hz) in [(8000_u32, 2000.0), (16000, 4000.0)] {
+                let mut demod = antialias_demod(rate, factor, audio_rate, 8000.0);
+                let output = demod.demodulate_complex(&input, DemodMode::Am);
+                let tail = &output[output.len() - audio_rate as usize / 10..];
+                let alias = tone_amplitude(tail, alias_hz, audio_rate);
+                assert!(
+                    alias < 2e-5,
+                    "rectified-envelope alias {rate}/{factor}/{audio_rate}: {alias}"
+                );
+                if audio_rate == 16000 {
+                    assert!(tone_amplitude(tail, 6000.0, audio_rate) > 0.1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn detected_antialias_cw_beat_is_filtered_at_input_clock_and_envelopes_stay_unclipped() {
+        let rate = 192_000_u32;
+        let input: Vec<_> = (0..rate / 4)
+            .map(|n| {
+                let phase = std::f64::consts::TAU * 300.0 * f64::from(n) / f64::from(rate);
+                Complex32::new((0.5 * phase.cos()) as f32, (0.5 * phase.sin()) as f32)
+            })
+            .collect();
+        let mut cw = antialias_demod(rate, 1, 8000, 1000.0);
+        cw.set_cw_tone(2000.0);
+        cw.set_cw_offset(2000.0);
+        let output = cw.demodulate_complex(&input, DemodMode::Cw);
+        assert!(tone_amplitude(&output[output.len() - 800..], 3700.0, 8000) < 5e-5);
+        let make = |carrier| {
+            (0..rate / 4)
+                .map(|n| {
+                    Complex32::new(
+                        (carrier
+                            + 0.1
+                                * (std::f64::consts::TAU * 1000.0 * f64::from(n) / f64::from(rate))
+                                    .cos()) as f32,
+                        0.0,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let measure = |carrier| {
+            let mut am = antialias_demod(rate, 1, 48000, 15000.0);
+            let output = am.demodulate_complex(&make(carrier), DemodMode::Am);
+            tone_amplitude(&output[output.len() - 4800..], 1000.0, 48000)
+        };
+        let small = measure(0.5);
+        let large = measure(2.0);
+        assert!(
+            small > 0.09 && (large - small).abs() < 1e-5,
+            "detector clipping: {small}/{large}"
+        );
+    }
+
+    #[test]
+    fn detected_antialias_tiny_chunks_and_resets_preserve_controls_and_capture_duration() {
+        let rate = 192_003_u32;
+        let count = 20_003_usize;
+        for mode in [
+            DemodMode::Am,
+            DemodMode::Usb,
+            DemodMode::Lsb,
+            DemodMode::Dsb,
+            DemodMode::Cw,
+        ] {
+            let sign = if mode == DemodMode::Lsb { -1.0 } else { 1.0 };
+            let input: Vec<_> = (0..count)
+                .map(|n| {
+                    let phase = std::f64::consts::TAU * sign * 300.0 * n as f64 / f64::from(rate);
+                    if mode == DemodMode::Am {
+                        Complex32::new((0.5 + 0.1 * phase.cos()) as f32, 0.0)
+                    } else {
+                        Complex32::new((0.2 * phase.cos()) as f32, (0.2 * phase.sin()) as f32)
+                    }
+                })
+                .collect();
+            for audio_rate in [8000_u32, 44_100] {
+                let create = || {
+                    let mut demod = antialias_demod(rate, 4, audio_rate, 2400.0);
+                    demod.set_audio_hpf(80.0);
+                    demod.set_notch(1900.0, 100.0);
+                    demod.set_bass(-2.0);
+                    demod.set_treble(-3.0);
+                    demod.set_pitch(0.3);
+                    demod
+                };
+                let reference = create().demodulate_complex(&input, mode);
+                let mut split = create();
+                let mut actual = Vec::new();
+                let mut consumed = 0;
+                for size in [1_usize, 7, 37, 997].into_iter().cycle() {
+                    if consumed == count {
+                        break;
+                    }
+                    let end = (consumed + size).min(count);
+                    // Native controls are reapplied between capture blocks.
+                    split.set_sample_rates(rate, audio_rate);
+                    split.set_rf_bandwidth(2400.0);
+                    split.set_lpf_cutoff(20_000.0);
+                    actual.extend(split.demodulate_complex(&input[consumed..end], mode));
+                    consumed = end;
+                    assert_eq!(
+                        actual.len(),
+                        (consumed as u128 * u128::from(audio_rate)).div_ceil(u128::from(rate))
+                            as usize
+                    );
+                }
+                assert_eq!(actual, reference, "chunk history {mode:?}/{audio_rate}");
+                assert!(actual.iter().all(|sample| sample.is_finite()));
+                split.reset();
+                assert_eq!(
+                    split.demodulate_complex(&input, mode),
+                    reference,
+                    "reset history {mode:?}/{audio_rate}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn detected_antialias_audio_notch_tracks_the_device_clock() {
+        let rate = 200_003_u32;
+        let input: Vec<_> = (0..rate / 4)
+            .map(|n| {
+                let t = f64::from(n) / f64::from(rate);
+                let phase1 = std::f64::consts::TAU * 1000.0 * t;
+                let phase2 = std::f64::consts::TAU * 1900.0 * t;
+                Complex32::new(
+                    (0.1 * (phase1.cos() + phase2.cos())) as f32,
+                    (0.1 * (phase1.sin() + phase2.sin())) as f32,
+                )
+            })
+            .collect();
+        for audio_rate in [8000_u32, 44_100, 48_000] {
+            let mut demod = antialias_demod(rate, 1, audio_rate, 6000.0);
+            demod.set_notch(1900.0, 200.0);
+            let audio = demod.demodulate_complex(&input, DemodMode::Usb);
+            let tail = &audio[audio.len() - audio_rate as usize / 10..];
+            let wanted = tone_amplitude(tail, 1000.0, audio_rate);
+            let notch = tone_amplitude(tail, 1900.0, audio_rate);
+            assert!(wanted > 0.06, "wanted gain at {audio_rate}: {wanted}");
+            assert!(
+                notch < wanted * 0.001,
+                "notch used the wrong clock at {audio_rate}: {notch}/{wanted}"
+            );
+        }
     }
 
     #[test]
@@ -2715,9 +3789,8 @@ mod tests {
             let skip = audio_rate as usize / 5;
             let left: Vec<_> = frames[skip..].iter().map(|frame| frame[0]).collect();
             let right: Vec<_> = frames[skip..].iter().map(|frame| frame[1]).collect();
-            let gain = std::f64::consts::TAU * 75_000.0 / f64::from(rate) * 0.8;
-            assert!(tone_amplitude(&left, 1_000.0, audio_rate) > 0.3 * gain);
-            assert!(tone_amplitude(&right, 2_000.0, audio_rate) > 0.2 * gain);
+            assert!(tone_amplitude(&left, 1_000.0, audio_rate) > 0.3);
+            assert!(tone_amplitude(&right, 2_000.0, audio_rate) > 0.2);
         }
     }
 
@@ -2841,8 +3914,11 @@ mod tests {
         d.agc_enabled = false;
         let iq = make_iq_dc(127, 127, 64);
         let out = d.demodulate(&iq, DemodMode::Raw);
-        // raw produces 2 samples per IQ pair
-        assert_eq!(out.len(), 128);
+        // Two interleaved channels at the configured audio clock.
+        assert_eq!(
+            out.len(),
+            2 * (64.0 * f64::from(d.audio_sample_rate) / d.input_rate).ceil() as usize
+        );
     }
 
     #[test]
@@ -3000,13 +4076,15 @@ mod tests {
     #[test]
     fn reset_clears_state() {
         let mut d = Demodulator::new();
-        d.prev_i = 0.5;
-        d.prev_q = -0.3;
+        d.fm_previous_valid = true;
+        d.fm_deviation.value = 1234.0;
+        d.last_fm_deviation_hz = 1234.0;
         d.prev_phase = 1.2;
         d.decim_counter = 42;
         d.reset();
-        assert_eq!(d.prev_i, 0.0);
-        assert_eq!(d.prev_q, 0.0);
+        assert!(!d.fm_previous_valid);
+        assert_eq!(d.fm_deviation.value, 0.0);
+        assert_eq!(d.last_fm_deviation_hz, 0.0);
         assert_eq!(d.prev_phase, 0.0);
         assert_eq!(d.decim_counter, 0);
     }
@@ -3098,12 +4176,15 @@ mod tests {
     #[test]
     fn test_demod_new_defaults() {
         let d = Demodulator::new();
-        assert_eq!(d.prev_i, 0.0);
-        assert_eq!(d.prev_q, 0.0);
+        assert!(!d.fm_previous_valid);
+        assert_eq!(d.fm_deviation.value, 0.0);
+        assert_eq!(d.last_fm_deviation_hz, 0.0);
         assert_eq!(d.prev_phase, 0.0);
         assert_eq!(d.decimation, 1);
         assert_eq!(d.decim_counter, 0);
         assert_eq!(d.audio_sample_rate, 48000);
+        assert_eq!(d.source_rate, f64::from(d.audio_sample_rate));
+        assert_eq!(d.input_rate, d.effective_output_rate);
         assert_eq!(d.agc_gain, 1.0);
         assert!(d.agc_enabled);
     }
@@ -3111,10 +4192,10 @@ mod tests {
     #[test]
     fn test_demod_reset() {
         let mut d = Demodulator::new();
-        d.prev_i = 0.7;
+        d.fm_previous_valid = true;
         d.lpf_state_l = 0.5;
         d.reset();
-        assert_eq!(d.prev_i, 0.0);
+        assert!(!d.fm_previous_valid);
         assert_eq!(d.lpf_state_l, 0.0);
     }
 
@@ -3149,6 +4230,32 @@ mod tests {
         let _wfm = d.demodulate(&iq, DemodMode::Wfm);
         let _lsb = d.demodulate(&iq, DemodMode::Lsb);
         let _usb = d.demodulate(&iq, DemodMode::Usb);
+    }
+
+    #[test]
+    fn reset_preserves_configured_highpass_from_the_first_block() {
+        let rate = 192_000;
+        let iq = synth_iq(rate, rate as usize / 4, |time| {
+            (
+                0.6 + 0.1 * (std::f64::consts::TAU * 200.0 * time).cos(),
+                0.0,
+            )
+        });
+        let make = || {
+            let mut demod = configured_demod(rate, 8_000.0);
+            demod.set_audio_hpf(1_000.0);
+            demod
+        };
+        let mut reset = make();
+        reset.demodulate(&iq, DemodMode::Am);
+        reset.reset();
+        let actual = reset.demodulate(&iq, DemodMode::Am);
+        let expected = make().demodulate(&iq, DemodMode::Am);
+        assert_eq!(actual, expected);
+        assert!(tone_amplitude(&actual[2400..], 200.0, 48_000) < 0.025);
+        let mut disabled = configured_demod(rate, 8_000.0);
+        let control = disabled.demodulate(&iq, DemodMode::Am);
+        assert!(tone_amplitude(&control[2400..], 200.0, 48_000) > 0.075);
     }
 
     #[test]
@@ -3353,5 +4460,195 @@ mod tests {
             .map(|sample| sample.abs())
             .fold(0.0_f32, f32::max);
         assert!(peak < 0.01, "CW squelch passed weak signal: peak {peak}");
+    }
+
+    fn poll_for_frame(worker: &DemodWorker) -> Option<DemodFrame> {
+        for _ in 0..2_000 {
+            if let Some(frame) = worker.try_recv_frame() {
+                return Some(frame);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        None
+    }
+
+    #[test]
+    fn demod_control_flood_coalesces_config_and_profile_and_acknowledges_without_iq() {
+        let worker = DemodWorker::new(4);
+        for n in 0..100 {
+            assert!(worker.configure(DemodConfig {
+                input_rate: 192_000.0 + n as f64,
+                ..Default::default()
+            }));
+            let advanced = AdvancedConfig {
+                audio_gain: n as f32 / 100.0,
+                ..Default::default()
+            };
+            assert!(worker.configure_advanced(&advanced, DemodMode::Fm));
+        }
+        let config = DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            ..Default::default()
+        };
+        let advanced = AdvancedConfig {
+            audio_gain: 0.0,
+            ..Default::default()
+        };
+        assert!(worker.configure_advanced(&advanced, DemodMode::Am));
+        let advanced_version = worker.requested_version();
+        assert!(worker.configure(config));
+        assert!(worker.request_reset());
+        let version = worker.requested_version();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while worker.applied_version() != version && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            worker.applied_version(),
+            version,
+            "control application must wake without IQ"
+        );
+        assert!(worker.configure(config));
+        assert!(worker.configure_advanced(&advanced, DemodMode::Am));
+        assert_eq!(
+            worker.requested_version(),
+            version,
+            "unchanged controls preserve acknowledgement"
+        );
+        assert!(worker.push_iq(vec![Complex32::new(0.6, 0.0); 384]));
+        let frame = poll_for_frame(&worker).expect("final configuration produces a frame");
+        assert_eq!(frame.control_version, version);
+        assert_eq!(frame.advanced_version, advanced_version);
+        assert_eq!(frame.config, config);
+        assert_eq!(frame.mode, DemodMode::Am);
+        assert!(!frame.audio.is_empty());
+        assert!(
+            frame.audio.iter().all(|sample| *sample == 0.0),
+            "final advanced audio gain must be applied"
+        );
+    }
+
+    #[test]
+    fn demod_frame_versions_identify_latest_controls_under_iq_backlog() {
+        let worker = DemodWorker::new(4);
+        assert!(worker.configure(DemodConfig {
+            mode: DemodMode::Fm,
+            input_rate: 192_000.0,
+            ..Default::default()
+        }));
+        for _ in 0..4 {
+            worker.push_iq(vec![Complex32::new(0.6, 0.0); 50_000]);
+        }
+        for n in 0..50 {
+            assert!(worker.configure(DemodConfig {
+                input_rate: 192_000.0 + n as f64,
+                ..Default::default()
+            }));
+        }
+        let final_config = DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            ..Default::default()
+        };
+        assert!(worker.configure(final_config));
+        assert!(worker.configure_advanced(
+            &AdvancedConfig {
+                audio_gain: 0.0,
+                ..Default::default()
+            },
+            DemodMode::Am
+        ));
+        let version = worker.requested_version();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut sent_final = false;
+        let mut final_frame = None;
+        while std::time::Instant::now() < deadline {
+            if !sent_final {
+                sent_final = worker.push_iq(vec![Complex32::new(0.6, 0.0); 384]);
+            }
+            while let Some(frame) = worker.try_recv_frame() {
+                assert!(frame.control_version <= version);
+                assert_eq!(frame.mode, frame.config.mode);
+                if frame.control_version == version {
+                    final_frame = Some(frame);
+                }
+            }
+            if final_frame.is_some() {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        let frame = final_frame.expect("backlog must not discard the final settings");
+        assert_eq!(frame.config, final_config);
+        assert_eq!(frame.advanced_version, version);
+        assert!(frame.audio.iter().all(|sample| *sample == 0.0));
+    }
+
+    #[test]
+    fn demod_controls_report_a_missing_worker_instead_of_success() {
+        let worker = DemodWorker::new_uninitialized(4);
+        assert!(!worker.configure(DemodConfig::default()));
+        assert!(!worker.configure_advanced(&AdvancedConfig::default(), DemodMode::Am));
+        assert!(!worker.request_reset());
+        assert_eq!(worker.requested_version(), 0);
+    }
+
+    #[test]
+    fn demod_worker_round_trips_iq_to_audio() {
+        let worker = DemodWorker::new(4);
+        worker.configure(DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            audio_rate: 48_000,
+            ..DemodConfig::default()
+        });
+        // 2 ms of a 1 kHz tone on a steady carrier.
+        let iq: Vec<Complex32> = (0..384)
+            .map(|n| {
+                let envelope =
+                    0.5 + 0.5 * (std::f64::consts::TAU * 1_000.0 * n as f64 / 192_000.0).cos();
+                Complex32::new(envelope as f32, 0.0)
+            })
+            .collect();
+        assert!(worker.push_iq(iq));
+        let frame = poll_for_frame(&worker).expect("worker produced a frame");
+        assert_eq!(frame.mode, DemodMode::Am);
+        assert!(!frame.stereo);
+        assert!(!frame.audio.is_empty());
+        // The AM envelope's 1 kHz tone must survive the round trip.
+        let settled = &frame.audio[frame.audio.len() / 2..];
+        let tone = tone_amplitude(settled, 1_000.0, 48_000);
+        assert!(tone > 0.05, "AM tone lost in worker round trip: {tone}");
+    }
+
+    #[test]
+    fn demod_worker_reconfigures_mode_and_resets() {
+        let worker = DemodWorker::new(4);
+        let carrier = |count: usize| {
+            (0..count)
+                .map(|_| Complex32::new(0.6, 0.0))
+                .collect::<Vec<_>>()
+        };
+        worker.configure(DemodConfig {
+            mode: DemodMode::Am,
+            input_rate: 192_000.0,
+            audio_rate: 48_000,
+            ..DemodConfig::default()
+        });
+        assert!(worker.push_iq(carrier(384)));
+        let frame = poll_for_frame(&worker).expect("AM frame");
+        assert_eq!(frame.mode, DemodMode::Am);
+        // Switch modes; the reset request must be consumed without stalling.
+        worker.request_reset();
+        worker.configure(DemodConfig {
+            mode: DemodMode::Fm,
+            input_rate: 192_000.0,
+            audio_rate: 48_000,
+            ..DemodConfig::default()
+        });
+        assert!(worker.push_iq(carrier(384)));
+        let frame = poll_for_frame(&worker).expect("FM frame");
+        assert_eq!(frame.mode, DemodMode::Fm);
     }
 }

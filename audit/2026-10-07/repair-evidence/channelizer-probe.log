@@ -1,0 +1,13 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `release` profile [optimized] target(s) in 12.92s
+     Running `target/release/examples/audit_channelizer`
+ideal_settled=false channel_min_rate=12500 input_rate=2000000 tone_hz=1000 output_rms=0.498619100
+ideal_settled=false channel_min_rate=12500 input_rate=2000000 tone_hz=13500 output_rms=0.002194099
+ideal_settled=false channel_min_rate=12500 input_rate=2000000 tone_hz=26000 output_rms=0.001063771
+ideal_settled=false channel_min_rate=12500 input_rate=2000000 tone_hz=101000 output_rms=0.000278058
+ideal_settled=true channel_min_rate=12500 input_rate=2000000 tone_hz=1000 output_rms=0.500000518
+ideal_settled=true channel_min_rate=12500 input_rate=2000000 tone_hz=13500 output_rms=0.000000041
+ideal_settled=true channel_min_rate=12500 input_rate=2000000 tone_hz=26000 output_rms=0.000000017
+ideal_settled=true channel_min_rate=12500 input_rate=2000000 tone_hz=101000 output_rms=0.000000011

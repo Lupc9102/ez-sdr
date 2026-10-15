@@ -1,0 +1,49 @@
+{
+  "verified_utc": "2026-10-13T13:56:08.170212+00:00",
+  "archive": "/home/lupc/Documents/ez-sdr/dist/ez-sdr-audit-software-validation-20261013-linux-x86_64.tar.gz",
+  "archive_sha256": "9e816c09ef0e4a4baa36b729871965bfb198324f84a03c59fe616980351fb8dc",
+  "archive_bytes": 196722500,
+  "source_commit": "62ce413075aa5d53cb0da3a383070214e0c602e9",
+  "checks": [
+    {
+      "name": "all archive checksums",
+      "passed": true
+    },
+    {
+      "name": "source matches verified workspace",
+      "passed": true,
+      "checked_source_files": 215
+    },
+    {
+      "name": "vendored dependencies resolve with empty Cargo cache in offline mode",
+      "passed": true,
+      "command": [
+        "cargo",
+        "metadata",
+        "--locked",
+        "--offline",
+        "--all-features",
+        "--format-version",
+        "1"
+      ],
+      "resolved_packages": 532
+    },
+    {
+      "name": "packaged binaries match release build, native libraries resolve, CLI help works",
+      "passed": true
+    },
+    {
+      "name": "packaged GUI creates native window on isolated X11/software GL",
+      "passed": true,
+      "scope": "startup only; no physical reception/audio validation"
+    }
+  ],
+  "binary_sha256": {
+    "ez-gui": "a3823fa759d5e017e2d1f5fe2aa8e19458af63ff0c65bde803c4bb79b8d03a3b",
+    "ez-daemon": "e25ffe56a36d85abec83e51f9b256a1b721545193c3841d40c9c48426ea8a5f9",
+    "dump1090": "75374a98c880ddeef29d1cce3d5ffb804df695e6575f16eac99a7ab3f7307e62"
+  },
+  "package_build_command": "RELEASE_VERSION=audit-software-validation-20261013 CARGO_BUILD_JOBS=4 RUST_TEST_THREADS=4 taskset -c 0-5 nice -n 10 scripts/package-linux-release.sh dist",
+  "package_build_exit_code": 0,
+  "package_build_log_sha256": "17053cca5a39048e8b874cd228929b42e4d703897173c7f7f2d732c3e148f5ae"
+}

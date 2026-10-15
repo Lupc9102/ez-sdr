@@ -1,0 +1,13 @@
+   Compiling serde_core v1.0.229
+   Compiling tokio v1.53.1
+   Compiling libc v0.2.189
+   Compiling png v0.18.1
+   Compiling tokio-util v0.7.19
+   Compiling thiserror v1.0.69
+   Compiling image v0.25.10
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling bincode v1.3.3
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.30s

@@ -1,0 +1,22 @@
+{
+  "runtime_versions": {
+    "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "cargo": "cargo 1.92.0 (344c4567c 2025-10-21)",
+    "node": "v24.18.0",
+    "python": "Python 3.12.3"
+  },
+  "canvas": {
+    "file": "/home/lupc/.cursor/projects/home-lupc-Documents-ez-sdr-main-1-ez-sdr/canvases/satellite-radio-logic-audit.canvas.tsx",
+    "sha256": "cf47fca801d970470caa6b5d135e542033ec7f8e42c71185ce3287689a84eb7a",
+    "typescript_version": "5.9.3",
+    "typecheck_exit": 0,
+    "visual_render_check": false
+  },
+  "rustfmt_check_exit": 0,
+  "python_ast_parse": true,
+  "source_anchor_and_hash_check": true,
+  "report_local_links_checked": true,
+  "graph_update_exit": 0,
+  "graph_update_mode": "AST only",
+  "preexisting_deleted_graph_files_preserved": true
+}

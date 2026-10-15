@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A collection of radio frequency bookmarks stored in memory
 /// and persisted to `ez_sdr_bookmarks.json`.
@@ -7,9 +9,9 @@ pub struct BookmarkDb {
 }
 
 /// A single bookmarked frequency with metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bookmark {
-    /// Human-readable label (e.g. "NOAA 15 APT")
+    /// Human-readable label (e.g. "Meteor-M2-3 LRPT")
     pub name: String,
     /// Frequency in Hertz
     pub frequency_hz: u64,
@@ -31,48 +33,21 @@ impl Default for BookmarkDb {
         Self {
             bookmarks: vec![
                 Bookmark {
-                    name: "NOAA 15 APT".into(),
-                    frequency_hz: 137_620_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 34_000,
-                    category: "Weather".into(),
-                    notes: String::new(),
-                    starred: false,
-                },
-                Bookmark {
-                    name: "NOAA 18 APT".into(),
-                    frequency_hz: 137_912_500,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 34_000,
-                    category: "Weather".into(),
-                    notes: String::new(),
-                    starred: false,
-                },
-                Bookmark {
-                    name: "NOAA 19 APT".into(),
-                    frequency_hz: 137_100_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 34_000,
-                    category: "Weather".into(),
-                    notes: String::new(),
-                    starred: false,
-                },
-                Bookmark {
-                    name: "Meteor-M2 LRPT".into(),
+                    name: "Meteor-M2-3 LRPT".into(),
                     frequency_hz: 137_900_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 140_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 288_000,
                     category: "Weather".into(),
-                    notes: String::new(),
+                    notes: "Verify current transmitter status before a pass".into(),
                     starred: false,
                 },
                 Bookmark {
-                    name: "Meteor-M2-2 LRPT".into(),
+                    name: "Meteor-M2-4 LRPT".into(),
                     frequency_hz: 137_100_000,
-                    mode: "WFM".into(),
-                    bandwidth_hz: 140_000,
+                    mode: "RAW".into(),
+                    bandwidth_hz: 288_000,
                     category: "Weather".into(),
-                    notes: String::new(),
+                    notes: "Verify current transmitter status before a pass".into(),
                     starred: false,
                 },
                 Bookmark {
@@ -260,16 +235,82 @@ impl Default for BookmarkDb {
     }
 }
 
+static ATOMIC_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 pub fn atomic_write_file(path: impl AsRef<std::path::Path>, content: &[u8]) -> std::io::Result<()> {
-    let path = path.as_ref();
+    atomic_write_file_with_mode(path.as_ref(), content, false)
+}
+
+pub(crate) fn atomic_write_private_file(
+    path: impl AsRef<std::path::Path>,
+    content: &[u8],
+) -> std::io::Result<()> {
+    atomic_write_file_with_mode(path.as_ref(), content, true)
+}
+
+fn atomic_write_file_with_mode(
+    path: &std::path::Path,
+    content: &[u8],
+    private: bool,
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
     }
-    let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
-    std::fs::write(&tmp_path, content)?;
-    std::fs::rename(&tmp_path, path)
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "destination has no filename",
+        )
+    })?;
+
+    for _ in 0..32 {
+        let sequence = ATOMIC_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let tmp_path = parent.join(format!(
+            ".{}.tmp.{}.{}",
+            file_name.to_string_lossy(),
+            std::process::id(),
+            sequence
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(if private { 0o600 } else { 0o666 });
+        }
+        #[cfg(not(unix))]
+        let _ = private;
+
+        let mut temporary = match options.open(&tmp_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let write_result = temporary
+            .write_all(content)
+            .and_then(|()| temporary.sync_all());
+        drop(temporary);
+        if let Err(error) = write_result {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(error);
+        }
+        if let Err(error) = std::fs::rename(&tmp_path, path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(error);
+        }
+        return Ok(());
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a unique temporary filename",
+    ))
 }
 
 const BOOKMARKS_FILE: &str = "ez_sdr_bookmarks.json";
@@ -281,16 +322,24 @@ impl BookmarkDb {
 
     /// Persist all bookmarks atomically to `ez_sdr_bookmarks.json`. Silently ignores I/O errors.
     pub fn save(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(&self.bookmarks) {
-            let _ = atomic_write_file(BOOKMARKS_FILE, json.as_bytes());
-        }
+        let _ = self.save_to(BOOKMARKS_FILE);
+    }
+
+    /// Checked atomic persistence used by autosave and clean-exit flushing.
+    pub fn save_to(&self, path: impl AsRef<std::path::Path>) -> Result<(), String> {
+        let json = serde_json::to_vec_pretty(&self.bookmarks).map_err(|e| e.to_string())?;
+        atomic_write_file(path, &json).map_err(|e| e.to_string())
     }
 
     /// Load bookmarks from `ez_sdr_bookmarks.json`. Returns `None` if the file
     /// doesn't exist or is malformed.
     #[must_use]
     pub fn load_saved() -> Option<Vec<Bookmark>> {
-        let s = std::fs::read_to_string(BOOKMARKS_FILE).ok()?;
+        Self::load_saved_from(BOOKMARKS_FILE)
+    }
+
+    pub fn load_saved_from(path: impl AsRef<std::path::Path>) -> Option<Vec<Bookmark>> {
+        let s = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&s).ok()
     }
 
@@ -298,6 +347,11 @@ impl BookmarkDb {
     /// saved file exists.
     pub fn load_or_default() -> Self {
         let bookmarks = Self::load_saved().unwrap_or_else(|| Self::default().bookmarks);
+        Self { bookmarks }
+    }
+
+    pub fn load_or_default_from(path: impl AsRef<std::path::Path>) -> Self {
+        let bookmarks = Self::load_saved_from(path).unwrap_or_else(|| Self::default().bookmarks);
         Self { bookmarks }
     }
 }
@@ -452,7 +506,7 @@ mod tests {
     #[test]
     fn default_has_all_bookmarks() {
         let db = BookmarkDb::default();
-        assert_eq!(db.bookmarks.len(), 25);
+        assert_eq!(db.bookmarks.len(), 22);
     }
 
     #[test]
@@ -544,12 +598,86 @@ mod tests {
         let csv_path = "/tmp/test_dedup_bookmarks.csv";
         std::fs::write(
             csv_path,
-            "name,frequency_hz,mode,category,notes\nDupNOAA,137620000,WFM,Weather,dup\n",
+            "name,frequency_hz,mode,category,notes\nDupNOAA,137900000,RAW,Weather,dup\n",
         )
         .expect("failed to write dedup test CSV");
         let (count, _err) = db.import_csv(csv_path);
         let _ = std::fs::remove_file(csv_path);
 
         assert_eq!(count, 0, "should not import duplicate frequency");
+    }
+
+    #[test]
+    fn atomic_writes_use_distinct_temporary_files_for_concurrent_saves() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-atomic-writes-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("settings.json");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let writers: Vec<_> = (0..8)
+            .map(|index| {
+                let path = path.clone();
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let content = format!("{index}:").repeat(16_384);
+                    barrier.wait();
+                    atomic_write_file(&path, content.as_bytes()).unwrap();
+                    content
+                })
+            })
+            .collect();
+        let expected: Vec<_> = writers
+            .into_iter()
+            .map(|writer| writer.join().unwrap())
+            .collect();
+
+        let actual = std::fs::read_to_string(&path).unwrap();
+        assert!(expected.iter().any(|content| content == &actual));
+        let entries: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("settings.json")]);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_atomic_rename_cleans_temporary_file_and_preserves_destination() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-atomic-write-failure-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let destination = directory.join("existing-settings");
+        std::fs::create_dir(&destination).unwrap();
+
+        assert!(atomic_write_file(&destination, b"new settings").is_err());
+        assert!(destination.is_dir());
+        let entries: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("existing-settings")]);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_atomic_write_creates_owner_only_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "ez-private-write-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("credentials.json");
+        atomic_write_private_file(&path, b"private").unwrap();
+        let permissions = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(permissions, 0o600);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

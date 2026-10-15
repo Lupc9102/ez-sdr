@@ -1,0 +1,6 @@
+net_io: Beast output on port 50685
+net_io: SBS output on port 58575
+net_io: raw AVR output on port 51599
+net_io: Beast client connected from 127.0.0.1:49636
+net_io: SBS client connected from 127.0.0.1:56968
+net_io: raw AVR client connected from 127.0.0.1:32804

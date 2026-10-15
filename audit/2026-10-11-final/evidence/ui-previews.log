@@ -1,0 +1,46 @@
+    Blocking waiting for file lock on build directory
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `release` profile [optimized] target(s) in 12m 05s
+     Running unittests src/lib.rs (target/release/deps/ez_gui-168e23ba9bba9d8f)
+
+running 1 test
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-nfm-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-nfm-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-nfm-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-wfm-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-wfm-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-wfm-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-usb-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-usb-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-usb-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-cw-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-cw-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-cw-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-vfo-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-vfo-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-vfo-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-source-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-source-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-source-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-replay-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-replay-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/radio-replay-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/adsb-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/adsb-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/adsb-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/meteor-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/meteor-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/meteor-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/adsb-fixture-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/adsb-fixture-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/adsb-fixture-1000x700.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/uat-fixture-1920x1012.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/uat-fixture-1400x900.png
+Rendered /home/lupc/Documents/ez-sdr/audit/2026-10-11-final/previews/uat-fixture-1000x700.png
+test app::app_ui_tests::render_workspaces ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 15.88s
+

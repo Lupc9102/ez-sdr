@@ -1,0 +1,34 @@
+{
+  "batch": 23,
+  "findings": [],
+  "findings_in_progress": ["A09"],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1617,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6597 nodes, 14454 edges)",
+  "protocol_version": 8,
+  "regressions": [
+    "Paced fake local hardware at 2.4 MS/s delivers all samples and complete real Mode-S frames split across native blocks despite an undrained GUI preview",
+    "Real headless app logic at controlled 60 Hz plus a 200 ms SharedState mutex stall retains all decoder input and complete crossing frames",
+    "Replay at 0.1x, 1x and 10x finishes continuous decoding without GUI reads; standalone lossless replay/backpressure checks still pass",
+    "GUI preview overflow does not mark independent RF consumers discontinuous; slow independent subscribers cannot stall or overflow faster subscribers",
+    "Actual bounded capture-bus overflow cannot stitch a split Mode-S frame across missing payload samples; a subsequent valid frame is decoded",
+    "Retained source-session summaries account for missing tails across restarts; aggregate sample counts account for completely lost generations exactly once",
+    "All existing capture-clock, immutable recording-epoch, scanner hidden/frozen/stopped, local/daemon control, CPR and UI regressions pass in the full workspace run"
+  ],
+  "limitations": [
+    "A09 remains in progress: raw IQ and CF32 recording, radio channelization and audio ingress still consume GUI-delivered blocks",
+    "Forty-one of 42 formal findings and one of eight additional experiments are complete; the full goal remains active",
+    "The user explicitly deferred physical SDR/USB, calibrated RF and reference-capture checks; no physical validation is claimed",
+    "The controlled 60 Hz check runs real app logic headlessly and does not certify actual-display p50/p95/p99 latency",
+    "Continuous ADS-B is subscribed before capture starts in the app; controls remain latest-value observations supplied by the GUI",
+    "An initial app regression caught a constructor temporary-lock lifetime deadlock, which was fixed before the final full run; an initial callsign assertion was corrected to the supplied vector's actual decoded value",
+    "Original audit evidence, 672 pre-existing tracked deletions, untracked AGENTS.md and four untouched workspace formatting differences are preserved"
+  ]
+}

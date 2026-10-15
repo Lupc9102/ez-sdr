@@ -1,0 +1,35 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.08s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 1 test
+test demod::tests::rf_blanker_level_controls_real_impulse_suppression_before_demodulation ...
+thread 'demod::tests::rf_blanker_level_controls_real_impulse_suppression_before_demodulation' (47812) panicked at ez-gui/src/demod.rs:2987:9:
+blanker level ignored: 0.060000017/0.060001295
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    demod::tests::rf_blanker_level_controls_real_impulse_suppression_before_demodulation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 881 filtered out; finished in 1.49s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

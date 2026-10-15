@@ -1,0 +1,7 @@
+warning: dump1090@0.1.0: pkg-config could not find libhackrf (
+warning: dump1090@0.1.0: pkg-config could not find SoapySDR (
+warning: ez-daemon@0.1.0: pkg-config could not find libhackrf (
+warning: ez-daemon@0.1.0: pkg-config could not find SoapySDR (
+    Checking ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.46s

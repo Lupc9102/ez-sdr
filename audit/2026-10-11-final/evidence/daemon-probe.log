@@ -1,0 +1,45 @@
+{
+  "source": "isolated synthetic daemon; no SDR",
+  "checks": [
+    {
+      "name": "REST channel create, invalid retune, recording, deletion guard",
+      "passed": true,
+      "recordings": [
+        {
+          "name": "1791733554687_72138_0_ch77_100.000MHz.cf32",
+          "bytes": 458752,
+          "sha256": "40a9bf813a8044ae380306d38078703e4d065901c631a94c2728b418016b2d79"
+        }
+      ]
+    },
+    {
+      "name": "foreign Origin WebSocket control",
+      "response": "HTTP/1.1 101 Switching Protocols",
+      "synthetic_frequency_changed": true,
+      "origin_rejected": false
+    },
+    {
+      "name": "missing web frontend",
+      "http_status": 404
+    }
+  ],
+  "shutdown_exit_code": 0,
+  "shutdown_seconds": 0.369,
+  "command": [
+    "/home/lupc/Documents/ez-sdr/target/debug/ez-daemon",
+    "--source",
+    "synthetic",
+    "--sample-rate",
+    "256000",
+    "--freq",
+    "100000000",
+    "--listen-port",
+    "34843",
+    "--web-listen-port",
+    "33945",
+    "--recording-dir",
+    "/tmp/ez-final-daemon-m5mibao9",
+    "--web-static-dir",
+    "/tmp/ez-final-daemon-m5mibao9/missing"
+  ]
+}

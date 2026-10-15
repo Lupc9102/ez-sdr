@@ -5,18 +5,92 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.92.0
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release
-      - name: Upload binaries
-        uses: actions/upload-artifact@v7
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
+      - name: Build licensed Linux release archive
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: scripts/package-linux-release.sh dist
+      - uses: actions/upload-artifact@v7
         with:
-          name: ez-sdr-binaries
+          name: ez-sdr-${{ github.ref_name }}-linux-x86_64
           path: |
-            target/release/dump1090
-            target/release/ez-gui
+            dist/ez-sdr-${{ github.ref_name }}-linux-x86_64.tar.gz
+            dist/ez-sdr-${{ github.ref_name }}-linux-x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+  windows:
+    name: Windows x86_64 installer and portable ZIP
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-cmake
+            curl
+            coreutils
+            git
+            tar
+            p7zip
+      - name: Verify Rust tools are visible in UCRT64
+        run: |
+          export PATH="$(cygpath -u "$USERPROFILE")/.cargo/bin:$PATH"
+          cargo --version
+          rustup --version
+          x86_64-w64-mingw32-gcc --version
+      - name: Build Windows installer and portable ZIP
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: scripts/package-windows-release.sh dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ez-sdr-${{ github.ref_name }}-windows-x86_64
+          path: |
+            dist/ez-sdr-${{ github.ref_name }}-windows-x86_64.zip
+            dist/ez-sdr-${{ github.ref_name }}-windows-x86_64-setup.exe
+            dist/ez-sdr-${{ github.ref_name }}-windows-x86_64.sha256
+          if-no-files-found: error
+
+  macos:
+    name: macOS Intel app and DMG
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build macOS app bundle and DMG
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: scripts/package-macos-release.sh dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ez-sdr-${{ github.ref_name }}-macos-x86_64
+          path: |
+            dist/ez-sdr-${{ github.ref_name }}-macos-x86_64.dmg
+            dist/ez-sdr-${{ github.ref_name }}-macos-x86_64.dmg.sha256
+          if-no-files-found: error

@@ -1,0 +1,20 @@
+    Blocking waiting for file lock on build directory
+    Checking ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: duplicated attribute
+    --> ez-gui/src/config.rs:1286:5
+     |
+1286 |     #[test]
+     |     ^^^^^^^
+     |
+     = note: `#[warn(duplicate_macro_attributes)]` on by default
+
+warning: duplicated attribute
+    --> ez-gui/src/config.rs:1293:5
+     |
+1293 |     #[test]
+     |     ^^^^^^^
+
+warning: `ez-gui` (lib test) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 52s

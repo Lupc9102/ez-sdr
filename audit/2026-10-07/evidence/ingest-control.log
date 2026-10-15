@@ -1,0 +1,4 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.31s
+     Running `target/debug/examples/audit_ingest_control`
+rejected_tune_error=true reported_frequency=101000000 next_block_frequency=101000000 capture_epoch_changed=false next_block_discontinuous=false

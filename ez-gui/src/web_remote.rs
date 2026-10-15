@@ -7,9 +7,60 @@ use axum::{
     routing::get,
     Router,
 };
+use std::future::IntoFuture;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, watch};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListenerState {
+    Stopped,
+    Starting,
+    Listening(String),
+    Stopping,
+    Failed(String),
+}
+
+impl std::fmt::Display for ListenerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stopped => f.write_str("Stopped"),
+            Self::Starting => f.write_str("Starting"),
+            Self::Listening(endpoint) => write!(f, "Listening on {endpoint}"),
+            Self::Stopping => f.write_str("Stopping"),
+            Self::Failed(error) => write!(f, "Failed: {error}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListenerSnapshot {
+    pub generation: u64,
+    pub state: ListenerState,
+}
+
+impl Default for ListenerSnapshot {
+    fn default() -> Self {
+        Self {
+            generation: 0,
+            state: ListenerState::Stopped,
+        }
+    }
+}
+
+pub(crate) fn publish_listener_state(
+    status: &Arc<Mutex<ListenerSnapshot>>,
+    generation: u64,
+    state: ListenerState,
+) {
+    let mut snapshot = status
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if snapshot.generation == generation {
+        snapshot.state = state;
+    }
+}
 
 pub enum RemoteCommand {
     Tune { freq_hz: u64 },
@@ -28,14 +79,13 @@ pub struct WebRemote {
     pub port: u16,
     pub tx: Option<broadcast::Sender<String>>,
     pub cmd_rx: Option<mpsc::Receiver<RemoteCommand>>,
-    // JoinHandle of the worker thread running axum::serve. Joined in stop()/Drop
-    // so the thread, its tokio runtime, and the bound TCP socket are released
-    // instead of leaking one per stop() when stop() only dropped the channel clones.
+    // Active and retired workers are reaped only after is_finished() so service
+    // changes never join a network worker on the GUI thread.
     join: Option<thread::JoinHandle<()>>,
-    // One-shot shutdown signal sent to the worker before joining. axum's
-    // with_graceful_shutdown resolves the serve future when this fires, letting
-    // rt.block_on return and the thread exit promptly.
-    shutdown: Option<oneshot::Sender<()>>,
+    shutdown: Option<watch::Sender<bool>>,
+    retired: Vec<thread::JoinHandle<()>>,
+    status: Arc<Mutex<ListenerSnapshot>>,
+    generation: u64,
 }
 
 pub struct StreamState<'a> {
@@ -45,10 +95,40 @@ pub struct StreamState<'a> {
     pub aircraft_count: usize,
     pub passes: &'a [crate::tle_engine::PassInfo],
     pub squelch: f32,
+    pub squelch_pending: Option<f32>,
+    pub squelch_error: Option<&'a str>,
+    pub squelch_applied: bool,
     pub volume: f32,
     pub recording: bool,
     pub scanner_active: bool,
     pub snr_db: f32,
+}
+
+impl<'a> StreamState<'a> {
+    pub(crate) fn from_receiver(
+        state: &'a crate::app::SharedState,
+        aircraft_count: usize,
+        passes: &'a [crate::tle_engine::PassInfo],
+        scanner_active: bool,
+        snr_db: f32,
+    ) -> Self {
+        Self {
+            freq_hz: state.source.frequency_hz,
+            gain_db: state.source.gain_db,
+            demod_mode: state.demod_mode.label(),
+            aircraft_count,
+            passes,
+            squelch: state.squelch,
+            squelch_pending: state.source.daemon_squelch_pending_db(),
+            squelch_error: state.source.daemon_squelch_error.as_deref(),
+            squelch_applied: state.source.source_mode != crate::source_manager::SourceMode::Daemon
+                || state.source.daemon_squelch_applied().is_some(),
+            volume: state.volume,
+            recording: state.recording,
+            scanner_active,
+            snr_db,
+        }
+    }
 }
 
 /// Whether a WebSocket `Origin` header value is allowed to drive the remote.
@@ -181,55 +261,171 @@ impl WebRemote {
             cmd_rx: None,
             join: None,
             shutdown: None,
+            retired: Vec::new(),
+            status: Arc::new(Mutex::new(ListenerSnapshot::default())),
+            generation: 0,
         }
     }
 
     pub fn stop(&mut self) {
-        // Fire the graceful-shutdown signal first so axum stops accepting and
-        // drains in-flight connections, then join the worker thread. Order
-        // matters: joining without the signal would block until the next bind
-        // error (i.e. forever).
+        self.generation = self.generation.wrapping_add(1);
+        let generation = self.generation;
+        self.retire_active();
+        let state = if self.retired.is_empty() {
+            ListenerState::Stopped
+        } else {
+            ListenerState::Stopping
+        };
+        self.set_state(generation, state);
+        self.reap_finished();
+    }
+
+    fn retire_active(&mut self) {
         if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
-        if let Some(handle) = self.join.take() {
-            let _ = handle.join();
+            let _ = tx.send(true);
         }
         self.tx = None;
         self.cmd_rx = None;
+        if let Some(handle) = self.join.take() {
+            if handle.is_finished() {
+                let _ = handle.join();
+            } else {
+                self.retired.push(handle);
+            }
+        }
     }
 
     pub fn set_enabled(&mut self, enabled: bool, port: u16) {
+        self.reap_finished();
+        let unchanged = self.enabled == enabled && self.port == port;
+        if unchanged && (!enabled || self.current_worker_healthy()) {
+            return;
+        }
         self.enabled = enabled;
         self.port = port;
-        self.stop();
+        self.generation = self.generation.wrapping_add(1);
+        let generation = self.generation;
+        self.retire_active();
         if enabled {
-            self.start();
+            self.set_state(generation, ListenerState::Starting);
+            self.start_generation(generation);
+        } else {
+            let state = if self.retired.is_empty() {
+                ListenerState::Stopped
+            } else {
+                ListenerState::Stopping
+            };
+            self.set_state(generation, state);
         }
     }
 
     pub fn start(&mut self) {
-        if self.enabled && self.tx.is_none() {
-            let (tx, _rx) = broadcast::channel(128);
-            self.tx = Some(tx.clone());
-            let (cmd_tx, cmd_rx) = mpsc::channel::<RemoteCommand>();
-            self.cmd_rx = Some(cmd_rx);
+        if self.enabled {
+            self.set_enabled(true, self.port);
+        }
+    }
 
-            let port = self.port;
-            let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-            self.shutdown = Some(shutdown_tx);
+    fn current_worker_healthy(&self) -> bool {
+        let worker_alive = self.join.as_ref().is_some_and(|join| !join.is_finished());
+        let state = self
+            .status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
+            .clone();
+        worker_alive && matches!(state, ListenerState::Starting | ListenerState::Listening(_))
+    }
 
-            let handle = thread::spawn(move || {
-                // Single-threaded runtime: the remote serves a handful of
-                // polling clients; a multi-thread worker pool per toggle is
-                // wasteful and leaks threads on rapid enable/disable cycles.
+    fn set_state(&self, generation: u64, state: ListenerState) {
+        let mut snapshot = self
+            .status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        snapshot.generation = generation;
+        snapshot.state = state;
+    }
+
+    fn reap_finished(&mut self) {
+        let mut pending = Vec::with_capacity(self.retired.len());
+        let mut retired_panicked = false;
+        for handle in self.retired.drain(..) {
+            if handle.is_finished() {
+                retired_panicked |= handle.join().is_err();
+            } else {
+                pending.push(handle);
+            }
+        }
+        self.retired = pending;
+        if self.retired.is_empty() {
+            let mut snapshot = self
+                .status
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if snapshot.generation == self.generation && snapshot.state == ListenerState::Stopping {
+                snapshot.state = if retired_panicked {
+                    ListenerState::Failed("listener worker stopped unexpectedly".into())
+                } else {
+                    ListenerState::Stopped
+                };
+            }
+        }
+        if self
+            .join
+            .as_ref()
+            .is_some_and(|handle| handle.is_finished())
+        {
+            let handle = self.join.take().expect("finished worker handle");
+            if handle.join().is_err() {
+                let state = self
+                    .status
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .state
+                    .clone();
+                if matches!(state, ListenerState::Starting | ListenerState::Listening(_)) {
+                    self.set_state(
+                        self.generation,
+                        ListenerState::Failed("listener worker stopped unexpectedly".into()),
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn status_snapshot(&mut self) -> ListenerSnapshot {
+        self.reap_finished();
+        self.status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn start_generation(&mut self, generation: u64) {
+        let (tx, _rx) = broadcast::channel(128);
+        let tx_worker = tx.clone();
+        self.tx = Some(tx);
+        let (cmd_tx, cmd_rx) = mpsc::channel::<RemoteCommand>();
+        self.cmd_rx = Some(cmd_rx);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        self.shutdown = Some(shutdown_tx);
+        let status = Arc::clone(&self.status);
+        let port = self.port;
+        let handle = thread::Builder::new()
+            .name("ez-sdr-web-remote".into())
+            .spawn(move || {
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                 {
                     Ok(rt) => rt,
-                    Err(e) => {
-                        eprintln!("[web_remote] failed to create tokio runtime: {e}");
+                    Err(error) => {
+                        publish_listener_state(
+                            &status,
+                            generation,
+                            ListenerState::Failed(format!(
+                                "runtime initialization failed: {error}"
+                            )),
+                        );
                         return;
                     }
                 };
@@ -237,34 +433,88 @@ impl WebRemote {
                     let app = Router::new()
                         .route("/ws", get(ws_handler))
                         .route("/", get(index_handler))
-                        .with_state((tx, cmd_tx));
+                        .with_state((tx_worker, cmd_tx));
 
                     // Bind loopback only: exposing unauthenticated tune/record
                     // control on 0.0.0.0 is RCE-adjacent on hostile LANs.
-                    let addr = format!("127.0.0.1:{port}");
-                    println!("[web_remote] listening on http://{addr}");
-                    let listener = match tokio::net::TcpListener::bind(&addr).await {
-                        Ok(l) => l,
-                        Err(e) => {
-                            eprintln!("[web_remote] bind failed on {addr}: {e}");
+                    let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+                        Ok(listener) => listener,
+                        Err(error) => {
+                            publish_listener_state(
+                                &status,
+                                generation,
+                                ListenerState::Failed(format!("127.0.0.1:{port}: {error}")),
+                            );
                             return;
                         }
                     };
-                    if let Err(e) = axum::serve(listener, app)
+                    let endpoint = listener
+                        .local_addr()
+                        .map(|address| address.to_string())
+                        .unwrap_or_else(|_| format!("127.0.0.1:{port}"));
+                    publish_listener_state(&status, generation, ListenerState::Listening(endpoint));
+                    let graceful_shutdown_rx = shutdown_rx.clone();
+                    let server = axum::serve(listener, app)
                         .with_graceful_shutdown(async move {
-                            let _ = shutdown_rx.await;
+                            let mut rx = graceful_shutdown_rx;
+                            loop {
+                                if *rx.borrow() {
+                                    break;
+                                }
+                                if rx.changed().await.is_err() {
+                                    break;
+                                }
+                            }
                         })
-                        .await
-                    {
-                        eprintln!("[web_remote] server error: {e}");
+                        .into_future();
+                    tokio::pin!(server);
+                    let mut shutdown_timeout_rx = shutdown_rx;
+                    let result = tokio::select! {
+                        result = &mut server => Some(result),
+                        _ = async {
+                            loop {
+                                if *shutdown_timeout_rx.borrow() {
+                                    break;
+                                }
+                                if shutdown_timeout_rx.changed().await.is_err() {
+                                    break;
+                                }
+                            }
+                        } => tokio::time::timeout(
+                            std::time::Duration::from_millis(500),
+                            &mut server,
+                        ).await.ok(),
+                    };
+                    match result {
+                        Some(Ok(())) | None => {
+                            publish_listener_state(&status, generation, ListenerState::Stopped);
+                        }
+                        Some(Err(error)) => {
+                            publish_listener_state(
+                                &status,
+                                generation,
+                                ListenerState::Failed(format!("server error: {error}")),
+                            );
+                        }
                     }
                 });
             });
-            self.join = Some(handle);
+        match handle {
+            Ok(handle) => self.join = Some(handle),
+            Err(error) => {
+                self.tx = None;
+                self.cmd_rx = None;
+                self.shutdown = None;
+                self.set_state(
+                    generation,
+                    ListenerState::Failed(format!("worker spawn failed: {error}")),
+                );
+            }
         }
     }
 
     pub fn poll_commands(&mut self) -> Vec<RemoteCommand> {
+        self.reap_finished();
         let mut cmds = vec![];
         if let Some(rx) = &self.cmd_rx {
             while let Ok(cmd) = rx.try_recv() {
@@ -274,7 +524,17 @@ impl WebRemote {
         cmds
     }
 
+    pub fn broadcast_command_error(&self, action: &str, message: &str) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(
+                serde_json::json!({"type":"command_error", "action":action, "message":message})
+                    .to_string(),
+            );
+        }
+    }
+
     pub fn broadcast_state(&mut self, state: &StreamState<'_>) {
+        self.reap_finished();
         let tx = match &self.tx {
             Some(t) if t.receiver_count() > 0 => t,
             _ => return,
@@ -285,6 +545,9 @@ impl WebRemote {
             "demod_mode": state.demod_mode,
             "aircraft_count": state.aircraft_count,
             "squelch_db": state.squelch,
+            "squelch_pending_db": state.squelch_pending,
+            "squelch_error": state.squelch_error,
+            "squelch_applied": state.squelch_applied,
             "volume": state.volume,
             "recording": state.recording,
             "scanner_active": state.scanner_active,
@@ -311,6 +574,7 @@ impl Drop for WebRemote {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
 
     #[test]
     fn origin_allows_loopback_with_any_port() {
@@ -381,6 +645,9 @@ mod tests {
             aircraft_count: 5,
             passes: &[],
             squelch: 0.0,
+            squelch_pending: None,
+            squelch_error: None,
+            squelch_applied: true,
             volume: 0.8,
             recording: false,
             scanner_active: false,
@@ -477,6 +744,9 @@ mod tests {
             aircraft_count: 5,
             passes: &[],
             squelch: 0.0,
+            squelch_pending: None,
+            squelch_error: None,
+            squelch_applied: true,
             volume: 0.8,
             recording: false,
             scanner_active: false,
@@ -505,6 +775,158 @@ mod tests {
             .port();
         drop(listener); // race window is negligible in practice
         port
+    }
+
+    fn wait_for_state(
+        server: &mut WebRemote,
+        predicate: impl Fn(&ListenerState) -> bool,
+    ) -> ListenerSnapshot {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let snapshot = server.status_snapshot();
+            if predicate(&snapshot.state) {
+                return snapshot;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "listener state timed out: {snapshot:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    fn test_stream_state() -> StreamState<'static> {
+        StreamState {
+            freq_hz: 118_700_000,
+            gain_db: 18.0,
+            demod_mode: "AM",
+            aircraft_count: 0,
+            passes: &[],
+            squelch: 0.0,
+            squelch_pending: None,
+            squelch_error: None,
+            squelch_applied: true,
+            volume: 0.5,
+            recording: false,
+            scanner_active: false,
+            snr_db: 0.0,
+        }
+    }
+
+    #[tokio::test]
+    async fn occupied_port_recovers_and_healthy_apply_preserves_websocket() {
+        let blocker = std::net::TcpListener::bind("127.0.0.1:0").expect("occupy loopback port");
+        let port = blocker.local_addr().unwrap().port();
+        let mut wr = WebRemote::new();
+        wr.set_enabled(true, port);
+        let failed = wait_for_state(&mut wr, |state| matches!(state, ListenerState::Failed(_)));
+        assert!(failed.state.to_string().contains(&port.to_string()));
+
+        drop(blocker);
+        wr.set_enabled(true, port);
+        let listening = wait_for_state(&mut wr, |state| {
+            matches!(state, ListenerState::Listening(_))
+        });
+        assert!(listening.state.to_string().contains(&port.to_string()));
+        let endpoint = format!("127.0.0.1:{port}");
+        assert_eq!(listening.state, ListenerState::Listening(endpoint));
+
+        let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws"))
+            .await
+            .expect("connect WebSocket client");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while wr.tx.as_ref().is_none_or(|tx| tx.receiver_count() == 0)
+            && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(wr.tx.as_ref().is_some_and(|tx| tx.receiver_count() > 0));
+        // A prior implementation wrapped the entire server future in the
+        // shutdown timeout and silently stopped listening after 500 ms.
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        assert!(matches!(
+            wr.status_snapshot().state,
+            ListenerState::Listening(_)
+        ));
+        let generation = wr.status_snapshot().generation;
+        wr.set_enabled(true, port);
+        assert_eq!(
+            wr.status_snapshot().generation,
+            generation,
+            "healthy apply must not replace worker"
+        );
+        wr.broadcast_state(&test_stream_state());
+        let message = tokio::time::timeout(std::time::Duration::from_secs(1), socket.next())
+            .await
+            .expect("state should reach existing WebSocket")
+            .expect("WebSocket should remain open")
+            .expect("read WebSocket state");
+        assert!(message.into_text().unwrap().contains("118700000"));
+
+        // Keep the client open and stop reading. Broadcast remains bounded by
+        // the existing 128-message channel, and shutdown has a finite grace.
+        for _ in 0..256 {
+            wr.broadcast_state(&test_stream_state());
+        }
+        let started = std::time::Instant::now();
+        wr.stop();
+        assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        wait_for_state(&mut wr, |state| *state == ListenerState::Stopped);
+        drop(socket);
+    }
+
+    #[test]
+    fn changed_port_releases_previous_listener() {
+        let first_port = start_on_random_port();
+        let second_port = start_on_random_port();
+        let mut wr = WebRemote::new();
+        wr.set_enabled(true, first_port);
+        wait_for_state(&mut wr, |state| {
+            matches!(state, ListenerState::Listening(_))
+        });
+        wr.set_enabled(true, second_port);
+        let snapshot = wait_for_state(
+            &mut wr,
+            |state| matches!(state, ListenerState::Listening(endpoint) if endpoint.ends_with(&second_port.to_string())),
+        );
+        assert!(snapshot
+            .state
+            .to_string()
+            .contains(&second_port.to_string()));
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::net::TcpListener::bind(("127.0.0.1", first_port)).is_err()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(std::net::TcpListener::bind(("127.0.0.1", first_port)).is_ok());
+        wr.stop();
+        wait_for_state(&mut wr, |state| *state == ListenerState::Stopped);
+    }
+
+    #[test]
+    fn repeated_enable_disable_releases_each_listener() {
+        let mut wr = WebRemote::new();
+        for _ in 0..4 {
+            wr.set_enabled(true, 0);
+            let snapshot = wait_for_state(&mut wr, |state| {
+                matches!(state, ListenerState::Listening(_))
+            });
+            let ListenerState::Listening(endpoint) = snapshot.state else {
+                unreachable!("wait returned a listening state")
+            };
+            let port = endpoint.rsplit(':').next().unwrap().parse::<u16>().unwrap();
+            wr.set_enabled(false, 0);
+            wait_for_state(&mut wr, |state| *state == ListenerState::Stopped);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while std::net::TcpListener::bind(("127.0.0.1", port)).is_err()
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_ok());
+        }
     }
 
     #[test]

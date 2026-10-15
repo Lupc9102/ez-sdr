@@ -1,0 +1,4 @@
+{
+  "idle_first_client_blocks_second": true,
+  "same_configuration_disconnects_client": true
+}

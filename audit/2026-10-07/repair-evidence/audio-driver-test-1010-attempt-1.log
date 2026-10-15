@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.40s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35d4e7e0e5283107)
+
+running 1 test
+test audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver ... 
+thread 'audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver' (165017) panicked at ez-gui/src/audio_output.rs:794:17:
+Some("Stream creation timed out")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.22s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

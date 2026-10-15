@@ -1,0 +1,482 @@
+{
+  "goal": "Fix every finding in REPORT.md; do not mark complete until all original repair gates are verified.",
+  "findings": [
+    {
+      "id": "S01",
+      "title": "Advertised interleaved 80 ksym/s Meteor transport is missing",
+      "priority": "P1",
+      "status": "open",
+      "change": "Implement explicit shared OQPSK72/NRZ-M and OQPSK80/interleaved NRZ-M profiles, streaming 0x27 marker acquisition and 36-branch delayed-bit transport before Viterbi. Carry missing-history flags through the permutation, reset on marker-phase loss, merge equivalent frame observations, and expose the actual mission selection in offline decoding. Software checks pass; independent off-air 80k CADU/image validation remains outstanding. Daemon channels now select the same complete profiles; sampling and product lifecycles are enforced under S11. Only the independent off-air 80k comparison remains unverified for this finding.",
+      "regressions": [
+        "interleaver::tests::every_reference_bit_matches_the_independent_c_receiver_across_partitions",
+        "interleaver::tests::missing_input_follows_its_branch_delay_and_startup_is_unobserved",
+        "interleaver::tests::isolated_marker_errors_preserve_data_but_shifted_alignment_reacquires_empty_history",
+        "tests::interleaved_mission_recovers_independent_payloads_and_observation_positions",
+        "tests::independent_interleaved_iq_recovers_both_staggers_and_identical_payloads (external generated IQ; four strict comparisons)",
+        "tests::mission_profile_rejects_unsupported_rates_and_preserves_explicit_transport_on_gap",
+        "tests::interleaved_profile_never_accepts_a_plain_uninterleaved_transport",
+        "tests::mission_gap_preserves_product_but_new_product_retires_images_and_counts",
+        "Explicit Oqpsk72 public off-air slice: 175 byte-identical reference CADUs.",
+        "Explicit Oqpsk72 actual-RF slice and full usable IQ prefix: byte-identical completed packets and independent Pillow/CDS-time image comparisons; missing reference frames reported. See repair-public-rf-verification-1010.json.",
+        "Independent synthetic 80k RF carrying public non-flat image packets: both stagger directions, noise/carrier/clock drift, deep fade and 180-degree phase slip; eight chunk-invariant frame/packet/pixel comparisons. See repair-synthetic-80k-verification-1011.json.",
+        "Full-pass synthetic 80k RF: 852.90235 seconds, 7338/7338 exact CADUs, 6468172 exact packet bytes and 25890816 independent pixels; both 997/16384-sample partitions identical under noise, clock drift and carrier ramp. See repair-synthetic-80k-long-verification-1011.json."
+      ],
+      "original_repair_gate": "Add explicit mission/transport profiles. Decode marker-bearing interleaved symbols with streaming state and validate the resulting CADUs against an independently decoded 80k recording. Also validate the separate 72k NRZ-M profile. Compare packet bytes and images, not just lock flags.",
+      "synthetic_software_validation": "Verified: clean and noisy/drifting cases recover all 175 reference CADUs; fade/phase-slip case recovers 122 byte-exact CADUs including the final frame. Packet bytes and independent Pillow pixels match across both chunk partitions. Off-air 80k gate remains open. Full-pass extension verified: all 7338 CADUs survive 852.90235 seconds with nominal 30 dB noise, 70 ppm clock offset and a 1 Hz/s carrier ramp from 137 Hz. Both partitions match 6468172 packet bytes and 25890816 pixels (maximum independent error 1). See repair-synthetic-80k-long-verification-1011.json."
+    },
+    {
+      "id": "S02",
+      "title": "OQPSK carrier/timing recovery depends on absolute RF phase",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Track the carrier on matched complex samples before branch projection/deskew, use sample-clock-scaled second-order loop gains, and continuously decode both half-symbol stagger directions through 16 ambiguity hypotheses. Keep erasure observations per stagger pairing. Integrate bounded Gardner timing period to track continuous clock-rate error through the long interleaver startup.",
+      "regressions": [
+        "Independent analytical RRC/libfec corpus: full 0..345-degree sweep in 15-degree steps, both stagger directions, 640 kS/s and 80 ksym/s; byte-identical three-payload recovery across both input partitions.",
+        "Independent fractional 25.6-sample/symbol and 72k/four-sample cases with +/-1 kHz carrier offset and +/-150 ppm clock drift: every payload equal; all 60 cases pass at chunk sizes 997 and 16384.",
+        "tests::independent_oqpsk_fixtures_recover_both_staggers_with_frequency_and_clock_offsets (durable default fixtures)",
+        "tests::missing_energy_is_owned_by_the_observed_stagger_pairing",
+        "Public Meteor-M2-4 off-air slice at 180..200 seconds: 175 corrected CADUs match independent reference byte-for-byte; zero additional CADUs.",
+        "Unchanged audit_logic: every original phase probe returns 12 valid RS codewords; 180-degree phase slip matches 24-codeword clean control; zero-input lock remains false.",
+        "Long analytical interleaved 80k IQ with +70 ppm clock drift: both stagger directions recover exactly three identical payloads in two chunk sizes; original 60-case corpus and public 72k slice still pass."
+      ],
+      "original_repair_gate": "Test a full phase sweep with pulse-shaped independent OQPSK, both stagger orientations, frequency offset, fractional sampling and clock drift. Correct carrier/timing recovery in a way valid for staggered branches. Require payload equality across phases."
+    },
+    {
+      "id": "S03",
+      "title": "Viterbi metrics saturate and permanently kill the decoder",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Normalize finite path metrics and retain odd coded bits across chunks.",
+      "regressions": [
+        "viterbi::tests::noisy_aged_paths_recover_clean_bits_and_arbitrary_bit_partitions",
+        "8,192,000-noise-step audit probe: subsequent clean comparison has zero errors."
+      ],
+      "original_repair_gate": "Normalize finite metrics periodically and retain valid traceback ordering. Require arbitrarily long noisy/weak intervals to recover a subsequent known clean payload without restarting the app. Compare fresh and aged decoders and test multiple chunk partitions."
+    },
+    {
+      "id": "S04",
+      "title": "First successful ambiguity lane is selected forever",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Continuously advance every ambiguity hypothesis, merge located candidates chronologically, suppress equivalent observations by bit position, reject frames containing missing-energy decisions, and expire current frame lock after two CADUs without validation.",
+      "regressions": [
+        "tests::hypotheses_reacquire_polarity_conjugation_and_axis_changes_in_stream_order (plain and NRZ-M, byte-identical payloads across partitions)",
+        "tests::frame_lock_expires_during_fade_and_later_frames_reacquire_without_reset",
+        "tests::repeated_identical_frames_are_distinct_but_equivalent_lanes_are_not",
+        "audit_logic: 180-degree slip recovers 24 RS codewords, identical to clean six-frame control"
+      ],
+      "original_repair_gate": "Expire lane selection on a defined loss/BER criterion and rebuild or continuously advance alternative hypotheses. Test phase slips, fades, polarity/conjugation changes and valid later frames without an external reset. Publish current frame synchronization, not historical selection."
+    },
+    {
+      "id": "S05",
+      "title": "Frame search skips an earlier valid marker in favor of a later cleaner one",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Select admissible markers chronologically; validate RS before consuming a candidate boundary.",
+      "regressions": [
+        "frame_sync::tests::earlier_imperfect_marker_is_preserved_at_every_chunk_size",
+        "frame_sync::tests::invalid_overlapping_candidate_does_not_consume_valid_frame"
+      ],
+      "original_repair_gate": "Search in chronological order with frame/RS validation, or retain candidates until rejected. Require identical recovered frame sequences across chunk partitions containing imperfect and perfect markers, false payload markers and truncated suffixes."
+    },
+    {
+      "id": "S06",
+      "title": "Space-packet headers split across transfer frames are discarded",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Retain incomplete primary headers and bodies across packet zones and idle-only frames.",
+      "regressions": [
+        "ccsds::tests::every_header_and_body_split_survives_continuations_and_idle_frames",
+        "ccsds::tests::split_header_continuation_ends_at_new_header_pointer",
+        "ccsds::tests::gap_discards_partial_header_until_a_known_new_header"
+      ],
+      "original_repair_gate": "Keep partial primary headers per virtual channel until the length field is available, then continue the packet body. Test every split position, multiple continuations, frame gaps, idle-only frames and subsequent new-header pointers. Preserve the CCSDS rule that idle-only frames can occur during a fragmented packet."
+    },
+    {
+      "id": "S07",
+      "title": "Same-APID packets on different virtual channels overwrite each other",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Own in-progress bytes by virtual channel, including independent gap handling.",
+      "regressions": [
+        "ccsds::tests::same_apid_on_two_channels_keeps_bytes_and_frame_gaps_isolated"
+      ],
+      "original_repair_gate": "Own pending packet bytes by VCID, or by a full validated channel identity, and deliver APID only after reassembly. Require independent results and gap handling for interleaved channels sharing APIDs."
+    },
+    {
+      "id": "S08",
+      "title": "Image origin is the satellite's sequence zero rather than the received pass",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Retain sparse segments on a shared unwrapped sequence/time clock, align channel-cycle phases, crop all channels to common received pass bounds, and cap relative span. Use CDS-time anchors to survive multiple wraps, long gaps, midnight and old reordered packets.",
+      "regressions": [
+        "image_builder::tests::late_start_sparse_groups_and_duplicates_count_only_received_segments",
+        "image_builder::tests::shared_epoch_aligns_channels_straddling_zero_and_reordered_old_packets",
+        "image_builder::tests::timestamps_keep_large_gaps_multiple_rollovers_and_old_reordering_in_one_pass",
+        "image_builder::tests::daily_timestamps_cross_midnight_and_reordering_without_false_epoch_growth",
+        "image_builder::tests::pass_cap_is_relative_and_rejects_growth_without_poisoning_the_clock",
+        "image_builder::tests::off_air_segments_align_across_channels_rollovers_and_reverse_order",
+        "Independent full-pass CDS/Pillow oracle: 28,473 segments; all 25,890,816 pixels match within one level across three aligned 1568x5504 channels."
+      ],
+      "original_repair_gate": "Retain absolute sequence/time identities for placement but render relative to the received pass bounds. Track valid segments separately from allocated height. Verify late starts, rollover, missing packets, reordering and cross-channel row alignment with an independently decoded pass."
+    },
+    {
+      "id": "S09",
+      "title": "JPEG dequantization retains an extra half-unit in every table entry",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Use the mission integer quantization rule before dequantization.",
+      "regressions": [
+        "image_builder::tests::mission_quantizers_are_integers_on_both_quality_branches",
+        "image_builder::tests::nonflat_independent_libjpeg_pixels_match_with_one_level_idct_tolerance",
+        "image_builder::tests::nonzero_dc_exact_vector_decodes_uniform_pixel_160",
+        "Independent off-air full-pass libjpeg comparison covers quality 36..100 with exact mission integer DQT values: maximum pixel error 1."
+      ],
+      "original_repair_gate": "Use the mission's integer quantization convention. Test nonzero DC/AC, quality values on both scale branches, run-length/ZRL/EOB cases and orientation against independent JPEG vectors. Retain a stated pixel-rounding tolerance for differing IDCT implementations."
+    },
+    {
+      "id": "S10",
+      "title": "Lock and decoded-line diagnostics can report success without current reception",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Require energized matched symbols and 64 sustained coherent loop observations for carrier lock; expire frame lock after two missing CADUs. Count unique segments and complete scanlines independently of raster height. Publish at quarter-second symbol cadence and immediately on lock transitions at caller chunk boundaries.",
+      "regressions": [
+        "qpsk::tests::silence_cannot_acquire_carrier_lock_and_withdraws_previous_lock",
+        "qpsk::tests::white_noise_and_silence_after_noise_do_not_report_carrier_lock",
+        "tests::frame_lock_expires_during_fade_and_later_frames_reacquire_without_reset",
+        "tests::sparse_progress_counts_segments_and_obeys_observation_cadence",
+        "image_builder::tests::late_start_sparse_groups_and_duplicates_count_only_received_segments",
+        "Independent public pass: 28,473 unique segments and 16,192 complete scanlines; holes and incomplete rows do not count as complete lines."
+      ],
+      "original_repair_gate": "Gate carrier lock on energy/SNR and sustained valid loop behavior; expire frame lock on recent validation; count actual valid scanlines/segments separately from output extent. Test noise, silence, stale lock and sparse images with explicit time/observation bounds."
+    },
+    {
+      "id": "S11",
+      "title": "Daemon LRPT accepts unusable sampling and cannot select the 72k profile",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Require an explicit shared Meteor transport profile in ChannelSpec and TelemetryConfig; validate occupied bandwidth and the actual integer-decimated sample rate before allocation and retuning. Carry a stable source product session through ingestion/channelization, independent of gap epochs. Preserve received images/counts across gaps; retire them on source session, RF retune or explicit StartTelemetryProduct. Tag every preview with product_id, announce boundaries and clear retired APID images in GUI. Bump binary protocol to 11 and document the 36-byte raw telemetry header.",
+      "regressions": [
+        "state::tests::lrpt_profiles_and_actual_channel_rates_are_validated_before_allocation",
+        "state::tests::resubscribing_an_lrpt_channel_cannot_silently_change_its_transport",
+        "pipelines::telemetry::tests::received_images_survive_gap_epochs_but_retire_on_real_product_boundaries (three independently generated image CADUs, nonempty pixels and RS counters)",
+        "pipelines::telemetry::tests::invalid_dynamic_sampling_cannot_consume_or_complete_a_frame",
+        "ingest::tests::each_replay_loop_has_a_new_product_session",
+        "ingest::tests::set_frequency_is_applied_and_reflected_in_status (new source-product session)",
+        "ingest::tests::soapy_timeout_retries_overflow_retires_clock_and_fatal_error_stops (overflow preserves product session)",
+        "channelizer::tests::missing_input_remains_visible_after_decimation_and_filter_state_resets (gap epochs preserve source-product session)",
+        "codec::tests::explicit_meteor_profiles_and_product_command_round_trip",
+        "decoding_panel::tests::daemon_product_boundary_clears_all_apids_and_rejects_old_queued_images",
+        "web::wire::tests::telemetry_layout_matches_the_documented_byte_offsets_and_packs_flags"
+      ],
+      "original_repair_gate": "Make transport/symbol rate explicit in telemetry configuration, enforce the demodulator's real sampling and occupied-band requirements, and distinguish capture gaps from new satellite/product sessions. Reject unsupported subscriptions before allocating threads."
+    },
+    {
+      "id": "R01",
+      "title": "Listen-tab CS8 replay interprets signed bytes as unsigned IQ",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Convert CS8 signed components to CU8 before byte publication.",
+      "regressions": [
+        "demod::native::tests::audit_signed_file_replay"
+      ],
+      "original_repair_gate": "Carry an explicit sample format through capture or convert CS8 before CU8 publication. Compare spectra and demodulated payload/audio for equivalent CU8, CS8 and CF32 files at multiple amplitudes and across zero crossings."
+    },
+    {
+      "id": "R02",
+      "title": "Local float replay discards CF32 dynamic range before radio DSP",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Keep normalized native CF32 samples in capture blocks and radio DSP; preserve CF32 export precision. Explicitly label the optional CU8 compatibility export and record its conversion in metadata.",
+      "regressions": [
+        "source_manager::tests::native_float_replay_preserves_weak_iq_headroom_and_clock",
+        "radio_iq::tests::native_float_processing_is_chunk_invariant_at_sub_byte_amplitudes",
+        "demod::native::tests::native_float_replay_reaches_rf_preview_and_audio_at_sub_byte_amplitudes",
+        "raw_recording::tests::cf32_recording_keeps_native_float_precision_and_headroom"
+      ],
+      "original_repair_gate": "Preserve native floating-point IQ through the local data plane, with format/unit metadata, or explicitly limit float replay to an 8-bit compatibility mode. Validate sub-byte amplitudes and headroom against a float reference, not an 8-bit encoder round trip."
+    },
+    {
+      "id": "R03",
+      "title": "Daemon narrow-channel decimation aliases strong adjacent signals",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Replace the fixed 63-tap/clamped-cutoff decimator with bounded half-band stages and a phase-selected Blackman-Harris FIR designed from actual output rate. Specify <=0.02 dB passband error through 0.4 Fsout and >=80 dB rejection from 0.5 Fsout. Preserve exact source-grid counts, rational phase, chunks and reset alignment, including prime/large decimation.",
+      "regressions": [
+        "streamed_filters_reject_aliases_and_strong_mixtures_including_interpolated_prime_phases: D=2/10/163/4093; wanted, band edge, Nyquist, folding tones and four strong adjacent interferers.",
+        "rational_output_phases_follow_the_source_clock_with_constant_filter_delay: analytic complex tone phase/amplitude against exact physical group delay, both frequency signs through passband edge.",
+        "staged_and_prime_decimations_preserve_counts_partitions_and_reset_alignment: D=1/2/7/10/17/160/163/4093; bit-identical output under chunks 1/37/997; aligned reset counts.",
+        "extreme_decimation_does_not_allocate_a_source_rate_sized_fir: D=2048003 and u32::MAX; final coefficients below 1 MiB.",
+        "Existing source-clock, gap, retune, packet and product regressions pass in the full workspace suite.",
+        "Production SampleBus/DDC sweep: 622 frequencies across 15 geometries, minimum rejection 111.150040 dB, maximum passband error 0.000041 dB, four-interferer mixture relative error <=0.000004545. See repair-channelizer-verification.json."
+      ],
+      "original_repair_gate": "Design filtering from actual passband, transition width and stopband rejection; use staged/polyphase decimation where needed. Sweep frequencies and source rates, and assert the rejection requirement before downsampling. Test adjacent-channel mixtures, not only wanted tones."
+    },
+    {
+      "id": "R04",
+      "title": "Daemon playback downsamples mono PCM without an anti-alias filter",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Replace linear interpolation of unfiltered mono PCM with a streaming phase-selected Blackman-Harris FIR. Low-pass before rate conversion with a declared passband/transition and >=80 dB rejection. Use bounded integer phase with the exact rational capture rate and retire history at invalid geometry, rate changes or frame gaps; preserve output cadence and post-filter gain.",
+      "regressions": [
+        "passband_phase_and_stopband_rejection_hold_at_production_playback_rates: independent analytic sine phase/amplitude and stop tones at destination Nyquist, its edge and MPX frequencies.",
+        "real_daemon_wfm_mpx_and_strong_mixtures_do_not_alias_into_playback: real SampleBus -> AudioPipeline -> AudioFrame -> playback conversion, both destination rates, four input rates; identical full/split outputs and wanted-versus-MPX mixtures.",
+        "real_daemon_am_and_nfm_destination_rate_conversion_rejects_out_of_band_audio: 49 kHz producer audio cannot fold into 4.9/1 kHz playback.",
+        "fractional_capture_rate_controls_playback_phase_and_arbitrary_frame_splits: 204800.3 S/s physical input clock with integer display rate 204800, exact output counts and independently predicted 17 kHz phase.",
+        "upsampling_and_extreme_ratios_keep_exact_counts_and_filter_delay: input/output boundaries through 48:1 and 1:48.",
+        "empty_and_single_sample_partitions_preserve_rational_cadence_and_samples: byte-identical chunks 1/37/997 including empty input.",
+        "mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation: existing epoch/index/sequence/channel/origin/gap regression now verifies FIR history retirement.",
+        "rate_changes_retire_history_including_equal_rate_passthrough; corrupt_frame_geometry_retires_history_before_next_valid_audio; gain and nonfinite regressions.",
+        "122 production PCM measurements: minimum rejection 112.350624 dB; 32 real WFM MPX cases: minimum rejection 115.348143 dB. See repair-playback-verification.json."
+      ],
+      "original_repair_gate": "Low-pass to the destination audio passband before decimation, using a streaming rational-rate converter with known rejection. Test real demodulator output, stereo/RDS-range MPX components, source rates, 44.1/48 kHz output and arbitrary frame splits."
+    },
+    {
+      "id": "R05",
+      "title": "Local FM loudness changes with RF sample rate and RF decimation",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Normalize local NFM/WFM audio and taps to physical 5 kHz/75 kHz deviation at the actual RF/IF discriminator clock. Share the mono/stereo frequency meter, ignore initial phase/carrier offset and retire readings at capture/clock resets. Preserve clean IF modulation, correct sample-interval averaging and use linear-phase RF decimation so changing source rate, RF decimation, IF presets or stereo does not change calibrated gain.",
+      "regressions": [
+        "216 independent analytical tone cases at three source rates, RF factors 1/2/4, all IF presets, NFM/WFM mono/stereo fallback and 44.1/48 kHz playback: <=0.046177 dB gain error, <0.84% deviation error, pitch/count gates pass.",
+        "12 independent continuous stereo-MPX cases: <=0.104252 dB L/R gain error, <2.10% deviation error; 24 downmix comparisons <=0.007001 dB; mono/stereo deviation readings exactly equal.",
+        "demod::tests::physical_nfm_gain_and_deviation_survive_rf_decimation_and_all_if_presets",
+        "demod::tests::physical_fm_meter_is_partition_invariant_and_retires_on_gaps_and_clock_changes",
+        "demod::tests::physical_fm_meter_ignores_initial_phase_carrier_offset_and_no_energy",
+        "demod::tests::physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks",
+        "All 75 demodulator tests and full workspace suite pass; default build, all-target Clippy with warnings denied, formatting and AST refresh pass. See repair-fm-verification.json."
+      ],
+      "original_repair_gate": "Define a physical deviation-to-audio scale and normalize with the actual discriminator clock. Require constant gain, pitch and reported deviation across source rates, RF decimation, IF noise reduction and mono/stereo paths."
+    },
+    {
+      "id": "R06",
+      "title": "USB/LSB power squelch measures a symmetric band instead of the selected sideband",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Share nominal RF passband geometry between the demodulator, selected-channel carrier-peak measurement and scanner/spectrum selection, including DSB side selection. USB and LSB reject opposite-sideband peaks while retaining weak wanted carriers in stronger mixtures.",
+      "regressions": [
+        "810 wanted/opposite/mixed SSB cases across rates, widths and VFO offsets; 12 actual native squelch/recording-monitor cases and 12 scanner-consumer cases; active original audit_ssb_power_meter_passband. See repair-power-verification.json."
+      ],
+      "original_repair_gate": "Share the demodulator's actual passband geometry with power measurement. Test wanted and opposite tones throughout both SSB sidebands, combined signals, VFO offsets and recording/scanning consumers."
+    },
+    {
+      "id": "R07",
+      "title": "Narrow power measurements can return silence because no FFT bin fits",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Use adaptive complete-window FFT observations with Blackman-Harris sidelobe control, fractional-peak frequency inference and calibrated scalloping correction after bounded antialias downconversion. Explicitly document carrier peak amplitude in dBFS rather than integrated RF power, and retire incomplete/history observations on context changes.",
+      "regressions": [
+        "Every integer CW width 50..500 Hz (451 cases), 72 edge/fractional-clock cases at 8 kS/s through 20 MS/s, arbitrary chunks/whole-stream equality and resets, complete-window counting, invalid geometry; active original half-old-bin carrier probe with acquisition length extended to a complete adaptive observation. See repair-power-verification.json."
+      ],
+      "original_repair_gate": "Measure a filtered/time-domain channel or account for partial bins with suitable resolution and leakage control. Validate off-bin carriers at every supported narrow width, and state whether the metric is peak-bin amplitude or integrated RF power."
+    },
+    {
+      "id": "R08",
+      "title": "Old capture generations are accepted under a new receiver session's controls",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Reject stale capture generations before DSP/publication, without sending errors to new-session audio recorders. Retire epoch and radio snapshot state at the processed generation boundary, even when the new block is rejected under stale controls.",
+      "regressions": [
+        "demod::native::tests::audit_reject_old_capture_generation",
+        "demod::native::tests::native_radio_resets_every_state_at_capture_boundaries",
+        "demod::native::tests::skipped_new_generation_retires_previous_epoch_and_radio_snapshot"
+      ],
+      "original_repair_gate": "Reject blocks that do not belong to the active requested capture generation before demodulation/publication. Account for the rejected tail separately. Test rapid same-frequency restarts, format/source changes and simultaneous recorder/audio reopening."
+    },
+    {
+      "id": "R09",
+      "title": "AM audio aliases when the selected RF band exceeds output audio Nyquist",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Filter full-rate detected AM/SSB/DSB/CW audio before converting to the device clock; run CW beat mixing before conversion and audio controls at the device rate. Preserve unclipped envelope headroom, exact capture duration through partial RF strides, and coherent constructor clocks.",
+      "regressions": [
+        "Six focused regressions cover 12 mode/RF-clock cases, 8k/16k/44.1k/48k audio, nonlinear envelope harmonics, CW beat aliases, unclipped carrier headroom, physical notch frequency, tiny chunks, resets and float-only native partial strides. Maximum 6k-to-2k alias is 0.0000032077 against the unchanged 0.00002 limit.",
+        "All 64 unique affected tests pass, including the original unchanged DC regression, 16 native consumers and five default FM/WFM/worker regressions. GUI build, all-target Clippy with warnings denied, formatting and AST graph refresh pass under 10% of one CPU. See repair-detected-antialias-verification.json."
+      ],
+      "original_repair_gate": "Low-pass the detected envelope before subsampling, with cutoff tied to the destination/effective output rate. Apply the same requirement to product/SSB routes where configured passbands can exceed audio Nyquist. Test rate/bandwidth combinations and nonlinear envelope harmonics."
+    },
+    {
+      "id": "R10",
+      "title": "RAW output has the wrong channel count and timebase for playback/WAV",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Define local RAW as filtered/resampled stereo I/Q at the selected audio clock, carry two channels through native playback and WAV headers/metadata, and preserve exact root-capture duration despite fractional RF clocks, chunk boundaries and partial RF strides. Keep full-band IQ export at RF rate.",
+      "regressions": [
+        "Eight focused regressions: 45 clock/partition cases, 27 RF-stride partition cases, six independent I/Q amplitude/alias checks and three one-second native playback/WAV cases including 64x RF decimation with 384k audio. Equal clocks preserve I/Q exactly without new delay.",
+        "All 102 unique affected tests pass, including the unchanged RF impulse regression, native consumers, WAV recording, recorder, radio channel selection and audio output. GUI default build, all-target Clippy, formatting and AST graph refresh pass at 20% of one CPU. See repair-raw-audio-verification.json."
+      ],
+      "original_repair_gate": "Define RAW semantics explicitly: properly resampled stereo I/Q audio, an RF-rate IQ export, or an analysis-only mode. Carry correct channels/rate through playback and recording. Require duration and sample-count equality for each supported source clock."
+    },
+    {
+      "id": "R11",
+      "title": "Reset disables the configured audio high-pass until coefficients are recomputed",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Retain configured HPF coefficients when resetting delay state.",
+      "regressions": [
+        "demod::tests::reset_preserves_configured_highpass_from_the_first_block"
+      ],
+      "original_repair_gate": "Reset state without erasing configured coefficients, or recompute immediately after reset. Require a reset processor to match a freshly configured processor with every advanced filter active, including the first block after a capture gap."
+    },
+    {
+      "id": "R12",
+      "title": "Daemon SSB rejection degrades sharply at the actual GUI channel rate",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Select USB/LSB with a 36th-order complex Butterworth response specified in Hz at the exact channel clock. Restore the mixer translation before real projection to retain voice pitch. The six-clock, whole-voice-band sweep, stronger opposite-signal mixtures and reset/chunk regressions pass alongside all 18 existing audio regressions, default daemon build, all-target Clippy, formatting and AST graph refresh.",
+      "regressions": [
+        "ssb_production_whole_voice_band_rejects_strong_opposite_signals_without_pitch_shift",
+        "ssb_production_fractional_clock_chunks_mode_changes_and_gaps_preserve_history",
+        "ssb_production_filter_reset_clock_changes_and_nonfinite_samples_retire_history"
+      ],
+      "original_repair_gate": "Bring SSB to a suitable intermediate rate with anti-alias filtering or scale the filter design to a defined transition/rejection. Sweep the entire voice passband at actual production rates for both sidebands and mixed adjacent signals.",
+      "verification": "repair-ssb-selectivity-verification.json"
+    },
+    {
+      "id": "R13",
+      "title": "Automatic recording/monitoring has an undocumented -90 dB cutoff and no daemon power feed",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Use explicit Power/enabled state for every threshold. Consume current native observations or acknowledged, fresh, tagged daemon raw spectrum measurements independently of display/tab rendering. Count only successful local starts or current-session daemon active acknowledgements, preserving recording transitions and guarding pending/failed requests.",
+      "regressions": [
+        "Ten focused regressions cover 202 thresholds/source cases, observation expiry/context resets, gain and scanner boundaries, local file-open failure and exact final bytes, daemon acknowledgements/timeout/cancelled/closed-queue cases and preserved queue phases.",
+        "All 62 unique affected tests pass; GUI default build, all-target Clippy, formatting and AST graph refresh pass with a strict 20%-of-one-core limit. See repair-trigger-verification.json."
+      ],
+      "original_repair_gate": "Use explicit enabled/mode state instead of a magic threshold sentinel. Route acknowledged, fresh daemon RF measurements when supported or disable the feature with a clear reason. Increment recording count only after successful start. Test the full threshold range and both sources."
+    },
+    {
+      "id": "R14",
+      "title": "Rejected hardware tuning changes capture metadata anyway",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Commit backend caches only after accepted calls. Recover failures by reopening the source at the last verified frequency/rate and original gain request/mode; retire acquisition if restoration fails. Preserve verified terminal status and reset clocks after recovery.",
+      "regressions": [
+        "ingest::tests::mutation_before_error_reopens_at_verified_geometry_or_stops_without_reads",
+        "ingest::tests::unrecoverable_control_errors_retire_source_and_preserve_verified_status",
+        "audit_ingest_control example"
+      ],
+      "original_repair_gate": "Commit applied settings only after successful hardware calls; recover/read back actual state after partial failures. Do not publish normal samples with unverified geometry. Test mutation-before-error sources, not just mocks whose rejecting setters preserve state automatically."
+    },
+    {
+      "id": "R15",
+      "title": "HackRF callback overflow is silently stitched into continuous capture",
+      "priority": "P1",
+      "status": "software_verified",
+      "change": "Assign acquisition sample indices before callback queue admission, retain odd components until a complete pair, count rejected complete samples, and return only contiguous transfer ranges with gap/discontinuity clocks. Preserve loss counters through stop/restart. HackRF empty reads yield after 200 ms.",
+      "regressions": [
+        "hardware::callback_iq::tests::overflow_counts_acquired_samples_and_never_stitches_retained_transfers",
+        "hardware::callback_iq::tests::odd_callback_partitions_preserve_sample_pairs_and_signedness",
+        "hardware::callback_iq::tests::silent_callback_queue_returns_to_cancellation_within_one_deadline",
+        "recording::capture_tests::callback_overflow_resets_channel_dsp_and_marks_recording_prefix_incomplete"
+      ],
+      "original_repair_gate": "Maintain acquisition sample indices/drop counters at the callback boundary, preserve complete sample pairs, and mark a new discontinuity/gap after loss. Require downstream recording completeness and DSP resets to agree with injected callback overflow."
+    },
+    {
+      "id": "R16",
+      "title": "Soapy timeout is treated as a fatal driver failure on its first occurrence",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Classify Soapy -1/zero as bounded retry, -4 as an unknown acquisition gap requiring a new epoch, and other negative codes as terminal errors. Each native read has a 200 ms deadline and returns to ingestion controls/shutdown. Decode native-endian CS16 and reject oversized driver counts.",
+      "regressions": [
+        "hardware::soapy_read::tests::documented_timeout_overflow_and_fatal_codes_use_distinct_contracts",
+        "ingest::tests::soapy_timeout_retries_overflow_retires_clock_and_fatal_error_stops",
+        "ingest::tests::endless_timeouts_keep_controls_available_and_shutdown_bounded"
+      ],
+      "original_repair_gate": "Handle documented timeout/overflow/error codes separately with bounded cancellation-aware retries and explicit discontinuity policy. Inject -1, -4 and real errors through the backend seam and verify connection, clocks and shutdown."
+    },
+    {
+      "id": "R17",
+      "title": "Daemon RTL gain control reports success without checking the hardware result",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Propagate RTL gain-mode/gain errors at startup and during live control. Use supported gain steps without a sentinel. Publish selected gain, original requested gain, and automatic/manual mode separately. Match GUI acknowledgements against the original request while displaying the selected step.",
+      "regressions": [
+        "hardware::rtlsdr::tests::gain_step_and_error_contract_is_shared_by_startup_and_live_control",
+        "source_manager::tests::daemon_selected_gain_step_acknowledges_original_request_and_updates_ui",
+        "messages::hardware_status_tests::hardware_gain_capabilities_are_backward_compatible_and_distinguish_manual_zero"
+      ],
+      "original_repair_gate": "Propagate setter errors, expose actual selected gain/mode, and keep requested/applied states separate. Test unsupported steps, zero/auto semantics and failed mode/gain calls during both startup and live changes."
+    },
+    {
+      "id": "R18",
+      "title": "rtl_tcp gain is a successful no-op",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Send rtl_tcp tuner mode 0x03 and tenths-dB gain 0x04 at startup and during live changes. Validate controls and update cached state only after socket writes. Document that rtl_tcp has no hardware readback/acknowledgement; keep headerless metadata semantics separate.",
+      "regressions": [
+        "hardware::tcp_iq::tests::rtl_tcp_gain_wire_commands_cover_startup_manual_and_auto",
+        "hardware::tcp_iq::tests::rtl_tcp_start_applies_cached_tuning_and_reads_uc8",
+        "hardware::tcp_iq::tests::invalid_tcp_controls_preserve_cached_metadata"
+      ],
+      "original_repair_gate": "Implement the supported rtl_tcp gain mode/value commands with clear lack-of-readback semantics, or reject unsupported gain control. Verify exact wire commands and server behavior with an independent rtl_tcp endpoint."
+    },
+    {
+      "id": "R19",
+      "title": "Daemon narrowband listening uses a wide fixed channel without mode-specific RF selection",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Protocol v12 separates RF width, channel sample rate and PCM output rate. Select complex RF before AM/FM/WFM detection and measure squelch on that selected signal. Share exact-rational audio conversion, retain separate RF/PCM clocks, validate atomic audio/channel changes and send them from the desktop.",
+      "regressions": [
+        "audio_rf::tests::rf_selection_production_clocks_protect_passband_and_reject_stronger_neighbors",
+        "audio_rf::tests::rf_selection_chunks_resets_and_nonfinite_inputs_preserve_bounded_history",
+        "pipelines::audio::selection_tests::selected_am_fm_wfm_reject_strong_neighbors_before_detection_and_squelch (12 mixtures; neighbor 25x stronger)",
+        "pipelines::audio::selection_tests::independent_pcm_clock_preserves_rational_rf_provenance_and_partition_history",
+        "pipelines::audio::selection_tests::audio_parameter_geometry_is_validated_even_when_raw_selection_is_bypassed",
+        "audio_rate::clock_tests (two exact clock/count/reset tests)",
+        "state::tests::audio_configuration_validates_all_three_rates_before_allocation",
+        "state::tests::audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions",
+        "messages::audio_configuration_tests (three protocol/alias/clock round trips)",
+        "source_manager::tests::daemon_audio_mode_changes_send_one_atomic_three_rate_configuration",
+        "audio_resampler::tests (13 current producer/playback regressions; unchanged alias gates)"
+      ],
+      "original_repair_gate": "Separate RF passband width, channel sample rate and audio output rate in the protocol. Apply mode-specific complex channel selection before AM/FM detection, and measure squelch on that selected signal. Test desired/adjacent mixtures at realistic amplitude ratios.",
+      "verification": "repair-daemon-selection-verification.json"
+    },
+    {
+      "id": "R20",
+      "title": "Scanning can wait forever on a frequency a fixed replay capture cannot contain",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Validate complete fixed-file scan grids and mode-profile bookmark passbands against the same exact, sided VFO limits used by tuning. Reject unsupported scans with an explicit frequency/available-range result before tuning or consuming observations. Revalidate source and geometry changes, select bookmark mode before tuning, and retain all freshness/settle guards.",
+      "regressions": [
+        "Five new replay_scan regressions: 32 edge tunes; range/bookmark rejection; actual Auto grid boundaries; sample-rate/decimation/bandwidth/center and source transitions; unchanged replay position/epoch and no cached hits after rejection.",
+        "All 26 scanner, 23 radio_ui and 31 sdr_panel tests pass. GUI default build, all-target Clippy, formatting and AST graph refresh pass under a strict 20%-of-one-CPU quota. See repair-scan-verification.json."
+      ],
+      "original_repair_gate": "Validate scan geometry against fixed capture bounds before starting or skip unavailable bookmarks with an explicit result. Test out-of-span, edge-passband and source-transition cases while preserving fresh-measurement requirements."
+    },
+    {
+      "id": "R21",
+      "title": "IQ-only recording does not finish when the capture session ends",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Bind pre-armed recorders to their first session, drain EOF without waiting for another block, and finalize before a replacement session. Propagate source-end metadata to the UI finalizer.",
+      "regressions": [
+        "raw_recording::tests::iq_only_recorder_drains_eof_and_never_crosses_a_restarted_session",
+        "app::app_ui_tests::native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall",
+        "app::app_ui_tests::hidden_app_recorders_finalize_each_real_worker_epoch_before_retuned_samples"
+      ],
+      "original_repair_gate": "On an ended owning session, drain the accepted prefix and finalize with a source-end reason without waiting for another sample. Test finite EOF, read failure, manual source stop, same-geometry restart and empty sessions independently of WAV recording."
+    },
+    {
+      "id": "R22",
+      "title": "Read cancellation and timed-out hardware commands lack a terminal contract",
+      "priority": "P2",
+      "status": "software_verified",
+      "change": "Cancel expired queued commands atomically before device setters, with correlated queued/applying/applied/rejected/cancelled receipts. Report an already-started operation as pending with its eventual outcome rather than cancelled. Use shared RTL read_async pumps for daemon and local GUI, bounded 200 ms callback reads, repeated startup-safe cancel_async and join-before-close ownership. Pause/join before live RTL setters, discard old queued geometry, retain acquisition clocks/drop indices, and bound TCP live reads/writes while preserving fragmented pairs.",
+      "regressions": [
+        "ingest::tests::queued_deadline_cancellation_prevents_late_tuning_after_a_stalled_read",
+        "ingest::tests::applying_deadline_returns_correlated_pending_outcome_and_retains_ownership",
+        "ingest::tests::dropping_queued_command_on_shutdown_publishes_cancelled_receipt",
+        "hardware::stream_worker::tests::repeated_cancel_survives_startup_race_and_joins_before_device_release",
+        "hardware::rtl_async::tests::silent_stream_read_yields_and_stop_joins_the_quiet_worker",
+        "hardware::rtl_async::tests::asynchronous_failure_preserves_queued_prefix_then_reports_the_driver_error",
+        "hardware::rtl_async::tests::native_callback_copies_usb_bytes_before_buffer_reuse",
+        "hardware::tcp_iq::tests::stalled_tcp_peer_yields_and_fragmented_iq_keeps_the_first_component",
+        "source_manager::tests::native_callback_acquisition_clock_is_preserved_before_preview_loss_and_stop"
+      ],
+      "original_repair_gate": "Use a cancellable bounded read contract and correlate command lifecycle through queued/applied/rejected/cancelled states. Ensure shutdown/control latency is bounded even when the driver keeps reporting streaming without data. Test late acknowledgements and avoid releasing hardware ownership before the read actually ends."
+    }
+  ],
+  "off_air_reference_captures": "User has no current private recordings. Actual 72k RF slice and full usable public IQ prefix now pass independent packet/image comparisons: 6,899 recovered frames, 439 missing reference frames, 6,055,292 packet bytes and 25,025,280 pixels (maximum error one). The compressed source is truncated. Independent interleaved 80k capture validation remains pending.",
+  "release_gates": "Keep all field/capture/hardware/audio/disk requirements from REPORT.md. Synthetic tests do not certify them."
+}

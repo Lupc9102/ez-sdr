@@ -1,0 +1,71 @@
+{
+  "binary": "/home/lupc/Documents/ez-sdr/target/debug/ez-gui",
+  "surface": "native X11/OpenGL with software GL, private config",
+  "screenshots": [
+    {
+      "name": "startup",
+      "path": "audit/2026-10-11-final/native/startup.png",
+      "process_alive": true
+    },
+    {
+      "name": "startup-ready",
+      "path": "audit/2026-10-11-final/native/startup-ready.png",
+      "process_alive": true
+    },
+    {
+      "name": "adsb",
+      "path": "audit/2026-10-11-final/native/adsb.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor",
+      "path": "audit/2026-10-11-final/native/meteor.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor-file-selected",
+      "path": "audit/2026-10-11-final/native/meteor-file-selected.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor-path-focus",
+      "path": "audit/2026-10-11-final/native/meteor-path-focus.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor-configured",
+      "path": "audit/2026-10-11-final/native/meteor-configured.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor-decoded",
+      "path": "audit/2026-10-11-final/native/meteor-decoded.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor-complete",
+      "path": "audit/2026-10-11-final/native/meteor-complete.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor-final",
+      "path": "audit/2026-10-11-final/native/meteor-final.png",
+      "process_alive": true
+    },
+    {
+      "name": "meteor-1000x700",
+      "path": "audit/2026-10-11-final/native/meteor-1000x700.png",
+      "process_alive": true
+    },
+    {
+      "name": "adsb-1000x700",
+      "path": "audit/2026-10-11-final/native/adsb-1000x700.png",
+      "process_alive": true
+    },
+    {
+      "name": "radio-1000x700",
+      "path": "audit/2026-10-11-final/native/radio-1000x700.png",
+      "process_alive": true
+    }
+  ]
+}

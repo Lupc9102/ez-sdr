@@ -68,6 +68,8 @@ impl Harness {
             initial_sample_rate_hz: 2_000_000,
             recording_dir,
             web_static_dir: std::env::temp_dir().join("ez-daemon-it-nonexistent-static"),
+            auth_token: None,
+            receiver_position: None,
             source: SourceConfig::Synthetic,
         };
         let running = Arc::new(AtomicBool::new(true));
@@ -145,9 +147,11 @@ async fn attach(addr: SocketAddr, name: &str) -> (ClientWriter, ClientReader) {
 
 fn spectrum_spec(id: ChannelId) -> ChannelSpec {
     ChannelSpec {
+        audio: None,
+        meteor_profile: None,
         id,
         center_offset_hz: 0,
-        bandwidth_hz: 2_000_000,
+        channel_sample_rate_hz: 2_000_000,
         kind: PipelineKind::Spectrum,
         demod_mode: None,
     }

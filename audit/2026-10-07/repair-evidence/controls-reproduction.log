@@ -1,0 +1,5 @@
+    Blocking waiting for file lock on build directory
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 22s
+     Running `target/debug/examples/audit_ingest_control`
+rejected_tune_error=true reported_frequency=100000000 connected=false unverified_blocks=0

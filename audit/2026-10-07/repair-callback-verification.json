@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-08",
+  "scope": [
+    "R15"
+  ],
+  "partial_scope": [
+    "R22"
+  ],
+  "commands": [
+    {
+      "command": "cargo test -p ez-daemon --lib",
+      "exit_code": 0,
+      "log": "repair-evidence/callback-daemon.log",
+      "log_sha256": "6b1206f3add15f223fac661d87fed4809ac2bfd7f5a7ebc06b8597407cac264b",
+      "test_harnesses": [
+        {
+          "passed": 207,
+          "failed": 0,
+          "ignored": 2
+        }
+      ]
+    },
+    {
+      "command": "cargo clippy -p ez-daemon --all-features --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/callback-feature-check.log",
+      "log_sha256": "e338a06e271a5b9f6807ce09fa55f8060ee895ebcce00c894d8308f05398ba93",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/callback-build.log",
+      "log_sha256": "d22bb5c02605a02f14dba7c6081821124491b82f9ad6a56dae30efe3809e14ff",
+      "test_harnesses": []
+    }
+  ],
+  "source_sha256": {
+    "ez-daemon/src/hardware/callback_iq.rs": "cc89a7c12c295f6178a0b0fe197d9a6581ee58f379624ab7b6c1c956a7722098",
+    "ez-daemon/src/hardware/hackrf.rs": "8bd75ead75b11ede87356e9d840504201cfd0d733fb22b674f7cfde0bb64c546",
+    "ez-daemon/src/hardware/mod.rs": "b8fd13c214b457396ece5ffe28efc350fa35416ec4de543b6c48b8cd649a9a76",
+    "ez-daemon/src/recording_capture_tests.rs": "b70e71e3bc45fc22155859fc86660fd06393b307197c2ea6e0e3da357017fd3a"
+  },
+  "format_check_exit_code": 0,
+  "graphify_update_exit_code": 0,
+  "limits": [
+    "No libhackrf runtime or physical HackRF opened. Callback producer fault injection uses the same production bridge.",
+    "No RTL read cancellation or hardware command timeout repair in this batch; R22 remains open."
+  ],
+  "status": "15 of 33 findings software verified; full goal remains active."
+}

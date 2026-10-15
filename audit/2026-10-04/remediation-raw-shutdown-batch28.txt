@@ -1,0 +1,10 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.57s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+Blocked raw IQ Stop: 63 us; flush_error=false, finalized 20 bytes
+Blocked raw IQ Stop: 53 us; flush_error=true, finalized 20 bytes
+test recorder_panel::tests::blocked_native_raw_stop_preserves_final_bytes_and_metadata_errors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 828 filtered out; finished in 0.05s

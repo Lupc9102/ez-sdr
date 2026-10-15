@@ -1,0 +1,51 @@
+{
+  "verified_utc": "2026-10-12T13:45:29.822361+00:00",
+  "archive": "/home/lupc/Documents/ez-sdr/dist/ez-sdr-audit-validation-linux-x86_64.tar.gz",
+  "archive_sha256": "5b4356fb369595abf92abc4ac5f1e53ab43ef59f4e97beda2a801a5b9c9f4662",
+  "archive_bytes": 195401010,
+  "checks": [
+    {
+      "name": "all archive checksums",
+      "passed": true
+    },
+    {
+      "name": "source matches verified workspace",
+      "passed": true,
+      "checked_source_files": 184
+    },
+    {
+      "name": "vendored dependencies resolve with empty Cargo cache and networking disabled",
+      "passed": true,
+      "command": [
+        "cargo",
+        "metadata",
+        "--locked",
+        "--offline",
+        "--all-features",
+        "--format-version",
+        "1"
+      ],
+      "resolved_packages": 531
+    },
+    {
+      "name": "packaged binaries match release build, resolve native libraries and CLI help works",
+      "passed": true
+    },
+    {
+      "name": "packaged native GUI starts on isolated X11/software GL with temporary settings",
+      "passed": true,
+      "scope": "startup only; no physical reception/audio validation"
+    }
+  ],
+  "source_commit": "5a97b74b9456e924e12ba52198ce0b4264123222",
+  "binary_sha256": {
+    "ez-daemon": "24c50911cca0c3c28d14a440a5e67bce138309e7aefb0d45c23bb68f38b025ae",
+    "dump1090": "2a249498deaaf50ce7305a404a5851e1bc146540db59f3f0abc2276235fe6a94",
+    "ez-gui": "7120dbdda06b73b85b28e1b71996d0a70967d7bee858c0f04a4c8108774d78e4"
+  },
+  "package_build_command": [
+    "scripts/package-linux-release.sh",
+    "dist"
+  ],
+  "package_build_log_sha256": "319a5df7b4b61c47d5a95294513c6f7c4df800bc41542c9a17d58d99ef3c3732"
+}

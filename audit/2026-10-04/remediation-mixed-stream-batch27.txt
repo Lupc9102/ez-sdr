@@ -1,0 +1,96 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.41s
+     Running unittests src/lib.rs (target/debug/deps/dump1090-8f009f87b6beddd6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 258 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/dump1090-5007f601a05ae78c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 258 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-eef1425ab956a618)
+
+running 3 tests
+Bincode writer: 64-byte stalled peer, one 16 KiB in-flight frame, then Pong before 992-frame gap and fresh eight-frame tail
+test server::tests::mixed_stream_wire_writer_prioritizes_controls_after_one_inflight_frame ... ok
+test broadcast::tests::mixed_stream_concurrent_eviction_accounts_for_every_published_value ... ok
+Mixed forwarders: 3000 updates = 65 retained + 2935 skipped; Ping independent of stalled data
+test server::tests::mixed_stream_saturation_keeps_control_delivery_independent ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 0.11s
+
+     Running unittests src/bin/adsb_emulator.rs (target/debug/deps/adsb_emulator-0d9e3dff6aff19b9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/ez_daemon-a820aced1bd9c7e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/resilience.rs (target/debug/deps/resilience-ec9afee4be689d8f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/web_resilience.rs (target/debug/deps/web_resilience-c862e52076b7bc8d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-24679a61589ee9d4)
+
+running 2 tests
+test audio_resampler::tests::mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation ... ok
+Actual loopback GUI client: 3000 stream updates, 1000 hardware snapshots, newest snapshots/eight-frame audio tail, 2990 explicit skipped updates, controls first
+test daemon_client::tests::mixed_stream_loopback_client_coalesces_snapshots_preserves_gaps_and_controls ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 818 filtered out; finished in 0.02s
+
+     Running unittests src/main.rs (target/debug/deps/ez_gui-83ffb76e95381167)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/debug/deps/event_bus_integration-6ab612e3a3ff9ca2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/debug/deps/radio_controls-8412d7eb369294dc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/debug/deps/radio_performance-2d559a0c63e03f5d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/ez_proto-15c131f3c1cbaca5)
+
+running 2 tests
+test stream_queue::tests::mixed_stream_payload_budget_and_channel_retirement_stay_bounded ... ok
+test stream_queue::tests::mixed_stream_queue_retains_fresh_snapshots_and_exact_audio_tail_and_gaps ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/lrpt_decode-7caef8cf3dfa9f99)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 0.00s

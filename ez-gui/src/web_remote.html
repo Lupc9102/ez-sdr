@@ -75,8 +75,8 @@
     <div class="btn-row">
       <button onclick="quickTune(100000000)">FM Radio</button>
       <button onclick="quickTune(1090000000)">ADS-B</button>
-      <button onclick="quickTune(137620000)">NOAA 15</button>
-      <button onclick="quickTune(137100000)">NOAA 19</button>
+      <button onclick="quickTune(137900000)">Meteor M2-3</button>
+      <button onclick="quickTune(137100000)">Meteor M2-4</button>
       <button onclick="quickTune(145800000)">ISS</button>
       <button onclick="quickTune(156800000)">Marine 16</button>
     </div>
@@ -137,7 +137,7 @@
 </div>
 
 <script>
-let ws, currentFreq=100000000, currentDemod='NFM';
+let ws, currentFreq=100000000, requestedFreq=null, frequencyDirty=false, currentDemod='NFM';
 function connect(){
   ws=new WebSocket(`ws://${location.host}/ws`);
   ws.onopen=()=>{
@@ -147,12 +147,17 @@ function connect(){
   ws.onmessage=(e)=>{
     try{
       const s=JSON.parse(e.data);
-      currentFreq=s.frequency_hz;
-      document.getElementById('freqDisplay').textContent=(s.frequency_hz/1e6).toFixed(4)+' MHz';
+      if(s.type==='command_error'){log(s.message);return;}
+      const acknowledgedFreq=Number(s.frequency_hz);
+      if(Number.isFinite(acknowledgedFreq)){
+        currentFreq=acknowledgedFreq;
+        document.getElementById('freqDisplay').textContent=(acknowledgedFreq/1e6).toFixed(4)+' MHz';
+        if(frequencyDirty&&requestedFreq===acknowledgedFreq){frequencyDirty=false;requestedFreq=null;document.getElementById('freqInput').value=acknowledgedFreq;}
+        else if(!frequencyDirty)document.getElementById('freqInput').value=acknowledgedFreq;
+      }
       document.getElementById('gainDisplay').textContent=parseFloat(s.gain_db).toFixed(1)+' dB';
       document.getElementById('demodDisplay').textContent=s.demod_mode;
       document.getElementById('aircraftDisplay').textContent=s.aircraft_count;
-      document.getElementById('freqInput').value=s.frequency_hz;
       // SNR
       const snr=parseFloat(s.snr_db)||0;
       document.getElementById('snrDisplay').textContent=snr.toFixed(1)+' dB';
@@ -170,7 +175,7 @@ function connect(){
       document.getElementById('gainVal').textContent=parseFloat(s.gain_db).toFixed(1)+' dB';
       // Squelch
       document.getElementById('squelchSlider').value=s.squelch_db;
-      document.getElementById('squelchVal').textContent=parseFloat(s.squelch_db).toFixed(1)+' dB';
+      document.getElementById('squelchVal').textContent=(s.squelch_applied===false?'Waiting for applied state':parseFloat(s.squelch_db).toFixed(1)+' dB applied')+(s.squelch_pending_db!=null?' · '+Number(s.squelch_pending_db).toFixed(1)+' dB pending':'')+(s.squelch_error?' · '+s.squelch_error:'');
       // Volume
       document.getElementById('volSlider').value=s.volume;
       document.getElementById('volVal').textContent=Math.round(s.volume*100)+'%';
@@ -197,17 +202,30 @@ function setBadge(on){
   b.textContent=on?'Connected':'Disconnected';
   b.className='badge '+(on?'conn':'disc');
 }
-function send(obj){if(ws&&ws.readyState===1)ws.send(JSON.stringify(obj));}
-function tune(hz){currentFreq=Math.max(500000,Math.min(1770000000,currentFreq+hz));document.getElementById('freqInput').value=currentFreq;send({action:'tune',hz:currentFreq});}
-function tuneFreq(){currentFreq=parseInt(document.getElementById('freqInput').value);send({action:'tune',hz:currentFreq});}
-function quickTune(hz){currentFreq=hz;document.getElementById('freqInput').value=hz;send({action:'tune',hz:hz});}
+function send(obj){if(ws&&ws.readyState===1){ws.send(JSON.stringify(obj));return true;}return false;}
+function validFrequency(hz){return Number.isFinite(hz)&&Number.isInteger(hz)&&hz>=500000&&hz<=1770000000;}
+function submitFrequency(hz){
+  if(!validFrequency(hz)){log('Enter a whole-number frequency from 500000 to 1770000000 Hz.');return false;}
+  const input=document.getElementById('freqInput');input.value=String(hz);frequencyDirty=true;requestedFreq=hz;
+  if(!send({action:'tune',hz})){log('Frequency was not sent; connect to the receiver and try again.');return false;}
+  return true;
+}
+function tune(hz){
+  const input=document.getElementById('freqInput');
+  const base=frequencyDirty?Number(input.value):currentFreq;
+  if(!validFrequency(base)){log('Enter a valid frequency before using the tune steps.');return;}
+  submitFrequency(Math.max(500000,Math.min(1770000000,base+hz)));
+}
+function tuneFreq(){submitFrequency(Number(document.getElementById('freqInput').value));}
+function quickTune(hz){submitFrequency(Number(hz));}
 function setGain(db){document.getElementById('gainVal').textContent=parseFloat(db).toFixed(1)+' dB';send({action:'set_gain',db:parseFloat(db)});}
 function quickGain(db){document.getElementById('gainSlider').value=db;setGain(db);}
 function setDemod(m){send({action:'set_demod',mode:m});}
-function setSquelch(db){document.getElementById('squelchVal').textContent=parseFloat(db).toFixed(1)+' dB';send({action:'set_squelch',db:parseFloat(db)});}
+function setSquelch(db){document.getElementById('squelchVal').textContent=parseFloat(db).toFixed(1)+' dB requested';send({action:'set_squelch',db:parseFloat(db)});}
 function setVolume(v){document.getElementById('volVal').textContent=Math.round(v*100)+'%';send({action:'set_volume',level:parseFloat(v)});}
-function log(msg){const el=document.getElementById('log');el.innerHTML+=`<div>${new Date().toLocaleTimeString()} ${msg}</div>`;el.scrollTop=el.scrollHeight;}
+function log(msg){const el=document.getElementById('log');const entry=document.createElement('div');entry.textContent=new Date().toLocaleTimeString()+' '+msg;el.appendChild(entry);el.scrollTop=el.scrollHeight;}
 connect();
+document.getElementById('freqInput').addEventListener('input',()=>{frequencyDirty=true;requestedFreq=null;});
 </script>
 </body>
 </html>

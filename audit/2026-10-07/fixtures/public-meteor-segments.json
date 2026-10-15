@@ -1,0 +1,57 @@
+{
+  "source": "https://github.com/SatDump/SatDump/issues/1212",
+  "corrected_cadu_sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90",
+  "pixel_oracle": "Pillow/libjpeg with exact mission integer DQT; CDS time placement",
+  "format": "records: little-endian u16 APID, sequence, group, payload length; payload; 896 expected grayscale pixels",
+  "records": [
+    {
+      "apid": 65,
+      "sequence": 16379,
+      "group": 0,
+      "column": 7,
+      "quality": 99,
+      "payload_bytes": 598
+    },
+    {
+      "apid": 65,
+      "sequence": 13158,
+      "group": 687,
+      "column": 13,
+      "quality": 67,
+      "payload_bytes": 70
+    },
+    {
+      "apid": 66,
+      "sequence": 2,
+      "group": 0,
+      "column": 0,
+      "quality": 98,
+      "payload_bytes": 214
+    },
+    {
+      "apid": 66,
+      "sequence": 13159,
+      "group": 687,
+      "column": 0,
+      "quality": 67,
+      "payload_bytes": 106
+    },
+    {
+      "apid": 64,
+      "sequence": 60,
+      "group": 2,
+      "column": 0,
+      "quality": 98,
+      "payload_bytes": 212
+    },
+    {
+      "apid": 64,
+      "sequence": 13015,
+      "group": 684,
+      "column": 13,
+      "quality": 68,
+      "payload_bytes": 82
+    }
+  ],
+  "sha256": "34bb97dccf69a1894d3fdc2d4b80049940242f87e1c4889bbd7acaa74f02f881"
+}

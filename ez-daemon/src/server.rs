@@ -7,11 +7,11 @@
 //! - the command loop (`command_loop`), driven by `tokio::select!` over incoming commands
 //!   and a periodic hardware-status tick;
 //! - one writer task (`run_writer`) that owns the socket's write half and drains an
-//!   `mpsc::Receiver<ServerEvent>` — the single point every event funnels through, so
+//!   a prioritized event mailbox — the single point every event funnels through, so
 //!   commands, hardware-status ticks, and pipeline forwarders never fight over the socket;
 //! - one plain OS thread per active subscription (`forward`), bridging a blocking
-//!   [`BroadcasterHandle::recv_timeout`] pull to a `blocking_send` on the writer's mpsc
-//!   channel — deliberately a thread, not `spawn_blocking`, since it just blocks on a
+//!   [`BroadcasterHandle::recv_timeout`] pull into bounded/coalesced stream slots,
+//!   independent of controls — deliberately a thread, since it just blocks on a
 //!   condvar-backed channel rather than doing CPU or filesystem work.
 //!
 //! A client closing its socket or sending `Detach` both end the connection task the same
@@ -24,11 +24,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::outbound::{EventReceiver, EventSender};
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use ez_proto::{ChannelId, ClientCommand, MessageCodec, ServerEvent, PROTOCOL_VERSION};
@@ -52,24 +52,44 @@ pub async fn serve(
 ) -> Result<()> {
     let local_addr = listener.local_addr().ok();
     tracing::info!(?local_addr, "ez-daemon listening");
+    let sem = Arc::new(tokio::sync::Semaphore::new(64));
+    let mut connections = tokio::task::JoinSet::new();
 
     while running.load(Ordering::Relaxed) {
         tokio::select! {
+            joined = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    tracing::warn!(%error, "TCP connection task panicked");
+                }
+            }
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, peer)) => {
+                        let permit = match sem.clone().try_acquire_owned() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                tracing::warn!(%peer, "connection limit reached, dropping connection");
+                                continue;
+                            }
+                        };
                         let state = Arc::clone(&state);
                         let conn_running = Arc::clone(&running);
-                        tokio::spawn(async move {
+                        connections.spawn(async move {
                             if let Err(e) = handle_connection(stream, peer, state, conn_running).await {
                                 tracing::warn!(%peer, error = %e, "connection ended with error");
                             }
+                            drop(permit);
                         });
                     }
-                    Err(e) => tracing::warn!(error = %e, "accept failed"),
+                    Err(e) => return Err(e.into()),
                 }
             }
             () = tokio::time::sleep(ACCEPT_POLL) => {}
+        }
+    }
+    while let Some(result) = connections.join_next().await {
+        if let Err(error) = result {
+            tracing::warn!(%error, "TCP connection task panicked during shutdown");
         }
     }
     tracing::info!("ez-daemon TCP server shutting down");
@@ -87,14 +107,23 @@ async fn handle_connection(
     let mut reader = FramedRead::new(read_half, MessageCodec::<ClientCommand>::for_commands());
     let mut writer = FramedWrite::new(write_half, MessageCodec::<ServerEvent>::for_data());
 
-    let client_name = match perform_handshake(&mut reader, &mut writer).await? {
-        Some(name) => name,
-        None => return Ok(()),
+    let client_name = match tokio::time::timeout(
+        Duration::from_secs(5),
+        perform_handshake(&mut reader, &mut writer, &state),
+    )
+    .await
+    {
+        Ok(Ok(Some(name))) => name,
+        Ok(Ok(None)) => return Ok(()),
+        Ok(Err(e)) => return Err(e),
+        Err(_) => anyhow::bail!("handshake timed out"),
     };
     tracing::info!(%peer, client_name, "client attached");
 
+    let client_channels = state.allocate_client_channels()?;
     writer
         .send(ServerEvent::Welcome {
+            client_channels,
             protocol_version: PROTOCOL_VERSION,
             active_channels: state.active_channels(),
         })
@@ -103,16 +132,26 @@ async fn handle_connection(
         .send(ServerEvent::Hardware(state.hardware_status()))
         .await?;
 
-    let (event_tx, event_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
+    let (event_tx, event_rx) = crate::outbound::channel(EVENT_CHANNEL_CAPACITY);
     let writer_task = tokio::spawn(run_writer(writer, event_rx));
 
     let mut forwarders: HashMap<ChannelId, Arc<AtomicBool>> = HashMap::new();
-    let result = command_loop(&mut reader, &state, &running, &event_tx, &mut forwarders).await;
+    let result = command_loop(
+        &mut reader,
+        &state,
+        &running,
+        &event_tx,
+        &mut forwarders,
+        client_channels,
+    )
+    .await;
 
     for stop in forwarders.values() {
         stop.store(false, Ordering::Relaxed);
     }
+    state.release_client_channels(client_channels);
     drop(event_tx);
+    writer_task.abort();
     let _ = writer_task.await;
     tracing::info!(%peer, "client detached");
     result
@@ -126,8 +165,32 @@ async fn handle_connection(
 async fn perform_handshake(
     reader: &mut FramedRead<OwnedReadHalf, MessageCodec<ClientCommand>>,
     writer: &mut FramedWrite<OwnedWriteHalf, MessageCodec<ServerEvent>>,
+    state: &DaemonState,
 ) -> Result<Option<String>> {
-    match reader.next().await {
+    let first = reader.next().await;
+    let hello = if state.authentication_required() {
+        match first {
+            Some(Ok(ClientCommand::Authenticate { token }))
+                if state.authenticate(token.as_str()) =>
+            {
+                reader.next().await
+            }
+            Some(Ok(_)) => {
+                let _ = writer
+                    .send(ServerEvent::Error {
+                        message: "authentication required or invalid".to_string(),
+                    })
+                    .await;
+                return Ok(None);
+            }
+            Some(Err(error)) => return Err(error.into()),
+            None => return Ok(None),
+        }
+    } else {
+        first
+    };
+
+    match hello {
         Some(Ok(ClientCommand::Hello {
             client_name,
             protocol_version,
@@ -147,7 +210,7 @@ async fn perform_handshake(
         Some(Ok(_)) => {
             let _ = writer
                 .send(ServerEvent::Error {
-                    message: "first message must be Hello".to_string(),
+                    message: "expected Hello after authentication".to_string(),
                 })
                 .await;
             Ok(None)
@@ -157,12 +220,15 @@ async fn perform_handshake(
     }
 }
 
-async fn run_writer(
-    mut writer: FramedWrite<OwnedWriteHalf, MessageCodec<ServerEvent>>,
-    mut events: mpsc::Receiver<ServerEvent>,
+async fn run_writer<W: tokio::io::AsyncWrite + Unpin>(
+    mut writer: FramedWrite<W, MessageCodec<ServerEvent>>,
+    mut events: EventReceiver,
 ) {
     while let Some(event) = events.recv().await {
-        if writer.send(event).await.is_err() {
+        if !matches!(
+            tokio::time::timeout(Duration::from_secs(5), writer.send(event)).await,
+            Ok(Ok(()))
+        ) {
             break;
         }
     }
@@ -176,8 +242,9 @@ async fn command_loop(
     reader: &mut FramedRead<OwnedReadHalf, MessageCodec<ClientCommand>>,
     state: &Arc<DaemonState>,
     daemon_running: &Arc<AtomicBool>,
-    event_tx: &mpsc::Sender<ServerEvent>,
+    event_tx: &EventSender,
     forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
+    client_channels: ez_proto::ClientChannels,
 ) -> Result<()> {
     let mut hw_tick = tokio::time::interval_at(
         tokio::time::Instant::now() + CONNECTION_TICK,
@@ -189,7 +256,7 @@ async fn command_loop(
             msg = reader.next() => {
                 match msg {
                     Some(Ok(cmd)) => {
-                        if !apply_command(cmd, state, event_tx, forwarders).await {
+                        if !apply_command(cmd, state, event_tx, forwarders, client_channels).await {
                             return Ok(());
                         }
                     }
@@ -200,6 +267,16 @@ async fn command_loop(
             _ = hw_tick.tick() => {
                 if event_tx.send(ServerEvent::Hardware(state.hardware_status())).await.is_err() {
                     return Ok(());
+                }
+                report_removed_channels(state, event_tx, forwarders).await;
+                for status in state.recording_statuses().into_iter().filter(|status| {
+                    status.channel_id < ez_proto::CLIENT_CHANNEL_START
+                        || client_channels.contains(status.channel_id)
+                        || forwarders.contains_key(&status.channel_id)
+                }) {
+                    if event_tx.send(ServerEvent::Recording(status)).await.is_err() {
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -216,28 +293,93 @@ async fn command_loop(
 pub(crate) async fn apply_command(
     cmd: ClientCommand,
     state: &Arc<DaemonState>,
-    event_tx: &mpsc::Sender<ServerEvent>,
+    event_tx: &EventSender,
     forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
+    client_channels: ez_proto::ClientChannels,
 ) -> bool {
+    let controlled_channel = match &cmd {
+        ClientCommand::SetDemodMode { channel_id, .. }
+        | ClientCommand::SetVolume { channel_id, .. }
+        | ClientCommand::SetSquelch { channel_id, .. }
+        | ClientCommand::Retune { channel_id, .. }
+        | ClientCommand::RemoveChannel { channel_id }
+        | ClientCommand::FinalizeTelemetryProduct { channel_id }
+        | ClientCommand::StartRecording { channel_id, .. }
+        | ClientCommand::StopRecording { channel_id }
+        | ClientCommand::StartTelemetryProduct { channel_id }
+        | ClientCommand::BeginSpectrumObservation { channel_id, .. } => Some(*channel_id),
+        _ => None,
+    };
+    if controlled_channel
+        .is_some_and(|id| id >= ez_proto::CLIENT_CHANNEL_START && !client_channels.contains(id))
+    {
+        let message = "channel is owned by another connection".to_string();
+        if let ClientCommand::SetSquelch {
+            channel_id,
+            request_id,
+            ..
+        } = cmd
+        {
+            let _ = event_tx
+                .send(ServerEvent::Squelch {
+                    channel_id,
+                    request_id,
+                    result: Err(message),
+                })
+                .await;
+        } else {
+            send_error(event_tx, message).await;
+        }
+        return true;
+    }
     match cmd {
+        ClientCommand::Authenticate { .. } => {
+            send_error(
+                event_tx,
+                "Authenticate is only valid before Hello".to_string(),
+            )
+            .await;
+        }
         ClientCommand::Hello { .. } => {
             send_error(event_tx, "unexpected Hello after handshake".to_string()).await;
         }
-        ClientCommand::SetFrequency { hz } => state.set_frequency(hz),
+        ClientCommand::SetFrequency { hz } => {
+            let state = Arc::clone(state);
+            match tokio::task::spawn_blocking(move || state.set_frequency(hz)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => send_error(event_tx, error.to_string()).await,
+                Err(error) => send_error(event_tx, format!("hardware task failed: {error}")).await,
+            }
+        }
         ClientCommand::SetSampleRate { hz } => {
-            if let Err(e) = state.set_sample_rate(hz) {
-                send_error(event_tx, e.to_string()).await;
+            let state = Arc::clone(state);
+            match tokio::task::spawn_blocking(move || state.set_sample_rate(hz)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => send_error(event_tx, error.to_string()).await,
+                Err(error) => send_error(event_tx, format!("hardware task failed: {error}")).await,
             }
         }
         ClientCommand::SetGain { db } => {
-            if let Err(e) = state.set_gain(db) {
-                send_error(event_tx, e.to_string()).await;
+            let state = Arc::clone(state);
+            match tokio::task::spawn_blocking(move || state.set_gain(db)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => send_error(event_tx, error.to_string()).await,
+                Err(error) => send_error(event_tx, format!("hardware task failed: {error}")).await,
             }
         }
         ClientCommand::Subscribe { channel } => {
             let channel_id = channel.id;
-            match state.subscribe(channel) {
-                Ok(sub) => spawn_forwarder(channel_id, sub, event_tx.clone(), forwarders),
+            let subscription = if channel_id >= ez_proto::CLIENT_CHANNEL_START
+                && !client_channels.contains(channel_id)
+            {
+                state
+                    .subscribe_existing(channel_id, channel.kind)
+                    .map(|sub| (sub, false))
+            } else {
+                state.subscribe(channel)
+            };
+            match subscription {
+                Ok((sub, _)) => spawn_forwarder(channel_id, sub, event_tx.clone(), forwarders),
                 Err(e) => send_error(event_tx, e.to_string()).await,
             }
         }
@@ -245,9 +387,14 @@ pub(crate) async fn apply_command(
             if let Some(stop) = forwarders.remove(&channel_id) {
                 stop.store(false, Ordering::Relaxed);
             }
+            event_tx.clear(channel_id);
         }
-        ClientCommand::SetDemodMode { channel_id, mode } => {
-            if let Err(e) = state.set_demod_mode(channel_id, mode) {
+        ClientCommand::SetDemodMode {
+            audio,
+            channel_id,
+            mode,
+        } => {
+            if let Err(e) = state.configure_audio(channel_id, mode, audio) {
                 send_error(event_tx, e.to_string()).await;
             }
         }
@@ -256,25 +403,45 @@ pub(crate) async fn apply_command(
                 send_error(event_tx, e.to_string()).await;
             }
         }
-        ClientCommand::SetSquelch { channel_id, db } => {
-            if let Err(e) = state.set_squelch(channel_id, db) {
-                send_error(event_tx, e.to_string()).await;
-            }
+        ClientCommand::SetSquelch {
+            channel_id,
+            db,
+            request_id,
+        } => {
+            let result = state
+                .set_squelch(channel_id, db)
+                .map_err(|error| error.to_string());
+            let _ = event_tx
+                .send(ServerEvent::Squelch {
+                    channel_id,
+                    request_id,
+                    result,
+                })
+                .await;
         }
         ClientCommand::Retune {
+            audio,
             channel_id,
             center_offset_hz,
-            bandwidth_hz,
+            channel_sample_rate_hz,
         } => {
-            if let Err(e) = state.retune(channel_id, center_offset_hz, bandwidth_hz) {
+            if let Err(e) =
+                state.retune_configured(channel_id, center_offset_hz, channel_sample_rate_hz, audio)
+            {
                 send_error(event_tx, e.to_string()).await;
             }
         }
-        ClientCommand::RemoveChannel { channel_id } => {
-            if let Err(e) = state.remove_channel(channel_id) {
-                send_error(event_tx, e.to_string()).await;
+        ClientCommand::RemoveChannel { channel_id } => match state.remove_channel(channel_id) {
+            Ok(()) => {
+                if let Some(stop) = forwarders.remove(&channel_id) {
+                    stop.store(false, Ordering::Relaxed);
+                }
+                let _ = event_tx
+                    .send(ServerEvent::ChannelRemoved { channel_id })
+                    .await;
             }
-        }
+            Err(e) => send_error(event_tx, e.to_string()).await,
+        },
         ClientCommand::StartRecording { channel_id, format } => {
             match state.start_recording(channel_id, format) {
                 Ok(status) => {
@@ -289,6 +456,24 @@ pub(crate) async fn apply_command(
             }
             Err(e) => send_error(event_tx, e.to_string()).await,
         },
+        ClientCommand::StartTelemetryProduct { channel_id } => {
+            if let Err(error) = state.start_telemetry_product(channel_id) {
+                send_error(event_tx, error.to_string()).await;
+            }
+        }
+        ClientCommand::FinalizeTelemetryProduct { channel_id } => {
+            if let Err(error) = state.finalize_telemetry_product(channel_id) {
+                send_error(event_tx, error.to_string()).await;
+            }
+        }
+        ClientCommand::BeginSpectrumObservation {
+            channel_id,
+            revision,
+        } => {
+            if let Err(error) = state.begin_spectrum_observation(channel_id, revision) {
+                send_error(event_tx, error.to_string()).await;
+            }
+        }
         ClientCommand::Ping { nonce } => {
             let _ = event_tx.send(ServerEvent::Pong { nonce }).await;
         }
@@ -297,7 +482,27 @@ pub(crate) async fn apply_command(
     true
 }
 
-async fn send_error(event_tx: &mpsc::Sender<ServerEvent>, message: String) {
+pub(crate) async fn report_removed_channels(
+    state: &DaemonState,
+    event_tx: &EventSender,
+    forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
+) {
+    let removed: Vec<_> = forwarders
+        .keys()
+        .copied()
+        .filter(|id| !state.channel_exists(*id))
+        .collect();
+    for channel_id in removed {
+        if let Some(stop) = forwarders.remove(&channel_id) {
+            stop.store(false, Ordering::Relaxed);
+        }
+        let _ = event_tx
+            .send(ServerEvent::ChannelRemoved { channel_id })
+            .await;
+    }
+}
+
+async fn send_error(event_tx: &EventSender, message: String) {
     let _ = event_tx.send(ServerEvent::Error { message }).await;
 }
 
@@ -307,12 +512,11 @@ async fn send_error(event_tx: &mpsc::Sender<ServerEvent>, message: String) {
 /// starts, instead of orphaning it with no reachable stop flag.
 ///
 /// `pub(crate)` so `crate::web`'s data-plane WebSocket handler can spin up the same kind of
-/// per-subscription forwarder thread against its own `mpsc::Sender<axum::extract::ws::Message>`
-/// instead of duplicating the `ChannelSubscription` match.
+/// per-subscription forwarder against the same bounded/coalesced event mailbox.
 pub(crate) fn spawn_forwarder(
     channel_id: ChannelId,
     sub: ChannelSubscription,
-    event_tx: mpsc::Sender<ServerEvent>,
+    event_tx: EventSender,
     forwarders: &mut HashMap<ChannelId, Arc<AtomicBool>>,
 ) {
     if let Some(previous) = forwarders.remove(&channel_id) {
@@ -320,75 +524,52 @@ pub(crate) fn spawn_forwarder(
     }
     let keep_running = match sub {
         ChannelSubscription::Spectrum(h) => {
-            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Spectrum)
+            spawn_event_forwarder(channel_id, h, event_tx, ServerEvent::Spectrum)
         }
         ChannelSubscription::Audio(h) => {
-            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Audio)
+            spawn_event_forwarder(channel_id, h, event_tx, ServerEvent::Audio)
         }
         ChannelSubscription::AdsbPackets(h) => {
-            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Aircraft)
+            spawn_event_forwarder(channel_id, h, event_tx, move |mut snapshot| {
+                snapshot.channel_id = channel_id;
+                ServerEvent::Aircraft(snapshot)
+            })
         }
         ChannelSubscription::LrptTelemetry(h) => {
-            spawn_forward_thread(channel_id, h, event_tx, ServerEvent::Telemetry)
+            spawn_event_forwarder(channel_id, h, event_tx, ServerEvent::Telemetry)
         }
     };
     forwarders.insert(channel_id, keep_running);
 }
 
-/// Generic over the outbound message type `M` (not just [`ServerEvent`]) so `crate::web`'s
-/// WebSocket data plane can reuse this exact spawn-and-bridge logic with
-/// `M = axum::extract::ws::Message` — the wrapping closure is the only thing that differs
-/// between "wrap for bincode-over-TCP" and "wrap for a WS frame".
-pub(crate) fn spawn_forward_thread<T: Send + 'static, M: Send + 'static>(
+/// Stream forwarders never wait for the socket or the control queue. The
+/// mailbox replaces old snapshots, bounds audio latency, and reports losses.
+fn spawn_event_forwarder<T: Send + 'static>(
     channel_id: ChannelId,
     handle: BroadcasterHandle<T>,
-    tx: mpsc::Sender<M>,
-    wrap: impl Fn(T) -> M + Send + 'static,
+    tx: EventSender,
+    wrap: impl Fn(T) -> ServerEvent + Send + 'static,
 ) -> Arc<AtomicBool> {
     let keep_running = Arc::new(AtomicBool::new(true));
     let thread_running = Arc::clone(&keep_running);
     std::thread::Builder::new()
         .name(format!("ez-daemon-fwd-{channel_id}"))
-        .spawn(move || forward(handle, tx, thread_running, wrap))
-        .expect("spawning forwarder thread");
-    keep_running
-}
-
-/// Bridges a blocking [`BroadcasterHandle`] pull to an async `mpsc` channel via
-/// `blocking_send` — valid and intended here specifically because this runs on a plain OS
-/// thread (see [`spawn_forward_thread`]), never a tokio worker thread. Polls `running` every
-/// `FORWARD_POLL` rather than blocking on `recv` forever so `Unsubscribe`/disconnect is
-/// noticed promptly without needing a second wakeup channel.
-///
-/// Generic over `M` for the same reason as [`spawn_forward_thread`]: the TCP writer wants
-/// `ServerEvent`, the WS data plane wants a WS frame, and this loop doesn't need to know which.
-pub(crate) fn forward<T, M>(
-    handle: BroadcasterHandle<T>,
-    tx: mpsc::Sender<M>,
-    running: Arc<AtomicBool>,
-    wrap: impl Fn(T) -> M,
-) {
-    while running.load(Ordering::Relaxed) {
-        if let Some(item) = handle.recv_timeout(FORWARD_POLL) {
-            let mut msg = wrap(item);
-            let mut attempts = 0;
-            while running.load(Ordering::Relaxed) {
-                match tx.try_send(msg) {
-                    Ok(()) => break,
-                    Err(mpsc::error::TrySendError::Closed(_)) => return,
-                    Err(mpsc::error::TrySendError::Full(returned_msg)) => {
-                        attempts += 1;
-                        if attempts >= 50 {
-                            // Relieve backpressure: drop frame rather than blocking indefinitely
-                            break;
-                        }
-                        msg = returned_msg;
-                        std::thread::sleep(Duration::from_millis(10));
+        .spawn(move || {
+            let mut previous_drops = 0;
+            while thread_running.load(Ordering::Relaxed) && !tx.is_closed() {
+                if let Some(item) = handle.recv_timeout(FORWARD_POLL) {
+                    if !thread_running.load(Ordering::Relaxed) || tx.is_closed() {
+                        break;
                     }
+                    let drops = handle.dropped_count();
+                    tx.note_gap(channel_id, drops.saturating_sub(previous_drops));
+                    previous_drops = drops;
+                    tx.stream(wrap(item));
                 }
             }
-        }
-    }
+        })
+        .expect("spawning forwarder thread");
+    keep_running
 }
 
 #[cfg(test)]
@@ -396,11 +577,47 @@ mod tests {
     use super::*;
     use crate::bus::SampleBus;
     use crate::hardware::synthetic::SyntheticSource;
+    use crate::hardware::IqSource;
     use crate::ingest;
     use ez_proto::{ChannelSpec, PipelineKind};
     use std::sync::atomic::AtomicU64;
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct RejectFrequencySource(SyntheticSource);
+
+    impl IqSource for RejectFrequencySource {
+        fn start(&mut self) -> anyhow::Result<()> {
+            self.0.start()
+        }
+        fn stop(&mut self) {
+            self.0.stop();
+        }
+        fn set_frequency(&mut self, _hz: u64) -> anyhow::Result<()> {
+            anyhow::bail!("frequency rejected by TCP test source")
+        }
+        fn set_sample_rate(&mut self, hz: u32) -> anyhow::Result<()> {
+            self.0.set_sample_rate(hz)
+        }
+        fn set_gain(&mut self, db: f64) -> anyhow::Result<()> {
+            self.0.set_gain(db)
+        }
+        fn read_iq(&mut self, buf: &mut [num_complex::Complex32]) -> anyhow::Result<usize> {
+            self.0.read_iq(buf)
+        }
+        fn frequency_hz(&self) -> u64 {
+            self.0.frequency_hz()
+        }
+        fn sample_rate_hz(&self) -> u32 {
+            self.0.sample_rate_hz()
+        }
+        fn gain_db(&self) -> f64 {
+            self.0.gain_db()
+        }
+        fn kind(&self) -> &'static str {
+            "reject-frequency-test"
+        }
+    }
 
     fn unique_temp_dir(label: &str) -> std::path::PathBuf {
         let n = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -408,6 +625,13 @@ mod tests {
     }
 
     async fn spawn_test_server() -> (SocketAddr, Arc<AtomicBool>) {
+        let (addr, running, _) = spawn_test_server_with_auth(None).await;
+        (addr, running)
+    }
+
+    async fn spawn_test_server_with_auth(
+        auth_token: Option<String>,
+    ) -> (SocketAddr, Arc<AtomicBool>, Arc<DaemonState>) {
         let bus = SampleBus::new();
         let ingest_running = Arc::new(AtomicBool::new(true));
         let (hardware, _ingest_thread) = ingest::spawn(
@@ -423,7 +647,35 @@ mod tests {
             2_000_000,
             unique_temp_dir("server"),
         ));
+        state.set_auth_token(auth_token).unwrap();
 
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        let server_state = Arc::clone(&state);
+        tokio::spawn(async move {
+            let _ = serve(listener, server_state, server_running).await;
+        });
+        (addr, running, state)
+    }
+
+    async fn spawn_rejecting_test_server() -> (SocketAddr, Arc<AtomicBool>) {
+        let bus = SampleBus::new();
+        let ingest_running = Arc::new(AtomicBool::new(true));
+        let (hardware, _ingest_thread) = ingest::spawn(
+            Box::new(RejectFrequencySource(SyntheticSource::default())),
+            bus.clone(),
+            ingest_running,
+        )
+        .unwrap();
+        let state = Arc::new(DaemonState::new(
+            bus,
+            hardware,
+            100_000_000,
+            2_000_000,
+            unique_temp_dir("server-reject"),
+        ));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let running = Arc::new(AtomicBool::new(true));
@@ -477,9 +729,11 @@ mod tests {
 
     fn spectrum_spec(id: ChannelId) -> ChannelSpec {
         ChannelSpec {
+            audio: None,
+            meteor_profile: None,
             id,
             center_offset_hz: 0,
-            bandwidth_hz: 2_000_000,
+            channel_sample_rate_hz: 2_000_000,
             kind: PipelineKind::Spectrum,
             demod_mode: None,
         }
@@ -499,6 +753,84 @@ mod tests {
         let hw = reader.next().await.unwrap().unwrap();
         assert!(matches!(hw, ServerEvent::Hardware(_)));
 
+        running.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn configured_auth_rejects_missing_and_wrong_tokens_before_welcome_or_controls() {
+        let token = "a test token longer than a password";
+        let (addr, running, state) = spawn_test_server_with_auth(Some(token.to_string())).await;
+        let initial_frequency = state.hardware_status().frequency_hz;
+
+        for first in [
+            ClientCommand::Hello {
+                client_name: "missing-auth".into(),
+                protocol_version: PROTOCOL_VERSION,
+            },
+            ClientCommand::Authenticate {
+                token: ez_proto::AuthToken::new("incorrect token"),
+            },
+        ] {
+            let (mut writer, mut reader) = connect(addr).await;
+            writer.send(first).await.unwrap();
+            let event = reader.next().await.unwrap().unwrap();
+            assert!(matches!(event, ServerEvent::Error { .. }));
+            assert!(reader.next().await.is_none());
+        }
+        assert_eq!(state.hardware_status().frequency_hz, initial_frequency);
+
+        let (mut writer, mut reader) = connect(addr).await;
+        writer
+            .send(ClientCommand::Authenticate {
+                token: ez_proto::AuthToken::new(token),
+            })
+            .await
+            .unwrap();
+        hello(&mut writer, "authenticated-client").await;
+        assert!(matches!(
+            reader.next().await.unwrap().unwrap(),
+            ServerEvent::Welcome { .. }
+        ));
+        assert!(matches!(
+            reader.next().await.unwrap().unwrap(),
+            ServerEvent::Hardware(_)
+        ));
+        writer
+            .send(ClientCommand::SetFrequency { hz: 104_000_000 })
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state.hardware_status().frequency_hz != 104_000_000 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("authenticated command should reach hardware");
+        running.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn rejected_hardware_frequency_is_reported_to_tcp_client() {
+        let (addr, running) = spawn_rejecting_test_server().await;
+        let (mut writer, mut reader) = connect(addr).await;
+        hello(&mut writer, "hardware-error-client").await;
+        let _ = reader.next().await;
+        let _ = reader.next().await;
+
+        writer
+            .send(ClientCommand::SetFrequency { hz: 105_000_000 })
+            .await
+            .unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let ServerEvent::Error { message } = reader.next().await.unwrap().unwrap() {
+                    return message;
+                }
+            }
+        })
+        .await
+        .expect("expected backend rejection over TCP");
+        assert!(error.contains("frequency rejected by TCP test source"));
         running.store(false, Ordering::Relaxed);
     }
 
@@ -533,6 +865,63 @@ mod tests {
         let event = reader.next().await.unwrap().unwrap();
         assert!(matches!(event, ServerEvent::Error { .. }));
 
+        running.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn authenticated_live_lrpt_stop_delivers_completion_before_unsubscribe() {
+        let token = "tcp-live-lrpt-secret";
+        let (addr, running, _) = spawn_test_server_with_auth(Some(token.into())).await;
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let (read_half, write_half) = stream.into_split();
+        let mut writer =
+            FramedWrite::new(write_half, MessageCodec::<ClientCommand>::for_commands());
+        let mut reader = FramedRead::new(read_half, MessageCodec::<ServerEvent>::for_data());
+        writer
+            .send(ClientCommand::Authenticate {
+                token: ez_proto::AuthToken::new(token),
+            })
+            .await
+            .unwrap();
+        hello(&mut writer, "lrpt-stop-client").await;
+        let _ = reader.next().await.unwrap().unwrap();
+        let _ = reader.next().await.unwrap().unwrap();
+        let channel_id = 42;
+        writer
+            .send(ClientCommand::Subscribe {
+                channel: ChannelSpec {
+                    audio: None,
+                    meteor_profile: Some(ez_proto::MeteorProfile::Oqpsk72),
+                    id: channel_id,
+                    center_offset_hz: 0,
+                    channel_sample_rate_hz: 288_000,
+                    kind: PipelineKind::LrptTelemetry,
+                    demod_mode: None,
+                },
+            })
+            .await
+            .unwrap();
+        writer
+            .send(ClientCommand::FinalizeTelemetryProduct { channel_id })
+            .await
+            .unwrap();
+        let completion = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let ServerEvent::Telemetry(frame) = reader.next().await.unwrap().unwrap() {
+                    if frame.channel_id == channel_id && frame.product_complete {
+                        return frame;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("finalized LRPT product must arrive while still subscribed");
+        assert_eq!((completion.width, completion.height), (0, 0));
+        assert!(!completion.final_product);
+        writer
+            .send(ClientCommand::Unsubscribe { channel_id })
+            .await
+            .unwrap();
         running.store(false, Ordering::Relaxed);
     }
 
@@ -660,43 +1049,235 @@ mod tests {
         running.store(false, Ordering::Relaxed);
     }
 
-    #[test]
-    fn forward_exits_promptly_when_running_clears_under_backpressure() {
-        // Issue 20: forward thread must not hang in blocking_send when channel is full and running is cleared.
+    #[tokio::test]
+    async fn mixed_stream_saturation_keeps_control_delivery_independent() {
         use crate::broadcast::{Broadcaster, OverflowPolicy};
-        let b = Broadcaster::new();
-        let handle = b.subscribe(4, OverflowPolicy::DropOldest);
-        let (tx, _rx) = mpsc::channel(1);
-
-        // Fill channel completely
-        tx.try_send(100).expect("fill channel");
-
-        // Now publish item to broadcaster so forward will try to send
-        b.publish(200);
-
-        let running = Arc::new(AtomicBool::new(true));
-        let thread_running = Arc::clone(&running);
-
-        let thread = std::thread::spawn(move || {
-            forward(handle, tx, thread_running, |x| x);
-        });
-
-        // Let forward start and enter the full-channel retry loop
-        std::thread::sleep(Duration::from_millis(30));
-
-        // Signal stop
-        running.store(false, Ordering::Relaxed);
-
-        // Thread must join promptly without hanging
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = thread.join();
-            let _ = done_tx.send(());
-        });
-
-        assert!(
-            done_rx.recv_timeout(Duration::from_millis(500)).is_ok(),
-            "forward thread must exit when running is cleared under backpressure"
+        let bus = SampleBus::new();
+        let ingest_running = Arc::new(AtomicBool::new(true));
+        let (hardware, ingest_thread) = ingest::spawn(
+            Box::new(SyntheticSource::default()),
+            bus.clone(),
+            Arc::clone(&ingest_running),
+        )
+        .unwrap();
+        let dir = unique_temp_dir("mixed-saturation");
+        let state = Arc::new(DaemonState::new(
+            bus,
+            hardware,
+            100_000_000,
+            2_000_000,
+            dir.clone(),
+        ));
+        let ids = state.allocate_client_channels().unwrap();
+        let audio = Broadcaster::new();
+        let spectrum = Broadcaster::new();
+        let aircraft = Broadcaster::new();
+        let (tx, mut rx) = crate::outbound::channel(8);
+        let mut forwarders = HashMap::new();
+        spawn_forwarder(
+            ids.audio,
+            ChannelSubscription::Audio(audio.subscribe(64, OverflowPolicy::DropOldest)),
+            tx.clone(),
+            &mut forwarders,
         );
+        spawn_forwarder(
+            ids.spectrum,
+            ChannelSubscription::Spectrum(spectrum.subscribe(64, OverflowPolicy::DropOldest)),
+            tx.clone(),
+            &mut forwarders,
+        );
+        spawn_forwarder(
+            ids.adsb,
+            ChannelSubscription::AdsbPackets(aircraft.subscribe(64, OverflowPolicy::DropOldest)),
+            tx.clone(),
+            &mut forwarders,
+        );
+        for n in 0..1000 {
+            audio.publish(ez_proto::AudioFrame {
+                audio_clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
+                clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
+                sequence: n + 1,
+                channel_id: ids.audio,
+                sample_rate_hz: 48_000,
+                channels: 1,
+                samples: vec![0.2; 16],
+                squelch: ez_proto::SquelchState {
+                    db: -120.0,
+                    revision: 0,
+                },
+            });
+            spectrum.publish(ez_proto::SpectrumFrame {
+                channel_id: ids.spectrum,
+                center_hz: 100_000_000,
+                sample_rate_hz: 2_000_000,
+                bins: vec![n as f32; 16],
+                timestamp_ms: n,
+                observation_revision: 0,
+                measurement_bins: None,
+            });
+            aircraft.publish(ez_proto::AircraftSnapshot {
+                channel_id: ids.adsb,
+                receiver: ez_proto::ReceiverSnapshot {
+                    total_messages: n,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while tx.queued_frames() < 10 {
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            apply_command(
+                ClientCommand::Ping { nonce: 99 },
+                &state,
+                &tx,
+                &mut forwarders,
+                ids,
+            ),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "mixed data queues blocked Ping delivery without a data drain"
+        );
+        assert!(matches!(
+            rx.recv().await,
+            Some(ServerEvent::Pong { nonce: 99 })
+        ));
+        let mut last = [false; 3];
+        let mut retained = 0;
+        let mut skipped = 0;
+        while !last.iter().all(|seen| *seen) {
+            let event = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match event {
+                ServerEvent::Audio(frame) => {
+                    retained += 1;
+                    last[0] |= frame.sequence == 1000;
+                }
+                ServerEvent::Spectrum(frame) => {
+                    retained += 1;
+                    last[1] |= frame.timestamp_ms == 999;
+                }
+                ServerEvent::Aircraft(frame) => {
+                    retained += 1;
+                    last[2] |= frame.receiver.total_messages == 999;
+                }
+                ServerEvent::StreamGap { dropped_frames, .. } => skipped += dropped_frames,
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(retained + skipped, 3000);
+        for stop in forwarders.values() {
+            stop.store(false, Ordering::Relaxed);
+        }
+        ingest_running.store(false, Ordering::Relaxed);
+        ingest_thread.join().unwrap();
+        drop(state);
+        std::fs::remove_dir_all(dir).ok();
+        println!(
+            "Mixed forwarders: 3000 updates = {retained} retained + {skipped} skipped; Ping independent of stalled data"
+        );
+    }
+
+    #[tokio::test]
+    async fn mixed_stream_wire_writer_prioritizes_controls_after_one_inflight_frame() {
+        let (write, read) = tokio::io::duplex(64);
+        let (tx, rx) = crate::outbound::channel(8);
+        let writer = tokio::spawn(run_writer(
+            FramedWrite::new(write, MessageCodec::for_data()),
+            rx,
+        ));
+        let audio = |n: u64, count: usize| ez_proto::AudioFrame {
+            audio_clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
+            clock: ez_proto::CaptureClock::new(1, n * 16, 48_000, None),
+            sequence: n + 1,
+            channel_id: 1,
+            sample_rate_hz: 48_000,
+            channels: 1,
+            samples: vec![0.25; count],
+            squelch: ez_proto::SquelchState {
+                db: -120.0,
+                revision: 0,
+            },
+        };
+        tx.stream(ServerEvent::Audio(audio(0, 4096)));
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tx.queued_frames() != 0 {
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        // The 16 KiB first frame cannot finish writing into a 64-byte peer.
+        for n in 1..=1000 {
+            tx.stream(ServerEvent::Audio(audio(n, 16)));
+        }
+        tx.send(ServerEvent::Pong { nonce: 17 }).await.unwrap();
+        let mut reader = FramedRead::new(read, MessageCodec::<ServerEvent>::for_data());
+        let first = tokio::time::timeout(Duration::from_secs(5), reader.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(first, ServerEvent::Audio(frame) if frame.sequence == 1 && frame.samples.len() == 4096)
+        );
+        assert!(matches!(
+            reader.next().await.unwrap().unwrap(),
+            ServerEvent::Pong { nonce: 17 }
+        ));
+        assert!(matches!(
+            reader.next().await.unwrap().unwrap(),
+            ServerEvent::StreamGap {
+                channel_id: 1,
+                dropped_frames: 992
+            }
+        ));
+        for sequence in 994..=1001 {
+            assert!(
+                matches!(reader.next().await.unwrap().unwrap(), ServerEvent::Audio(frame) if frame.sequence == sequence)
+            );
+        }
+        writer.abort();
+        let _ = writer.await;
+        println!(
+            "Bincode writer: 64-byte stalled peer, one 16 KiB in-flight frame, then Pong before 992-frame gap and fresh eight-frame tail"
+        );
+    }
+
+    #[tokio::test]
+    async fn mixed_stream_stalled_writer_has_a_bounded_disconnect() {
+        let (write, _read) = tokio::io::duplex(64);
+        let (tx, rx) = crate::outbound::channel(8);
+        let writer = tokio::spawn(run_writer(
+            FramedWrite::new(write, MessageCodec::for_data()),
+            rx,
+        ));
+        tx.stream(ServerEvent::Telemetry(ez_proto::TelemetryFrame {
+            product_id: 1,
+            channel_id: 1,
+            apid: 0,
+            width: 1024,
+            height: 1,
+            pixels: vec![0; 1024],
+            line_times_unix_seconds: Vec::new(),
+            final_product: false,
+            product_complete: false,
+            rs_ok: 0,
+            rs_failed: 0,
+            costas_locked: false,
+            frame_locked: false,
+        }));
+        tokio::time::timeout(Duration::from_secs(7), writer)
+            .await
+            .expect("stalled socket must not retain its writer indefinitely")
+            .unwrap();
+        assert!(tx.is_closed());
+        println!("Stalled socket writer closes after the five-second write deadline");
     }
 }

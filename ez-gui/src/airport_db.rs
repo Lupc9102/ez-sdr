@@ -240,6 +240,29 @@ fn suggested_bw(freq_mhz: f64) -> u32 {
     }
 }
 
+#[inline]
+fn starts_with_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    haystack
+        .get(..needle.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(needle))
+}
+
+#[inline]
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let n_bytes = needle.as_bytes();
+    let n_len = n_bytes.len();
+    if haystack.len() < n_len {
+        return false;
+    }
+    haystack
+        .as_bytes()
+        .windows(n_len)
+        .any(|window| window.eq_ignore_ascii_case(n_bytes))
+}
+
 #[derive(Default)]
 pub struct AirportDb {
     pub airports: HashMap<String, Airport>,
@@ -361,23 +384,28 @@ impl AirportDb {
             if type_filter != "all" && a.atype != type_filter {
                 continue;
             }
-            let ident = a.ident.to_ascii_uppercase();
-            let icao = a.icao.to_ascii_uppercase();
-            let iata = a.iata.to_ascii_uppercase();
-            let name = a.name.to_ascii_uppercase();
             if q.is_empty() {
                 if a.scheduled {
                     hits.push((5, a));
                 }
-            } else if ident == q || icao == q || iata == q {
+            } else if a.ident.eq_ignore_ascii_case(&q)
+                || a.icao.eq_ignore_ascii_case(&q)
+                || a.iata.eq_ignore_ascii_case(&q)
+            {
                 hits.push((0, a));
-            } else if ident.starts_with(&q) || icao.starts_with(&q) || iata.starts_with(&q) {
+            } else if starts_with_ignore_ascii_case(&a.ident, &q)
+                || starts_with_ignore_ascii_case(&a.icao, &q)
+                || starts_with_ignore_ascii_case(&a.iata, &q)
+            {
                 hits.push((1, a));
-            } else if name.starts_with(&q) {
+            } else if starts_with_ignore_ascii_case(&a.name, &q) {
                 hits.push((2, a));
-            } else if ident.contains(&q) || icao.contains(&q) || iata.contains(&q) {
+            } else if contains_ignore_ascii_case(&a.ident, &q)
+                || contains_ignore_ascii_case(&a.icao, &q)
+                || contains_ignore_ascii_case(&a.iata, &q)
+            {
                 hits.push((3, a));
-            } else if name.contains(&q) {
+            } else if contains_ignore_ascii_case(&a.name, &q) {
                 hits.push((4, a));
             }
         }
@@ -475,9 +503,21 @@ impl AirportDb {
     }
 
     fn store_sqlite(airports: &[Airport], freqs: &[AirportFreq]) -> Result<(), String> {
-        let mut conn = Connection::open("ez_sdr.db").map_err(|e| e.to_string())?;
-        conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
-        conn.execute_batch(
+        Self::store_sqlite_at(std::path::Path::new("ez_sdr.db"), airports, freqs)
+    }
+
+    fn store_sqlite_at(
+        path: &std::path::Path,
+        airports: &[Airport],
+        freqs: &[AirportFreq],
+    ) -> Result<(), String> {
+        let mut conn = Connection::open(path).map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;")
+            .map_err(|e| e.to_string())?;
+        // Schema, removal and replacement belong to one commit. Any prepare,
+        // insert or commit failure rolls back to the previously usable cache.
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS airports (
                 ident TEXT PRIMARY KEY,
                 icao TEXT,
@@ -502,7 +542,6 @@ impl AirportDb {
             DELETE FROM airports;",
         )
         .map_err(|e| e.to_string())?;
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
         {
             let mut stmt = tx.prepare(
                 "INSERT OR REPLACE INTO airports (ident,icao,iata,name,lat,lon,country,type,scheduled) VALUES (?,?,?,?,?,?,?,?,?)"
@@ -1731,6 +1770,113 @@ mod tests {
     use super::*;
 
     #[test]
+    fn airport_cache_replacement_rolls_back_failed_inserts_and_is_atomic_for_readers() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-sdr-airport-atomic-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("cache.db");
+        let airport = |ident: &str| Airport {
+            ident: ident.into(),
+            icao: ident.into(),
+            iata: String::new(),
+            name: format!("{ident} airport"),
+            lat: 51.0,
+            lon: -0.5,
+            country: "GB".into(),
+            atype: "small_airport".into(),
+            scheduled: true,
+        };
+        let frequency = |ident: &str| AirportFreq {
+            airport_ident: ident.into(),
+            freq_type: FreqType::Tower,
+            raw_type: "TWR".into(),
+            description: format!("{ident} tower"),
+            frequency_mhz: 118.5,
+        };
+        let old = [airport("OLDA"), airport("OLDB")];
+        let old_freq = [frequency("OLDA"), frequency("OLDB")];
+        let new = [airport("NEWA"), airport("NEWB")];
+        let new_freq = [frequency("NEWA"), frequency("NEWB")];
+        AirportDb::store_sqlite_at(&path, &old, &old_freq).unwrap();
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE unrelated (value TEXT); INSERT INTO unrelated VALUES ('preserved');",
+            )
+            .unwrap();
+        for (table, key) in [("airports", "ident"), ("airport_freqs", "airport_ident")] {
+            // Fail on the second replacement row, after the old data has been
+            // deleted and one new row has already been inserted in each stage.
+            connection
+                .execute_batch(&format!(
+                    "CREATE TRIGGER fail_replacement BEFORE INSERT ON {table}
+                WHEN NEW.{key} = 'NEWB' BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END;"
+                ))
+                .unwrap();
+            let error = AirportDb::store_sqlite_at(&path, &new, &new_freq).unwrap_err();
+            assert!(error.contains("injected insert failure"), "{error}");
+            let restored = AirportDb::load_from_sqlite(&connection);
+            assert!(restored.cached_sqlite);
+            assert_eq!(restored.airports.len(), 2);
+            assert_eq!(restored.freqs.len(), 2);
+            for ident in ["OLDA", "OLDB"] {
+                let a = &restored.airports[ident];
+                assert_eq!(
+                    (&a.icao, &a.name, a.lat, a.lon, &a.country, a.scheduled),
+                    (
+                        &ident.to_string(),
+                        &format!("{ident} airport"),
+                        51.0,
+                        -0.5,
+                        &"GB".to_string(),
+                        true
+                    )
+                );
+                assert_eq!(
+                    restored.freqs[ident][0].description,
+                    format!("{ident} tower")
+                );
+                assert_eq!(restored.freqs[ident][0].frequency_mhz, 118.5);
+                assert_eq!(restored.freqs[ident][0].freq_type, FreqType::Tower);
+            }
+            assert_eq!(
+                connection
+                    .query_row("SELECT value FROM unrelated", [], |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "preserved"
+            );
+            connection
+                .execute_batch("DROP TRIGGER fail_replacement;")
+                .unwrap();
+        }
+        // A WAL reader holding an old snapshot continues seeing a complete old
+        // dataset while the writer commits both replacement tables together.
+        connection.execute_batch("BEGIN;").unwrap();
+        assert_eq!(AirportDb::load_from_sqlite(&connection).airports.len(), 2);
+        AirportDb::store_sqlite_at(&path, &new, &new_freq).unwrap();
+        let old_snapshot = AirportDb::load_from_sqlite(&connection);
+        assert!(old_snapshot.airports.contains_key("OLDA"));
+        assert!(old_snapshot.freqs.contains_key("OLDB"));
+        assert!(!old_snapshot.airports.contains_key("NEWA"));
+        connection.execute_batch("COMMIT;").unwrap();
+        let committed = AirportDb::load_from_sqlite(&connection);
+        assert_eq!(committed.airports.len(), 2);
+        assert_eq!(committed.freqs.len(), 2);
+        assert!(committed.airports.contains_key("NEWA"));
+        assert!(committed.freqs.contains_key("NEWB"));
+        assert!(!committed.airports.contains_key("OLDA"));
+        assert!(!committed.freqs.contains_key("OLDB"));
+        drop(connection);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn test_freq_type_from_raw_emergency() {
         assert_eq!(FreqType::from_raw("EMERG"), FreqType::Emergency);
         assert_eq!(FreqType::from_raw("GUARD"), FreqType::Emergency);
@@ -1943,5 +2089,67 @@ mod tests {
         assert_eq!(csv_split(r#""hello""#), vec!["hello"]);
         assert_eq!(csv_split(r#""""#), vec![""]);
         assert_eq!(csv_split(r#"a,""b""",c"#), vec!["a", "b\",c"]);
+    }
+
+    #[test]
+    fn test_starts_with_ignore_ascii_case() {
+        assert!(starts_with_ignore_ascii_case("KLAX", "kl"));
+        assert!(starts_with_ignore_ascii_case("KLAX", "KLAX"));
+        assert!(starts_with_ignore_ascii_case("KLAX", ""));
+        assert!(!starts_with_ignore_ascii_case("KLAX", "KLAXX"));
+        assert!(!starts_with_ignore_ascii_case("KLAX", "LA"));
+        // Unicode character boundary safety
+        assert!(!starts_with_ignore_ascii_case("München", "mun"));
+        assert!(starts_with_ignore_ascii_case("München", "m"));
+    }
+
+    #[test]
+    fn test_contains_ignore_ascii_case() {
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", "angeles"));
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", "LOS"));
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", "INTL"));
+        assert!(contains_ignore_ascii_case("Los Angeles Intl", ""));
+        assert!(!contains_ignore_ascii_case("Los Angeles Intl", "San"));
+        assert!(!contains_ignore_ascii_case("LAX", "LAXX"));
+    }
+
+    #[test]
+    fn test_airport_db_search_ranking_and_case_insensitivity() {
+        let db = AirportDb::load_fallback();
+
+        // Exact match (rank 0)
+        let hits = db.search("klax", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "KLAX");
+
+        let hits = db.search("lax", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].iata, "LAX");
+
+        // Code prefix match (rank 1)
+        let hits = db.search("eg", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "EGLL");
+
+        // Name prefix match (rank 2)
+        let hits = db.search("paris", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "LFPG");
+
+        // Substring match (rank 4)
+        let hits = db.search("heathrow", "all", 10);
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].ident, "EGLL");
+
+        // Type filtering
+        let hits_all = db.search("heathrow", "all", 10);
+        assert!(!hits_all.is_empty());
+        let hits_filtered = db.search("heathrow", "small_airport", 10);
+        assert!(hits_filtered.is_empty());
+
+        // Empty query returns scheduled airports
+        let empty_hits = db.search("", "all", 5);
+        assert_eq!(empty_hits.len(), 5);
+        assert!(empty_hits.iter().all(|a| a.scheduled));
     }
 }

@@ -1,0 +1,51 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0308]: mismatched types
+    --> ez-gui/src/app.rs:1697:25
+     |
+1695 |                     self.recorder_panel.prepare_squelch_trigger(
+     |                                         ----------------------- arguments to this method are incorrect
+1696 |                         &mut state,
+1697 |                         native.as_ref(),
+     |                         ^^^^^^^^^^^^^^^ expected `Option<&RadioSnapshot>`, found `Option<&Arc<RadioSnapshot>>`
+     |
+     = note: expected enum `std::option::Option<&RadioSnapshot>`
+                found enum `std::option::Option<&std::sync::Arc<RadioSnapshot>>`
+note: method defined here
+    --> ez-gui/src/recorder_panel.rs:627:19
+     |
+ 627 |     pub(crate) fn prepare_squelch_trigger(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 630 |         native: Option<&crate::demod::RadioSnapshot>,
+     |         --------------------------------------------
+help: try using `.map(|v| &**v)` to convert `std::option::Option<&std::sync::Arc<RadioSnapshot>>` to `std::option::Option<&RadioSnapshot>`
+     |
+1697 |                         native.as_ref().map(|v| &**v),
+     |                                        ++++++++++++++
+
+error[E0616]: field `processed_frames` of struct `spectrum::SpectrumAnalyzer` is private
+    --> ez-gui/src/recorder_panel.rs:2229:39
+     |
+2229 |             assert_eq!(state.spectrum.processed_frames, 0, "display stays frozen");
+     |                                       ^^^^^^^^^^^^^^^^ private field
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0308, E0616.
+For more information about an error, try `rustc --explain E0308`.
+warning: `ez-gui` (lib test) generated 2 warnings
+error: could not compile `ez-gui` (lib test) due to 2 previous errors; 2 warnings emitted

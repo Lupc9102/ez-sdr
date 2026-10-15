@@ -1,0 +1,17 @@
+    Blocking waiting for file lock on build directory
+    Finished `release` profile [optimized] target(s) in 47.47s
+     Running unittests src/lib.rs (target/release/deps/ez_daemon-8916b2a6a9dc3118)
+
+running 9 tests
+test pipelines::telemetry::tests::publish_progress_emits_one_frame_per_preview_entry ... ok
+test pipelines::telemetry::tests::publish_progress_with_empty_preview_publishes_nothing ... ok
+test pipelines::telemetry::tests::publish_progress_maps_decode_progress_fields_onto_telemetry_frames ... ok
+test pipelines::telemetry::tests::subscriber_count_reflects_subscriptions ... ok
+test pipelines::telemetry::tests::run_exits_promptly_when_running_flag_clears ... ok
+test pipelines::telemetry::tests::process_block_on_silence_produces_no_telemetry_frames ... ok
+test pipelines::telemetry::tests::tick_times_out_cleanly_when_idle ... ok
+test pipelines::telemetry::tests::invalid_dynamic_sampling_cannot_consume_or_complete_a_frame ... ok
+test pipelines::telemetry::tests::received_images_survive_gap_epochs_but_retire_on_real_product_boundaries ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 211 filtered out; finished in 1.13s
+

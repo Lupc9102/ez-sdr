@@ -1,0 +1,28 @@
+{
+  "group": "headless",
+  "started_utc": "2026-10-12T15:14:24.398457+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "headless-final",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "--workspace",
+        "--locked",
+        "--no-default-features"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 101,
+      "tests_passed": 519,
+      "tests_failed": 1,
+      "tests_ignored": 0,
+      "seconds": 328.406,
+      "log": "audit/2026-10-11-final/software-completion/evidence/headless-final.log",
+      "log_sha256": "de6d0fc2c8695dc6e6a2f04f4ddf17569417001bae16bd9c4e32b0cc8b27d57e"
+    }
+  ],
+  "updated_utc": "2026-10-12T15:19:52.806785+00:00"
+}

@@ -1,0 +1,12 @@
+[package]
+name = "uat-decode"
+version = "0.1.0"
+edition = "2021"
+license = "MIT AND BSD-2-Clause AND LGPL-2.1-or-later"
+description = "Native 978 MHz UAT FSK and Reed-Solomon decoder"
+
+[dependencies]
+num-complex = { workspace = true }
+
+[lints]
+workspace = true

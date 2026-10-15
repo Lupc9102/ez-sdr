@@ -1,0 +1,38 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no method named `try_iter` found for struct `BroadcasterHandle<T>` in the current scope
+    --> ez-gui/src/demod_native.rs:1077:45
+     |
+1077 |                     let frames: Vec<_> = rx.try_iter().collect();
+     |                                             ^^^^^^^^ method not found in `BroadcasterHandle<std::sync::Arc<RadioAudio>>`
+
+error[E0282]: type annotations needed
+    --> ez-gui/src/demod_native.rs:1082:58
+     |
+1082 |                         assert!(last.samples.iter().any(|x| x.abs() > 0.02));
+     |                                                          ^  - type must be known at this point
+     |
+help: consider giving this closure parameter an explicit type
+     |
+1082 |                         assert!(last.samples.iter().any(|x: /* Type */| x.abs() > 0.02));
+     |                                                           ++++++++++++
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0282, E0599.
+For more information about an error, try `rustc --explain E0282`.
+warning: `ez-gui` (lib test) generated 2 warnings
+error: could not compile `ez-gui` (lib test) due to 2 previous errors; 2 warnings emitted

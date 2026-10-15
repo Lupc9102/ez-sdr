@@ -1,0 +1,31 @@
+{
+  "binary": "/home/lupc/Documents/ez-sdr/target/release/ez-gui",
+  "surface": "native X11/OpenGL with software GL, private config",
+  "screenshots": [
+    {
+      "name": "release-first-run",
+      "path": "audit/2026-10-11-final/native/release-first-run.png",
+      "process_alive": true
+    },
+    {
+      "name": "release-first-run-ready",
+      "path": "audit/2026-10-11-final/native/release-first-run-ready.png",
+      "process_alive": true
+    },
+    {
+      "name": "release-source-menu",
+      "path": "audit/2026-10-11-final/native/release-source-menu.png",
+      "process_alive": true
+    },
+    {
+      "name": "release-rtl-selected",
+      "path": "audit/2026-10-11-final/native/release-rtl-selected.png",
+      "process_alive": true
+    },
+    {
+      "name": "release-no-hardware-error",
+      "path": "audit/2026-10-11-final/native/release-no-hardware-error.png",
+      "process_alive": true
+    }
+  ]
+}

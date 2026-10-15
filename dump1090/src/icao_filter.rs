@@ -1,17 +1,17 @@
-//! ICAO address filter — bloom-like bitset derived from dump1090’s `icao_filter.c`
+//! Exact, bounded membership for recently observed transmitter addresses.
+
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 const FILTER_SIZE: usize = 4096;
-const FILTER_MASK: usize = FILTER_SIZE - 1;
-const U64_COUNT: usize = FILTER_SIZE / 64;
+const FILTER_TTL: Duration = Duration::from_secs(60);
 
-/// ICAO address filter backed by a 4096-bit bitset (~512 bytes).
-///
-/// Translates the hashing and membership logic from the C `icao_filter.c`
-/// implementation into an idiomatic, allocation-free Rust struct.  Because
-/// only a single bit is stored per hash bucket, different addresses may
-/// collide and produce false positives.
+/// Full address keys, including namespace bits, with individual expiry.
+/// Membership authorizes address/parity frames, so hash collisions must never
+/// count as evidence of an observed transmitter.
 pub struct IcaoFilter {
-    bits: [u64; U64_COUNT],
+    addresses: HashMap<u32, Instant>,
+    last_maintenance: Instant,
 }
 
 impl IcaoFilter {
@@ -19,53 +19,51 @@ impl IcaoFilter {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            bits: [0; U64_COUNT],
+            addresses: HashMap::with_capacity(FILTER_SIZE),
+            last_maintenance: Instant::now(),
         }
     }
 
-    /// Jenkins one-at-a-time hash (unrolled for 3 bytes), exactly as the C original.
-    #[inline]
-    fn icao_hash(addr: u32) -> usize {
-        let mut hash = 0u32;
-
-        hash += addr & 0xff;
-        hash = hash.wrapping_add(hash << 10);
-        hash ^= hash >> 6;
-
-        hash += (addr >> 8) & 0xff;
-        hash = hash.wrapping_add(hash << 10);
-        hash ^= hash >> 6;
-
-        hash += (addr >> 16) & 0xff;
-        hash = hash.wrapping_add(hash << 10);
-        hash ^= hash >> 6;
-
-        hash = hash.wrapping_add(hash << 3);
-        hash ^= hash >> 11;
-        hash = hash.wrapping_add(hash << 15);
-
-        (hash as usize) & FILTER_MASK
+    /// Expire learned addresses during long-running receiver sessions.
+    pub fn maintain(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_maintenance) < Duration::from_secs(1) {
+            return;
+        }
+        self.addresses
+            .retain(|_, seen| now.duration_since(*seen) < FILTER_TTL);
+        self.last_maintenance = now;
     }
 
-    /// Set the bit corresponding to `addr`.
+    /// Refresh one address, evicting only the oldest unique key at capacity.
     pub fn add(&mut self, addr: u32) {
-        let h = Self::icao_hash(addr);
-        self.bits[h >> 6] |= 1u64 << (h & 63);
+        if !self.addresses.contains_key(&addr) && self.addresses.len() >= FILTER_SIZE {
+            self.maintain();
+            if self.addresses.len() >= FILTER_SIZE {
+                if let Some(oldest) = self
+                    .addresses
+                    .iter()
+                    .min_by_key(|(_, seen)| **seen)
+                    .map(|(&key, _)| key)
+                {
+                    self.addresses.remove(&oldest);
+                }
+            }
+        }
+        self.addresses.insert(addr, Instant::now());
     }
 
     /// Returns `true` if `addr` has been added to the filter.
-    ///
-    /// Because this is a bitset representation, collisions between different
-    /// addresses can produce false positives.
     #[must_use]
     pub fn contains(&self, addr: u32) -> bool {
-        let h = Self::icao_hash(addr);
-        (self.bits[h >> 6] >> (h & 63)) & 1 != 0
+        self.addresses
+            .get(&addr)
+            .is_some_and(|seen| seen.elapsed() < FILTER_TTL)
     }
 
     /// Clear the filter, removing all addresses.
     pub fn clear(&mut self) {
-        self.bits = [0; U64_COUNT];
+        self.addresses.clear();
     }
 }
 
@@ -162,5 +160,45 @@ mod tests {
         let mut f = IcaoFilter::new();
         f.add(0xFFFFFF);
         assert!(f.contains(0xFFFFFF));
+    }
+
+    #[test]
+    fn maintain_expires_addresses_after_ttl() {
+        let mut filter = IcaoFilter::new();
+        filter.add(0xABCDEF);
+        filter.addresses.insert(
+            0xABCDEF,
+            Instant::now() - FILTER_TTL - Duration::from_secs(1),
+        );
+        filter.last_maintenance = Instant::now() - Duration::from_secs(2);
+        filter.add(0x123456);
+        assert!(!filter.contains(0xABCDEF));
+        filter.maintain();
+        assert!(!filter.contains(0xABCDEF));
+        assert!(filter.contains(0x123456));
+    }
+
+    #[test]
+    fn sustained_insertions_preserve_recent_addresses_and_bound_storage() {
+        let mut filter = IcaoFilter::new();
+        for address in 0..(FILTER_SIZE as u32 * 2) {
+            filter.add(address);
+        }
+        assert_eq!(filter.addresses.len(), FILTER_SIZE);
+        assert!(filter.contains(FILTER_SIZE as u32 * 2 - 1));
+        assert!(!filter.contains(0));
+    }
+
+    #[test]
+    fn collisions_and_namespaces_do_not_authorize_unseen_addresses() {
+        let mut filter = IcaoFilter::new();
+        filter.add(0xABCDEF);
+        assert!(!filter.contains(0x000151));
+        assert!(!filter.contains(0x01ABCDEF));
+        for _ in 0..20_000 {
+            filter.add(0xABCDEF);
+        }
+        assert!(filter.contains(0xABCDEF));
+        assert_eq!(filter.addresses.len(), 1);
     }
 }

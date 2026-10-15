@@ -1,0 +1,504 @@
+{
+  "base_commit": "25f98f6264a0fcd85058d0ccff25d269ec542048",
+  "production_fixes": false,
+  "commands": [
+    {
+      "name": "workspace-tests",
+      "args": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--no-default-features"
+      ],
+      "environment": {},
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 47.632,
+      "log": "evidence/workspace-tests.log",
+      "harness_results": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 197,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 821,
+          "failed": 0,
+          "ignored": 9
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 18,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 75,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "default-feature-check",
+      "args": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets"
+      ],
+      "environment": {},
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 3.173,
+      "log": "evidence/default-feature-check.log"
+    },
+    {
+      "name": "hardware-feature-check",
+      "args": [
+        "cargo",
+        "check",
+        "-p",
+        "ez-daemon",
+        "--all-features",
+        "--all-targets"
+      ],
+      "environment": {},
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 0.465,
+      "log": "evidence/hardware-feature-check.log"
+    },
+    {
+      "name": "satellite",
+      "args": [
+        "cargo",
+        "run",
+        "-p",
+        "lrpt-decode",
+        "--example",
+        "audit_logic",
+        "--release"
+      ],
+      "environment": {},
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 5.426,
+      "log": "evidence/satellite.log"
+    },
+    {
+      "name": "viterbi-noise-recovery",
+      "args": [
+        "cargo",
+        "run",
+        "-p",
+        "lrpt-decode",
+        "--example",
+        "audit_logic",
+        "--release"
+      ],
+      "environment": {
+        "EZ_AUDIT_LONG_VITERBI": "1"
+      },
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 3.019,
+      "log": "evidence/viterbi-noise-recovery.log"
+    },
+    {
+      "name": "radio",
+      "args": [
+        "cargo",
+        "run",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "--example",
+        "audit_radio_logic",
+        "--release"
+      ],
+      "environment": {},
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 27.569,
+      "log": "evidence/radio.log"
+    },
+    {
+      "name": "channelizer",
+      "args": [
+        "cargo",
+        "run",
+        "-p",
+        "ez-daemon",
+        "--example",
+        "audit_channelizer",
+        "--release"
+      ],
+      "environment": {},
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 9.581,
+      "log": "evidence/channelizer.log"
+    },
+    {
+      "name": "ingest-control",
+      "args": [
+        "cargo",
+        "run",
+        "-p",
+        "ez-daemon",
+        "--example",
+        "audit_ingest_control"
+      ],
+      "environment": {},
+      "expected_exit": 0,
+      "actual_exit": 0,
+      "duration_seconds": 1.416,
+      "log": "evidence/ingest-control.log"
+    },
+    {
+      "name": "native-acceptance-counterexamples",
+      "args": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "--lib",
+        "audit_",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "environment": {},
+      "expected_exit": 101,
+      "actual_exit": 101,
+      "duration_seconds": 4.322,
+      "log": "evidence/native-acceptance-counterexamples.log"
+    }
+  ],
+  "counterexample_gates": [
+    {
+      "name": "workspace-tests: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "normal tests have no failures",
+      "passed": true
+    },
+    {
+      "name": "workspace test results present",
+      "passed": true
+    },
+    {
+      "name": "default-feature-check: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "hardware-feature-check: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "satellite: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 640000, phase 0, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 640000, phase 15, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 640000, phase 30, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 640000, phase 45, RS codewords 0",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 640000, phase 60, RS codewords 0",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 640000, phase 90, RS codewords 0",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 640000, phase 180, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 2048000, phase 0, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 2048000, phase 15, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 2048000, phase 30, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 2048000, phase 45, RS codewords 0",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 2048000, phase 60, RS codewords 0",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 2048000, phase 90, RS codewords 0",
+      "passed": true
+    },
+    {
+      "name": "S02: rate 2048000, phase 180, RS codewords 12",
+      "passed": true
+    },
+    {
+      "name": "S04: lost later frames, clean six-frame control succeeds",
+      "passed": true
+    },
+    {
+      "name": "S06: partial header loses packet",
+      "passed": true
+    },
+    {
+      "name": "S06: complete-header control split 6",
+      "passed": true
+    },
+    {
+      "name": "S06: complete-header control split 9",
+      "passed": true
+    },
+    {
+      "name": "S07: cross-VCID corrupted payload",
+      "passed": true
+    },
+    {
+      "name": "S05: earlier admissible marker discarded",
+      "passed": true
+    },
+    {
+      "name": "S08: late-origin black prefix",
+      "passed": true
+    },
+    {
+      "name": "S09: exact DC dequantization error",
+      "passed": true
+    },
+    {
+      "name": "S09: independent non-flat vector differs",
+      "passed": true
+    },
+    {
+      "name": "S10: zero-input false carrier lock",
+      "passed": true
+    },
+    {
+      "name": "viterbi-noise-recovery: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "S03: identical clean input succeeds in fresh decoder",
+      "passed": true
+    },
+    {
+      "name": "S03: aged decoder remains dead",
+      "passed": true
+    },
+    {
+      "name": "radio: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "R12: 48k control rejection exceeds 500:1",
+      "passed": true
+    },
+    {
+      "name": "R12: production-rate rejection below 4:1",
+      "passed": true
+    },
+    {
+      "name": "R04: 49k PCM aliases audibly",
+      "passed": true
+    },
+    {
+      "name": "R04: actual WFM pipeline also aliases",
+      "passed": true
+    },
+    {
+      "name": "R10: RAW timebase mismatch",
+      "passed": true
+    },
+    {
+      "name": "R02: float replay loses weak signal/headroom",
+      "passed": true
+    },
+    {
+      "name": "R11: configured HPF lost on reset",
+      "passed": true
+    },
+    {
+      "name": "R09: 6k AM folds to 2k audio",
+      "passed": true
+    },
+    {
+      "name": "R05: FM gain depends on RF clock",
+      "passed": true
+    },
+    {
+      "name": "channelizer: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "R03: aliased carrier measured",
+      "passed": true
+    },
+    {
+      "name": "ingest-control: expected exit 0",
+      "passed": true
+    },
+    {
+      "name": "R14: rejected tune leaks into applied metadata without epoch change",
+      "passed": true
+    },
+    {
+      "name": "native-acceptance-counterexamples: expected exit 101",
+      "passed": true
+    },
+    {
+      "name": "acceptance assertion fails as documented: audit_signed_file_replay",
+      "passed": true
+    },
+    {
+      "name": "acceptance assertion fails as documented: audit_ssb_power_meter_passband",
+      "passed": true
+    },
+    {
+      "name": "acceptance assertion fails as documented: audit_narrow_cw_power_meter",
+      "passed": true
+    },
+    {
+      "name": "acceptance assertion fails as documented: audit_reject_old_capture_generation",
+      "passed": true
+    },
+    {
+      "name": "exactly four documented acceptance failures",
+      "passed": true
+    }
+  ],
+  "source_sha256": {
+    "ez-daemon/src/app.rs": "7343485c016698b719b43c28a6018eb28ce1f23a98ab060e8b84ab018838abc1",
+    "ez-daemon/src/channelizer.rs": "5d37e47b4101e92e87f30b44be9ce71d6abcb94d3ee1bc5f9910d344ec07533c",
+    "ez-daemon/src/hardware/hackrf.rs": "793639e47709d69c36f80ff94edfcc8eb8db246f670fd9523891120f0ec63bc1",
+    "ez-daemon/src/hardware/rtlsdr.rs": "e82dc90de76c540713c4d3a7a13e264d91220cc25522d2835b7fc3c5d83e7671",
+    "ez-daemon/src/hardware/soapy.rs": "ba4e3f7828fff2dcdb973212691274130a295355c0699b1a086babfb4fe7fad2",
+    "ez-daemon/src/hardware/tcp_iq.rs": "a8fd59dd883384a96da226f46b51167e8b3d34b03b82c2cb10cfb0763ef7ac19",
+    "ez-daemon/src/ingest.rs": "0d15f628bd31994c06930f1f482df0a0b0ee6f4dc4368f84a99ec306683658c7",
+    "ez-daemon/src/pipelines/audio.rs": "34210646851cc2cbbf9f5a5f6a68463ddf886a6ea97018dab4c4189811400259",
+    "ez-daemon/src/pipelines/telemetry.rs": "3a90650622dd6706e640f40d1b8145c6f3bb4656d8a0256652f7301df5eb0227",
+    "ez-daemon/src/state.rs": "954e26b7c2158308b085887e795404b9a7a1225c62af097ddec69f01f8fef142",
+    "ez-gui/src/app.rs": "c98ddf02afd4c0e2fe2f03db97ceaee2ceca55c4e0bc27aad4c6ff08489eb0ec",
+    "ez-gui/src/audio_resampler.rs": "90f440647af16443317e5097b2fc8e4b39fc80f287bdc207f50316c2851f9022",
+    "ez-gui/src/capture_recording.rs": "2604907c15576f61744f732ef4e5f3c38070320b0fe39475d01c5dfb6d999ba9",
+    "ez-gui/src/decoding_panel.rs": "093561429a154e4ee14cafce8467c2423d9620259bba569c1e195402d0f49759",
+    "ez-gui/src/demod.rs": "4f6e8706ae6e27f0cfc8de5dbf8c96ad0aeb419a94c79fd88cdc5bcfb609588b",
+    "ez-gui/src/demod_native.rs": "2607cb1c7cd71de376bade489ca05a1208a58f5d1134a094a60b1951e7f6bed6",
+    "ez-gui/src/radio_iq.rs": "759ea034d065fbade6d6b1220835a0cc9789ef339c012ba31f41b804ade7dc29",
+    "ez-gui/src/radio_ui.rs": "6aefb45a10142f0fbc49914d236c7235e60132a8eae513515e9592e64147cb58",
+    "ez-gui/src/recorder_panel.rs": "f34b48e6b5a5a3ca8736e4957506049573747a07023025133e85046ec05b55dc",
+    "ez-gui/src/satellite/recorder.rs": "d789e538a9c9bf80a5453e4c864238cbabc0d93ce1ed18c94cae34024e298801",
+    "ez-gui/src/scanner.rs": "aac88dc14825482bfb7f2b533fb272758053b7fb311f71328bc3e7ad54f63f0e",
+    "ez-gui/src/source_manager.rs": "d34b87d8b1d1f708b59ae4025d7c2718cf02b52712065b1f5a438bcec8e2592a",
+    "ez-gui/src/spectrum.rs": "e7e88173880f81759a82c59b590862e4c423355dd383860d98261d6869dd0769",
+    "lrpt-decode/src/ccsds.rs": "17e26a83ba530a6cbe988d4cef315d7991624cbcdb0d83a5fb3b427a240e3442",
+    "lrpt-decode/src/frame_sync.rs": "c2a5674780e82b3cabb1313d2a80b4eb41092aafb8632b5f02928d6c7dad15b1",
+    "lrpt-decode/src/image_builder.rs": "8effeda27266c08f16dfec234608859a1d03cc70be84360bb30e75993a05a9a3",
+    "lrpt-decode/src/iq_source.rs": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+    "lrpt-decode/src/lib.rs": "b0152f75aa7d9c6c2f170cf3c397eafbcbb0b5dc488adddbf6bcd2a79844bb7d",
+    "lrpt-decode/src/qpsk.rs": "26cc0aab084d56ec5fe5cb574309f01377fe7eda00759f186eee50a09c64a75f",
+    "lrpt-decode/src/reed_solomon.rs": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+    "lrpt-decode/src/viterbi.rs": "d044b877606d1cc302b53dabdd6934fedc16937eea8f8bf37d13306aedd55b21"
+  },
+  "success": true,
+  "error": null,
+  "meaning": "Audit reproductions verified; four acceptance tests intentionally fail. Hardware/on-air performance unverified."
+}

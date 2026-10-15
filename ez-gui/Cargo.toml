@@ -23,9 +23,12 @@ path = "src/main.rs"
 dump1090 = { path = "../dump1090" }
 lrpt-decode = { path = "../lrpt-decode" }
 ez-proto = { workspace = true }
+ez-daemon = { workspace = true }
+uat-decode = { workspace = true }
 
-eframe = { version = "0.35", features = ["glow", "wayland", "x11"] }
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.35"
+egui_extras = { version = "0.35", default-features = false, features = ["svg"] }
 
 # RTL-SDR
 rtlsdr_sys = { version = "1.1", optional = true }
@@ -35,7 +38,7 @@ num-complex = { workspace = true }
 rustfft = "6"
 
 # Networking
-reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls", "multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 ureq = { version = "3", features = ["json"] }
 
 tokio = { version = "1", features = ["full"] }
@@ -52,16 +55,18 @@ serde_json = { workspace = true }
 
 # Async runtime / channels
 crossbeam-channel = { workspace = true }
+arc-swap = { workspace = true }
 
 # WAV/audio recording
 hound = "3.5"
-cpal = { version = "0.18", optional = true }
+cpal = { version = "0.18", optional = true, features = ["pulseaudio"] }
 
 # Image handling for maps and decoded images
-image = "0.25"
+image = { workspace = true }
 
 # MQTT
-rumqttc = "0.25"
+# The publisher uses TCP only. Avoid compiling rumqttc's unused TLS verifier.
+rumqttc = { version = "0.25", default-features = false }
 
 # Patch transitive deps with vulnerabilities
 # quick-xml = ">=0.41.0"
@@ -74,19 +79,20 @@ rfd = "0.17"
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 chrono = "0.4"
-urlencoding = "2"
+sgp4 = "2.4"
+libc = "0.2"
 
 [dev-dependencies]
-ez-daemon = { workspace = true }
+tokio-tungstenite = { workspace = true }
 
 [features]
-default = ["audio"]
+default = ["audio", "rtlsdr"]
 # Audio output support (WAV playback)
 audio = ["dep:cpal"]
 # Exposes the `test_helpers` module to integration tests/benches.
 test-helpers = []
 # RTL-SDR device support
-rtlsdr = ["dep:rtlsdr_sys"]
+rtlsdr = ["dep:rtlsdr_sys", "ez-daemon/rtl-async"]
 
 [lints.rust]
 unsafe_code = "allow"

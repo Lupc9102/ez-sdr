@@ -1,10 +1,8 @@
 //! Persistent application configuration.
 //!
-//! Provides [`AppConfig`] for serializing/deserializing all SDR, UI, theme,
-//! Discord, and AI settings to/from `ez_sdr_config.json`, including theme
-//! configuration ([`ThemeConfig`]) and Discord integration settings.
+//! Provides [`AppConfig`] for serializing/deserializing SDR, UI, theme,
+//! application settings to/from `ez_sdr_config.json`.
 
-use crate::discord::DiscordSettings;
 use crate::theme::{NamedTheme, ThemeConfig};
 use serde::{Deserialize, Serialize};
 
@@ -152,6 +150,18 @@ pub struct AdvancedConfig {
     /// Spectrum persistence / afterglow 0..1 (0 = off).
     #[serde(default)]
     pub persistence: f32,
+    /// FFT peak-hold decay time in seconds (0 = off).
+    #[serde(default = "default_fft_hold")]
+    pub fft_hold: f32,
+    /// Explicit smoothing on/off (mirrors avg_alpha but independently toggleable).
+    #[serde(default = "default_smoothing_enabled")]
+    pub smoothing_enabled: bool,
+    /// Smoothing speed 0..1 (higher = faster response).
+    #[serde(default = "default_smoothing_speed")]
+    pub smoothing_speed: f32,
+    /// Fast FFT: skip overlap windows for lower latency.
+    #[serde(default)]
+    pub fast_fft: bool,
     /// Gradient fill under the spectrum line.
     #[serde(default)]
     pub gradient_fill: bool,
@@ -203,7 +213,7 @@ pub struct AdvancedConfig {
     #[serde(default)]
     pub rf_notch_hz: f32,
 
-    // ---------- Scan / Record / AI / Satellite extras ----------
+    // ---------- Scan / Record / Satellite extras ----------
     /// Scanner sweep direction: "up" | "down".
     #[serde(default)]
     pub scan_direction: String,
@@ -213,9 +223,6 @@ pub struct AdvancedConfig {
     /// Recorder auto-split size in MB (0 = no split).
     #[serde(default)]
     pub record_split_mb: u32,
-    /// AI context window cap in tokens (0 = unlimited).
-    #[serde(default)]
-    pub ai_context_window: u32,
     /// Satellite elevation offset (degrees).
     #[serde(default)]
     pub sat_elevation_offset: f32,
@@ -259,6 +266,15 @@ fn default_cw_volume() -> f32 {
 }
 fn default_cw_squelch_level() -> f32 {
     -60.0
+}
+fn default_fft_hold() -> f32 {
+    0.5
+}
+fn default_smoothing_enabled() -> bool {
+    true
+}
+fn default_smoothing_speed() -> f32 {
+    0.3
 }
 
 impl Default for AdvancedConfig {
@@ -315,6 +331,10 @@ impl Default for AdvancedConfig {
             peak_hold_time: 1.0,
             avg_alpha: 0.3,
             persistence: 0.0,
+            fft_hold: default_fft_hold(),
+            smoothing_enabled: default_smoothing_enabled(),
+            smoothing_speed: default_smoothing_speed(),
+            fast_fft: false,
             gradient_fill: true,
             db_min: -120.0,
             db_max: 0.0,
@@ -338,7 +358,6 @@ impl Default for AdvancedConfig {
             scan_direction: "up".to_string(),
             record_format: "wav".to_string(),
             record_split_mb: 0,
-            ai_context_window: 0,
             sat_elevation_offset: 0.0,
             sat_azimuth_offset: 0.0,
             map_zoom: 1.0,
@@ -346,118 +365,6 @@ impl Default for AdvancedConfig {
         }
     }
 }
-
-/// A single togglable/reorderable entry in the sidebar layout.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayoutItem {
-    pub id: String,
-    pub visible: bool,
-}
-
-/// Which main tabs and secondary tools appear in the sidebar, and in what
-/// order. Driven entirely by user customization — see the Layout sub-tab of
-/// the Customize panel.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LayoutConfig {
-    pub main_tabs: Vec<LayoutItem>,
-    pub secondary_tools: Vec<LayoutItem>,
-}
-
-impl Default for LayoutConfig {
-    fn default() -> Self {
-        fn items(ids: &[&str]) -> Vec<LayoutItem> {
-            ids.iter()
-                .map(|id| LayoutItem {
-                    id: (*id).to_string(),
-                    visible: true,
-                })
-                .collect()
-        }
-        Self {
-            main_tabs: items(&["listen", "planes", "meteor"]),
-            secondary_tools: items(&[
-                "bookmarks",
-                "scanner",
-                "recorder",
-                "scheduler",
-                "discord",
-                "howto",
-                "settings",
-            ]),
-        }
-    }
-}
-
-/// Default AI provider API endpoint (`OpenRouter`).
-pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
-/// Default AI model identifier.
-pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-haiku-latest";
-
-/// A known AI provider preset with its endpoint, default model, and notes.
-pub struct ProviderPreset {
-    /// Display name of the provider.
-    pub name: &'static str,
-    /// Base URL for the provider's chat completions API.
-    pub endpoint: &'static str,
-    /// Recommended default model ID for this provider.
-    pub default_model: &'static str,
-    /// Whether this provider requires an API key.
-    pub needs_key: bool,
-    /// Short hint about the provider (e.g. "Free tier available").
-    pub note: &'static str,
-}
-
-pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
-    ProviderPreset {
-        name: "OpenRouter",
-        endpoint: "https://openrouter.ai/api/v1/chat/completions",
-        default_model: "anthropic/claude-haiku-latest",
-        needs_key: true,
-        note: "Access 100+ models with one key. Free tier available.",
-    },
-    ProviderPreset {
-        name: "Anthropic",
-        endpoint: "https://api.anthropic.com/v1/messages",
-        default_model: "claude-haiku-4-5-20251001",
-        needs_key: true,
-        note: "Direct Anthropic API. Uses x-api-key header.",
-    },
-    ProviderPreset {
-        name: "OpenAI",
-        endpoint: "https://api.openai.com/v1/chat/completions",
-        default_model: "gpt-4o-mini",
-        needs_key: true,
-        note: "Direct OpenAI API.",
-    },
-    ProviderPreset {
-        name: "Groq",
-        endpoint: "https://api.groq.com/openai/v1/chat/completions",
-        default_model: "llama-3.1-8b-instant",
-        needs_key: true,
-        note: "Very fast inference. Free tier available.",
-    },
-    ProviderPreset {
-        name: "Mistral",
-        endpoint: "https://api.mistral.ai/v1/chat/completions",
-        default_model: "mistral-small-latest",
-        needs_key: true,
-        note: "European provider, strong multilingual.",
-    },
-    ProviderPreset {
-        name: "Ollama (local)",
-        endpoint: "http://localhost:11434/v1/chat/completions",
-        default_model: "llama3.2",
-        needs_key: false,
-        note: "Fully local, no key needed. Install Ollama first.",
-    },
-    ProviderPreset {
-        name: "Custom",
-        endpoint: "",
-        default_model: "",
-        needs_key: true,
-        note: "Set endpoint and model manually.",
-    },
-];
 
 // Keep the subset copied for a mode switch explicit. Source, output-device,
 // display and recording settings stay global and never enter a mode profile.
@@ -508,14 +415,31 @@ radio_mode_profile! {
 }
 
 /// Connection and replay choices are restored without starting a receiver.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SourcePreferences {
     pub mode: String,
     pub daemon_address: String,
+    /// Daemon credential; password UI and Debug output redact it.
+    pub daemon_token: String,
     pub replay_file: Option<String>,
     pub replay_loop: bool,
     pub replay_speed: f32,
+    pub replay_cf32_amplitude: Option<lrpt_decode::Cf32Amplitude>,
+}
+
+impl std::fmt::Debug for SourcePreferences {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourcePreferences")
+            .field("mode", &self.mode)
+            .field("daemon_address", &self.daemon_address)
+            .field("daemon_token", &"[REDACTED]")
+            .field("replay_file", &self.replay_file)
+            .field("replay_loop", &self.replay_loop)
+            .field("replay_speed", &self.replay_speed)
+            .field("replay_cf32_amplitude", &self.replay_cf32_amplitude)
+            .finish()
+    }
 }
 
 impl Default for SourcePreferences {
@@ -523,9 +447,11 @@ impl Default for SourcePreferences {
         Self {
             mode: "demo".into(),
             daemon_address: "127.0.0.1:7890".into(),
+            daemon_token: String::new(),
             replay_file: None,
             replay_loop: false,
             replay_speed: 1.0,
+            replay_cf32_amplitude: None,
         }
     }
 }
@@ -542,9 +468,11 @@ impl SourcePreferences {
             }
             .into(),
             daemon_address: source.daemon_addr.clone(),
+            daemon_token: source.daemon_token.clone(),
             replay_file: source.replay_file.clone(),
             replay_loop: source.replay_loop,
             replay_speed: source.replay_speed,
+            replay_cf32_amplitude: source.replay_cf32_amplitude,
         }
     }
 
@@ -557,8 +485,10 @@ impl SourcePreferences {
             _ => SourceMode::Simulated,
         };
         source.daemon_addr = self.daemon_address.clone();
+        source.daemon_token = self.daemon_token.clone();
         source.replay_file = self.replay_file.clone();
         source.replay_loop = self.replay_loop;
+        source.replay_cf32_amplitude = self.replay_cf32_amplitude;
         source.replay_speed = if self.replay_speed.is_finite() && self.replay_speed > 0.0 {
             self.replay_speed
         } else {
@@ -569,9 +499,9 @@ impl SourcePreferences {
 
 /// Top-level application configuration persisted to `ez_sdr_config.json`.
 ///
-/// Contains all SDR, UI, theme, AI, MQTT, web remote, satellite, and Discord
-/// settings. Serialised/deserialised with serde.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Contains SDR and integration settings plus legacy theme fields preserved
+/// for existing JSON files.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     /// Schema version string.
@@ -584,26 +514,8 @@ pub struct AppConfig {
     pub default_gain: f64,
     /// Directory for saving recorded I/Q and audio files.
     pub output_directory: String,
-    /// UI theme name ("dark" / "light").
+    /// Legacy UI theme label retained for older settings files.
     pub theme: String,
-    /// AI provider API key.
-    pub ai_api_key: String,
-    /// AI provider API endpoint URL.
-    pub ai_endpoint: String,
-    /// AI model identifier.
-    pub ai_model: String,
-    /// Maximum tokens per AI response.
-    pub ai_max_tokens: u32,
-    /// AI temperature (0.0 – 2.0).
-    pub ai_temperature: f64,
-    /// Custom system prompt for the AI agent.
-    pub ai_system_prompt: String,
-    /// AI provider name (matches a [`ProviderPreset`] entry).
-    pub ai_provider: String,
-    /// Reasoning effort level ("off", "low", "medium", "high").
-    pub ai_reasoning_effort: String,
-    /// Whether the AI agent has web-search capability enabled.
-    pub ai_web_search: bool,
     /// MQTT broker address (host:port).
     pub mqtt_broker: String,
     /// MQTT topic prefix for all published messages.
@@ -623,7 +535,11 @@ pub struct AppConfig {
     /// UI font scale multiplier.
     pub font_scale: f64,
     /// Flag indicating settings have changed and need to be applied.
+    #[serde(skip)]
     pub needs_apply: bool,
+    /// Persistence errors are visible for this session, never saved as settings.
+    #[serde(skip)]
+    pub save_error: Option<String>,
     /// Recently tuned frequencies (for quick-access menu).
     pub recent_frequencies: Vec<u64>,
     /// Spectrum display minimum (dBFS).
@@ -634,6 +550,7 @@ pub struct AppConfig {
     pub ppm_correction: i32,
     /// VFO B frequency (Hz).
     pub vfo_b_hz: u64,
+    pub secondary_vfo: crate::secondary_vfo::SecondaryVfoSettings,
     /// Waterfall colour range minimum (dBFS).
     pub wf_min_db: f32,
     /// Waterfall colour range maximum (dBFS).
@@ -658,23 +575,29 @@ pub struct AppConfig {
     pub freq_memory_labels: Vec<String>,
     /// Theme configuration (colours, presets).
     pub theme_config: ThemeConfig,
-    /// Discord notification settings.
-    pub discord: DiscordSettings,
     /// Whether to skip the antenna-setup checklist on startup.
     pub skip_antenna_checklists: bool,
-    /// User experience level string (e.g. "beginner", "advanced").
-    pub user_level: String,
-    /// User-saved named themes (the Customize tab's theme gallery), distinct
-    /// from the built-in presets in [`ThemeConfig::all_presets`].
+    /// Legacy custom theme records retained when reading older configurations.
     pub custom_themes: Vec<NamedTheme>,
-    /// Sidebar tab/tool visibility and ordering.
-    pub layout: LayoutConfig,
-    /// Advanced / experimental tunables (⚙ More → Advanced drawer).
+    /// Advanced / experimental tunables applied to receiver engines.
     pub advanced: AdvancedConfig,
     /// Each demodulator keeps its own radio module controls, like SDR++.
     pub radio_profiles: std::collections::BTreeMap<String, RadioModeProfile>,
     /// Whether the initial quick start wizard has been completed.
     pub quick_start_completed: bool,
+}
+
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppConfig")
+            .field("version", &self.version)
+            .field("default_freq_hz", &self.default_freq_hz)
+            .field("default_sample_rate", &self.default_sample_rate)
+            .field("theme", &self.theme)
+            .field("source_preferences", &self.source_preferences)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for AppConfig {
@@ -685,16 +608,8 @@ impl Default for AppConfig {
             default_sample_rate: 2_048_000,
             default_gain: 40.0,
             output_directory: "./recordings".to_string(),
+            save_error: None,
             theme: "dark".to_string(),
-            ai_api_key: String::new(),
-            ai_endpoint: DEFAULT_AI_ENDPOINT.to_string(),
-            ai_model: DEFAULT_AI_MODEL.to_string(),
-            ai_max_tokens: 2048,
-            ai_temperature: 0.7,
-            ai_system_prompt: String::new(),
-            ai_provider: "OpenRouter".to_string(),
-            ai_reasoning_effort: "off".to_string(),
-            ai_web_search: false,
             mqtt_broker: "localhost:1883".to_string(),
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
@@ -710,6 +625,7 @@ impl Default for AppConfig {
             spectrum_max_db: 0.0,
             ppm_correction: 0,
             vfo_b_hz: 0,
+            secondary_vfo: crate::secondary_vfo::SecondaryVfoSettings::default(),
             wf_min_db: -120.0,
             wf_max_db: -20.0,
             lo_offset_hz: 0,
@@ -723,11 +639,8 @@ impl Default for AppConfig {
             freq_memory_hz: Vec::new(),
             freq_memory_labels: Vec::new(),
             theme_config: ThemeConfig::default(),
-            discord: DiscordSettings::default(),
             skip_antenna_checklists: false,
-            user_level: "beginner".to_string(),
             custom_themes: Vec::new(),
-            layout: LayoutConfig::default(),
             advanced: AdvancedConfig::default(),
             radio_profiles: std::collections::BTreeMap::new(),
             quick_start_completed: false,
@@ -736,9 +649,68 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Serialize settings for export. The daemon credential is omitted by default
+    /// so importing a redacted file can preserve the value stored on this device.
+    pub(crate) fn export_json(
+        &self,
+        include_credentials: bool,
+    ) -> Result<Vec<u8>, serde_json::Error> {
+        let mut value = serde_json::to_value(self)?;
+        if !include_credentials {
+            if let Some(object) = value.as_object_mut() {
+                if let Some(source) = object
+                    .get_mut("source_preferences")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    source.remove("daemon_token");
+                }
+            }
+        }
+        serde_json::to_vec_pretty(&value)
+    }
+
+    pub(crate) fn export_to(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        include_credentials: bool,
+    ) -> std::io::Result<()> {
+        let json = self
+            .export_json(include_credentials)
+            .map_err(std::io::Error::other)?;
+        if include_credentials {
+            crate::bookmarks::atomic_write_private_file(path, &json)
+        } else {
+            crate::bookmarks::atomic_write_file(path, &json)
+        }
+    }
+
+    /// Import settings while keeping the daemon credential when its key is omitted.
+    /// An explicit empty string remains a deliberate request to clear it.
+    pub(crate) fn import_json_preserving_credentials(
+        json: &str,
+        current: &Self,
+    ) -> Result<Self, serde_json::Error> {
+        let mut value: serde_json::Value = serde_json::from_str(json)?;
+        if let Some(object) = value.as_object_mut() {
+            let source = object
+                .entry("source_preferences")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(source) = source.as_object_mut() {
+                source.entry("daemon_token").or_insert_with(|| {
+                    serde_json::Value::String(current.source_preferences.daemon_token.clone())
+                });
+            }
+        }
+        serde_json::from_value(value)
+    }
+
     /// Load configuration from `ez_sdr_config.json`, or return defaults if the file does not exist or cannot be parsed.
     pub fn load_or_default() -> Self {
-        let mut cfg: AppConfig = std::fs::read_to_string("ez_sdr_config.json")
+        Self::load_from("ez_sdr_config.json")
+    }
+
+    pub(crate) fn load_from(path: impl AsRef<std::path::Path>) -> Self {
+        let mut cfg: AppConfig = std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
             .unwrap_or_default();
@@ -769,64 +741,121 @@ impl AppConfig {
         }
         self.observer_lat = self.observer_lat.clamp(-90.0, 90.0);
         self.observer_lon = self.observer_lon.clamp(-180.0, 180.0);
-        let cfg = self;
-        // Migration: the old 6-tab layout (sdr/adsb/satellite/ai/decoding/…)
-        // collapses to the current task tabs. Any config with invalid tab IDs
-        // is normalized to the new mode set, preserving the
-        // "keep plumbing + migration pattern" contract.
-        let valid_tab_ids = ["listen", "planes", "satellites", "meteor"];
-        if cfg
-            .layout
-            .main_tabs
-            .iter()
-            .all(|i| valid_tab_ids.contains(&i.id.as_str()))
-            && !cfg.layout.main_tabs.iter().any(|i| i.id == "meteor")
+        self.ppm_correction = self.ppm_correction.clamp(-100, 100);
+        // Older profiles have duplicate display fields. Nondefault advanced
+        // values are authoritative; otherwise migrate the older aliases once.
+        let a = &mut self.advanced;
+        let d = &defaults.advanced;
+        if (a.db_min, a.db_max) == (d.db_min, d.db_max)
+            && (self.spectrum_min_db, self.spectrum_max_db)
+                != (defaults.spectrum_min_db, defaults.spectrum_max_db)
         {
-            let meteor = LayoutItem {
-                id: "meteor".to_string(),
-                visible: true,
-            };
-            let index = cfg
-                .layout
-                .main_tabs
-                .iter()
-                .position(|item| item.id == "satellites")
-                .unwrap_or(cfg.layout.main_tabs.len());
-            cfg.layout.main_tabs.insert(index, meteor);
+            a.db_min = self.spectrum_min_db;
+            a.db_max = self.spectrum_max_db;
         }
-        if !cfg
-            .layout
-            .main_tabs
-            .iter()
-            .all(|i| valid_tab_ids.contains(&i.id.as_str()))
-        {
-            cfg.layout.main_tabs = LayoutConfig::default().main_tabs;
+        if a.peak_hold_time == d.peak_hold_time && a.fft_hold != d.fft_hold {
+            a.peak_hold_time = a.fft_hold;
         }
+        if a.avg_alpha == d.avg_alpha && a.smoothing_speed != d.smoothing_speed {
+            a.avg_alpha = 1.0 - a.smoothing_speed;
+        }
+        fn finite(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
+            if value.is_finite() {
+                value.clamp(min, max)
+            } else {
+                fallback
+            }
+        }
+        if !crate::spectrum::SpectrumAnalyzer::valid_fft_size(a.fft_size) {
+            a.fft_size = d.fft_size;
+        }
+        a.fft_rate = a.fft_rate.clamp(1, 120);
+        a.wf_depth = a.wf_depth.clamp(32, 4096);
+        a.wf_speed = a.wf_speed.max(1);
+        a.window = crate::advanced_panel::window_from_str(&a.window)
+            .name()
+            .into();
+        self.color_map = crate::advanced_panel::color_from_str(&self.color_map)
+            .name()
+            .into();
+        a.snr_smoothing_secs = finite(a.snr_smoothing_secs, d.snr_smoothing_secs, 0.01, 10.0);
+        a.peak_hold_time = finite(a.peak_hold_time, d.peak_hold_time, 0.0, 60.0);
+        a.fft_hold = a.peak_hold_time;
+        a.avg_alpha = finite(a.avg_alpha, d.avg_alpha, 0.0, 1.0);
+        a.smoothing_speed = 1.0 - a.avg_alpha;
+        a.persistence = finite(a.persistence, d.persistence, 0.0, 0.98);
+        a.db_min = finite(a.db_min, d.db_min, -240.0, 10.0);
+        a.db_max = finite(a.db_max, d.db_max, a.db_min + 10.0, 60.0);
+        self.spectrum_min_db = a.db_min;
+        self.spectrum_max_db = a.db_max;
+        self.wf_min_db = finite(self.wf_min_db, defaults.wf_min_db, -240.0, 10.0);
+        self.wf_max_db = finite(
+            self.wf_max_db,
+            defaults.wf_max_db,
+            self.wf_min_db + 1.0,
+            60.0,
+        );
     }
 
     /// Serialise and write the configuration atomically to `ez_sdr_config.json`.
-    pub fn save(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            if let Err(e) =
-                crate::bookmarks::atomic_write_file("ez_sdr_config.json", json.as_bytes())
-            {
-                eprintln!("[config] failed to write config file: {}", e);
-            }
+    /// Return whether persistence succeeded and retain failures for the GUI.
+    pub fn save(&mut self) -> bool {
+        self.save_with_feedback("ez_sdr_config.json")
+    }
+
+    pub(crate) fn save_with_feedback(&mut self, path: impl AsRef<std::path::Path>) -> bool {
+        let path = path.as_ref();
+        self.save_error = self.save_to(path).err().map(|error| {
+            let location = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir().unwrap_or_default().join(path)
+            };
+            format!(
+                "Could not save settings to {}: {error}. Changes are only kept for this session.",
+                location.display()
+            )
+        });
+        if let Some(error) = &self.save_error {
+            eprintln!("[config] {error}");
         }
+        self.save_error.is_none()
+    }
+
+    pub(crate) fn save_to(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+        crate::bookmarks::atomic_write_private_file(path, json.as_bytes())
     }
 }
 
+type ConfigJobReceiver =
+    std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>;
+
+#[cfg(test)]
+pub(crate) const SETTINGS_SOURCE_HEADER_TEST_ID: &str = "settings.source.header_test_id";
+
 #[derive(Clone)]
-struct ConfigFileJob(
-    std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<Result<Option<AppConfig>, String>>>>,
-);
+struct ConfigFileJob(ConfigJobReceiver);
+
+fn config_file_job_id(session_id: u64) -> egui::Id {
+    egui::Id::new(("config.file_job", session_id))
+}
+
+fn config_file_message_id(session_id: u64) -> egui::Id {
+    egui::Id::new(("config.file_message", session_id))
+}
+
+fn config_export_private_id(session_id: u64) -> egui::Id {
+    egui::Id::new(("config.export.include_credentials", session_id))
+}
 
 fn begin_config_file_job(
     ctx: &egui::Context,
+    session_id: u64,
     work: impl FnOnce() -> Result<Option<AppConfig>, String> + Send + 'static,
 ) {
     let (tx, rx) = std::sync::mpsc::channel();
-    let id = egui::Id::new("config.file_job");
+    let id = config_file_job_id(session_id);
     ctx.data_mut(|data| {
         data.insert_temp(
             id,
@@ -842,12 +871,107 @@ fn begin_config_file_job(
     });
 }
 
+/// Ephemeral state for the Settings popup. Drafts and file-dialog jobs are kept
+/// outside `SharedState::config`, so rendering Settings cannot replace the live
+/// configuration halfway through an application frame.
+#[derive(Default)]
+pub struct SettingsEditor {
+    draft: Option<AppConfig>,
+    session_id: u64,
+}
+
+impl SettingsEditor {
+    pub(crate) fn ensure_draft(&mut self, current: &AppConfig) {
+        if self.draft.is_some() {
+            return;
+        }
+        self.session_id = self.session_id.wrapping_add(1).max(1);
+        let mut draft = current.clone();
+        draft.needs_apply = false;
+        draft.save_error = None;
+        draft.normalize();
+        self.draft = Some(draft);
+    }
+
+    pub(crate) fn draft(&self) -> Option<&AppConfig> {
+        self.draft.as_ref()
+    }
+
+    pub(crate) fn draft_mut(&mut self) -> Option<&mut AppConfig> {
+        self.draft.as_mut()
+    }
+
+    pub(crate) fn session_id(&self) -> u64 {
+        self.session_id
+    }
+
+    pub(crate) fn discard(&mut self, ctx: &egui::Context) {
+        ctx.data_mut(|data| {
+            data.remove::<ConfigFileJob>(config_file_job_id(self.session_id));
+            data.remove::<String>(config_file_message_id(self.session_id));
+            data.remove::<bool>(config_export_private_id(self.session_id));
+        });
+        self.draft = None;
+        self.session_id = self.session_id.wrapping_add(1).max(1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_import_result(
+        &self,
+        ctx: &egui::Context,
+        result: Result<Option<AppConfig>, String>,
+    ) {
+        inject_config_file_result(ctx, self.session_id, result);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_import_result_for_session(
+        &self,
+        ctx: &egui::Context,
+        session_id: u64,
+        result: Result<Option<AppConfig>, String>,
+    ) {
+        inject_config_file_result(ctx, session_id, result);
+    }
+}
+
+#[cfg(test)]
+fn inject_config_file_result(
+    ctx: &egui::Context,
+    session_id: u64,
+    result: Result<Option<AppConfig>, String>,
+) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(result).expect("test receiver is alive");
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            config_file_job_id(session_id),
+            ConfigFileJob(std::sync::Arc::new(std::sync::Mutex::new(rx))),
+        )
+    });
+}
+
 impl AppConfig {
+    pub(crate) fn save_and_apply(&mut self, path: impl AsRef<std::path::Path>) -> bool {
+        self.normalize();
+        let saved = self.save_with_feedback(path);
+        self.needs_apply = true;
+        saved
+    }
+
+    pub(crate) fn reset_to_defaults(&mut self) {
+        *self = Self::default();
+        self.needs_apply = true;
+    }
+
     /// Render the egui-based settings panel UI.
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, session_id: u64, save_path: &std::path::Path) -> bool {
         ui.heading("Settings");
-        let job_id = egui::Id::new("config.file_job");
-        let message_id = egui::Id::new("config.file_message");
+        if let Some(error) = &self.save_error {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+        }
+        let job_id = config_file_job_id(session_id);
+        let message_id = config_file_message_id(session_id);
         let job = ui
             .ctx()
             .data_mut(|data| data.get_temp::<ConfigFileJob>(job_id));
@@ -885,20 +1009,27 @@ impl AppConfig {
         }
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.collapsing("Source", |ui| {
+            let _source_section = ui.collapsing("Source", |ui| {
                 ui.add(egui::Slider::new(&mut self.default_freq_hz, 500_000..=1_770_000_000)
                     .text("Default frequency")
                     .custom_formatter(|v, _| format!("{:.3} MHz", v / 1e6)))
-                    .on_hover_text("The frequency the SDR tunes to when first started.");
+                    .on_hover_text("Startup frequency when no saved session is available. Save & Apply preserves the active receiver; use the Radio controls to tune it.");
                 ui.add(egui::Slider::new(&mut self.default_sample_rate, 225_001..=3_200_000)
-                    .text("Sample rate")
+                    .text("Default sample rate")
                     .custom_formatter(|v, _| format!("{:.3} MSps", v / 1e6)))
-                    .on_hover_text("How many samples per second the ADC captures. Also sets the visible spectrum width. Max stable for RTL-SDR: 2.4 MSps.");
+                    .on_hover_text("Startup sample rate. Use the Radio source controls to change the active capture rate.");
                 ui.add(egui::Slider::new(&mut self.default_gain, 0.0..=49.6)
                     .step_by(0.1)
-                    .text("Gain (dB)")
+                    .text("Default gain (dB)")
                     .custom_formatter(|v, _| format!("{v:.1} dB")))
-                    .on_hover_text("RF amplification. Higher is not always better — too much gain causes overload and phantom signals. Typical sweet spot: 30–45 dB.");
+                    .on_hover_text("Startup gain when no saved session is available. Use the Radio source controls to change live RF amplification.");
+            });
+            #[cfg(test)]
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new(SETTINGS_SOURCE_HEADER_TEST_ID),
+                    _source_section.header_response.id,
+                );
             });
 
             ui.collapsing("Frequency Calibration", |ui| {
@@ -922,144 +1053,6 @@ impl AppConfig {
                     .on_hover_text("Tune a known frequency and adjust this value until it matches exactly.");
             });
 
-            ui.collapsing("Recording", |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Output directory:").on_hover_text("Where recorded I/Q and audio files are saved.");
-                    ui.add(egui::TextEdit::singleline(&mut self.output_directory).desired_width(200.0));
-                });
-            });
-
-            ui.collapsing("AI Agent", |ui| {
-                // Provider picker
-                ui.label(egui::RichText::new("Provider").strong());
-                let current = self.ai_provider.clone();
-                egui::ComboBox::from_id_salt("ai_provider_combo")
-                    .selected_text(&current)
-                    .show_ui(ui, |ui| {
-                        for preset in PROVIDER_PRESETS {
-                            if ui.selectable_label(current == preset.name, preset.name).clicked() {
-                                self.ai_provider = preset.name.to_string();
-                                if preset.name != "Custom" {
-                                    self.ai_endpoint = preset.endpoint.to_string();
-                                    self.ai_model = preset.default_model.to_string();
-                                }
-                            }
-                        }
-                    });
-
-                if let Some(preset) = PROVIDER_PRESETS.iter().find(|p| p.name == self.ai_provider) {
-                    ui.colored_label(egui::Color32::GRAY, preset.note);
-                    if !preset.needs_key {
-                        ui.colored_label(egui::Color32::from_rgb(100, 220, 100), "No API key required.");
-                    }
-                }
-
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label("API Key:").on_hover_text("Your provider API key. Stored locally in ez_sdr_config.json. Leave blank for Ollama.");
-                    ui.add(egui::TextEdit::singleline(&mut self.ai_api_key).password(true).desired_width(260.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Endpoint:").on_hover_text("The full URL for the /chat/completions API. Auto-filled when you pick a provider.");
-                    ui.add(egui::TextEdit::singleline(&mut self.ai_endpoint).desired_width(360.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Model:").on_hover_text("The model ID to request. Auto-filled from the provider preset, but you can override it.");
-                    ui.add(egui::TextEdit::singleline(&mut self.ai_model).desired_width(260.0));
-                });
-
-                // Suggested models for current provider
-                if let Some(preset) = PROVIDER_PRESETS.iter().find(|p| p.name == self.ai_provider) {
-                    if preset.name == "OpenRouter" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["anthropic/claude-haiku-latest", "anthropic/claude-sonnet-latest", "google/gemini-flash-1.5", "meta-llama/llama-3.1-8b-instruct:free", "mistralai/mistral-7b-instruct:free"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "Groq" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "Anthropic" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["claude-haiku-4-5-20251001", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "OpenAI" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models:").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    } else if preset.name == "Ollama (local)" {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Popular models (must be pulled first):").small());
-                        ui.horizontal_wrapped(|ui| {
-                            for m in &["llama3.2", "llama3.1", "mistral", "gemma2", "qwen2.5"] {
-                                if ui.small_button(*m).clicked() {
-                                    self.ai_model = m.to_string();
-                                }
-                            }
-                        });
-                    }
-                }
-
-                ui.add_space(4.0);
-                ui.add(egui::Slider::new(&mut self.ai_temperature, 0.0..=2.0)
-                    .step_by(0.05).text("Temperature"))
-                    .on_hover_text("Randomness of responses. 0 = deterministic, 1 = balanced, 2 = very creative. 0.5–0.7 works well for radio control.");
-
-                // Reasoning effort
-                ui.horizontal(|ui| {
-                    ui.label("Reasoning:").on_hover_text("Controls how hard the model thinks. Higher = slower but more thorough. 'Off' uses default behavior.");
-                    let current = self.ai_reasoning_effort.clone();
-                    egui::ComboBox::from_id_salt("ai_reasoning_effort")
-                        .selected_text(&current)
-                        .show_ui(ui, |ui| {
-                            for level in &["off", "low", "medium", "high"] {
-                                if ui.selectable_label(current == *level, *level).clicked() {
-                                    self.ai_reasoning_effort = level.to_string();
-                                }
-                            }
-                        });
-                });
-
-                // Web search toggle
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.ai_web_search, " Enable web search")
-                        .on_hover_text("Ask the selected AI provider to use its native web-search tool when supported. Search terms are sent to that provider; EZ-SDR does not scrape search-engine HTML.");
-                });
-
-                ui.add(egui::Slider::new(&mut self.ai_max_tokens, 256u32..=16384u32)
-                    .step_by(256.0).text("Max tokens"))
-                    .on_hover_text("Maximum response length in tokens (~4 chars each). 2048 is plenty for most tasks.");
-                ui.collapsing("System prompt", |ui| {
-                    ui.label("Leave empty for default (tool-enabled assistant).");
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.ai_system_prompt)
-                            .desired_width(f32::INFINITY));
-                });
-            });
-
             ui.collapsing("MQTT", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Broker:").on_hover_text("MQTT broker address and port, e.g. localhost:1883. MQTT lets other systems subscribe to SDR state.");
@@ -1073,7 +1066,7 @@ impl AppConfig {
 
             ui.collapsing("Web Remote", |ui| {
                 ui.checkbox(&mut self.web_remote_enabled, "Enable web remote")
-                    .on_hover_text("Starts a local HTTP server so you can control the SDR from a browser on your LAN.");
+                    .on_hover_text("Starts a local HTTP server on this computer only (127.0.0.1). It is not available to other devices on your LAN.");
                 ui.add(egui::Slider::new(&mut self.web_remote_port, 1024..=65535).text("Port"))
                     .on_hover_text("TCP port for the web remote. Default 5259. Open http://localhost:5259 in a browser.");
             });
@@ -1085,31 +1078,6 @@ impl AppConfig {
                     .on_hover_text("TCP port for rigctld clients. Default 4532.");
             });
 
-            ui.colored_label(
-                egui::Color32::GRAY,
-                "🎨 Theme, fonts, effects, and layout have moved to the Customize tab.",
-            );
-
-        ui.collapsing("User Experience", |ui| {
-            ui.label(egui::RichText::new("Knowledge Level").strong())
-                .on_hover_text("Controls which UI controls and features are visible. Beginners see simplified panels with more hints; Experts see everything.");
-            let user_level = crate::user_level::UserLevel::from_name(&self.user_level);
-            let mut level_idx = user_level as usize;
-            ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut level_idx, 0..=3).step_by(1.0).text("Level"))
-                    .on_hover_text("Drag to change your experience level.");
-            });
-            // Show the name + description below the slider
-            if let Some(level) = [crate::user_level::UserLevel::Beginner,
-                                  crate::user_level::UserLevel::Intermediate,
-                                  crate::user_level::UserLevel::Advanced,
-                                  crate::user_level::UserLevel::ClerkMaxwell].get(level_idx) {
-                ui.colored_label(egui::Color32::from_rgb(100, 200, 255),
-                    format!("{} — {}", level.label(), level.description()));
-                self.user_level = level.to_str().to_string();
-            }
-        });
-
             ui.collapsing("Satellite Observer Location", |ui| {
                 ui.add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
                     .on_hover_text("Your latitude in decimal degrees. North positive. Used to predict satellite pass times.");
@@ -1118,50 +1086,92 @@ impl AppConfig {
             });
 
             ui.add_space(8.0);
+            let include_credentials_id = config_export_private_id(session_id);
+            let mut include_credentials = ui
+                .ctx()
+                .data_mut(|data| data.get_temp::<bool>(include_credentials_id))
+                .unwrap_or(false);
+            ui.checkbox(&mut include_credentials, "Include credentials in private backup")
+                .on_hover_text("Includes API keys and tokens. The exported file will be owner-only on Unix; store it securely.");
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(include_credentials_id, include_credentials);
+            });
             ui.horizontal(|ui| {
                 if ui.button("💾 Save & Apply").on_hover_text("Save settings to ez_sdr_config.json and apply them immediately.").clicked() {
-                    self.save();
-                    self.needs_apply = true;
+                    self.save_and_apply(save_path);
                 }
                 if ui.button("Reset to defaults").on_hover_text("Restore all settings to factory defaults. Does not delete saved recordings.").clicked() {
-                    *self = Self::default();
-                    self.needs_apply = true;
+                    self.reset_to_defaults();
                 }
-                if ui.add_enabled(job.is_none(), egui::Button::new("📤 Export…")).on_hover_text("Export config to a custom file path via file dialog.").clicked() {
+                let export_label = if include_credentials {
+                    "📤 Export private backup…"
+                } else {
+                    "📤 Export redacted…"
+                };
+                if ui.add_enabled(job.is_none(), egui::Button::new(export_label)).on_hover_text("Choose a destination for a redacted settings export, or opt in above to include credentials in a private backup.").clicked() {
                     let config = self.clone();
-                    begin_config_file_job(ui.ctx(), move || {
+                    let export_private = include_credentials;
+                    begin_config_file_job(ui.ctx(), session_id, move || {
                         let Some(path) = rfd::FileDialog::new()
-                            .set_file_name("ez_sdr_config_backup.json")
+                            .set_file_name(if export_private { "ez_sdr_private_config_backup.json" } else { "ez_sdr_config_backup.json" })
                             .add_filter("JSON", &["json"])
                             .save_file() else { return Ok(None); };
-                        let json = serde_json::to_vec_pretty(&config).map_err(|e| format!("Cannot export settings: {e}"))?;
-                        crate::bookmarks::atomic_write_file(&path, &json)
+                        config.export_to(&path, export_private)
                             .map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
                         Ok(None)
                     });
                 }
                 if ui.add_enabled(job.is_none(), egui::Button::new("📥 Import…")).on_hover_text("Load config from a previously exported JSON file.").clicked() {
-                    begin_config_file_job(ui.ctx(), || {
+                    let current = self.clone();
+                    begin_config_file_job(ui.ctx(), session_id, move || {
                         let Some(path) = rfd::FileDialog::new()
                             .add_filter("JSON", &["json"])
                             .pick_file() else { return Ok(None); };
                         let data = std::fs::read_to_string(&path)
                             .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-                        serde_json::from_str::<AppConfig>(&data).map(Some)
+                        AppConfig::import_json_preserving_credentials(&data, &current).map(Some)
                             .map_err(|e| format!("Invalid settings in {}: {e}", path.display()))
                     });
                 }
             });
             ui.colored_label(
                 egui::Color32::GRAY,
-                "Settings are saved to ez_sdr_config.json in the current directory. Spectrum dB range is saved with Ctrl+S.",
+                format!("Settings file: {}. Spectrum dB range is saved with Ctrl+S.", save_path.display()),
             );
         });
+        let apply = self.needs_apply;
+        self.needs_apply = false;
+        apply
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_receiver_settings_roundtrip_and_legacy_defaults_are_safe() {
+        let mut config = super::AppConfig::default();
+        config.source_preferences.daemon_token = "private-test-token".into();
+        config.secondary_vfo.enabled = true;
+        config.secondary_vfo.frequency_hz = 101_100_000;
+        let serialized = serde_json::to_string(&config).unwrap();
+        let restored: super::AppConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(restored.secondary_vfo, config.secondary_vfo);
+        assert_eq!(
+            restored.source_preferences.daemon_token,
+            "private-test-token"
+        );
+        assert!(!format!("{:?}", restored).contains("private-test-token"));
+        let mut legacy = serde_json::to_value(&config).unwrap();
+        legacy.as_object_mut().unwrap().remove("secondary_vfo");
+        legacy["source_preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("daemon_token");
+        let restored: super::AppConfig = serde_json::from_value(legacy).unwrap();
+        assert!(!restored.secondary_vfo.enabled);
+        assert!(restored.source_preferences.daemon_token.is_empty());
+    }
+
     use super::*;
 
     #[test]
@@ -1175,7 +1185,6 @@ mod tests {
         assert_eq!(config.default_sample_rate, 2_048_000);
         assert_eq!(config.observer_lat, 90.0);
         assert_eq!(config.observer_lon, -180.0);
-        assert!(config.layout.main_tabs.iter().any(|tab| tab.id == "meteor"));
     }
 
     #[test]
@@ -1215,11 +1224,6 @@ mod tests {
         );
     }
 
-    // `std::env::current_dir`/`set_current_dir` are process-global, so any test
-    // that changes cwd must serialize with other cwd-changing tests or they'll
-    // race and clobber each other's "restore" step under parallel test execution.
-    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn config_default_has_reasonable_freq() {
         let cfg = AppConfig::default();
@@ -1246,12 +1250,10 @@ mod tests {
     }
 
     #[test]
-    fn config_default_has_theme_and_discord() {
+    fn config_default_has_theme_and_service_defaults() {
         let cfg = AppConfig::default();
         // theme_config should have the default preset
         assert_eq!(cfg.theme_config.preset, "dark");
-        // discord should default to disabled
-        assert!(!cfg.discord.enabled);
         assert!(!cfg.rigctl_enabled);
         assert_eq!(cfg.rigctl_port, 4532);
     }
@@ -1263,55 +1265,214 @@ mod tests {
         let deserialized: AppConfig = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.default_freq_hz, cfg.default_freq_hz);
         assert_eq!(deserialized.theme, cfg.theme);
-        assert_eq!(deserialized.ai_model, cfg.ai_model);
         assert_eq!(deserialized.rigctl_enabled, cfg.rigctl_enabled);
         assert_eq!(deserialized.rigctl_port, cfg.rigctl_port);
     }
 
     #[test]
-    fn provider_presets_have_names() {
-        for p in PROVIDER_PRESETS {
-            assert!(!p.name.is_empty());
-        }
-        assert!(PROVIDER_PRESETS.iter().any(|p| p.name == "Custom"));
+    fn queued_apply_flag_is_transient_and_never_serialized() {
+        let config = AppConfig {
+            needs_apply: true,
+            ..AppConfig::default()
+        };
+        let encoded = serde_json::to_value(&config).unwrap();
+        assert!(encoded.get("needs_apply").is_none());
+        let decoded: AppConfig = serde_json::from_value(encoded).unwrap();
+        assert!(!decoded.needs_apply);
     }
 
     #[test]
     fn config_load_or_default_nonexistent_returns_default() {
-        let cfg = AppConfig::load_or_default();
+        let directory =
+            std::env::temp_dir().join(format!("ez_sdr_missing_config_{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let cfg = AppConfig::load_from(directory.join("does-not-exist.json"));
         assert_eq!(cfg.default_freq_hz, 100_000_000);
         assert_eq!(cfg.theme, "dark");
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn config_save_and_load_roundtrip() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("ez_sdr_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let original_dir = std::env::current_dir().expect("test should have a current directory");
-        std::env::set_current_dir(&dir).expect("test should cd into temp dir");
+        let path = dir.join("ez_sdr_config.json");
 
         let cfg = AppConfig {
             default_freq_hz: 433_000_000,
             theme: "light".to_string(),
-            ai_model: "custom-model".to_string(),
             output_directory: "/tmp/recordings".to_string(),
             observer_lat: 40.7128,
             observer_lon: -74.0060,
             ..Default::default()
         };
-        cfg.save();
+        cfg.save_to(&path).unwrap();
 
-        let loaded = AppConfig::load_or_default();
+        let loaded = AppConfig::load_from(&path);
         assert_eq!(loaded.default_freq_hz, 433_000_000);
         assert_eq!(loaded.theme, "light");
-        assert_eq!(loaded.ai_model, "custom-model");
         assert_eq!(loaded.output_directory, "/tmp/recordings");
         assert!((loaded.observer_lat - 40.7128).abs() < f64::EPSILON);
         assert!((loaded.observer_lon - (-74.0060)).abs() < f64::EPSILON);
 
-        std::env::set_current_dir(original_dir).expect("test should restore original directory");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn redacted_exports_omit_credentials_and_import_keeps_existing_values() {
+        let current = AppConfig {
+            source_preferences: SourcePreferences {
+                daemon_token: "daemon-token-sentinel".into(),
+                ..SourcePreferences::default()
+            },
+            theme: "light".into(),
+            ..AppConfig::default()
+        };
+
+        let exported = current.export_json(false).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&exported).unwrap();
+        assert!(value["source_preferences"].get("daemon_token").is_none());
+        let contents = String::from_utf8(exported).unwrap();
+        assert!(!contents.contains("daemon-token-sentinel"));
+
+        let imported = AppConfig::import_json_preserving_credentials(&contents, &current).unwrap();
+        assert_eq!(imported.theme, "light");
+        assert_eq!(
+            imported.source_preferences.daemon_token,
+            current.source_preferences.daemon_token
+        );
+    }
+
+    #[test]
+    fn private_backup_roundtrips_credentials_and_debug_redacts_them() {
+        let current = AppConfig {
+            source_preferences: SourcePreferences {
+                daemon_token: "daemon-token-sentinel".into(),
+                ..SourcePreferences::default()
+            },
+            ..AppConfig::default()
+        };
+        let exported = current.export_json(true).unwrap();
+        let contents = String::from_utf8(exported).unwrap();
+        let imported =
+            AppConfig::import_json_preserving_credentials(&contents, &AppConfig::default())
+                .unwrap();
+        assert_eq!(
+            imported.source_preferences.daemon_token,
+            current.source_preferences.daemon_token
+        );
+
+        let debug = format!("{current:?}");
+        assert!(!debug.contains("daemon-token-sentinel"));
+    }
+
+    #[test]
+    fn import_with_explicit_empty_credentials_clears_them() {
+        let current = AppConfig {
+            source_preferences: SourcePreferences {
+                daemon_token: "daemon-token-sentinel".into(),
+                ..SourcePreferences::default()
+            },
+            ..AppConfig::default()
+        };
+        let imported = AppConfig::import_json_preserving_credentials(
+            r#"{"source_preferences":{"daemon_token":""}}"#,
+            &current,
+        )
+        .unwrap();
+        assert!(imported.source_preferences.daemon_token.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_config_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "ez-settings-private-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("settings.json");
+        AppConfig::default().save_to(&path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_config_export_is_owner_only_and_keeps_credentials() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "ez-private-export-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("private-backup.json");
+        let config = AppConfig {
+            source_preferences: SourcePreferences {
+                daemon_token: "private-daemon-token".into(),
+                ..SourcePreferences::default()
+            },
+            ..AppConfig::default()
+        };
+        config.export_to(&path, true).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("private-daemon-token"));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_save_is_visible_and_a_successful_retry_clears_it() {
+        let directory = std::env::temp_dir().join(format!(
+            "ez-settings-save-error-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        let path = directory.join("settings.json");
+        // A directory at the destination forces a real atomic rename failure,
+        // independently of root privileges or platform permission emulation.
+        std::fs::create_dir_all(&path).unwrap();
+        let mut config = AppConfig {
+            theme: "light".into(),
+            ..Default::default()
+        };
+        assert!(!config.save_with_feedback(&path));
+        let message = config.save_error.as_ref().unwrap();
+        assert!(message.contains("Could not save settings"));
+        assert!(message.contains("settings.json"));
+        assert!(message.contains("only kept for this session"));
+        assert!(serde_json::to_value(&config)
+            .unwrap()
+            .get("save_error")
+            .is_none());
+
+        let ctx = egui::Context::default();
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            config.ui(ui, 1, &path);
+        });
+        fn contains_error(shape: &egui::Shape) -> bool {
+            match shape {
+                egui::Shape::Text(text) => text.galley.text().contains("Could not save settings"),
+                egui::Shape::Vec(shapes) => shapes.iter().any(contains_error),
+                _ => false,
+            }
+        }
+        assert!(output
+            .shapes
+            .iter()
+            .any(|shape| contains_error(&shape.shape)));
+        std::fs::remove_dir(&path).unwrap();
+        assert!(config.save_with_feedback(&path));
+        assert!(config.save_error.is_none());
+        assert_eq!(AppConfig::load_from(&path).theme, "light");
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -1323,38 +1484,6 @@ mod tests {
         assert_eq!(cfg.theme, "dark");
         assert_eq!(cfg.default_sample_rate, 2_048_000);
         assert_eq!(cfg.font_scale, 1.0);
-        assert!(!cfg.discord.enabled);
-    }
-
-    #[test]
-    fn layout_config_default_lists_all_current_tabs_and_tools_visible() {
-        let layout = LayoutConfig::default();
-        assert_eq!(
-            layout
-                .main_tabs
-                .iter()
-                .map(|i| i.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["listen", "planes", "meteor"]
-        );
-        assert_eq!(
-            layout
-                .secondary_tools
-                .iter()
-                .map(|i| i.id.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "bookmarks",
-                "scanner",
-                "recorder",
-                "scheduler",
-                "discord",
-                "howto",
-                "settings"
-            ]
-        );
-        assert!(layout.main_tabs.iter().all(|i| i.visible));
-        assert!(layout.secondary_tools.iter().all(|i| i.visible));
     }
 
     #[test]
@@ -1364,73 +1493,9 @@ mod tests {
     }
 
     #[test]
-    fn layout_migration_maps_legacy_tabs_to_current_modes() {
-        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = std::env::temp_dir().join(format!("ez_sdr_test_migrate_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let original_dir = std::env::current_dir().expect("test should have a current directory");
-        std::env::set_current_dir(&dir).expect("test should cd into temp dir");
-
-        // Simulate a config saved under the old 6-tab layout.
-        let old_layout = LayoutConfig {
-            main_tabs: vec![
-                LayoutItem {
-                    id: "sdr".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "adsb".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "satellite".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "ai".into(),
-                    visible: true,
-                },
-                LayoutItem {
-                    id: "decoding".into(),
-                    visible: true,
-                },
-            ],
-            ..Default::default()
-        };
-        let old_cfg = AppConfig {
-            layout: old_layout,
-            ..Default::default()
-        };
-        old_cfg.save();
-
-        let loaded = AppConfig::load_or_default();
-        let ids: Vec<&str> = loaded
-            .layout
-            .main_tabs
-            .iter()
-            .map(|i| i.id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["listen", "planes", "meteor"]);
-        assert!(
-            loaded
-                .layout
-                .main_tabs
-                .iter()
-                .find(|i| i.id == "listen")
-                .expect("listen entry should be present")
-                .visible
-        );
-        assert!(!loaded.layout.main_tabs.iter().any(|i| i.id == "decoding"));
-
-        std::env::set_current_dir(original_dir).expect("test should restore original directory");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn config_missing_layout_and_custom_themes_fall_back_to_defaults() {
+    fn config_missing_custom_themes_fall_back_to_defaults() {
         let json = r#"{"default_freq_hz": 144000000}"#;
         let cfg: AppConfig = serde_json::from_str(json).expect("partial deserialize");
-        assert_eq!(cfg.layout, LayoutConfig::default());
         assert!(cfg.custom_themes.is_empty());
     }
 
@@ -1450,13 +1515,25 @@ mod tests {
     }
 
     #[test]
-    fn config_partial_json_theme_and_discord() {
-        let json = r#"{"theme": "light", "discord": {"enabled": true}}"#;
-        let cfg: AppConfig = serde_json::from_str(json)
-            .expect("config partial JSON should deserialize with defaults");
-        assert_eq!(cfg.theme, "light");
-        assert!(cfg.discord.enabled);
-        assert_eq!(cfg.default_freq_hz, 100_000_000);
+    fn config_keeps_legacy_theme_fields_readable() {
+        let theme = serde_json::to_value(ThemeConfig::light()).unwrap();
+        let legacy_json = serde_json::json!({
+            "ai_api_key": "ignored-legacy-key",
+            "custom_themes": [{
+                "id": "legacy-theme",
+                "name": "Legacy Theme",
+                "theme": theme
+            }]
+        });
+        let loaded: AppConfig = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(loaded.custom_themes[0].name, "Legacy Theme");
+        assert!(serde_json::to_value(&loaded)
+            .unwrap()
+            .get("ai_api_key")
+            .is_none());
+        let roundtrip: AppConfig =
+            serde_json::from_value(serde_json::to_value(loaded).unwrap()).unwrap();
+        assert_eq!(roundtrip.custom_themes[0].theme.preset, "light");
     }
 
     #[test]
@@ -1477,11 +1554,81 @@ mod tests {
 
     #[test]
     fn config_edge_values_empty_strings() {
-        let json = r#"{"version": "0.1.0", "theme": "", "output_directory": "", "ai_model": ""}"#;
+        let json = r#"{"version": "0.1.0", "theme": "", "output_directory": ""}"#;
         let cfg: AppConfig =
             serde_json::from_str(json).expect("config empty strings JSON should deserialize");
         assert_eq!(cfg.theme, "");
         assert_eq!(cfg.output_directory, "");
-        assert_eq!(cfg.ai_model, "");
+    }
+    #[test]
+    fn saved_display_normalization_migrates_aliases_and_rejects_invalid_values() {
+        let mut legacy = AppConfig {
+            spectrum_min_db: -93.0,
+            spectrum_max_db: -3.0,
+            ..Default::default()
+        };
+        legacy.advanced.fft_hold = 3.0;
+        legacy.advanced.smoothing_speed = 0.8;
+        legacy.normalize();
+        assert_eq!(
+            (legacy.advanced.db_min, legacy.advanced.db_max),
+            (-93.0, -3.0)
+        );
+        assert_eq!(legacy.advanced.peak_hold_time, 3.0);
+        assert!((legacy.advanced.avg_alpha - 0.2).abs() < 1e-6);
+        let before = legacy.advanced.clone();
+        legacy.normalize();
+        assert_eq!(legacy.advanced, before);
+
+        let mut invalid = AppConfig {
+            ppm_correction: 10_000,
+            color_map: "missing".into(),
+            wf_min_db: f32::NAN,
+            wf_max_db: f32::INFINITY,
+            ..Default::default()
+        };
+        let a = &mut invalid.advanced;
+        a.fft_size = usize::MAX;
+        a.fft_rate = 0;
+        a.wf_depth = usize::MAX;
+        a.wf_speed = 0;
+        a.window = "missing".into();
+        a.snr_smoothing_secs = f32::NAN;
+        a.peak_hold_time = f32::NAN;
+        a.avg_alpha = f32::NAN;
+        a.persistence = f32::INFINITY;
+        a.db_min = f32::NAN;
+        a.db_max = f32::NEG_INFINITY;
+        invalid.normalize();
+        let a = &invalid.advanced;
+        assert_eq!(
+            (a.fft_size, a.fft_rate, a.wf_depth, a.wf_speed),
+            (2048, 1, 4096, 1)
+        );
+        assert_eq!(
+            (
+                a.window.as_str(),
+                invalid.color_map.as_str(),
+                invalid.ppm_correction
+            ),
+            ("Hann", "Classic", 100)
+        );
+        for value in [
+            a.snr_smoothing_secs,
+            a.peak_hold_time,
+            a.avg_alpha,
+            a.persistence,
+            a.db_min,
+            a.db_max,
+            invalid.wf_min_db,
+            invalid.wf_max_db,
+        ] {
+            assert!(value.is_finite());
+        }
+        assert!(a.db_max >= a.db_min + 10.0);
+        let encoded = serde_json::to_vec(&invalid).unwrap();
+        let mut decoded: AppConfig = serde_json::from_slice(&encoded).unwrap();
+        decoded.normalize();
+        assert_eq!(decoded.advanced, invalid.advanced);
     }
 }

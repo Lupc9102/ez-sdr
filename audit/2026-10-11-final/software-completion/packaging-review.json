@@ -1,0 +1,72 @@
+{
+  "reviewed_at": "2026-10-12",
+  "scope": [
+    "scripts/package-macos-release.sh",
+    "scripts/package-windows-release.sh",
+    ".github/workflows/release.yml",
+    "DISTRIBUTION.md"
+  ],
+  "macos_native_pins": {
+    "rtl_sdr": {
+      "url": "https://github.com/osmocom/rtl-sdr/archive/v2.0.3/rtl-sdr-2.0.3.tar.gz",
+      "sha256": "23dec530f40456a8396e7c897f313859877e18b4c6432c6d323645871e351f6f",
+      "archive_root": "rtl-sdr-2.0.3/",
+      "status": "downloaded; SHA-256 matched; source tree extracted"
+    },
+    "libusb": {
+      "url": "https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.tar.bz2",
+      "sha256": "fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf",
+      "status": "downloaded; SHA-256 matched; source tree extracted"
+    }
+  },
+  "windows_msys2_pins": {
+    "rtl_sdr": {
+      "package_url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-rtl-sdr-2.0.3-1-any.pkg.tar.zst",
+      "signature_url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-rtl-sdr-2.0.3-1-any.pkg.tar.zst.sig",
+      "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-rtl-sdr-2.0.3-1.src.tar.zst",
+      "source_signature_url": "https://repo.msys2.org/mingw/sources/mingw-w64-rtl-sdr-2.0.3-1.src.tar.zst.sig",
+      "source_sha256": "9bc0f184c2b128b46e9dffad92f384cc809e8b48b95e0635ab01e9d3ce1ad7b4",
+      "source_contents": "PKGBUILD and the upstream rtl-sdr-2.0.3.tar.gz source archive"
+    },
+    "libusb": {
+      "package_url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libusb-1.0.30-1-any.pkg.tar.zst",
+      "signature_url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libusb-1.0.30-1-any.pkg.tar.zst.sig",
+      "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-libusb-1.0.30-1.src.tar.zst",
+      "source_signature_url": "https://repo.msys2.org/mingw/sources/mingw-w64-libusb-1.0.30-1.src.tar.zst.sig",
+      "source_sha256": "e1052bbff0fe7a7ce25b847ca5f69d7ecafe1c644a3d07f971e770c3a44724f6",
+      "source_contents": "PKGBUILD and the upstream libusb-1.0.30.tar.bz2 source archive"
+    },
+    "gcc_runtime": {
+      "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gcc-16.2.0-5.src.tar.zst",
+      "source_sha256": "8bd5fd785bdf8ed2b6c3baedeb37d3fb724a79cd57802165d9a784da00980661",
+      "source_contents": "PKGBUILD, GCC 16.2.0 upstream gcc-16.2.0.tar.xz and signature, and package patches"
+    },
+    "winpthreads_runtime": {
+      "source_url": "https://repo.msys2.org/mingw/sources/mingw-w64-winpthreads-14.0.0.r426.g4564ee4b5-1.src.tar.zst",
+      "source_sha256": "5493832de1b7e24f09edb556ed409091b0844f9677212c4865618d6f93c508be",
+      "source_contents": "PKGBUILD, upstream mingw-w64 git object pack, and package patches"
+    },
+    "package_and_signature_http_status": 200,
+    "source_tarball_and_signature_http_status": 200
+  },
+  "checks": {
+    "bash_syntax": "passed for Linux, Windows, and macOS packaging scripts",
+    "git_diff_check": "passed",
+    "native_dependency_build": "passed: libusb 1.0.30 and osmocom rtl-sdr 2.0.3 configured, built, and installed on Linux with the packaging CMake/pkg-config arguments",
+    "windows_macos_runtime_validation": "not run; Windows cross-check is being run by the parent agent; this Linux host cannot verify Windows runtime startup or macOS dylib loading"
+  },
+  "release_guard": {
+    "uat_decode_crate_included": true,
+    "flightaware_bsd_license_included": true,
+    "fec_lgpl_license_included": true
+  },
+  "windows_pkg_config": {
+    "target": "x86_64-pc-windows-gnu",
+    "host_processes": "Native Windows Rust/Cargo build scripts invoked from MSYS2 UCRT64",
+    "pkg_config_executable": "Resolved pkgconf path converted with cygpath -w and passed as PKG_CONFIG",
+    "search_paths": "Only UCRT64 lib/pkgconfig and share/pkgconfig, converted to native Windows paths; inherited host search paths cleared",
+    "cross_guard": "PKG_CONFIG_ALLOW_CROSS=1; inherited PKG_CONFIG_SYSROOT_DIR unset",
+    "preflight": "Checks libusb-1.0 and librtlsdr resolve libdir to /ucrt64/lib before Cargo build",
+    "validation": "Script syntax passed; native Windows pkgconf/Cargo execution remains unverified on this Linux host"
+  }
+}

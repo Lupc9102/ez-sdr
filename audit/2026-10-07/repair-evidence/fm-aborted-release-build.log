@@ -1,0 +1,28 @@
+   Compiling mio v1.2.3
+   Compiling num-traits v0.2.19
+   Compiling alsa-sys v0.4.0
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling rtlsdr_sys v1.1.2
+   Compiling cpal v0.18.2
+   Compiling dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+   Compiling dasp_sample v0.11.0
+   Compiling tokio v1.53.1
+   Compiling alsa v0.11.0
+   Compiling enum-primitive-derive v0.3.0
+   Compiling pulseaudio v0.3.1
+   Compiling tokio-util v0.7.19
+   Compiling hyper v1.11.1
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.5
+   Compiling tokio-tungstenite v0.29.0
+   Compiling tokio-stream v0.1.19
+   Compiling tokio-tungstenite v0.24.0
+   Compiling tower-http v0.6.11
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling rumqttc v0.25.1
+   Compiling hyper-util v0.1.21
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+   Compiling axum v0.8.9
+   Compiling hyper-rustls v0.27.10
+   Compiling reqwest v0.12.28
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)

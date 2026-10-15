@@ -1,0 +1,35 @@
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 16s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-72867641d7d52d15)
+
+running 23 tests
+test pipelines::audio::selection_tests::audio_parameter_geometry_is_validated_even_when_raw_selection_is_bypassed ... ok
+test pipelines::audio::selection_tests::independent_pcm_clock_preserves_rational_rf_provenance_and_partition_history ... ok
+test pipelines::audio::selection_tests::selected_am_fm_wfm_reject_strong_neighbors_before_detection_and_squelch ... selected_rf_mixtures=12 adjacent_to_wanted_db=27.9588 max_relative_pcm_error=0.000003865
+ok
+test pipelines::audio::tests::am_envelope_responds_to_an_amplitude_step ... ok
+test pipelines::audio::tests::am_envelope_settles_near_zero_under_a_constant_carrier ... ok
+test pipelines::audio::tests::default_squelch_passes_a_normal_signal_through ... ok
+test pipelines::audio::tests::fm_discriminator_recovers_constant_offset_as_constant_level ... ok
+test pipelines::audio::tests::fm_discriminator_state_is_continuous_across_ticks ... ok
+test pipelines::audio::tests::fm_output_is_clamped_to_unit_range_under_excessive_deviation ... ok
+test pipelines::audio::tests::missing_samples_or_changed_epoch_reset_every_audio_mode ... ok
+test pipelines::audio::tests::raising_squelch_above_signal_power_silences_output ... ok
+test pipelines::audio::tests::raw_mode_passes_through_the_i_channel ... ok
+test pipelines::audio::tests::run_exits_promptly_when_running_flag_clears ... ok
+test pipelines::audio::tests::set_mode_resets_carried_state_without_panicking ... ok
+test pipelines::audio::tests::set_volume_clamps_to_the_documented_range ... ok
+test pipelines::audio::tests::squelch_gates_output_without_discarding_discriminator_continuity ... ok
+test pipelines::audio::tests::ssb_production_fractional_clock_chunks_mode_changes_and_gaps_preserve_history ... ok
+test pipelines::audio::tests::ssb_production_whole_voice_band_rejects_strong_opposite_signals_without_pitch_shift ... ssb_production voice_checks=336 max_gain_error_db=0.02520669 min_rejection_db=92.681208 max_21_94db_stronger_opposite_mixture_error_db=0.00251525
+ok
+test pipelines::audio::tests::subscriber_count_reflects_subscriptions ... ok
+test pipelines::audio::tests::tick_times_out_cleanly_when_idle ... ok
+test pipelines::audio::tests::usb_and_lsb_reject_the_opposite_sideband ... ok
+test pipelines::audio::tests::volume_scales_raw_output_and_stays_clamped_to_unit_range ... ok
+test pipelines::audio::tests::wfm_deemphasis_attenuates_higher_frequencies ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 214 filtered out; finished in 126.49s
+

@@ -192,6 +192,7 @@ pub struct RtlSdr {
     gain: f64,
     ppm: i32,
     direct_sampling: i32,
+    digital_agc: bool,
     gains: Vec<i32>,
     read_buf: Vec<u8>,
 }

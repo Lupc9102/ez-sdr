@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-10",
+  "scope": "Locate independent off-air recordings without replacing the original S01 gates",
+  "candidates": [
+    {
+      "source": "https://community.libre.space/t/oqpsk-for-meteor-mn2-2-lrpt/4383",
+      "operator": "vk5qi",
+      "post_date": "2019-07-24",
+      "observation": "https://network.satnogs.org/observations/858187/",
+      "recording": "https://satnogs-iq.s3-ap-southeast-2.amazonaws.com/858187.raw",
+      "reported_symbol_rate": 80000,
+      "availability_check": {
+        "method": "HTTP HEAD",
+        "http_status": 404,
+        "server_date": "Sat, 10 Oct 2026 13:47:10 GMT",
+        "server": "AmazonS3"
+      },
+      "validation": "No recording downloaded or decoded; this unavailable URL does not satisfy the 80k gate"
+    },
+    {
+      "source": "https://blog.chaospixel.com/linux/2019/12/receive-meteor-satellite-images-with-rtlsdr-gqrx-linux.html",
+      "directory": "https://chaospixel.com/pub/rtlsdr/gqrx_meteor/samples/",
+      "availability_check": {
+        "method": "HTTP HEAD followed by GET of the 2990-byte directory listing",
+        "http_status": 200,
+        "server_date": "Sat, 10 Oct 2026 13:47:10 GMT"
+      },
+      "listed_files": [
+        "RPT_2019_11_03-16_49.s",
+        "gqrx_20191103_133844_137900000_144000_fc.raw"
+      ],
+      "validation": "A further 72k candidate according to the operator's article; file format, contents, symbols and images remain unverified. This is not an 80k substitute."
+    },
+    {
+      "source": "https://github.com/SatDump/SatDump/issues/1212",
+      "recording": "https://cloud.a-where.com/api/public/dl/5LJfxV3S/2026-09-02_13-32-03_288000SPS_137900000Hz.ziq",
+      "availability_check": {
+        "head_status": 404,
+        "get_range_status": 206,
+        "requested_range": "bytes=0-31",
+        "returned_range": "bytes 0-31/382999018",
+        "returned_bytes": 32,
+        "server_date": "Sat, 10 Oct 2026 13:50:34 GMT",
+        "ziq_signature_hex": "5a49515f"
+      },
+      "local_state": "Fresh downloads and the complete-pair CS8 prefix are restored in /home/lupc/.cache/ez-sdr-audit/meteor-public-1010. All four downloaded files and the 522,059,776-byte CS8 prefix match previous SHA-256 identities; see public-meteor-download-1010.json and public-meteor-prefix-1010.json. The compressed recording remains truncated. No new decoder comparison is claimed.",
+      "validation": "Historical 72k comparison remains in public-meteor-reference.json. A new full-pass comparison requires fresh downloads. HEAD alone gives a misleading unavailable result on this endpoint."
+    },
+    {
+      "source": "https://www.reddit.com/r/RTLSDR/comments/cpkgya/meteor_m22_decoding_issues/",
+      "operator": "Kryptk9",
+      "post_date": "2019-08-12",
+      "recording": "https://1drv.ms/u/s!Apcb6nLSojsmp2Qp7xdENFXTHpUR",
+      "reported_symbol_rate": 80000,
+      "availability_check": {
+        "checked_utc": "2026-10-10T14:19:06.817820+00:00",
+        "public_page_head_status": 200,
+        "public_page_bytes": 136570,
+        "anonymous_onedrive_share_metadata_status": 404,
+        "browser_checked_utc": "2026-10-10T14:34:05.689733+00:00",
+        "browser_page_title": "Error",
+        "browser_page_message": "Sorry, you cannot access this document. Please contact the person who shared it with you.",
+        "canonical_metadata_status": 400,
+        "canonical_metadata_error": "Invalid shares key.",
+        "direct_download_probe": {
+          "http_status": 200,
+          "content_type": "text/html; charset=utf-8",
+          "bytes": 136456,
+          "binary_recording": false
+        }
+      },
+      "validation": "The operator explicitly reports 80k OQPSK. The public share renders an access-denied document error in the browser. No recording obtained; the HTML HTTP 200 response does not establish file availability. No login, permission change or message to the operator was attempted."
+    },
+    {
+      "source": "https://www.reddit.com/r/RTLSDR/comments/cbhawz/raw_data_from_meteorm_n22/",
+      "operator": "Salansky",
+      "post_date": "2019-07-10",
+      "recording": "https://europefromspace.online/meteor-m2/m22/20190710-1553.wav",
+      "availability_check": {
+        "head_error": "No route to host"
+      },
+      "validation": "No recording obtained. Post does not establish interleaved 80k transport; date precedes the July 24 operator report of switching to 80k."
+    },
+    {
+      "source": "https://www.reddit.com/r/RTLSDR/comments/cghst2/can_someone_decode_this_meteor_m_n22_pass_for_me/",
+      "operator": "ka_re_t",
+      "recording": "https://karsey.dev/me/wp-content/uploads/2019/07/DecodedAndDeveloped.7z",
+      "availability_check": {
+        "head_status": 403
+      },
+      "validation": "The IQ link has been removed from the operator post. A commenter offered artifacts after the IQ stage, but their archive returns 403. No data obtained; post does not establish the required 80k transport."
+    }
+  ],
+  "original_repair_and_release_gates_changed": false
+}

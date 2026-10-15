@@ -1,0 +1,53 @@
+{
+  "batch": 26,
+  "findings": [],
+  "experiments_completed": [
+    "Observer/pass recomputation cost for the supported catalog"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "production_tests": "Production code unchanged; batch25 workspace evidence: 1635 passed, 0 failed, 8 ignored",
+  "benchmark_execution": "passed",
+  "example_test_target": "passed (zero test functions)",
+  "strict_clippy": "workspace all-target passed",
+  "changed_files_format": "passed (one Rust example)",
+  "graphify": "refreshed (6787 nodes, 14992 edges)",
+  "protocol_version": 8,
+  "benchmark": {
+    "build": "unoptimized dev",
+    "supported_satellites": 3,
+    "pass_horizon_hours": 72,
+    "trajectory_horizon_hours": 6,
+    "samples_per_case": 90,
+    "observer_invalidation_us": {
+      "p50": 15607,
+      "p95": 16015,
+      "p99": 20512,
+      "max": 20512
+    },
+    "catalog_invalidation_us": {
+      "p50": 15591,
+      "p95": 16217,
+      "p99": 19903,
+      "max": 19903
+    },
+    "cold_passes_and_selected_trajectory_us": {
+      "p50": 17075,
+      "p95": 17600,
+      "p99": 27078,
+      "max": 27078
+    },
+    "cached_pass_lookup_us": {
+      "p50": 0,
+      "p95": 0,
+      "p99": 1,
+      "max": 1
+    }
+  },
+  "limitations": [
+    "Measures CPU/lock occupancy for supported three-satellite catalog, not unsupported larger catalogs, optimized release, native display latency or orbit accuracy",
+    "Synchronous cold orbit computation can cost one GUI frame; independent capture consumers no longer acquire that GUI mutex and pass longer held-lock regressions",
+    "All 42 formal findings and two of eight additional experiments complete; remaining software experiments keep the goal active",
+    "Physical SDR/USB, calibrated RF and unavailable reference captures are user-deferred; physical audio and actual-display behavior remain unverified",
+    "Original audit evidence, 672 baseline tracked deletions, untracked AGENTS.md and three untouched formatting differences preserved"
+  ]
+}

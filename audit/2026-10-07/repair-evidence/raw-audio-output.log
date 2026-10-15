@@ -1,0 +1,29 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 6 tests
+test audio_output::tests::asynchronous_stream_error_changes_running_state_and_can_be_drained ... ok
+test audio_output::tests::audio_disabled_reports_failure_for_start_and_enumeration ... ok
+test audio_output::tests::changing_running_selection_requires_stop_without_reopening_hardware ... ok
+test audio_output::tests::defaults_and_stop_reset_state ... ok
+test audio_output::tests::input_channel_count_is_validated_without_opening_hardware ... ok
+test audio_output::tests::selection_uses_id_and_never_falls_back_to_another_device ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 877 filtered out; finished in 0.00s

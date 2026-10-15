@@ -1,0 +1,226 @@
+{
+  "all_recordings_complete": true,
+  "cases": [
+    {
+      "case": "spectrum-wide",
+      "frame_cpu": {
+        "max": 14839,
+        "p50": 10231,
+        "p95": 12493,
+        "p99": 14716,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 6988,
+        "p50": 3866,
+        "p95": 4839,
+        "p99": 5824,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1920,
+        1012
+      ],
+      "tessellation": {
+        "max": 2058,
+        "p50": 1249,
+        "p95": 1869,
+        "p99": 2022,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 7462,
+        "p50": 4571,
+        "p95": 5870,
+        "p99": 7353,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "spectrum-small",
+      "frame_cpu": {
+        "max": 12299,
+        "p50": 9735,
+        "p95": 11342,
+        "p99": 12052,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 5371,
+        "p50": 3863,
+        "p95": 4549,
+        "p99": 5179,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1000,
+        700
+      ],
+      "tessellation": {
+        "max": 1388,
+        "p50": 851,
+        "p95": 1275,
+        "p99": 1387,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 6196,
+        "p50": 4416,
+        "p95": 5469,
+        "p99": 6024,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "dense-aircraft",
+      "frame_cpu": {
+        "max": 18387,
+        "p50": 16293,
+        "p95": 17416,
+        "p99": 18036,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 3611,
+        "p50": 2914,
+        "p95": 3151,
+        "p99": 3593,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1920,
+        1012
+      ],
+      "tessellation": {
+        "max": 2425,
+        "p50": 1699,
+        "p95": 1931,
+        "p99": 2209,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 12360,
+        "p50": 11052,
+        "p95": 11939,
+        "p99": 12088,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "dense-map-drag",
+      "frame_cpu": {
+        "max": 43027,
+        "p50": 18471,
+        "p95": 20672,
+        "p99": 23951,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 4452,
+        "p50": 2939,
+        "p95": 3079,
+        "p99": 3454,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1920,
+        1012
+      ],
+      "tessellation": {
+        "max": 2609,
+        "p50": 1732,
+        "p95": 2128,
+        "p99": 2350,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 36980,
+        "p50": 13098,
+        "p95": 15293,
+        "p99": 18073,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "satellite-map",
+      "frame_cpu": {
+        "max": 14639,
+        "p50": 11174,
+        "p95": 13237,
+        "p99": 14457,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 4656,
+        "p50": 3652,
+        "p95": 4305,
+        "p99": 4451,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1400,
+        900
+      ],
+      "tessellation": {
+        "max": 2314,
+        "p50": 1429,
+        "p95": 2205,
+        "p99": 2289,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 8437,
+        "p50": 5576,
+        "p95": 7233,
+        "p99": 7661,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    }
+  ],
+  "cf32_bytes": 212992000,
+  "map_drag_verified": true,
+  "mode": "debug CPU/headless; no GPU or physical devices",
+  "native_blocks": 1625,
+  "native_rf_processing": {
+    "max": 6866,
+    "p50": 3789,
+    "p95": 5060,
+    "p99": 5824,
+    "samples": 1625,
+    "unit": "microseconds"
+  },
+  "native_samples": 26624000,
+  "native_timing_cap": 8192,
+  "native_timing_truncated": false,
+  "network": "disconnected map fixture; no tile/geolocation requests",
+  "percentiles": "nearest rank, 120 measured frames per case, 10 warmup frames excluded",
+  "radio_lost_samples": 0,
+  "raw_bytes": 53248000,
+  "rf_processing_scope": "native Processor::process per 16384-sample block; excludes receive/configure/wait and timing-storage overhead",
+  "wav_samples": 532479
+}

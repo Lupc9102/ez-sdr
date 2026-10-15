@@ -1,0 +1,19 @@
+{
+  "checked_utc": "2026-10-12T15:17:47.537573+00:00",
+  "exit_code": 0,
+  "target": "x86_64-pc-windows-gnu",
+  "command": "cargo check --workspace --locked --target x86_64-pc-windows-gnu --features ez-daemon/rtlsdr,dump1090/rtlsdr",
+  "scope": "Complete workspace Windows GNU compilation with default GUI audio/RTL support; native Windows installer/runtime not executed",
+  "compiler": "Ubuntu GCC MinGW 13-posix, extracted official packages in /tmp/ez-sdr-windows-toolchain",
+  "pkg_config": {
+    "allow_cross": true,
+    "sysroot": "/tmp/ez-sdr-windows-toolchain/sysroot",
+    "libdir": "/tmp/ez-sdr-windows-toolchain/sysroot/ucrt64/lib/pkgconfig"
+  },
+  "native_packages": {
+    "libusb.pkg.tar.zst": "20106e6ff31b4581bb111b28a68b6b79a50dc3e5fc3033944e1c4b3ff8cd812e",
+    "rtlsdr.pkg.tar.zst": "fc63907a253084a884190c5cf0838e3a8a9d4d782f42ce80b59cc0db443f9ea7"
+  },
+  "log": "audit/2026-10-11-final/software-completion/evidence/windows-check.log",
+  "log_sha256": "75da05e06c168905f8c572a5cde7af88a6111c5e93e4e93d1a5e97a205a32d98"
+}

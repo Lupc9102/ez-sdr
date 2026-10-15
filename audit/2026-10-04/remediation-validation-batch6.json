@@ -1,0 +1,29 @@
+{
+  "batch": 6,
+  "findings": [
+    "A16"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1505,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "protocol_version": 4,
+  "regressions": [
+    "Real local and daemon Mode S IQ counter/rate snapshots",
+    "UAT received/rejected/dropped accounting and idle rate expiry",
+    "Rate window expires without new traffic; known cadence, bounded buckets, resets/rewind",
+    "Repeated daemon aircraft snapshots do not fabricate reception",
+    "Wire codec preserves receiver statistics and channel identity"
+  ],
+  "limitations": [
+    "Remaining capture-clock/channelizer/continuous-processing findings remain pending",
+    "Five untouched files still differ under full workspace formatting",
+    "Hardware and off-air experiments remain pending"
+  ]
+}

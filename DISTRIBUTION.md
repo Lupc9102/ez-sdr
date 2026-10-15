@@ -1,0 +1,119 @@
+# Installing EZ-SDR releases
+
+Release artifacts are built from a clean version tag. Each archive or installer
+includes the matching application source commit, vendored Cargo dependencies,
+license notices, native dependency source where applicable, and an internal
+`SHA256SUMS` manifest. Extract the Linux archive or portable ZIP, or mount the
+macOS DMG, then change into the package directory (or mounted volume root)
+containing `SHA256SUMS`. Run `sha256sum -c SHA256SUMS` on Linux/Git Bash or
+`shasum -a 256 -c SHA256SUMS` on macOS. The Windows installer copies the same
+package directory, including that manifest, into its installation directory.
+
+The Linux download checksum is named
+`ez-sdr-<version>-linux-x86_64.tar.gz.sha256`; the Windows checksum file
+`ez-sdr-<version>-windows-x86_64.sha256` covers both the portable ZIP and setup
+EXE; the macOS checksum is `ez-sdr-<version>-macos-x86_64.dmg.sha256`. Keep the
+matching `.sha256` file beside the downloaded container and verify it from that
+directory with `sha256sum -c <filename>.sha256` (Linux/Windows GNU coreutils) or
+`shasum -a 256 -c <filename>.sha256` (macOS). The checksum file records the
+container's filename, so run the command from the directory containing both.
+
+## Linux x86_64
+
+The Linux archive contains `bin/ez-gui`, `bin/ez-daemon`, and `bin/dump1090`.
+It is built on Ubuntu 24.04 and uses system libraries. On Ubuntu 24.04 install:
+
+```sh
+sudo apt update
+sudo apt install libasound2t64 libpulse0 librtlsdr2 libusb-1.0-0 libudev1 libcap2
+```
+
+Extract the archive and run `./bin/ez-gui`. For RTL-SDR reception, connect a
+supported receiver and make it accessible to the current user. Audio can use
+ALSA or a PulseAudio-compatible service such as PulseAudio or PipeWire's
+PulseAudio server.
+
+On Linux, settings are stored under `${XDG_CONFIG_HOME:-~/.config}/ez-sdr`,
+bookmarks and signal history under `${XDG_DATA_HOME:-~/.local/share}/ez-sdr`,
+map tiles under `${XDG_CACHE_HOME:-~/.cache}/ez-sdr/tile_cache`, and default
+recordings under the data directory's `recordings/` folder. Relative XDG roots
+are ignored in favor of the HOME-based location. These paths are independent of
+the launch directory; migrated replay and custom recording paths keep their old
+location.
+
+## Windows x86_64
+
+Use either the portable ZIP or the `-setup.exe` installer. The installer adds
+an EZ-SDR Start Menu shortcut and can add a desktop shortcut. The archive and
+installer bundle `librtlsdr.dll`, `libusb-1.0.dll`, and every other non-system
+DLL imported by the release binaries beside the executables; no separate RTL-SDR
+runtime installation is needed.
+
+On Windows, installed and portable GUI builds store settings, bookmarks, map
+cache and default recordings in `%LOCALAPPDATA%\EZ-SDR`. The GUI creates this
+folder before loading settings, including when launched directly from its EXE.
+Missing settings/bookmarks/signal history are copied from the old launch directory
+or EXE folder; existing per-user files take precedence. Old files are left in
+place. Relative replay paths and custom recording locations retain their original
+base; the default `./recordings` folder now lives under the per-user directory.
+Settings write failures are shown in Settings and the status strip. If the
+per-user folder cannot be prepared, a startup error window explains the failure.
+
+## macOS data locations
+
+The GUI stores settings, bookmarks, signal history and default recordings in
+`~/Library/Application Support/EZ-SDR`; map tiles use
+`~/Library/Caches/EZ-SDR/tile_cache`. These paths are independent of whether the
+app was launched from Finder or a terminal. Relative replay and custom recording
+paths from a portable configuration are anchored to the original launch folder
+when preferences are migrated. A startup window reports any user-folder
+preparation failure.
+
+For RTL-SDR USB reception, install the WinUSB driver for the receiver with
+[Zadig](https://zadig.akeo.ie/). In Zadig, select the receiver, choose WinUSB,
+and install or replace its driver. This replaces the receiver's current Windows
+driver, so restore that driver with Device Manager if another application needs
+it. Audio uses the Windows audio APIs and does not need a separate audio runtime.
+
+The portable ZIP includes the matching `SOURCE-CODE.tar.gz`, `SOURCE-COMMIT.txt`,
+`SOURCE/` native source archives, and `LICENSES/` notices. The installer puts the
+same files under its installation directory.
+
+The Windows release is built on a Windows 2022 runner in the MSYS2 UCRT64
+environment with Rust 1.92 and the x86_64 GNU target. The packaging script fetches
+the exact signed RTL-SDR and libusb packages named in `NATIVE-LIBRARIES.txt`; it
+includes their matching signed source archives and the versions of the UCRT64
+compiler runtimes actually installed in that build environment.
+
+## macOS Intel x86_64
+
+Open the DMG and drag `EZ-SDR.app` to Applications. The app bundle contains the
+RTL-SDR and libusb runtime libraries in `Contents/Frameworks`; audio uses
+CoreAudio and needs no separate audio runtime. The bundle also contains the
+`ez-daemon` and `dump1090` command-line executables in `Contents/MacOS`.
+
+The macOS release is an unsigned, unnotarized DMG. On first launch, macOS may
+require opening the app from Finder's context menu. An Apple Developer ID,
+notarization credentials, and a signing workflow are required before distributing
+a notarized build.
+
+The DMG includes `SOURCE-CODE.tar.gz`, which contains the matching EZ-SDR source,
+vendored Cargo dependencies, and the exact libusb and RTL-SDR source trees used
+to build the bundled libraries. License notices are in the app bundle under
+`Contents/Resources/LICENSES/` and alongside the app in the DMG.
+
+## Build from included source
+
+The source archive targets Rust 1.92.0 and includes the locked Cargo registry
+sources. Platform build details and native source versions are recorded in
+`NATIVE-LIBRARIES.txt`. Each platform's source archive and vendor dependencies
+are generated from the same tagged commit as its binaries. See `LICENSES/` for
+license texts and component provenance.
+
+## 978 MHz UAT
+
+All desktop packages include the Rust native UAT decoder. Native IQ mode needs
+no separately installed decoder; the selected capture must be centered on
+978 MHz and run at 2,083,333 complex samples/second. The optional dump978-fa
+JSON source mode requires a separately installed dump978-fa and its compatible
+SDR driver. See the UAT section in the README for setup details.

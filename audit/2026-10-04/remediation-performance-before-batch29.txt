@@ -1,0 +1,233 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.52s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+test app::app_performance_tests::profile_frames_with_continuous_native_recording has been running for over 60 seconds
+{
+  "all_recordings_complete": true,
+  "cases": [
+    {
+      "case": "spectrum-wide",
+      "frame_cpu": {
+        "max": 15256,
+        "p50": 10245,
+        "p95": 12159,
+        "p99": 14304,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 5875,
+        "p50": 3853,
+        "p95": 4385,
+        "p99": 4967,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1920,
+        1012
+      ],
+      "tessellation": {
+        "max": 2067,
+        "p50": 1284,
+        "p95": 1750,
+        "p99": 2028,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 7511,
+        "p50": 4561,
+        "p95": 5918,
+        "p99": 7280,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "spectrum-small",
+      "frame_cpu": {
+        "max": 14739,
+        "p50": 9498,
+        "p95": 11350,
+        "p99": 12705,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 5543,
+        "p50": 3828,
+        "p95": 4730,
+        "p99": 5493,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1000,
+        700
+      ],
+      "tessellation": {
+        "max": 1426,
+        "p50": 840,
+        "p95": 1321,
+        "p99": 1397,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 7125,
+        "p50": 4296,
+        "p95": 5451,
+        "p99": 6003,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "dense-aircraft",
+      "frame_cpu": {
+        "max": 662253,
+        "p50": 207180,
+        "p95": 219797,
+        "p99": 655485,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 3781,
+        "p50": 3103,
+        "p95": 3438,
+        "p99": 3637,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1920,
+        1012
+      ],
+      "tessellation": {
+        "max": 10336,
+        "p50": 7021,
+        "p95": 8317,
+        "p99": 9081,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 614754,
+        "p50": 160231,
+        "p95": 170611,
+        "p99": 607861,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "dense-map-drag",
+      "frame_cpu": {
+        "max": 693190,
+        "p50": 210501,
+        "p95": 239250,
+        "p99": 686177,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 4203,
+        "p50": 3050,
+        "p95": 3414,
+        "p99": 3727,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1920,
+        1012
+      ],
+      "tessellation": {
+        "max": 10283,
+        "p50": 6863,
+        "p95": 7997,
+        "p99": 9416,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 646241,
+        "p50": 163251,
+        "p95": 189247,
+        "p99": 638308,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    },
+    {
+      "case": "satellite-map",
+      "frame_cpu": {
+        "max": 26349,
+        "p50": 9601,
+        "p95": 13028,
+        "p99": 17072,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "logic": {
+        "max": 18909,
+        "p50": 1301,
+        "p95": 1619,
+        "p99": 1891,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "screen": [
+        1400,
+        900
+      ],
+      "tessellation": {
+        "max": 4934,
+        "p50": 1549,
+        "p95": 2421,
+        "p99": 2586,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "ui_draw": {
+        "max": 10142,
+        "p50": 6258,
+        "p95": 8326,
+        "p99": 10126,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "warmup_frames": 10
+    }
+  ],
+  "cf32_bytes": 1237843968,
+  "map_drag_verified": true,
+  "mode": "debug CPU/headless; no GPU or physical devices",
+  "native_blocks": 9444,
+  "native_rf_processing": {
+    "max": 8046,
+    "p50": 3862,
+    "p95": 4790,
+    "p99": 5668,
+    "samples": 8192,
+    "unit": "microseconds"
+  },
+  "native_samples": 154730496,
+  "network": "disconnected map fixture; no tile/geolocation requests",
+  "percentiles": "nearest rank, 120 measured frames per case, 10 warmup frames excluded",
+  "radio_lost_samples": 0,
+  "raw_bytes": 309460992,
+  "rf_processing_scope": "native Processor::process per 16384-sample block; excludes receive/configure/wait and timing-storage overhead",
+  "wav_samples": 3094609
+}
+test app::app_performance_tests::profile_frames_with_continuous_native_recording ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 829 filtered out; finished in 91.87s

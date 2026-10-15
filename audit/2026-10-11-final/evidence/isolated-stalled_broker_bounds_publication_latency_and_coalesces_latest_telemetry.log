@@ -1,0 +1,7 @@
+
+running 1 test
+test mqtt::tests::stalled_broker_bounds_publication_latency_and_coalesces_latest_telemetry ... MQTT saturated GUI publication latency: p50=61.237µs, p95=97.215µs, p99=23.124416ms, max=80.108594ms; pending=323, coalesced=16669, backpressure=37, dropped=1936
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 5.28s
+

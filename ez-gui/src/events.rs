@@ -66,9 +66,14 @@ impl AppEvent {
 
 #[derive(Debug, Clone)]
 pub struct EventBus {
-    queue: Arc<Mutex<VecDeque<AppEvent>>>,
-    history: Arc<Mutex<VecDeque<AppEvent>>>,
+    inner: Arc<Mutex<EventBusInner>>,
     max_history: usize,
+}
+
+#[derive(Debug, Default)]
+struct EventBusInner {
+    queue: VecDeque<AppEvent>,
+    history: VecDeque<AppEvent>,
 }
 
 impl Default for EventBus {
@@ -80,29 +85,26 @@ impl Default for EventBus {
 impl EventBus {
     pub fn new() -> Self {
         Self {
-            queue: Arc::new(Mutex::new(VecDeque::new())),
-            history: Arc::new(Mutex::new(VecDeque::new())),
+            inner: Arc::new(Mutex::new(EventBusInner::default())),
             max_history: 200,
         }
     }
 
     /// Publish an event to the bus.
     pub fn publish(&self, event: AppEvent) {
-        if let Ok(mut q) = self.queue.lock() {
-            q.push_back(event.clone());
-        }
-        if let Ok(mut h) = self.history.lock() {
-            h.push_back(event);
-            if h.len() > self.max_history {
-                h.pop_front();
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.queue.push_back(event.clone());
+            inner.history.push_back(event);
+            if inner.history.len() > self.max_history {
+                inner.history.pop_front();
             }
         }
     }
 
     /// Drain all pending events from the queue.
     pub fn drain(&self) -> Vec<AppEvent> {
-        if let Ok(mut q) = self.queue.lock() {
-            q.drain(..).collect()
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.queue.drain(..).collect()
         } else {
             Vec::new()
         }
@@ -110,8 +112,8 @@ impl EventBus {
 
     /// Return up to `count` recent events from history (most recent first).
     pub fn recent_events(&self, count: usize) -> Vec<AppEvent> {
-        if let Ok(h) = self.history.lock() {
-            h.iter().rev().take(count).cloned().collect()
+        if let Ok(inner) = self.inner.lock() {
+            inner.history.iter().rev().take(count).cloned().collect()
         } else {
             Vec::new()
         }
@@ -119,7 +121,10 @@ impl EventBus {
 
     /// Return count of pending events in queue.
     pub fn pending_count(&self) -> usize {
-        self.queue.lock().map(|q| q.len()).unwrap_or(0)
+        self.inner
+            .lock()
+            .map(|inner| inner.queue.len())
+            .unwrap_or(0)
     }
 }
 

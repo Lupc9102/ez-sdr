@@ -1,0 +1,13 @@
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `release` profile [optimized] target(s) in 9.97s
+     Running unittests src/lib.rs (target/release/deps/lrpt_decode-c9e90cf999ab670d)
+
+running 1 test
+interleaved "meteor-80k-stagger--1.cf32" chunk=997 frames=3 rs_ok=12
+interleaved "meteor-80k-stagger--1.cf32" chunk=16384 frames=3 rs_ok=12
+interleaved "meteor-80k-stagger-1.cf32" chunk=997 frames=3 rs_ok=12
+interleaved "meteor-80k-stagger-1.cf32" chunk=16384 frames=3 rs_ok=12
+test tests::independent_interleaved_iq_recovers_both_staggers_and_identical_payloads ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 107 filtered out; finished in 21.15s
+

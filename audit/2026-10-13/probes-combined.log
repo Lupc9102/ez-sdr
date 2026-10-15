@@ -1,0 +1,40 @@
+core-probe:
+RATE_RACE setter=Err(cannot change wideband sample rate while virtual channels are active); hardware=1200000 Hz; new 2.4-MHz spectrum accepted=true (stale state geometry)
+ADS_B_TAP requested=2400000 Hz; actual=3200000 Hz; samples=8192
+ADS_B_STATE accepted=true
+BIND_FAILURE result=Err(Address already in use (os error 98)); running=true; ingest threads before=0, after=1
+
+side-services-probe:
+[rigctl] listening on 127.0.0.1:41741
+Hamlib v (get VFO) parsed as GetVolume
+v response: "70.0"
+V VFOB response: "RPRT -1"
+l AF response: "RPRT -1"
+L AF 0.5 response: "RPRT -1"
+Discord threads: before=1, alive=3, after drop=3, 700ms later=3
+Remaining Discord task 46075: CPU tick delta=70
+Remaining Discord task 46076: CPU tick delta=0
+
+rigctl-lifecycle-probe:
+[rigctl] listening on 127.0.0.1:42763
+[rigctl] listening on 127.0.0.1:42763
+
+popup-ppm-probe:
+Before Radio sidebar: popup preference=37 ppm, source=3 ppm
+After Radio sidebar: popup preference=3 ppm, source=3 ppm
+
+browser-lifecycle-probe:
+{
+  "source": "ez-daemon/src/web/frontend/app.js",
+  "stale_close_disconnects_new_session": true,
+  "disconnect_retains_meteor_products": true
+}
+
+desktop-remote-input-probe:
+{
+  "source": "ez-gui/src/web_remote.html",
+  "focused_input_before": "118700000",
+  "focused_input_after": 100000000,
+  "typed_frequency_overwritten": true
+}
+

@@ -1,0 +1,306 @@
+{
+  "date": "2026-10-09",
+  "scope": [
+    "S11",
+    "S01 daemon integration (independent off-air 80k remains outstanding)"
+  ],
+  "verification_state": "software_verified",
+  "commands": [
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-workspace-tests.log",
+      "log_sha256": "1cc33d304e2bfe45567b758b90d8aa9532506fc9240582eb409d11c683d5eaa5",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 219,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 833,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 20,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 3
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-daemon --release --lib lrpt -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-state-tests.log",
+      "log_sha256": "5680d2f2735c756c27f38ba40b9ededda621bd08f9a8ce2d41da9248bfeb52f3",
+      "test_harnesses": [
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-daemon --release --lib pipelines::telemetry -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-telemetry-tests.log",
+      "log_sha256": "39ee28418b3306a705d11993ca76b189eb7e074bca82b0e8c0419edf8e486328",
+      "test_harnesses": [
+        {
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-daemon --release --lib ingest::tests -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-ingest-tests.log",
+      "log_sha256": "485caf976e263eac53820d54958619cb9ca72a397f1a913af9ac7ee86a9414c9",
+      "test_harnesses": [
+        {
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-proto",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-proto-tests.log",
+      "log_sha256": "bf94da7dc4215fab18bab92f8e34833830d92eead26ce0fc5b3ebaa740c26255",
+      "test_harnesses": [
+        {
+          "passed": 20,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features daemon_product_boundary -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-gui-tests.log",
+      "log_sha256": "eb222e311fe71fc3b06d428a395bd35f4162708185035d25e7eb2e0c1e78bc83",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo check -p ez-daemon --all-targets --features rtlsdr,hackrf,soapy",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-hardware-check.log",
+      "log_sha256": "fb767d3aeb60ecae78d9a7e4d094363150ab030bd82fcf6acbd40060ad5ba054",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-clippy-verified.log",
+      "log_sha256": "28500571077847dc03ff34855070890d76043dd5e8b73c0451b409d855ba126a"
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-build-verified.log",
+      "log_sha256": "54b9496552a18093deb010408e6edd72d3117f5185bb8ebee281cdd9abfc6bf0"
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "log": "repair-evidence/mission-graphify.log",
+      "log_sha256": "eb9ca16895f47cf3193fc8f2b81150d9f0aeb5ba3114d4174876670161e3b601"
+    }
+  ],
+  "source_sha256": {
+    "README.md": "c972513da0637ce80cc9f3ef70e0319ecc429080ab7516e117966657ad3f943a",
+    "audit/2026-10-07/generate_oqpsk_vectors.py": "4a6667b653a22d1854f8802caeca06535164e59a053f75cbefd6cd147d9ca590",
+    "ez-daemon/examples/audit_channelizer.rs": "c5cfa5a28184e9de2266e63c2eac26009bd886589b0a0d7cac7010acbddbfffb",
+    "ez-daemon/src/bus.rs": "7a8e2cc8069b3d03d2be533057d96202a6da84a34fbe3f3c8a9e54da9c6a75df",
+    "ez-daemon/src/channelizer.rs": "f817e43a3ea1cc8477ac00c674529f640c35bab359a1febb62d3907a4d4803e5",
+    "ez-daemon/src/ingest.rs": "f29043e470864e85e63e4c787c42b7aabf87c07848f90a55232ea2af0634408f",
+    "ez-daemon/src/pipelines/audio.rs": "a852cdb7e60052b63a69865cc2c2eb328a8dde3db8dbcaa82266d7dd138dde69",
+    "ez-daemon/src/pipelines/packet.rs": "ce1893d270ac79f5c54cfec92b1631bc50a2114fb7216dfcad13d1a4689a3696",
+    "ez-daemon/src/pipelines/packet_capture_tests.rs": "a660c16c9dfefa5d461cc6afdf6bc7ee1bc5ee0c4bf961809c27cfbec0bd7b6c",
+    "ez-daemon/src/pipelines/spectrum.rs": "135cd63a948ed878f71e8cdc822657a529196cb39235bbcbc3ab4bf69bdea7a7",
+    "ez-daemon/src/pipelines/telemetry.rs": "1d8e0c31fba63d3498f4a0732287b8b177b2b80ada65b7066ff9e1862e6147c6",
+    "ez-daemon/src/recording.rs": "70bcb582e4e812bd5e4f100fbf287d2c02c8f990365c8faee669ee4be8fab6bd",
+    "ez-daemon/src/recording_capture_tests.rs": "d008be65e72abc97080bfe49382f14cc19a567bff4c0561117093ccee9bdf385",
+    "ez-daemon/src/server.rs": "c80bafa4e1e269975ec0068d3500da68626138c082d58bb6ecaa7036996ffbc5",
+    "ez-daemon/src/state.rs": "4cd706875a09b910daa5eeaed53ab44b8445476d1ff3d27a62b8b681e6e177be",
+    "ez-daemon/src/web/api.rs": "4c1fac31ed646a1dab726d366ec277e6dcc6f5c7c60ada24d33173c938ff3cc1",
+    "ez-daemon/src/web/wire.rs": "4db2f4326e0b183fc59a9db63c44602e48f7c5f189d965a526eb614bfaa7c976",
+    "ez-daemon/src/web/ws.rs": "694277f950f37d8ca5e8189b014d4ba8f39e3c72192f46a225bf59bef63c68cd",
+    "ez-daemon/tests/resilience.rs": "0f61e9e8566f9629b211ffc8d1d0d17aa4d8a980a9c1ebeae1b09c7a446b7aae",
+    "ez-daemon/tests/web_resilience.rs": "e259661382ca65ebfda4865adb4fb129f3a7706384e7803d3be3c5029bb07ca1",
+    "ez-gui/examples/audit_radio_logic.rs": "de2e93bacded8c36b1f10216d06e2ef965c6b1a0808b7218affefc4ff0cdf82a",
+    "ez-gui/src/app.rs": "1bbaf47f9c5b6bcd52e683b2f49c523192fa992063617b135089c3f900880f1a",
+    "ez-gui/src/app_ui_tests.rs": "b0bbf46293a4496dd65360f5cc5ffb3c4e6a1c9f1ea6a1acd236213b9dc1a722",
+    "ez-gui/src/daemon_client.rs": "61766ddee7a8c989ad93a777754ddec2cc4c82259f97bdae24f35f36726b88a6",
+    "ez-gui/src/decoding_panel.rs": "ef4165debc76181e203c47b0eaa9f1151f51b7460c8edbea3c64ed81ee607b10",
+    "ez-gui/src/source_manager.rs": "4a49a2909b41cb1d9d5b471f245b76b5d93d0772edf459e92b442ff971c74e8d",
+    "ez-proto/src/codec.rs": "938ea5236ea46336b653376e33ef0217821e1fd134ce4d904c5fbf5b7468b257",
+    "ez-proto/src/messages.rs": "9ad9d0b8744fef28777bff4533b8540ff369ac016739cb456c81d46e37b99374",
+    "ez-proto/src/stream_queue.rs": "59fdea64f1b86abd0e1b57bf3f0daf97222251d182eb46863432a1dd13baf3c5",
+    "lrpt-decode/src/lib.rs": "78aee6ea40fa155e881b5b2bce3eb9c788bdca718764a6e394abc504851b6221",
+    "audit/2026-10-07/generate_mission_product_fixture.py": "3dbb9ddbf37214de51af8b54117c13b553de94efd7100df034450cff11c19239"
+  },
+  "protocol_version": 11,
+  "wire_changes": [
+    "ChannelSpec carries optional meteor_profile, required and immutable for an LRPT channel. Non-LRPT kinds reject a nonempty profile.",
+    "StartTelemetryProduct starts a fresh same-frequency image product. It follows the same ownership enforcement and dispatcher for TCP and JSON control WebSocket.",
+    "TelemetryFrame carries product_id. APID-zero zero-sized frames retire old products; every subsequent image is tagged even if a boundary notice is coalesced.",
+    "The raw telemetry WebSocket header has an additional little-endian u64 product_id at offset 28, with pixels at offset 36.",
+    "GUI Welcome clears previous daemon product identity; new product IDs retire all APID images and old queued IDs are discarded."
+  ],
+  "sampling_contract": {
+    "mission_profiles": [
+      "Oqpsk72",
+      "Oqpsk80Interleaved"
+    ],
+    "minimum_samples_per_symbol": 4,
+    "minimum_occupied_bandwidth_hz": [
+      108000,
+      120000
+    ],
+    "sample_rate_validation": "Compute the actual wideband/integer-decimation output rate before channel/tap/thread allocation. Validate retunes before mutating the DDC. Constructor failure also cleans up a tap if geometry races with allocation.",
+    "invalid_live_blocks": "Reject unsupported rate and stale-center blocks without consuming RF; reset partial decoding for missing samples."
+  },
+  "product_contract": {
+    "source_provenance": "SampleBlock.product_session survives channelizer epoch changes. Ingestion changes it for actual RF frequency/sample-rate control changes and source-clock session changes (including replay loops); uncounted driver overflow keeps it.",
+    "gap": "Partial transport reset; identical accumulated image pixels and RS counts retained.",
+    "new_product": "New source session, frequency retune or explicit StartTelemetryProduct retires image data, counts, partial transport, pending progress and product ID. Explicit boundaries drain the old IQ queue; automatic source changes preserve future new-session queued IQ.",
+    "fixture": "fixtures/meteor-product-72k.json",
+    "independent_fixture": "External libfec RS/NRZ-M/trellis construction and analytical RRC, 288k sampling/72k symbols, 37 degrees carrier phase, 137 Hz CFO, +70 ppm clock error, three CADUs containing independent nonflat JPEG segments. Tests assert 12 RS codewords and 3 received image segments before comparing preserved/retired pixels and counters."
+  },
+  "limits": [
+    "This batch verifies S11 software configuration and product/session lifecycle. Independent off-air 80k CADU/image validation remains an S01 gate.",
+    "The all-hardware-feature compile check does not open a receiver; libhackrf and SoapySDR are unavailable on this host.",
+    "The remaining radio findings and original physical/audio/disk release gates are not claimed complete."
+  ],
+  "development_verification": {
+    "initial_workspace_exit_code": 101,
+    "log": "repair-evidence/mission-workspace-before-message-fix.log",
+    "failure": "An existing state test requires the error phrase cannot resubscribe. The expanded kind/profile rejection initially omitted it; restored the compatible phrase and reran the full workspace. No rejection/acceptance condition was relaxed."
+  }
+}

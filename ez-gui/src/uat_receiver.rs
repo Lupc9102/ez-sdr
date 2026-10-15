@@ -1,0 +1,749 @@
+//! Bounded, cancellable ingestion of FlightAware dump978-fa's newline JSON feed.
+//! The decoder owns the SDR; this module only reads decoded aircraft reports.
+
+use std::io::{self, Read};
+use std::net::{SocketAddr, TcpStream};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+
+pub const DEFAULT_ADDRESS: &str = "127.0.0.1:30979";
+pub const SETUP_COMMAND: &str = "dump978-fa --sdr driver=rtlsdr --json-port 127.0.0.1:30979";
+const MAX_LINE_BYTES: usize = 16 * 1024;
+const QUEUE_CAPACITY: usize = 512;
+const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
+const READ_TIMEOUT: Duration = Duration::from_millis(150);
+const RETRY_DELAY: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UatReport {
+    /// A tracking key: ICAO occupies 24 bits; other address classes are namespaced.
+    pub key: u32,
+    pub callsign: Option<String>,
+    pub position: Option<(f64, f64)>,
+    pub altitude_ft: Option<i32>,
+    pub altitude_geometric: bool,
+    pub ground_speed_kt: Option<f64>,
+    pub heading_deg: Option<f64>,
+    pub heading_true: bool,
+    pub on_ground: Option<bool>,
+    pub track_deg: Option<f64>,
+}
+
+pub fn address_label(key: u32) -> String {
+    if key <= 0x00ff_ffff {
+        format!("{key:06X}")
+    } else {
+        let namespace = if key >> 24 >= 0x10 { "DF18" } else { "UAT" };
+        format!("{namespace} {:06X}", key & 0x00ff_ffff)
+    }
+}
+
+/// Parse the direct `AdsbMessage::ToJson()` output, not SkyAware's file format.
+/// Unknown qualifiers, malformed addresses and invalid coordinates are rejected.
+pub fn parse_report(line: &[u8]) -> Result<UatReport, String> {
+    if line.len() > MAX_LINE_BYTES {
+        return Err("UAT JSON line exceeds 16 KiB".into());
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(line).map_err(|e| format!("Invalid UAT JSON: {e}"))?;
+    let object = value.as_object().ok_or("UAT JSON must be an object")?;
+    let address = object
+        .get("address")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| s.len() == 6 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+        .ok_or("UAT address must contain exactly six hex digits")?;
+    let address = u32::from_str_radix(address, 16).map_err(|e| e.to_string())?;
+    let qualifier = object
+        .get("address_qualifier")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("Missing UAT address qualifier")?;
+    let namespace = match qualifier {
+        "adsb_icao" | "tisb_icao" => 0,
+        "adsb_other" => 1,
+        "tisb_trackfile" => 2,
+        "vehicle" => 3,
+        "fixed_beacon" => 4,
+        "adsr_other" => 5,
+        _ => return Err(format!("Unsupported UAT address qualifier: {qualifier}")),
+    };
+    let number = |name: &str, min: f64, max: f64| -> Result<Option<f64>, String> {
+        match object.get(name) {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(value) => value
+                .as_f64()
+                .filter(|v| v.is_finite() && *v >= min && *v <= max)
+                .map(Some)
+                .ok_or_else(|| format!("Invalid UAT {name}")),
+        }
+    };
+    let position = match object.get("position") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(position) => {
+            let lat = position.get("lat").and_then(serde_json::Value::as_f64);
+            let lon = position.get("lon").and_then(serde_json::Value::as_f64);
+            match (lat, lon) {
+                (Some(lat), Some(lon))
+                    if lat.is_finite()
+                        && lon.is_finite()
+                        && (-90.0..=90.0).contains(&lat)
+                        && (-180.0..=180.0).contains(&lon) =>
+                {
+                    Some((lat, lon))
+                }
+                _ => return Err("Invalid UAT position".into()),
+            }
+        }
+    };
+    let callsign = match object.get("callsign") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(value) => {
+            let raw = value.as_str().ok_or("Invalid UAT callsign")?;
+            if raw.len() > 16 || raw.chars().any(char::is_control) {
+                return Err("Invalid UAT callsign".into());
+            }
+            let trimmed = raw.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        }
+    };
+    let pressure = number("pressure_altitude", -2_000.0, 100_000.0)?;
+    let geometric = number("geometric_altitude", -2_000.0, 100_000.0)?;
+    let track = number("true_track", 0.0, 360.0)?;
+    let heading = number("true_heading", 0.0, 360.0)?;
+    let magnetic_heading = number("magnetic_heading", 0.0, 360.0)?;
+    let on_ground = match object.get("airground_state") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(value) => match value.as_str() {
+            Some("ground") => Some(true),
+            Some("airborne" | "supersonic") => Some(false),
+            Some("invalid" | "reserved") => None,
+            _ => return Err("Invalid UAT airground_state".into()),
+        },
+    };
+    Ok(UatReport {
+        key: (namespace << 24) | address,
+        callsign,
+        position,
+        altitude_ft: pressure.or(geometric).map(|v| v.round() as i32),
+        altitude_geometric: pressure.is_none() && geometric.is_some(),
+        ground_speed_kt: number("ground_speed", 0.0, 3_000.0)?,
+        heading_deg: heading.or(magnetic_heading).map(|v| v.rem_euclid(360.0)),
+        heading_true: heading.is_some(),
+        on_ground,
+        track_deg: track.map(|v| v.rem_euclid(360.0)),
+    })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UatStatus {
+    Stopped,
+    Connecting,
+    Connected,
+    Reconnecting(String),
+    Error(String),
+}
+
+#[derive(Default)]
+struct Counters {
+    received: AtomicU64,
+    rate_window: Mutex<ez_proto::MessageRateWindow>,
+    rejected: AtomicU64,
+    dropped: AtomicU64,
+}
+
+impl Counters {
+    fn snapshot_at(&self, now: Instant) -> ez_proto::ReceiverSnapshot {
+        let received = self.received.load(Ordering::Relaxed);
+        let rejected = self.rejected.load(Ordering::Relaxed);
+        ez_proto::ReceiverSnapshot {
+            timestamp_ms: ez_proto::unix_time_ms(),
+            total_messages: received,
+            decode_stats: (
+                received + rejected,
+                received,
+                rejected,
+                0,
+                0,
+                0,
+                0,
+                0.0,
+                0.0,
+                0.0,
+                0,
+            ),
+            messages_per_second: self
+                .rate_window
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .rate_at(now),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TimedReport {
+    pub report: UatReport,
+    pub received: Instant,
+}
+
+/// Convert a decoded native UAT ADS-B payload into the same tracked-report
+/// shape used by the optional dump978-fa JSON source. Uplink/non-ADS-B frames
+/// remain valid decoder packets but do not create aircraft entries.
+pub(crate) fn from_native_message(
+    message: &uat_decode::UatMessage,
+    received: Instant,
+) -> Option<TimedReport> {
+    let decoded = message.adsb.as_ref()?;
+    let namespace = match decoded.address_qualifier {
+        0 | 2 => 0, // ADS-B ICAO and TIS-B ICAO share an aircraft identity.
+        1 => 1,     // ADS-B other
+        3 => 2,     // TIS-B trackfile
+        4 => 3,     // vehicle
+        5 => 4,     // fixed beacon
+        6 => 5,     // ADS-R other
+        _ => return None,
+    };
+    let heading = decoded.true_heading_deg.or(decoded.magnetic_heading_deg);
+    let altitude = decoded
+        .pressure_altitude_ft
+        .or(decoded.geometric_altitude_ft);
+    let on_ground = match decoded.air_ground_state {
+        Some(uat_decode::AirGroundState::Ground) => Some(true),
+        Some(uat_decode::AirGroundState::Airborne | uat_decode::AirGroundState::Supersonic) => {
+            Some(false)
+        }
+        _ => None,
+    };
+    Some(TimedReport {
+        report: UatReport {
+            key: (namespace << 24) | (decoded.address & 0x00ff_ffff),
+            callsign: decoded
+                .callsign
+                .clone()
+                .or_else(|| decoded.flight_plan_id.clone()),
+            position: decoded.position,
+            altitude_ft: altitude,
+            altitude_geometric: decoded.pressure_altitude_ft.is_none()
+                && decoded.geometric_altitude_ft.is_some(),
+            ground_speed_kt: decoded.ground_speed_kt,
+            heading_deg: heading,
+            heading_true: decoded.true_heading_deg.is_some(),
+            on_ground,
+            track_deg: decoded.true_track_deg,
+        },
+        received,
+    })
+}
+
+pub struct UatReceiver {
+    cancel: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+    status: Arc<Mutex<UatStatus>>,
+    counters: Arc<Counters>,
+    rx: crossbeam_channel::Receiver<TimedReport>,
+}
+
+impl Default for UatReceiver {
+    fn default() -> Self {
+        let (_, rx) = crossbeam_channel::bounded(QUEUE_CAPACITY);
+        Self {
+            cancel: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            status: Arc::new(Mutex::new(UatStatus::Stopped)),
+            counters: Arc::new(Counters::default()),
+            rx,
+        }
+    }
+}
+
+impl UatReceiver {
+    pub fn start(&mut self, endpoint: &str) -> Result<(), String> {
+        self.stop();
+        self.counters = Arc::new(Counters::default());
+        // Numeric endpoints keep DNS resolution, which has no std timeout, out
+        // of both the UI thread and the cancellation lifecycle.
+        let endpoint = endpoint.trim().parse::<SocketAddr>().map_err(|_| {
+            let message = "Use an IP address and port, e.g. 127.0.0.1:30979".to_owned();
+            self.set_status(UatStatus::Error(message.clone()));
+            message
+        })?;
+        if endpoint.port() == 0 || endpoint.ip().is_unspecified() || endpoint.ip().is_multicast() {
+            let message = "Use a destination IP address and a nonzero TCP port".to_owned();
+            self.set_status(UatStatus::Error(message.clone()));
+            return Err(message);
+        }
+        let (tx, rx) = crossbeam_channel::bounded(QUEUE_CAPACITY);
+        self.rx = rx;
+        self.cancel = Arc::new(AtomicBool::new(false));
+        // A new status object prevents a canceled worker from overwriting its successor.
+        self.status = Arc::new(Mutex::new(UatStatus::Connecting));
+        let cancel = self.cancel.clone();
+        let status = self.status.clone();
+        let counters = self.counters.clone();
+        let handle = thread::Builder::new()
+            .name("uat-json-receiver".into())
+            .spawn(move || receiver_loop(endpoint, cancel, status, counters, tx))
+            .map_err(|e| {
+                let message = format!("Could not start UAT receiver: {e}");
+                self.set_status(UatStatus::Error(message.clone()));
+                message
+            })?;
+        self.worker = Some(handle);
+        Ok(())
+    }
+
+    pub fn stop(&mut self) {
+        self.cancel.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
+            // Never join a connecting socket from the UI thread. The canceled
+            // worker exits within CONNECT_TIMEOUT/READ_TIMEOUT and owns no UI state.
+        }
+        let (_, rx) = crossbeam_channel::bounded(QUEUE_CAPACITY);
+        self.rx = rx;
+        // Canceled workers retain the old queue/status; a final in-flight read
+        // cannot leak stale reports or overwrite the disconnected state.
+        self.status = Arc::new(Mutex::new(UatStatus::Stopped));
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.worker.as_ref().is_some_and(|w| !w.is_finished())
+    }
+
+    pub fn status(&self) -> UatStatus {
+        if self.worker.as_ref().is_some_and(JoinHandle::is_finished) {
+            return UatStatus::Error("UAT receive worker stopped; reconnect to restart".into());
+        }
+        self.status
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_else(|_| UatStatus::Error("UAT receiver status is unavailable".into()))
+    }
+
+    pub fn counts(&self) -> (u64, u64, u64) {
+        (
+            self.counters.received.load(Ordering::Relaxed),
+            self.counters.rejected.load(Ordering::Relaxed),
+            self.counters.dropped.load(Ordering::Relaxed),
+        )
+    }
+
+    pub fn receiver_snapshot(&self) -> ez_proto::ReceiverSnapshot {
+        self.counters.snapshot_at(Instant::now())
+    }
+
+    pub fn try_recv(&self) -> Option<TimedReport> {
+        self.rx.try_recv().ok()
+    }
+
+    fn set_status(&self, value: UatStatus) {
+        set_status(&self.status, value);
+    }
+}
+
+impl Drop for UatReceiver {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn set_status(status: &Mutex<UatStatus>, value: UatStatus) {
+    if let Ok(mut status) = status.lock() {
+        *status = value;
+    }
+}
+
+/// Keeps only one bounded line even if a misconfigured endpoint sends binary
+/// data or never terminates a line. Recover after the next newline.
+#[derive(Default)]
+struct LineBuffer {
+    bytes: Vec<u8>,
+    overlong: bool,
+}
+
+impl LineBuffer {
+    fn feed(&mut self, input: &[u8], mut on_line: impl FnMut(Result<&[u8], ()>)) {
+        for &byte in input {
+            if byte == b'\n' {
+                if self.overlong {
+                    on_line(Err(()));
+                } else if !self.bytes.is_empty() {
+                    on_line(Ok(&self.bytes));
+                }
+                self.bytes.clear();
+                self.overlong = false;
+            } else if !self.overlong {
+                if self.bytes.len() == MAX_LINE_BYTES {
+                    self.bytes.clear();
+                    self.overlong = true;
+                } else {
+                    self.bytes.push(byte);
+                }
+            }
+        }
+    }
+}
+
+fn read_reports(
+    reader: &mut impl Read,
+    cancel: &AtomicBool,
+    counters: &Counters,
+    tx: &crossbeam_channel::Sender<TimedReport>,
+) -> io::Result<()> {
+    let mut buffer = [0_u8; 4096];
+    let mut lines = LineBuffer::default();
+    while !cancel.load(Ordering::Acquire) {
+        match reader.read(&mut buffer) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "decoder closed the stream",
+                ))
+            }
+            Ok(count) => lines.feed(&buffer[..count], |line| {
+                let report = line
+                    .map_err(|()| "UAT JSON line exceeds 16 KiB".to_owned())
+                    .and_then(parse_report);
+                match report {
+                    Ok(report) => {
+                        let now = Instant::now();
+                        let total = counters.received.fetch_add(1, Ordering::Relaxed) + 1;
+                        counters
+                            .rate_window
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .observe_total(total, now);
+                        if tx
+                            .try_send(TimedReport {
+                                report,
+                                received: now,
+                            })
+                            .is_err()
+                        {
+                            counters.dropped.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => {
+                        counters.rejected.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+fn receiver_loop(
+    endpoint: SocketAddr,
+    cancel: Arc<AtomicBool>,
+    status: Arc<Mutex<UatStatus>>,
+    counters: Arc<Counters>,
+    tx: crossbeam_channel::Sender<TimedReport>,
+) {
+    while !cancel.load(Ordering::Acquire) {
+        let result =
+            TcpStream::connect_timeout(&endpoint, CONNECT_TIMEOUT).and_then(|mut stream| {
+                stream.set_read_timeout(Some(READ_TIMEOUT))?;
+                if cancel.load(Ordering::Acquire) {
+                    return Ok(());
+                }
+                set_status(&status, UatStatus::Connected);
+                read_reports(&mut stream, &cancel, &counters, &tx)
+            });
+        if cancel.load(Ordering::Acquire) {
+            break;
+        }
+        if let Err(error) = result {
+            set_status(
+                &status,
+                UatStatus::Reconnecting(format!("{endpoint}: {error}")),
+            );
+        }
+        thread::park_timeout(RETRY_DELAY);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REPORT: &[u8] = br#"{"address":"a1b2c3","address_qualifier":"adsb_icao","position":{"lat":40.25,"lon":-75.5},"callsign":" N123AB ","pressure_altitude":12000,"ground_speed":142.5,"true_track":90}"#;
+
+    #[test]
+    fn direct_dump978_report_fields_and_units() {
+        let report = parse_report(REPORT).unwrap();
+        assert_eq!(report.key, 0xa1b2c3);
+        assert_eq!(report.callsign.as_deref(), Some("N123AB"));
+        assert_eq!(report.position, Some((40.25, -75.5)));
+        assert_eq!(report.altitude_ft, Some(12000));
+        assert_eq!(report.ground_speed_kt, Some(142.5));
+        assert_eq!(report.track_deg, Some(90.0));
+        assert_eq!(report.heading_deg, None);
+        assert!(!report.altitude_geometric);
+    }
+
+    #[test]
+    fn partial_updates_and_geometric_heading_fallback() {
+        let report = parse_report(br#"{"address":"000001","address_qualifier":"tisb_icao","geometric_altitude":-100,"true_heading":360}"#).unwrap();
+        assert_eq!(report.key, 1);
+        assert_eq!(report.position, None);
+        assert_eq!(report.callsign, None);
+        assert_eq!(report.altitude_ft, Some(-100));
+        assert_eq!(report.heading_deg, Some(0.0));
+        assert_eq!(report.track_deg, None);
+        assert!(report.altitude_geometric);
+    }
+
+    #[test]
+    fn non_icao_tracks_do_not_collide_or_look_like_icao() {
+        let report =
+            parse_report(br#"{"address":"a1b2c3","address_qualifier":"adsb_other"}"#).unwrap();
+        assert_ne!(report.key, 0xa1b2c3);
+        assert!(report.key > 0xffffff);
+        assert_eq!(address_label(report.key), "UAT A1B2C3");
+    }
+
+    #[test]
+    fn native_report_conversion_preserves_address_namespaces_and_aircraft_fields() {
+        let received = Instant::now();
+        let message = uat_decode::UatMessage {
+            kind: uat_decode::MessageKind::DownlinkLong,
+            payload: vec![],
+            corrected_symbols: 1,
+            first_sample: 100,
+            rssi_dbfs: -12.0,
+            adsb: Some(uat_decode::AdsbReport {
+                address_qualifier: 1,
+                address: 0xa1b2c3,
+                callsign: Some("N123AB".into()),
+                flight_plan_id: None,
+                position: Some((40.25, -75.5)),
+                pressure_altitude_ft: None,
+                geometric_altitude_ft: Some(12_000),
+                north_velocity_kt: None,
+                east_velocity_kt: None,
+                vertical_velocity_barometric_fpm: None,
+                vertical_velocity_geometric_fpm: None,
+                ground_speed_kt: Some(142.5),
+                true_track_deg: Some(90.0),
+                magnetic_heading_deg: Some(80.0),
+                true_heading_deg: Some(100.0),
+                air_ground_state: Some(uat_decode::AirGroundState::Airborne),
+            }),
+        };
+        let report = from_native_message(&message, received).unwrap();
+        assert_eq!(report.report.key, 0x01a1_b2c3);
+        assert_eq!(address_label(report.report.key), "UAT A1B2C3");
+        assert_eq!(report.report.position, Some((40.25, -75.5)));
+        assert_eq!(report.report.altitude_ft, Some(12_000));
+        assert!(report.report.altitude_geometric);
+        assert_eq!(report.report.heading_deg, Some(100.0));
+        assert!(report.report.heading_true);
+        assert_eq!(report.report.on_ground, Some(false));
+        assert_eq!(report.received, received);
+    }
+
+    #[test]
+    fn native_uplink_and_unknown_address_qualifier_do_not_create_tracks() {
+        let mut message = uat_decode::UatMessage {
+            kind: uat_decode::MessageKind::Uplink,
+            payload: vec![],
+            corrected_symbols: 0,
+            first_sample: 0,
+            rssi_dbfs: -10.0,
+            adsb: None,
+        };
+        assert!(from_native_message(&message, Instant::now()).is_none());
+        message.kind = uat_decode::MessageKind::DownlinkShort;
+        message.adsb = Some(uat_decode::AdsbReport {
+            address_qualifier: 8,
+            address: 0x123456,
+            callsign: None,
+            flight_plan_id: None,
+            position: None,
+            pressure_altitude_ft: None,
+            geometric_altitude_ft: None,
+            north_velocity_kt: None,
+            east_velocity_kt: None,
+            vertical_velocity_barometric_fpm: None,
+            vertical_velocity_geometric_fpm: None,
+            ground_speed_kt: None,
+            true_track_deg: None,
+            magnetic_heading_deg: None,
+            true_heading_deg: None,
+            air_ground_state: None,
+        });
+        assert!(from_native_message(&message, Instant::now()).is_none());
+    }
+
+    #[test]
+    fn invalid_fields_are_rejected_and_zero_coordinates_are_valid() {
+        let base: serde_json::Value = serde_json::from_slice(REPORT).unwrap();
+        for (field, value) in [
+            ("address", serde_json::json!("ABC")),
+            ("address", serde_json::json!("ABCXYZ")),
+            ("address_qualifier", serde_json::json!("reserved")),
+            ("position", serde_json::json!({"lat": 91, "lon": 0})),
+            ("position", serde_json::json!({"lat": 40})),
+            ("ground_speed", serde_json::json!(-1)),
+            ("true_track", serde_json::json!(400)),
+            ("callsign", serde_json::json!("BAD\nTEXT")),
+        ] {
+            let mut value_to_test = base.clone();
+            value_to_test[field] = value;
+            assert!(
+                parse_report(&serde_json::to_vec(&value_to_test).unwrap()).is_err(),
+                "accepted invalid {field}"
+            );
+        }
+        let mut zero = base;
+        zero["position"] = serde_json::json!({"lat":0, "lon":0});
+        assert_eq!(
+            parse_report(&serde_json::to_vec(&zero).unwrap())
+                .unwrap()
+                .position,
+            Some((0.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn fragmented_lines_crlf_and_oversized_lines_recover() {
+        let mut buffer = LineBuffer::default();
+        let mut results = Vec::new();
+        buffer.feed(b"{\"a\":", |r| results.push(r.map(Vec::from)));
+        assert!(results.is_empty());
+        buffer.feed(b"1}\r\n", |r| results.push(r.map(Vec::from)));
+        assert_eq!(results[0].as_ref().unwrap(), b"{\"a\":1}\r");
+        buffer.feed(&vec![b'x'; MAX_LINE_BYTES * 3], |_| unreachable!());
+        assert!(buffer.bytes.capacity() <= MAX_LINE_BYTES);
+        assert!(buffer.bytes.is_empty());
+        buffer.feed(b"\n{}\n", |r| results.push(r.map(Vec::from)));
+        assert_eq!(results[1], Err(()));
+        assert_eq!(results[2], Ok(b"{}".to_vec()));
+    }
+
+    #[test]
+    fn reader_bounds_queue_and_counts_rejections() {
+        let mut data = Vec::new();
+        for _ in 0..3 {
+            data.extend_from_slice(REPORT);
+            data.push(b'\n');
+        }
+        data.extend_from_slice(b"not json\n");
+        let counters = Counters::default();
+        let (tx, rx) = crossbeam_channel::bounded(2);
+        let error = read_reports(
+            &mut io::Cursor::new(data),
+            &AtomicBool::new(false),
+            &counters,
+            &tx,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(rx.len(), 2);
+        assert_eq!(counters.received.load(Ordering::Relaxed), 3);
+        assert_eq!(counters.rejected.load(Ordering::Relaxed), 1);
+        assert_eq!(counters.dropped.load(Ordering::Relaxed), 1);
+        let now = Instant::now();
+        let snapshot = counters.snapshot_at(now);
+        assert_eq!(snapshot.total_messages, 3);
+        assert_eq!(snapshot.decode_stats.1, 3);
+        assert_eq!(snapshot.decode_stats.2, 1);
+        assert_eq!(snapshot.messages_per_second, 0.6);
+        let idle = counters.snapshot_at(now + Duration::from_secs(6));
+        assert_eq!(idle.total_messages, 3);
+        assert_eq!(idle.messages_per_second, 0.0);
+    }
+
+    #[test]
+    fn cancellation_stops_before_read_and_invalid_endpoint_never_starts() {
+        struct MustNotRead;
+        impl Read for MustNotRead {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                panic!("canceled worker read")
+            }
+        }
+        let (tx, _) = crossbeam_channel::bounded(1);
+        read_reports(
+            &mut MustNotRead,
+            &AtomicBool::new(true),
+            &Counters::default(),
+            &tx,
+        )
+        .unwrap();
+        let mut receiver = UatReceiver::default();
+        for endpoint in [
+            "localhost:30979",
+            "127.0.0.1:0",
+            "0.0.0.0:30979",
+            "not-an-address",
+        ] {
+            assert!(receiver.start(endpoint).is_err());
+            assert!(!receiver.is_active());
+            assert!(matches!(receiver.status(), UatStatus::Error(_)));
+        }
+        receiver.stop();
+        assert_eq!(receiver.status(), UatStatus::Stopped);
+    }
+
+    #[test]
+    fn tcp_reconnect_and_cancellation_lifecycle() {
+        use std::io::Write;
+        use std::net::TcpListener;
+        let listener =
+            TcpListener::bind("127.0.0.1:0").expect("loopback TCP required for lifecycle test");
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let start = Instant::now();
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(
+                                start.elapsed() < Duration::from_secs(8),
+                                "receiver never connected"
+                            );
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(error) => panic!("accept failed: {error}"),
+                    }
+                };
+                stream.write_all(&REPORT[..30]).unwrap();
+                stream.write_all(&REPORT[30..]).unwrap();
+                stream.write_all(b"\n").unwrap();
+            }
+        });
+        let mut receiver = UatReceiver::default();
+        receiver.start(&address.to_string()).unwrap();
+        let start = Instant::now();
+        let mut reports = 0;
+        while reports < 2 && start.elapsed() < Duration::from_secs(8) {
+            if let Some(report) = receiver.try_recv() {
+                assert_eq!(report.report.key, 0xa1b2c3);
+                reports += 1;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(reports, 2, "decoder reconnect did not deliver both reports");
+        let worker = receiver.worker.take().unwrap();
+        let start = Instant::now();
+        receiver.cancel.store(true, Ordering::Release);
+        worker.thread().unpark();
+        worker.join().unwrap();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        receiver.stop();
+        assert_eq!(receiver.status(), UatStatus::Stopped);
+        server.join().unwrap();
+    }
+}

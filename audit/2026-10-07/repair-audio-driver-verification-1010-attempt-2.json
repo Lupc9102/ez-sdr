@@ -1,0 +1,113 @@
+{
+  "started_utc": "2026-10-11T05:05:58.997043+00:00",
+  "verification_state": "real_shared_audio_driver_lifecycle_verified",
+  "source_sha256": {
+    "ez-gui/src/audio_output.rs": "16ccdb45ddc8d4ec4fbf4d95a947573927d58ab0645bb2cd7f6498791f2142e0",
+    "ez-gui/Cargo.toml": "1aad3b605c5a8134137973b4a8e188c00ea59cb72242bec8789bbe8fbafe2ffa",
+    "Cargo.lock": "0ff3fab993fbbc00c50896077b5d4be64ee46e7ff6af5678f9d834340448158f",
+    "audit/2026-10-07/repair-evidence/audio-driver-runner-1010.py": "111e8b3d04f6e2ddd86c3fb497e877eb57e381534a375308f09d80c29402ca78"
+  },
+  "default_sink_before": "alsa_output.pci-0000_07_00.4.analog-stereo",
+  "sink_listing_before": "62\talsa_output.pci-0000_07_00.4.analog-stereo\tPipeWire\ts32le 2ch 48000Hz\tRUNNING\n74\talsa_output.pci-0000_05_00.1.hdmi-stereo\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED\n",
+  "cpu_max": [
+    "unavailable",
+    "unavailable"
+  ],
+  "cargo_jobs": 1,
+  "test_threads": 1,
+  "restrict_realtime": true,
+  "full_cpu_authorized": true,
+  "silence_only": true,
+  "steps": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver",
+        "-j",
+        "1",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-11T05:05:58.997110+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/audio-driver-test-1010-attempt-2.log",
+      "log_sha256": "6bd0bf99032dc3b6728c062bd28d45fb02cc64a8fa6d8e5724273852d2b7cfce",
+      "finished_utc": "2026-10-11T05:05:59.831695+00:00"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "ez-gui",
+        "--lib",
+        "--tests",
+        "-j",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "started_utc": "2026-10-11T05:05:59.832008+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/audio-driver-clippy-1010-attempt-2.log",
+      "log_sha256": "621068d7b56f0f1e680d47a04c227220fe965fd2d5f7909d5622d5c7e623572c",
+      "finished_utc": "2026-10-11T05:08:10.351855+00:00"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "started_utc": "2026-10-11T05:08:10.352141+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/audio-driver-format-1010-attempt-2.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "finished_utc": "2026-10-11T05:08:11.357159+00:00"
+    }
+  ],
+  "verification_boundary": "Real shared PipeWire output: callback queue consumption, native worker stop/receiver teardown and restart for mono/stereo zero samples. Does not certify acoustics, RF hardware, complete audio timing/calibration, off-air recordings or disk overload.",
+  "preceding_graph_refresh": {
+    "proof": "repair-public-rf-verification-1010.json",
+    "proof_sha256": "5db3e7b22e1d140cdb046e1ef95f834273a0f7135e3b858aec2d70d186f3bdfb",
+    "graph_mtime": 1791695153.1834126,
+    "audio_source_mtime": 1791695077.5321422
+  },
+  "metrics": {
+    "cases": [
+      {
+        "input_channels": 1,
+        "old_receiver_disconnected": true,
+        "queue_drain_us": 30175,
+        "queued_sample_frames": 2880,
+        "receiver_retirement_us": 10086,
+        "sample_rate_hz": 48000,
+        "silence_only": true,
+        "stop_call_us": 38
+      },
+      {
+        "input_channels": 2,
+        "old_receiver_disconnected": true,
+        "queue_drain_us": 30175,
+        "queued_sample_frames": 2880,
+        "receiver_retirement_us": 10108,
+        "sample_rate_hz": 48000,
+        "silence_only": true,
+        "stop_call_us": 28
+      }
+    ],
+    "device_id": "pulseaudio:alsa_output.pci-0000_07_00.4.analog-stereo"
+  },
+  "default_sink_after": "alsa_output.pci-0000_07_00.4.analog-stereo",
+  "finished_utc": "2026-10-11T05:08:11.366646+00:00"
+}

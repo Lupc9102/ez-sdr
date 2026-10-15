@@ -4,13 +4,7 @@ use crate::status_bar::StatusBar;
 /// Outcomes from keyboard shortcut processing that require CentralApp fields.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct KeyboardOutcome {
-    /// User requested toggle of keyboard help overlay (`?`).
-    pub toggle_help: bool,
-    /// User requested start/stop recording (`Ctrl+R`).
-    pub toggle_recording: bool,
-    /// User requested toggle of frequency scanner (`S`).
-    pub toggle_scanner: bool,
-    /// Frequency was changed, caller should update `last_manual_tune_time`.
+    /// Frequency was changed through the shared manual-tuning command.
     pub freq_changed: bool,
 }
 
@@ -29,50 +23,53 @@ impl KeyboardHandler {
         ctx: &egui::Context,
         state: &mut SharedState,
         status_bar: &mut StatusBar,
-        scanner_enabled: bool,
         freq_history_idx: &mut Option<usize>,
         last_history_freq: &mut u64,
     ) -> KeyboardOutcome {
         let mut outcome = KeyboardOutcome::default();
+        if ctx.egui_wants_keyboard_input() {
+            return outcome;
+        }
+        let previous_frequency = state.source.frequency_hz;
 
         ctx.input(|i| {
-            // ? : toggle keyboard help
-            if i.key_pressed(egui::Key::Questionmark) {
-                outcome.toggle_help = true;
-            }
-
             // Space: toggle start/stop
             if i.key_pressed(egui::Key::Space) {
-                if state.source.status == crate::source_manager::SourceStatus::Running {
+                if matches!(
+                    state.source.status,
+                    crate::source_manager::SourceStatus::Running
+                        | crate::source_manager::SourceStatus::Opening
+                ) {
                     state.source.stop();
+                    state.audio_running = false;
                 } else {
                     state.source.start();
+                    state.audio_running = true;
                 }
             }
 
             // Arrow keys: tune up/down/left/right (coarse = up/down, fine = left/right)
             // Shift modifier doubles the step
-            let fine = state.tune_step_fine_hz * if i.modifiers.shift { 10 } else { 1 };
-            let coarse = state.tune_step_coarse_hz * if i.modifiers.shift { 10 } else { 1 };
-            if i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.alt {
-                state.source.frequency_hz = (state.source.frequency_hz + coarse).min(1_770_000_000);
+            let fine = state
+                .tune_step_fine_hz
+                .saturating_mul(if i.modifiers.shift { 10 } else { 1 });
+            let coarse = state
+                .tune_step_coarse_hz
+                .saturating_mul(if i.modifiers.shift { 10 } else { 1 });
+            if i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_add(coarse);
                 outcome.freq_changed = true;
             }
-            if i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.alt {
-                state.source.frequency_hz = state
-                    .source
-                    .frequency_hz
-                    .saturating_sub(coarse)
-                    .max(500_000);
+            if i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_sub(coarse);
                 outcome.freq_changed = true;
             }
-            if i.key_pressed(egui::Key::ArrowRight) && !i.modifiers.alt {
-                state.source.frequency_hz = (state.source.frequency_hz + fine).min(1_770_000_000);
+            if i.key_pressed(egui::Key::ArrowRight) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_add(fine);
                 outcome.freq_changed = true;
             }
-            if i.key_pressed(egui::Key::ArrowLeft) && !i.modifiers.alt {
-                state.source.frequency_hz =
-                    state.source.frequency_hz.saturating_sub(fine).max(500_000);
+            if i.key_pressed(egui::Key::ArrowLeft) && !i.modifiers.alt && !i.modifiers.ctrl {
+                state.source.frequency_hz = state.source.frequency_hz.saturating_sub(fine);
                 outcome.freq_changed = true;
             }
 
@@ -150,11 +147,6 @@ impl KeyboardHandler {
                 status_bar.info("RAW".to_string());
             }
 
-            // Ctrl+R: toggle recording
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::R) {
-                outcome.toggle_recording = true;
-            }
-
             // M: toggle audio mute
             if i.key_pressed(egui::Key::M) {
                 state.audio_running = !state.audio_running;
@@ -179,9 +171,12 @@ impl KeyboardHandler {
                 state.config.last_session_freq_hz = state.source.frequency_hz;
                 state.config.last_session_gain_db = state.source.gain_db;
                 state.config.last_session_demod = state.demod_mode.label().to_string();
-                state.config.save();
-                status_bar
-                    .success("💾 Config saved (freq, gain, demod, spectrum range)".to_string());
+                if state.config.save() {
+                    status_bar
+                        .success("💾 Config saved (freq, gain, demod, spectrum range)".to_string());
+                } else if let Some(error) = &state.config.save_error {
+                    status_bar.error(error.clone());
+                }
             }
 
             // F: freeze/unfreeze spectrum
@@ -279,7 +274,7 @@ impl KeyboardHandler {
                     .bookmarks
                     .bookmarks
                     .iter()
-                    .min_by_key(|b| (b.frequency_hz as i64 - cur as i64).unsigned_abs())
+                    .min_by_key(|b| b.frequency_hz.abs_diff(cur))
                     .map(|bm| (bm.frequency_hz, bm.name.clone()));
                 if let Some((freq, name)) = nearest {
                     state.source.frequency_hz = freq;
@@ -325,6 +320,7 @@ impl KeyboardHandler {
                     state.source.gain_db = (state.source.gain_db + 5.0).min(49.0);
                     status_bar.info(format!("Gain: {:.0} dB", state.source.gain_db));
                 }
+                crate::radio_ui::restart_if_running(&mut state.source);
             }
 
             // Ctrl+Up/Down: volume up / down by 10%
@@ -375,22 +371,18 @@ impl KeyboardHandler {
                 }
             }
 
-            // S key: toggle scanner on/off
-            if i.key_pressed(egui::Key::S) && !i.modifiers.ctrl && !i.modifiers.alt {
-                outcome.toggle_scanner = true;
-                if scanner_enabled {
-                    status_bar.info("🔍 Scanner: OFF".to_string());
-                } else {
-                    status_bar.info("🔍 Scanner: ON".to_string());
-                }
-            }
-
             // R key: reset spectrum dB range to default (-120 to 0)
             if i.key_pressed(egui::Key::R) && !i.modifiers.ctrl && !i.modifiers.alt {
                 state.spectrum.set_display_range(-120.0, 0.0);
                 status_bar.info("📊 dB range reset to -120…0".to_string());
             }
         });
+
+        if outcome.freq_changed {
+            let requested = state.source.frequency_hz;
+            state.source.frequency_hz = previous_frequency;
+            crate::radio_ui::tune(state, requested);
+        }
 
         outcome
     }
@@ -404,9 +396,6 @@ mod tests {
     fn keyboard_handler_creation() {
         let _handler = KeyboardHandler::new();
         let outcome = KeyboardOutcome::default();
-        assert!(!outcome.toggle_help);
-        assert!(!outcome.toggle_recording);
-        assert!(!outcome.toggle_scanner);
         assert!(!outcome.freq_changed);
     }
 }

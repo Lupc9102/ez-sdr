@@ -1,0 +1,272 @@
+{
+  "date": "2026-10-08",
+  "scope": [
+    "S02"
+  ],
+  "commands": [
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-workspace-tests.log",
+      "log_sha256": "f6e18d2145c4aac1452f6333d5c81e2a0a20c93938c1360fd4ac909477c9c4dc",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 214,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 831,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 19,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 99,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p lrpt-decode --release --lib -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-lrpt-tests.log",
+      "log_sha256": "0e47adcafede0d4ee0066a0a839ae8cee7adf77666c0a2953c453bd556535f13"
+    },
+    {
+      "command": "EZ_OQPSK_VECTORS=/tmp/ez-sdr-oqpsk-vectors cargo test -p lrpt-decode --release independent_oqpsk_carrier_corpus -- --ignored --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-independent.log",
+      "log_sha256": "69b727ac47c99749b98548f668c1de45b31c11d1545e36ff70e36335a126020e"
+    },
+    {
+      "command": "EZ_METEOR_CS8=/tmp/ez-sdr-public-meteor.cs8 EZ_METEOR_CADU=/tmp/ez-sdr-public-meteor-reference.cadu cargo test -p lrpt-decode --release public_off_air_carrier -- --ignored --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-public-off-air.log",
+      "log_sha256": "f120d5114f25a34ef2bc28e14e93d591d3d9279effc00a4af4d0d44b6fed61b8"
+    },
+    {
+      "command": "cargo run -p lrpt-decode --release --example audit_logic",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-audit-logic.log",
+      "log_sha256": "ea64a60824598c458e3992fed54f30af2723a791f89f019543ff32dee3368365"
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-workspace-clippy.log",
+      "log_sha256": "778ede04c3871ffb8ba97543fa711963d87bbf87f1f8d1af7ae7d5f41721ad48"
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-workspace-build.log",
+      "log_sha256": "c52d4715a40e47facca1874760f55fb8bb9952a0c0b86d9923a8848e56fdaf7d"
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-graphify.log",
+      "log_sha256": "ad9547d2311afb4fbf25aaf0f09ca8b274f8b058cda10387f1f01a9de9def54c"
+    }
+  ],
+  "sources": {
+    "lrpt-decode/src/lib.rs": "18c5c7e6012f29767e6ae405ee381e23537e5e40c6f1cee8bc5ddd83282d4703",
+    "lrpt-decode/src/qpsk.rs": "f47229ef2c0761db4eea3301c9a558164411df1766d57f1128bfcc2c3f91395b",
+    "audit/2026-10-07/generate_oqpsk_vectors.py": "a2b0b48a142459e07ef470ff9c9fb5f726f3d04acc6079fe92a538c4b19c9c6b",
+    "audit/2026-10-07/fixtures/oqpsk-case-55.cf32": "f6bb0153f47a44ec67f0245736f524668090cf5740d6e1297dfa4b4588d59e6e",
+    "audit/2026-10-07/fixtures/oqpsk-case-59.cf32": "5e5f3119e46cc9d0d9079990d2d8d6fc86e73696f653c091a3beab9fc055d5b7",
+    "audit/2026-10-07/fixtures/oqpsk-expected-payloads.bin": "38ee99a462ff9813ac3f765e276a6a63bc80f7119e63ed9ec0c19ad3860957aa"
+  },
+  "independent_corpus": {
+    "manifest": "oqpsk-independent-corpus.json",
+    "cases": 60,
+    "chunk_sizes": [
+      997,
+      16384
+    ],
+    "byte_equal_comparisons": 120,
+    "expected_cadus_per_case": 3,
+    "expected_rs_codewords_per_case": 12,
+    "phase_sweep_degrees": [
+      0,
+      15,
+      30,
+      45,
+      60,
+      75,
+      90,
+      105,
+      120,
+      135,
+      150,
+      165,
+      180,
+      195,
+      210,
+      225,
+      240,
+      255,
+      270,
+      285,
+      300,
+      315,
+      330,
+      345
+    ],
+    "stagger_directions": [
+      -1,
+      1
+    ],
+    "sample_rates_hz": [
+      288000,
+      640000,
+      2048000
+    ],
+    "symbol_rates_hz": [
+      72000,
+      80000
+    ],
+    "frequency_offset_hz": [
+      -1000,
+      0,
+      1000
+    ],
+    "clock_drift_ppm": [
+      -150,
+      150
+    ],
+    "fixture_manifest": "fixtures/oqpsk-fixtures.json",
+    "generator_command": "python3 audit/2026-10-07/generate_oqpsk_vectors.py /tmp/ez-sdr-libfec.so /tmp/ez-sdr-oqpsk-vectors",
+    "reference_library_build": "cc -O2 -shared -fPIC -o /tmp/ez-sdr-libfec.so init_rs_char.c encode_rs_char.c",
+    "reference_library_commit": "9750ca0a6d0a786b506e44692776b541f90daa91"
+  },
+  "public_off_air": {
+    "source": "public-meteor-reference.json",
+    "symbol_rate_hz": 72000,
+    "sample_rate_hz": 288000,
+    "start_seconds": 180,
+    "duration_seconds": 20,
+    "accepted_cadus": 175,
+    "identical_reference_payloads": 175,
+    "additional_cadus": 0,
+    "successful_rs_codewords": 700
+  },
+  "limits": [
+    "All sixteen ambiguity hypotheses remain warm, increasing decoding CPU.",
+    "The public RF comparison covers a 20-second slice, not the full recorded pass. Full corrected-CADU images were independently verified in the preceding image batch.",
+    "The public ZIQ has an unfinished compressed tail; no complete-recording certification is claimed.",
+    "Primitive 80k carrier waveforms are not evidence of the missing 80k marker-interleaved mission transport. S01/S11 remain open.",
+    "Original field/hardware/audio/disk release gates remain unverified; the full goal is active."
+  ],
+  "graph": {
+    "nodes": 7231,
+    "edges": 16074,
+    "communities": 360,
+    "html": "skipped above 5000-node limit",
+    "preexisting_deleted_sidecars": "kept deleted"
+  },
+  "log_normalization": "Trailing blank lines removed; otherwise captured output retained.",
+  "verification_retry": {
+    "overlapping_workspace_attempt": {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 101,
+      "log": "repair-evidence/carrier-workspace-overlap-failure.log",
+      "log_sha256": "ca803642b7eeee2fb6743acdc4ff3423751d7e0721042aa8dbb4f2bb54614332",
+      "failure": "Scanner GUI test timed out waiting for its third observation while an earlier debug decoding suite was still running. No scanner source or timeout was changed."
+    },
+    "isolated_scanner_recheck": {
+      "command": "cargo test -p ez-gui --no-default-features scan_real_local_worker_has_identical_hits_visible_hidden_and_frozen_then_waits_on_stop -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/carrier-scanner-recheck.log",
+      "log_sha256": "942c34f27a5ad36b57505f62fb7423297cc24d0f12672e97016b38443beba7d9"
+    },
+    "clean_full_workspace_retry": "passed; final source with all 99 LRPT regressions and unchanged scanner test"
+  }
+}

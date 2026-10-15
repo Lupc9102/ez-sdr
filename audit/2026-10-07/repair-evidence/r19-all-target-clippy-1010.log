@@ -1,0 +1,19 @@
+    Checking ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Checking lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Checking ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+error: called `unwrap` on `wanted_audio_mode` after checking its variant with `is_some`
+    --> ez-gui/src/source_manager.rs:2109:24
+     |
+2104 |             && wanted_audio_mode.is_some()
+     |                --------------------------- the check is happening here
+...
+2109 |             let mode = wanted_audio_mode.unwrap();
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: try using `match`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unnecessary_unwrap
+     = note: `-D clippy::unnecessary-unwrap` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::unnecessary_unwrap)]`
+
+error: could not compile `ez-gui` (lib) due to 1 previous error

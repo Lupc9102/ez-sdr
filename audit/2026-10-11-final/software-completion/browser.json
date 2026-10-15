@@ -1,0 +1,42 @@
+{
+  "checked_utc": "2026-10-13T13:22:12.437709+00:00",
+  "method": "CUA browser UI interactions against isolated synthetic daemon with shared test token",
+  "receiver": "768000 samples/s synthetic source; no physical receiver",
+  "checks": [
+    {
+      "name": "wrong credential rejected",
+      "passed": true,
+      "observed": "Access denied. Enter the daemon access token."
+    },
+    {
+      "name": "authenticated connection and live spectrum",
+      "passed": true,
+      "observed": "Connected; synthetic 0.768 MS/s; spectrum frequency/span updated"
+    },
+    {
+      "name": "80k Meteor channel creation",
+      "passed": true,
+      "observed": "LrptTelemetry channel #100 created with Oqpsk80Interleaved; Finalize pass and New pass controls present"
+    },
+    {
+      "name": "new pass boundary and final timestamp trailer",
+      "passed": true,
+      "observed": [
+        "Receiving a new Meteor pass",
+        "Meteor pass finalized; no channel images decoded"
+      ]
+    },
+    {
+      "name": "current session JavaScript console errors",
+      "passed": true,
+      "observed": []
+    }
+  ],
+  "earlier_radio_observations": "Two independent Wfm/Cw browser audio channels were created and their Listen/Mute state verified; screenshot/AX evidence was observed in conversation on 2026-10-12. This does not establish audible field quality.",
+  "assets": {
+    "ez-daemon/src/web/frontend/app.js": "241141d3ffccba9b617c404385d90415f5c9ef36510658933ade3706628c1df2",
+    "ez-daemon/src/web/frontend/index.html": "9bf4002959396e04c9edfcf82bb8f570f781b11fb2eaf6683d0ecde40d931322",
+    "ez-daemon/src/web/frontend/style.css": "d1022175b6163bac85cfb4f26b2a1a23a45fe08fa0e2484cc770c2f49aa7d907"
+  },
+  "scope": "UI and protocol controls; synthetic noise carries no Meteor images. Full image/timestamp delivery is separately tested by pipeline/codec/GUI final product tests."
+}

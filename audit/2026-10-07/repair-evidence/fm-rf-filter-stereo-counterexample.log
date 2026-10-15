@@ -1,0 +1,110 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.65s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 75 tests
+test demod::tests::agc_decay_on_quiet_signal ... ok
+test demod::tests::agc_clamps_gain_and_output ... ok
+test demod::tests::agc_attack_on_loud_signal ... ok
+test demod::tests::apply_lpf_bypass_when_alpha_near_one ... ok
+test demod::tests::apply_lpf_filters_when_alpha_small ... ok
+test demod::tests::cw_offset_zero_produces_tone_at_cw_tone_hz ... ok
+test demod::tests::complex_input_preserves_signals_far_below_an_eight_bit_quantization_step ... ok
+test demod::tests::am_and_nfm_channel_filters_reject_out_of_band_iq_before_decimation ... ok
+test demod::tests::demod_am_constant_carrier_is_dc_blocked_by_default ... ok
+test demod::tests::demod_control_flood_coalesces_config_and_profile_and_acknowledges_without_iq ... ok
+test demod::tests::demod_controls_report_a_missing_worker_instead_of_success ... ok
+test demod::tests::demod_fm_constant_phase_near_zero ... ok
+test demod::tests::cw_offset_200_produces_tone_at_cw_tone_hz_plus_200 ... ok
+test demod::tests::demod_lsb_produces_finite_output ... ok
+test demod::tests::demod_raw_output_length ... ok
+test demod::tests::demod_usb_produces_finite_output ... ok
+test demod::tests::cw_volume_half_produces_half_amplitude ... ok
+test demod::tests::demod_wfm_produces_output ... ok
+test demod::tests::cw_squelch_weak_signal_gates_to_silence ... ok
+test demod::tests::demod_worker_round_trips_iq_to_audio ... ok
+test demod::tests::cw_volume_zero_produces_silence ... ok
+test demod::tests::demod_worker_reconfigures_mode_and_resets ... ok
+test demod::tests::cw_volume_full_produces_reference_amplitude ... ok
+test demod::tests::cw_squelch_strong_signal_passes_audio ... ok
+test demod::tests::empty_iq_returns_empty ... ok
+test demod::tests::dsb_sideband_both_recovers_signed_modulation ... ok
+test demod::tests::cw_rejects_adjacent_carriers_before_beat_mixing ... ok
+test demod::tests::dsb_sideband_lower_selects_lower_sideband ... ok
+test demod::tests::fmif_uses_reference_presets_and_single_bin_inverse_center ... ok
+test demod::tests::dsb_recovers_signed_modulation_without_envelope_frequency_doubling ... ok
+test demod::tests::dsb_sideband_upper_selects_upper_sideband ... ok
+test demod::tests::demod_frame_versions_identify_latest_controls_under_iq_backlog ... ok
+test demod::tests::cw_tone_is_added_after_narrow_rf_filter_and_honors_setting ... ok
+test demod::tests::optional_rf_decimation_rejects_a_signal_that_would_alias_into_audio ... ok
+test demod::tests::physical_fm_meter_ignores_initial_phase_carrier_offset_and_no_energy ... ok
+test demod::tests::fractional_source_clock_preserves_exact_audio_counts_pitch_and_chunk_state ... ok
+test demod::tests::demod_wfm_deemph_runs_at_input_rate ... ok
+test demod::tests::carrier_agc_tracks_rf_strength_but_preserves_am_modulation_depth ... ok
+test demod::tests::reset_clears_state ... ok
+test demod::tests::reset_preserves_configured_highpass_from_the_first_block ... ok
+test demod::tests::rf_bandwidth_and_audio_cutoff_independently_reject_tones ... ok
+test demod::tests::rf_blanker_level_controls_real_impulse_suppression_before_demodulation ... ok
+test demod::tests::carrier_agc_is_rate_independent_and_preserves_stream_state ... ok
+test demod::tests::rf_dc_notch_blanker_and_decimator_preserve_stream_state_across_chunks ... ok
+test demod::tests::set_lpf_cutoff_clamps ... ok
+test demod::tests::set_lpf_cutoff_computes_alpha ... ok
+test demod::tests::set_sample_rates_decimation ... ok
+test demod::tests::ssb_selects_requested_sideband_without_pitch_translation ... ok
+test demod::tests::rf_decimation_retains_exact_audio_duration_and_cw_pitch ... ok
+test demod::tests::fm_lowpass_bypass_is_real_and_keeps_antialias_protection ... ok
+test demod::tests::product_modes_keep_exact_audio_clock_and_chunk_continuity_at_noninteger_rates ... ok
+test demod::tests::fm_deemphasis_supports_none_22_50_and_75_microseconds ... ok
+test demod::tests::rds_tap_preserves_57khz_before_audio_filters_and_reports_exact_clock ... ok
+test demod::tests::stereo_fm_falls_back_to_identical_mono_without_pilot ... ok
+test demod::tests::stereo_fm_low_iq_rate_falls_back_without_pilot_alias_lock ... ok
+test demod::tests::complex_and_byte_apis_match_for_every_mode_and_stereo ... ok
+test demod::tests::stereo_fm_chunk_boundaries_preserve_pll_filters_and_channel_clocks ... ok
+test demod::tests::test_demod_mode_switch_does_not_panic ... ok
+test demod::tests::test_demod_new_defaults ... ok
+test demod::tests::test_demod_process_empty_iq ... ok
+test demod::tests::test_demod_reset ... ok
+test demod::tests::test_pitch_shift_multiple_chunks_continuity ... ok
+test demod::tests::test_pitch_shift_preserves_sample_count ... ok
+test demod::tests::stereo_fm_agc_links_channel_gain_without_changing_balance ... ok
+test demod::tests::fmif_improves_noisy_nfm_and_keeps_tone_gain_when_enabled ... ok
+test demod::tests::physical_nfm_gain_and_deviation_survive_rf_decimation_and_all_if_presets ... ok
+test demod::tests::new_fm_controls_and_taps_preserve_chunk_counts_reset_and_precision ... ok
+
+thread 'demod::tests::physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks' (149632) panicked at ez-gui/src/demod.rs:2695:21:
+stereo gain rate=384000 RF=2 NR=false levels=[0.9715938403586505, 0.9825157114656511]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test demod::tests::physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks ... FAILED
+test demod::tests::physical_fm_meter_is_partition_invariant_and_retires_on_gaps_and_clock_changes ... ok
+test demod::tests::stereo_fm_deemphasis_audio_lpf_and_gain_apply_to_both_channels ... ok
+test demod::tests::stereo_fm_losing_pilot_blends_back_to_mono_and_rejects_weak_pilot ... ok
+test demod::tests::stereo_fm_recovers_left_and_right_with_pilot_phase_and_frequency_offsets ... ok
+test demod::tests::wfm_stereo_if_reduction_preserves_clock_taps_and_chunk_state ... ok
+test demod::tests::stereo_toggle_preserves_mono_downmix_loudness ... ok
+test demod::tests::stereo_fm_resamples_each_channel_to_exact_audio_clock ... ok
+
+failures:
+
+failures:
+    demod::tests::physical_stereo_and_mono_downmix_share_gain_across_rf_and_if_clocks
+
+test result: FAILED. 74 passed; 1 failed; 0 ignored; 0 measured; 777 filtered out; finished in 2.87s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

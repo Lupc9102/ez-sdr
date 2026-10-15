@@ -1,0 +1,30 @@
+    Blocking waiting for file lock on build directory
+   Compiling mio v1.2.3
+   Compiling futures-util v0.3.34
+   Compiling serde v1.0.229
+   Compiling icu_normalizer v2.3.0
+   Compiling serde_json v1.0.151
+   Compiling nix v0.31.3
+   Compiling tokio v1.53.1
+   Compiling idna_adapter v1.2.2
+   Compiling serde_urlencoded v0.7.1
+   Compiling bincode v1.3.3
+   Compiling idna v1.1.0
+   Compiling ctrlc v3.5.2
+   Compiling parking_lot_core v0.9.12
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling url v2.5.8
+   Compiling tracing-subscriber v0.3.23
+   Compiling parking_lot v0.12.5
+   Compiling dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+   Compiling tokio-util v0.7.19
+   Compiling tower v0.5.3
+   Compiling hyper v1.11.1
+   Compiling tokio-tungstenite v0.29.0
+   Compiling tokio-tungstenite v0.24.0
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling tower-http v0.6.11
+   Compiling hyper-util v0.1.21
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28

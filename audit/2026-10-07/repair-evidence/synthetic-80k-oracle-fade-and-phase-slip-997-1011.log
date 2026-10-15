@@ -1,0 +1,47 @@
+{
+  "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+  "source_sha256": "a3310c48c68b7039425802d7075ab7b9faa7e7ca5accecac1f8f3d273967c9c8",
+  "packet_bytes_verified": true,
+  "packet_bytes_compared": 107064,
+  "reference_packet_sha256": "e3718f23f54adc5cbf4190b37adbd3020d993c193e44627f97468e2ae6a9209e",
+  "packet_counts": {
+    "65": 165,
+    "66": 160,
+    "70": 11,
+    "64": 154
+  },
+  "decoded_segments": 479,
+  "complete_lines": 264,
+  "measured_group_period_us": 1231142.0,
+  "first_timestamp_us": 810135304416800,
+  "last_timestamp_us": 810135317959359,
+  "comparisons": [
+    {
+      "apid": 65,
+      "width": 1568,
+      "height": 96,
+      "pixels": 150528,
+      "max_error": 1,
+      "mean_error": 0.018926711309523808,
+      "oracle_pixel_sha256": "adbb2c8fbb6f9ddfc44241a963995b67d00595f01e26fb208735ac5da9454cb5"
+    },
+    {
+      "apid": 66,
+      "width": 1568,
+      "height": 96,
+      "pixels": 150528,
+      "max_error": 1,
+      "mean_error": 0.015737935799319726,
+      "oracle_pixel_sha256": "29310df58fad0b41407dfcfbe2acb6286fb996dba286dbde2c2a5cc36ea9b150"
+    },
+    {
+      "apid": 64,
+      "width": 1568,
+      "height": 96,
+      "pixels": 150528,
+      "max_error": 1,
+      "mean_error": 0.016362404336734693,
+      "oracle_pixel_sha256": "d4ba2a68adcc00e55743f5612d36d90ef451a6ce97582b0d044c37fd86d84c96"
+    }
+  ]
+}

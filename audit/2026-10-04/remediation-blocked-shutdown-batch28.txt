@@ -1,0 +1,20 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.58s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 5 tests
+test demod::tests::demod_am_constant_carrier_is_dc_blocked_by_default ... ok
+Blocked WAV Stop: 44 us; drop=false, flush_error=false, finalized 16 PCM samples
+Blocked WAV Stop: 39 us; drop=false, flush_error=true, finalized 16 PCM samples
+Blocked CF32 Stop: 22 us; drop=false, flush_error=false, finalized 10 RF samples
+Blocked WAV Stop: 27 us; drop=true, flush_error=false, finalized 16 PCM samples
+test audio_recording::tests::blocked_wav_stop_and_panel_drop_are_responsive_and_preserve_finalization ... ok
+Blocked CF32 Stop: 32 us; drop=false, flush_error=true, finalized 10 RF samples
+Blocked CF32 Stop: 20 us; drop=true, flush_error=false, finalized 10 RF samples
+test satellite::recorder::tests::blocked_cf32_stop_keeps_decode_handoff_pending_until_files_finish ... ok
+Blocked receiver Stop returned in 12 us; restart waited for ownership release
+test source_manager::tests::stop_does_not_wait_for_blocked_hardware_open ... ok
+Blocked disk Stop returned in 46 us; pending completion and final flush error preserved
+test recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 821 filtered out; finished in 0.26s

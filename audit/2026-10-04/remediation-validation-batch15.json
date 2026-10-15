@@ -1,0 +1,33 @@
+{
+  "batch": 15,
+  "findings": [
+    "G04"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1546,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6322 nodes, 13522 edges)",
+  "regressions": [
+    "Nondefault serialized profile restores hardware/PPM/LO, FFT/window/rate/waterfall/SNR/smoothing/palette/ranges and radio DSP before first render without starting capture",
+    "Actual Save & Apply imports the profile before receiver/mode synchronization; exact local device-open request matches calibration, serial/AGC/bias/direct sampling/offset tuning settings",
+    "Changed active hardware settings trigger one restart attempt; repeated and appearance-only application preserve the generation and live center/rate/gain",
+    "A real idle demodulation worker acknowledges imported settings and emits muted PCM under saved zero audio gain",
+    "Profile survives rendering and configuration serialization/reloading; legacy aliases migrate and invalid display values normalize idempotently",
+    "Disabled smoothing and zero FFT hold follow measured frames immediately",
+    "PPM return-code handling accepts librtlsdr already-applied -2 and rejects genuine failures"
+  ],
+  "primary_reference": "https://github.com/osmocom/rtl-sdr/blob/master/src/librtlsdr.c",
+  "limitations": [
+    "Seven formal findings and additional experiments remain open",
+    "Unit-test builds reject physical hardware opening: asserted device requests/restart attempts are not physical-device measurements",
+    "Physical bias/AGC/PPM behavior and supported front ends remain part of the hardware experiment",
+    "R05 recording epoch integrity remains open for tuning/calibration restarts",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

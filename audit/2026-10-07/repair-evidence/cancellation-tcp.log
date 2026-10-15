@@ -1,0 +1,13 @@
+    Blocking waiting for file lock on build directory
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.26s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-629232f51e69496a)
+
+running 5 tests
+test hardware::tcp_iq::tests::invalid_tcp_controls_preserve_cached_metadata ... ok
+test hardware::tcp_iq::tests::rtl_tcp_start_applies_cached_tuning_and_reads_uc8 ... ok
+test hardware::tcp_iq::tests::rtl_tcp_gain_wire_commands_cover_startup_manual_and_auto ... ok
+test hardware::tcp_iq::tests::raw_uc8_mode_does_not_write_rtl_tcp_commands ... ok
+test hardware::tcp_iq::tests::stalled_tcp_peer_yields_and_fragmented_iq_keeps_the_first_component ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 211 filtered out; finished in 0.22s

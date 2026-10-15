@@ -1,0 +1,47 @@
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.00s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35a41ace547e3d8a)
+
+running 23 tests
+test radio_ui::tests::compact_ui_renders_without_starting_source ... ok
+test radio_ui::tests::converter_offset_changes_physical_tune_without_wrapping_logical_frequency ... ok
+test radio_ui::tests::cw_offset_change_sets_dsp_changed ... ok
+test radio_ui::tests::cw_squelch_toggle_works ... ok
+test radio_ui::tests::cw_volume_change_sets_dsp_changed ... ok
+test radio_ui::tests::decimation_reconciles_vfo_span_and_adsb_bypasses_radio_iq_controls ... ok
+test radio_ui::tests::demod_selection_applies_usable_voice_filter ... ok
+test radio_ui::tests::digit_tuning_carries_borrows_and_saturates ... ok
+test radio_ui::tests::digit_widget_routes_click_wheel_and_manual_entry_events ... ok
+test radio_ui::tests::dsb_sideband_change_sets_dsp_changed ... ok
+test radio_ui::tests::frequency_entry_has_explicit_units_and_validates_before_tuning ... ok
+test radio_ui::tests::idle_tuning_and_source_selection_do_not_start_receiving ... ok
+test radio_ui::tests::keyboard_mute_is_reflected_and_spectrum_start_keeps_it ... ok
+test radio_ui::tests::mode_changes_reset_both_filters_but_saved_settings_survive_ui_creation ... ok
+test radio_ui::tests::normal_tuning_keeps_capture_center_until_channel_leaves_useful_band ... ok
+test radio_ui::tests::play_stop_controls_source_and_audio_lifecycle ... ok
+test radio_ui::tests::radio_mode_profiles_restore_controls_without_changing_source_or_display ... ok
+test radio_ui::tests::replay_scan_bounds_keep_complete_sided_passbands_and_fractional_decimation ... replay_scan_bounds edge_tunes=32 fractional_clock=passed unavailable_full_band=passed
+ok
+test radio_ui::tests::replay_tuning_preserves_file_center_and_playback_position ... ok
+test radio_ui::tests::rf_width_is_independent_from_audio_and_bounded_by_input_rate ... ok
+test radio_ui::tests::selecting_cw_shows_offset_volume_squelch_controls ... ok
+test radio_ui::tests::selecting_dsb_shows_sideband_control ... ok
+test radio_ui::tests::stereo_transport_only_applies_to_local_wfm_and_resolves_auto ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 842 filtered out; finished in 1.81s

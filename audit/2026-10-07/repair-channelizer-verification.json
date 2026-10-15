@@ -1,0 +1,254 @@
+{
+  "date": "2026-10-09",
+  "scope": [
+    "R03"
+  ],
+  "verification_state": "software_verified",
+  "commands": [
+    {
+      "command": "cargo test -p ez-daemon --release --lib channelizer -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-channelizer-tests.log",
+      "log_sha256": "827f0155a68cc1bd537527f0522a1250d888db0e5b8e1eaec24fbf42cc824b56",
+      "test_harnesses": [
+        {
+          "passed": 37,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "raw_log_sha256": "cdfe4a2c6db07b8b2ceb8c1f92d72ac5826ebe6c1c41ff6b54cdb249dcbe5d47",
+      "log_normalization": "Only terminal blank lines removed."
+    },
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-workspace-tests.log",
+      "log_sha256": "0bc7d6a5a3af51474ec1f41e089e90d502e192666a08c2a98c01fd188b80f081",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 223,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 833,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 20,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 3
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "raw_log_sha256": "bc285bfc2b0895138db9c08018899eaf1b541c55ebaeb8701afaf93a2c9fab58",
+      "log_normalization": "Only terminal blank lines removed."
+    },
+    {
+      "command": "cargo run -p ez-daemon --release --example audit_channelizer_sweep",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-sweep.log",
+      "log_sha256": "ca022072f03b4d8c89d717c119c460dbf08cc4e78ea5d72a54117ce12bd33b6a",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo run -p ez-daemon --release --example audit_channelizer",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-probe.log",
+      "log_sha256": "eb7f71e7c059979c7c1ff0ca7908c7cfff5372c4c3a5ddf5cec5e9a7eb2f95b7",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-build.log",
+      "log_sha256": "7453cf26f6bf1bf12a860bdac833e09b369d668c4a312e818ef5bf2766ec740b",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-clippy.log",
+      "log_sha256": "104e95a881fe68351c9c3dd8b23b8b1e7609c3736f600112dddafa5d2a7fd511",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo check -p ez-daemon --all-targets --features rtlsdr,hackrf,soapy",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-hardware-check.log",
+      "log_sha256": "2284711bfb5c621d10f7b5da64d624f052874b78af947631d741ec093cbae987",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_harnesses": []
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "log": "repair-evidence/channelizer-graphify.log",
+      "log_sha256": "044832211428b8ac1645a67368204514803b5e68258f47108537700817bc7239",
+      "test_harnesses": []
+    }
+  ],
+  "source_sha256": {
+    "ez-daemon/src/channelizer.rs": "477b04d9d107428c62391f68e2e2dec5574d7ac462197c0a2a951542bfa4f2e5",
+    "ez-daemon/examples/audit_channelizer.rs": "df08cb6de824f276639bc5995df40e3f4d2c0ea76060924e6aaab27038b1eb97",
+    "ez-daemon/examples/audit_channelizer_sweep.rs": "e32d91687a2bb71c57f24ccd0673853b4e6b9a11fe509b77e89f28593c4ae0f5"
+  },
+  "filter_contract": {
+    "passband_fraction_of_exact_output_rate": 0.4,
+    "stopband_fraction_of_exact_output_rate": 0.5,
+    "maximum_passband_error_db": 0.02,
+    "minimum_stopband_rejection_db": 80,
+    "design": "63-tap exact-zero half-band stages followed by a Blackman-Harris phase-selected FIR; exact integer source-grid output offsets; 256 fractional intervals with coefficient interpolation for larger stage products.",
+    "maximum_final_filter_taps": 801,
+    "maximum_final_banks": 257,
+    "maximum_final_coefficient_bytes": 823428,
+    "full_band_decimation_one": "Exact input passthrough; no decimation or added filter delay."
+  },
+  "production_sweep": {
+    "source_rates_hz": [
+      2000000,
+      2048003,
+      2400000
+    ],
+    "requested_minimum_rates_hz": [
+      12500,
+      25000,
+      200000,
+      288000,
+      320000
+    ],
+    "frequency_measurements": 622,
+    "maximum_passband_error_db": 4.1021e-05,
+    "minimum_stopband_rejection_db": 111.150039745,
+    "adjacent_mixtures": 15,
+    "interferers_per_mixture": 4,
+    "each_interferer_above_wanted_db": 27.604225,
+    "maximum_relative_mixture_error": 4.545e-06,
+    "input_peak_bound": 0.97,
+    "comparison_chunks": [
+      997,
+      4093
+    ],
+    "settling_outputs_excluded": 128
+  },
+  "original_probe": {
+    "coarse_rms_by_tone_hz": {
+      "1000": 0.4986191,
+      "13500": 0.002194099,
+      "26000": 0.001063771,
+      "101000": 0.000278058
+    },
+    "ideal_settled_rms_by_tone_hz": {
+      "1000": 0.500000518,
+      "13500": 4.1e-08,
+      "26000": 1.7e-08,
+      "101000": 1.1e-08
+    },
+    "explanation": "The unchanged coarse signal uses f32 angle accumulation and excludes only 50 startup outputs. Its aggregate includes both new causal FIR startup and generated in-band phase noise. Those results are retained separately; the ideal settled probe uses f64 phase generation and excludes 128 outputs. Historical baseline evidence is unchanged."
+  },
+  "regressions": [
+    "streamed_filters_reject_aliases_and_strong_mixtures_including_interpolated_prime_phases: D=2/10/163/4093; wanted, band edge, Nyquist, folding tones and four strong adjacent interferers.",
+    "rational_output_phases_follow_the_source_clock_with_constant_filter_delay: analytic complex tone phase/amplitude against exact physical group delay, both frequency signs through passband edge.",
+    "staged_and_prime_decimations_preserve_counts_partitions_and_reset_alignment: D=1/2/7/10/17/160/163/4093; bit-identical output under chunks 1/37/997; aligned reset counts.",
+    "extreme_decimation_does_not_allocate_a_source_rate_sized_fir: D=2048003 and u32::MAX; final coefficients below 1 MiB.",
+    "Existing source-clock, gap, retune, packet and product regressions pass in the full workspace suite."
+  ],
+  "primary_design_references": [
+    "https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.upfirdn.html",
+    "https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.windows.blackmanharris.html"
+  ],
+  "limits": [
+    "All response/mixture signals are independent analytical tones, not physical receivers or field captures.",
+    "The source-clock index describes causal output observation; signal phase includes the known FIR group delay. Cold-start transients are retained, not silently flushed.",
+    "No receiver was opened. HackRF/Soapy native libraries are unavailable; compilation is not physical driver validation.",
+    "The original off-air, physical hardware/audio/disk and complete RF-pass release gates remain active.",
+    "AST graph refresh passed with 7318 nodes and 16333 edges. HTML export was skipped by its size limit; user-deleted graph sidecars were removed again."
+  ]
+}

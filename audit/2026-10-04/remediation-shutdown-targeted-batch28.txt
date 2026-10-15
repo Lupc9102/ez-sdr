@@ -1,0 +1,21 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: method `stop_and_wait` is never used
+   --> ez-gui/src/recorder_panel.rs:922:19
+    |
+281 | impl RecorderPanel {
+    | ------------------ method in this implementation
+...
+922 |     pub(crate) fn stop_and_wait(&mut self) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.21s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 2 tests
+test source_manager::tests::stop_does_not_wait_for_blocked_hardware_open ... ok
+test recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 820 filtered out; finished in 0.25s

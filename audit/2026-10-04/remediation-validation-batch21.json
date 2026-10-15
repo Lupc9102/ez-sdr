@@ -1,0 +1,35 @@
+{
+  "batch": 21,
+  "findings": [
+    "R05"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1596,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6490 nodes, 14106 edges)",
+  "protocol_version": 7,
+  "regressions": [
+    "Shared immutable recording contract rejects changed capture epochs, center frequencies, native/output sample clocks, sample stride, acquisition UTC origin, rewind, loss/discontinuity and overflowing indices before accepting bytes",
+    "Raw IQ and satellite CF32 recordings stop before retune/rate/epoch/gap data enters the file; persisted first clock, native stride, exact accepted sample count and stop reason identify the intact prefix",
+    "Daemon CF32 and CU8 files are checked across six clock/tuning/epoch/loss mutations, compared byte-for-byte to source samples, reopened independently through production FileReplaySource and immediately restarted into unique separate files",
+    "Raw writer queue overflow stops rather than silently joining later samples; finalized metadata is incomplete and reports the overflow",
+    "Hidden actual app logic drives real fake-device workers at 118 MHz / 2.4 MSps and 119 MHz / 2.0 MSps; both local writers retain only the first source epoch, and a new raw file contains only the second epoch with matching metadata",
+    "Private Synthetic daemon and real GUI control connection propagate the epoch stop reason and inactive/shared state while hidden, then start and finalize a separate file at the newly acknowledged frequency/rate",
+    "Actual flush failure remains an error from explicit stop and also persists as a terminal client-visible recording status; finished records are released when their channel is removed",
+    "Normalized CF32 amplitude remains explicit; captured duration uses native rate/stride rather than CPU time or rounded output rate"
+  ],
+  "limitations": [
+    "Two formal findings (A09, G02) and seven additional experiments remain open or partly verified; the full goal remains active",
+    "Files intentionally finalize at the first capture boundary; continuous ingestion and ordinary-rate loss prevention remain A09 work",
+    "Protocol 7 adds recording stop reasons; GUI and daemon must use the updated matching wire version",
+    "One intermediate overlapping verification run failed in an existing loopback Welcome handshake; the subsequent full workspace run passed. Saturated mixed-stream verification remains open",
+    "No calibrated RF, physical USB/driver failure, real slow/full disk shutdown or actual-display performance result is claimed by private fake-device/loopback/replay tests",
+    "Pre-existing 672 tracked deletions, untracked AGENTS.md and four untouched workspace formatting differences are preserved; original audit evidence is unchanged"
+  ]
+}

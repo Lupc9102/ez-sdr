@@ -1,0 +1,15 @@
+{
+  "verified_utc": "2026-10-13T13:56:34.945018+00:00",
+  "command": "taskset -c 0-5 nice -n 10 graphify update .",
+  "exit_code": 0,
+  "log_sha256": "d5266f258ff4bad8136c8c10c713a1ff1f977a8a36cd8b0e64a1f8e958561c9b",
+  "graph_sha256": "065b15c4847c595f0b1afa1240baf4ec8cefaa2337aecad06b986af0d905f5e0",
+  "preserved_preexisting_tracked_deletions": 672,
+  "regenerated_baseline_sidecars_removed": [
+    "graphify-out/.graphify_labels.json",
+    "graphify-out/.graphify_root",
+    "graphify-out/GRAPH_REPORT.md",
+    "graphify-out/manifest.json"
+  ],
+  "untracked_AGENTS_preserved": true
+}

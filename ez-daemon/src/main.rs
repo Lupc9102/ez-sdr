@@ -15,6 +15,17 @@ enum SourceKind {
     Synthetic,
     #[value(name = "replay")]
     Replay,
+    #[value(name = "tcp-iq")]
+    TcpIq,
+    #[cfg(feature = "rtlsdr")]
+    #[value(name = "rtlsdr")]
+    RtlSdr,
+    #[cfg(feature = "hackrf")]
+    #[value(name = "hackrf")]
+    HackRf,
+    #[cfg(feature = "soapy")]
+    #[value(name = "soapy")]
+    Soapy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -34,24 +45,49 @@ impl From<ReplayFormatArg> for ReplayFormat {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ReplayAmplitudeArg {
+    Normalized,
+    #[value(name = "adc-counts-127-4")]
+    AdcCounts1274,
+}
+
+impl From<ReplayAmplitudeArg> for lrpt_decode::Cf32Amplitude {
+    fn from(value: ReplayAmplitudeArg) -> Self {
+        match value {
+            ReplayAmplitudeArg::Normalized => Self::Normalized,
+            ReplayAmplitudeArg::AdcCounts1274 => Self::AdcCounts127_4,
+        }
+    }
+}
+
 /// `ez-sdr` headless daemon: owns hardware ingestion, wideband channelization, and
 /// multi-tenant DSP pipeline routing. GUI and CLI clients attach over the network on-demand
 /// and never block or interrupt daemon-side processing by attaching or detaching.
-#[derive(Debug, Parser)]
+#[derive(Parser)]
 #[command(name = "ez-daemon", version)]
 struct Args {
-    /// TCP address to accept legacy bincode client connections on.
-    #[arg(long, default_value = "127.0.0.1:7890")]
-    listen: SocketAddr,
+    /// IP address to bind both the legacy TCP server and web UI/API to.
+    #[arg(long, default_value = "127.0.0.1")]
+    bind: std::net::IpAddr,
 
-    /// Address the web UI/API (HTTP + WebSocket) listens on.
-    #[arg(long, default_value = "127.0.0.1:7891")]
-    web_listen: SocketAddr,
+    /// TCP port to accept legacy bincode client connections on.
+    #[arg(long, default_value_t = 7890)]
+    listen_port: u16,
+
+    /// Port the web UI/API (HTTP + WebSocket) listens on.
+    #[arg(long, default_value_t = 7891)]
+    web_listen_port: u16,
 
     /// Directory containing the compiled frontend's static assets. Served at `/`; if
     /// missing, the daemon still serves `/api/*` and `/ws/*` with a warning logged.
     #[arg(long, default_value = "./ez-web/dist")]
     web_static_dir: PathBuf,
+
+    /// Shared bearer token required by REST, WebSocket, and binary TCP clients.
+    /// Can also be supplied through EZ_DAEMON_AUTH_TOKEN.
+    #[arg(long, env = "EZ_DAEMON_AUTH_TOKEN")]
+    auth_token: Option<String>,
 
     /// Initial center frequency in Hz.
     #[arg(long, default_value_t = 433_000_000)]
@@ -65,6 +101,15 @@ struct Args {
     #[arg(long, default_value = "./recordings")]
     recording_dir: PathBuf,
 
+    /// Latitude of the actual IQ capture site (also supply --receiver-lon).
+    /// For replay, use the recording's location, never the viewer's location.
+    #[arg(long, requires = "receiver_lon", allow_hyphen_values = true)]
+    receiver_lat: Option<f64>,
+
+    /// Longitude of the actual IQ capture site (also supply --receiver-lat).
+    #[arg(long, requires = "receiver_lat", allow_hyphen_values = true)]
+    receiver_lon: Option<f64>,
+
     /// IQ source to ingest from.
     #[arg(long, value_enum, default_value = "synthetic")]
     source: SourceKind,
@@ -77,6 +122,10 @@ struct Args {
     #[arg(long, value_enum, default_value = "cf32-le")]
     replay_format: ReplayFormatArg,
 
+    /// Override CF32 metadata for old recordings (normalized or adc-counts-127-4).
+    #[arg(long, value_enum)]
+    replay_amplitude: Option<ReplayAmplitudeArg>,
+
     /// Loop the replay file instead of stopping at end-of-file.
     #[arg(long)]
     replay_loop: bool,
@@ -84,6 +133,18 @@ struct Args {
     /// Playback speed multiplier (1.0 = real time).
     #[arg(long, default_value_t = 1.0)]
     replay_speed: f32,
+
+    /// Optional RTL-SDR serial/name or SoapySDR driver argument string.
+    #[arg(long)]
+    device: Option<String>,
+
+    /// Address of a raw Uc8 IQ or rtl_tcp-compatible network source.
+    #[arg(long, default_value = "127.0.0.1:12345")]
+    iq_address: SocketAddr,
+
+    /// Consume the 12-byte rtl_tcp `RTL0` greeting before IQ data.
+    #[arg(long, default_value_t = true)]
+    rtl_tcp_header: bool,
 }
 
 impl Args {
@@ -97,16 +158,33 @@ impl Args {
                 format: self.replay_format.into(),
                 looping: self.replay_loop,
                 speed: self.replay_speed,
+                amplitude: self.replay_amplitude.map(Into::into),
+            },
+            SourceKind::TcpIq => SourceConfig::TcpIq {
+                address: self.iq_address,
+                rtl_tcp_header: self.rtl_tcp_header,
+            },
+            #[cfg(feature = "rtlsdr")]
+            SourceKind::RtlSdr => SourceConfig::RtlSdr {
+                device: self.device,
+            },
+            #[cfg(feature = "hackrf")]
+            SourceKind::HackRf => SourceConfig::HackRf,
+            #[cfg(feature = "soapy")]
+            SourceKind::Soapy => SourceConfig::Soapy {
+                device: self.device,
             },
         };
         Ok(DaemonConfig {
-            listen_addr: self.listen,
-            web_listen_addr: self.web_listen,
+            listen_addr: SocketAddr::new(self.bind, self.listen_port),
+            web_listen_addr: SocketAddr::new(self.bind, self.web_listen_port),
             initial_freq_hz: self.freq,
             initial_sample_rate_hz: self.sample_rate,
             recording_dir: self.recording_dir,
             web_static_dir: self.web_static_dir,
+            auth_token: self.auth_token,
             source,
+            receiver_position: self.receiver_lat.zip(self.receiver_lon),
         })
     }
 }
@@ -117,7 +195,8 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-    tracing::info!(?args, "ez-daemon starting");
+    // Do not log parsed arguments: --auth-token and its environment equivalent are secrets.
+    tracing::info!("ez-daemon starting");
     let config = args.into_daemon_config()?;
 
     let running = Arc::new(AtomicBool::new(true));
@@ -134,4 +213,44 @@ fn main() -> anyhow::Result<()> {
     });
 
     runtime.block_on(ez_daemon::run(config, running))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn receiver_coordinates_require_both_components_and_preserve_signed_values() {
+        assert!(Args::try_parse_from(["ez-daemon", "--receiver-lat", "51.5"]).is_err());
+        assert!(Args::try_parse_from(["ez-daemon", "--receiver-lon", "-0.1"]).is_err());
+        let config = Args::try_parse_from([
+            "ez-daemon",
+            "--receiver-lat",
+            "-51.5",
+            "--receiver-lon",
+            "-0.1",
+        ])
+        .unwrap()
+        .into_daemon_config()
+        .unwrap();
+        assert_eq!(config.receiver_position, Some((-51.5, -0.1)));
+        assert_eq!(
+            Args::try_parse_from(["ez-daemon"])
+                .unwrap()
+                .into_daemon_config()
+                .unwrap()
+                .receiver_position,
+            None
+        );
+    }
+
+    #[test]
+    fn auth_token_is_configurable_from_the_command_line() {
+        let args =
+            Args::try_parse_from(["ez-daemon", "--auth-token", "configured-token-value"]).unwrap();
+        let config = args.into_daemon_config().unwrap();
+        assert_eq!(config.auth_token.as_deref(), Some("configured-token-value"));
+        let debug = format!("{config:?}");
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains("configured-token-value"));
+    }
 }

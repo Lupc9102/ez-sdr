@@ -1,0 +1,71 @@
+import { Stack, Row, Grid, H1, H2, Text, Stat, Table, Callout, Link, Button, Divider, useCanvasState } from "cursor/canvas";
+
+const root = "/home/lupc/Documents/ez-sdr/";
+const findings = [
+  { state: "Open", name: "Distribution license gate", proof: "cargo-deny rejects rtlsdr_sys GPL-2.0-or-later; translated dump1090 code carries MIT/Apache manifest labels", next: "Resolve provenance, license terms and notices before distributing", file: "audit/2026-10-11-final/evidence/cargo-deny.log" },
+  { state: "Open", name: "Standalone CLI feeder outputs", proof: "Beast: 2,190 bytes; raw and SBS: zero bytes on connected sockets", next: "Implement both advertised routes or narrow the CLI contract", file: "dump1090/src/main.rs:320" },
+  { state: "Open", name: "Physical reception and sound", proof: "No RTL receiver attached; native error path works. Synthetic and callback tests cannot prove antenna reception or audible sound", next: "Record a field run on the target machine and receiver", file: "audit/2026-10-11-final/evidence/rtl-hardware-inventory.txt" },
+  { state: "Open", name: "Original 80k Meteor capture", proof: "14.2-minute independent synthetic pass is verified; no original off-air 80k capture is certified", next: "Compare an entire real 80k pass with SatDump", file: "audit/2026-10-07/repair-synthetic-80k-long-verification-1011.json" },
+  { state: "Open", name: "Meteor live workflow", proof: "Meteor reads imported CS8/CF32 and exports channel PNGs", next: "Describe the hackathon scope as offline Meteor decoding", file: "README.md:102" },
+  { state: "Open", name: "HTTP control trust boundary", proof: "REST accepts a foreign Host/Origin frequency request (204). Browser DNS/private-network behavior was not tested; the WebSocket guard covers only WS", next: "Keep trusted-network scope; add HTTP Host/Origin checks and authentication for broader exposure", file: "audit/2026-10-11-final/daemon-process.json" },
+  { state: "Open", name: "SDR++ parity", proof: "One desktop listening chain; VFO B is a saved alternate. Daemon audio is mono and lacks DSB/CW", next: "Avoid claiming full SDR++ replacement", file: "README.md:65" },
+  { state: "Fixed", name: "Foreign browser control", proof: "Foreign Origin previously upgraded and retuned the synthetic daemon; patched process returns HTTP 403", next: "Regression checks cover control and data routes", file: "audit/2026-10-11-final/daemon-process.json" },
+  { state: "Fixed", name: "Four dependency advisories", proof: "Unused MQTT TLS feature removed. Unsuppressed RustSec scan now finds zero vulnerabilities", next: "Maintenance warnings and yanked dependency remain visible", file: "audit/2026-10-11-final/evidence/cargo-audit-unfiltered.log" },
+  { state: "Fixed", name: "CI and release build", proof: "Pinned Rust, native dependencies, locked commands, optional hardware build, all three binaries", next: "Actual GitHub job dispatch and portable packaging are still separate checks", file: ".github/workflows/release.yml" },
+  { state: "Fixed", name: "Ignored FFT regression", proof: "Original tone was beyond Nyquist; corrected in-range fractional-clock fixture now participates in normal tests", next: "Preserve the original failure log as evidence", file: "ez-gui/src/spectrum.rs:5050" },
+  { state: "Fixed", name: "Recording and squelch test references", proof: "WAV reference now uses the physical capture clock; exact PCM equality passes through a GUI stall. Squelch checks wait for audible PCM with the applied revision", next: "The drain budget allows debug processing; load-dependent sample-gap failure remains recorded", file: "ez-gui/src/app_ui_tests.rs:2226" },
+  { state: "Fixed", name: "Documentation and measurement labels", proof: "Optional-backend rustdoc link repaired; performance evidence labels its actual compilation profile", next: "Keep the evidence boundary visible", file: "ez-gui/src/app_performance_tests.rs:255" },
+];
+
+export default function FinalHackathonAudit() {
+  const [filter, setFilter] = useCanvasState("final-audit-findings-status", "All");
+  const visible = findings.filter(f => filter === "All" || f.state === filter);
+  return <Stack gap={20} style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+    <Stack gap={6}>
+      <H1>EZ-SDR · final hackathon audit</H1>
+      <Text tone="secondary">11 October 2026 · source, native GUI, actual daemon, independent RF references and release checks · audit workers limited to six of twelve logical CPUs.</Text>
+    </Stack>
+    <Callout tone="warning" title="Verdict: a working scoped prototype; full replacement and public distribution are not cleared">
+      Radio, ADS-B and offline Meteor have substantial real implementations. License provenance, advertised CLI feeds and physical field validation prevent an unconditional “fully functional, ready to ship” claim.
+    </Callout>
+    <Grid columns="repeat(auto-fit, minmax(180px, 1fr))" gap={16}>
+      <Stat value="6.5 / 10" label="Overall against the requested unified replacement" />
+      <Stat value="8 / 10" label="Functionality within implemented scope" />
+      <Stat value="95 / 120" label="ADS-B synthetic cases recovered by both native decoders" />
+      <Stat value="0" label="Known vulnerabilities in the unsuppressed final dependency scan" />
+    </Grid>
+    <Text size="small" tone="secondary">Grades are reviewer judgment, not detection percentages. Overall rubric: functionality 8 × 40%, replacement coverage 5.5 × 25%, field confidence 5 × 20%, shipping readiness 6 × 15% = 6.475, rounded to 6.5. Benchmarks characterize this evidence set only.</Text>
+    <H2>Comparison within the intended scope</H2>
+    <Table headers={["Area", "EZ-SDR evidence and limitations", "Benchmark", "Area grade"]} rows={[
+      ["ADS-B", "Native 2.4 MSPS Mode S decoding and aircraft UI; synthetic detection matches upstream with correction disabled. Standalone raw/SBS emit nothing; UAT uses external dump978-fa.", <Link href="https://github.com/flightaware/dump1090">dump1090-fa</Link>, "7.5 / 10"],
+      ["Radio", "Native AM/NFM/WFM, sidebands, DSB, CW, RAW, stereo/RDS and recording. One active desktop listening chain and narrower hardware/plugin coverage; daemon restrictions remain.", <Link href="https://github.com/AlexandreRouma/SDRPlusPlus">SDR++</Link>, "7 / 10"],
+      ["Meteor", "72k and interleaved 80k decode imported CS8/CF32 to channel PNGs. Strong synthetic packet/image evidence; no live Meteor capture pipeline or broader geospatial products.", <Link href="https://github.com/SatDump/SatDump/blob/master/resources/pipelines/Meteor-M.json">SatDump Meteor pipelines</Link>, "6.5 / 10"],
+    ]} />
+    <H2>Independent ADS-B probe</H2>
+    <Table headers={["Noise RMS (normalized I/Q)", "Generated cases", "Upstream recovered", "Rust recovered"]} rows={[
+      ["0", 40, 40, 40], ["0.01", 40, 35, 35], ["0.035", 40, 20, 20],
+    ]} columnAlign={["left", "right", "right", "right"]} />
+    <Text size="small" tone="secondary">Fixed seed 1011; independently integrated PPM pulses; five amplitudes, eight fractional sample phases, three noise levels; 2.4 MSPS; both decoders disable CRC correction. The same 95 expected frames and no unexpected frames are recovered. Upstream exits 1 at file EOF by its reader-thread behavior; retained stdout contains decoded frames. This is not an off-air sensitivity measurement.</Text>
+    <H2>Release frame CPU cost during continuous native recording</H2>
+    <Table headers={["Case", "Measured frames", "CPU p95 (ms)", "CPU p99 (ms)"]} rows={[
+      ["Radio · 1920 × 1012", 120, 1.106, 2.390], ["Radio · 1000 × 700", 120, 1.123, 1.417],
+      ["2,000 aircraft", 120, 2.827, 3.267], ["Map drag · 2,000 aircraft", 120, 3.244, 3.923],
+      ["Satellite map", 120, 1.477, 1.521],
+    ]} columnAlign={["left", "right", "right", "right"]} />
+    <Text size="small" tone="secondary">Source: 11 October isolated release benchmark, nearest-rank percentiles, ten warmup frames excluded per case. Logic, UI and tessellation CPU only; fixture cloning, later rasterization and GPU presentation are excluded. Startup is staged. 25,706,496 RF samples are recorded without measured loss; all raw/CF32/WAV counts and completeness assertions pass. Native RF p99 is 928 microseconds per 16,384-sample block; its 16,238-microsecond maximum exceeds the nominal 6,827-microsecond block interval but buffering absorbs it here. Short tests do not prove long hardware stability.</Text>
+    <H2>Open and repaired findings</H2>
+    <Row gap={8}>{["All", "Open", "Fixed"].map(name => <Button key={name} onClick={() => setFilter(name)}>{name}{filter === name ? " · selected" : ""}</Button>)}</Row>
+    <Table headers={["Finding", "State", "Evidence", "Required next step / boundary"]} rows={visible.map(f => [<Link href={root + f.file}>{f.name}</Link>, f.state, f.proof, f.next])} striped />
+    <Divider />
+    <H2>Read the evidence beside the verdict</H2>
+    <Row wrap gap={16}>
+      <Link href={root + "audit/2026-10-11-final/REPORT.md"}>Detailed audit report</Link>
+      <Link href={root + "audit/2026-10-11-final/quality.json"}>Build and static checks</Link>
+      <Link href={root + "audit/2026-10-11-final/full.json"}>Default-feature tests</Link>
+      <Link href={root + "audit/2026-10-11-final/runtime.json"}>Headless and integration checks</Link>
+      <Link href={root + "audit/2026-10-11-final/reference.json"}>Reference decodes</Link>
+      <Link href={root + "audit/2026-10-11-final/performance.json"}>Performance evidence</Link>
+    </Row>
+    <Text size="small" tone="secondary">The report separates fresh checks, reused source-hash-verified evidence, synthetic RF, public off-air RF and physical hardware evidence. No live transmission, external MQTT publication, deployment or GitHub release was performed.</Text>
+  </Stack>;
+}

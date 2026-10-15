@@ -1,4 +1,4 @@
-use crate::satellite::types::{SatPosition, TrajectoryPoint, TrajectorySegment};
+use crate::satellite::types::{GeoPoint, SatPosition, TrajectoryPoint, TrajectorySegment};
 use crate::theme::ThemeConfig;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
@@ -8,8 +8,9 @@ pub struct MapRenderer {
     pub zoom: f32,
     trajectory: Vec<TrajectoryPoint>,
     screen_traj: Vec<Pos2>,
-    sat_marker: Option<Pos2>,
-    observer_marker: Pos2,
+    satellite: Option<SatPosition>,
+    observer: GeoPoint,
+    pub follow_observer: bool,
     pub in_pass_now: bool,
     #[allow(dead_code)]
     drag_start: Option<Pos2>,
@@ -23,8 +24,12 @@ impl MapRenderer {
             zoom: 4.0,
             trajectory: Vec::new(),
             screen_traj: Vec::new(),
-            sat_marker: None,
-            observer_marker: Pos2::ZERO,
+            satellite: None,
+            observer: GeoPoint {
+                lat: observer_lat,
+                lon: observer_lon,
+            },
+            follow_observer: false,
             in_pass_now: false,
             drag_start: None,
         }
@@ -32,23 +37,53 @@ impl MapRenderer {
 
     pub fn set_trajectory(&mut self, points: &[TrajectoryPoint]) {
         self.trajectory = points.to_vec();
+        self.screen_traj.clear();
     }
 
     pub fn set_satellite_position(&mut self, pos: Option<SatPosition>) {
-        if let Some(p) = pos {
-            self.sat_marker = Some(lat_lon_to_screen(
-                p.lat,
-                p.lon,
-                self.center_lat,
-                self.center_lon,
-                self.zoom,
-            ));
-        } else {
-            self.sat_marker = None;
+        self.satellite = pos;
+    }
+
+    pub fn set_observer_position(&mut self, lat: f64, lon: f64) {
+        self.observer = GeoPoint { lat, lon };
+        if self.follow_observer {
+            self.recenter_on_observer();
         }
     }
 
+    pub fn recenter_on_observer(&mut self) {
+        self.center_lat = self.observer.lat;
+        self.center_lon = self.observer.lon;
+    }
+
+    fn project(&self, point: GeoPoint, rect: Rect) -> Pos2 {
+        lat_lon_to_screen(
+            point.lat,
+            point.lon,
+            self.center_lat,
+            self.center_lon,
+            self.zoom,
+        ) + rect.center().to_vec2()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn trajectory(&self) -> &[TrajectoryPoint] {
+        &self.trajectory
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui, theme: &ThemeConfig) {
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut self.follow_observer, "Follow observer")
+                .changed()
+                && self.follow_observer
+            {
+                self.recenter_on_observer();
+            }
+            if ui.button("Recenter observer").clicked() {
+                self.recenter_on_observer();
+            }
+        });
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), ui.available_height().max(300.0)),
             egui::Sense::click_and_drag(),
@@ -60,6 +95,7 @@ impl MapRenderer {
 
         // Pan via drag
         if response.dragged_by(egui::PointerButton::Primary) {
+            self.follow_observer = false;
             let delta = response.drag_delta();
             let sens = 0.01 * (18.0 - self.zoom).max(1.0) as f64;
             self.center_lon -= delta.x as f64 * sens;
@@ -94,15 +130,7 @@ impl MapRenderer {
             let screen_pts: Vec<Pos2> = self
                 .trajectory
                 .iter()
-                .map(|tp| {
-                    lat_lon_to_screen(
-                        tp.geo.lat,
-                        tp.geo.lon,
-                        self.center_lat,
-                        self.center_lon,
-                        self.zoom,
-                    ) + rect.center().to_vec2()
-                })
+                .map(|tp| self.project(tp.geo, rect))
                 .collect();
             self.screen_traj = screen_pts.clone();
 
@@ -164,16 +192,10 @@ impl MapRenderer {
         }
 
         // Observer marker
-        self.observer_marker = lat_lon_to_screen(
-            self.center_lat,
-            self.center_lon,
-            self.center_lat,
-            self.center_lon,
-            self.zoom,
-        ) + rect.center().to_vec2();
-        painter.circle_filled(self.observer_marker, 4.0, theme.warning.to_egui());
+        let observer_marker = self.project(self.observer, rect);
+        painter.circle_filled(observer_marker, 4.0, theme.warning.to_egui());
         painter.text(
-            self.observer_marker + Vec2::new(6.0, -6.0),
+            observer_marker + Vec2::new(6.0, -6.0),
             egui::Align2::LEFT_BOTTOM,
             "YOU",
             egui::FontId::proportional(10.0),
@@ -181,8 +203,14 @@ impl MapRenderer {
         );
 
         // Satellite marker
-        if let Some(sat_pos) = &self.sat_marker {
-            let sat_abs = *sat_pos + rect.center().to_vec2();
+        if let Some(sat_pos) = self.satellite {
+            let sat_abs = self.project(
+                GeoPoint {
+                    lat: sat_pos.lat,
+                    lon: sat_pos.lon,
+                },
+                rect,
+            );
             // Pulsing halo while a pass is live — the eyecandy the user asked for.
             if self.in_pass_now {
                 let halo_alpha = (40.0 + pulse * 70.0) as u8;
@@ -198,7 +226,7 @@ impl MapRenderer {
             painter.circle_filled(sat_abs, 4.0, theme.accent.to_egui());
             // Azimuth line from observer to satellite
             painter.line_segment(
-                [self.observer_marker, sat_abs],
+                [observer_marker, sat_abs],
                 Stroke::new(1.0, theme.accent.with_alpha(60).to_egui()),
             );
         }
@@ -238,7 +266,10 @@ impl MapRenderer {
         }
 
         // Coordinate display
-        let coord_str = format!("{:.2}°N, {:.2}°E", self.center_lat, self.center_lon);
+        let coord_str = format!(
+            "View center: {:.2}°, {:.2}°",
+            self.center_lat, self.center_lon
+        );
         painter.text(
             Rect::from_min_size(
                 rect.left_bottom() - Vec2::new(0.0, 16.0),
@@ -321,5 +352,138 @@ fn trajectory_segment_style(
         // Approach / past segments are dim so the pass arc stands out.
         (TrajectorySegment::PreAOS, _) => (theme.text_dim.to_egui(), 1.0),
         (TrajectorySegment::PostLOS, _) => (theme.text_dim.to_egui(), 1.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render(
+        map: &mut MapRenderer,
+        context: &egui::Context,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+                events,
+                ..Default::default()
+            },
+            |ui| map.ui(ui, &ThemeConfig::default()),
+        )
+    }
+
+    #[test]
+    fn marker_and_trajectory_share_each_frames_pan_zoom_and_rectangle_projection() {
+        let mut map = MapRenderer::new(51.5, -0.1);
+        let geo = GeoPoint {
+            lat: 51.6,
+            lon: 0.0,
+        };
+        map.set_trajectory(&[
+            TrajectoryPoint {
+                geo,
+                segment: TrajectorySegment::InPass,
+                timestamp: 0.0,
+            },
+            TrajectoryPoint {
+                geo: GeoPoint {
+                    lat: 51.61,
+                    lon: 0.01,
+                },
+                segment: TrajectorySegment::PostLOS,
+                timestamp: 1.0,
+            },
+        ]);
+        map.set_satellite_position(Some(SatPosition {
+            lat: geo.lat,
+            lon: geo.lon,
+            azimuth: 0.0,
+            elevation: 30.0,
+            distance_km: 800.0,
+            timestamp: 0.0,
+        }));
+        let context = egui::Context::default();
+        let theme = ThemeConfig::default();
+        let mut previous = None;
+        for (lat, lon, zoom) in [(51.5, -0.1, 4.0), (51.55, -0.05, 6.0), (51.65, 0.05, 8.0)] {
+            map.center_lat = lat;
+            map.center_lon = lon;
+            map.zoom = zoom;
+            let output = render(&mut map, &context, vec![]);
+            let satellite = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Circle(circle)
+                        if circle.radius == 4.0 && circle.fill == theme.accent.to_egui() =>
+                    {
+                        Some(circle.center)
+                    }
+                    _ => None,
+                })
+                .expect("real map did not draw satellite marker");
+            let observer = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Circle(circle)
+                        if circle.radius == 4.0 && circle.fill == theme.warning.to_egui() =>
+                    {
+                        Some(circle.center)
+                    }
+                    _ => None,
+                })
+                .expect("real map did not draw observer marker");
+            assert_eq!(satellite, map.screen_traj[0]);
+            let expected_delta =
+                lat_lon_to_screen(map.observer.lat, map.observer.lon, lat, lon, zoom)
+                    - lat_lon_to_screen(geo.lat, geo.lon, lat, lon, zoom);
+            assert!((observer - satellite - expected_delta).length() < 0.001);
+            if let Some(previous) = previous {
+                assert_ne!(satellite, previous);
+            }
+            previous = Some(satellite);
+        }
+        map.set_satellite_position(None);
+        map.set_trajectory(&[]);
+        assert!(map.screen_traj.is_empty());
+        let output = render(&mut map, &context, vec![]);
+        assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Circle(circle) if circle.radius == 4.0 && circle.fill == theme.accent.to_egui())));
+    }
+
+    #[test]
+    fn map_drag_disables_follow_and_observer_updates_preserve_camera() {
+        let mut map = MapRenderer::new(51.5, -0.1);
+        map.follow_observer = true;
+        let context = egui::Context::default();
+        render(&mut map, &context, vec![]);
+        let press = Pos2::new(400.0, 300.0);
+        render(
+            &mut map,
+            &context,
+            vec![
+                egui::Event::PointerMoved(press),
+                egui::Event::PointerButton {
+                    pos: press,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let moved = press + Vec2::new(40.0, 20.0);
+        render(&mut map, &context, vec![egui::Event::PointerMoved(moved)]);
+        assert!(!map.follow_observer);
+        let camera = (map.center_lat, map.center_lon);
+        assert_ne!(camera, (51.5, -0.1));
+        map.set_observer_position(-33.8688, 151.2093);
+        assert_eq!((map.center_lat, map.center_lon), camera);
+        map.recenter_on_observer();
+        assert_eq!((map.center_lat, map.center_lon), (-33.8688, 151.2093));
+        map.follow_observer = true;
+        map.set_observer_position(40.7128, -74.0060);
+        assert_eq!((map.center_lat, map.center_lon), (40.7128, -74.0060));
     }
 }

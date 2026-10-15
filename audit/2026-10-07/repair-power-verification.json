@@ -1,0 +1,327 @@
+{
+  "date": "2026-10-09",
+  "scope": [
+    "R06",
+    "R07"
+  ],
+  "verification_state": "software_verified_with_focused_regressions",
+  "commands": [
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib audit_ -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/power-audit-repaired-syntax.log",
+      "log_sha256": "9df4ecf749e1fa90d29149e3e7d50295ee3fc900a773c10b93935e46628fc323",
+      "raw_log_sha256": "17d8847490f79fd31424bfc3ecde2c61d1026a3dba62fb23f2227c93211cfa9c",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib radio_power::tests -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/power-power-tests.log",
+      "log_sha256": "55f196a9ac59de502db3c78a615be91be27ec17a63200032aa8aa840554494eb",
+      "raw_log_sha256": "ae8c1a50355107640b13e9f96d94e7ee470fd233c202e1c67e2a90360949ddc8",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib demod::native::tests -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/power-native-initial.log",
+      "log_sha256": "dbb8b69022d31781d873da5a3b6b63c89a07e9e5c1c86da69406ec80b887fa06",
+      "raw_log_sha256": "3b8ff99edf63846a2276a654ab44877cfeb872b7a26eb9d62463ce9a176259ec",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib native_ssb_gate_and_recording_monitor -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/power-native-consumers-final.log",
+      "log_sha256": "f40b6d6d22a8752e612500f8fcf8d54a50676152ff710a7907defe96151e844d",
+      "raw_log_sha256": "5a400ed7355f7ca4c6d8260fabde14af0fa8b64dca5f135913c4139aea88b9ad",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib scan_consumes_shared_ssb_geometry -- --nocapture",
+      "exit_code": 0,
+      "log": "repair-evidence/power-scan-consumers-final.log",
+      "log_sha256": "df5c838b8568fa821da83ac960c24b87cf75e5fbd11befd32a389317cefd6735",
+      "raw_log_sha256": "3417ee3301b679f98eced4906bdf16f1c27c0a4420de14aeee116f35f59c40f3",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/power-default-build.log",
+      "log_sha256": "aeb8fd89412a75eea157c8d6efc10e4c37be67d5bb3381c3fabfc681e3fa1a90",
+      "raw_log_sha256": "aeb8fd89412a75eea157c8d6efc10e4c37be67d5bb3381c3fabfc681e3fa1a90",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/power-clippy.log",
+      "log_sha256": "3d2632b9e6bb0fc33fa8ce31fa022a59a17f5fd5f9589e07fefc0948c11d845e",
+      "raw_log_sha256": "3d2632b9e6bb0fc33fa8ce31fa022a59a17f5fd5f9589e07fefc0948c11d845e",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "log": "repair-evidence/power-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "graphify update .",
+      "exit_code": 0,
+      "state": "passed",
+      "log": "repair-evidence/power-graph-update.log",
+      "log_sha256": "2ccb5a4c6f0f1e0491c7f54ea37726d1e6c6215024847e53aabf2551b103a61f",
+      "raw_log_sha256": "2ccb5a4c6f0f1e0491c7f54ea37726d1e6c6215024847e53aabf2551b103a61f",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 143,
+      "state": "interrupted_at_user_cpu_request",
+      "log": "repair-evidence/power-workspace-tests.log",
+      "log_sha256": "c40a64e71c41c65938af684cd809c6a9d83a5e3d42497823606c848044ad89fc",
+      "raw_log_sha256": "c40a64e71c41c65938af684cd809c6a9d83a5e3d42497823606c848044ad89fc",
+      "log_normalization": "Only terminal blank lines removed.",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 223,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "source_sha256": {
+    "README.md": "63647f3bf147acdab632ad52e934868ca0d455cbaabee19ea3b45f1e1d5f102d",
+    "ez-gui/src/app.rs": "e81fff8d2fe62dcb2b3305b69e4a9aaf083102018973c0cbe5da65d6a2fd3e88",
+    "ez-gui/src/demod.rs": "d5d50379cc0871d548da212c20f1f5aac8bd115686c6b5e86b1640aea6177362",
+    "ez-gui/src/demod_native.rs": "214c705e4354c0f4afe5057b9fc5a8ca05ca75d41cf89559d0d392a6423204d2",
+    "ez-gui/src/demod_native_audit.rs": "fd5e349cad0ea31bf8a9e3793f494dc948137a35c002c92be65cbf096fd92a5b",
+    "ez-gui/src/lib.rs": "ec8e10b9757c520ef7854f30e2d1ac5e00a75356a2f8aa5d250e4e62c458b610",
+    "ez-gui/src/radio_power.rs": "e4a979a153465d448b38c156bc1d6fb9c2816d155fcd38b578eb8ff11a1a8d9c",
+    "ez-gui/src/scanner.rs": "86ce5b82704a66d93ec6f37021b847bfeb4989827e8006b395b5f5483faf315d",
+    "ez-gui/src/spectrum.rs": "8574bd8e463d5fc451590167862428a51b70b0cbba76cd00e0ce6cb6341b6a6c",
+    "ez-gui/src/radio_iq.rs": "46be002c402706968fbf7480847a222612597d557304413e40fcececbbc5c708",
+    "ez-daemon/src/channelizer.rs": "be8f3adb2455654bbe1cd09617cdb697f8320f4a528e2f9a68803f4a4a0246b6"
+  },
+  "physical_convention": {
+    "metric": "Strongest estimated complex sinusoidal/carrier peak amplitude within the nominal RF passband, dBFS; unit complex carrier is 0 dBFS. This is not integrated RF power or a noise-floor calibration.",
+    "geometry": "USB [0,width], LSB [-width,0], DSB selected upper/lower uses the same bounds; other modes use [-width/2,width/2]. Demodulator, native RF power and scanner/spectrum selection share RfPassband.",
+    "acquisition": "Publish complete windows only. Narrow CW observations take up to 200 ms over the tested source clocks. Gaps, retunes, mode/width/clock changes and invalid/out-of-capture geometry retire pending and published data."
+  },
+  "measurements": {
+    "ssb_sweep": {
+      "cases": 810,
+      "source_rates_hz": [
+        192003,
+        300000,
+        2400000
+      ],
+      "widths_hz": [
+        500,
+        3000,
+        12000
+      ],
+      "vfo_offsets": "0, +0.17*source_rate, -0.19*source_rate",
+      "relative_tone_positions": [
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        0.9
+      ],
+      "inputs": "Wanted 0.05 alone, wanted 0.05 with opposite 0.7, and opposite 0.7 alone, both USB and LSB. Independent continuous analytic f64 phase; two complete windows per case.",
+      "maximum_absolute_wanted_gain_error_db": 0.0015525818,
+      "maximum_opposite_peak_dbfs": -95.376816,
+      "gates": {
+        "maximum_absolute_wanted_gain_error_db": 0.15,
+        "maximum_opposite_peak_dbfs": -80
+      }
+    },
+    "all_integer_cw_widths": {
+      "cases": 451,
+      "widths_hz": "Every integer 50..500 inclusive",
+      "source_rate_hz": 300000,
+      "vfo_offset_hz": 36.62109375,
+      "input": "0.1-amplitude carrier at alternating +/- (0.37*width + 0.173) Hz relative to VFO.",
+      "maximum_absolute_gain_error_db": 1.9073486e-06,
+      "gate_db": 0.15
+    },
+    "cw_edges_and_clocks": {
+      "cases": 72,
+      "source_rates_hz": [
+        8000,
+        192003,
+        2400000,
+        20000000
+      ],
+      "widths_hz": [
+        50,
+        100,
+        199.5,
+        200,
+        313.5,
+        500
+      ],
+      "relative_positions": "-0.48*width, 0, +0.48*width",
+      "vfo_offset": "0.217*source_rate + 0.137 Hz",
+      "maximum_absolute_gain_error_db": 1.9073486e-06,
+      "maximum_fft_size_gate": 65536,
+      "maximum_observation_seconds_gate": 0.2,
+      "gain_error_gate_db": 0.15
+    },
+    "native_gate_and_recording_monitor": {
+      "cases": 12,
+      "source_rate_hz": 384000,
+      "vfo_offsets_hz": [
+        -25000,
+        0,
+        25000
+      ],
+      "modes": [
+        "USB",
+        "LSB"
+      ],
+      "strong_opposite_amplitude": 0.7,
+      "optional_wanted_amplitude": 0.05,
+      "gate_threshold_dbfs": -45,
+      "display_preview": false,
+      "result": "Wanted case publishes calibrated power and audible gated audio; opposite-only case remains below -80 dBFS and audio is zero. Actual RecorderPanel signal-monitor log tracks only wanted cases. No recording file was opened."
+    },
+    "scanner_consumers": {
+      "cases": 12,
+      "vfo_offsets_hz": [
+        -12000,
+        0,
+        12000
+      ],
+      "modes": [
+        "USB",
+        "LSB"
+      ],
+      "result": "Actual FrequencyScanner consumes tagged independent known SpectrumFrame bins after settle/freshness boundary. Wanted -26.0206 dBFS generates a hit; strong opposite -3 dBFS alone does not. This checks scanner consumer geometry separately from actual-IQ native tests."
+    }
+  },
+  "regressions": [
+    "All six radio_power::tests (calibration, geometry, chunk equivalence, reset/context, every window consumed, invalid geometry).",
+    "Active original audit_ssb_power_meter_passband and audit_narrow_cw_power_meter acceptance probes.",
+    "native_ssb_gate_and_recording_monitor_follow_wanted_sideband_at_vfo_offsets",
+    "scan_consumes_shared_ssb_geometry_at_both_vfo_offsets_without_opposite_hits"
+  ],
+  "implementation_notes": [
+    "Coarse VFO mixing and shared daemon FIR decimation bound FFT storage while keeping the nominal selection in the flat antialias passband.",
+    "Adaptive FFT resolution, four-term Blackman-Harris sidelobe control, local-peak frequency fitting using exact finite window magnitude ratios, and fractional-bin amplitude correction. All input samples and complete windows are consumed.",
+    "Native power is independent of display FFT size, visibility, smoothing and GUI drains."
+  ],
+  "development_verification": [
+    {
+      "attempt": "initial-audit",
+      "exit_code": 101,
+      "log": "repair-evidence/power-development-initial-audit.log",
+      "log_sha256": "c9441d075a01b06aae15f1c91d6f8049bef77f1e99f8fd8f8cb2f6413a7430a1",
+      "raw_log_sha256": "c9441d075a01b06aae15f1c91d6f8049bef77f1e99f8fd8f8cb2f6413a7430a1"
+    },
+    {
+      "attempt": "native-consumers",
+      "exit_code": 101,
+      "log": "repair-evidence/power-development-native-consumers.log",
+      "log_sha256": "c3ffc1b7be345a9be4c4c9f54e3dd2b6f07ab535799b70de869055ae2ee66fb7",
+      "raw_log_sha256": "c3ffc1b7be345a9be4c4c9f54e3dd2b6f07ab535799b70de869055ae2ee66fb7"
+    },
+    {
+      "attempt": "scan-consumers",
+      "exit_code": 101,
+      "log": "repair-evidence/power-development-scan-consumers.log",
+      "log_sha256": "c3ffc1b7be345a9be4c4c9f54e3dd2b6f07ab535799b70de869055ae2ee66fb7",
+      "raw_log_sha256": "c3ffc1b7be345a9be4c4c9f54e3dd2b6f07ab535799b70de869055ae2ee66fb7"
+    }
+  ],
+  "development_notes": [
+    "Initial spectrum helper replacement had a surplus closing brace; fixed before successful acceptance tests. Initial consumer test used unsupported try_iter on BroadcasterHandle; replaced with supported try_recv loop. Both failed development logs retained.",
+    "The original R07 half-old-bin carrier fixture now supplies 90000 samples (0.3 seconds at 300 kS/s) rather than 4096, to contain a complete adaptive observation. Its carrier frequency/amplitude and > -10 dBFS gate remain unchanged. The initial incomplete window intentionally returns -120 dBFS as unobserved; the former short window is not claimed to certify narrow-channel amplitude.",
+    "The existing native power-squelch fixture now supplies enough samples for the complete adaptive/coarse-decimated observation; original amplitude/rejection gates are preserved."
+  ],
+  "primary_design_references": [
+    "https://dsprelated.com/freebooks/sasp/Spectrum_Analysis_Sinusoids.html",
+    "https://dsprelated.com/freebooks/SASP/Bias_Parabolic_Peak_Interpolation.html"
+  ],
+  "limits": [
+    "Synthetic DSP and software consumer verification only. No physical RF receiver, audio device or recording disk release test was opened. Original off-air/hardware/audio/disk release gates remain unchanged.",
+    "Metric is a carrier peak estimate; unresolved nearby carriers, stochastic noise power and RF-to-input absolute calibration are not certified by these sinusoid tests.",
+    "The full workspace test attempt was terminated with SIGTERM (exit 143) at the user request to stop pegging CPU. It did not complete and is not counted as a passing suite. Focused DSP/consumer regressions, default workspace build, all-target Clippy and formatting passed. No further CPU-heavy checks were started."
+  ]
+}

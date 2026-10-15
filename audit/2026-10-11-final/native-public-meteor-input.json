@@ -1,0 +1,11 @@
+{
+  "source": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/meteor-72k.cs8",
+  "source_bytes": 522059776,
+  "clip": "/tmp/ez-final-public72.cs8",
+  "format": "signed complex i8 interleaved IQ",
+  "sample_rate_hz": 288000,
+  "start_seconds": 180,
+  "seconds": 20,
+  "clip_bytes": 11520000,
+  "clip_sha256": "003cc84e15812ac88fa9fae63662cc738b6ea2d0e1adcb76e317e6348867233a"
+}

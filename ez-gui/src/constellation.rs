@@ -4,13 +4,19 @@ use std::collections::VecDeque;
 const DEFAULT_CAP: usize = 8192;
 const MAX_POINTS_PER_BATCH: usize = 512;
 
-#[derive(Default)]
 pub struct ConstellationDisplay {
     buf: VecDeque<(f32, f32)>,
     cap: usize,
     pub paused: bool,
     pub density_grid: Vec<u32>,
     grid_dim: usize,
+    capture: Option<(u64, u32, crate::source_manager::SourceMode, u64)>,
+}
+
+impl Default for ConstellationDisplay {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConstellationDisplay {
@@ -21,6 +27,7 @@ impl ConstellationDisplay {
             paused: false,
             density_grid: vec![0u32; 32 * 32],
             grid_dim: 32,
+            capture: None,
         }
     }
 
@@ -28,7 +35,7 @@ impl ConstellationDisplay {
     pub fn set_cap(&mut self, new_cap: usize) {
         self.cap = new_cap.clamp(512, 65536);
         while self.buf.len() > self.cap {
-            self.buf.pop_front();
+            self.evict_oldest();
         }
     }
 
@@ -40,92 +47,58 @@ impl ConstellationDisplay {
         if n_pairs == 0 {
             return;
         }
-        let stride = (n_pairs / MAX_POINTS_PER_BATCH).max(1);
+        let stride = n_pairs.div_ceil(MAX_POINTS_PER_BATCH);
         let mut i = 0;
-        let half_grid = (self.grid_dim / 2) as i32;
         while i < n_pairs {
             let i_val = f32::from(iq[2 * i]) - 127.4;
             let q_val = f32::from(iq[2 * i + 1]) - 127.4;
             self.buf.push_back((i_val, q_val));
+            let idx = self.density_index(i_val, q_val);
+            self.density_grid[idx] += 1;
             if self.buf.len() > self.cap {
-                self.buf.pop_front();
-            }
-            let gi = ((i_val / 127.4 * half_grid as f32) as i32).clamp(-half_grid, half_grid - 1);
-            let gq = ((q_val / 127.4 * half_grid as f32) as i32).clamp(-half_grid, half_grid - 1);
-            let idx = ((half_grid + gq) * self.grid_dim as i32 + (half_grid + gi)) as usize;
-            if idx < self.density_grid.len() {
-                self.density_grid[idx] = self.density_grid[idx].saturating_add(1);
+                self.evict_oldest();
             }
             i += stride;
         }
     }
 
+    /// Density and scatter points cover the same selected-sample window.
     pub fn reset_density(&mut self) {
+        self.buf.clear();
         self.density_grid.fill(0);
     }
 
-    fn compute_evm(&self) -> f64 {
-        if self.buf.is_empty() {
-            return 0.0;
+    pub fn observe_capture(
+        &mut self,
+        center_hz: u64,
+        sample_rate_hz: u32,
+        source: &crate::source_manager::SourceMode,
+        generation: u64,
+    ) {
+        let capture = (center_hz, sample_rate_hz, source.clone(), generation);
+        if self.capture.as_ref() != Some(&capture) {
+            self.reset_density();
+            self.capture = Some(capture);
         }
-        // Reference power = mean symbol magnitude². The old code used
-        // |mean|² as "ideal power" and variance as "error" — inverted:
-        // a clean QPSK signal (4 tight clusters, zero mean) reported ~141%
-        // EVM while pure noise at one point reported 0%.
-        let p_ref: f64 = self
-            .buf
-            .iter()
-            .map(|(i, q)| (*i as f64).powi(2) + (*q as f64).powi(2))
-            .sum::<f64>()
-            / self.buf.len() as f64;
-        if p_ref < 1e-12 {
-            return 0.0;
-        }
-        // Ideal QPSK amplitude per axis for this average power.
-        let a = (p_ref / 2.0).sqrt();
-        let err_sum: f64 = self
-            .buf
-            .iter()
-            .map(|(i, q)| {
-                let i_f = *i as f64;
-                let q_f = *q as f64;
-                let ideal_i = if i_f >= 0.0 { a } else { -a };
-                let ideal_q = if q_f >= 0.0 { a } else { -a };
-                (i_f - ideal_i).powi(2) + (q_f - ideal_q).powi(2)
-            })
-            .sum();
-        (err_sum / (self.buf.len() as f64 * p_ref)).sqrt() * 100.0
     }
 
-    fn compute_phase_error(&self) -> f64 {
-        if self.buf.is_empty() {
-            return 0.0;
+    fn density_index(&self, i: f32, q: f32) -> usize {
+        let half = (self.grid_dim / 2) as i32;
+        let x = ((i / 127.4 * half as f32) as i32).clamp(-half, half - 1);
+        let y = ((q / 127.4 * half as f32) as i32).clamp(-half, half - 1);
+        ((half + y) * self.grid_dim as i32 + half + x) as usize
+    }
+
+    fn evict_oldest(&mut self) {
+        if let Some((i, q)) = self.buf.pop_front() {
+            let index = self.density_index(i, q);
+            self.density_grid[index] -= 1;
         }
-        // Per-symbol distance to the nearest QPSK ideal phase
-        // (±45°, ±135°). The old code measured spread around the mean phase,
-        // which is ~0 for balanced QPSK regardless of quality.
-        let err_sum: f64 = self
-            .buf
-            .iter()
-            .map(|(i, q)| {
-                let phase = (*q as f64).atan2(*i as f64);
-                let quadrant_phase = if *i >= 0.0 && *q >= 0.0 {
-                    std::f64::consts::FRAC_PI_4
-                } else if *i < 0.0 && *q >= 0.0 {
-                    3.0 * std::f64::consts::FRAC_PI_4
-                } else if *i < 0.0 && *q < 0.0 {
-                    -3.0 * std::f64::consts::FRAC_PI_4
-                } else {
-                    -std::f64::consts::FRAC_PI_4
-                };
-                let diff = (phase - quadrant_phase).abs();
-                diff.min(std::f64::consts::TAU - diff)
-            })
-            .sum();
-        (err_sum / self.buf.len() as f64).to_degrees()
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, theme: &ThemeConfig) {
+        ui.label("Raw IQ geometry");
+        ui.label(egui::RichText::new("ADC samples before carrier/timing recovery").small());
         ui.horizontal(|ui| {
             let freeze_label = if self.paused {
                 "▶ Resume"
@@ -212,30 +185,7 @@ impl ConstellationDisplay {
             );
         }
 
-        let evm = self.compute_evm();
-        let phase_err = self.compute_phase_error();
         let info_y = rect.bottom() + 4.0;
-        let evm_color = if evm < 10.0 {
-            theme.success.to_egui()
-        } else if evm < 25.0 {
-            theme.warning.to_egui()
-        } else {
-            theme.error.to_egui()
-        };
-        painter.text(
-            egui::pos2(rect.left(), info_y),
-            egui::Align2::LEFT_TOP,
-            format!("EVM: {evm:.1}%"),
-            egui::FontId::proportional(11.0),
-            evm_color,
-        );
-        painter.text(
-            egui::pos2(cx, info_y),
-            egui::Align2::CENTER_TOP,
-            format!("\u{3c6} err: {phase_err:.1}\u{b0}"),
-            egui::FontId::proportional(11.0),
-            theme.accent.to_egui(),
-        );
         painter.text(
             egui::pos2(rect.right(), info_y),
             egui::Align2::RIGHT_TOP,
@@ -305,45 +255,103 @@ mod tests {
     }
 
     #[test]
-    fn evm_empty_is_zero() {
-        let c = ConstellationDisplay::new();
-        assert_eq!(c.compute_evm(), 0.0);
-        assert_eq!(c.compute_phase_error(), 0.0);
+    fn density_and_points_share_a_bounded_window_including_shrink_and_reset() {
+        let mut view = ConstellationDisplay::new();
+        view.set_cap(1024);
+        let old = view.density_index(-100.4, -100.4);
+        for _ in 0..20 {
+            view.push_iq_samples(&vec![27; 1024]);
+        }
+        assert_eq!(
+            view.density_grid.iter().sum::<u32>() as usize,
+            view.buf.len()
+        );
+        for _ in 0..20 {
+            view.push_iq_samples(&vec![227; 1024]);
+        }
+        assert_eq!(view.buf.len(), 1024);
+        assert_eq!(
+            view.density_grid[old], 0,
+            "evicted capture points leave no density"
+        );
+        assert_eq!(view.density_grid.iter().sum::<u32>(), 1024);
+        view.set_cap(512);
+        assert_eq!(view.density_grid.iter().sum::<u32>(), 512);
+        view.reset_density();
+        assert!(view.buf.is_empty());
+        assert_eq!(view.density_grid.iter().sum::<u32>(), 0);
+        view.push_iq_samples(&[127, 128]);
+        assert_eq!(view.density_grid.iter().sum::<u32>(), 1);
     }
 
     #[test]
-    fn evm_clean_qpsk_near_zero() {
-        // Issue 52: ideal QPSK clusters must report ~0% EVM (old mean-based
-        // code reported ~141% for clean signals and 0% for single-point noise).
-        let mut c = ConstellationDisplay::new();
-        for &(i, q) in &[
-            (10.0f32, 10.0f32),
-            (-10.0, 10.0),
-            (-10.0, -10.0),
-            (10.0, -10.0),
+    fn capture_changes_retire_old_points_and_density_even_while_frozen() {
+        use crate::source_manager::SourceMode;
+        let mut view = ConstellationDisplay::new();
+        view.observe_capture(100_000_000, 2_400_000, &SourceMode::Replay, 1);
+        view.push_iq_samples(&[0, 255]);
+        view.observe_capture(100_000_000, 2_400_000, &SourceMode::Replay, 1);
+        assert_eq!(view.buf.len(), 1);
+        for key in [
+            (101_000_000, 2_400_000, SourceMode::Replay, 1),
+            (101_000_000, 2_048_000, SourceMode::Replay, 1),
+            (101_000_000, 2_048_000, SourceMode::Replay, 2),
+            (101_000_000, 2_048_000, SourceMode::Simulated, 2),
         ] {
-            for _ in 0..25 {
-                c.buf.push_back((i, q));
-            }
+            view.paused = true;
+            view.observe_capture(key.0, key.1, &key.2, key.3);
+            assert!(view.buf.is_empty());
+            assert_eq!(view.density_grid.iter().sum::<u32>(), 0);
+            assert!(view.paused);
+            view.paused = false;
+            view.push_iq_samples(&[255, 0]);
         }
-        let evm = c.compute_evm();
-        assert!(evm < 1.0, "clean QPSK should have ~0% EVM, got {evm}");
-        let phase = c.compute_phase_error();
-        assert!(phase < 1.0, "clean QPSK phase error ~0°, got {phase}");
     }
 
     #[test]
-    fn evm_noisy_worse_than_clean() {
-        let mut clean = ConstellationDisplay::new();
-        for _ in 0..100 {
-            clean.buf.push_back((10.0, 10.0));
+    fn raw_qpsk_rotating_carrier_and_noise_views_make_no_symbol_quality_claim() {
+        let qpsk: Vec<u8> = (0..1024)
+            .flat_map(|n| match n % 4 {
+                0 => [167, 167],
+                1 => [87, 167],
+                2 => [87, 87],
+                _ => [167, 87],
+            })
+            .collect();
+        let rotating: Vec<u8> = (0..1024)
+            .flat_map(|n| {
+                let p = n as f32 * 0.1;
+                [
+                    (127.4 + 40.0 * p.cos()).round() as u8,
+                    (127.4 + 40.0 * p.sin()).round() as u8,
+                ]
+            })
+            .collect();
+        let noise: Vec<u8> = (0..2048).map(|n| ((n * 73 + n / 3) % 256) as u8).collect();
+        for samples in [qpsk, rotating, noise] {
+            let mut view = ConstellationDisplay::new();
+            view.push_iq_samples(&samples);
+            let ctx = egui::Context::default();
+            let output = ctx.run_ui(Default::default(), |ui| {
+                view.ui(ui, &ThemeConfig::default())
+            });
+            let labels: String = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::epaint::Shape::Text(t) => Some(t.galley.text()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(labels.contains("Raw IQ geometry"));
+            assert!(labels.contains("before carrier/timing recovery"));
+            assert!(!labels.contains("EVM"));
+            assert!(!labels.contains("err:"));
+            assert_eq!(
+                view.density_grid.iter().sum::<u32>() as usize,
+                view.buf.len()
+            );
         }
-        let mut noisy = ConstellationDisplay::new();
-        for k in 0..100 {
-            let w = if k % 2 == 0 { 6.0 } else { -6.0 };
-            noisy.buf.push_back((10.0 + w, 10.0 - w));
-        }
-        assert!(noisy.compute_evm() > clean.compute_evm());
-        assert!(noisy.compute_evm() > 10.0);
     }
 }

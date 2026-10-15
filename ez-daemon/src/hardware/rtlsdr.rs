@@ -3,19 +3,17 @@
 
 //! RTL-SDR [`IqSource`] backend. Mirrors `dump1090::sdr::rtlsdr`'s proven FFI bindings and
 //! device lifecycle (open, gain stepping, device lookup by index/serial), but yields
-//! phase-preserving `Complex32` samples via [`lrpt_decode::iq_bytes_to_complex`] instead of
+//! phase-preserving `Complex32` samples via [`lrpt_decode::uc8_bytes_to_normalized`] instead of
 //! discarding phase into a magnitude table — the daemon's spectrum and LRPT pipelines both
 //! need phase information dump1090's magnitude-only path can't provide.
 
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{c_char, CStr};
 use std::ptr;
 
 use anyhow::Result;
 use num_complex::Complex32;
 
-use super::IqSource;
-
-const READ_BUF_BYTES: usize = 16 * 16384; // 256 kB, matches dump1090's MODES_RTL_BUF_SIZE
+use super::{rtl_async::RtlAsyncStream, IqSource};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RtlSdrError {
@@ -31,7 +29,7 @@ pub enum RtlSdrError {
 
 #[allow(dead_code)]
 mod ffi {
-    use std::ffi::{c_char, c_int, c_void};
+    use std::ffi::{c_char, c_int};
 
     #[repr(C)]
     pub struct rtlsdr_dev {
@@ -55,12 +53,6 @@ mod ffi {
         pub fn rtlsdr_set_tuner_gain_mode(dev: *mut rtlsdr_dev, manual: c_int) -> c_int;
         pub fn rtlsdr_get_tuner_gains(dev: *mut rtlsdr_dev, gains: *mut c_int) -> c_int;
         pub fn rtlsdr_reset_buffer(dev: *mut rtlsdr_dev) -> c_int;
-        pub fn rtlsdr_read_sync(
-            dev: *mut rtlsdr_dev,
-            buf: *mut c_void,
-            len: c_int,
-            n_read: *mut c_int,
-        ) -> c_int;
     }
 }
 
@@ -105,14 +97,46 @@ pub struct RtlSdrSource {
     frequency_hz: u64,
     sample_rate_hz: u32,
     gain_db: f64,
+    requested_gain_db: f64,
     gains: Vec<i32>,
-    read_buf: Vec<u8>,
+    stream: Option<RtlAsyncStream>,
+    total_dropped_samples: u64,
 }
 
 // SAFETY: `RtlSdrSource` only holds a raw device pointer touched through FFI calls that
 // take `&mut self` at the Rust level, so `IqSource`'s `&mut self`-everywhere API already
 // guarantees exclusive access — no concurrent FFI calls into the same handle can occur.
 unsafe impl Send for RtlSdrSource {}
+
+/// Shared by startup and live changes; the returned dB is the supported step,
+/// or zero for automatic mode. Errors leave the caller's applied cache intact.
+fn apply_tuner_gain(
+    gains: &[i32],
+    requested: f64,
+    mut set_mode: impl FnMut(i32) -> i32,
+    mut set_gain: impl FnMut(i32) -> i32,
+) -> Result<f64> {
+    anyhow::ensure!(requested.is_finite(), "gain must be finite");
+    if requested <= 0.0 {
+        let code = set_mode(0);
+        anyhow::ensure!(code == 0, "RTL set automatic gain mode failed: {code}");
+        return Ok(0.0);
+    }
+    let target = requested * 10.0;
+    let step = *gains
+        .iter()
+        .min_by(|a, b| {
+            (f64::from(**a) - target)
+                .abs()
+                .total_cmp(&(f64::from(**b) - target).abs())
+        })
+        .ok_or_else(|| anyhow::anyhow!("RTL tuner has no supported manual gains"))?;
+    let code = set_mode(1);
+    anyhow::ensure!(code == 0, "RTL set manual gain mode failed: {code}");
+    let code = set_gain(step);
+    anyhow::ensure!(code == 0, "RTL set tuner gain failed: {code}");
+    Ok(f64::from(step) / 10.0)
+}
 
 impl RtlSdrSource {
     #[must_use]
@@ -122,46 +146,60 @@ impl RtlSdrSource {
             dev_name: device,
             frequency_hz: 433_000_000,
             sample_rate_hz: 2_048_000,
+            requested_gain_db: 0.0,
             gain_db: 0.0, // <= 0.0 selects tuner AGC, matching dump1090's convention
             gains: Vec::new(),
-            read_buf: Vec::new(),
+            stream: None,
+            total_dropped_samples: 0,
         }
     }
 
-    fn apply_gain(&mut self) {
-        if self.dev.is_null() || self.gains.is_empty() {
-            return;
+    fn pause_stream(&mut self) -> Result<()> {
+        if let Some(mut stream) = self.stream.take() {
+            let result = stream.stop();
+            self.total_dropped_samples = self
+                .total_dropped_samples
+                .saturating_add(stream.dropped_samples());
+            result?;
         }
-        let gain_tenths = (self.gain_db * 10.0).round() as i32;
-        let mut best_step = 0i32;
-        let mut best_diff = i32::MAX;
-        for (i, &g) in self.gains.iter().enumerate().take(self.gains.len() - 1) {
-            let diff = (g - gain_tenths).abs();
-            if diff < best_diff {
-                best_diff = diff;
-                best_step = i as i32;
-            }
+        Ok(())
+    }
+    fn resume_stream(&mut self) -> Result<()> {
+        // SAFETY: this source owns the opened device. Every setter pauses and
+        // joins first; stop drops the stream before closing the device.
+        self.stream = Some(unsafe { RtlAsyncStream::start(self.dev.cast()) }?);
+        Ok(())
+    }
+    #[must_use]
+    pub fn acquisition_dropped_samples(&self) -> u64 {
+        self.total_dropped_samples.saturating_add(
+            self.stream
+                .as_ref()
+                .map_or(0, |stream| stream.dropped_samples()),
+        )
+    }
+
+    fn apply_gain(&mut self, requested: f64) -> Result<f64> {
+        anyhow::ensure!(requested.is_finite(), "gain must be finite");
+        if self.dev.is_null() {
+            return Ok(if requested <= 0.0 { 0.0 } else { requested });
         }
-        let selected = if self.gain_db <= 0.0 {
-            self.gains.len() as i32 - 1
-        } else {
-            best_step
-        };
-        if selected as usize >= self.gains.len() - 1 {
-            // SAFETY: `self.dev` checked non-null above.
-            unsafe { ffi::rtlsdr_set_tuner_gain_mode(self.dev, 0) };
-        } else {
-            // SAFETY: `self.dev` checked non-null above.
-            unsafe { ffi::rtlsdr_set_tuner_gain_mode(self.dev, 1) };
-            // SAFETY: `self.dev` is valid and `selected` is bounds-checked against
-            // `self.gains`, which was populated by this same device.
-            unsafe { ffi::rtlsdr_set_tuner_gain(self.dev, self.gains[selected as usize]) };
-        }
+        apply_tuner_gain(
+            &self.gains,
+            requested,
+            // SAFETY: device is non-null and exclusively owned by this source.
+            |manual| unsafe { ffi::rtlsdr_set_tuner_gain_mode(self.dev, manual) },
+            // SAFETY: selected gain comes from this device's supported table.
+            |gain| unsafe { ffi::rtlsdr_set_tuner_gain(self.dev, gain) },
+        )
     }
 }
 
 impl IqSource for RtlSdrSource {
     fn start(&mut self) -> Result<()> {
+        if !self.dev.is_null() {
+            return Ok(());
+        }
         // SAFETY: no preconditions beyond librtlsdr being linked.
         if unsafe { ffi::rtlsdr_get_device_count() } == 0 {
             return Err(RtlSdrError::NoDevices.into());
@@ -183,18 +221,24 @@ impl IqSource for RtlSdrSource {
         // the gain count without writing.
         let numgains = unsafe { ffi::rtlsdr_get_tuner_gains(dev, ptr::null_mut()) };
         if numgains > 0 {
-            self.gains.resize((numgains + 1) as usize, 0);
+            self.gains.resize(numgains as usize, 0);
             // SAFETY: `self.gains` has at least `numgains` elements; the FFI writes
             // exactly that many `c_int`s.
             let ret = unsafe { ffi::rtlsdr_get_tuner_gains(dev, self.gains.as_mut_ptr()) };
-            if ret == numgains {
-                self.gains.truncate(numgains as usize);
-                self.gains.sort_unstable();
-                let last = self.gains.last().copied().unwrap_or(0);
-                self.gains.push(last + 90);
+            if ret != numgains {
+                self.gains.clear();
+                self.stop();
+                anyhow::bail!("RTL gain table changed or read failed: {ret}");
+            }
+            self.gains.sort_unstable();
+        }
+        match self.apply_gain(self.requested_gain_db) {
+            Ok(applied) => self.gain_db = applied,
+            Err(error) => {
+                self.stop();
+                return Err(error);
             }
         }
-        self.apply_gain();
 
         // SAFETY: `dev` is a valid, just-opened device handle.
         if unsafe { ffi::rtlsdr_set_center_freq(dev, self.frequency_hz as u32) } < 0 {
@@ -211,12 +255,20 @@ impl IqSource for RtlSdrSource {
             return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
         }
         // SAFETY: `dev` is a valid, just-opened device handle.
-        unsafe { ffi::rtlsdr_reset_buffer(dev) };
+        if unsafe { ffi::rtlsdr_reset_buffer(dev) } != 0 {
+            self.stop();
+            anyhow::bail!("RTL reset buffer failed");
+        }
 
+        if let Err(error) = self.resume_stream() {
+            self.stop();
+            return Err(error);
+        }
         Ok(())
     }
 
     fn stop(&mut self) {
+        let _ = self.pause_stream();
         if !self.dev.is_null() {
             // SAFETY: `self.dev` is non-null and was returned by a successful
             // `rtlsdr_open`; `rtlsdr_close` is its matching destructor.
@@ -226,63 +278,59 @@ impl IqSource for RtlSdrSource {
     }
 
     fn set_frequency(&mut self, hz: u64) -> Result<()> {
-        self.frequency_hz = hz;
+        anyhow::ensure!(hz <= u32::MAX as u64, "RTL frequency exceeds u32 range");
         if !self.dev.is_null() {
+            self.pause_stream()?;
             // SAFETY: `self.dev` checked non-null above.
             if unsafe { ffi::rtlsdr_set_center_freq(self.dev, hz as u32) } < 0 {
                 return Err(
                     RtlSdrError::OpenFailed("failed to set center frequency".into()).into(),
                 );
             }
+            self.resume_stream()?;
         }
+        self.frequency_hz = hz;
         Ok(())
     }
 
     fn set_sample_rate(&mut self, hz: u32) -> Result<()> {
-        self.sample_rate_hz = hz;
+        anyhow::ensure!(hz > 0, "sample rate must be positive");
         if !self.dev.is_null() {
+            self.pause_stream()?;
             // SAFETY: `self.dev` checked non-null above.
             if unsafe { ffi::rtlsdr_set_sample_rate(self.dev, hz) } < 0 {
                 return Err(RtlSdrError::OpenFailed("failed to set sample rate".into()).into());
             }
+            self.resume_stream()?;
         }
+        self.sample_rate_hz = hz;
         Ok(())
     }
 
     fn set_gain(&mut self, db: f64) -> Result<()> {
-        self.gain_db = db;
-        self.apply_gain();
+        let live = !self.dev.is_null();
+        if live {
+            self.pause_stream()?;
+        }
+        let applied = self.apply_gain(db)?;
+        if live {
+            self.resume_stream()?;
+        }
+        self.gain_db = applied;
+        self.requested_gain_db = db;
         Ok(())
     }
 
     fn read_iq(&mut self, buf: &mut [Complex32]) -> Result<usize> {
-        if self.dev.is_null() {
-            return Ok(0);
+        match self.stream.as_mut() {
+            Some(stream) => stream.read_iq(buf, self.sample_rate_hz),
+            None => Ok(0),
         }
-        let want_bytes = (buf.len() * 2).min(READ_BUF_BYTES);
-        self.read_buf.resize(want_bytes, 0);
-        let mut n_read: c_int = 0;
-
-        // SAFETY: `self.dev` checked non-null above. `self.read_buf` is a freshly sized
-        // `Vec` of `want_bytes` — its pointer is valid and aligned for the duration of the
-        // call. `n_read` is a stack-local `c_int` that outlives the call.
-        let ret = unsafe {
-            ffi::rtlsdr_read_sync(
-                self.dev,
-                self.read_buf.as_mut_ptr().cast(),
-                want_bytes as c_int,
-                &mut n_read,
-            )
-        };
-        if ret < 0 {
-            return Err(RtlSdrError::ReadSyncFailed.into());
-        }
-
-        let bytes_read = n_read as usize;
-        let complex = lrpt_decode::iq_bytes_to_complex(&self.read_buf[..bytes_read]);
-        let n = complex.len().min(buf.len());
-        buf[..n].copy_from_slice(&complex[..n]);
-        Ok(n)
+    }
+    fn capture_clock(&self) -> Option<ez_proto::CaptureClock> {
+        self.stream
+            .as_ref()
+            .and_then(|stream| stream.capture_clock())
     }
 
     fn frequency_hz(&self) -> u64 {
@@ -295,6 +343,17 @@ impl IqSource for RtlSdrSource {
 
     fn gain_db(&self) -> f64 {
         self.gain_db
+    }
+
+    fn requested_gain_db(&self) -> Option<f64> {
+        Some(self.requested_gain_db)
+    }
+    fn gain_mode(&self) -> Option<ez_proto::GainMode> {
+        Some(if self.requested_gain_db <= 0.0 {
+            ez_proto::GainMode::Automatic
+        } else {
+            ez_proto::GainMode::Manual
+        })
     }
 
     fn kind(&self) -> &'static str {
@@ -311,6 +370,42 @@ impl Drop for RtlSdrSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gain_step_and_error_contract_is_shared_by_startup_and_live_control() {
+        use std::cell::RefCell;
+        let calls = RefCell::new(Vec::new());
+        let apply = |requested, mode_error, gain_error| {
+            apply_tuner_gain(
+                &[0, 77, 147, 297, 496],
+                requested,
+                |mode| {
+                    calls.borrow_mut().push(("mode", mode));
+                    mode_error
+                },
+                |gain| {
+                    calls.borrow_mut().push(("gain", gain));
+                    gain_error
+                },
+            )
+        };
+        assert_eq!(apply(29.9, 0, 0).unwrap(), 29.7);
+        assert_eq!(*calls.borrow(), [("mode", 1), ("gain", 297)]);
+        calls.borrow_mut().clear();
+        assert_eq!(apply(0.0, 0, 0).unwrap(), 0.0);
+        assert_eq!(*calls.borrow(), [("mode", 0)]);
+        calls.borrow_mut().clear();
+        assert!(apply(15.0, -1, 0).is_err());
+        assert_eq!(*calls.borrow(), [("mode", 1)]);
+        assert!(apply(15.0, 0, -2).is_err());
+        assert!(apply(-1.0, -3, 0).is_err());
+        assert!(apply(f64::NAN, 0, 0).is_err());
+        assert_eq!(
+            apply_tuner_gain(&[], 0.0, |_| 0, |_| panic!("AGC must not set gain")).unwrap(),
+            0.0
+        );
+        assert!(apply_tuner_gain(&[], 1.0, |_| panic!("no gains"), |_| 0).is_err());
+    }
 
     #[test]
     fn new_source_has_null_device_and_sane_defaults() {

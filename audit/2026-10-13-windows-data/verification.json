@@ -1,0 +1,156 @@
+{
+  "cpu_set": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "nice": 19,
+  "scope": "Windows per-user data startup and settings save feedback; native Windows execution unavailable",
+  "checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 1.166,
+      "log": "audit/2026-10-13-windows-data/format.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "migration",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--lib",
+        "app_data::tests::"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 0.315,
+      "log": "audit/2026-10-13-windows-data/migration.log",
+      "log_sha256": "6e74b9b18830b3e99e0585a3cc91416a294537b270d8ae835f6170f8d3e5ae23"
+    },
+    {
+      "name": "config",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--lib",
+        "config::tests::"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 0.365,
+      "log": "audit/2026-10-13-windows-data/config.log",
+      "log_sha256": "bb521db243c38115b0a05341b6fb48318006c73d8323afe66ac52a5d2e0f9def"
+    },
+    {
+      "name": "profiles",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--lib",
+        "app::app_ui_tests::saved_receiver_profile_"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 0.515,
+      "log": "audit/2026-10-13-windows-data/profiles.log",
+      "log_sha256": "986d86f18d34b024e8b5211f6f24a99fdf7c7539c51a6be929a355c321faa185"
+    },
+    {
+      "name": "save-apply",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--lib",
+        "app::app_ui_tests::save_and_apply_preserves_live_capture_when_defaults_and_unrelated_settings_change",
+        "--",
+        "--exact"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 0.365,
+      "log": "audit/2026-10-13-windows-data/save-apply.log",
+      "log_sha256": "f52bde39986f59fe7bd8a9c077e051346aeccaacc783ab89ee301bba1d9871d7"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 0.414,
+      "log": "audit/2026-10-13-windows-data/clippy.log",
+      "log_sha256": "32d47f791eadf1ea833d9f8c84fbfea5cab1f438e113e93be05bd5b908e1c2ac"
+    },
+    {
+      "name": "build",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "ez-gui",
+        "--locked"
+      ],
+      "environment": {},
+      "exit_code": 0,
+      "seconds": 0.315,
+      "log": "audit/2026-10-13-windows-data/build.log",
+      "log_sha256": "f591e097f22f91dd5c31fbbf7e587d80c0a4e0ed594f9c9012a544f38c52d926"
+    },
+    {
+      "name": "windows",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--target",
+        "x86_64-pc-windows-gnu",
+        "--all-targets"
+      ],
+      "environment": {
+        "PKG_CONFIG_ALLOW_CROSS": "1",
+        "PKG_CONFIG_SYSROOT_DIR": "/tmp/ez-sdr-windows-toolchain/sysroot",
+        "PKG_CONFIG_LIBDIR": "/tmp/ez-sdr-windows-toolchain/sysroot/ucrt64/lib/pkgconfig",
+        "CC_x86_64_pc_windows_gnu": "/tmp/ez-sdr-windows-toolchain/usr/usr/bin/x86_64-w64-mingw32-gcc-posix",
+        "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER": "/tmp/ez-sdr-windows-toolchain/usr/usr/bin/x86_64-w64-mingw32-gcc-posix"
+      },
+      "exit_code": 0,
+      "seconds": 5.576,
+      "log": "audit/2026-10-13-windows-data/windows.log",
+      "log_sha256": "4483e8a53f6e6c8700d92846b38c528b7ba7e71f31a79235a6da0715ff5de0fd"
+    }
+  ]
+}

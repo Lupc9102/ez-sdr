@@ -6,7 +6,9 @@ rust-version = "1.92"
 description = "ADS-B Mode S decoder and SDR data processing library"
 keywords = ["ads-b", "mode-s", "sdr", "decoder", "aviation"]
 categories = ["science::radio", "aerospace", "encoding"]
-license = "MIT OR Apache-2.0"
+# This crate contains GPL-2.0-or-later translations and BSD-3-Clause-derived
+# dump1090 code; see ../LICENSES/THIRD-PARTY-NOTICES.md for component scopes.
+license = "GPL-2.0-or-later AND BSD-3-Clause"
 authors = ["Lupc9102"]
 repository = "https://github.com/Lupc9102/ez-sdr"
 readme = "../README.md"

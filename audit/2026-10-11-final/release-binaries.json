@@ -1,0 +1,29 @@
+[
+  {
+    "name": "ez-gui",
+    "path": "/home/lupc/Documents/ez-sdr/target/release/ez-gui",
+    "bytes": 20494720,
+    "sha256": "8ca1288f24b0f1a6866a3e61fdc52e612eb1e0ea2c9b0dd131cd997d070a3185",
+    "ldd_exit_code": 0,
+    "ldd": "\tlinux-vdso.so.1 (0x00007f67f2b7e000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f67f2b26000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007f67f2a3d000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f67f1200000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f67f2b80000)\n",
+    "all_libraries_resolved": true
+  },
+  {
+    "name": "ez-daemon",
+    "path": "/home/lupc/Documents/ez-sdr/target/release/ez-daemon",
+    "bytes": 5730288,
+    "sha256": "0175312b991d54b42d5a5bf7791a0f8a16727e85a019992dca352f9745b467b8",
+    "ldd_exit_code": 0,
+    "ldd": "\tlinux-vdso.so.1 (0x000079a8efbca000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x000079a8ef5d2000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x000079a8ef4e9000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x000079a8ef200000)\n\t/lib64/ld-linux-x86-64.so.2 (0x000079a8efbcc000)\n",
+    "all_libraries_resolved": true
+  },
+  {
+    "name": "dump1090",
+    "path": "/home/lupc/Documents/ez-sdr/target/release/dump1090",
+    "bytes": 1017592,
+    "sha256": "a0bdea7ca8d1b8255f3b3015d1fa05be45b12af601572cb5f8a08b02ebe5f203",
+    "ldd_exit_code": 0,
+    "ldd": "\tlinux-vdso.so.1 (0x00007588b7d67000)\n\tlibrtlsdr.so.0 => /usr/local/lib/librtlsdr.so.0 (0x00007588b7c2e000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007588b7c00000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007588b7b17000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007588b7800000)\n\tlibusb-1.0.so.0 => /lib/x86_64-linux-gnu/libusb-1.0.so.0 (0x00007588b7af9000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007588b7d69000)\n\tlibudev.so.1 => /lib/x86_64-linux-gnu/libudev.so.1 (0x00007588b7ac4000)\n\tlibcap.so.2 => /lib/x86_64-linux-gnu/libcap.so.2 (0x00007588b7ab7000)\n",
+    "all_libraries_resolved": true
+  }
+]

@@ -1,0 +1,72 @@
+{
+  "verification_state": "software_checkpoint_verified_external_gates_open",
+  "finished_utc": "2026-10-11T05:08:54.226768+00:00",
+  "source_sha256": {
+    "ez-gui/src/audio_output.rs": "16ccdb45ddc8d4ec4fbf4d95a947573927d58ab0645bb2cd7f6498791f2142e0",
+    "ez-gui/src/radio_rds.rs": "225ccb1336c036481ca63478aefd6e5b7b0eabba608099b937e1ea092f888526",
+    "lrpt-decode/src/lib.rs": "2773be0e0842bb1ecb9d0546108923382083ea06c3be25c5d823c1a2ae4aa528",
+    "lrpt-decode/src/off_air_validation.rs": "55912f1cc93a080a9f23b13971b9c518003d60ce3791b1f7d3490ce24a364986",
+    "audit/2026-10-07/repair-evidence/final-checkpoint-1011.py": "ac76b2631085d23fcfc7726ae7cc6383fa6c44626cd31e9a4e7c61e151191134"
+  },
+  "original_audit_sha256": {
+    "audit/2026-10-07/REPORT.md": "ca0156bbd8a4f5ce590c4ffef026023b6c0649b0c3e0ff67330abab0e04a926b",
+    "audit/2026-10-07/findings.json": "37796bc4c81bc06e444d89f4fdf7234ab4943e543bf0c5a0e3091c8bcaa54c11",
+    "audit/2026-10-07/validation.json": "57d491613595193e818851002856a9961674acd0ad049d6aa8f2b3078bf50155"
+  },
+  "reference_proof_sha256": {
+    "repair-public-rf-verification-1010.json": "5db3e7b22e1d140cdb046e1ef95f834273a0f7135e3b858aec2d70d186f3bdfb",
+    "repair-audio-driver-verification-1010-attempt-2.json": "24d738c45f8f54289ae68c098c981ed3383da7160d2f822c5658e501e6680b55",
+    "repair-public-rds-verification-1010.json": "484a7684c99c37151e289744fd9e2ca64cc841ac05646b47a28c6edd3443af77"
+  },
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "ez-gui",
+        "-j",
+        "4"
+      ],
+      "started_utc": "2026-10-11T05:08:39.276325+00:00",
+      "finished_utc": "2026-10-11T05:08:43.608916+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/checkpoint-build-1011.log",
+      "log_sha256": "547346abd2ada9fad09dfec13c52382f4087e7682978cd54618313dd13ee941c"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "started_utc": "2026-10-11T05:08:43.609124+00:00",
+      "finished_utc": "2026-10-11T05:08:44.617761+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/checkpoint-format-1011.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "graphify",
+        "update",
+        "."
+      ],
+      "started_utc": "2026-10-11T05:08:44.617948+00:00",
+      "finished_utc": "2026-10-11T05:08:54.222127+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/checkpoint-graph-1011.log",
+      "log_sha256": "85db9487eff04e110c3e11081398cf2117323b8a94c3f1c26f5ac5f82b60b883"
+    }
+  ],
+  "software_verified_findings": 32,
+  "open_findings": [
+    "S01"
+  ],
+  "preserved_user_deletions": 672,
+  "full_cpu_authorized": true,
+  "receiver_inventory": "Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub\nBus 001 Device 002: ID 044f:b10a ThrustMaster, Inc. T.16000M Joystick\nBus 001 Device 003: ID 26ce:01a2 ASRock LED Controller\nBus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub\nBus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub\nBus 003 Device 002: ID 046d:c09d Logitech, Inc. G203 LIGHTSYNC Gaming Mouse\nBus 003 Device 003: ID 0c45:7603 Microdia USB Keyboard\nBus 003 Device 004: ID 056a:0016 Wacom Co., Ltd CTE-640 [Graphire4 (6x8)]\nBus 004 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub\n",
+  "verification_boundary": "No independent interleaved 80k recording or physical SDR is available. Original off-air stereo/CTCSS, physical RF error/overload/calibration and full audio/disk release gates remain unverified. Public RDS metadata and silent real shared audio lifecycle prove only their stated scopes. Goal remains active."
+}

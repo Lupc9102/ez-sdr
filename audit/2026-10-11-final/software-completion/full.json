@@ -1,0 +1,27 @@
+{
+  "group": "full",
+  "started_utc": "2026-10-12T15:09:17.392827+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "workspace-release-default",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "--workspace",
+        "--locked"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 101,
+      "tests_passed": 0,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 302.87,
+      "log": "audit/2026-10-11-final/software-completion/evidence/workspace-release-default.log",
+      "log_sha256": "42f9a59ce20b1cb2386b5159e99d4118fed04cb4958cde0b80bf23086f0571b8"
+    }
+  ],
+  "updated_utc": "2026-10-12T15:14:20.263947+00:00"
+}

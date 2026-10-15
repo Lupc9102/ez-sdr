@@ -431,10 +431,10 @@ impl Default for TypographyConfig {
         Self {
             family: FontFamily::EguiDefault,
             heading_size: 18.0,
-            body_size: 13.0,
-            small_size: 10.0,
-            monospace_size: 13.0,
-            button_size: 13.0,
+            body_size: 14.0,
+            small_size: 12.0,
+            monospace_size: 14.0,
+            button_size: 14.0,
         }
     }
 }
@@ -585,7 +585,7 @@ impl ThemeConfig {
             surface: Rgba::from_rgb(28, 30, 38),
             text_normal: Rgba::from_rgb(220, 220, 230),
             text_heading: Rgba::from_rgb(255, 255, 255),
-            text_dim: Rgba::from_rgb(130, 130, 140),
+            text_dim: Rgba::from_rgb(165, 168, 180),
             success: Rgba::from_rgb(46, 204, 113),
             warning: Rgba::from_rgb(241, 196, 15),
             error: Rgba::from_rgb(231, 76, 60),
@@ -637,7 +637,7 @@ impl ThemeConfig {
         t.surface = Rgba::from_rgb(255, 255, 255);
         t.text_normal = Rgba::from_rgb(40, 40, 50);
         t.text_heading = Rgba::from_rgb(10, 10, 20);
-        t.text_dim = Rgba::from_rgb(130, 130, 140);
+        t.text_dim = Rgba::from_rgb(95, 95, 105);
         t.accent = Rgba::from_rgb(41, 128, 185);
         t.spectrum_line = Rgba::from_rgb(41, 128, 185);
         t.spectrum_fill_top = Rgba::from_rgba(41, 128, 185, 80);
@@ -836,6 +836,7 @@ impl ThemeConfig {
         };
 
         visuals.override_text_color = Some(self.text_normal.to_egui());
+        visuals.weak_text_color = Some(self.text_dim.to_egui());
         visuals.hyperlink_color = self.accent.to_egui();
         visuals.selection.stroke = egui::Stroke::new(1.0, self.accent.to_egui());
         visuals.selection.bg_fill = self.accent.with_alpha(60).to_egui();
@@ -858,7 +859,8 @@ impl ThemeConfig {
         w.noninteractive.bg_stroke = egui::Stroke::new(1.0, self.text_dim.with_alpha(80).to_egui());
         w.noninteractive.corner_radius = cr;
 
-        w.inactive.bg_fill = self.surface.to_egui();
+        // Slider rails use inactive.bg_fill; keep them distinct from the panel.
+        w.inactive.bg_fill = mix_color(&self.surface, &self.text_normal, 0.10).to_egui();
         w.inactive.weak_bg_fill = self.bg.to_egui();
         w.inactive.fg_stroke = egui::Stroke::new(1.0, self.text_normal.to_egui());
         w.inactive.bg_stroke = egui::Stroke::new(1.0, self.text_dim.with_alpha(100).to_egui());

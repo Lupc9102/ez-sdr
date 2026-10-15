@@ -1,0 +1,7 @@
+    Blocking waiting for file lock on build directory
+    Checking ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+warning: ez-daemon@0.1.0: pkg-config could not find libhackrf (
+warning: ez-daemon@0.1.0: pkg-config could not find SoapySDR (
+    Checking lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.77s

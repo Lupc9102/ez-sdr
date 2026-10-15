@@ -43,9 +43,9 @@ pub const MAGBUF_DISCONTINUOUS: u32 = 1;
 /// `data[0..overlap]` is copied from the previous buffer so that messages
 /// straddling the boundary can be decoded.
 #[derive(Debug, Clone)]
-pub struct MagBuf {
+pub struct MagBuf<'a> {
     /// Magnitude samples (0..65535), starting with overlap from the previous block.
-    pub data: Vec<u16>,
+    pub data: std::borrow::Cow<'a, [u16]>,
     /// Allocated capacity of `data`.
     pub total_length: usize,
     /// Number of valid samples in `data`, including overlap.
@@ -203,15 +203,86 @@ fn apply_bit_errors(msg: &mut [u8], bit: usize) {
     msg[byte] ^= mask;
 }
 
-/// Try to correct a message using the linearity of the CRC.
-///
-/// Returns `(corrections, corrected_msg)` or `(-1, original_msg)` if
-/// uncorrectable.  Only corrects up to `max_errors` (typically 1 or 2).
-fn correct_message(
+/// Correct a 56-bit message without inspecting the unused trailing bytes in
+/// the 14-byte demodulator scratch buffer. Short surveillance replies are
+/// commonly followed by unrelated samples, so running the long-message CRC
+/// first can turn that trailing noise into a false long-frame correction.
+fn correct_short_message(
     input: &[u8; MODES_LONG_MSG_BYTES],
     max_errors: usize,
 ) -> (isize, [u8; MODES_LONG_MSG_BYTES]) {
-    // Check long-form (112-bit) CRC first.
+    let short_bytes = &input[..MODES_SHORT_MSG_BYTES];
+    let short_syndrome = crc24_parity(short_bytes);
+    // DF11 parity includes a legitimate seven-bit interrogator identifier.
+    // Validate only the protected syndrome bits and preserve the overlay.
+    let syndrome_mask = if input[0] >> 3 == 11 {
+        0xFFFF80
+    } else {
+        0xFFFFFF
+    };
+    if short_syndrome & syndrome_mask == 0 {
+        let mut msg = [0u8; MODES_LONG_MSG_BYTES];
+        msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
+        return (0, msg);
+    }
+
+    if max_errors >= 1 {
+        for bit in 0..MODES_SHORT_MSG_BITS {
+            if single_bit_syndrome(bit + SHORT_MSG_OFFSET) & syndrome_mask
+                == short_syndrome & syndrome_mask
+            {
+                let mut msg = [0u8; MODES_LONG_MSG_BYTES];
+                msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
+                apply_bit_errors(&mut msg, bit);
+                // A repaired DF must use the parity rules of its final format.
+                let final_mask = if msg[0] >> 3 == 11 {
+                    0xFFFF80
+                } else {
+                    0xFFFFFF
+                };
+                if crc24_parity(&msg[..MODES_SHORT_MSG_BYTES]) & final_mask != 0 {
+                    continue;
+                }
+                return (1, msg);
+            }
+        }
+    }
+
+    (-1, *input)
+}
+
+/// Precomputed 2-bit error syndrome lookup table.
+///
+/// Maps `syndrome(b1) ^ syndrome(b2)` → `(b1, b2)` for all bit pairs.
+/// This replaces the O(n²) brute-force search with O(1) lookup, matching
+/// the C reference's `modesChecksumDiagnose()` approach.
+fn two_bit_syndrome_table() -> &'static std::collections::HashMap<u32, (u8, u8)> {
+    use std::sync::OnceLock;
+    static TABLE: OnceLock<std::collections::HashMap<u32, (u8, u8)>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let mut map = std::collections::HashMap::with_capacity(6216);
+        for b1 in 0..MODES_LONG_MSG_BITS as u8 {
+            let s1 = single_bit_syndrome(b1 as usize);
+            for b2 in (b1 + 1)..MODES_LONG_MSG_BITS as u8 {
+                let s2 = single_bit_syndrome(b2 as usize);
+                // Only insert if not already present (first match wins, matching
+                // the C reference which finds the lowest-indexed pair).
+                map.entry(s1 ^ s2).or_insert((b1, b2));
+            }
+        }
+        map
+    })
+}
+
+/// Try to correct a long (112-bit) message.
+///
+/// Returns `(corrections, corrected_msg)` or `(-1, original_msg)` if
+/// uncorrectable.
+fn correct_long_message(
+    input: &[u8; MODES_LONG_MSG_BYTES],
+    max_errors: usize,
+) -> (isize, [u8; MODES_LONG_MSG_BYTES]) {
+    // Check long-form (112-bit) CRC.
     let long_syndrome = crc24_parity(input);
     if long_syndrome == 0 {
         // Already valid.
@@ -229,44 +300,85 @@ fn correct_message(
         }
     }
 
-    // Try 2-bit correction on the long message.
+    // Try 2-bit correction on the long message using O(1) table lookup.
     if max_errors >= 2 {
-        for b1 in 0..MODES_LONG_MSG_BITS {
-            let s1 = single_bit_syndrome(b1);
-            let target = long_syndrome ^ s1;
-            for b2 in (b1 + 1)..MODES_LONG_MSG_BITS {
-                if single_bit_syndrome(b2) == target {
-                    let mut msg = *input;
-                    apply_bit_errors(&mut msg, b1);
-                    apply_bit_errors(&mut msg, b2);
-                    return (2, msg);
-                }
-            }
-        }
-    }
-
-    // Try short-form (56-bit) correction.
-    let short_bytes = &input[..MODES_SHORT_MSG_BYTES];
-    let short_syndrome = crc24_parity(short_bytes);
-    if short_syndrome == 0 {
-        // Valid short message (DF11 with IID = 0).
-        let mut msg = [0u8; MODES_LONG_MSG_BYTES];
-        msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
-        return (0, msg);
-    }
-
-    if max_errors >= 1 {
-        for bit in 0..MODES_SHORT_MSG_BITS {
-            if single_bit_syndrome(bit + SHORT_MSG_OFFSET) == short_syndrome {
-                let mut msg = [0u8; MODES_LONG_MSG_BYTES];
-                msg[..MODES_SHORT_MSG_BYTES].copy_from_slice(short_bytes);
-                apply_bit_errors(&mut msg, bit);
-                return (1, msg);
-            }
+        if let Some(&(b1, b2)) = two_bit_syndrome_table().get(&long_syndrome) {
+            let mut msg = *input;
+            apply_bit_errors(&mut msg, b1 as usize);
+            apply_bit_errors(&mut msg, b2 as usize);
+            return (2, msg);
         }
     }
 
     (-1, *input)
+}
+
+/// Try to correct a message using the linearity of the CRC.
+///
+/// Returns `(corrections, corrected_msg)` or `(-1, original_msg)` if
+/// uncorrectable.  Only corrects up to `max_errors` (typically 1 or 2).
+///
+/// Implements cross-length correction matching the C reference
+/// (`correctMessage()` in mode_s.c): the DF field may be damaged, so
+/// we try the suggested length first, then fall back to the other length.
+fn correct_message(
+    input: &[u8; MODES_LONG_MSG_BYTES],
+    max_errors: usize,
+) -> (isize, [u8; MODES_LONG_MSG_BYTES]) {
+    // Select the frame width from the DF before calculating a CRC. The bytes
+    // after a 56-bit reply are scratch-buffer contents, not part of its CRC.
+    let suggested_short = mode_s_message_len_by_type(input[0] >> 3) == MODES_SHORT_MSG_BITS;
+
+    // Try the suggested length first.
+    let (corrections, corrected) = if suggested_short {
+        correct_short_message(input, max_errors)
+    } else {
+        correct_long_message(input, max_errors)
+    };
+    if corrections >= 0 {
+        return (corrections, corrected);
+    }
+
+    // If the suggested length failed, try the other length.
+    // This handles the case where DF bits are corrupted:
+    // e.g. a DF17 message with bit 4 flipped appears as DF27 (short),
+    // but long correction can still recover the original message.
+    if suggested_short {
+        correct_long_message(input, max_errors)
+    } else {
+        correct_short_message(input, max_errors)
+    }
+}
+
+impl ScoreRank {
+    /// UI decode-quality rank; this is a message classification, not a measured
+    /// probability that a coordinate is physically correct.
+    #[must_use]
+    pub fn quality(self) -> f64 {
+        match self {
+            ScoreRank::Df17Known
+            | ScoreRank::Df18Known
+            | ScoreRank::Df11IidKnown
+            | ScoreRank::Df11AcqKnown => 1.0,
+            ScoreRank::Df17_1ErrorKnown
+            | ScoreRank::Df18_1ErrorKnown
+            | ScoreRank::Df11Iid1ErrorKnown
+            | ScoreRank::Df11Acq1ErrorKnown => 0.75,
+            ScoreRank::Df17_2ErrorKnown | ScoreRank::Df18_2ErrorKnown => 0.5,
+            // Valid CRC but unknown aircraft — better than garbage.
+            ScoreRank::Df17Unknown
+            | ScoreRank::Df18Unknown
+            | ScoreRank::Df11IidUnknown
+            | ScoreRank::Df11AcqUnknown
+            | ScoreRank::UnreliableKnown => 0.6,
+            ScoreRank::Df17_1ErrorUnknown
+            | ScoreRank::Df18_1ErrorUnknown
+            | ScoreRank::Df11Iid1ErrorUnknown
+            | ScoreRank::Df11Acq1ErrorUnknown
+            | ScoreRank::UnreliableUnknown => 0.4,
+            _ => 0.25,
+        }
+    }
 }
 
 // ========================================================================
@@ -331,8 +443,7 @@ pub fn score_mode_s_message(
         11 => {
             let syndrome = crc24_parity(&corrected[..MODES_SHORT_MSG_BYTES]);
             if syndrome & 0xFFFF80 != 0 {
-                // CRC does not match the expected form for DF11 (IID != 0 case handled below loosely).
-                // We still allow it if fully valid.
+                return ScoreRank::Uncorrectable;
             }
             let iid = syndrome & 0x7F;
             let recent = icao_filter.contains(addr & 0xFFFFFF);
@@ -394,6 +505,9 @@ pub fn score_mode_s_message(
             }
         }
         18 => {
+            if crate::mode_s::df18_identity(&corrected).is_none() {
+                return ScoreRank::Uncorrectable;
+            }
             let recent = icao_filter.contains(addr | 0x0100_0000); // NT flag
             match corrections {
                 0 => {
@@ -448,6 +562,7 @@ pub fn decode_mode_s_message(
     enable_df24: bool,
     max_errors: usize,
 ) -> Result<(), i32> {
+    icao_filter.maintain();
     if mm.score == ScoreRank::NotSet {
         mm.score = score_mode_s_message(input, icao_filter, enable_df24, max_errors);
     }
@@ -463,7 +578,7 @@ pub fn decode_mode_s_message(
 
     let (corrections, corrected) = correct_message(input, max_errors);
     mm.msg = corrected;
-    mm.correctedbits = corrections as usize;
+    mm.correctedbits = (corrections.max(0) as usize).min(2);
 
     let df = mm.msg[0] >> 3;
     mm.msgtype = df;
@@ -476,13 +591,30 @@ pub fn decode_mode_s_message(
             mm.addr =
                 (u32::from(mm.msg[1]) << 16) | (u32::from(mm.msg[2]) << 8) | u32::from(mm.msg[3]);
             mm.crc = crc24_parity(&mm.msg[..MODES_SHORT_MSG_BYTES]);
-            icao_filter.add(mm.addr);
+            if mm.correctedbits == 0 && mm.crc == 0 {
+                icao_filter.add(mm.addr);
+            }
         }
-        17 | 18 => {
+        17 => {
             mm.addr =
                 (u32::from(mm.msg[1]) << 16) | (u32::from(mm.msg[2]) << 8) | u32::from(mm.msg[3]);
             mm.crc = crc24_parity(&mm.msg);
-            icao_filter.add(mm.addr);
+            if mm.correctedbits == 0 {
+                icao_filter.add(mm.addr);
+            }
+        }
+        18 => {
+            let identity = crate::mode_s::df18_identity(&mm.msg).ok_or(-1)?;
+            mm.addr = identity.key;
+            mm.crc = crc24_parity(&mm.msg);
+            if mm.correctedbits == 0 {
+                // DF18 history authorizes only subsequent DF18 scoring. It
+                // must not authorize Mode S AP traffic, even for ICAO CF=0.
+                let wire_address = (u32::from(mm.msg[1]) << 16)
+                    | (u32::from(mm.msg[2]) << 8)
+                    | u32::from(mm.msg[3]);
+                icao_filter.add(wire_address | 0x0100_0000);
+            }
         }
         _ => {
             mm.crc = crc24_parity(&mm.msg[..mm.msgbits / 8]);
@@ -494,7 +626,19 @@ pub fn decode_mode_s_message(
         }
     }
 
-    mm.reliable = (mm.score >= ScoreRank::AcceptThreshold) && (mm.correctedbits == 0);
+    // Match C reference (mode_s.c:556-619): only DF11 (IID==0), DF17, and
+    // DF18 with 0 corrections are marked reliable. Address/Parity formats
+    // (DF 0/4/5/16/20/21/24-31) and DF11 with IID!=0 are never reliable.
+    let df = mm.msgtype;
+    mm.reliable = match df {
+        11 => {
+            let syndrome = crc24_parity(&mm.msg[..MODES_SHORT_MSG_BYTES]);
+            let iid = syndrome & 0x7F;
+            iid == 0 && mm.correctedbits == 0
+        }
+        17 | 18 => mm.correctedbits == 0,
+        _ => false,
+    };
 
     Ok(())
 }
@@ -590,9 +734,57 @@ fn generate_damage_set(df: u8, damage_bits: usize) -> u32 {
     result
 }
 
+/// Builder for configuring a [`Demod2400`] demodulator.
+#[derive(Debug, Clone, Default)]
+pub struct Demod2400Builder {
+    enable_df24: bool,
+    fix_df: bool,
+    nfix_crc: usize,
+}
+
+impl Demod2400Builder {
+    /// Enable demodulation of DF24-31 (Comm-D/ELM) messages.
+    #[must_use]
+    pub fn enable_df24(mut self, enable: bool) -> Self {
+        self.enable_df24 = enable;
+        self
+    }
+
+    /// Enable DF-bit correction (attempt to correct damaged DF fields).
+    #[must_use]
+    pub fn fix_df(mut self, fix: bool) -> Self {
+        self.fix_df = fix;
+        self
+    }
+
+    /// Set the number of DF-bit errors to correct (0-2).
+    #[must_use]
+    pub fn nfix_crc(mut self, n: usize) -> Self {
+        self.nfix_crc = n;
+        self
+    }
+
+    /// Build the configured demodulator.
+    #[must_use]
+    pub fn build(self) -> Demod2400 {
+        Demod2400 {
+            last_message_end: 0,
+            valid_df_short: valid_df_short(self.fix_df, self.nfix_crc),
+            valid_df_long: valid_df_long(self.enable_df24, self.fix_df, self.nfix_crc),
+            msg1: [0; MODES_LONG_MSG_BYTES],
+            msg2: [0; MODES_LONG_MSG_BYTES],
+            icao_filter: IcaoFilter::new(),
+            enable_df24: self.enable_df24,
+            fix_df: self.fix_df,
+            nfix_crc: self.nfix_crc,
+        }
+    }
+}
+
 /// 2.4 MHz Mode S / Mode A/C demodulator state.
 pub struct Demod2400 {
-    last_message_end: usize,
+    /// End of the last decoded message in absolute 12 MHz sample-clock ticks.
+    last_message_end: u64,
     valid_df_short: u32,
     valid_df_long: u32,
     msg1: [u8; MODES_LONG_MSG_BYTES],
@@ -612,20 +804,13 @@ impl Default for Demod2400 {
 impl Demod2400 {
     #[must_use]
     pub fn new() -> Self {
-        let enable_df24 = false;
-        let fix_df = false;
-        let nfix_crc = 0;
-        Demod2400 {
-            last_message_end: 0,
-            valid_df_short: valid_df_short(fix_df, nfix_crc),
-            valid_df_long: valid_df_long(enable_df24, fix_df, nfix_crc),
-            msg1: [0; MODES_LONG_MSG_BYTES],
-            msg2: [0; MODES_LONG_MSG_BYTES],
-            icao_filter: IcaoFilter::new(),
-            enable_df24,
-            fix_df,
-            nfix_crc,
-        }
+        Self::builder().build()
+    }
+
+    /// Create a builder for configuring the demodulator.
+    #[must_use]
+    pub fn builder() -> Demod2400Builder {
+        Demod2400Builder::default()
     }
 
     /// Recompute DF bitsets when configuration changes.
@@ -644,6 +829,7 @@ impl Demod2400 {
         stats: &mut DemodStats,
         on_message: &mut dyn FnMut(&mut ModesMessage),
     ) {
+        self.icao_filter.maintain();
         if mag.flags.0 & MAGBUF_DISCONTINUOUS != 0 {
             self.last_message_end = 0;
         }
@@ -651,19 +837,21 @@ impl Demod2400 {
         let m = &mag.data[..mag.valid_length];
         let mlen = mag.valid_length.saturating_sub(mag.overlap);
 
-        if self.last_message_end > mlen {
-            self.last_message_end = mlen;
-        }
-
         let mut sum_scaled_signal_power: u64 = 0;
         let mut msg = self.msg1;
         let mut best_msg = self.msg2;
 
-        let mut j = self.last_message_end;
+        let decoded_end = self
+            .last_message_end
+            .saturating_sub(mag.sample_timestamp)
+            .div_ceil(5);
+        // C reference: demodulate2400() at demod_2400.c:134 scans j from
+        // last_message_end up to mlen = validLength - overlap.
+        let mut j = decoded_end.min(mag.valid_length as u64) as usize;
         while j < mlen {
             let preamble = &m[j..];
-            if preamble.len() < 269 + 1 + 19 {
-                // Not enough samples left for a full long message.
+            if preamble.len() < 290 {
+                // Not enough samples left for a full long message (289 max offset in phase 8 + 1).
                 break;
             }
 
@@ -941,7 +1129,9 @@ impl Demod2400 {
                 j += 1;
                 continue;
             }
-            stats.demod_accepted[decoded_mm.correctedbits] += 1;
+            if decoded_mm.correctedbits < stats.demod_accepted.len() {
+                stats.demod_accepted[decoded_mm.correctedbits] += 1;
+            }
 
             // Measure signal power over the message duration.
             {
@@ -975,22 +1165,20 @@ impl Demod2400 {
 
             // Pass the decoded message upward.
             on_message(&mut decoded_mm);
-            self.last_message_end = msg_end;
+            self.last_message_end = mag.sample_timestamp.saturating_add(msg_end as u64 * 5);
         }
 
         // Update noise power.
         {
             let sum_signal_power = sum_scaled_signal_power as f64 / 65535.0 / 65535.0;
-            let block_noise_power = (mag.mean_power * mlen as f64 - sum_signal_power).max(0.0);
+            let raw_noise = mag.mean_power * mlen as f64 - sum_signal_power;
+            let block_noise_power = if raw_noise.is_finite() && raw_noise > 0.0 {
+                raw_noise
+            } else {
+                0.0
+            };
             stats.noise_power_sum += block_noise_power;
             stats.noise_power_count += mlen as u64;
-        }
-
-        // Trailing empty samples.
-        if self.last_message_end < mlen {
-            self.last_message_end = 0;
-        } else {
-            self.last_message_end -= mlen;
         }
     }
 
@@ -1002,7 +1190,7 @@ impl Demod2400 {
         on_message: &mut dyn FnMut(&mut ModesMessage),
     ) {
         let m = &mag.data[..mag.valid_length];
-        let mlen = mag.valid_length.saturating_sub(mag.overlap.max(70));
+        let mlen = mag.valid_length.saturating_sub(mag.overlap);
 
         let var = (mag.mean_power - mag.mean_level * mag.mean_level).max(0.0);
         let noise_stddev = var.sqrt();
@@ -1146,14 +1334,25 @@ impl Demod2400 {
 // ========================================================================
 
 /// Common input formats that the RTL-SDR / SDR front-ends provide.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum InputFormat {
+    #[default]
     /// Unsigned 8-bit IQ (RTL-SDR default).
     Uc8,
     /// Signed 16-bit IQ.
     Sc16,
     /// Signed 16-bit IQ with 11-bit Q offset correction.
     Sc16Q11,
+}
+
+impl InputFormat {
+    /// Number of bytes per IQ sample for this format.
+    pub fn bytes_per_sample(&self) -> usize {
+        match self {
+            InputFormat::Uc8 => 2,
+            InputFormat::Sc16 | InputFormat::Sc16Q11 => 4,
+        }
+    }
 }
 
 /// Convert a buffer of interleaved IQ samples into magnitude values.
@@ -1272,6 +1471,71 @@ fn magnitude_sc16q11_sample(i: i16, q: i16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colliding_address_parity_is_rejected_until_that_address_is_learned() {
+        let mut raw = [0u8; 14];
+        raw[0] = 4 << 3;
+        let parity = crate::crc::crc24(&raw[..4]) ^ 0x000151;
+        raw[4] = (parity >> 16) as u8;
+        raw[5] = (parity >> 8) as u8;
+        raw[6] = parity as u8;
+        let mut filter = IcaoFilter::new();
+        filter.add(0xABCDEF);
+        assert!(
+            decode_mode_s_message(&mut ModesMessage::default(), &raw, &mut filter, false, 0)
+                .is_err()
+        );
+        filter.add(0x000151);
+        let mut decoded = ModesMessage::default();
+        decode_mode_s_message(&mut decoded, &raw, &mut filter, false, 0).unwrap();
+        assert_eq!(decoded.addr, 0x000151);
+    }
+
+    #[test]
+    fn df11_iid_survives_demodulation_and_semantic_decoding() {
+        for iid in [0u32, 1, 17, 79, 127] {
+            for max_errors in 0..=2 {
+                for known in [false, true] {
+                    let mut raw = [0u8; 14];
+                    raw[..4].copy_from_slice(&[11 << 3, 0xAB, 0xCD, 0xEF]);
+                    let parity = crate::crc::crc24(&raw[..4]) ^ iid;
+                    raw[4] = (parity >> 16) as u8;
+                    raw[5] = (parity >> 8) as u8;
+                    raw[6] = parity as u8;
+                    let mut filter = IcaoFilter::new();
+                    if known {
+                        filter.add(0xABCDEF);
+                    }
+                    let rank = score_mode_s_message(&raw, &filter, false, max_errors);
+                    assert_eq!(
+                        rank,
+                        match (iid == 0, known) {
+                            (true, true) => ScoreRank::Df11AcqKnown,
+                            (true, false) => ScoreRank::Df11AcqUnknown,
+                            (false, true) => ScoreRank::Df11IidKnown,
+                            (false, false) => ScoreRank::Df11IidUnknown,
+                        }
+                    );
+                    assert_eq!(
+                        crate::mode_s::decode_mode_s_message(&raw[..7])
+                            .unwrap()
+                            .icao,
+                        0xABCDEF
+                    );
+                    let mut decoded = ModesMessage::default();
+                    let accepted =
+                        decode_mode_s_message(&mut decoded, &raw, &mut filter, false, max_errors);
+                    assert_eq!(accepted.is_ok(), rank >= ScoreRank::AcceptThreshold);
+                    if accepted.is_ok() {
+                        assert_eq!(decoded.correctedbits, 0);
+                        assert_eq!(&decoded.msg[..7], &raw[..7]);
+                        assert_eq!(decoded.addr, 0xABCDEF);
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn surveillance_scoring_uses_syndrome_recency() {
@@ -1745,8 +2009,11 @@ mod tests {
         let short = [0u8; MODES_SHORT_MSG_BYTES];
         let mut padded = [0u8; MODES_LONG_MSG_BYTES];
         padded[..MODES_SHORT_MSG_BYTES].copy_from_slice(&short);
-        let (corrections, _corrected) = correct_message(&padded, 2);
+        padded[7..].fill(0xFF);
+        let (corrections, corrected) = correct_message(&padded, 2);
         assert_eq!(corrections, 0);
+        assert_eq!(&corrected[..MODES_SHORT_MSG_BYTES], &short);
+        assert!(corrected[MODES_SHORT_MSG_BYTES..].iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -1770,7 +2037,7 @@ mod tests {
         let mut demod = Demod2400::new();
         let mut stats = DemodStats::default();
         let mag = MagBuf {
-            data: vec![0u16; 10],
+            data: vec![0u16; 10].into(),
             total_length: 10,
             valid_length: 5,
             overlap: 10, // overlap > valid_length
@@ -1790,7 +2057,7 @@ mod tests {
         let mut demod = Demod2400::new();
         let mut stats = DemodStats::default();
         let mag = MagBuf {
-            data: vec![1000u16; 20],
+            data: vec![1000u16; 20].into(),
             total_length: 20,
             valid_length: 20,
             overlap: 0,

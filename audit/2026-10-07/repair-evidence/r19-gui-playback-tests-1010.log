@@ -1,0 +1,26 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.40s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35d4e7e0e5283107)
+
+running 13 tests
+test audio_resampler::tests::corrupt_frame_geometry_retires_history_before_next_valid_audio ... ok
+test audio_resampler::tests::empty_and_single_sample_partitions_preserve_rational_cadence_and_samples ... ok
+test audio_resampler::tests::fractional_capture_rate_controls_playback_phase_and_arbitrary_frame_splits ... ok
+test audio_resampler::tests::gain_applies_at_equal_and_different_rates ... ok
+test audio_resampler::tests::mixed_stream_audio_clock_and_sequence_gaps_reset_interpolation ... ok
+test audio_resampler::tests::passband_phase_and_stopband_rejection_hold_at_production_playback_rates ... playback frequency sweep measurements=122 minimum_rejection_db=112.350624
+ok
+test audio_resampler::tests::pcm_playback_uses_generated_clock_while_retaining_fractional_rf_metadata ... ok
+test audio_resampler::tests::rate_changes_retire_history_including_equal_rate_passthrough ... ok
+test audio_resampler::tests::rate_conversion_is_independent_of_network_frame_boundaries ... ok
+test audio_resampler::tests::real_daemon_am_and_nfm_destination_rate_conversion_rejects_out_of_band_audio ... mode=Am output=44100 alias_hz=4900 before=0.100049994 after=0.000000005
+mode=Fm output=44100 alias_hz=4900 before=0.090413457 after=0.000000005
+mode=Am output=48000 alias_hz=1000 before=0.100049994 after=0.000000038
+mode=Fm output=48000 alias_hz=1000 before=0.090413457 after=0.000000005
+ok
+test audio_resampler::tests::real_daemon_wfm_mpx_and_strong_mixtures_do_not_alias_into_playback ... real WFM stop cases=32 minimum_rejection_db=97.120270 maximum_relative_mixture_error=0.000025807
+ok
+test audio_resampler::tests::rejects_invalid_rates_and_cleans_nonfinite_samples ... ok
+test audio_resampler::tests::upsampling_and_extreme_ratios_keep_exact_counts_and_filter_delay ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 884 filtered out; finished in 60.50s
+

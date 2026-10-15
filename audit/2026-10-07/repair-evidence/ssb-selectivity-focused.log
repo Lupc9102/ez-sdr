@@ -1,0 +1,13 @@
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 10s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-95650a7f14b2f657)
+
+running 3 tests
+test pipelines::audio::tests::ssb_production_fractional_clock_chunks_mode_changes_and_gaps_preserve_history ... ok
+test pipelines::audio::tests::ssb_production_whole_voice_band_rejects_strong_opposite_signals_without_pitch_shift ... ssb_production voice_checks=336 max_gain_error_db=0.02520669 min_rejection_db=92.681208 max_21_94db_stronger_opposite_mixture_error_db=0.00251525
+ok
+test pipelines::audio_filter::tests::ssb_production_filter_reset_clock_changes_and_nonfinite_samples_retire_history ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 225 filtered out; finished in 17.89s

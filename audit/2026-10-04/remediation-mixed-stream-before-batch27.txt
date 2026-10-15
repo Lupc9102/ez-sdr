@@ -1,0 +1,21 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.41s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-629232f51e69496a)
+
+running 1 test
+
+thread 'server::tests::mixed_stream_saturation_keeps_control_delivery_independent' (36484) panicked at ez-daemon/src/server.rs:1026:9:
+mixed data queues blocked Ping delivery without a data drain
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test server::tests::mixed_stream_saturation_keeps_control_delivery_independent ... FAILED
+
+failures:
+
+failures:
+    server::tests::mixed_stream_saturation_keeps_control_delivery_independent
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.21s
+
+error: test failed, to rerun pass `-p ez-daemon --lib`

@@ -1,0 +1,119 @@
+{
+  "binary": "/home/lupc/Documents/ez-sdr/target/release/ez-gui",
+  "binary_sha256": "e924c97ff8c9f2e20917b5f74aa9521bcf2d54b517dd01ca035f542a3b9abfde",
+  "actions": [
+    {
+      "click": [
+        250,
+        15
+      ],
+      "name": "release-public-meteor-input"
+    },
+    {
+      "click": [
+        113,
+        181
+      ]
+    },
+    {
+      "text": "/tmp/ez-final-public72.cs8",
+      "name": "release-public-meteor-file"
+    },
+    {
+      "click": [
+        119,
+        270
+      ]
+    },
+    {
+      "chord": [
+        "Control_L",
+        "a"
+      ]
+    },
+    {
+      "text": "288000"
+    },
+    {
+      "key": "Return",
+      "name": "release-public-meteor-ready"
+    },
+    {
+      "click": [
+        57,
+        352
+      ],
+      "wait": 1,
+      "name": "release-public-meteor-progress"
+    },
+    {
+      "wait": 20,
+      "name": "release-public-meteor-decoded"
+    },
+    {
+      "wait": 30,
+      "name": "release-public-meteor-final"
+    },
+    {
+      "resize": [
+        1000,
+        700
+      ],
+      "name": "release-public-meteor-small"
+    },
+    {
+      "stop": true
+    }
+  ],
+  "surface": "native X11/OpenGL with software GL, private config",
+  "screenshots": [
+    {
+      "name": "release-public-meteor-startup",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-startup.png",
+      "process_alive": true,
+      "sha256": "dc736926102a7f0fbea8926819771a66e1242f1725e3c21dc8228839303303c5"
+    },
+    {
+      "name": "release-public-meteor-input",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-input.png",
+      "process_alive": true,
+      "sha256": "332e908d9661ee1adc4b09d4017cc23d88b8f0830a2f58d09df734bae790dccd"
+    },
+    {
+      "name": "release-public-meteor-file",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-file.png",
+      "process_alive": true,
+      "sha256": "10629503e23eedd4cdcff5208e7f3118a5227fcab015ea2a7eb996e3f25d387f"
+    },
+    {
+      "name": "release-public-meteor-ready",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-ready.png",
+      "process_alive": true,
+      "sha256": "b9494957d3a23600dd00c6db412cd5b55e32c26061ef2d124ff96bdb765940b5"
+    },
+    {
+      "name": "release-public-meteor-progress",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-progress.png",
+      "process_alive": true,
+      "sha256": "f03d592230c9817348ccc063b16233b5169853cb54b13ab19a11a4157ec0c954"
+    },
+    {
+      "name": "release-public-meteor-decoded",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-decoded.png",
+      "process_alive": true,
+      "sha256": "3b7e90ff98942f43f473435d6d5eeed0b26b7dc53896c2b8cf081c84446d6cb9"
+    },
+    {
+      "name": "release-public-meteor-final",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-final.png",
+      "process_alive": true,
+      "sha256": "574524b53a4a295c025871b76807fc73f1a3bde028943a0d6098eb5c904756bf"
+    },
+    {
+      "name": "release-public-meteor-small",
+      "path": "audit/2026-10-11-final/native/release-public-meteor-small.png",
+      "process_alive": true,
+      "sha256": "bfdcc4c76ef10b22fcd20f01c6fb9c539dc25639b93ecd7ec570986e2b4ca973"
+    }
+  ]
+}

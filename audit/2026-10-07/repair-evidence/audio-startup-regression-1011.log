@@ -1,0 +1,22 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.09s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35d4e7e0e5283107)
+
+running 14 tests
+test audio_output::tests::asynchronous_stream_error_changes_running_state_and_can_be_drained ... ok
+test audio_output::tests::callback_does_not_wait_for_shared_receiver_lock ... ok
+test audio_output::tests::callbacks_convert_clamp_duplicate_channels_and_fill_silence ... ok
+test audio_output::tests::changing_running_selection_requires_stop_without_reopening_hardware ... ok
+test audio_output::tests::default_rate_can_use_supported_format_and_rate_listing_has_no_unsupported_entries ... ok
+test audio_output::tests::defaults_and_stop_reset_state ... ok
+test audio_output::tests::input_channel_count_is_validated_without_opening_hardware ... ok
+test audio_output::tests::overload_keeps_fresh_audio_and_drops_only_whole_stereo_frames ... ok
+test audio_output::tests::repeated_audio_shutdown_and_drop_never_wait_for_a_full_stop_queue ... ok
+test audio_output::tests::requested_rate_is_exact_and_supported_formats_are_selected ... ok
+test audio_output::tests::selection_uses_id_and_never_falls_back_to_another_device ... ok
+test audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver ... ignored, requires a real shared PulseAudio/PipeWire output device
+test audio_output::tests::split_stereo_frames_wait_for_the_matching_right_sample ... ok
+test audio_output::tests::stereo_maps_to_mono_stereo_and_multichannel_without_swapping_sides ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 885 filtered out; finished in 0.00s
+

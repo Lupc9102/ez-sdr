@@ -1,0 +1,4 @@
+    Finished `release` profile [optimized] target(s) in 0.08s
+     Running `target/release/examples/audit_logic`
+viterbi fresh_control_errors=0 fresh_output_ones=851
+viterbi after_noise_trellis_steps=8192000 clean_comparison_bits=1920 errors=823 output_ones=0

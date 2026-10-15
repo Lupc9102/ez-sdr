@@ -1,0 +1,192 @@
+{
+  "date": "2026-10-08",
+  "scope": [
+    "R22"
+  ],
+  "commands": [
+    {
+      "command": "cargo test --workspace --no-default-features -- --test-threads=4",
+      "exit_code": 0,
+      "log": "repair-evidence/cancellation-workspace.log",
+      "log_sha256": "7b5f385e3952cd49ff38ac59516f0c18b58df166d54faa26d6930b0cec7a3403",
+      "test_harnesses": [
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 258,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 214,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 831,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 19,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 85,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-daemon --features rtlsdr --lib",
+      "exit_code": 0,
+      "log": "repair-evidence/cancellation-daemon.log",
+      "log_sha256": "f8d9d2fefd3419b7a9cc75b87156de0edc6d9f1f5a5f6720949cc663b752029b",
+      "test_harnesses": [
+        {
+          "passed": 222,
+          "failed": 0,
+          "ignored": 2
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-gui --no-default-features --lib native_callback_acquisition_clock",
+      "exit_code": 0,
+      "log": "repair-evidence/cancellation-gui.log",
+      "log_sha256": "972ba97e568a358ff506081feafcda16b94a5a053235a5bfd9001d62368d2195",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo test -p ez-daemon --lib hardware::tcp_iq::tests -- --include-ignored",
+      "exit_code": 0,
+      "log": "repair-evidence/cancellation-tcp.log",
+      "log_sha256": "74aea51848c78fde200ebe20cfc5b8fe5a24b31e233e865e3cf362d82131dad2",
+      "test_harnesses": [
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/cancellation-clippy.log",
+      "log_sha256": "d90e07afd35234f87f7d4e6a920de17a73cac1e6d17f8782bdeabc2fbc76297c",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo clippy -p ez-daemon --all-features --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "repair-evidence/cancellation-features.log",
+      "log_sha256": "b49599855d0841f3236f7bdf2977a09daaffda52df94be56c286f11e89fdc2e8",
+      "test_harnesses": []
+    },
+    {
+      "command": "cargo build --workspace",
+      "exit_code": 0,
+      "log": "repair-evidence/cancellation-build.log",
+      "log_sha256": "4c9ef5f47b32dc878e93204f3ad04b6be6069968584976bbe87b5e447f834cf5",
+      "test_harnesses": []
+    }
+  ],
+  "source_sha256": {
+    "ez-daemon/Cargo.toml": "cf972b36e2dc1dba3f9e129e950eb79ac9ff85af065f725308e17be6f84f6faa",
+    "ez-daemon/build.rs": "f6c2f3e709adb814177b1e8d16209a4eed0ba2de5dfa86619ec8d5d449bf5948",
+    "ez-daemon/src/hardware/callback_iq.rs": "077d2c84f9e1a94b12213518c461d01e5f0d791827404cef1907b6f20ce743af",
+    "ez-daemon/src/hardware/mod.rs": "43455231d172e7a68f3c0ed9cc82a8c6a83e3e6437984bbf16fb06196f6ae1d8",
+    "ez-daemon/src/hardware/rtlsdr.rs": "cb9af3abd81bbe8b3a30e529e98f0f3bf18ec68edc5d36b17074af685bf4ca8a",
+    "ez-daemon/src/hardware/tcp_iq.rs": "906da08837320935caf548d251cb50d373d1a3b1f27545f912c147e6085dd8ed",
+    "ez-daemon/src/ingest.rs": "91a47085bbb305fe79237b84f2e3f49080423725b3083b972c379d72aee9c5f6",
+    "ez-gui/Cargo.toml": "1aad3b605c5a8134137973b4a8e188c00ea59cb72242bec8789bbe8fbafe2ffa",
+    "ez-gui/src/source_manager.rs": "119be988b067da137b6ffffd068b03d1af1dfd55e8f099c6ae33a96eb772e03c",
+    "ez-daemon/src/hardware/rtl_async.rs": "7dce7ce2d4f14a7fe8ad3a5ee03ca28bb3945e2854e5809b3b02b75b5727e784",
+    "ez-daemon/src/hardware/stream_worker.rs": "4d4150e512545a8f3a0b5c6935e80992e1cf9e8303b2d3c731894af7a2081d8b"
+  },
+  "format_check_exit_code": 0,
+  "graphify_update_exit_code": 0,
+  "limits": [
+    "No physical SDR opened. Native callback/worker seams and actual loopback sockets tested.",
+    "200 ms bounds the consumer read wait. Physical USB cancellation/draining latency and alternate library forks are unverified.",
+    "Once a device setter begins, a caller timeout yields a correlated pending receipt; hardware ownership is retained until completion."
+  ],
+  "status": "16 of 33 findings software verified; full goal remains active."
+}

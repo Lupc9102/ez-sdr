@@ -6,7 +6,7 @@ use crate::satellite::picker::satellite_picker_ui;
 use crate::satellite::recorder::Cf32StreamWriter;
 use crate::satellite::types::*;
 use crate::theme::ThemeConfig;
-use crate::tle_engine::PassInfo;
+use crate::tle_engine::{OrbitIdentity, PassInfo};
 use crate::ui_kit::module_card;
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 pub enum SatelliteSubTab {
     Track,
     Alignment,
-    /// LRPT/APT image decode, folded in from the old standalone Decoding tab.
+    /// Offline Meteor LRPT image decoding from an existing recording.
     Decode,
 }
 
@@ -25,6 +25,14 @@ fn current_unix_time() -> f64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TrajectoryCacheKey {
+    orbit: OrbitIdentity,
+    satellite: String,
+    start_minute: i64,
+    horizon_bits: u64,
 }
 
 pub struct SatellitePanel {
@@ -38,6 +46,8 @@ pub struct SatellitePanel {
     // Map tracker state
     pub map_renderer: MapRenderer,
     pub trajectory_loaded: bool,
+    orbit_identity: Option<OrbitIdentity>,
+    trajectory_key: Option<TrajectoryCacheKey>,
     pub current_sat_position: Option<SatPosition>,
     last_position_update: std::time::Instant,
     position_update_interval: std::time::Duration,
@@ -45,6 +55,7 @@ pub struct SatellitePanel {
     // cf32 recorder
     pub cf32_writer: Option<Cf32StreamWriter>,
     pub cf32_recording: bool,
+    cf32_finalization: Option<std::thread::JoinHandle<Cf32Finalized>>,
     pub cf32_output_dir: String,
 
     // Legacy state (tracking, tuning, schedule)
@@ -52,42 +63,61 @@ pub struct SatellitePanel {
     pub doppler_hz: f64,
     pub observer_lat: f64,
     pub observer_lon: f64,
-    pub auto_tune: bool,
+    pub(crate) auto_tune_status: Option<String>,
     cached_passes: Vec<PassInfo>,
     pass_cache_at: std::time::Instant,
-    pub pending_ai_prompt: Option<String>,
     checklist: crate::antenna_checklist::AntennaChecklist,
     pub pending_status: Option<String>,
     pub pending_decode_request: Option<DecodeRequest>,
+    tle_import_status: Option<String>,
+}
+
+struct Cf32Finalized {
+    result: Result<crate::satellite::recorder::Cf32RecordingMeta, String>,
+    path: String,
+    filename: String,
+}
+
+impl Drop for SatellitePanel {
+    fn drop(&mut self) {
+        self.stop_cf32_recording();
+    }
 }
 
 impl SatellitePanel {
     pub fn new(shared: Arc<Mutex<SharedState>>) -> Self {
         let catalog = build_satellite_catalog(&shared);
+        let observer = shared
+            .try_lock()
+            .map(|state| (state.tle.observer_lat, state.tle.observer_lon))
+            .unwrap_or((51.5, -0.1));
         Self {
             shared: shared.clone(),
             satellite_catalog: catalog,
             selected_sat_index: None,
             picker_search: String::new(),
-            map_renderer: MapRenderer::new(51.5, -0.1),
+            map_renderer: MapRenderer::new(observer.0, observer.1),
             trajectory_loaded: false,
+            orbit_identity: None,
+            trajectory_key: None,
             current_sat_position: None,
             last_position_update: std::time::Instant::now(),
             position_update_interval: std::time::Duration::from_secs(1),
             cf32_writer: None,
             cf32_recording: false,
+            cf32_finalization: None,
             cf32_output_dir: "./recordings".to_string(),
             selected_sat: None,
             doppler_hz: 0.0,
-            observer_lat: 51.5,
-            observer_lon: -0.1,
-            auto_tune: true,
+            observer_lat: observer.0,
+            observer_lon: observer.1,
+            auto_tune_status: None,
             cached_passes: vec![],
             pass_cache_at: std::time::Instant::now(),
-            pending_ai_prompt: None,
             checklist: crate::antenna_checklist::AntennaChecklist::for_satellite(shared),
             pending_status: None,
             pending_decode_request: None,
+            tle_import_status: None,
         }
     }
 
@@ -95,74 +125,122 @@ impl SatellitePanel {
 
     /// Call every frame from CentralApp::logic().
     pub fn tick_realtime(&mut self) {
-        let now = std::time::Instant::now();
-        if now.duration_since(self.last_position_update) < self.position_update_interval {
+        self.tick_realtime_at(std::time::Instant::now(), current_unix_time());
+    }
+
+    fn tick_realtime_at(&mut self, now: std::time::Instant, time: f64) {
+        self.poll_cf32_finalization();
+        if self.cf32_recording && self.is_meteor_selected() {
+            self.stop_cf32_recording();
+            self.pending_decode_request = None;
+        }
+        if self.cf32_recording
+            && self
+                .cf32_writer
+                .as_ref()
+                .is_none_or(|writer| !writer.is_running())
+        {
+            self.stop_cf32_recording();
+        }
+        let shared = self.shared.clone();
+        let Ok(mut state) = shared.try_lock() else {
+            return;
+        };
+        let identity = state.tle.orbit_identity();
+        let changed = self.orbit_identity != Some(identity);
+        let wanted_trajectory = self
+            .selected_sat_index
+            .and_then(|idx| self.satellite_catalog.get(idx))
+            .map(|entry| TrajectoryCacheKey {
+                orbit: identity,
+                satellite: entry.tle_name.clone(),
+                start_minute: (time / 60.0).floor() as i64,
+                horizon_bits: 6.0_f64.to_bits(),
+            });
+        let trajectory_changed = wanted_trajectory != self.trajectory_key
+            || (wanted_trajectory.is_some() && !self.trajectory_loaded);
+        // Dependency changes bypass pacing, including while Track is hidden.
+        if !changed
+            && !trajectory_changed
+            && now.saturating_duration_since(self.last_position_update)
+                < self.position_update_interval
+        {
             return;
         }
         self.last_position_update = now;
-
-        if let Ok(state) = self.shared.try_lock() {
-            self.observer_lat = state.tle.observer_lat;
-            self.observer_lon = state.tle.observer_lon;
-            self.map_renderer.center_lat = state.tle.observer_lat;
-            self.map_renderer.center_lon = state.tle.observer_lon;
+        self.orbit_identity = Some(identity);
+        self.observer_lat = state.tle.observer_lat;
+        self.observer_lon = state.tle.observer_lon;
+        self.map_renderer
+            .set_observer_position(self.observer_lat, self.observer_lon);
+        if changed
+            || now.saturating_duration_since(self.pass_cache_at)
+                >= std::time::Duration::from_secs(5)
+        {
+            self.cached_passes = state.tle.upcoming_passes_at(time, 72.0, now).to_vec();
+            self.pass_cache_at = now;
         }
-
-        if let Some(idx) = self.selected_sat_index {
-            if idx < self.satellite_catalog.len() {
-                let entry = &self.satellite_catalog[idx];
-                let t = current_unix_time();
-                if let Ok(mut state) = self.shared.try_lock() {
-                    if let Some(pos) = state.tle.satellite_position(
-                        &entry.tle_name,
-                        state.tle.observer_lat,
-                        state.tle.observer_lon,
-                        t,
-                    ) {
-                        self.current_sat_position = Some(pos);
-
-                        // Mark active pass
-                        let is_active = state.tle.upcoming_passes().iter().any(|p| {
-                            p.satellite == entry.tle_name && p.aos_dt <= t && p.los_dt > t
-                        });
-                        self.map_renderer.in_pass_now = is_active;
-
-                        // Doppler
-                        if self.auto_tune {
-                            let doppler = state.tle.doppler_shift_for_sat(
-                                &entry.tle_name,
-                                entry.frequency_hz as f64,
-                                t,
-                            );
-                            self.doppler_hz = doppler;
-                            state.source.frequency_hz =
-                                (entry.frequency_hz as f64 + doppler) as u64;
-                        }
-                    }
-
-                    // Load trajectory once
-                    if !self.trajectory_loaded {
-                        let traj = state.tle.pass_trajectory(
-                            &entry.tle_name,
-                            state.tle.observer_lat,
-                            state.tle.observer_lon,
-                            6.0,
-                        );
-                        self.map_renderer.set_trajectory(&traj);
-                        self.trajectory_loaded = true;
-                    }
-
-                    // Update markers
-                    self.map_renderer
-                        .set_satellite_position(self.current_sat_position);
-                }
+        for entry in &mut self.satellite_catalog {
+            entry.is_active_pass = self.cached_passes.iter().any(|pass| {
+                pass.satellite == entry.tle_name && pass.aos_dt <= time && pass.los_dt > time
+            });
+        }
+        if changed || wanted_trajectory.is_none() {
+            self.trajectory_loaded = false;
+            self.trajectory_key = None;
+            self.current_sat_position = None;
+            self.doppler_hz = 0.0;
+            self.map_renderer.in_pass_now = false;
+            self.map_renderer.set_trajectory(&[]);
+            self.map_renderer.set_satellite_position(None);
+        }
+        if let Some(entry) = self
+            .selected_sat_index
+            .and_then(|idx| self.satellite_catalog.get(idx))
+        {
+            self.current_sat_position = state.tle.satellite_position(
+                &entry.tle_name,
+                self.observer_lat,
+                self.observer_lon,
+                time,
+            );
+            self.map_renderer.in_pass_now = entry.is_active_pass;
+            self.doppler_hz =
+                state
+                    .tle
+                    .doppler_shift_for_sat(&entry.tle_name, entry.frequency_hz as f64, time);
+            let key = TrajectoryCacheKey {
+                orbit: identity,
+                satellite: entry.tle_name.clone(),
+                start_minute: (time / 60.0).floor() as i64,
+                horizon_bits: 6.0_f64.to_bits(),
+            };
+            if !self.trajectory_loaded || self.trajectory_key.as_ref() != Some(&key) {
+                let trajectory = state.tle.pass_trajectory_from(
+                    &entry.tle_name,
+                    self.observer_lat,
+                    self.observer_lon,
+                    time,
+                    6.0,
+                );
+                self.map_renderer.set_trajectory(&trajectory);
+                self.trajectory_key = Some(key);
+                self.trajectory_loaded = true;
             }
+            self.map_renderer
+                .set_satellite_position(self.current_sat_position);
         }
     }
 
     // ── Main UI entry ─────────────────────────────────────────────────────
 
     pub fn ui(&mut self, ui: &mut egui::Ui, subtab: SatelliteSubTab) {
+        if subtab == SatelliteSubTab::Decode {
+            ui.heading("Offline Meteor decoding");
+            ui.label("Open an existing .cs8 or .cf32 recording in the decoder.");
+            ui.label("Use the sample rate and Meteor preset matching that file.");
+            return;
+        }
         if !self.checklist.ui(ui) {
             if let Some(msg) = self.checklist.pending_status.take() {
                 self.pending_status = Some(msg);
@@ -174,10 +252,9 @@ impl SatellitePanel {
         }
 
         match subtab {
-            // Decode reuses the Track pipeline as its side controls — that's
-            // where a pass is selected/recorded and handed to the decoder.
-            SatelliteSubTab::Track | SatelliteSubTab::Decode => self.ui_track(ui),
+            SatelliteSubTab::Track => self.ui_track(ui),
             SatelliteSubTab::Alignment => self.ui_alignment(ui),
+            SatelliteSubTab::Decode => unreachable!("offline controls rendered above"),
         }
     }
 
@@ -187,17 +264,58 @@ impl SatellitePanel {
         ui.heading("Satellite Tracking");
         ui.add_space(4.0);
 
-        // Refresh the pass cache periodically — drives the pass summary below.
-        if self.pass_cache_at.elapsed() > std::time::Duration::from_secs(5) {
-            if let Ok(mut state) = self.shared.try_lock() {
-                self.cached_passes = state.tle.upcoming_passes().to_vec();
-                self.pass_cache_at = std::time::Instant::now();
-            }
-        }
-
         self.ui_picker(ui);
         ui.add_space(8.0);
+        self.ui_tle_data(ui);
+        ui.add_space(8.0);
         self.ui_record_control(ui);
+    }
+
+    fn ui_tle_data(&mut self, ui: &mut egui::Ui) {
+        let theme = self
+            .shared
+            .try_lock()
+            .map(|state| state.config.theme_config.clone())
+            .unwrap_or_default();
+        module_card(
+            ui,
+            &theme,
+            "satellites.tle_data",
+            "🗂",
+            "Orbit Data",
+            false,
+            |ui| {
+                ui.label("Bundled TLE fallback epoch: 2026-09-20");
+                ui.label("Import a current Celestrak-style 2LE or 3LE file for accurate passes.");
+                if ui.button("Import TLE file…").clicked() {
+                    self.tle_import_status = rfd::FileDialog::new()
+                        .add_filter("TLE text", &["tle", "txt"])
+                        .pick_file()
+                        .map(|path| match std::fs::read_to_string(&path) {
+                            Ok(contents) => match self.shared.try_lock() {
+                                Ok(mut state) => match state.tle.update_tles_from_text(&contents) {
+                                    Ok(count) => {
+                                        self.cached_passes = state.tle.upcoming_passes().to_vec();
+                                        self.pass_cache_at = std::time::Instant::now();
+                                        self.trajectory_loaded = false;
+                                        format!(
+                                            "Updated {count} catalog satellite{} from {}",
+                                            if count == 1 { "" } else { "s" },
+                                            path.display()
+                                        )
+                                    }
+                                    Err(error) => format!("TLE import failed: {error}"),
+                                },
+                                Err(_) => "TLE import failed: application state is busy".into(),
+                            },
+                            Err(error) => format!("Could not read {}: {error}", path.display()),
+                        });
+                }
+                if let Some(status) = &self.tle_import_status {
+                    ui.label(status);
+                }
+            },
+        );
     }
 
     /// Shared satellite picker + upcoming/active pass summary. Selection change
@@ -236,7 +354,7 @@ impl SatellitePanel {
             }
         }
 
-        // Selection change → retune to downlink and reset the trajectory.
+        // Meteor selection updates orbit tracking only; other satellites may tune.
         if self.selected_sat_index != selected_before {
             if let Some(idx) = self.selected_sat_index {
                 self.on_satellite_selected(idx);
@@ -309,20 +427,52 @@ impl SatellitePanel {
         if idx >= self.satellite_catalog.len() {
             return;
         }
-        let entry = &self.satellite_catalog[idx];
+        let entry = self.satellite_catalog[idx].clone();
+        self.selected_sat_index = Some(idx);
         self.selected_sat = Some(entry.name.clone());
         self.trajectory_loaded = false;
         self.current_sat_position = None;
+        self.trajectory_key = None;
+        self.map_renderer.set_satellite_position(None);
+        self.map_renderer.set_trajectory(&[]);
+
+        if self.is_meteor_selected() {
+            if self.cf32_recording {
+                self.stop_cf32_recording();
+            }
+            self.pending_decode_request = None;
+            if let Ok(mut state) = self.shared.try_lock() {
+                state.selected_satellite = None;
+            }
+            self.pending_status = Some(
+                "Meteor orbit tracking selected. Decode existing .cs8 or .cf32 files in the Meteor tab."
+                    .into(),
+            );
+            return;
+        }
 
         if let Ok(mut state) = self.shared.try_lock() {
-            state.source.frequency_hz = entry.frequency_hz;
+            state.selected_satellite = Some(entry.name.clone());
+            crate::radio_ui::tune(&mut state, pass_center_frequency(entry.frequency_hz, 0.0));
         }
-        self.auto_tune = true;
+    }
+
+    pub(crate) fn is_meteor_selected(&self) -> bool {
+        self.selected_sat_index
+            .and_then(|index| self.satellite_catalog.get(index))
+            .map(|entry| entry.name.as_str())
+            .or(self.selected_sat.as_deref())
+            .is_some_and(|name| name.to_ascii_lowercase().contains("meteor"))
     }
 
     // ── Record control ────────────────────────────────────────────────────
 
     fn ui_record_control(&mut self, ui: &mut egui::Ui) {
+        if self.is_meteor_selected() {
+            ui.label("Meteor decoding uses existing .cs8 or .cf32 files.");
+            ui.label("Open the Meteor tab to import and decode a recording.");
+            return;
+        }
         let theme = self
             .shared
             .try_lock()
@@ -337,7 +487,9 @@ impl SatellitePanel {
             true,
             |ui| {
                 let is_rec = self.cf32_recording;
-                let label = if is_rec {
+                let label = if self.is_cf32_finalizing() {
+                    "Finalizing recording…"
+                } else if is_rec {
                     "■  STOP RECORDING"
                 } else {
                     "●  RECORD  (raw cf32 I/Q)"
@@ -369,7 +521,7 @@ impl SatellitePanel {
                 .fill(fill)
                 .stroke(egui::Stroke::new(2.0, stroke_color))
                 .min_size(egui::vec2(ui.available_width(), 56.0));
-                if ui.add(btn).clicked() {
+                if ui.add_enabled(!self.is_cf32_finalizing(), btn).clicked() {
                     if is_rec {
                         self.stop_cf32_recording();
                     } else {
@@ -398,12 +550,36 @@ impl SatellitePanel {
         );
     }
 
-    fn start_cf32_recording(&mut self) {
-        let (freq_hz, sample_rate, sat_name) = self
+    pub(crate) fn start_cf32_recording(&mut self) {
+        self.poll_cf32_finalization();
+        if self.cf32_recording || self.cf32_finalization.is_some() {
+            return;
+        }
+        if self.is_meteor_selected() {
+            self.pending_status = Some(
+                "Meteor is an offline decoder. Open an existing .cs8 or .cf32 recording.".into(),
+            );
+            return;
+        }
+        let sat_name = self
             .selected_sat_index
             .and_then(|idx| self.satellite_catalog.get(idx))
-            .map(|e| (e.frequency_hz, 2_048_000u32, Some(e.name.clone())))
-            .unwrap_or((100_000_000, 2_048_000, None));
+            .map(|e| e.name.clone());
+        let Ok(state) = self.shared.try_lock() else {
+            self.pending_status = Some("Recorder: source is busy; try again".into());
+            return;
+        };
+        if state.source.source_mode == crate::source_manager::SourceMode::Daemon {
+            self.pending_status = Some("Use Recorder for IQ recordings on the daemon host.".into());
+            return;
+        }
+        let (freq_hz, sample_rate, _) = state.source.applied_capture_settings().unwrap_or((
+            state.source.capture_center_frequency_hz(),
+            state.source.sample_rate_hz,
+            state.source.gain_db,
+        ));
+        let capture_stream = state.source.capture_stream();
+        drop(state);
 
         match Cf32StreamWriter::start(
             &self.cf32_output_dir,
@@ -414,7 +590,7 @@ impl SatellitePanel {
             self.observer_lon,
         ) {
             Ok(writer) => {
-                self.cf32_writer = Some(writer);
+                self.cf32_writer = Some(writer.with_capture(capture_stream));
                 self.cf32_recording = true;
             }
             Err(e) => {
@@ -423,39 +599,76 @@ impl SatellitePanel {
         }
     }
 
-    fn stop_cf32_recording(&mut self) {
-        if let Some(mut w) = self.cf32_writer.take() {
-            match w.stop() {
-                Ok(meta) => {
-                    let mb = meta.bytes_total as f64 / 1_048_576.0;
-                    self.pending_status = Some(format!(
-                        "✅ Recorded {:.1} MB ({:.1}s) → {}",
-                        mb,
-                        meta.duration_sec,
-                        w.filename()
-                    ));
-                    self.pending_decode_request = Some(DecodeRequest {
-                        file_path: w.path().display().to_string(),
-                        preset: meta.satellite.as_deref().and_then(satellite_to_preset),
-                        sample_rate: meta.sample_rate_hz,
-                        satellite_name: meta.satellite.clone(),
-                    });
-                }
-                Err(e) => {
-                    self.pending_status = Some(format!("❌ Recorder stop error: {e}"));
+    pub(crate) fn is_cf32_finalizing(&self) -> bool {
+        self.cf32_finalization.is_some()
+    }
+
+    pub(crate) fn stop_cf32_recording(&mut self) {
+        if let Some(mut writer) = self.cf32_writer.take() {
+            writer.request_stop();
+            self.cf32_finalization = Some(std::thread::spawn(move || Cf32Finalized {
+                result: writer.stop(),
+                path: writer.path().display().to_string(),
+                filename: writer.filename(),
+            }));
+            self.pending_status = Some("Finalizing CF32 recording…".into());
+        }
+        if self.cf32_finalization.is_none() {
+            self.cf32_recording = false;
+        }
+    }
+
+    pub(crate) fn poll_cf32_finalization(&mut self) {
+        if !self
+            .cf32_finalization
+            .as_ref()
+            .is_some_and(|worker| worker.is_finished())
+        {
+            return;
+        }
+        match self.cf32_finalization.take().unwrap().join() {
+            Ok(finished) => {
+                match finished.result {
+                    Ok(meta) => {
+                        let mb = meta.bytes_total as f64 / 1_048_576.0;
+                        self.pending_status = Some(format!(
+                            "✅ Recorded {:.1} MB ({:.1}s) → {}",
+                            mb, meta.duration_sec, finished.filename
+                        ));
+                        // Old in-progress Meteor captures may still need finalizing,
+                        // but must not become a capture-to-live-decoder workflow.
+                        if !meta
+                            .satellite
+                            .as_deref()
+                            .is_some_and(|name| name.to_ascii_lowercase().contains("meteor"))
+                        {
+                            self.pending_decode_request = Some(DecodeRequest {
+                                file_path: finished.path,
+                                preset: meta.satellite.as_deref().and_then(satellite_to_preset),
+                                sample_rate: meta.sample_rate_hz,
+                                satellite_name: meta.satellite.clone(),
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        self.pending_status = Some(format!("❌ Recorder stop error: {e}"));
+                    }
                 }
             }
+            Err(_) => self.pending_status = Some("Recorder finalization worker panicked".into()),
         }
         self.cf32_recording = false;
     }
 
-    /// Feed IQ samples to cf32 writer. Called from CentralApp::logic().
-    pub fn feed_recording(&mut self, samples: &[u8]) {
-        if self.cf32_recording {
-            if let Some(w) = &mut self.cf32_writer {
-                w.write(samples);
-            }
+    #[cfg(test)]
+    pub(crate) fn stop_cf32_and_wait(&mut self) {
+        self.stop_cf32_recording();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while self.is_cf32_finalizing() && std::time::Instant::now() < deadline {
+            self.poll_cf32_finalization();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
+        assert!(!self.is_cf32_finalizing(), "CF32 finalization timed out");
     }
 
     // ── Alignment subtab ──────────────────────────────────────────────────
@@ -464,9 +677,8 @@ impl SatellitePanel {
         ui.heading("🧭 Dipole Alignment");
         ui.add_space(4.0);
 
-        // Shared picker (also used by Track/Decode). Selecting here updates the
-        // live position + auto-tune via on_satellite_selected, so the compass in
-        // the center updates without leaving this tab.
+        // Shared tracking picker. Meteor changes only the predicted position;
+        // other satellites retain their existing tuning behavior.
         self.ui_picker(ui);
 
         ui.add_space(12.0);
@@ -487,7 +699,7 @@ impl SatellitePanel {
 
     /// Observer latitude/longitude control. Lives in the Align subtab since it
     /// directly affects the computed azimuth/elevation the compass depends on.
-    fn ui_observer_location(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn ui_observer_location(&mut self, ui: &mut egui::Ui) {
         let theme = self
             .shared
             .try_lock()
@@ -512,17 +724,24 @@ impl SatellitePanel {
             false,
             |ui| {
                 let changed_lat = ui
-                    .add(egui::Slider::new(&mut self.observer_lat, -90.0..=90.0).text("Latitude"))
+                    .add(
+                        egui::Slider::new(&mut self.observer_lat, -90.0..=90.0)
+                            .text("Latitude")
+                            .fixed_decimals(4),
+                    )
                     .changed();
                 let changed_lon = ui
                     .add(
-                        egui::Slider::new(&mut self.observer_lon, -180.0..=180.0).text("Longitude"),
+                        egui::Slider::new(&mut self.observer_lon, -180.0..=180.0)
+                            .text("Longitude")
+                            .fixed_decimals(4),
                     )
                     .changed();
                 if changed_lat || changed_lon {
                     if let Ok(mut state) = self.shared.try_lock() {
-                        state.tle.observer_lat = self.observer_lat;
-                        state.tle.observer_lon = self.observer_lon;
+                        state.tle.set_observer(self.observer_lat, self.observer_lon);
+                        state.config.observer_lat = state.tle.observer_lat;
+                        state.config.observer_lon = state.tle.observer_lon;
                     }
                 }
             },
@@ -530,48 +749,22 @@ impl SatellitePanel {
     }
 }
 
+/// Satellite reception stays centered on its published downlink; predicted
+/// Doppler remains an informational tracking value.
+pub(crate) fn pass_center_frequency(nominal_hz: u64, _doppler_hz: f64) -> u64 {
+    nominal_hz
+}
+
 // ── Satellite catalog builder ────────────────────────────────────────────────
 
 fn build_satellite_catalog(shared: &Arc<Mutex<SharedState>>) -> Vec<SatelliteCatalogEntry> {
     let mut catalog: Vec<SatelliteCatalogEntry> = vec![
         SatelliteCatalogEntry {
-            name: "NOAA 15".into(),
-            tle_name: "NOAA 15".into(),
-            frequency_hz: 137_620_000,
-            mode: "APT",
-            description: "NOAA weather satellite — APT imagery at 137.62 MHz",
-            is_active_pass: false,
-        },
-        SatelliteCatalogEntry {
-            name: "NOAA 18".into(),
-            tle_name: "NOAA 18".into(),
-            frequency_hz: 137_912_500,
-            mode: "APT",
-            description: "NOAA weather satellite — APT imagery at 137.9125 MHz",
-            is_active_pass: false,
-        },
-        SatelliteCatalogEntry {
-            name: "NOAA 19".into(),
-            tle_name: "NOAA 19".into(),
-            frequency_hz: 137_100_000,
-            mode: "APT",
-            description: "NOAA weather satellite — APT imagery at 137.10 MHz",
-            is_active_pass: false,
-        },
-        SatelliteCatalogEntry {
-            name: "Meteor-M2-2".into(),
-            tle_name: "Meteor-M2-2".into(),
-            frequency_hz: 137_100_000,
-            mode: "LRPT",
-            description: "Russian weather satellite — digital LRPT at 137.10 MHz",
-            is_active_pass: false,
-        },
-        SatelliteCatalogEntry {
             name: "Meteor-M2-3".into(),
             tle_name: "Meteor-M2-3".into(),
             frequency_hz: 137_900_000,
             mode: "LRPT",
-            description: "Russian weather satellite — digital LRPT at 137.90 MHz",
+            description: "Weather satellite orbit tracking; decode existing recordings in Meteor",
             is_active_pass: false,
         },
         SatelliteCatalogEntry {
@@ -579,15 +772,23 @@ fn build_satellite_catalog(shared: &Arc<Mutex<SharedState>>) -> Vec<SatelliteCat
             tle_name: "Meteor-M2-4".into(),
             frequency_hz: 137_100_000,
             mode: "LRPT",
-            description: "Russian weather satellite — digital LRPT at 137.10 MHz",
+            description: "Weather satellite orbit tracking; decode existing recordings in Meteor",
             is_active_pass: false,
         },
         SatelliteCatalogEntry {
-            name: "ISS".into(),
+            name: "ISS Voice / SSTV".into(),
             tle_name: "ISS".into(),
             frequency_hz: 145_800_000,
-            mode: "Voice/APRS",
-            description: "International Space Station — voice, APRS, SSTV at 145.80 MHz",
+            mode: "Voice/SSTV",
+            description: "International Space Station voice/SSTV downlink at 145.800 MHz; APRS uses 145.825 MHz",
+            is_active_pass: false,
+        },
+        SatelliteCatalogEntry {
+            name: "ISS APRS Digipeater".into(),
+            tle_name: "ISS".into(),
+            frequency_hz: 145_825_000,
+            mode: "Packet/APRS",
+            description: "International Space Station packet/APRS digipeater at 145.825 MHz",
             is_active_pass: false,
         },
     ];
@@ -615,6 +816,115 @@ mod tests {
     use crate::test_helpers::make_shared_state;
 
     #[test]
+    fn relocating_observer_recomputes_hidden_passes_trajectory_and_position_immediately() {
+        let shared = make_shared_state();
+        let mut panel = SatellitePanel::new(shared.clone());
+        panel.selected_sat_index = Some(0);
+        let time = {
+            let state = shared.lock().unwrap();
+            state
+                .tle
+                .compute_passes(51.5, -0.1, 72.0)
+                .into_iter()
+                .find(|pass| pass.satellite == "Meteor-M2-3")
+                .unwrap()
+                .aos_dt
+                - 300.0
+        };
+        let now = std::time::Instant::now();
+        panel.tick_realtime_at(now, time);
+        assert!(panel.trajectory_loaded);
+        assert!(!panel.map_renderer.trajectory().is_empty());
+        let old_trajectory: Vec<_> = panel
+            .map_renderer
+            .trajectory()
+            .iter()
+            .map(|point| (point.timestamp, point.geo.lat, point.geo.lon))
+            .collect();
+        let old_passes: Vec<_> = panel
+            .cached_passes
+            .iter()
+            .map(|pass| (pass.satellite.clone(), pass.aos_dt, pass.los_dt))
+            .collect();
+        let old_position = panel.current_sat_position.unwrap();
+        let old_identity = panel.trajectory_key.clone();
+        shared.lock().unwrap().tle.set_observer(-33.8688, 151.2093);
+        // No Track rendering, elapsed-second wait or cache expiry.
+        panel.tick_realtime_at(now + std::time::Duration::from_millis(1), time);
+        assert_eq!(
+            (panel.observer_lat, panel.observer_lon),
+            (-33.8688, 151.2093)
+        );
+        assert_ne!(panel.trajectory_key, old_identity);
+        let state = shared.lock().unwrap();
+        let expected = state
+            .tle
+            .pass_trajectory_from("Meteor-M2-3", -33.8688, 151.2093, time, 6.0);
+        let actual: Vec<_> = panel
+            .map_renderer
+            .trajectory()
+            .iter()
+            .map(|point| (point.timestamp, point.geo.lat, point.geo.lon))
+            .collect();
+        assert_eq!(
+            actual,
+            expected
+                .iter()
+                .map(|point| (point.timestamp, point.geo.lat, point.geo.lon))
+                .collect::<Vec<_>>()
+        );
+        assert_ne!(actual, old_trajectory);
+        assert_ne!(
+            panel
+                .cached_passes
+                .iter()
+                .map(|pass| (pass.satellite.clone(), pass.aos_dt, pass.los_dt))
+                .collect::<Vec<_>>(),
+            old_passes
+        );
+        let new_position = panel.current_sat_position.unwrap();
+        let reference = state
+            .tle
+            .satellite_position("Meteor-M2-3", -33.8688, 151.2093, time)
+            .unwrap();
+        assert_eq!(new_position.azimuth, reference.azimuth);
+        assert_eq!(new_position.elevation, reference.elevation);
+        assert_ne!(new_position.azimuth, old_position.azimuth);
+        drop(state);
+        // A new time window invalidates the trajectory without an observer edit.
+        let previous = panel.trajectory_key.clone();
+        panel.tick_realtime_at(now + std::time::Duration::from_millis(2), time + 60.0);
+        assert_ne!(panel.trajectory_key, previous);
+    }
+
+    #[test]
+    fn tracking_ticks_preserve_panned_camera_until_explicit_follow() {
+        let shared = make_shared_state();
+        let mut panel = SatellitePanel::new(shared.clone());
+        panel.map_renderer.center_lat = 42.0;
+        panel.map_renderer.center_lon = 12.0;
+        panel.map_renderer.zoom = 8.0;
+        let now = std::time::Instant::now();
+        panel.tick_realtime_at(now, current_unix_time());
+        shared.lock().unwrap().tle.set_observer(-33.8688, 151.2093);
+        panel.tick_realtime_at(now + std::time::Duration::from_secs(2), current_unix_time());
+        assert_eq!(
+            (
+                panel.map_renderer.center_lat,
+                panel.map_renderer.center_lon,
+                panel.map_renderer.zoom
+            ),
+            (42.0, 12.0, 8.0)
+        );
+        panel.map_renderer.follow_observer = true;
+        panel.tick_realtime_at(now + std::time::Duration::from_secs(4), current_unix_time());
+        assert_eq!(
+            (panel.map_renderer.center_lat, panel.map_renderer.center_lon),
+            (-33.8688, 151.2093)
+        );
+    }
+
+    #[test]
     fn test_new_defaults() {
         let panel = SatellitePanel::new(make_shared_state());
         assert!(panel.selected_sat.is_none());
@@ -631,8 +941,11 @@ mod tests {
         let shared = make_shared_state();
         let catalog = build_satellite_catalog(&shared);
         assert!(!catalog.is_empty());
-        assert!(catalog.iter().any(|e| e.name == "ISS"));
-        assert!(catalog.iter().any(|e| e.name == "NOAA 19"));
+        assert!(catalog.iter().any(|e| e.name == "ISS Voice / SSTV"));
+        assert!(catalog.iter().any(|e| e.name == "ISS APRS Digipeater"));
+        assert!(catalog.iter().any(|e| e.name == "Meteor-M2-3"));
+        assert!(catalog.iter().any(|e| e.name == "Meteor-M2-4"));
+        assert!(catalog.iter().all(|e| !e.name.starts_with("NOAA ")));
     }
 
     #[test]
@@ -649,8 +962,8 @@ mod tests {
     fn test_selected_sat_persistence() {
         let mut panel = SatellitePanel::new(make_shared_state());
         assert!(panel.selected_sat.is_none());
-        panel.selected_sat = Some("NOAA 19".to_string());
-        assert_eq!(panel.selected_sat.as_deref(), Some("NOAA 19"));
+        panel.selected_sat = Some("Meteor-M2-4".to_string());
+        assert_eq!(panel.selected_sat.as_deref(), Some("Meteor-M2-4"));
         panel.selected_sat = None;
         assert!(panel.selected_sat.is_none());
     }
@@ -659,8 +972,72 @@ mod tests {
     fn test_on_satellite_selected_updates_state() {
         let shared = make_shared_state();
         let mut panel = SatellitePanel::new(shared.clone());
-        panel.on_satellite_selected(2); // NOAA 19 at index 2
-        assert_eq!(panel.selected_sat.as_deref(), Some("NOAA 19"));
+        panel.on_satellite_selected(1); // Meteor-M2-4
+        assert_eq!(panel.selected_sat.as_deref(), Some("Meteor-M2-4"));
+    }
+
+    #[test]
+    fn meteor_selection_tracks_without_tuning_starting_or_live_selection() {
+        let shared = make_shared_state();
+        let mut panel = SatellitePanel::new(shared.clone());
+        for running in [false, true] {
+            let (generation, status) = {
+                let mut state = shared.lock().unwrap();
+                state.source.frequency_hz = 145_500_000;
+                state.source.center_frequency_hz = Some(145_000_000);
+                state.source.sample_rate_hz = 192_000;
+                state.selected_satellite = Some("Meteor-M2-3".into());
+                state.recording = true;
+                if running {
+                    state.source.start();
+                }
+                (
+                    state.source.stream_generation(),
+                    state.source.status.clone(),
+                )
+            };
+
+            panel.on_satellite_selected(1);
+
+            let mut state = shared.lock().unwrap();
+            assert_eq!(state.source.frequency_hz, 145_500_000);
+            assert_eq!(state.source.center_frequency_hz, Some(145_000_000));
+            assert_eq!(state.source.sample_rate_hz, 192_000);
+            assert_eq!(state.source.stream_generation(), generation);
+            assert_eq!(state.source.status, status);
+            assert!(state.selected_satellite.is_none());
+            assert!(state.recording, "Radio recording is independent");
+            assert!(
+                state.scheduler.auto_tune_enabled,
+                "Meteor tracking does not change the shared schedule preference"
+            );
+            assert!(panel.is_meteor_selected());
+            assert!(panel.pending_decode_request.is_none());
+            state.source.stop();
+        }
+    }
+
+    #[test]
+    fn iss_selection_preserves_live_satellite_tuning() {
+        let shared = make_shared_state();
+        let mut panel = SatellitePanel::new(shared.clone());
+        let index = panel
+            .satellite_catalog
+            .iter()
+            .position(|entry| entry.name == "ISS Voice / SSTV")
+            .unwrap();
+        panel.on_satellite_selected(index);
+        assert_eq!(shared.lock().unwrap().source.frequency_hz, 145_800_000);
+        assert!(shared.lock().unwrap().last_manual_tune.is_some());
+        assert!(!panel.is_meteor_selected());
+    }
+
+    #[test]
+    fn pass_center_frequency_is_stable_across_doppler_updates() {
+        let nominal = 137_900_000;
+        for doppler in [-3_500.0, -1_001.0, 0.0, 1_001.0, 3_500.0] {
+            assert_eq!(pass_center_frequency(nominal, doppler), nominal);
+        }
     }
 
     #[test]
@@ -697,17 +1074,49 @@ mod tests {
     }
 
     #[test]
-    fn test_cf32_recording_start_stop() {
+    fn meteor_recording_start_is_rejected_before_creating_output() {
         let mut panel = SatellitePanel::new(make_shared_state());
+        let directory = std::env::temp_dir().join(format!(
+            "ez_meteor_forbidden_capture_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        panel.cf32_output_dir = directory.to_string_lossy().into_owned();
+        panel.on_satellite_selected(0);
+        panel.start_cf32_recording();
         assert!(!panel.cf32_recording);
         assert!(panel.cf32_writer.is_none());
+        assert!(!directory.exists());
+        assert!(panel
+            .pending_status
+            .as_deref()
+            .unwrap()
+            .contains("offline decoder"));
+    }
 
-        // Test start (may fail due to filesystem, but shouldn't crash)
-        // We rely on the internal state machine; real recording tested manually
-        panel.cf32_recording = true;
-        assert!(panel.cf32_recording);
-        panel.cf32_recording = false;
+    #[test]
+    fn daemon_satellite_recording_requires_daemon_host_recorder_and_creates_no_local_file() {
+        let shared = make_shared_state();
+        shared.lock().unwrap().source.source_mode = crate::source_manager::SourceMode::Daemon;
+        let mut panel = SatellitePanel::new(shared);
+        let directory = std::env::temp_dir().join(format!(
+            "ez-a09-daemon-recording-{}-{}",
+            std::process::id(),
+            ez_proto::new_capture_epoch()
+        ));
+        panel.cf32_output_dir = directory.display().to_string();
+        panel.start_cf32_recording();
         assert!(!panel.cf32_recording);
+        assert!(panel.cf32_writer.is_none());
+        assert!(!directory.exists());
+        assert!(panel
+            .pending_status
+            .as_deref()
+            .unwrap()
+            .contains("daemon host"));
     }
 
     #[test]
@@ -719,9 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn stop_cf32_recording_sets_pending_decode_request_on_success() {
-        use crate::decoding_panel::DecodePreset;
-
+    fn finalizing_legacy_meteor_capture_does_not_start_decode_handoff() {
         let mut panel = SatellitePanel::new(make_shared_state());
         let tmp_dir =
             std::env::temp_dir().join(format!("ez_sdr_test_decode_req_{}", std::process::id()));
@@ -739,15 +1146,15 @@ mod tests {
         );
         panel.cf32_recording = true;
 
-        panel.stop_cf32_recording();
+        panel.stop_cf32_and_wait();
 
         assert!(!panel.cf32_recording);
-        let req = panel
-            .pending_decode_request
-            .expect("expected a pending decode request");
-        assert_eq!(req.satellite_name.as_deref(), Some("METEOR-M2-3"));
-        assert_eq!(req.sample_rate, 2_048_000);
-        assert_eq!(req.preset, Some(DecodePreset::MeteorM2_3));
+        assert!(panel.pending_decode_request.is_none());
+        assert!(panel
+            .pending_status
+            .as_deref()
+            .unwrap()
+            .contains("Recorded"));
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
@@ -760,7 +1167,7 @@ mod tests {
         panel.cf32_output_dir = tmp_dir.to_string_lossy().to_string();
         let writer = Cf32StreamWriter::start(
             &panel.cf32_output_dir,
-            Some("NOAA 19".to_string()),
+            Some("ISS Voice / SSTV".to_string()),
             2_048_000,
             137_100_000,
             51.5,
@@ -771,17 +1178,19 @@ mod tests {
         panel.cf32_writer = Some(writer);
         panel.cf32_recording = true;
 
-        panel.stop_cf32_recording();
+        panel.stop_cf32_and_wait();
 
         let req = panel
             .pending_decode_request
+            .take()
             .expect("expected a pending decode request");
         assert_ne!(req.file_path, bare_filename);
         assert!(req.file_path.ends_with(&bare_filename));
         assert!(req
             .file_path
             .contains(&tmp_dir.to_string_lossy().to_string()));
-        assert!(req.preset.is_none());
+        assert_eq!(req.satellite_name.as_deref(), Some("ISS Voice / SSTV"));
+        assert_eq!(req.preset, None);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

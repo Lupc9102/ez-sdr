@@ -1,0 +1,62 @@
+    Blocking waiting for file lock on build directory
+   Compiling tokio v1.53.1
+   Compiling futures-util v0.3.34
+   Compiling serde v1.0.229
+   Compiling icu_normalizer v2.3.0
+   Compiling serde_json v1.0.151
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling serde_urlencoded v0.7.1
+   Compiling nix v0.31.3
+   Compiling url v2.5.8
+   Compiling bincode v1.3.3
+   Compiling ctrlc v3.5.2
+   Compiling parking_lot_core v0.9.12
+   Compiling tracing-subscriber v0.3.23
+   Compiling parking_lot v0.12.5
+   Compiling dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+   Compiling tokio-util v0.7.19
+   Compiling tower v0.5.3
+   Compiling hyper v1.11.1
+   Compiling ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+   Compiling tower-http v0.6.11
+   Compiling hyper-util v0.1.21
+   Compiling tokio-tungstenite v0.29.0
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+   Compiling tokio-tungstenite v0.24.0
+   Compiling axum v0.8.9
+   Compiling reqwest v0.12.28
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `release` profile [optimized] target(s) in 3m 53s
+     Running unittests src/lib.rs (target/release/deps/ez_daemon-8916b2a6a9dc3118)
+
+running 2 tests
+test hardware::tcp_iq::tests::raw_uc8_mode_does_not_write_rtl_tcp_commands ... ok
+test hardware::tcp_iq::tests::rtl_tcp_start_applies_cached_tuning_and_reads_uc8 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 237 filtered out; finished in 0.00s
+
+     Running unittests src/bin/adsb_emulator.rs (target/release/deps/adsb_emulator-9e1e1a0c96a94e33)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/release/deps/ez_daemon-e7f0c0d718c8e5e8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/resilience.rs (target/release/deps/resilience-ed6e2a6b40bd48bb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/web_resilience.rs (target/release/deps/web_resilience-634b49057d05fbde)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+

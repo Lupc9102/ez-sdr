@@ -12,11 +12,15 @@
 //! on-demand network observers/controllers (see `ez-proto`), never part of the hot path.
 
 pub mod app;
+pub mod audio_rate;
+pub mod audio_rf;
+pub mod auth;
 pub mod broadcast;
 pub mod bus;
 pub mod channelizer;
 pub mod hardware;
 pub mod ingest;
+mod outbound;
 pub mod pipelines;
 pub mod recording;
 pub mod server;

@@ -1,0 +1,19 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.81s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 1 test
+
+thread 'app::app_performance_tests::profile_frames_with_continuous_native_recording' (120442) panicked at ez-gui/src/app_performance_tests.rs:206:5:
+Recording stopped: WAV clock or frame sequence changed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test app::app_performance_tests::profile_frames_with_continuous_native_recording ... FAILED
+
+failures:
+
+failures:
+    app::app_performance_tests::profile_frames_with_continuous_native_recording
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 829 filtered out; finished in 11.23s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

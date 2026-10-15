@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.09s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-72867641d7d52d15)
+
+running 2 tests
+test state::tests::audio_configuration_validates_all_three_rates_before_allocation ... ok
+test state::tests::audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions ... 
+thread 'state::tests::audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions' (50372) panicked at ez-daemon/src/audio_configuration_tests.rs:44:9:
+assertion `left == right` failed
+  left: Some(292571)
+ right: Some(285714)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    state::tests::audio_mode_rf_width_and_pcm_rate_retune_atomically_in_both_directions
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 235 filtered out; finished in 4.60s
+
+error: test failed, to rerun pass `-p ez-daemon --lib`

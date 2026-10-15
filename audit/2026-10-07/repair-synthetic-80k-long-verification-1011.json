@@ -1,0 +1,425 @@
+{
+  "verification_state": "independent_long_pass_synthetic_80k_packets_images_verified",
+  "started_utc": "2026-10-11T06:12:32.687397+00:00",
+  "generator": {
+    "profile": "Oqpsk80Interleaved",
+    "sample_rate_hz": 320000,
+    "symbol_rate_hz": 80000,
+    "reference_frames": 7338,
+    "duration_seconds": 852.90235,
+    "coded_bits": 120236816,
+    "cases": [
+      {
+        "name": "long-pass-noise-drift",
+        "file": "long-pass-noise-drift.cf32",
+        "sha256": "5552f9f07922a59afc87c7610b015a1870ae41d0d80891b11d96f28ff8f5e0fe",
+        "samples": 272928752,
+        "direction": 1,
+        "phase": 37,
+        "offset": 137,
+        "ppm": 70,
+        "snr_db": 30,
+        "ramp": 1,
+        "impairment": false,
+        "require_all": true
+      }
+    ],
+    "reference_sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90",
+    "libfec_commit": "9750ca0a6d0a786b506e44692776b541f90daa91",
+    "libfec_sha256": "a3a6569a1f3f9f20de15c4aac88e6aaaf0e0a7ca8ee2005843aedf0ee6b63a17",
+    "generator_sha256": "b1252be51473a4b18993ca0010d4678485aef3196f40e7b5a961a4b3f132697c",
+    "provenance": "Synthetic full-pass 80k waveform carrying original independently decoded public 72k packet/image content. Not an off-air 80k capture."
+  },
+  "source_sha256": {
+    "lrpt-decode/src/ccsds.rs": "1b64e9a724e3ef1806b542aaaa4efc0fe5470afeb499b119ed0f2c4609af7210",
+    "lrpt-decode/src/diff_decode.rs": "678dd1b0eaf4b254901ab517a8d9e002d45dac97bbb1c2e4257c6fcae626fc1d",
+    "lrpt-decode/src/frame_sync.rs": "fb5006b759e2701131ad9800ddac54aff524652a52dff3b22d5c12adacc0da6a",
+    "lrpt-decode/src/image_builder.rs": "da4731c0b3347e98bbc49bd5df429516832263f7201dc7997d1172c40876ecc0",
+    "lrpt-decode/src/interleaver.rs": "db49a2568714f45aa3573ce1eea2dc5dbfa99f151b1b3bd5063ab0bd00e2bf8e",
+    "lrpt-decode/src/iq_source.rs": "ac8fd28d9b48beadfd9db04d882a408b1332bfae9378d72dde9eae791331f449",
+    "lrpt-decode/src/lib.rs": "7707a7e08adfe7ec5de4459e33b134cca9a15ac51f01bfe9e7e598fc12ea542d",
+    "lrpt-decode/src/off_air_validation.rs": "932a72ee7fb86600258057a4fa2e59c1a054b6284f4864d92eb7c8f5402a230c",
+    "lrpt-decode/src/qpsk.rs": "bb8118419ef2bc85a49a22ed730659e9f066d7ce8650445b43179f3178e6c4c9",
+    "lrpt-decode/src/randomizer.rs": "54dc448169c2058edf7055bec38930eb09eec331a295cc8258f78a241fc8529c",
+    "lrpt-decode/src/reed_solomon.rs": "1d00cc7a7fc66828f950ffef1b8b21cbbccaa5f727156db076d0cc6d1cb7d09b",
+    "lrpt-decode/src/synthetic_product_validation.rs": "e7ebf8d306806963c5238b88fd10327abceeb0a518f769db249949e9c00c6359",
+    "lrpt-decode/src/viterbi.rs": "94686717a9aed826e5c09bbb1e160c2ccdc79ff70f9f777c492117b0938b8207",
+    "audit/2026-10-07/generate_80k_image_vectors.py": "7c3e2d95b63cbfbcc04338d5ca084d3370f7d3020409db99ec5f90a895213551",
+    "audit/2026-10-07/generate_oqpsk_vectors.py": "4a6667b653a22d1854f8802caeca06535164e59a053f75cbefd6cd147d9ca590",
+    "audit/2026-10-07/verify_80k_native_reference.py": "84d575a6734be4c17e2e2a39301c913bf95396777911716b9d1fa98fccba221e",
+    "audit/2026-10-07/verify_public_image.py": "ba9c1e9f9fe4ad9f72113167096fad2ba1ac91cc4f0de56beb2b6f321d1331e5",
+    "audit/2026-10-07/repair-evidence/synthetic-80k-verify-1011.py": "15d6063149a56eaf6c5ab66db22c170f01b00880e9a1d9839a55bf1ba3dd0197",
+    "audit/2026-10-07/generate_80k_long_pass.py": "b1252be51473a4b18993ca0010d4678485aef3196f40e7b5a961a4b3f132697c",
+    "audit/2026-10-07/repair-evidence/synthetic-80k-long-runner-1011.py": "abad37f6bd71d70d9868559296db9e762455879b210b322d9bc124c7652c90e4"
+  },
+  "reused_unchanged_source_checks": {
+    "proof": "repair-synthetic-80k-verification-1011.json",
+    "sha256": "cc703e9861e5e21bc627dbd35b76013682ae177eb549ae1cf366aaf1fee8cc47",
+    "checks": [
+      {
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "lrpt-decode",
+          "--lib",
+          "--tests",
+          "-j",
+          "4",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "log": "repair-evidence/synthetic-80k-clippy-1011.log",
+        "log_sha256": "67291a3c0173c9970c05b5cd882cba177d7058fe5dbd268188a4d6dcbb63adfb"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "lrpt-decode",
+          "--release",
+          "--lib",
+          "-j",
+          "4",
+          "--",
+          "--test-threads=4"
+        ],
+        "exit_code": 0,
+        "log": "repair-evidence/synthetic-80k-regressions-1011.log",
+        "log_sha256": "8524bdc4000524946f8ff8c516e7d16923c8b6bd110d9f8dbe95537ab37386eb"
+      },
+      {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "log": "repair-evidence/synthetic-80k-format-1011.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "lrpt-decode",
+          "-j",
+          "4"
+        ],
+        "exit_code": 0,
+        "log": "repair-evidence/synthetic-80k-build-1011.log",
+        "log_sha256": "425514c9f2c6e932a8599f4dc93d1dad768209b5882c0758ceccd8fff3e5a1c4"
+      },
+      {
+        "command": [
+          "graphify",
+          "update",
+          "."
+        ],
+        "exit_code": 0,
+        "log": "repair-evidence/synthetic-80k-graph-1011.log",
+        "log_sha256": "9c9ee70274fa99f4241c1701a2448b9550ef82127016f8552978eb3e315a0830"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_80k_native_reference.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/reference-build/liblrpt.so",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass"
+      ],
+      "started_utc": "2026-10-11T06:12:32.687823+00:00",
+      "finished_utc": "2026-10-11T06:12:37.891051+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-long-native-reference-1011.log",
+      "log_sha256": "2ac68832c39f584371b018ccddabf2d970deb4d98f4eec9983c63d7e22bab773"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "lrpt-decode",
+        "--release",
+        "--lib",
+        "synthetic_product_validation::independent_80k_rf_images_match_reference_across_impairments_and_partitions",
+        "-j",
+        "4",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "started_utc": "2026-10-11T06:12:37.891538+00:00",
+      "finished_utc": "2026-10-11T06:19:24.023358+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-long-rf-1011.log",
+      "log_sha256": "1f46438ab66b5c57df2c6a8a2659b938cd4efb9adee088ce22ea4967aca872a9"
+    }
+  ],
+  "verification_boundary": "Synthetic full-pass 80k using independently decoded public 72k packet/image content. Original off-air 80k and physical/field release gates remain open.",
+  "native_reference": {
+    "reference_frames": 7338,
+    "corrected_payload_bytes": 6545496,
+    "rs_corrected_symbols": 0,
+    "reference_sha256": "6beb367c5a25973d6ba0a678efb1d0026ede4b552dabeb03bb0fa2d7224fab3b",
+    "native_library_sha256": "20cffae61cc0a3d7c3ec0a60084f6e6b830122e15eaffa42058f95f69dd3eaba",
+    "adapter_sha256": "84d575a6734be4c17e2e2a39301c913bf95396777911716b9d1fa98fccba221e",
+    "differential_convention": "post-Viterbi NRZ-M, matching modern SatDump 80k m2x_mode",
+    "convention_source": "https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/plugins/meteor_support/meteor/module_meteor_lrpt_decoder.cpp",
+    "scope": "Independent full native-C transport decode of ideal transmitted wire bits. Actual app RF cases additionally include pulse shaping, clock/carrier drift, noise, fade and phase slip."
+  },
+  "comparisons": [
+    {
+      "chunk_size": 997,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/native-reference.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:19:24.025805+00:00",
+      "finished_utc": "2026-10-11T06:19:27.890041+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-long-oracle-997-1011.log",
+      "log_sha256": "99fecf596503cc5a4f79158d545551096ce95eebec5aadc087aeaa555da4cd96",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "6beb367c5a25973d6ba0a678efb1d0026ede4b552dabeb03bb0fa2d7224fab3b",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 6468172,
+        "reference_packet_sha256": "60423facb5bdba93ebbd79cf3f073b9743378ff1f3d7d18445938a298e31d8b6",
+        "packet_counts": {
+          "65": 9484,
+          "66": 9510,
+          "64": 9479,
+          "70": 678
+        },
+        "decoded_segments": 28473,
+        "complete_lines": 16192,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135140674960,
+        "last_timestamp_us": 810135986469279,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 5504,
+            "pixels": 8630272,
+            "max_error": 1,
+            "mean_error": 0.018014843564606076,
+            "oracle_pixel_sha256": "d17cfd051c6d877da8a244a8ad9f46a737fa48363e4ec5559aae2a6482104867"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 5504,
+            "pixels": 8630272,
+            "max_error": 1,
+            "mean_error": 0.017880664711378738,
+            "oracle_pixel_sha256": "fe8fe5fe96d0e9678a810fc9dd0394a185cdc32745bc18a72a114c32805b6d8b"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 5504,
+            "pixels": 8630272,
+            "max_error": 1,
+            "mean_error": 0.017799091384373515,
+            "oracle_pixel_sha256": "610f9e5903238ba359e9374e1bef7ecbccf9185212171b3e9b6a1874eed0e809"
+          }
+        ]
+      },
+      "artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/apid-64.png",
+          "sha256": "ab4830551c74d7bd8e5b0e5e1d4792aea4b554589cbdc3a14dc5f5dc9e30340b"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/apid-65.png",
+          "sha256": "35fd9683f9918d35ec77d6256f57449d01cb1a2f6852479879906586e6ccfad6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/apid-66.png",
+          "sha256": "0fb57bd4b1c7a881298a59bfa5af32c1c4e67106b03f429f51742e2d0ac00069"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/oracle-native/oracle-64.png",
+          "sha256": "7fa59889fb85aaec3bb017390919b5d8319ab3490faa3573360f13dffa6c42bd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/oracle-native/oracle-65.png",
+          "sha256": "66ff1f1dddf211a910a88786a5bdd58fea36c8db84bfcb09a967fdd325c4ec49"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/oracle-native/oracle-66.png",
+          "sha256": "bd30034729a3d4411fd65e5be55243d4b6715a2d6bde7584f59646a951c64ef6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/oracle-native/verification.json",
+          "sha256": "99fecf596503cc5a4f79158d545551096ce95eebec5aadc087aeaa555da4cd96"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/packets.bin",
+          "sha256": "60423facb5bdba93ebbd79cf3f073b9743378ff1f3d7d18445938a298e31d8b6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/reference.cadu",
+          "sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/result.json",
+          "sha256": "7590996f1bbca78da535281c0092912c7f9fe978fcb2d9c39978baffe0212a1a"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-997/vcdu.bin",
+          "sha256": "cd65fd317b2b18fcb5ac0c5a0693f658d17e900c8c68f5c62350c38eb4184d3b"
+        }
+      ]
+    },
+    {
+      "chunk_size": 16384,
+      "command": [
+        "/usr/bin/python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/native-reference.cadu",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384",
+        "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/oracle-native"
+      ],
+      "started_utc": "2026-10-11T06:19:27.923087+00:00",
+      "finished_utc": "2026-10-11T06:19:31.769345+00:00",
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-long-oracle-16384-1011.log",
+      "log_sha256": "99fecf596503cc5a4f79158d545551096ce95eebec5aadc087aeaa555da4cd96",
+      "oracle": {
+        "oracle": "Pillow/libjpeg entropy decode; independent CDS-time placement",
+        "source_sha256": "6beb367c5a25973d6ba0a678efb1d0026ede4b552dabeb03bb0fa2d7224fab3b",
+        "packet_bytes_verified": true,
+        "packet_bytes_compared": 6468172,
+        "reference_packet_sha256": "60423facb5bdba93ebbd79cf3f073b9743378ff1f3d7d18445938a298e31d8b6",
+        "packet_counts": {
+          "65": 9484,
+          "66": 9510,
+          "64": 9479,
+          "70": 678
+        },
+        "decoded_segments": 28473,
+        "complete_lines": 16192,
+        "measured_group_period_us": 1231142.0,
+        "first_timestamp_us": 810135140674960,
+        "last_timestamp_us": 810135986469279,
+        "comparisons": [
+          {
+            "apid": 65,
+            "width": 1568,
+            "height": 5504,
+            "pixels": 8630272,
+            "max_error": 1,
+            "mean_error": 0.018014843564606076,
+            "oracle_pixel_sha256": "d17cfd051c6d877da8a244a8ad9f46a737fa48363e4ec5559aae2a6482104867"
+          },
+          {
+            "apid": 66,
+            "width": 1568,
+            "height": 5504,
+            "pixels": 8630272,
+            "max_error": 1,
+            "mean_error": 0.017880664711378738,
+            "oracle_pixel_sha256": "fe8fe5fe96d0e9678a810fc9dd0394a185cdc32745bc18a72a114c32805b6d8b"
+          },
+          {
+            "apid": 64,
+            "width": 1568,
+            "height": 5504,
+            "pixels": 8630272,
+            "max_error": 1,
+            "mean_error": 0.017799091384373515,
+            "oracle_pixel_sha256": "610f9e5903238ba359e9374e1bef7ecbccf9185212171b3e9b6a1874eed0e809"
+          }
+        ]
+      },
+      "artifacts": [
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/apid-64.png",
+          "sha256": "ab4830551c74d7bd8e5b0e5e1d4792aea4b554589cbdc3a14dc5f5dc9e30340b"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/apid-65.png",
+          "sha256": "35fd9683f9918d35ec77d6256f57449d01cb1a2f6852479879906586e6ccfad6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/apid-66.png",
+          "sha256": "0fb57bd4b1c7a881298a59bfa5af32c1c4e67106b03f429f51742e2d0ac00069"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/oracle-native/oracle-64.png",
+          "sha256": "7fa59889fb85aaec3bb017390919b5d8319ab3490faa3573360f13dffa6c42bd"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/oracle-native/oracle-65.png",
+          "sha256": "66ff1f1dddf211a910a88786a5bdd58fea36c8db84bfcb09a967fdd325c4ec49"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/oracle-native/oracle-66.png",
+          "sha256": "bd30034729a3d4411fd65e5be55243d4b6715a2d6bde7584f59646a951c64ef6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/oracle-native/verification.json",
+          "sha256": "99fecf596503cc5a4f79158d545551096ce95eebec5aadc087aeaa555da4cd96"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/packets.bin",
+          "sha256": "60423facb5bdba93ebbd79cf3f073b9743378ff1f3d7d18445938a298e31d8b6"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/reference.cadu",
+          "sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/result.json",
+          "sha256": "7590996f1bbca78da535281c0092912c7f9fe978fcb2d9c39978baffe0212a1a"
+        },
+        {
+          "path": "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass/decoded-long-pass-noise-drift-16384/vcdu.bin",
+          "sha256": "cd65fd317b2b18fcb5ac0c5a0693f658d17e900c8c68f5c62350c38eb4184d3b"
+        }
+      ]
+    }
+  ],
+  "finished_utc": "2026-10-11T06:19:31.802605+00:00",
+  "finalization_checks": [
+    {
+      "command": [
+        "graphify",
+        "update",
+        "."
+      ],
+      "exit_code": 0,
+      "log": "repair-evidence/synthetic-80k-long-graph-1011.log",
+      "log_sha256": "328fbe8a90590213571d4b4d2330ab060c15798549c32c6cfc1ee0becb41cba4",
+      "preserved_user_deletions": 672
+    }
+  ],
+  "generation_check": {
+    "command": [
+      "python3",
+      "audit/2026-10-07/generate_80k_long_pass.py",
+      "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/libfec.so",
+      "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/meteor_m2-x_lrpt.cadu",
+      "/home/lupc/.cache/ez-sdr-audit/synthetic-80k-1011/long-pass"
+    ],
+    "exit_code": 0,
+    "log": "repair-evidence/synthetic-80k-long-generation-1011.log",
+    "log_sha256": "67a25ec7813fe455b11559c0f2169c7733e1c4b1a12a9e28d960041ad02f524c"
+  }
+}

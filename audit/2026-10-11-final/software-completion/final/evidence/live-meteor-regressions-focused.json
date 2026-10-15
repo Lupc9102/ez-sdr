@@ -1,0 +1,37 @@
+{
+  "scope": [
+    "ez-gui/src/live_meteor.rs",
+    "ez-gui/src/decoding_panel.rs"
+  ],
+  "changes": [
+    "Emit the live worker's listening status before decoder initialization so parallel CPU load cannot leave the UI in its generic startup state until DSP setup completes.",
+    "Consume the startup status before publishing test IQ, preserving the bounded receive deadline, independent subscription, and stop/terminal-event checks.",
+    "Update the Meteor workspace rendering test to assert the current combined behavior: no-decoder notice, recording import, live daemon telemetry, and progressive preview."
+  ],
+  "focused_checks": [
+    {
+      "command": "taskset -c 0-5 env CARGO_BUILD_JOBS=4 RUST_TEST_THREADS=4 cargo test -p ez-gui --lib decoding_panel::tests::meteor_workspace_shows_decoder_notice_import_live_telemetry_and_progress -- --exact",
+      "result": "passed",
+      "tests_passed": 1
+    },
+    {
+      "command": "taskset -c 0-5 env CARGO_BUILD_JOBS=4 RUST_TEST_THREADS=4 cargo test -p ez-gui --lib live_meteor::tests::live_worker_uses_an_independent_bounded_subscription_and_stops_without_repaint -- --exact",
+      "result": "passed",
+      "tests_passed": 1
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "result": "passed"
+    },
+    {
+      "command": "graphify update .",
+      "result": "passed",
+      "details": "Rebuilt graphify-out with 8140 nodes, 18424 edges, and 386 communities."
+    }
+  ],
+  "prior_failure_diagnosis": {
+    "offline_ui": "The old test rejected the no-decoder notice and live telemetry despite ui_offline routing through the combined Meteor workspace renderer. The updated assertions match the rendered contract.",
+    "live_worker": "The release log records a failed one-second recv_timeout assertion, with no evidence of an Error event. Decoder construction preceded the first worker status, so the test deadline could expire under parallel CPU load. Publishing status before DSP initialization removes that avoidable startup delay."
+  },
+  "full_suite": "Not run by this focused task; root is finalizing the release suite."
+}

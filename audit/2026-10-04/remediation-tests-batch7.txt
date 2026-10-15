@@ -1,0 +1,88 @@
+
+running 254 tests
+....................................................................................... 87/254
+....................................................................................... 174/254
+................................................................................
+test result: ok. 254 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+
+running 254 tests
+....................................................................................... 87/254
+....................................................................................... 174/254
+................................................................................
+test result: ok. 254 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+
+running 174 tests
+.................................ii.................................................... 87/174
+....................................................................................... 174/174
+
+test result: ok. 172 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.87s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.22s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.50s
+
+
+running 730 tests
+....................................................................................... 87/730
+i...................................................................................... 174/730
+....................................................................................... 261/730
+....................................................................................... 348/730
+...............................................................................ii...... 435/730
+....................................................................................... 522/730
+.......................................................................i............... 609/730
+....................................................................................... 696/730
+..................................
+test result: ok. 726 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 7.34s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.96s
+
+
+running 3 tests
+ii.
+test result: ok. 1 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+........
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 74 tests
+..........................................................................
+test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.05s

@@ -1,0 +1,72 @@
+{
+  "profile": "Oqpsk80Interleaved",
+  "sample_rate_hz": 320000,
+  "symbol_rate_hz": 80000,
+  "reference_frames": 175,
+  "native_deinterleaver_coded_bits_verified": 2878224,
+  "cases": [
+    {
+      "name": "clean-positive",
+      "direction": 1,
+      "phase": 37,
+      "offset": 137,
+      "ppm": 70,
+      "snr_db": null,
+      "ramp": 0,
+      "impairment": false,
+      "require_all": true,
+      "file": "clean-positive.cf32",
+      "sha256": "78e2d0e1973fcc7a2c83a41b09f0764665ae7223bbf645a55c829cceca280f27",
+      "samples": 12131952
+    },
+    {
+      "name": "clean-negative",
+      "direction": -1,
+      "phase": 287,
+      "offset": -137,
+      "ppm": -70,
+      "snr_db": null,
+      "ramp": 0,
+      "impairment": false,
+      "require_all": true,
+      "file": "clean-negative.cf32",
+      "sha256": "58195a625d61f424b0db60ef8a0c2bebbd9823431324b45da51ece4de3599de6",
+      "samples": 12131952
+    },
+    {
+      "name": "noise-and-drift",
+      "direction": 1,
+      "phase": 123,
+      "offset": -1000,
+      "ppm": -150,
+      "snr_db": 25,
+      "ramp": 7,
+      "impairment": false,
+      "require_all": true,
+      "file": "noise-and-drift.cf32",
+      "sha256": "d5235afe44dc0a8d2363cb7e41d7c51ad5adfe6050961be4ad125b85b9b00394",
+      "samples": 12131952
+    },
+    {
+      "name": "fade-and-phase-slip",
+      "direction": 1,
+      "phase": 37,
+      "offset": 137,
+      "ppm": 70,
+      "snr_db": 30,
+      "ramp": 0,
+      "impairment": true,
+      "require_all": false,
+      "file": "fade-and-phase-slip.cf32",
+      "sha256": "13a53cb41443b294184fb6cc4a891ad78d44b1cdea338fe8a9ac9760fc190ef1",
+      "samples": 12131952
+    }
+  ],
+  "reference_sha256": "402a0507006c381fbcfbcd3b22d61fe42ae01928c70bad0fb8b78a2e12167d5d",
+  "libfec_commit": "9750ca0a6d0a786b506e44692776b541f90daa91",
+  "libfec_sha256": "a3a6569a1f3f9f20de15c4aac88e6aaaf0e0a7ca8ee2005843aedf0ee6b63a17",
+  "deinterleaver_commit": "e7ca456ea969dc4834b5544c3789de1dd5d2f663",
+  "deinterleaver_sha256": "897d59907b91b6721d48d2209333c0f427dc93473d722dc683fa518a8a217888",
+  "provenance": "Synthetic 80k waveform carrying original independently decoded public 72k packet/image content. Not an off-air 80k capture.",
+  "generator_sha256": "7c3e2d95b63cbfbcc04338d5ca084d3370f7d3020409db99ec5f90a895213551"
+}

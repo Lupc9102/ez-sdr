@@ -1,0 +1,32 @@
+   Compiling lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `release` profile [optimized] target(s) in 10.67s
+     Running `target/release/examples/audit_image_reference /tmp/ez-sdr-public-meteor-reference.cadu /tmp/ez-sdr-repaired-image-reference`
+{
+  "complete_lines": 16192,
+  "corrected_frames": 7338,
+  "decoded_segments": 28473,
+  "dropped_segments": 0,
+  "images": [
+    {
+      "apid": 64,
+      "height": 5504,
+      "width": 1568
+    },
+    {
+      "apid": 65,
+      "height": 5504,
+      "width": 1568
+    },
+    {
+      "apid": 66,
+      "height": 5504,
+      "width": 1568
+    }
+  ],
+  "packets": {
+    "64": 9479,
+    "65": 9484,
+    "66": 9510,
+    "70": 678
+  }
+}

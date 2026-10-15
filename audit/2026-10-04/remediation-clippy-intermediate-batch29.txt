@@ -1,0 +1,36 @@
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+error: file is loaded as a module multiple times: `ez-gui/src/../tests/support/software_renderer.rs`
+ --> ez-gui/src/app_ui_tests.rs:4:1
+  |
+2 |  | use eframe::App;
+  |  |_________________^first loaded here
+3 |
+4 |  / #[path = "../tests/support/software_renderer.rs"]
+  |
+ ::: ez-gui/src/../tests/support/software_renderer.rs:1:1
+  |
+1 | /  //! CPU preview renderer for egui's actual tessellated output. Used only for
+2 | |  //! visual QA where no window server is available, never shipped in the app.
+3 | |  use std::collections::HashMap;
+... |
+6 | |  pub struct SoftwareRenderer {
+  | |_______________________^ loaded again here
+  |
+  = help: replace all but one `mod` item with `use` items
+  = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#duplicate_mod
+  = note: `-D clippy::duplicate-mod` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(clippy::duplicate_mod)]`
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> ez-gui/src/adsb_panel.rs:2734:58
+     |
+2734 |                     let has_position = self.has_position(&ac);
+     |                                                          ^^^ help: change this to: `ac`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_borrow
+     = note: `-D clippy::needless-borrow` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_borrow)]`
+
+error: could not compile `ez-gui` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `ez-gui` (lib test) due to 2 previous errors

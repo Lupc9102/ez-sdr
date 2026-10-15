@@ -1,0 +1,6 @@
+    Checking dump1090 v0.1.0 (/home/lupc/Documents/ez-sdr/dump1090)
+    Checking ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+ Documenting ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+ Documenting ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.19s
+   Generated /home/lupc/Documents/ez-sdr/target/doc/dump1090/index.html and 5 other files

@@ -1,0 +1,63 @@
+{
+  "group": "performance",
+  "started_utc": "2026-10-11T17:07:18.706428+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "radio-throughput",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--test",
+        "radio_performance",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 2,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 3.669,
+      "log": "audit/2026-10-11-final/evidence/radio-throughput.log",
+      "log_sha256": "6e9e7f0f79ee38d15a313af98f9c1ad6a9c5262e95445562db397162dddc90a1"
+    },
+    {
+      "name": "frame-profile",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "--lib",
+        "app::app_performance_tests::profile_frames_with_continuous_native_recording",
+        "--",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "environment": {
+        "EZ_SDR_PERFORMANCE_DIR": "/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/performance"
+      },
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 158.184,
+      "log": "audit/2026-10-11-final/evidence/frame-profile.log",
+      "log_sha256": "c48aff80834b8868591fc111d4661d75dfa26cf25992382d6b4096af917a117a"
+    }
+  ],
+  "updated_utc": "2026-10-11T17:10:00.560093+00:00"
+}

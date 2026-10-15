@@ -1,0 +1,20 @@
+    Finished `release` profile [optimized] target(s) in 0.18s
+     Running unittests src/lib.rs (target/release/deps/ez_gui-168e23ba9bba9d8f)
+
+running 1 test
+test app::app_performance_tests::profile_frames_with_continuous_native_recording ... 
+thread 'app::app_performance_tests::profile_frames_with_continuous_native_recording' (167130) panicked at ez-gui/src/app_performance_tests.rs:255:5:
+assertion `left == right` failed
+  left: Number(25739264)
+ right: 25755648
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    app::app_performance_tests::profile_frames_with_continuous_native_recording
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 898 filtered out; finished in 11.16s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

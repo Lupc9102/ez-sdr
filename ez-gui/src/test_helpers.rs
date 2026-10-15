@@ -9,11 +9,53 @@ use crate::source_manager::SourceManager;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::tle_engine::TleEngine;
 
+#[cfg(test)]
+pub(crate) struct FaultFileWriter {
+    file: std::fs::File,
+    limit: Option<usize>,
+    written: usize,
+    flush_error: bool,
+}
+
+#[cfg(test)]
+impl FaultFileWriter {
+    pub fn new(file: std::fs::File, limit: Option<usize>, flush_error: bool) -> Self {
+        Self {
+            file,
+            limit,
+            written: 0,
+            flush_error,
+        }
+    }
+}
+
+#[cfg(test)]
+impl std::io::Write for FaultFileWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let remaining = self.limit.map_or(bytes.len(), |limit| {
+            limit.saturating_sub(self.written).min(bytes.len())
+        });
+        if remaining == 0 {
+            return Err(std::io::Error::other("injected disk write failure"));
+        }
+        let written = self.file.write(&bytes[..remaining])?;
+        self.written += written;
+        Ok(written)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        if self.flush_error {
+            return Err(std::io::Error::other("injected disk flush failure"));
+        }
+        self.file.flush()
+    }
+}
+
 pub fn make_shared_state() -> Arc<Mutex<SharedState>> {
     Arc::new(Mutex::new(SharedState {
         source: SourceManager::new(),
         spectrum: SpectrumAnalyzer::new(),
         config: AppConfig::default(),
+        input_format: dump1090::demod::InputFormat::Uc8,
         bookmarks: BookmarkDb::default(),
         scheduler: Scheduler::new(),
         tle: TleEngine::new(),
@@ -36,7 +78,7 @@ pub fn make_shared_state() -> Arc<Mutex<SharedState>> {
         mqtt_connected: false,
         mqtt_enabled: false,
         bookmarks_modified: true,
-        scanner_command: None,
+        last_manual_tune: None,
     }))
 }
 

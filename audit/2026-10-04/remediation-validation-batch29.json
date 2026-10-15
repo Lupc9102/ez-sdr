@@ -1,0 +1,485 @@
+{
+  "batch": 29,
+  "date": "2026-10-07",
+  "findings": [],
+  "all_confirmed_findings_closed": [
+    "A01",
+    "A02",
+    "A03",
+    "A04",
+    "A05",
+    "A06",
+    "A07",
+    "A08",
+    "A09",
+    "A10",
+    "A11",
+    "A12",
+    "A13",
+    "A14",
+    "A15",
+    "A16",
+    "A17",
+    "R01",
+    "R02",
+    "R03",
+    "R04",
+    "R05",
+    "R06",
+    "R07",
+    "G01",
+    "G02",
+    "G03",
+    "G04",
+    "G05",
+    "G06",
+    "G07",
+    "G08",
+    "G09",
+    "G10",
+    "I01",
+    "I02",
+    "I03",
+    "S01",
+    "S02",
+    "S03",
+    "L01",
+    "V01"
+  ],
+  "compiler": "Rust 1.92.0",
+  "workspace_all_targets": {
+    "passed": 1654,
+    "failed": 0,
+    "ignored": 9,
+    "test_targets": 16
+  },
+  "isolated_benchmark": "passed (one explicitly ignored test executed alone)",
+  "strict_clippy": "passed",
+  "changed_files_format": "passed (five Rust files)",
+  "workspace_build": "passed (default audio and RTL-SDR features compiled; no physical devices opened)",
+  "graphify": "refreshed (6888 nodes, 15322 edges)",
+  "protocol_version": 9,
+  "final_acceptance_gates": [
+    {
+      "gate": 1,
+      "contract": "Capture and recording integrity",
+      "status": "passed",
+      "representative_passed_boundary_tests": [
+        "app::app_ui_tests::native_iq_recorders_preserve_every_sample_at_60_hz_and_during_a_gui_stall",
+        "app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall",
+        "iq_source::tests::cf32_units_round_trip_every_adc_value_and_complex_tones",
+        "channelizer::tests::actual_wideband_queue_overflow_reaches_every_channel_as_a_gap",
+        "recording::capture_tests::daemon_files_stop_before_epoch_tuning_rate_rewind_and_loss_boundaries",
+        "satellite::recorder::tests::native_cf32_disk_failures_finalize_the_actual_prefix_and_stop_promptly"
+      ]
+    },
+    {
+      "gate": 2,
+      "contract": "Decoder identity and status",
+      "status": "passed",
+      "representative_passed_boundary_tests": [
+        "icao_filter::tests::collisions_and_namespaces_do_not_authorize_unseen_addresses",
+        "icao_filter::tests::sustained_insertions_preserve_recent_addresses_and_bound_storage",
+        "pipelines::packet::tests::df18_namespaces_survive_tracking_and_snapshot_publication",
+        "mode_s::tests::tc28_emergency_and_squawk_have_separate_fields_from_vertical_rate",
+        "demod::tests::df11_iid_survives_demodulation_and_semantic_decoding"
+      ]
+    },
+    {
+      "gate": 3,
+      "contract": "Aircraft measurements and independent validity",
+      "status": "passed",
+      "representative_passed_boundary_tests": [
+        "adsb_decoder::tests::all_velocity_subtypes_and_surface_transitions_keep_measurement_types",
+        "adsb_decoder::tests::signed_altitude_survives_real_iq_and_partial_values_render_unavailable",
+        "adsb_decoder::tests::position_quality_survives_unrelated_messages",
+        "app::app_ui_tests::aircraft_signed_optional_and_typed_measurements_survive_daemon_adapter",
+        "adsb_panel::tests::uat_preserves_signed_altitude_and_separate_true_heading_and_track",
+        "pipelines::packet::tests::stale_position_expires_during_other_traffic_and_idle_tracks_publish_expiry",
+        "pipelines::packet::tests::geometric_cpr_and_initial_surface_reference_match_desktop_policy"
+      ]
+    },
+    {
+      "gate": 4,
+      "contract": "Lifecycle independent of rendering",
+      "status": "passed",
+      "representative_passed_boundary_tests": [
+        "pipelines::packet::capture_tests::daemon_replay_positions_and_rewind_boundaries_match_at_all_speeds",
+        "app::app_ui_tests::aircraft_trails_collect_and_expire_while_planes_is_hidden",
+        "app::app_ui_tests::recorder_deadline_runs_on_hidden_tab_and_controls_are_dispatchable",
+        "app::app_ui_tests::scanner_ai_request_completes_hidden_and_can_be_reopened_without_external_calls",
+        "app::app_ui_tests::scan_real_local_worker_has_identical_hits_visible_hidden_and_frozen_then_waits_on_stop",
+        "app::app_ui_tests::scan_real_daemon_frames_work_hidden_and_frozen_then_wait_on_stop",
+        "app::app_ui_tests::repeated_satellite_passes_honor_gui_web_rigctl_and_scanner_manual_cooldown",
+        "app::app_ui_tests::applying_observer_settings_invalidates_fresh_pass_cache_and_updates_hidden_tracking",
+        "satellite::map_renderer::tests::marker_and_trajectory_share_each_frames_pan_zoom_and_rectangle_projection"
+      ]
+    },
+    {
+      "gate": 5,
+      "contract": "Truthful applied controls",
+      "status": "passed",
+      "representative_passed_boundary_tests": [
+        "demod::tests::demod_control_flood_coalesces_config_and_profile_and_acknowledges_without_iq",
+        "app::app_ui_tests::saved_receiver_profile_restores_before_first_render_and_round_trips",
+        "app::app_ui_tests::saved_receiver_profile_import_applies_calibration_and_only_changed_hardware_restarts",
+        "app::app_ui_tests::runtime_action_tests::approved_ai_local_tools_restart_live_capture_and_record_real_files_while_hidden",
+        "app::app_ui_tests::runtime_action_tests::approved_ai_daemon_tools_acknowledge_capture_files_and_adsb_from_initial_two_msps",
+        "app::app_ui_tests::daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio"
+      ]
+    },
+    {
+      "gate": 6,
+      "contract": "Persistence, integrations and qualified constellation display",
+      "status": "passed",
+      "representative_passed_boundary_tests": [
+        "app::app_ui_tests::bookmark_dirty_content_flushes_before_debounce_and_survives_failed_save",
+        "private_web_sessions_protect_controls_recordings_and_report_deletion",
+        "mqtt::tests::changing_enabled_broker_closes_old_socket_and_publishes_only_to_new_endpoint",
+        "mqtt::tests::stalled_broker_bounds_publication_latency_and_coalesces_latest_telemetry",
+        "rigctl::tests::every_tcp_fragment_boundary_preserves_commands_across_timeouts",
+        "discord::tests::partial_and_stale_aircraft_do_not_consume_position_notification",
+        "constellation::tests::raw_qpsk_rotating_carrier_and_noise_views_make_no_symbol_quality_claim",
+        "constellation::tests::capture_changes_retire_old_points_and_density_even_while_frozen"
+      ]
+    }
+  ],
+  "frame_cpu_comparison": [
+    {
+      "case": "spectrum-wide",
+      "before_frame_cpu_us": {
+        "max": 15256,
+        "p50": 10245,
+        "p95": 12159,
+        "p99": 14304,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "after_frame_cpu_us": {
+        "max": 14839,
+        "p50": 10231,
+        "p95": 12493,
+        "p99": 14716,
+        "samples": 120,
+        "unit": "microseconds"
+      }
+    },
+    {
+      "case": "spectrum-small",
+      "before_frame_cpu_us": {
+        "max": 14739,
+        "p50": 9498,
+        "p95": 11350,
+        "p99": 12705,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "after_frame_cpu_us": {
+        "max": 12299,
+        "p50": 9735,
+        "p95": 11342,
+        "p99": 12052,
+        "samples": 120,
+        "unit": "microseconds"
+      }
+    },
+    {
+      "case": "dense-aircraft",
+      "before_frame_cpu_us": {
+        "max": 662253,
+        "p50": 207180,
+        "p95": 219797,
+        "p99": 655485,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "after_frame_cpu_us": {
+        "max": 18387,
+        "p50": 16293,
+        "p95": 17416,
+        "p99": 18036,
+        "samples": 120,
+        "unit": "microseconds"
+      }
+    },
+    {
+      "case": "dense-map-drag",
+      "before_frame_cpu_us": {
+        "max": 693190,
+        "p50": 210501,
+        "p95": 239250,
+        "p99": 686177,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "after_frame_cpu_us": {
+        "max": 43027,
+        "p50": 18471,
+        "p95": 20672,
+        "p99": 23951,
+        "samples": 120,
+        "unit": "microseconds"
+      }
+    },
+    {
+      "case": "satellite-map",
+      "before_frame_cpu_us": {
+        "max": 26349,
+        "p50": 9601,
+        "p95": 13028,
+        "p99": 17072,
+        "samples": 120,
+        "unit": "microseconds"
+      },
+      "after_frame_cpu_us": {
+        "max": 14639,
+        "p50": 11174,
+        "p95": 13237,
+        "p99": 14457,
+        "samples": 120,
+        "unit": "microseconds"
+      }
+    }
+  ],
+  "native_capture_evidence": {
+    "all_recordings_complete": true,
+    "cases": [
+      {
+        "case": "spectrum-wide",
+        "frame_cpu": {
+          "max": 14839,
+          "p50": 10231,
+          "p95": 12493,
+          "p99": 14716,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "logic": {
+          "max": 6988,
+          "p50": 3866,
+          "p95": 4839,
+          "p99": 5824,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "screen": [
+          1920,
+          1012
+        ],
+        "tessellation": {
+          "max": 2058,
+          "p50": 1249,
+          "p95": 1869,
+          "p99": 2022,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "ui_draw": {
+          "max": 7462,
+          "p50": 4571,
+          "p95": 5870,
+          "p99": 7353,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "warmup_frames": 10
+      },
+      {
+        "case": "spectrum-small",
+        "frame_cpu": {
+          "max": 12299,
+          "p50": 9735,
+          "p95": 11342,
+          "p99": 12052,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "logic": {
+          "max": 5371,
+          "p50": 3863,
+          "p95": 4549,
+          "p99": 5179,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "screen": [
+          1000,
+          700
+        ],
+        "tessellation": {
+          "max": 1388,
+          "p50": 851,
+          "p95": 1275,
+          "p99": 1387,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "ui_draw": {
+          "max": 6196,
+          "p50": 4416,
+          "p95": 5469,
+          "p99": 6024,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "warmup_frames": 10
+      },
+      {
+        "case": "dense-aircraft",
+        "frame_cpu": {
+          "max": 18387,
+          "p50": 16293,
+          "p95": 17416,
+          "p99": 18036,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "logic": {
+          "max": 3611,
+          "p50": 2914,
+          "p95": 3151,
+          "p99": 3593,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "screen": [
+          1920,
+          1012
+        ],
+        "tessellation": {
+          "max": 2425,
+          "p50": 1699,
+          "p95": 1931,
+          "p99": 2209,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "ui_draw": {
+          "max": 12360,
+          "p50": 11052,
+          "p95": 11939,
+          "p99": 12088,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "warmup_frames": 10
+      },
+      {
+        "case": "dense-map-drag",
+        "frame_cpu": {
+          "max": 43027,
+          "p50": 18471,
+          "p95": 20672,
+          "p99": 23951,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "logic": {
+          "max": 4452,
+          "p50": 2939,
+          "p95": 3079,
+          "p99": 3454,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "screen": [
+          1920,
+          1012
+        ],
+        "tessellation": {
+          "max": 2609,
+          "p50": 1732,
+          "p95": 2128,
+          "p99": 2350,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "ui_draw": {
+          "max": 36980,
+          "p50": 13098,
+          "p95": 15293,
+          "p99": 18073,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "warmup_frames": 10
+      },
+      {
+        "case": "satellite-map",
+        "frame_cpu": {
+          "max": 14639,
+          "p50": 11174,
+          "p95": 13237,
+          "p99": 14457,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "logic": {
+          "max": 4656,
+          "p50": 3652,
+          "p95": 4305,
+          "p99": 4451,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "screen": [
+          1400,
+          900
+        ],
+        "tessellation": {
+          "max": 2314,
+          "p50": 1429,
+          "p95": 2205,
+          "p99": 2289,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "ui_draw": {
+          "max": 8437,
+          "p50": 5576,
+          "p95": 7233,
+          "p99": 7661,
+          "samples": 120,
+          "unit": "microseconds"
+        },
+        "warmup_frames": 10
+      }
+    ],
+    "cf32_bytes": 212992000,
+    "map_drag_verified": true,
+    "mode": "debug CPU/headless; no GPU or physical devices",
+    "native_blocks": 1625,
+    "native_rf_processing": {
+      "max": 6866,
+      "p50": 3789,
+      "p95": 5060,
+      "p99": 5824,
+      "samples": 1625,
+      "unit": "microseconds"
+    },
+    "native_samples": 26624000,
+    "native_timing_cap": 8192,
+    "native_timing_truncated": false,
+    "network": "disconnected map fixture; no tile/geolocation requests",
+    "percentiles": "nearest rank, 120 measured frames per case, 10 warmup frames excluded",
+    "radio_lost_samples": 0,
+    "raw_bytes": 53248000,
+    "rf_processing_scope": "native Processor::process per 16384-sample block; excludes receive/configure/wait and timing-storage overhead",
+    "wav_samples": 532479
+  },
+  "visual_evidence": [
+    "performance-batch29/spectrum-wide.png",
+    "performance-batch29/spectrum-small.png",
+    "performance-batch29/dense-aircraft.png",
+    "performance-batch29/dense-map-drag.png",
+    "performance-batch29/satellite-map.png"
+  ],
+  "limitations": [
+    "Debug CPU/headless timings include app logic, actual egui drawing and tessellation; GPU presentation and physical display/input latency are not measured.",
+    "Each frame case has 10 excluded warmup frames and 120 measured frames; CPU percentiles are nearest rank. Slow frames do not meet an asserted 60 Hz display guarantee.",
+    "Before-fix native timing storage covers the first 8192 of 9444 blocks; all RF and recording bytes were nevertheless accounted for. After-fix native timings cover all 1625 blocks.",
+    "Dense aircraft are display fixtures; native DSP processes a deterministic AM capture. This does not claim live decoding of 2000 aircraft.",
+    "Physical receiver/USB/audio, calibrated sensitivity and unavailable vetted/reference captures remain skipped or unverified as documented. No new unsupported motion filter was added.",
+    "Original audit evidence, 672 baseline tracked deletions and untracked AGENTS.md are preserved; three untouched files still differ under full workspace formatting."
+  ]
+}

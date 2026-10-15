@@ -1,0 +1,4 @@
+warning: ez-daemon@0.1.0: pkg-config could not find libhackrf (
+warning: ez-daemon@0.1.0: pkg-config could not find SoapySDR (
+    Checking ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.37s

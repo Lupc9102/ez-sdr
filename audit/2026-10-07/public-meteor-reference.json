@@ -1,0 +1,76 @@
+{
+  "source_issue": "https://github.com/SatDump/SatDump/issues/1212",
+  "public_share": "https://cloud.a-where.com/share/5LJfxV3S",
+  "producer": "seler1500",
+  "reported_satellite": "METEOR-M2-4",
+  "capture_name": "2026-09-02_13-32-03_288000SPS_137900000Hz.ziq",
+  "sample_rate_hz": 288000,
+  "center_frequency_hz_from_filename": 137900000,
+  "ziq_header": {
+    "signature": "ZIQ_",
+    "compressed": true,
+    "component_bits": 8,
+    "annotation_length": 0
+  },
+  "ziq_format_reference": "https://github.com/SatDump/SatDump/blob/1aedd602055c154401384a8cc7876713bb371254/src-core/common/ziq.cpp",
+  "compression_status": "zstd returned exit 1: premature end. The decoded complete-pair prefix is retained; the recording is not certified complete.",
+  "reference_cadu_frames": 7338,
+  "reference_cadu_length_bytes": 1024,
+  "reference_channel_3_geometry": [
+    1568,
+    8552
+  ],
+  "transport_profile_verified": false,
+  "decoder_comparison": "72k OQPSK carrier comparison passes for the 180..200-second slice: 175 accepted corrected CADUs equal independent reference payloads byte-for-byte, zero additional. Complete-pass RF and 80k marker-interleaved comparisons remain pending under S01/S11.",
+  "pixel_comparison": "passed: independent CDS-time/Pillow oracle, 25,890,816 pixels across three 1568x5504 images, maximum error 1",
+  "artifacts": [
+    {
+      "kind": "baseband_ziq",
+      "local_path": "/tmp/ez-sdr-public-meteor.ziq",
+      "download_url": "https://cloud.a-where.com/api/public/dl/5LJfxV3S/2026-09-02_13-32-03_288000SPS_137900000Hz.ziq",
+      "bytes": 382999018,
+      "sha256": "4c2b9e0c7f207b2b8bb0f1ec4a7d8234a930e86ea6664f08da8adfef6723fd6e"
+    },
+    {
+      "kind": "decompressed_cs8_prefix",
+      "local_path": "/tmp/ez-sdr-public-meteor.cs8",
+      "download_url": null,
+      "bytes": 522059776,
+      "sha256": "251a795ee1a6f82f92759e3bb24416d13f5d46b9449e2c01b6e8cf823ea697ed"
+    },
+    {
+      "kind": "reference_cadu",
+      "local_path": "/tmp/ez-sdr-public-meteor-reference.cadu",
+      "download_url": "https://cloud.a-where.com/api/public/dl/5LJfxV3S/decoded/meteor_m2-x_lrpt.cadu",
+      "bytes": 7514112,
+      "sha256": "6528fd73561e186d2c9b8fd7947cff926fe5e3d7bdec14f1360ed16e442fda90"
+    },
+    {
+      "kind": "reference_channel_3",
+      "local_path": "/tmp/ez-sdr-public-meteor-reference-3.png",
+      "download_url": "https://cloud.a-where.com/api/public/dl/5LJfxV3S/decoded/MSU-MR/MSU-MR-3.png",
+      "bytes": 5976467,
+      "sha256": "b5c08fcf6315d7c4e1dcc39362834cab48333acf446dbe796d6e995acd8518be"
+    },
+    {
+      "kind": "reference_product_cbor",
+      "local_path": "/tmp/ez-sdr-public-meteor-product.cbor",
+      "download_url": "https://cloud.a-where.com/api/public/dl/5LJfxV3S/decoded/MSU-MR/product.cbor",
+      "bytes": 27775,
+      "sha256": "e5128129e65ef536a63ff3bd0f97d5c26a81d4388c128ec716219d0db61ba304"
+    }
+  ],
+  "corrected_cadu_product_comparison": "passed: 28,473 image segments; 16,192 complete scanlines; cross-channel shared bounds",
+  "independent_product_verification": "public-image-verification.json",
+  "regenerated_satdump_version": "1.2.2",
+  "carrier_slice_verification": {
+    "symbol_rate_hz": 72000,
+    "start_seconds": 180,
+    "duration_seconds": 20,
+    "accepted_cadus": 175,
+    "reference_payload_matches": 175,
+    "additional_cadus": 0,
+    "successful_rs_codewords": 700,
+    "verification": "repair-carrier-verification.json"
+  }
+}

@@ -24,7 +24,7 @@ impl DipoleType {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)] // elevation_tilt/dipole_type consumed by the staged alignment_info_ui panel
+#[allow(dead_code)]
 pub struct DipoleAlignment {
     pub compass_heading: f64,
     pub elevation_tilt: f64,
@@ -230,86 +230,6 @@ pub fn compass_rose_ui(
         egui::FontId::proportional(10.0),
         theme.text_dim.to_egui(),
     );
-}
-
-#[allow(dead_code)] // staged alignment readout panel; not yet mounted in satellite_panel
-pub fn alignment_info_ui(ui: &mut egui::Ui, align: &DipoleAlignment, pos: &SatPosition) {
-    ui.group(|ui| {
-        ui.label(
-            egui::RichText::new("Dipole Orientation")
-                .size(15.0)
-                .strong(),
-        );
-        ui.add_space(4.0);
-
-        ui.horizontal(|ui| {
-            ui.label("Antenna:");
-            ui.colored_label(Color32::from_rgb(0, 200, 255), align.dipole_type.label());
-        });
-
-        // Primary instruction: which way the V-opening should point, as a
-        // human-readable cardinal direction plus the exact bearing.
-        ui.add_space(2.0);
-        let cardinal = azimuth_to_cardinal(align.compass_heading);
-        ui.horizontal(|ui| {
-            ui.label("Point V-opening:");
-            ui.colored_label(
-                Color32::from_rgb(0, 255, 150),
-                egui::RichText::new(format!("{}  ({:.0}°)", cardinal, align.compass_heading))
-                    .size(22.0)
-                    .strong(),
-            );
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("Tilt:");
-            if align.elevation_tilt > 0.0 {
-                ui.colored_label(
-                    Color32::from_rgb(255, 200, 80),
-                    format!("{:.0}° from horizontal", align.elevation_tilt),
-                );
-            } else {
-                ui.colored_label(Color32::GREEN, "Flat (horizontal)");
-            }
-        });
-
-        ui.separator();
-        ui.add_space(4.0);
-
-        ui.label(egui::RichText::new("Live Satellite Position").strong());
-        ui.horizontal(|ui| {
-            ui.label("Azimuth:");
-            ui.monospace(format!("{:.1}°", pos.azimuth));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Elevation:");
-            ui.monospace(format!("{:.1}°", pos.elevation));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Distance:");
-            ui.monospace(format!("{:.0} km", pos.distance_km));
-        });
-    });
-
-    ui.add_space(8.0);
-
-    // Reference card
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("V-Dipole Reference (9A4QV)").strong());
-        ui.add_space(4.0);
-        ui.label("• Arm length: 53.4 cm each (quarter-wave @ 137.5 MHz)");
-        ui.label("• Arm angle: 120° (V-shape)");
-        ui.label("• Mount: HORIZONTAL on mast");
-        ui.label("• Arms: North-South alignment");
-        ui.label("• V-opening: FACES satellite azimuth");
-        ui.label("• Feed: 75Ω coax + 1:1 balun at center");
-        ui.label("• LNA: SAWbird+ NOAA at feedpoint (bias-tee)");
-        ui.add_space(4.0);
-        ui.colored_label(
-            Color32::from_gray(140),
-            "Horizontal polarization rejects vertical FM broadcast by ~20 dB.",
-        );
-    });
 }
 
 pub fn dipole_tutorial_ui(ui: &mut egui::Ui) {

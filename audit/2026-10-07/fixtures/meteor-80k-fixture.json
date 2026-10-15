@@ -1,0 +1,53 @@
+{
+  "wire_bit_count": 2934676,
+  "output_bit_count": 2641176,
+  "prefix_bits": 35,
+  "marker": "0x27",
+  "marker_stride_bits": 80,
+  "data_per_marker_bits": 72,
+  "branches": 36,
+  "branch_delay_visits": 2048,
+  "combined_delay_coded_bits": 2580480,
+  "reference_commit": "e7ca456ea969dc4834b5544c3789de1dd5d2f663",
+  "reference_url": "https://github.com/dbdexter-dev/meteor_decode/tree/e7ca456ea969dc4834b5544c3789de1dd5d2f663",
+  "reference_library_sha256": "d5d9d05947252eed85869eb55430345bd7dc0cebbf0501fb9117be6113bef6ea",
+  "libfec_commit": "9750ca0a6d0a786b506e44692776b541f90daa91",
+  "transmit_construction": "closed-form per-branch delay, marker insertion outside permutation",
+  "expected_corrected_cadus": 3,
+  "files": {
+    "meteor-80k-wire.bits": {
+      "bytes": 366835,
+      "sha256": "778099284636691b296287ae278e0859ea2efb14d1885a8380770369a845a0eb"
+    },
+    "meteor-80k-reference.bits": {
+      "bytes": 330147,
+      "sha256": "380d1b81ef0a055fe3bb7cdb6ee6db5607a8c22a3eace9cb91c1ceb335862018"
+    },
+    "meteor-80k-payloads.bin": {
+      "bytes": 2676,
+      "sha256": "38ee99a462ff9813ac3f765e276a6a63bc80f7119e63ed9ec0c19ad3860957aa"
+    }
+  },
+  "iq_cases": [
+    {
+      "file": "meteor-80k-stagger--1.cf32",
+      "sample_rate": 320000,
+      "symbol_rate": 80000,
+      "phase_degrees": 37,
+      "frequency_offset_hz": 137,
+      "clock_drift_ppm": 70,
+      "stagger_direction": -1,
+      "sha256": "9e682f557a6608f78773daf68db58d7fe1cbb77a59f24a12c79b55f4628ec7e2"
+    },
+    {
+      "file": "meteor-80k-stagger-1.cf32",
+      "sample_rate": 320000,
+      "symbol_rate": 80000,
+      "phase_degrees": 37,
+      "frequency_offset_hz": 137,
+      "clock_drift_ppm": 70,
+      "stagger_direction": 1,
+      "sha256": "b48bb9e35541cfa9c16c8ac524939388dd60cb39593d628a40622ad875a681c4"
+    }
+  ]
+}

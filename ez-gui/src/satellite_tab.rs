@@ -1,11 +1,9 @@
 //! Satellite tab rendering: Track, Alignment, and Decode sub-tabs.
 
-use crate::ai_panel::AiPanel;
 use crate::app::SharedState;
 use crate::constellation::ConstellationDisplay;
 use crate::decoding_panel::DecodingPanel;
 use crate::satellite_panel::{SatellitePanel, SatelliteSubTab};
-use crate::status_bar::StatusBar;
 use std::sync::{Arc, Mutex};
 
 /// Immediate-mode render function: one `&mut` per panel by design.
@@ -18,8 +16,6 @@ pub fn render_satellite_tab(
     satellite_subtab: &mut SatelliteSubTab,
     constellation: &mut ConstellationDisplay,
     decoding_panel: &mut DecodingPanel,
-    ai_panel: &mut AiPanel,
-    status_bar: &mut StatusBar,
 ) {
     let theme = shared
         .try_lock()
@@ -57,6 +53,10 @@ pub fn render_satellite_tab(
     egui::Panel::bottom("sat_status")
         .exact_size(48.0)
         .show(ui, |ui| {
+            if *satellite_subtab == SatelliteSubTab::Decode {
+                ui.label("Meteor · live capture and .cs8 / .cf32 products");
+                return;
+            }
             ui.horizontal(|ui| {
                 let doppler = satellite_panel.doppler_hz;
                 let dop_color = if doppler.abs() > 5000.0 {
@@ -72,9 +72,12 @@ pub fn render_satellite_tab(
                     "Observer: {:.4}°N  {:.4}°E",
                     satellite_panel.observer_lat, satellite_panel.observer_lon
                 ));
-                if satellite_panel.auto_tune {
-                    ui.separator();
-                    ui.colored_label(egui::Color32::GREEN, "✓ Auto-tune");
+                ui.separator();
+                if let Ok(mut state) = shared.try_lock() {
+                    ui.checkbox(&mut state.scheduler.auto_tune_enabled, "Auto-tune enabled");
+                }
+                if let Some(status) = &satellite_panel.auto_tune_status {
+                    ui.label(status);
                 }
                 if satellite_panel.cf32_recording {
                     ui.separator();
@@ -89,22 +92,15 @@ pub fn render_satellite_tab(
         .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 satellite_panel.ui(ui, *satellite_subtab);
-                if let Some(prompt) = satellite_panel.pending_ai_prompt.take() {
-                    ai_panel.input = prompt;
-                    status_bar.info("🤖 Satellite details sent to AI".to_string());
-                }
-
-                // Live signal-quality constellation — phase/amplitude view
+                // Raw capture geometry, before symbol/carrier/timing recovery.
                 // (SatDump-style) while a pass is active or recording.
-                if satellite_panel.cf32_recording || satellite_panel.map_renderer.in_pass_now {
+                if *satellite_subtab != SatelliteSubTab::Decode
+                    && !satellite_panel.is_meteor_selected()
+                    && (satellite_panel.cf32_recording || satellite_panel.map_renderer.in_pass_now)
+                {
                     ui.add_space(8.0);
                     ui.separator();
-                    ui.label(egui::RichText::new("📶 Signal Quality").strong());
-                    ui.label(
-                        egui::RichText::new("IQ constellation")
-                            .small()
-                            .color(egui::Color32::from_gray(140)),
-                    );
+                    ui.label(egui::RichText::new("📶 Capture IQ").strong());
                     constellation.ui(ui, &theme);
                 }
             });
@@ -119,7 +115,7 @@ pub fn render_satellite_tab(
         }
         SatelliteSubTab::Decode => {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                decoding_panel.ui(ui);
+                decoding_panel.ui_offline(ui);
             });
         }
     });

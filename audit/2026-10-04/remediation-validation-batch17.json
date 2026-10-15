@@ -1,0 +1,30 @@
+{
+  "batch": 17,
+  "findings": [
+    "S01"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1556,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6355 nodes, 13653 edges)",
+  "regressions": [
+    "Two scheduled passes of the same satellite with real keyboard, loopback web, loopback rigctl and scanner manual tunes between passes: every route establishes the same monotonic 15-second cooldown and each eligible pass completes once",
+    "Clipped/refined forecast refreshes preserve job identity; disjoint later passes and newly created jobs receive distinct identities",
+    "A manual tune later in a completed pass persists past cooldown; delayed frequency notifications update history without replaying the old tune",
+    "Daemon adapter remains pending until authoritative hardware geometry acknowledges the request; hardware errors and unavailable replay frequencies never complete the job",
+    "Real sidebar checkbox toggles the shared Scheduler enable state; enabled, pending, completed, prepared-idle-VFO and failure states remain distinct",
+    "Satellite selection, bookmarks, AI frequency requests/links, setup defaults, receiver-center controls and ADS-B acquisition use shared manual cooldown state"
+  ],
+  "limitations": [
+    "Five formal findings and additional experiments remain open",
+    "Loopback/fake adapters and rendered egui events are not physical USB/audio/display measurements",
+    "G08 still requires truthful lifecycle execution for other AI tools",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

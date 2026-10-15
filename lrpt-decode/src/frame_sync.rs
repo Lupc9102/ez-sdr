@@ -42,7 +42,7 @@ pub const TRANSPORT_FRAME_LEN: usize = CADU_LEN_BYTES - 4;
 /// Maximum Hamming distance (bit errors) tolerated when matching the sync
 /// marker; a real signal at reasonable SNR should hit near-zero errors,
 /// but some slack handles residual noise.
-const MAX_MARKER_ERRORS: u32 = 4;
+const MAX_MARKER_ERRORS: u32 = 2;
 
 /// Compute the 4 bit-rotations of the 32-bit sync marker. Rotating the
 /// marker pattern covers the case where the recovered bitstream is offset
@@ -79,34 +79,24 @@ pub struct SyncMatch {
     pub errors: u32,
 }
 
-/// Search `bits` (MSB-first bitstream) for the best sync marker match at
-/// any bit offset, checking all bit positions and returning the
-/// lowest-Hamming-distance match at or below `MAX_MARKER_ERRORS`, if any.
+/// Return the earliest admissible sync marker in stream order. Choosing a
+/// later, cleaner match would discard an earlier complete frame.
 #[must_use]
 pub fn find_sync(bits: &[u8]) -> Option<SyncMatch> {
     if bits.len() < SYNC_MARKER_BITS {
         return None;
     }
-    let mut best: Option<SyncMatch> = None;
     for offset in 0..=(bits.len() - SYNC_MARKER_BITS) {
         let window = bits_to_u32(&bits[offset..offset + SYNC_MARKER_BITS]);
         let errors = (window ^ SYNC_MARKER).count_ones();
         if errors <= MAX_MARKER_ERRORS {
-            match best {
-                Some(b) if b.errors <= errors => {}
-                _ => {
-                    best = Some(SyncMatch {
-                        bit_offset: offset,
-                        errors,
-                    })
-                }
-            }
-            if errors == 0 {
-                break; // Perfect match, no need to keep scanning.
-            }
+            return Some(SyncMatch {
+                bit_offset: offset,
+                errors,
+            });
         }
     }
-    best
+    None
 }
 
 /// Streaming frame synchronizer: accumulates bits, finds the sync marker,
@@ -117,9 +107,14 @@ pub fn find_sync(bits: &[u8]) -> Option<SyncMatch> {
 pub struct FrameSync {
     bit_buffer: Vec<u8>,
     locked: bool,
-    /// Bit offset within `bit_buffer` where the next CADU is expected once
-    /// locked (relative addressing maintained by draining consumed bits).
-    consecutive_misses: u32,
+    bits_received: u64,
+}
+
+/// A candidate's position in the recovered bitstream, independent of input
+/// chunk boundaries. The caller still decides whether its transport is valid.
+pub struct LocatedFrame {
+    pub end_bit: u64,
+    pub bytes: Vec<u8>,
 }
 
 /// Total bits in one CADU (marker + transport frame).
@@ -137,6 +132,7 @@ impl FrameSync {
         Self::default()
     }
 
+    #[cfg(test)]
     #[must_use]
     pub fn is_locked(&self) -> bool {
         self.locked
@@ -146,57 +142,68 @@ impl FrameSync {
     /// out as many complete CADU frames as are now available. Each
     /// returned frame is `CADU_LEN_BYTES` bytes: the 4-byte sync marker
     /// followed by the `TRANSPORT_FRAME_LEN`-byte transport frame.
+    #[allow(
+        dead_code,
+        reason = "marker-only API used by independent acceptance probes"
+    )]
     pub fn push_bits(&mut self, bits: &[u8]) -> Vec<Vec<u8>> {
-        self.bit_buffer.extend_from_slice(bits);
-        if !self.locked && self.bit_buffer.len() > MAX_UNLOCKED_BITS {
-            // Noise-only input never locks: retain only the newest window so
-            // memory stays flat and the rescan stays cheap. A real marker is
-            // 32 bits; anything older than 4 CADUs is irrelevant to sync.
-            let drop = self.bit_buffer.len() - MAX_UNLOCKED_BITS;
-            self.bit_buffer.drain(0..drop);
-        }
-        let mut frames = Vec::new();
+        self.push_bits_checked(bits, |_| true)
+    }
 
+    /// Search candidates chronologically, validating before consuming a frame
+    /// boundary. Rejected candidates are returned for caller error accounting;
+    /// search advances only one bit, preserving overlapping valid candidates.
+    pub fn push_bits_checked(
+        &mut self,
+        bits: &[u8],
+        validate: impl FnMut(&[u8]) -> bool,
+    ) -> Vec<Vec<u8>> {
+        self.push_bits_located(bits, validate)
+            .into_iter()
+            .map(|frame| frame.bytes)
+            .collect()
+    }
+
+    pub fn push_bits_located(
+        &mut self,
+        bits: &[u8],
+        mut validate: impl FnMut(&[u8]) -> bool,
+    ) -> Vec<LocatedFrame> {
+        self.bits_received += bits.len() as u64;
+        self.bit_buffer.extend_from_slice(bits);
+        let mut frames = Vec::new();
         loop {
-            if !self.locked {
-                match find_sync(&self.bit_buffer) {
-                    Some(m) if m.bit_offset + CADU_BITS <= self.bit_buffer.len() => {
-                        // Drop everything before the marker.
-                        self.bit_buffer.drain(0..m.bit_offset);
-                        self.locked = true;
-                        self.consecutive_misses = 0;
-                    }
-                    _ => break, // not enough data yet, or no marker found
+            if self.bit_buffer.len() < SYNC_MARKER_BITS {
+                break;
+            }
+            if self.locked {
+                let marker = bits_to_u32(&self.bit_buffer[..SYNC_MARKER_BITS]);
+                if (marker ^ SYNC_MARKER).count_ones() > MAX_MARKER_ERRORS {
+                    self.locked = false;
                 }
             }
-
+            if !self.locked {
+                let Some(found) = find_sync(&self.bit_buffer) else {
+                    // No complete marker: retain only its possible split suffix.
+                    let drop = self.bit_buffer.len() - (SYNC_MARKER_BITS - 1);
+                    self.bit_buffer.drain(..drop);
+                    break;
+                };
+                self.bit_buffer.drain(..found.bit_offset);
+            }
             if self.bit_buffer.len() < CADU_BITS {
                 break;
             }
-
-            // We're locked and have a full CADU's worth of bits at the
-            // front of the buffer. Verify the marker is still there
-            // (within tolerance); if not, we've lost lock.
-            let marker_bits = &self.bit_buffer[0..SYNC_MARKER_BITS];
-            let marker_val = bits_to_u32(marker_bits);
-            let errors = (marker_val ^ SYNC_MARKER).count_ones();
-
-            if errors > MAX_MARKER_ERRORS {
-                self.consecutive_misses += 1;
-                if self.consecutive_misses > 4 {
-                    self.locked = false;
-                }
-                // Slide forward by 1 bit and retry search.
-                self.bit_buffer.drain(0..1);
-                continue;
-            }
-            self.consecutive_misses = 0;
-
-            let frame_bits: Vec<u8> = self.bit_buffer.drain(0..CADU_BITS).collect();
-            let frame_bytes = bits_to_bytes_msb(&frame_bits);
-            frames.push(frame_bytes);
+            let candidate = bits_to_bytes_msb(&self.bit_buffer[..CADU_BITS]);
+            self.locked = validate(&candidate);
+            frames.push(LocatedFrame {
+                end_bit: self.bits_received - self.bit_buffer.len() as u64 + CADU_BITS as u64,
+                bytes: candidate,
+            });
+            let consumed = if self.locked { CADU_BITS } else { 1 };
+            self.bit_buffer.drain(..consumed);
         }
-
+        debug_assert!(self.bit_buffer.len() <= MAX_UNLOCKED_BITS);
         frames
     }
 }
@@ -292,6 +299,55 @@ mod tests {
         }
         assert_eq!(all_frames.len(), 1);
         assert_eq!(all_frames[0].len(), CADU_LEN_BYTES);
+    }
+
+    #[test]
+    fn earlier_imperfect_marker_is_preserved_at_every_chunk_size() {
+        let make = |marker, payload| {
+            let mut bits = u32_to_bits(marker);
+            bits.extend(vec![payload; TRANSPORT_FRAME_LEN * 8]);
+            bits
+        };
+        let stream = [make(SYNC_MARKER ^ 3, 0), make(SYNC_MARKER, 1)].concat();
+        for size in [1, 31, 97, CADU_BITS + 17, stream.len()] {
+            let mut sync = FrameSync::new();
+            let frames: Vec<_> = stream
+                .chunks(size)
+                .flat_map(|chunk| sync.push_bits(chunk))
+                .collect();
+            assert_eq!(frames.len(), 2, "chunk {size}");
+            assert!(frames[0][4..].iter().all(|byte| *byte == 0));
+            assert!(frames[1][4..].iter().all(|byte| *byte == 255));
+        }
+    }
+
+    #[test]
+    fn invalid_overlapping_candidate_does_not_consume_valid_frame() {
+        let mut bytes = vec![0x55; CADU_LEN_BYTES];
+        bytes[..4].copy_from_slice(&SYNC_MARKER.to_be_bytes());
+        bytes[4] = 0xAB; // surrogate independent transport validation
+        let mut stream = u32_to_bits(SYNC_MARKER); // false payload marker
+        stream.extend([0; 23]);
+        stream.extend(
+            bytes
+                .iter()
+                .flat_map(|byte| (0..8).rev().map(move |bit| (byte >> bit) & 1)),
+        );
+        // A truncated suffix must survive the next call too.
+        stream.extend(u32_to_bits(SYNC_MARKER)[..13].iter());
+        for size in [31, 97, CADU_BITS, stream.len()] {
+            let mut sync = FrameSync::new();
+            let candidates: Vec<_> = stream
+                .chunks(size)
+                .flat_map(|chunk| sync.push_bits_checked(chunk, |candidate| candidate[4] == 0xAB))
+                .collect();
+            let valid: Vec<_> = candidates
+                .into_iter()
+                .filter(|candidate| candidate[4] == 0xAB)
+                .collect();
+            assert_eq!(valid, vec![bytes.clone()], "chunk {size}");
+            assert_eq!(sync.bit_buffer.len(), 13);
+        }
     }
 
     #[test]

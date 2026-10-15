@@ -1,0 +1,83 @@
+{
+  "group": "reference",
+  "started_utc": "2026-10-13T13:12:05.368780+00:00",
+  "cpu_policy": "Every thread in existing audit process trees restricted to one shared six-CPU set; descendants inherit. All future audit commands use the same affinity.",
+  "checks": [
+    {
+      "name": "rds-public-reference",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "ez-gui",
+        "--locked",
+        "radio_rds::tests::public_reference_multiplex_matches_independent_redsea_metadata",
+        "--",
+        "--exact",
+        "--ignored",
+        "--nocapture"
+      ],
+      "environment": {
+        "EZ_RDS_REFERENCE_WAV": "/home/lupc/.cache/ez-sdr-audit/radio-public-1010/mpx-testfile-yksi-f32.wav"
+      },
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 240.563,
+      "log": "audit/2026-10-11-final/software-completion/final/evidence/rds-public-reference.log",
+      "log_sha256": "681239839f031891901cba87a745ae2b0b52a328927ef4319aea34592da6dcc2"
+    },
+    {
+      "name": "meteor-public-72k",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "lrpt-decode",
+        "--locked",
+        "--lib",
+        "tests::public_off_air_carrier_recovers_reference_payload_bytes",
+        "--",
+        "--exact",
+        "--ignored",
+        "--nocapture"
+      ],
+      "environment": {
+        "EZ_METEOR_CS8": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/meteor-72k.cs8",
+        "EZ_METEOR_CADU": "/home/lupc/.cache/ez-sdr-audit/meteor-public-1010/meteor_m2-x_lrpt.cadu",
+        "EZ_METEOR_START_SECONDS": "180",
+        "EZ_METEOR_SECONDS": "20",
+        "EZ_METEOR_VALIDATION_OUTPUT": "/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/software-completion/final/meteor-public-72k"
+      },
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "tests_passed": 1,
+      "tests_failed": 0,
+      "tests_ignored": 0,
+      "seconds": 1039.416,
+      "log": "audit/2026-10-11-final/software-completion/final/evidence/meteor-public-72k.log",
+      "log_sha256": "54898476d251ff88d5ab07590248a7a65205c934583dcf774a40c29ca9c84531"
+    },
+    {
+      "name": "meteor-image-oracle",
+      "command": [
+        "python3",
+        "audit/2026-10-07/verify_public_image.py",
+        "/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/software-completion/final/meteor-public-72k/reference.cadu",
+        "/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/software-completion/final/meteor-public-72k",
+        "/home/lupc/Documents/ez-sdr/audit/2026-10-11-final/software-completion/final/meteor-public-72k/oracle"
+      ],
+      "environment": {},
+      "cwd": "/home/lupc/Documents/ez-sdr",
+      "exit_code": 0,
+      "seconds": 0.266,
+      "log": "audit/2026-10-11-final/software-completion/final/evidence/meteor-image-oracle.log",
+      "log_sha256": "713eff14c014455381662ccd293f9479b44bfc76dd945e7de956d4c7a873371d"
+    }
+  ],
+  "updated_utc": "2026-10-13T13:33:25.620970+00:00"
+}

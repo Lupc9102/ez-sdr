@@ -1,0 +1,18 @@
+    Checking ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+error: duplicated attribute
+    --> ez-gui/src/config.rs:1286:5
+     |
+1286 |     #[test]
+     |     ^^^^^^^
+     |
+     = note: `-D duplicate-macro-attributes` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(duplicate_macro_attributes)]`
+
+error: duplicated attribute
+    --> ez-gui/src/config.rs:1293:5
+     |
+1293 |     #[test]
+     |     ^^^^^^^
+
+error: could not compile `ez-gui` (lib test) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...

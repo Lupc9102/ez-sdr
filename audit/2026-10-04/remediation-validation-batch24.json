@@ -1,0 +1,36 @@
+{
+  "batch": 24,
+  "findings": [],
+  "findings_in_progress": ["A09"],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1624,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed (ten Rust files)",
+  "graphify": "refreshed (6676 nodes, 14666 edges)",
+  "protocol_version": 8,
+  "regressions": [
+    "Actual app raw/CF32 entry points at 2.4 MS/s preserve all 3096576 samples with controlled 60 Hz headless GUI pacing and a 300 ms SharedState stall; exact bytes and zero loss",
+    "Raw recording deadline finalizes disk bytes and sidecar before any GUI tick",
+    "Both native consumers stop before epoch, center, rate, index gap, discontinuity or origin boundaries; exact fractional native clocks and valid prefix are retained",
+    "Deliberate bounded input overflow accounts for dropped blocks and all omitted native samples, finalizes without stitching, unsubscribes, and leaves a fast independent consumer lossless",
+    "Injected production raw/CF32 write and flush failures preserve the actual disk prefix, normalize acquisition counts, persist explicit incomplete metadata, and stop/join within the 500 ms private-fixture bound",
+    "CF32 conversion uses one output allocation and a 256-component normalized LE-float32 lookup; every ADC value matches the prior float expression exactly, with unchanged odd/empty input behavior",
+    "Daemon satellite recording rejects local capture before creating a file and directs recording to the daemon host",
+    "All existing recording, replay, immutable epoch, scanner, decoder, control, integration and UI regressions pass in the final workspace run"
+  ],
+  "limitations": [
+    "A09 remains in progress: radio channelization/demodulation input and audio playback/WAV delivery still depend on GUI ticks",
+    "Forty-one of 42 formal findings and one of eight additional experiments are complete; the full goal remains active",
+    "The user explicitly deferred physical SDR/USB, calibrated RF and unavailable reference-capture validation; no physical checks were performed",
+    "The controlled 60 Hz test runs headless app logic and does not certify actual-display p50/p95/p99 latency",
+    "Private injected disk faults do not certify arbitrary kernel/filesystem blocking or physical USB cancellation",
+    "An intermediate concurrent full run saturated the former CF32 conversion/disk queue and failed the lossless assertion; conversion was optimized and the subsequent full run passed",
+    "A first focused fixture used a mismatched VFO/capture center and correctly hit the recording epoch guard; the fixture was corrected before final verification",
+    "Original audit evidence, 672 pre-existing tracked deletions, untracked AGENTS.md and four untouched formatting differences are preserved"
+  ]
+}

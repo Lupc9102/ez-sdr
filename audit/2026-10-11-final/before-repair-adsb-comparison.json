@@ -1,0 +1,984 @@
+{
+  "source": "Independent Python pulse integration, fixed seed 1011; synthetic RF, not off-air sensitivity proof",
+  "settings": "Both primary runs disable CRC correction; Rust CLI default nfix_crc=0, C --no-fix. Reference EOF exits 1 by readerThreadEntryPoint design; frame output is retained.",
+  "cases": 120,
+  "sample_rate_hz": 2400000,
+  "fixture_sha256": "b427a332c13fdbb184b61a662c15b578bf767d4392932605d519fc3598c09180",
+  "reference_commit": "0339a57b89cd6e61856cbb13ae342c31ae7be5ac",
+  "reference_exit": 1,
+  "rust_exit": 0,
+  "reference_recovered": 95,
+  "rust_recovered": 95,
+  "both": 95,
+  "reference_only": 0,
+  "rust_only": 0,
+  "reference_unexpected": [],
+  "rust_unexpected": [],
+  "cli_stream_bytes": {
+    "beast": 2190,
+    "sbs": 0,
+    "raw": 0
+  },
+  "cases_detail": [
+    {
+      "hex": "8DA0000058C382D690C8ACE7FED7",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000158C382D690C8AC9924F5",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000258C382D690C8AC1A4A93",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000358C382D690C8AC6490B1",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000458C382D690C8ACE36256",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000558C382D690C8AC9DB874",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000658C382D690C8AC1ED612",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000758C382D690C8AC600C30",
+      "amplitude": 0.8,
+      "noise_rms": 0,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000858C382D690C8ACEEC7D5",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000958C382D690C8AC901DF7",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000A58C382D690C8AC137391",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000B58C382D690C8AC6DA9B3",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000C58C382D690C8ACEA5B54",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000D58C382D690C8AC948176",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000E58C382D690C8AC17EF10",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0000F58C382D690C8AC693532",
+      "amplitude": 0.8,
+      "noise_rms": 0.01,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001058C382D690C8ACF58CD3",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001158C382D690C8AC8B56F1",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001258C382D690C8AC083897",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001358C382D690C8AC76E2B5",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001458C382D690C8ACF11052",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001558C382D690C8AC8FCA70",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001658C382D690C8AC0CA416",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001758C382D690C8AC727E34",
+      "amplitude": 0.8,
+      "noise_rms": 0.035,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001858C382D690C8ACFCB5D1",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001958C382D690C8AC826FF3",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001A58C382D690C8AC010195",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001B58C382D690C8AC7FDBB7",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001C58C382D690C8ACF82950",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001D58C382D690C8AC86F372",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001E58C382D690C8AC059D14",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0001F58C382D690C8AC7B4736",
+      "amplitude": 0.4,
+      "noise_rms": 0,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002058C382D690C8ACC31ADF",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002158C382D690C8ACBDC0FD",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002258C382D690C8AC3EAE9B",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002358C382D690C8AC4074B9",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002458C382D690C8ACC7865E",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002558C382D690C8ACB95C7C",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002658C382D690C8AC3A321A",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002758C382D690C8AC44E838",
+      "amplitude": 0.4,
+      "noise_rms": 0.01,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002858C382D690C8ACCA23DD",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002958C382D690C8ACB4F9FF",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002A58C382D690C8AC379799",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002B58C382D690C8AC494DBB",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002C58C382D690C8ACCEBF5C",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002D58C382D690C8ACB0657E",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002E58C382D690C8AC330B18",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0002F58C382D690C8AC4DD13A",
+      "amplitude": 0.4,
+      "noise_rms": 0.035,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003058C382D690C8ACD168DB",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003158C382D690C8ACAFB2F9",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003258C382D690C8AC2CDC9F",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003358C382D690C8AC5206BD",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003458C382D690C8ACD5F45A",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003558C382D690C8ACAB2E78",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003658C382D690C8AC28401E",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003758C382D690C8AC569A3C",
+      "amplitude": 0.2,
+      "noise_rms": 0,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003858C382D690C8ACD851D9",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003958C382D690C8ACA68BFB",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003A58C382D690C8AC25E59D",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003B58C382D690C8AC5B3FBF",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003C58C382D690C8ACDCCD58",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003D58C382D690C8ACA2177A",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003E58C382D690C8AC21791C",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0003F58C382D690C8AC5FA33E",
+      "amplitude": 0.2,
+      "noise_rms": 0.01,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004058C382D690C8ACAE36C7",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.0,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0004158C382D690C8ACD0ECE5",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.125,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0004258C382D690C8AC538283",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004358C382D690C8AC2D58A1",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.375,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0004458C382D690C8ACAAAA46",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.5,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0004558C382D690C8ACD47064",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004658C382D690C8AC571E02",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004758C382D690C8AC29C420",
+      "amplitude": 0.2,
+      "noise_rms": 0.035,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004858C382D690C8ACA70FC5",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004958C382D690C8ACD9D5E7",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004A58C382D690C8AC5ABB81",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004B58C382D690C8AC2461A3",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004C58C382D690C8ACA39344",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004D58C382D690C8ACDD4966",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004E58C382D690C8AC5E2700",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0004F58C382D690C8AC20FD22",
+      "amplitude": 0.1,
+      "noise_rms": 0,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005058C382D690C8ACBC44C3",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005158C382D690C8ACC29EE1",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005258C382D690C8AC41F087",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005358C382D690C8AC3F2AA5",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005458C382D690C8ACB8D842",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005558C382D690C8ACC60260",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005658C382D690C8AC456C06",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005758C382D690C8AC3BB624",
+      "amplitude": 0.1,
+      "noise_rms": 0.01,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0005858C382D690C8ACB57DC1",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.0,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0005958C382D690C8ACCBA7E3",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.125,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0005A58C382D690C8AC48C985",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.25,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0005B58C382D690C8AC3613A7",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.375,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0005C58C382D690C8ACB1E140",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.5,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0005D58C382D690C8ACCF3B62",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.625,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0005E58C382D690C8AC4C5504",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.75,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0005F58C382D690C8AC328F26",
+      "amplitude": 0.1,
+      "noise_rms": 0.035,
+      "phase_samples": 0.875,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0006058C382D690C8AC8AD2CF",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.0,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006158C382D690C8ACF408ED",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006258C382D690C8AC77668B",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.25,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006358C382D690C8AC09BCA9",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.375,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006458C382D690C8AC8E4E4E",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.5,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006558C382D690C8ACF0946C",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006658C382D690C8AC73FA0A",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.75,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006758C382D690C8AC0D2028",
+      "amplitude": 0.05,
+      "noise_rms": 0,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006858C382D690C8AC83EBCD",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.0,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0006958C382D690C8ACFD31EF",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.125,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006A58C382D690C8AC7E5F89",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.25,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0006B58C382D690C8AC0085AB",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.375,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0006C58C382D690C8AC87774C",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.5,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0006D58C382D690C8ACF9AD6E",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.625,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0006E58C382D690C8AC7AC308",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.75,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0006F58C382D690C8AC04192A",
+      "amplitude": 0.05,
+      "noise_rms": 0.01,
+      "phase_samples": 0.875,
+      "reference": true,
+      "rust": true
+    },
+    {
+      "hex": "8DA0007058C382D690C8AC98A0CB",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.0,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0007158C382D690C8ACE67AE9",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.125,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0007258C382D690C8AC65148F",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.25,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0007358C382D690C8AC1BCEAD",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.375,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0007458C382D690C8AC9C3C4A",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.5,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0007558C382D690C8ACE2E668",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.625,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0007658C382D690C8AC61880E",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.75,
+      "reference": false,
+      "rust": false
+    },
+    {
+      "hex": "8DA0007758C382D690C8AC1F522C",
+      "amplitude": 0.05,
+      "noise_rms": 0.035,
+      "phase_samples": 0.875,
+      "reference": false,
+      "rust": false
+    }
+  ]
+}

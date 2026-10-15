@@ -1,0 +1,34 @@
+    Blocking waiting for file lock on build directory
+    Finished `release` profile [optimized] target(s) in 2m 22s
+     Running unittests src/lib.rs (target/release/deps/ez_gui-168e23ba9bba9d8f)
+
+running 1 test
+AUDIO_DRIVER_RESULT {"cases":[{"input_channels":1,"old_receiver_disconnected":true,"queue_drain_us":20120,"queued_sample_frames":2880,"receiver_retirement_us":10082,"sample_rate_hz":48000,"silence_only":true,"stop_call_us":13},{"input_channels":2,"old_receiver_disconnected":true,"queue_drain_us":20115,"queued_sample_frames":2880,"receiver_retirement_us":10066,"sample_rate_hz":48000,"silence_only":true,"stop_call_us":6}],"device_id":"pulseaudio:alsa_output.pci-0000_07_00.4.analog-stereo"}
+test audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.57s
+
+     Running unittests src/main.rs (target/release/deps/ez_gui-fa2b6d0d44dbf331)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/event_bus_integration.rs (target/release/deps/event_bus_integration-ad6afaa173a9e864)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/radio_controls.rs (target/release/deps/radio_controls-2a5a1fc406c3b423)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/radio_performance.rs (target/release/deps/radio_performance-5fc5d0667f158542)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

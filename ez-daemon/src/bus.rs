@@ -19,10 +19,61 @@ use crate::broadcast::{Broadcaster, BroadcasterHandle};
 /// subscriber to reconstruct absolute time/frequency without consulting the daemon state.
 #[derive(Debug, Clone)]
 pub struct SampleBlock {
+    /// Stable source/product session, distinct from a continuity epoch. Gaps
+    /// retain it; a source restart, replay loop or RF tuning change retires it.
+    /// Zero denotes callers without annotated source-session provenance.
+    pub product_session: u64,
+    /// Present on ingested/channelized input. None denotes unannotated callers;
+    /// their sample index/rate still supplies a relative clock, without UTC.
+    pub capture: Option<ez_proto::CaptureClock>,
+    /// Completion of the source read, retained across downstream queue delay.
+    /// This monotonic processing observation is not acquisition UTC.
+    pub observed_at: Option<std::time::Instant>,
     pub start_sample: u64,
     pub sample_rate_hz: u32,
     pub center_freq_hz: u64,
+    /// Components are in normalized full-scale units (CU8 0/255 => -1/+1).
+    /// Filtering may overshoot full scale; CF32 preserves those float values.
     pub samples: Arc<[Complex32]>,
+}
+
+impl SampleBlock {
+    pub fn capture_clock(&self) -> ez_proto::CaptureClock {
+        self.capture.unwrap_or_else(|| {
+            ez_proto::CaptureClock::new(0, self.start_sample, self.sample_rate_hz, None)
+        })
+    }
+}
+
+/// Detects missing samples and capture changes at each consumer's own queue.
+/// Numeric adjacency alone cannot prove continuity after integer decimation.
+#[derive(Default)]
+pub(crate) struct SampleContinuity {
+    next: Option<(u64, ez_proto::CaptureClock, u32, u64)>,
+}
+
+impl SampleContinuity {
+    pub fn observe(&mut self, block: &SampleBlock) -> bool {
+        let clock = block.capture_clock();
+        let contiguous = !clock.discontinuous
+            && self.next.is_some_and(|(sample, previous, rate, center)| {
+                sample == block.start_sample
+                    && rate == block.sample_rate_hz
+                    && center == block.center_freq_hz
+                    && previous.epoch == clock.epoch
+                    && previous.source_sample_index == clock.source_sample_index
+                    && previous.source_sample_rate_hz == clock.source_sample_rate_hz
+                    && previous.sample_stride == clock.sample_stride
+                    && previous.origin_unix_ns == clock.origin_unix_ns
+            });
+        self.next = block
+            .start_sample
+            .checked_add(block.samples.len() as u64)
+            .zip(clock.offset_samples(block.samples.len() as u64))
+            .filter(|_| clock.source_sample_rate_hz > 0 && clock.sample_stride > 0)
+            .map(|(sample, clock)| (sample, clock, block.sample_rate_hz, block.center_freq_hz));
+        contiguous
+    }
 }
 
 /// Lock-free, non-blocking fan-out of [`SampleBlock`]s.
@@ -39,6 +90,9 @@ mod tests {
 
     fn block(start_sample: u64, tag: f32) -> SampleBlock {
         SampleBlock {
+            product_session: 0,
+            observed_at: None,
+            capture: None,
             start_sample,
             sample_rate_hz: 2_048_000,
             center_freq_hz: 433_000_000,
@@ -84,6 +138,9 @@ mod tests {
         assert_eq!(Arc::strong_count(&payload), 1);
 
         bus.publish(SampleBlock {
+            product_session: 0,
+            observed_at: None,
+            capture: None,
             start_sample: 0,
             sample_rate_hz: 1,
             center_freq_hz: 1,

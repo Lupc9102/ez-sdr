@@ -1,0 +1,14 @@
+[
+  {
+    "test": "app::app_ui_tests::daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio",
+    "exit_code": 0,
+    "seconds": 2.442,
+    "log": "audit/2026-10-11-final/evidence/headless-isolated-daemon_squelch_spectrum_and_websocket_routes_apply_to_real_audio.log"
+  },
+  {
+    "test": "app::app_ui_tests::native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall",
+    "exit_code": 101,
+    "seconds": 1.517,
+    "log": "audit/2026-10-11-final/evidence/headless-isolated-native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall.log"
+  }
+]

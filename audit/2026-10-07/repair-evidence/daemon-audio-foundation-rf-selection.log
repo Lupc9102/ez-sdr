@@ -1,0 +1,10 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 04s
+     Running unittests src/lib.rs (target/debug/deps/ez_daemon-95650a7f14b2f657)
+
+running 2 tests
+test audio_rf::tests::rf_selection_chunks_resets_and_nonfinite_inputs_preserve_bounded_history ... ok
+test audio_rf::tests::rf_selection_production_clocks_protect_passband_and_reject_stronger_neighbors ... rf_selection cases=108 max_gain_error_db=0.00000454 min_rejection_db=123.199381 max_27_96db_stronger_neighbor_mixture_error_db=0.00000278
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 228 filtered out; finished in 40.10s

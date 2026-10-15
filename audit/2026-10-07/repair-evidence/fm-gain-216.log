@@ -1,0 +1,244 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `record_failure` is never used
+   --> ez-gui/src/audio_output.rs:339:4
+    |
+339 | fn record_failure(failed: &AtomicBool, message: &Mutex<Option<String>>, error: String) {
+    |    ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib) generated 3 warnings (run `cargo fix --lib -p ez-gui` to apply 2 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.57s
+     Running `target/debug/examples/audit_fm_gain`
+audio_rate=44100 rate=192003 rf_decim=1 nr=None mode=Fm stereo=false gain=0.998627340 gain_db=-0.011931 deviation=2496.776367 deviation_ratio=0.998710573 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=None mode=Wfm stereo=false gain=0.998473652 gain_db=-0.013268 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=None mode=Wfm stereo=true gain=0.998800110 gain_db=-0.010428 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998623135 gain_db=-0.011968 deviation=2496.766357 deviation_ratio=0.998706520 samples=11025
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998699488 gain_db=-0.011303 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998671101 gain_db=-0.011550 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(Voice) mode=Fm stereo=false gain=0.998623160 gain_db=-0.011967 deviation=2496.766357 deviation_ratio=0.998706520 samples=11025
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=false gain=0.998699488 gain_db=-0.011303 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=true gain=0.998671101 gain_db=-0.011550 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998623139 gain_db=-0.011967 deviation=2496.766357 deviation_ratio=0.998706520 samples=11025
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998699488 gain_db=-0.011303 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998671101 gain_db=-0.011550 deviation=10000.002930 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=None mode=Fm stereo=false gain=0.998723988 gain_db=-0.011090 deviation=2496.626709 deviation_ratio=0.998650670 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=None mode=Wfm stereo=false gain=0.998644451 gain_db=-0.011782 deviation=10000.003906 deviation_ratio=1.000000358 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=None mode=Wfm stereo=true gain=0.998644451 gain_db=-0.011782 deviation=10000.003906 deviation_ratio=1.000000358 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998614272 gain_db=-0.012045 deviation=2496.612061 deviation_ratio=0.998644829 samples=11025
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998715090 gain_db=-0.011168 deviation=9999.996094 deviation_ratio=0.999999583 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998715090 gain_db=-0.011168 deviation=9999.996094 deviation_ratio=0.999999583 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(Voice) mode=Fm stereo=false gain=0.998614223 gain_db=-0.012045 deviation=2496.263672 deviation_ratio=0.998505473 samples=11025
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=false gain=0.998715090 gain_db=-0.011168 deviation=9999.996094 deviation_ratio=0.999999583 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=true gain=0.998715090 gain_db=-0.011168 deviation=9999.996094 deviation_ratio=0.999999583 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998614275 gain_db=-0.012045 deviation=2496.612061 deviation_ratio=0.998644829 samples=11025
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998715090 gain_db=-0.011168 deviation=9999.996094 deviation_ratio=0.999999583 samples=11024
+audio_rate=44100 rate=192003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998715090 gain_db=-0.011168 deviation=9999.996094 deviation_ratio=0.999999583 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=None mode=Fm stereo=false gain=0.998623842 gain_db=-0.011961 deviation=2496.003418 deviation_ratio=0.998401344 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=None mode=Wfm stereo=false gain=0.998780940 gain_db=-0.010595 deviation=9998.546875 deviation_ratio=0.999854684 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=None mode=Wfm stereo=true gain=0.998780940 gain_db=-0.010595 deviation=9998.546875 deviation_ratio=0.999854684 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998343414 gain_db=-0.014401 deviation=2495.950928 deviation_ratio=0.998380363 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.994697739 gain_db=-0.046177 deviation=9916.395508 deviation_ratio=0.991639555 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.994697739 gain_db=-0.046177 deviation=9916.395508 deviation_ratio=0.991639555 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(Voice) mode=Fm stereo=false gain=0.998005451 gain_db=-0.017342 deviation=2493.645752 deviation_ratio=0.997458279 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=false gain=0.994697739 gain_db=-0.046177 deviation=9916.395508 deviation_ratio=0.991639555 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=true gain=0.994697739 gain_db=-0.046177 deviation=9916.395508 deviation_ratio=0.991639555 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.996788795 gain_db=-0.027937 deviation=2493.516602 deviation_ratio=0.997406662 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.994697739 gain_db=-0.046177 deviation=9916.395508 deviation_ratio=0.991639555 samples=11024
+audio_rate=44100 rate=192003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.994697739 gain_db=-0.046177 deviation=9916.395508 deviation_ratio=0.991639555 samples=11024
+audio_rate=44100 rate=384000 rf_decim=1 nr=None mode=Fm stereo=false gain=0.998512927 gain_db=-0.012926 deviation=2496.808594 deviation_ratio=0.998723447 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=None mode=Wfm stereo=false gain=0.998572999 gain_db=-0.012404 deviation=9999.999023 deviation_ratio=0.999999881 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=None mode=Wfm stereo=true gain=0.998573145 gain_db=-0.012402 deviation=9999.999023 deviation_ratio=0.999999881 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998624708 gain_db=-0.011954 deviation=2496.814697 deviation_ratio=0.998725891 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998684590 gain_db=-0.011433 deviation=10000.022461 deviation_ratio=1.000002265 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998682216 gain_db=-0.011454 deviation=10000.022461 deviation_ratio=1.000002265 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(Voice) mode=Fm stereo=false gain=0.998624734 gain_db=-0.011954 deviation=2496.814697 deviation_ratio=0.998725891 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=false gain=0.998684590 gain_db=-0.011433 deviation=10000.022461 deviation_ratio=1.000002265 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=true gain=0.998682216 gain_db=-0.011454 deviation=10000.022461 deviation_ratio=1.000002265 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998624715 gain_db=-0.011954 deviation=2496.814697 deviation_ratio=0.998725891 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998684590 gain_db=-0.011433 deviation=10000.022461 deviation_ratio=1.000002265 samples=11025
+audio_rate=44100 rate=384000 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998682216 gain_db=-0.011454 deviation=10000.022461 deviation_ratio=1.000002265 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=None mode=Fm stereo=false gain=0.998511550 gain_db=-0.012938 deviation=2496.776367 deviation_ratio=0.998710573 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=None mode=Wfm stereo=false gain=0.998572966 gain_db=-0.012404 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=None mode=Wfm stereo=true gain=0.998574400 gain_db=-0.012391 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998623112 gain_db=-0.011968 deviation=2496.779053 deviation_ratio=0.998711646 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998572970 gain_db=-0.012404 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998574401 gain_db=-0.012391 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(Voice) mode=Fm stereo=false gain=0.998623107 gain_db=-0.011968 deviation=2496.779053 deviation_ratio=0.998711646 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=false gain=0.998572970 gain_db=-0.012404 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=true gain=0.998574401 gain_db=-0.012391 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998623096 gain_db=-0.011968 deviation=2496.779053 deviation_ratio=0.998711646 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998572970 gain_db=-0.012404 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998574401 gain_db=-0.012391 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=None mode=Fm stereo=false gain=0.998505818 gain_db=-0.012988 deviation=2496.633057 deviation_ratio=0.998653233 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=None mode=Wfm stereo=false gain=0.998572870 gain_db=-0.012405 deviation=9999.992188 deviation_ratio=0.999999225 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=None mode=Wfm stereo=true gain=0.998572870 gain_db=-0.012405 deviation=9999.992188 deviation_ratio=0.999999225 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998615399 gain_db=-0.012035 deviation=2496.601074 deviation_ratio=0.998640418 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998572184 gain_db=-0.012411 deviation=9999.974609 deviation_ratio=0.999997437 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998572184 gain_db=-0.012411 deviation=9999.974609 deviation_ratio=0.999997437 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(Voice) mode=Fm stereo=false gain=0.998615350 gain_db=-0.012035 deviation=2496.254150 deviation_ratio=0.998501658 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=false gain=0.998572184 gain_db=-0.012411 deviation=9999.974609 deviation_ratio=0.999997437 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=true gain=0.998572184 gain_db=-0.012411 deviation=9999.974609 deviation_ratio=0.999997437 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998615393 gain_db=-0.012035 deviation=2496.601074 deviation_ratio=0.998640418 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998572184 gain_db=-0.012411 deviation=9999.974609 deviation_ratio=0.999997437 samples=11025
+audio_rate=44100 rate=384000 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998572184 gain_db=-0.012411 deviation=9999.974609 deviation_ratio=0.999997437 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=None mode=Fm stereo=false gain=0.998275200 gain_db=-0.014994 deviation=2496.822021 deviation_ratio=0.998728812 samples=11024
+audio_rate=44100 rate=2048003 rf_decim=1 nr=None mode=Wfm stereo=false gain=0.998153097 gain_db=-0.016057 deviation=10000.001953 deviation_ratio=1.000000238 samples=11024
+audio_rate=44100 rate=2048003 rf_decim=1 nr=None mode=Wfm stereo=true gain=0.998743307 gain_db=-0.010922 deviation=10000.001953 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998625148 gain_db=-0.011950 deviation=2496.838135 deviation_ratio=0.998735249 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998684752 gain_db=-0.011432 deviation=10000.001953 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998682374 gain_db=-0.011452 deviation=10000.001953 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(Voice) mode=Fm stereo=false gain=0.998625175 gain_db=-0.011950 deviation=2496.838135 deviation_ratio=0.998735249 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=false gain=0.998684752 gain_db=-0.011432 deviation=10000.001953 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=true gain=0.998682374 gain_db=-0.011452 deviation=10000.001953 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998625158 gain_db=-0.011950 deviation=2496.838135 deviation_ratio=0.998735249 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998684752 gain_db=-0.011432 deviation=10000.001953 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998682374 gain_db=-0.011452 deviation=10000.001953 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=None mode=Fm stereo=false gain=0.998414171 gain_db=-0.013785 deviation=2496.819336 deviation_ratio=0.998727739 samples=11024
+audio_rate=44100 rate=2048003 rf_decim=2 nr=None mode=Wfm stereo=false gain=0.998271902 gain_db=-0.015023 deviation=10000.003906 deviation_ratio=1.000000358 samples=11024
+audio_rate=44100 rate=2048003 rf_decim=2 nr=None mode=Wfm stereo=true gain=0.998743273 gain_db=-0.010923 deviation=10000.003906 deviation_ratio=1.000000358 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998625135 gain_db=-0.011950 deviation=2496.782715 deviation_ratio=0.998713076 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998684724 gain_db=-0.011432 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998682365 gain_db=-0.011452 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(Voice) mode=Fm stereo=false gain=0.998625142 gain_db=-0.011950 deviation=2496.782715 deviation_ratio=0.998713076 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=false gain=0.998684724 gain_db=-0.011432 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=true gain=0.998682365 gain_db=-0.011452 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998625119 gain_db=-0.011950 deviation=2496.782715 deviation_ratio=0.998713076 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998684724 gain_db=-0.011432 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998682365 gain_db=-0.011452 deviation=10000.002930 deviation_ratio=1.000000238 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=None mode=Fm stereo=false gain=0.998641504 gain_db=-0.011808 deviation=2496.813965 deviation_ratio=0.998725593 samples=11024
+audio_rate=44100 rate=2048003 rf_decim=4 nr=None mode=Wfm stereo=false gain=0.998573321 gain_db=-0.012401 deviation=10000.009766 deviation_ratio=1.000000954 samples=11024
+audio_rate=44100 rate=2048003 rf_decim=4 nr=None mode=Wfm stereo=true gain=0.998741047 gain_db=-0.010942 deviation=10000.009766 deviation_ratio=1.000000954 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998624904 gain_db=-0.011952 deviation=2496.844482 deviation_ratio=0.998737812 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998684679 gain_db=-0.011432 deviation=10000.007812 deviation_ratio=1.000000834 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998682321 gain_db=-0.011453 deviation=10000.007812 deviation_ratio=1.000000834 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(Voice) mode=Fm stereo=false gain=0.998624891 gain_db=-0.011952 deviation=2496.844482 deviation_ratio=0.998737812 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=false gain=0.998684679 gain_db=-0.011432 deviation=10000.007812 deviation_ratio=1.000000834 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=true gain=0.998682321 gain_db=-0.011453 deviation=10000.007812 deviation_ratio=1.000000834 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998624876 gain_db=-0.011952 deviation=2496.844482 deviation_ratio=0.998737812 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998684679 gain_db=-0.011432 deviation=10000.007812 deviation_ratio=1.000000834 samples=11025
+audio_rate=44100 rate=2048003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998682321 gain_db=-0.011453 deviation=10000.007812 deviation_ratio=1.000000834 samples=11025
+audio_rate=48000 rate=192003 rf_decim=1 nr=None mode=Fm stereo=false gain=0.998947592 gain_db=-0.009146 deviation=2496.776367 deviation_ratio=0.998710573 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=None mode=Wfm stereo=false gain=0.998810820 gain_db=-0.010335 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=None mode=Wfm stereo=true gain=0.999121993 gain_db=-0.007630 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998537432 gain_db=-0.012713 deviation=2496.766357 deviation_ratio=0.998706520 samples=12000
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.999018902 gain_db=-0.008526 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.999007045 gain_db=-0.008629 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(Voice) mode=Fm stereo=false gain=0.998849570 gain_db=-0.009998 deviation=2496.766357 deviation_ratio=0.998706520 samples=12000
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=false gain=0.999018902 gain_db=-0.008526 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=true gain=0.999007045 gain_db=-0.008629 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998849862 gain_db=-0.009996 deviation=2496.766357 deviation_ratio=0.998706520 samples=12000
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.999018902 gain_db=-0.008526 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.999007045 gain_db=-0.008629 deviation=10000.002930 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=None mode=Fm stereo=false gain=0.999042269 gain_db=-0.008323 deviation=2496.626709 deviation_ratio=0.998650670 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=None mode=Wfm stereo=false gain=0.998966257 gain_db=-0.008984 deviation=10000.003906 deviation_ratio=1.000000358 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=None mode=Wfm stereo=true gain=0.998966257 gain_db=-0.008984 deviation=10000.003906 deviation_ratio=1.000000358 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998637192 gain_db=-0.011845 deviation=2496.612061 deviation_ratio=0.998644829 samples=12000
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.999052989 gain_db=-0.008230 deviation=9999.996094 deviation_ratio=0.999999583 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.999052989 gain_db=-0.008230 deviation=9999.996094 deviation_ratio=0.999999583 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(Voice) mode=Fm stereo=false gain=0.998922158 gain_db=-0.009367 deviation=2496.263672 deviation_ratio=0.998505473 samples=12000
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=false gain=0.999052989 gain_db=-0.008230 deviation=9999.996094 deviation_ratio=0.999999583 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=true gain=0.999052989 gain_db=-0.008230 deviation=9999.996094 deviation_ratio=0.999999583 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998749836 gain_db=-0.010866 deviation=2496.612061 deviation_ratio=0.998644829 samples=12000
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.999052989 gain_db=-0.008230 deviation=9999.996094 deviation_ratio=0.999999583 samples=11999
+audio_rate=48000 rate=192003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.999052989 gain_db=-0.008230 deviation=9999.996094 deviation_ratio=0.999999583 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=None mode=Fm stereo=false gain=0.998964422 gain_db=-0.009000 deviation=2496.003418 deviation_ratio=0.998401344 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=None mode=Wfm stereo=false gain=0.999101713 gain_db=-0.007806 deviation=9998.546875 deviation_ratio=0.999854684 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=None mode=Wfm stereo=true gain=0.999101713 gain_db=-0.007806 deviation=9998.546875 deviation_ratio=0.999854684 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998708420 gain_db=-0.011226 deviation=2495.950928 deviation_ratio=0.998380363 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.995028754 gain_db=-0.043287 deviation=9916.395508 deviation_ratio=0.991639555 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.995028754 gain_db=-0.043287 deviation=9916.395508 deviation_ratio=0.991639555 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(Voice) mode=Fm stereo=false gain=0.998365692 gain_db=-0.014207 deviation=2493.645752 deviation_ratio=0.997458279 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=false gain=0.995028754 gain_db=-0.043287 deviation=9916.395508 deviation_ratio=0.991639555 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=true gain=0.995028754 gain_db=-0.043287 deviation=9916.395508 deviation_ratio=0.991639555 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.997106503 gain_db=-0.025169 deviation=2493.516602 deviation_ratio=0.997406662 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.995028754 gain_db=-0.043287 deviation=9916.395508 deviation_ratio=0.991639555 samples=11999
+audio_rate=48000 rate=192003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.995028754 gain_db=-0.043287 deviation=9916.395508 deviation_ratio=0.991639555 samples=11999
+audio_rate=48000 rate=384000 rf_decim=1 nr=None mode=Fm stereo=false gain=0.999939864 gain_db=-0.000522 deviation=2496.808594 deviation_ratio=0.998723447 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=None mode=Wfm stereo=false gain=1.000000012 gain_db=0.000000 deviation=9999.999023 deviation_ratio=0.999999881 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=None mode=Wfm stereo=true gain=1.000000158 gain_db=0.000001 deviation=9999.999023 deviation_ratio=0.999999881 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998526263 gain_db=-0.012810 deviation=2496.814697 deviation_ratio=0.998725891 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998716950 gain_db=-0.011152 deviation=10000.022461 deviation_ratio=1.000002265 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998266464 gain_db=-0.015070 deviation=10000.022461 deviation_ratio=1.000002265 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(Voice) mode=Fm stereo=false gain=0.998840111 gain_db=-0.010081 deviation=2496.814697 deviation_ratio=0.998725891 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=false gain=0.998716950 gain_db=-0.011152 deviation=10000.022461 deviation_ratio=1.000002265 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=true gain=0.998266464 gain_db=-0.015070 deviation=10000.022461 deviation_ratio=1.000002265 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998861659 gain_db=-0.009893 deviation=2496.814697 deviation_ratio=0.998725891 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998716950 gain_db=-0.011152 deviation=10000.022461 deviation_ratio=1.000002265 samples=12000
+audio_rate=48000 rate=384000 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998266464 gain_db=-0.015070 deviation=10000.022461 deviation_ratio=1.000002265 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=None mode=Fm stereo=false gain=0.999938473 gain_db=-0.000534 deviation=2496.776367 deviation_ratio=0.998710573 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=None mode=Wfm stereo=false gain=0.999999990 gain_db=-0.000000 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=None mode=Wfm stereo=true gain=1.000001415 gain_db=0.000012 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998671696 gain_db=-0.011545 deviation=2496.779053 deviation_ratio=0.998711646 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.999999990 gain_db=-0.000000 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=true gain=1.000001415 gain_db=0.000012 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(Voice) mode=Fm stereo=false gain=0.998383705 gain_db=-0.014050 deviation=2496.779053 deviation_ratio=0.998711646 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=false gain=0.999999990 gain_db=-0.000000 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=true gain=1.000001415 gain_db=0.000012 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998424127 gain_db=-0.013699 deviation=2496.779053 deviation_ratio=0.998711646 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.999999990 gain_db=-0.000000 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=true gain=1.000001415 gain_db=0.000012 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=None mode=Fm stereo=false gain=0.999932740 gain_db=-0.000584 deviation=2496.633057 deviation_ratio=0.998653233 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=None mode=Wfm stereo=false gain=0.999999873 gain_db=-0.000001 deviation=9999.992188 deviation_ratio=0.999999225 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=None mode=Wfm stereo=true gain=0.999999873 gain_db=-0.000001 deviation=9999.992188 deviation_ratio=0.999999225 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998624179 gain_db=-0.011958 deviation=2496.601074 deviation_ratio=0.998640418 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.999999183 gain_db=-0.000007 deviation=9999.974609 deviation_ratio=0.999997437 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.999999183 gain_db=-0.000007 deviation=9999.974609 deviation_ratio=0.999997437 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(Voice) mode=Fm stereo=false gain=0.998913839 gain_db=-0.009439 deviation=2496.254150 deviation_ratio=0.998501658 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=false gain=0.999999183 gain_db=-0.000007 deviation=9999.974609 deviation_ratio=0.999997437 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=true gain=0.999999183 gain_db=-0.000007 deviation=9999.974609 deviation_ratio=0.999997437 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998763353 gain_db=-0.010748 deviation=2496.601074 deviation_ratio=0.998640418 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.999999183 gain_db=-0.000007 deviation=9999.974609 deviation_ratio=0.999997437 samples=12000
+audio_rate=48000 rate=384000 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.999999183 gain_db=-0.000007 deviation=9999.974609 deviation_ratio=0.999997437 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=None mode=Fm stereo=false gain=0.998544303 gain_db=-0.012653 deviation=2496.822021 deviation_ratio=0.998728812 samples=11999
+audio_rate=48000 rate=2048003 rf_decim=1 nr=None mode=Wfm stereo=false gain=0.998440815 gain_db=-0.013553 deviation=10000.001953 deviation_ratio=1.000000238 samples=11999
+audio_rate=48000 rate=2048003 rf_decim=1 nr=None mode=Wfm stereo=true gain=0.998743110 gain_db=-0.010924 deviation=10000.001953 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998515884 gain_db=-0.012900 deviation=2496.838135 deviation_ratio=0.998735249 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998723064 gain_db=-0.011098 deviation=10000.001953 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998266487 gain_db=-0.015070 deviation=10000.001953 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(Voice) mode=Fm stereo=false gain=0.998831027 gain_db=-0.010160 deviation=2496.838135 deviation_ratio=0.998735249 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=false gain=0.998723064 gain_db=-0.011098 deviation=10000.001953 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(Voice) mode=Wfm stereo=true gain=0.998266487 gain_db=-0.015070 deviation=10000.001953 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998870636 gain_db=-0.009815 deviation=2496.838135 deviation_ratio=0.998735249 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998723064 gain_db=-0.011098 deviation=10000.001953 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=1 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998266487 gain_db=-0.015070 deviation=10000.001953 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=None mode=Fm stereo=false gain=0.998673319 gain_db=-0.011531 deviation=2496.819336 deviation_ratio=0.998727739 samples=11999
+audio_rate=48000 rate=2048003 rf_decim=2 nr=None mode=Wfm stereo=false gain=0.998546537 gain_db=-0.012634 deviation=10000.003906 deviation_ratio=1.000000358 samples=11999
+audio_rate=48000 rate=2048003 rf_decim=2 nr=None mode=Wfm stereo=true gain=0.998743061 gain_db=-0.010925 deviation=10000.003906 deviation_ratio=1.000000358 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998776647 gain_db=-0.010632 deviation=2496.782715 deviation_ratio=0.998713076 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998477109 gain_db=-0.013238 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998346211 gain_db=-0.014377 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(Voice) mode=Fm stereo=false gain=0.999003327 gain_db=-0.008661 deviation=2496.782715 deviation_ratio=0.998713076 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=false gain=0.998477109 gain_db=-0.013238 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(Voice) mode=Wfm stereo=true gain=0.998346211 gain_db=-0.014377 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998640860 gain_db=-0.011813 deviation=2496.782715 deviation_ratio=0.998713076 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998477109 gain_db=-0.013238 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=2 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998346211 gain_db=-0.014377 deviation=10000.002930 deviation_ratio=1.000000238 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=None mode=Fm stereo=false gain=0.998685498 gain_db=-0.011425 deviation=2496.813965 deviation_ratio=0.998725593 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=None mode=Wfm stereo=false gain=0.998745439 gain_db=-0.010904 deviation=10000.009766 deviation_ratio=1.000000954 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=None mode=Wfm stereo=true gain=0.998740818 gain_db=-0.010944 deviation=10000.009766 deviation_ratio=1.000000954 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(NoaaApt) mode=Fm stereo=false gain=0.998974860 gain_db=-0.008909 deviation=2496.844482 deviation_ratio=0.998737812 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=false gain=0.998308026 gain_db=-0.014709 deviation=10000.007812 deviation_ratio=1.000000834 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(NoaaApt) mode=Wfm stereo=true gain=0.998547370 gain_db=-0.012627 deviation=10000.007812 deviation_ratio=1.000000834 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(Voice) mode=Fm stereo=false gain=0.999034600 gain_db=-0.008389 deviation=2496.844482 deviation_ratio=0.998737812 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=false gain=0.998308026 gain_db=-0.014709 deviation=10000.007812 deviation_ratio=1.000000834 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(Voice) mode=Wfm stereo=true gain=0.998547370 gain_db=-0.012627 deviation=10000.007812 deviation_ratio=1.000000834 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(NarrowBand) mode=Fm stereo=false gain=0.998405168 gain_db=-0.013864 deviation=2496.844482 deviation_ratio=0.998737812 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=false gain=0.998308026 gain_db=-0.014709 deviation=10000.007812 deviation_ratio=1.000000834 samples=12000
+audio_rate=48000 rate=2048003 rf_decim=4 nr=Some(NarrowBand) mode=Wfm stereo=true gain=0.998547370 gain_db=-0.012627 deviation=10000.007812 deviation_ratio=1.000000834 samples=12000

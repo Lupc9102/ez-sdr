@@ -3,7 +3,6 @@
 use std::io::{ErrorKind, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 /// A connected client.
 struct Client {
@@ -21,6 +20,9 @@ const MAX_CLIENTS_PER_PORT: usize = 64;
 /// no authentication — they are plaintext broadcast outputs in the `dump1090`
 /// tradition. Bind to loopback or firewall them if the LAN is untrusted.
 pub struct NetIo {
+    beast_listener: Mutex<Option<TcpListener>>,
+    sbs_listener: Mutex<Option<TcpListener>>,
+    raw_listener: Mutex<Option<TcpListener>>,
     beast_clients: Arc<Mutex<Vec<Client>>>,
     sbs_clients: Arc<Mutex<Vec<Client>>>,
     raw_clients: Arc<Mutex<Vec<Client>>>,
@@ -37,6 +39,9 @@ impl NetIo {
     #[must_use]
     pub fn new() -> Self {
         NetIo {
+            beast_listener: Mutex::new(None),
+            sbs_listener: Mutex::new(None),
+            raw_listener: Mutex::new(None),
             beast_clients: Arc::new(Mutex::new(Vec::new())),
             sbs_clients: Arc::new(Mutex::new(Vec::new())),
             raw_clients: Arc::new(Mutex::new(Vec::new())),
@@ -48,56 +53,95 @@ impl NetIo {
     /// # Errors
     /// Returns `anyhow::Error` if a TCP listener fails to bind on any of the
     /// requested ports.
+    /// Start listening on the given ports (bound to all interfaces "0.0.0.0").
+    ///
+    /// # Errors
+    /// Returns `anyhow::Error` if a TCP listener fails to bind on any of the
+    /// requested ports.
     pub fn start(&self, beast_port: u16, sbs_port: u16, raw_port: u16) -> anyhow::Result<()> {
-        let beast_listener = TcpListener::bind(("0.0.0.0", beast_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind Beast port {beast_port}: {e}"))?;
-        let sbs_listener = TcpListener::bind(("0.0.0.0", sbs_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind SBS port {sbs_port}: {e}"))?;
-        let raw_listener = TcpListener::bind(("0.0.0.0", raw_port))
-            .map_err(|e| anyhow::anyhow!("net_io: failed to bind raw AVR port {raw_port}: {e}"))?;
+        self.start_on("0.0.0.0", beast_port, sbs_port, raw_port)
+    }
 
-        Self::spawn_listener_loop(
-            beast_listener,
-            self.beast_clients.clone(),
-            "Beast",
-            beast_port,
-        );
-        Self::spawn_listener_loop(sbs_listener, self.sbs_clients.clone(), "SBS", sbs_port);
-        Self::spawn_listener_loop(raw_listener, self.raw_clients.clone(), "raw AVR", raw_port);
+    /// Start listening on the given ports on the specified bind address.
+    ///
+    /// # Errors
+    /// Returns `anyhow::Error` if a TCP listener fails to bind on any of the
+    /// requested ports.
+    pub fn start_on(
+        &self,
+        bind_address: &str,
+        beast_port: u16,
+        sbs_port: u16,
+        raw_port: u16,
+    ) -> anyhow::Result<()> {
+        let beast_listener = TcpListener::bind((bind_address, beast_port)).map_err(|e| {
+            anyhow::anyhow!("net_io: failed to bind Beast port {bind_address}:{beast_port}: {e}")
+        })?;
+        let sbs_listener = TcpListener::bind((bind_address, sbs_port)).map_err(|e| {
+            anyhow::anyhow!("net_io: failed to bind SBS port {bind_address}:{sbs_port}: {e}")
+        })?;
+        let raw_listener = TcpListener::bind((bind_address, raw_port)).map_err(|e| {
+            anyhow::anyhow!("net_io: failed to bind raw AVR port {bind_address}:{raw_port}: {e}")
+        })?;
+
+        beast_listener.set_nonblocking(true)?;
+        sbs_listener.set_nonblocking(true)?;
+        raw_listener.set_nonblocking(true)?;
+
+        *self
+            .beast_listener
+            .lock()
+            .map_err(|_| anyhow::anyhow!("net_io: Beast listener lock poisoned"))? =
+            Some(beast_listener);
+        *self
+            .sbs_listener
+            .lock()
+            .map_err(|_| anyhow::anyhow!("net_io: SBS listener lock poisoned"))? =
+            Some(sbs_listener);
+        *self
+            .raw_listener
+            .lock()
+            .map_err(|_| anyhow::anyhow!("net_io: raw AVR listener lock poisoned"))? =
+            Some(raw_listener);
+        eprintln!("net_io: Beast output on port {beast_port}");
+        eprintln!("net_io: SBS output on port {sbs_port}");
+        eprintln!("net_io: raw AVR output on port {raw_port}");
         Ok(())
     }
 
-    fn spawn_listener_loop(
-        listener: TcpListener,
+    fn accept_pending(
+        listener: &Mutex<Option<TcpListener>>,
         clients: Arc<Mutex<Vec<Client>>>,
         name: &'static str,
-        port: u16,
     ) {
-        thread::spawn(move || {
-            eprintln!("net_io: {name} output on port {port}");
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(stream) => {
-                        if let Err(e) = stream.set_nonblocking(true) {
-                            eprintln!("net_io: failed to set non-blocking: {e}");
-                            continue;
-                        }
-                        if let Ok(addr) = stream.peer_addr() {
-                            if Self::push_client(&clients, stream) {
-                                eprintln!("net_io: {name} client connected from {addr}");
-                            } else {
-                                eprintln!(
-                                    "net_io: {name} client from {addr} rejected: client limit ({MAX_CLIENTS_PER_PORT}) reached"
-                                );
-                            }
-                        }
+        let Ok(listener) = listener.lock() else {
+            return;
+        };
+        let Some(listener) = listener.as_ref() else {
+            return;
+        };
+        loop {
+            match listener.accept() {
+                Ok((stream, addr)) => {
+                    if let Err(e) = stream.set_nonblocking(true) {
+                        eprintln!("net_io: failed to set non-blocking: {e}");
+                        continue;
                     }
-                    Err(e) => {
-                        eprintln!("net_io: {name} accept error: {e}");
+                    if Self::push_client(&clients, stream) {
+                        eprintln!("net_io: {name} client connected from {addr}");
+                    } else {
+                        eprintln!(
+                            "net_io: {name} client from {addr} rejected: client limit ({MAX_CLIENTS_PER_PORT}) reached"
+                        );
                     }
                 }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                Err(e) => {
+                    eprintln!("net_io: {name} accept error: {e}");
+                    break;
+                }
             }
-        });
+        }
     }
 
     /// Add a client, enforcing [`MAX_CLIENTS_PER_PORT`]. Returns `false` when
@@ -142,32 +186,39 @@ impl NetIo {
 
     /// Send a Mode S message in Beast format.
     pub fn send_beast(&self, timestamp: u64, signal: u8, msg: &[u8]) {
+        Self::accept_pending(&self.beast_listener, self.beast_clients.clone(), "Beast");
         let escaped = encode_beast_frame(timestamp, signal, msg);
         Self::prune_and_send(&self.beast_clients, &escaped);
     }
 
     /// Send a line in SBS (`BaseStation`) format.
     pub fn send_sbs(&self, line: &str) {
+        Self::accept_pending(&self.sbs_listener, self.sbs_clients.clone(), "SBS");
         let mut out = line.as_bytes().to_vec();
         out.push(b'\r');
         out.push(b'\n');
         Self::prune_and_send(&self.sbs_clients, &out);
     }
 
-    /// Send a message in raw AVR format.
-    pub fn send_raw(&self, msg: &[u8], downlink: bool) {
-        let prefix = if downlink { '*' } else { '@' };
-        let mut out = Vec::with_capacity(msg.len() * 2 + 4);
-        out.push(prefix as u8);
-        for b in msg {
-            out.push(hex_digit(*b >> 4));
-            out.push(hex_digit(*b & 0x0f));
-        }
-        out.push(b';');
-        out.push(b'\r');
-        out.push(b'\n');
+    /// Send an untimestamped message in raw AVR format.
+    pub fn send_raw(&self, msg: &[u8]) {
+        Self::accept_pending(&self.raw_listener, self.raw_clients.clone(), "raw AVR");
+        let out = encode_raw_frame(msg);
         Self::prune_and_send(&self.raw_clients, &out);
     }
+}
+
+fn encode_raw_frame(msg: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(msg.len() * 2 + 4);
+    out.push(b'*');
+    for b in msg {
+        out.push(hex_digit(*b >> 4));
+        out.push(hex_digit(*b & 0x0f));
+    }
+    out.push(b';');
+    out.push(b'\r');
+    out.push(b'\n');
+    out
 }
 
 /// Build a framed, escaped Beast-format message: 0x1a marker (never escaped)
@@ -211,6 +262,7 @@ fn hex_digit(n: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use std::net::TcpListener;
     use std::time::Duration;
 
@@ -455,5 +507,40 @@ mod tests {
         let frame = encode_beast_frame(0, 0, &msg);
         assert_eq!(frame.len(), 16); // 9 + 7
         assert_eq!(&frame[9..], &msg[..]);
+    }
+
+    #[test]
+    fn net_io_start_on_loopback() {
+        let net = NetIo::new();
+        assert!(net.start_on("127.0.0.1", 0, 0, 0).is_ok());
+    }
+
+    #[test]
+    fn first_send_accepts_connections_already_in_backlog() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        listener
+            .set_nonblocking(true)
+            .expect("listener nonblocking");
+        let addr = listener.local_addr().expect("listener addr");
+        let net = NetIo::new();
+        *net.raw_listener.lock().expect("listener lock") = Some(listener);
+
+        let mut client = TcpStream::connect(addr).expect("connect client");
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .expect("client read timeout");
+        net.send_raw(&[0x8D, 0x40]);
+
+        let mut received = [0; 8];
+        client
+            .read_exact(&mut received)
+            .expect("first send reaches connected client");
+        assert_eq!(&received, b"*8D40;\r\n");
+    }
+
+    #[test]
+    fn raw_avr_uses_untimestamped_prefix_for_mode_ac_and_mode_s() {
+        assert_eq!(encode_raw_frame(&[0x12, 0x34]), b"*1234;\r\n");
+        assert_eq!(encode_raw_frame(&[0x8D, 0x40]), b"*8D40;\r\n");
     }
 }

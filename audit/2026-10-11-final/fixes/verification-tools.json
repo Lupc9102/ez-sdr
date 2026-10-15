@@ -1,0 +1,12 @@
+{
+  "cargo-audit": {
+    "version": "cargo-audit 0.22.2",
+    "binary_sha256": "ba923f1c719b540f3ee969857a8532a6c3c37af54ecc30ca3916c4300afbb603",
+    "source": "cargo install cargo-audit --locked from crates.io"
+  },
+  "cargo-deny": {
+    "version": "cargo-deny 0.20.2",
+    "binary_sha256": "b329e25933d01c36dd7c47d84ea5716694f9b7caf53a5003d45674703a8ed54a",
+    "source": "official EmbarkStudios/cargo-deny release asset (GitHub digest checked during download)"
+  }
+}

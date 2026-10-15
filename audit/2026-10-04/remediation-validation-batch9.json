@@ -1,0 +1,31 @@
+{
+  "batch": 9,
+  "findings": [
+    "A10"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1520,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "Actual upstream queue overflow remains visible at decimation 1 and 4",
+    "Decimation 1/4/7 resets FIR history and retains acquisition indices/rational rates",
+    "Sub-decimation gaps remain explicit even with adjacent output indices and delayed output",
+    "Epoch changes and retunes reset channel history; NCO seeks original absolute phase",
+    "Real ADS-B/LRPT frames spanning missing intervals are rejected; continuous frames decode",
+    "Audio/FFT consumers independently reset carried history; LRPT completed images survive and reacquire",
+    "Daemon replay loops never mix epochs in a block and do not invent UTC origins"
+  ],
+  "limitations": [
+    "Sixteen formal findings and all additional experiments remain open",
+    "A08 CPR capture-time pairing, A09 continuous GUI ingestion and R05 recording epoch integrity remain open",
+    "Hardware acquisition UTC remains unknown unless supplied by a source",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

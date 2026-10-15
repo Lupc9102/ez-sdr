@@ -16,8 +16,9 @@ use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 /// Prevents unauthenticated clients from forcing multi-megabyte heap allocations.
 pub const MAX_CONTROL_FRAME_LEN: usize = 64 * 1024;
 
-/// Maximum frame length for data frames (1 MiB — ample for 64k-point spectrum frames).
-pub const MAX_DATA_FRAME_LEN: usize = 1024 * 1024;
+/// Maximum frame length for data frames (32 MiB — enough for the largest bounded
+/// LRPT channel raster, 1568 × 16,384 grayscale pixels, plus per-row timestamp metadata).
+pub const MAX_DATA_FRAME_LEN: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodecError {
@@ -33,7 +34,7 @@ pub enum CodecError {
 /// writes, or vice versa on the client side).
 ///
 /// There is deliberately **no** `Default` impl: the frame bound is a security
-/// property (64 KiB control vs 1 MiB data) and must be chosen explicitly via
+/// property (64 KiB control vs 32 MiB image-capable data) and must be chosen explicitly via
 /// [`MessageCodec::for_commands`] or [`MessageCodec::for_data`]. A generic
 /// 1 MiB default previously widened the unauthenticated control path 16×.
 pub struct MessageCodec<T> {
@@ -68,7 +69,7 @@ impl<T> MessageCodec<T> {
         Self::with_max_frame_length(MAX_CONTROL_FRAME_LEN)
     }
 
-    /// Construct a codec bounded to 1 MiB for data frames.
+    /// Construct a codec bounded to 32 MiB for data frames, including maximum-height LRPT images.
     #[must_use]
     pub fn for_data() -> Self {
         Self::with_max_frame_length(MAX_DATA_FRAME_LEN)
@@ -140,6 +141,151 @@ mod tests {
     use tokio::io::duplex;
     use tokio_util::codec::Framed;
 
+    #[test]
+    fn spectrum_observation_barrier_command_round_trip() {
+        let original = crate::ClientCommand::BeginSpectrumObservation {
+            channel_id: 0x8000_0000,
+            revision: 735,
+        };
+        let expected = bincode::serialize(&original).unwrap();
+        let mut codec = MessageCodec::<crate::ClientCommand>::for_commands();
+        let mut bytes = BytesMut::new();
+        codec.encode(original, &mut bytes).unwrap();
+        let decoded = codec.decode(&mut bytes).unwrap().unwrap();
+        assert_eq!(bincode::serialize(&decoded).unwrap(), expected);
+        assert!(bytes.is_empty());
+    }
+
+    #[test]
+    fn explicit_meteor_profiles_and_product_command_round_trip() {
+        for profile in crate::MeteorProfile::ALL {
+            for command in [
+                crate::ClientCommand::Subscribe {
+                    channel: crate::ChannelSpec {
+                        audio: None,
+                        meteor_profile: Some(profile),
+                        id: 7,
+                        center_offset_hz: 0,
+                        channel_sample_rate_hz: 400_000,
+                        kind: crate::PipelineKind::LrptTelemetry,
+                        demod_mode: None,
+                    },
+                },
+                crate::ClientCommand::StartTelemetryProduct { channel_id: 7 },
+                crate::ClientCommand::FinalizeTelemetryProduct { channel_id: 7 },
+            ] {
+                let json = serde_json::to_string(&command).unwrap();
+                let decoded_json: crate::ClientCommand = serde_json::from_str(&json).unwrap();
+                assert_eq!(
+                    bincode::serialize(&decoded_json).unwrap(),
+                    bincode::serialize(&command).unwrap()
+                );
+                let mut codec = MessageCodec::<crate::ClientCommand>::for_commands();
+                let mut bytes = BytesMut::new();
+                let original = bincode::serialize(&command).unwrap();
+                codec.encode(command, &mut bytes).unwrap();
+                let decoded = codec.decode(&mut bytes).unwrap().unwrap();
+                assert_eq!(bincode::serialize(&decoded).unwrap(), original);
+            }
+        }
+    }
+
+    #[test]
+    fn private_session_and_spectrum_removal_identity_round_trip() {
+        use crate::{ClientChannels, ServerEvent, SpectrumFrame};
+        let ids = ClientChannels {
+            spectrum: 0x8000_0000,
+            audio: 0x8000_0001,
+            adsb: 0x8000_0002,
+            lrpt: 0x8000_0003,
+        };
+        for original in [
+            ServerEvent::Welcome {
+                protocol_version: crate::PROTOCOL_VERSION,
+                client_channels: ids,
+                active_channels: vec![],
+            },
+            ServerEvent::Spectrum(SpectrumFrame {
+                channel_id: ids.spectrum,
+                center_hz: 137_100_000,
+                sample_rate_hz: 2_400_000,
+                bins: vec![-100.0, -10.0],
+                timestamp_ms: 123,
+                observation_revision: 735,
+                measurement_bins: Some(vec![-10.0, -30.0]),
+            }),
+            ServerEvent::ChannelRemoved {
+                channel_id: ids.audio,
+            },
+        ] {
+            let expected = bincode::serialize(&original).unwrap();
+            let mut codec = MessageCodec::<ServerEvent>::for_data();
+            let mut bytes = BytesMut::new();
+            codec.encode(original, &mut bytes).unwrap();
+            assert_eq!(
+                bincode::serialize(&codec.decode(&mut bytes).unwrap().unwrap()).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn aircraft_measurements_round_trip_without_losing_validity_or_reference() {
+        use crate::{AircraftTelemetry, ServerEvent};
+        for altitude in [None, Some(-1000), Some(-500), Some(0), Some(35000)] {
+            let original = AircraftTelemetry {
+                icao: 1,
+                altitude_ft: altitude,
+                altitude_geometric: true,
+                ground_speed_kt: Some(0.0),
+                track_deg: Some(90.0),
+                heading_deg: Some(120.0),
+                heading_true: true,
+                airspeed_kt: Some(300.0),
+                airspeed_true: true,
+                surface_direction_deg: None,
+                on_ground: Some(false),
+                ..Default::default()
+            };
+            let mut codec = MessageCodec::<ServerEvent>::for_data();
+            let mut bytes = BytesMut::new();
+            codec
+                .encode(
+                    ServerEvent::Aircraft(crate::AircraftSnapshot {
+                        channel_id: 73,
+                        aircraft: vec![original],
+                        receiver: crate::ReceiverSnapshot {
+                            timestamp_ms: 1234,
+                            total_messages: 100,
+                            messages_per_second: 20.0,
+                            decode_stats: (110, 100, 10, 0, 80, 15, 5, 0.4, 0.01, 0.9, 20),
+                        },
+                    }),
+                    &mut bytes,
+                )
+                .unwrap();
+            let ServerEvent::Aircraft(received) = codec.decode(&mut bytes).unwrap().unwrap() else {
+                panic!("wrong event");
+            };
+            assert_eq!(received.channel_id, 73);
+            assert_eq!(received.receiver.total_messages, 100);
+            assert_eq!(received.receiver.messages_per_second, 20.0);
+            assert_eq!(received.receiver.timestamp_ms, 1234);
+            assert_eq!(received.receiver.decode_stats.6, 5);
+            let item = &received.aircraft[0];
+            assert_eq!(item.altitude_ft, altitude);
+            assert!(item.altitude_geometric);
+            assert_eq!(item.ground_speed_kt, Some(0.0));
+            assert_eq!(item.track_deg, Some(90.0));
+            assert_eq!(item.heading_deg, Some(120.0));
+            assert!(item.heading_true);
+            assert_eq!(item.airspeed_kt, Some(300.0));
+            assert!(item.airspeed_true);
+            assert_eq!(item.surface_direction_deg, None);
+            assert_eq!(item.on_ground, Some(false));
+        }
+    }
+
     #[tokio::test]
     async fn round_trips_a_message_through_the_codec() {
         let (client, server) = duplex(4096);
@@ -148,9 +294,11 @@ mod tests {
 
         let msg = ClientCommand::Subscribe {
             channel: crate::messages::ChannelSpec {
+                audio: None,
+                meteor_profile: None,
                 id: 7,
                 center_offset_hz: -25_000,
-                bandwidth_hz: 12_500,
+                channel_sample_rate_hz: 12_500,
                 kind: PipelineKind::Audio,
                 demod_mode: Some(crate::messages::DemodMode::Fm),
             },
@@ -213,6 +361,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn maximum_height_lrpt_product_with_line_times_fits_data_codec() {
+        use crate::{ServerEvent, TelemetryFrame};
+
+        // `IMAGE_WIDTH * MAX_CHANNEL_HEIGHT` from lrpt-decode's image builder.
+        // The extra timestamps are present only on final products and must fit
+        // under the data-frame bound along with the full grayscale raster.
+        const WIDTH: u32 = 1_568;
+        const HEIGHT: u32 = 16_384;
+        let frame = ServerEvent::Telemetry(TelemetryFrame {
+            product_id: 42,
+            channel_id: 19,
+            apid: 64,
+            width: WIDTH,
+            height: HEIGHT,
+            pixels: vec![173; WIDTH as usize * HEIGHT as usize],
+            line_times_unix_seconds: vec![Some(1_700_000_000.25); HEIGHT as usize],
+            final_product: true,
+            product_complete: false,
+            rs_ok: 12_345,
+            rs_failed: 67,
+            costas_locked: true,
+            frame_locked: true,
+        });
+        let mut codec = MessageCodec::<ServerEvent>::for_data();
+        let mut bytes = BytesMut::new();
+        codec
+            .encode(frame, &mut bytes)
+            .expect("maximum LRPT product fits");
+        assert!(bytes.len() <= MAX_DATA_FRAME_LEN + 4);
+        let ServerEvent::Telemetry(decoded) = codec
+            .decode(&mut bytes)
+            .expect("decode maximum LRPT product")
+            .expect("one telemetry frame")
+        else {
+            panic!("wrong event type");
+        };
+        assert_eq!((decoded.width, decoded.height), (WIDTH, HEIGHT));
+        assert_eq!(decoded.pixels.len(), WIDTH as usize * HEIGHT as usize);
+        assert_eq!(decoded.line_times_unix_seconds.len(), HEIGHT as usize);
+        assert!(decoded.final_product);
+        assert!(!decoded.product_complete);
+        assert_eq!(
+            decoded.line_times_unix_seconds[HEIGHT as usize - 1],
+            Some(1_700_000_000.25)
+        );
+    }
+
     #[tokio::test]
     async fn command_frame_limit_rejects_oversized_payload() {
         // Issue 21: A frame claiming > MAX_CONTROL_FRAME_LEN must be rejected by for_commands()
@@ -226,5 +422,82 @@ mod tests {
 
         let result = server.next().await.expect("stream ended");
         assert!(result.is_err(), "frames larger than 64KB must be rejected");
+    }
+    #[test]
+    fn squelch_command_reply_and_audio_applied_metadata_round_trip() {
+        use crate::{AudioFrame, ServerEvent, SquelchState};
+        let command = ClientCommand::SetSquelch {
+            channel_id: 17,
+            db: -23.5,
+            request_id: 123,
+        };
+        let mut commands = MessageCodec::for_commands();
+        let mut bytes = BytesMut::new();
+        commands.encode(command.clone(), &mut bytes).unwrap();
+        assert_eq!(commands.decode(&mut bytes).unwrap(), Some(command));
+        let applied = SquelchState {
+            db: -23.5,
+            revision: 45,
+        };
+        let mut data = MessageCodec::for_data();
+        for result in [Ok(applied), Err("not an audio channel".into())] {
+            data.encode(
+                ServerEvent::Squelch {
+                    channel_id: 17,
+                    request_id: 123,
+                    result: result.clone(),
+                },
+                &mut bytes,
+            )
+            .unwrap();
+            let Some(ServerEvent::Squelch {
+                channel_id,
+                request_id,
+                result: decoded,
+            }) = data.decode(&mut bytes).unwrap()
+            else {
+                panic!("wrong event")
+            };
+            assert_eq!((channel_id, request_id, decoded), (17, 123, result));
+        }
+        data.encode(
+            ServerEvent::Audio(AudioFrame {
+                audio_clock: crate::CaptureClock::new(1, 0, 48_000, None),
+                clock: crate::CaptureClock::new(1, 0, 48_000, None),
+                sequence: 1,
+                channel_id: 17,
+                sample_rate_hz: 48_000,
+                channels: 1,
+                samples: vec![0.0; 32],
+                squelch: applied,
+            }),
+            &mut bytes,
+        )
+        .unwrap();
+        let Some(ServerEvent::Audio(frame)) = data.decode(&mut bytes).unwrap() else {
+            panic!("wrong event")
+        };
+        assert_eq!(
+            (frame.channel_id, frame.sample_rate_hz, frame.squelch),
+            (17, 48_000, applied)
+        );
+        assert_eq!(frame.samples, vec![0.0; 32]);
+        assert_eq!(frame.clock, crate::CaptureClock::new(1, 0, 48_000, None));
+        assert_eq!(frame.sequence, 1);
+        data.encode(
+            ServerEvent::StreamGap {
+                channel_id: 17,
+                dropped_frames: 123,
+            },
+            &mut bytes,
+        )
+        .unwrap();
+        assert!(matches!(
+            data.decode(&mut bytes).unwrap(),
+            Some(ServerEvent::StreamGap {
+                channel_id: 17,
+                dropped_frames: 123
+            })
+        ));
     }
 }

@@ -1,0 +1,36 @@
+{
+  "batch": 2,
+  "findings": [
+    "R03",
+    "R04",
+    "R06",
+    "R07",
+    "L01"
+  ],
+  "source_base": "81aa5d3f4f3d8cd34a1b11a98d0116ae57f5618b",
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "test_command": "cargo +1.92.0 test --workspace --all-targets",
+  "test_result": {
+    "passed_executions": 1480,
+    "failures": 0,
+    "ignored": 8
+  },
+  "clippy_command": "cargo +1.92.0 clippy --workspace --all-targets -- -D warnings",
+  "clippy_result": "passed",
+  "fault_coverage": [
+    "CF32 synchronous file-open failure",
+    "CF32 five rapid captures and sidecar preservation",
+    "full recorder input queue and lost sample accounting",
+    "CF32 worker write and flush failure",
+    "exited worker liveness/error reporting",
+    "CF32 sidecar failure",
+    "locked daemon recording active/inactive events through app handler",
+    "hidden-tab recording deadline and Recorder menu route",
+    "every TCP byte split across read timeouts, oversized line recovery and cancellation mid-line"
+  ],
+  "limitations": [
+    "Real hardware/disk shutdown latency remains unmeasured.",
+    "CF32 amplitude/replay progress and capture epoch integrity remain pending.",
+    "29 formal findings remain; full goal is still active."
+  ]
+}

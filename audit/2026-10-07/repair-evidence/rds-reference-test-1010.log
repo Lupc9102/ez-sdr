@@ -1,0 +1,25 @@
+   Compiling getrandom v0.2.17
+   Compiling ring v0.17.14
+   Compiling rustls-webpki v0.103.15
+   Compiling rustls v0.23.45
+   Compiling rand_core v0.6.4
+   Compiling rand_chacha v0.3.1
+   Compiling tokio-rustls v0.26.5
+   Compiling rand v0.8.8
+   Compiling tungstenite v0.24.0
+   Compiling hyper-rustls v0.27.10
+   Compiling rustls-webpki v0.102.8
+   Compiling rumqttc v0.25.1
+   Compiling ureq v3.4.2
+   Compiling reqwest v0.12.28
+   Compiling tokio-tungstenite v0.24.0
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6m 38s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35d4e7e0e5283107)
+
+running 1 test
+test radio_rds::tests::public_reference_multiplex_matches_independent_redsea_metadata ... RDS_REFERENCE_RESULT {"crc_errors":2,"input_samples":134400,"partitions":[1,37,997],"pi":25089,"pty":14,"sample_rate_hz":192000,"valid_groups":5}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.49s
+

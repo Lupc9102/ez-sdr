@@ -1,0 +1,27 @@
+{
+  "batch": 7,
+  "findings": [
+    "G03"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1508,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "100 batch/profile requests coalesce to final AM settings and actual mute behavior",
+    "Worker acknowledges controls and resets without IQ",
+    "Frame revisions/settings preserve configuration identity under IQ backlog",
+    "Repeated settings preserve acknowledgement; unavailable worker reports failure"
+  ],
+  "limitations": [
+    "Continuous capture/clock and remaining integration/control findings remain pending",
+    "Four untouched files retain pre-existing full workspace formatting differences",
+    "Hardware and off-air experiments remain pending"
+  ]
+}

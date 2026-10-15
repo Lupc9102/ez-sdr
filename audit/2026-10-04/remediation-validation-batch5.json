@@ -1,0 +1,29 @@
+{
+  "batch": 5,
+  "findings": [
+    "R01"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1500,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "Every CU8 component survives normalized and legacy CF32 round trips",
+    "Actual satellite and daemon writers replay through both readers with identical ADC bytes and ADS-B message results",
+    "Weak/full-scale tone amplitude and phase preserved within ADC quantization",
+    "Normalized and legacy CF32 imports recover the same three coded LRPT frames as CU8",
+    "Metadata explicit override, legacy schema detection, unknown units and bounded sidecar rejection",
+    "FFT tests wait for explicit worker completion instead of elapsed silence"
+  ],
+  "limitations": [
+    "R05 capture epoch integrity remains pending",
+    "Full workspace formatting still has pre-existing differences in untouched files",
+    "Hardware and off-air experiments remain pending"
+  ]
+}

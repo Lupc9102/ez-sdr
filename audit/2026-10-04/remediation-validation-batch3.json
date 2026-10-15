@@ -1,0 +1,40 @@
+{
+  "batch": 3,
+  "findings": [
+    "A05",
+    "A06",
+    "A13",
+    "A14",
+    "A17",
+    "I03"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1492,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "protocol_version": 3,
+  "regressions": [
+    "signed Q/Gillham altitude and unavailable display",
+    "all TC19 subtypes and real-IQ surface transitions",
+    "typed UAT true/magnetic heading, track, signed altitude and air/ground transitions",
+    "signed optional typed measurements through daemon, mapper and wire codec",
+    "independent position and idle track expiry",
+    "TC20/21/22 CPR and configured initial surface reference",
+    "hidden Planes app logic trails, deduplication and bounded history",
+    "nullable partial/stale MQTT positions and valid real zero",
+    "position-dependent Discord retry and deduplication"
+  ],
+  "limitations": [
+    "hardware experiments remain pending",
+    "full workspace formatting has pre-existing differences in untouched files",
+    "capture clock and upstream discontinuity work remains A08/A09/A10/R05"
+  ],
+  "decoder_references": [
+    "https://github.com/flightaware/dump1090/blob/master/mode_s.c",
+    "https://github.com/flightaware/dump978/blob/master/uat_message.cc"
+  ]
+}

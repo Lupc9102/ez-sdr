@@ -1,0 +1,15 @@
+Resource policy: {"build_jobs": 1, "test_threads": 1, "nice": 19, "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r13-verification.service", "cpu_max": "20000 100000"}
+START focused-final
+DONE focused-final 0
+START recorder
+DONE recorder 0
+START native
+DONE native 0
+START spectrum
+DONE spectrum 0
+START receipt-age
+DONE receipt-age 0
+START squelch
+DONE squelch 0
+START clippy
+DONE clippy 101

@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "ez-daemon"
 path = "src/main.rs"
 
+[[bin]]
+name = "adsb-emulator"
+path = "src/bin/adsb_emulator.rs"
+
 [dependencies]
 ez-proto = { workspace = true }
 dump1090 = { workspace = true }
@@ -28,9 +32,11 @@ num-complex = { workspace = true }
 rustfft = { workspace = true }
 crossbeam-channel = { workspace = true }
 arc-swap = { workspace = true }
+parking_lot = "0.12.5"
+subtle = "2.6"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "sync", "signal", "macros", "time", "fs"] }
 tokio-util = { workspace = true, features = ["codec"] }
@@ -57,7 +63,8 @@ pkg-config = { workspace = true }
 
 [features]
 default = []
-rtlsdr = []
+rtlsdr = ["rtl-async"]
+rtl-async = []
 hackrf = []
 soapy = []
 

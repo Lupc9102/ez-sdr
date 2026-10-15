@@ -1,0 +1,29 @@
+{
+  "batch": 11,
+  "findings": [
+    "I02"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1526,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed",
+  "regressions": [
+    "Two loopback fake brokers prove old socket closes and post-change publications reach only the new endpoint",
+    "Reported connected endpoint comes from the acknowledged active connection",
+    "Replacement workers have independent flags and do not inherit retired stop state",
+    "Prefix-only edits retain the socket and publish under new topics",
+    "Reconnect grace tests use isolated loopback listeners"
+  ],
+  "limitations": [
+    "Twelve formal findings and additional experiments remain open",
+    "I01 cadence, non-blocking coalesced publication, bounded stale telemetry and slow-broker UI latency remain open",
+    "MQTT configuration still waits for the bounded connection drain; worker-side reconfiguration is part of I01",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/lupc/Documents/ez-sdr/audit/2026-10-07/generate_80k_image_vectors.py", line 78, in <module>
+    assert np.array_equal(expected[delay:delay + len(coded)], coded)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

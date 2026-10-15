@@ -1,0 +1,24 @@
+   Compiling serde_core v1.0.229
+   Compiling syn v3.0.6
+   Compiling serde v1.0.229
+   Compiling libc v0.2.189
+    Checking crc32fast v1.5.2
+   Compiling serde_derive v1.0.229
+    Checking num-traits v0.2.19
+   Compiling syn v2.0.119
+   Compiling thiserror-impl v1.0.69
+    Checking flate2 v1.1.10
+   Compiling serde_json v1.0.151
+    Checking tokio-util v0.7.19
+    Checking png v0.18.1
+    Checking moxcms v0.8.1
+    Checking bincode v1.3.3
+    Checking thiserror v1.0.69
+    Checking crossbeam-utils v0.8.23
+    Checking zmij v1.0.23
+    Checking image v0.25.10
+    Checking crossbeam-channel v0.5.17
+    Checking ez-proto v0.1.0 (/home/lupc/Documents/ez-sdr/ez-proto)
+    Checking num-complex v0.4.6
+    Checking lrpt-decode v0.1.0 (/home/lupc/Documents/ez-sdr/lrpt-decode)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 12s

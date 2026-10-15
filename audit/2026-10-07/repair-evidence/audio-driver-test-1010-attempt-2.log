@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-35d4e7e0e5283107)
+
+running 1 test
+test audio_output::tests::silent_real_driver_callbacks_stop_and_restart_release_old_receiver ... AUDIO_DRIVER_RESULT {"cases":[{"input_channels":1,"old_receiver_disconnected":true,"queue_drain_us":30175,"queued_sample_frames":2880,"receiver_retirement_us":10086,"sample_rate_hz":48000,"silence_only":true,"stop_call_us":38},{"input_channels":2,"old_receiver_disconnected":true,"queue_drain_us":30175,"queued_sample_frames":2880,"receiver_retirement_us":10108,"sample_rate_hz":48000,"silence_only":true,"stop_call_us":28}],"device_id":"pulseaudio:alsa_output.pci-0000_07_00.4.analog-stereo"}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 0.59s
+

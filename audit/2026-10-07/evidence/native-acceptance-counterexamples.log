@@ -1,0 +1,60 @@
+   Compiling ez-daemon v0.1.0 (/home/lupc/Documents/ez-sdr/ez-daemon)
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+warning: unused import: `AtomicU32`
+  --> ez-gui/src/audio_output.rs:23:26
+   |
+23 |     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+   |                          ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `samples`
+   --> ez-gui/src/audio_output.rs:673:30
+    |
+673 |     pub fn push_audio(&self, samples: Vec<f32>) -> bool {
+    |                              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_samples`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ez-gui` (lib test) generated 2 warnings (run `cargo fix --lib -p ez-gui --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.22s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-42d2aa445374e661)
+
+running 4 tests
+CW bandwidth=50 rate=300000 offset=36.621094 in_band_carrier_db=-120
+
+thread 'demod::native::tests::audit_narrow_cw_power_meter' (387549) panicked at ez-gui/src/demod_native_audit.rs:73:5:
+a strong carrier centered on the VFO must be measurable
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test demod::native::tests::audit_narrow_cw_power_meter ... FAILED
+USB bandwidth=3000 wanted_2197Hz_db=-120.000 opposite_minus1099Hz_db=-6.021
+
+thread 'demod::native::tests::audit_ssb_power_meter_passband' (387552) panicked at ez-gui/src/demod_native_audit.rs:60:5:
+USB squelch must measure its selected positive-frequency passband
+test demod::native::tests::audit_ssb_power_meter_passband ... FAILED
+CS8 signed=[0, 1, -1, 64, -64, 127, -128, 0] replayed_as_CU8=[0, 1, 255, 64, 192, 127, 128, 0] correct_CU8=[128, 129, 127, 192, 64, 255, 0, 128]
+
+thread 'demod::native::tests::audit_signed_file_replay' (387551) panicked at ez-gui/src/demod_native_audit.rs:44:5:
+assertion `left == right` failed: the signed input must be converted before entering the CU8 data plane
+  left: [0, 1, 255, 64, 192, 127, 128, 0]
+ right: [128, 129, 127, 192, 64, 255, 0, 128]
+test demod::native::tests::audit_signed_file_replay ... FAILED
+requested_generation=2 block_generation=1 accepted_audio_samples=327 skipped_rf_samples=0
+
+thread 'demod::native::tests::audit_reject_old_capture_generation' (387550) panicked at ez-gui/src/demod_native_audit.rs:113:5:
+assertion `left == right` failed: queued samples from the previous receiver session must be rejected
+  left: 0
+ right: 16384
+test demod::native::tests::audit_reject_old_capture_generation ... FAILED
+
+failures:
+
+failures:
+    demod::native::tests::audit_narrow_cw_power_meter
+    demod::native::tests::audit_reject_old_capture_generation
+    demod::native::tests::audit_signed_file_replay
+    demod::native::tests::audit_ssb_power_meter_passband
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 826 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p ez-gui --lib`

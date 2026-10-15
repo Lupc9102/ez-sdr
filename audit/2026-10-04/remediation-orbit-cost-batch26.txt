@@ -1,0 +1,9 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.03s
+     Running `target/debug/examples/pass_benchmark`
+Supported catalog: 3 satellites; 72-hour pass horizon; optimized=false; UTC=2026-10-07T11:59:29.231656870+00:00
+observer invalidation (lock held): n=90, p50=15607 us, p95=16015 us, p99=20512 us, max=20512 us
+unchanged cache (lock held): n=90, p50=0 us, p95=0 us, p99=1 us, max=1 us
+catalog invalidation (lock held): n=90, p50=15591 us, p95=16217 us, p99=19903 us, max=19903 us
+cold passes + selected six-hour trajectory (lock held): n=90, p50=17075 us, p95=17600 us, p99=27078 us, max=27078 us
+No network, USB, speaker callbacks or user catalog changes.

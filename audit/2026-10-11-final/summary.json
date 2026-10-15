@@ -1,0 +1,149 @@
+{
+  "grade": 6.5,
+  "implemented_scope_grade": 8,
+  "areas": {
+    "ADS-B": 7.5,
+    "Radio": 7,
+    "Meteor": 6.5
+  },
+  "rubric": {
+    "functionality": {
+      "grade": 8,
+      "weight": 0.4
+    },
+    "replacement_coverage": {
+      "grade": 5.5,
+      "weight": 0.25
+    },
+    "field_confidence": {
+      "grade": 5,
+      "weight": 0.2
+    },
+    "shipping_readiness": {
+      "grade": 6,
+      "weight": 0.15
+    }
+  },
+  "verdict": "Unconditional fully-functional replacement and public binary shipping are not cleared. Recorded-input demonstration has substantial proof.",
+  "checks": [
+    {
+      "group": "quality",
+      "name": "format",
+      "exit_code": 0
+    },
+    {
+      "group": "quality",
+      "name": "clippy",
+      "exit_code": 0
+    },
+    {
+      "group": "quality",
+      "name": "docs",
+      "exit_code": 0
+    },
+    {
+      "group": "quality",
+      "name": "optional-hardware",
+      "exit_code": 0
+    },
+    {
+      "group": "quality",
+      "name": "release-build",
+      "exit_code": 0
+    },
+    {
+      "group": "full",
+      "name": "workspace-release-default",
+      "exit_code": 0
+    },
+    {
+      "group": "runtime",
+      "name": "headless-final",
+      "exit_code": 0
+    },
+    {
+      "group": "runtime",
+      "name": "ui-previews",
+      "exit_code": 0
+    },
+    {
+      "group": "runtime",
+      "name": "tcp-iq",
+      "exit_code": 0
+    },
+    {
+      "group": "runtime",
+      "name": "rigctl",
+      "exit_code": 0
+    },
+    {
+      "group": "runtime",
+      "name": "fractional-fft",
+      "exit_code": 0
+    },
+    {
+      "group": "runtime",
+      "name": "silent-audio-driver",
+      "exit_code": 0
+    },
+    {
+      "group": "reference",
+      "name": "rds-public-reference",
+      "exit_code": 0
+    },
+    {
+      "group": "reference",
+      "name": "meteor-public-72k",
+      "exit_code": 0
+    },
+    {
+      "group": "reference",
+      "name": "meteor-image-oracle",
+      "exit_code": 0
+    },
+    {
+      "group": "performance",
+      "name": "radio-throughput",
+      "exit_code": 0
+    },
+    {
+      "group": "performance",
+      "name": "frame-profile",
+      "exit_code": 0
+    },
+    {
+      "group": "security",
+      "name": "cargo-audit",
+      "exit_code": 0
+    },
+    {
+      "group": "security",
+      "name": "cargo-deny",
+      "exit_code": 4
+    },
+    {
+      "group": "security",
+      "name": "cargo-audit-unfiltered",
+      "exit_code": 0
+    },
+    {
+      "group": "post-fixture-quality",
+      "name": "format",
+      "exit_code": 0
+    },
+    {
+      "group": "post-fixture-quality",
+      "name": "clippy",
+      "exit_code": 0
+    },
+    {
+      "group": "post-fixture-quality",
+      "name": "headless-compile",
+      "exit_code": 0
+    }
+  ],
+  "evidence_logs_hash_verified": true,
+  "preserved_user_tracked_deletions": 672,
+  "source_snapshot": "final-source.json",
+  "completed_utc": "2026-10-11T17:14:33.108072+00:00"
+}

@@ -1,0 +1,31 @@
+   Compiling ez-gui v0.1.0 (/home/lupc/Documents/ez-sdr/ez-gui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.47s
+     Running unittests src/lib.rs (target/debug/deps/ez_gui-048838c42f57cf07)
+
+running 10 tests
+Repeated audio cancellation returned in 41 us with undrained stop queue
+test audio_output::tests::repeated_audio_shutdown_and_drop_never_wait_for_a_full_stop_queue ... ok
+test demod::tests::demod_am_constant_carrier_is_dc_blocked_by_default ... ok
+Late-read cancellation/drop=false: 25 us, no post-cancel RF publication
+Late-read cancellation/drop=true: 10 us, no post-cancel RF publication
+test source_manager::tests::stop_and_drop_discard_a_read_that_returns_after_cancellation ... ok
+Blocked WAV Stop: 52 us; drop=false, flush_error=false, finalized 16 PCM samples
+Eight close/repaint ticks with blocked disk: max 50 us; close allowed only after final result
+Blocked raw IQ Stop: 178 us; flush_error=false, finalized 20 bytes
+Blocked WAV Stop: 45 us; drop=false, flush_error=true, finalized 16 PCM samples
+test app::app_ui_tests::window_close_keeps_repainting_until_recording_finalization_finishes ... ok
+test app::runtime_actions::finalization_tests::recording_actions_cannot_acknowledge_pending_disk_finalization ... ok
+Blocked CF32 Stop: 37 us; drop=false, flush_error=false, finalized 10 RF samples
+Blocked raw IQ Stop: 31 us; flush_error=true, finalized 20 bytes
+test recorder_panel::tests::blocked_native_raw_stop_preserves_final_bytes_and_metadata_errors ... ok
+Blocked WAV Stop: 40 us; drop=true, flush_error=false, finalized 16 PCM samples
+test audio_recording::tests::blocked_wav_stop_and_panel_drop_are_responsive_and_preserve_finalization ... ok
+Blocked CF32 Stop: 39 us; drop=false, flush_error=true, finalized 10 RF samples
+Blocked CF32 Stop: 37 us; drop=true, flush_error=false, finalized 10 RF samples
+test satellite::recorder::tests::blocked_cf32_stop_keeps_decode_handoff_pending_until_files_finish ... ok
+Blocked receiver Stop returned in 10 us; restart waited for ownership release
+test source_manager::tests::stop_does_not_wait_for_blocked_hardware_open ... ok
+Blocked disk Stop returned in 151 us; pending completion and final flush error preserved
+test recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 819 filtered out; finished in 0.26s

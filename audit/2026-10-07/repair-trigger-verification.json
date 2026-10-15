@@ -1,0 +1,453 @@
+{
+  "date": "2026-10-10",
+  "scope": [
+    "R13"
+  ],
+  "verification_state": "software_verified",
+  "resource_policy": {
+    "build_jobs": 1,
+    "test_threads": 1,
+    "nice": 19,
+    "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/ez-sdr-audit-r13-verification-final.service",
+    "cpu_max": "20000 100000",
+    "observed_cpu_stat": "usage_usec 42201632\nuser_usec 35047378\nsystem_usec 7154253\nnice_usec 35197000\ncore_sched.force_idle_usec 0\nnr_periods 2111\nnr_throttled 2110\nthrottled_usec 229523988\nnr_bursts 0\nburst_usec 0\n"
+  },
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "automatic_trigger",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 44.40820102299995,
+      "log": "repair-evidence/trigger-focused-final.log",
+      "log_sha256": "593764e5729089aeed9edd0e4c6c5ffc9874c419d29b3eba37d8d3e582bfa626",
+      "raw_log_sha256": "fbc5286f171c0c52265438a3d2afe2561efb850a44c8471f0400469c5948915e",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "recorder_panel::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 3.8697872150000876,
+      "log": "repair-evidence/trigger-recorder.log",
+      "log_sha256": "8448770e8a01ce35f73789a022bbf29a7c7802ec9356ab9043e7c9ca051c5411",
+      "raw_log_sha256": "bdfd96604d23b5a2ec9c4b5fb034124fd280e6853c98aa9a9e4bce20ddff772a",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 40,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "demod::native::tests",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 12.958684903999938,
+      "log": "repair-evidence/trigger-native.log",
+      "log_sha256": "18b1e413bf134a2f7cd66d825985fcb96826f09b2126bd7c8094ae6a5a4f5685",
+      "raw_log_sha256": "46245c77b51fa3a44d34957de7fd3e5daf7c0f35fcfdf9fd4bea2116d300457d",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "spectrum::tests::scan_",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.4129333190001034,
+      "log": "repair-evidence/trigger-spectrum.log",
+      "log_sha256": "9f55fb0d30e9cd779a9f49fc95af12a9df399a4c755922b8f6e4e4696413d77d",
+      "raw_log_sha256": "31fedc696f1cdee05fe3b2df61ee19a06743b04b0be975cd7fb8a7f8f14e2260",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "daemon_client::tests::spectrum_observation_keeps_network_receipt_time",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3034748360000776,
+      "log": "repair-evidence/trigger-receipt-age.log",
+      "log_sha256": "382b382638067bc6b40d5529d30ea7542f07b66e765594068cc0a9bd9d68178c",
+      "raw_log_sha256": "66194edc44b90acb49ece6cd9ee95fb12ba932b356c58ec9bac13937526eb097",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "source_manager::tests::daemon_squelch_",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 1.3015115840000817,
+      "log": "repair-evidence/trigger-squelch.log",
+      "log_sha256": "49a95755499bc036abe0ca03bcca81bfd0c05e16256dde453586a9eda23e947e",
+      "raw_log_sha256": "0212cfeaea419d46bd367b0edbd87ba704821e860b86058c69911039058f4637",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "ez-gui",
+        "--all-targets",
+        "-j",
+        "1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 76.07325416599997,
+      "log": "repair-evidence/trigger-clippy.log",
+      "log_sha256": "b96e8333bcf763042ba753abdc303a524129a40e60f05ad5bcc52e6f2c6940fa",
+      "raw_log_sha256": "b96e8333bcf763042ba753abdc303a524129a40e60f05ad5bcc52e6f2c6940fa",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "ez-gui",
+        "--no-default-features",
+        "-j",
+        "1",
+        "--lib",
+        "automatic_trigger_recording_acknowledgements",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 32.01059975699991,
+      "log": "repair-evidence/trigger-ack-final.log",
+      "log_sha256": "0d621e162b4a4535be76870b7d5b3b7cb5867f0f745cad64dfea6620a9ee9bd8",
+      "raw_log_sha256": "423886f41ec58a3a9abb1726fc6de42a7269eec654d1053079908fab5e59dcd2",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "ez-gui",
+        "-j",
+        "1"
+      ],
+      "exit_code": 0,
+      "seconds": 44.08059327800015,
+      "log": "repair-evidence/trigger-build.log",
+      "log_sha256": "7dcb057f447d5b28383bd725f140f82875a5c7be943ab1cffead959b4c1a35f5",
+      "raw_log_sha256": "7dcb057f447d5b28383bd725f140f82875a5c7be943ab1cffead959b4c1a35f5",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 5.399667308000062,
+      "log": "repair-evidence/trigger-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "command": [
+        "graphify",
+        "update",
+        "."
+      ],
+      "exit_code": 0,
+      "seconds": 53.32919159200014,
+      "log": "repair-evidence/trigger-graph-update.log",
+      "log_sha256": "c7692880b4d89d221161822f3cef16d047f82ea80a67a0b61d16ce178ac2a86d",
+      "raw_log_sha256": "c7692880b4d89d221161822f3cef16d047f82ea80a67a0b61d16ce178ac2a86d",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    }
+  ],
+  "verification_runner": {
+    "log": "repair-evidence/trigger-capped-runner.log",
+    "log_sha256": "0680112903bac635783fdfbfd08348d07495a4c7a953897b057e0352eb94c0e9",
+    "raw_log_sha256": "0680112903bac635783fdfbfd08348d07495a4c7a953897b057e0352eb94c0e9",
+    "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+    "test_harnesses": []
+  },
+  "first_verification_runner": {
+    "log": "repair-evidence/trigger-first-capped-runner.log",
+    "log_sha256": "8ba2711383474f88ecd090d70bd6aed15de6cbf52e7f981c1a966fc392096c95",
+    "raw_log_sha256": "8ba2711383474f88ecd090d70bd6aed15de6cbf52e7f981c1a966fc392096c95",
+    "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+    "test_harnesses": []
+  },
+  "source_sha256": {
+    "README.md": "39fdd59b86c3a3957fb94427920fabb32f58455b6f71b0381d330e37d66c5742",
+    "ez-gui/src/app.rs": "219de4ce2505d4dbff454d4517815abd626504b818d0ba85432e077bf81cfd2c",
+    "ez-gui/src/daemon_client.rs": "eb03526670c47a453d7616e00e869cf05d9630b6ae5ca33efb4366aa94191a9e",
+    "ez-gui/src/demod.rs": "9b9a3d51174aafa7c9a493b8d4c4923a66ee614bb9219abe5767a771ecde2727",
+    "ez-gui/src/demod_native.rs": "9d12b959eabba8e92d048629a6e2bc4a9ed8762e1b4e5023c5235ed56eab71f9",
+    "ez-gui/src/radio_power.rs": "8142f96221f48c659395a21309d8eb81688290c314f74dad6deea40f641735cb",
+    "ez-gui/src/recorder_panel.rs": "d1f2a1a1089b33d7578fc96ec996cff9f2d1017c1292b4d0c7df1e8f6cc2975b",
+    "ez-gui/src/source_manager.rs": "ad8c9ef3253130d876cfaeb7ad5f78f3b9c6040773d20e732c988740239e06a2",
+    "ez-gui/src/spectrum.rs": "127e1b7b45be0fe7fe2c33fe848efc8798f207373caa06b05ab5777fbc779e42"
+  },
+  "behavior": {
+    "threshold": "Power mode and a separate enabled flag govern the entire -100..0 dBFS range; finite above-threshold values activate, equality does not. Off and CTCSS clearly disable this power-based feature.",
+    "native": "Only complete production RF FFT windows advance observation time. Current control version, generation and epoch are required; partial windows, stalled input, resets and future timestamps cannot renew a measurement. Expiry is max(500 ms, 2.5 capture-block durations).",
+    "daemon": "Acknowledged capture geometry, gain and finite applied threshold precede a fresh tagged raw spectrum observation. Gain and VFO changes retire previous measurements. Receipt age and unique frame timestamps govern expiry; frozen displays and hidden Listen tabs continue measurement ingestion. Scanner and monitor share the scanner observation token without superseding each other, and scanner startup cannot inherit the monitor token.",
+    "counts": "Successful local open increments once. Daemon command queue acceptance records a pending start; only a current-session active acknowledgement for the owned channel increments. Failure, timeout, duplicate status, cancelled starts and closed queues do not count. Pending starts/stops prevent repeated commands, and failed starts have a one-second retry delay.",
+    "queue": "Recording progress coalesces within a phase, preserving start/stop acknowledgements in FIFO order and retaining the existing 64-event bound."
+  },
+  "regressions": {
+    "focused_tests": 10,
+    "threshold_cases": 202,
+    "threshold_range": [
+      -100,
+      0
+    ],
+    "sources": [
+      "native snapshot routing with actual production complete-window timestamp test",
+      "mock daemon hardware/squelch acknowledgements and actual raw SpectrumFrame ingestion"
+    ],
+    "unique_affected_tests": 62,
+    "test_names": [
+      "daemon_client::tests::automatic_trigger_recording_acknowledgements_survive_progress_coalescing",
+      "daemon_client::tests::spectrum_observation_keeps_network_receipt_time_across_ui_queue_delay",
+      "demod::native::tests::audit_narrow_cw_power_meter",
+      "demod::native::tests::audit_reject_old_capture_generation",
+      "demod::native::tests::audit_signed_file_replay",
+      "demod::native::tests::audit_ssb_power_meter_passband",
+      "demod::native::tests::native_automatic_trigger_timestamps_advance_only_for_complete_power_windows",
+      "demod::native::tests::native_float_replay_reaches_rf_preview_and_audio_at_sub_byte_amplitudes",
+      "demod::native::tests::native_power_squelch_uses_selected_rf_without_display_updates",
+      "demod::native::tests::native_radio_accounts_for_bounded_overflow_missing_tail_and_lost_generations",
+      "demod::native::tests::native_radio_coalesces_controls_and_acknowledges_without_iq",
+      "demod::native::tests::native_radio_delivers_all_rf_and_playback_without_gui_reads",
+      "demod::native::tests::native_radio_resets_every_state_at_capture_boundaries",
+      "demod::native::tests::native_ssb_gate_and_recording_monitor_follow_wanted_sideband_at_vfo_offsets",
+      "demod::native::tests::native_wav_rejects_capture_geometry_before_radio_controls_catch_up",
+      "demod::native::tests::skipped_new_generation_retires_previous_epoch_and_radio_snapshot",
+      "recorder_panel::tests::apply_filename_template_adjacent_tokens",
+      "recorder_panel::tests::apply_filename_template_all_tokens",
+      "recorder_panel::tests::apply_filename_template_basic",
+      "recorder_panel::tests::apply_filename_template_case_sensitive_no_match",
+      "recorder_panel::tests::apply_filename_template_empty_template",
+      "recorder_panel::tests::apply_filename_template_no_tokens",
+      "recorder_panel::tests::apply_filename_template_only_date",
+      "recorder_panel::tests::apply_filename_template_only_freq",
+      "recorder_panel::tests::apply_filename_template_only_mode",
+      "recorder_panel::tests::apply_filename_template_repeated_token",
+      "recorder_panel::tests::apply_filename_template_spaces_replaced",
+      "recorder_panel::tests::apply_filename_template_strange_chars_in_template",
+      "recorder_panel::tests::apply_filename_template_very_long_template",
+      "recorder_panel::tests::automatic_trigger_daemon_counts_only_successful_current_session_acknowledgement",
+      "recorder_panel::tests::automatic_trigger_daemon_failure_and_timeout_never_count_or_flood_requests",
+      "recorder_panel::tests::automatic_trigger_daemon_gain_changes_require_acknowledgement_and_new_measurement",
+      "recorder_panel::tests::automatic_trigger_daemon_revision_freshness_and_scanner_boundary_are_shared",
+      "recorder_panel::tests::automatic_trigger_events_reactivate_on_channel_change_and_pending_start_can_cancel",
+      "recorder_panel::tests::automatic_trigger_every_threshold_uses_explicit_power_state_for_both_sources",
+      "recorder_panel::tests::automatic_trigger_failed_local_open_does_not_count_and_success_counts_once",
+      "recorder_panel::tests::automatic_trigger_native_measurements_expire_and_wrong_context_never_activates",
+      "recorder_panel::tests::blocked_native_raw_stop_preserves_final_bytes_and_metadata_errors",
+      "recorder_panel::tests::dropping_recorder_finalizes_all_queued_iq_in_background",
+      "recorder_panel::tests::free_disk_space_dot_returns_something",
+      "recorder_panel::tests::free_disk_space_nonexistent_path_returns_fallback",
+      "recorder_panel::tests::free_disk_space_returns_reasonable_value",
+      "recorder_panel::tests::free_disk_space_special_chars_path",
+      "recorder_panel::tests::free_disk_space_tmp_dir",
+      "recorder_panel::tests::free_disk_space_very_long_path",
+      "recorder_panel::tests::invalid_recording_configuration_and_save_path_do_not_start",
+      "recorder_panel::tests::iq_worker_roundtrip_writes_file",
+      "recorder_panel::tests::native_recording_consumers_finalize_each_clock_boundary_without_gui_ticks",
+      "recorder_panel::tests::native_recording_deadline_finalizes_files_without_gui_ticks",
+      "recorder_panel::tests::raw_iq_queue_overflow_ends_the_file_before_later_samples_can_be_appended",
+      "recorder_panel::tests::raw_iq_recording_finalizes_before_any_epoch_geometry_or_gap_boundary",
+      "recorder_panel::tests::repeated_template_preserves_prior_recordings_and_escapes_metadata",
+      "recorder_panel::tests::stop_does_not_wait_for_blocked_disk_worker",
+      "recorder_panel::tests::wav_uses_real_audio_rate_and_finalizes_on_a_rate_change",
+      "recorder_panel::tests::wav_write_failure_stops_recording_and_does_not_count_unwritten_tail",
+      "recorder_panel::tests::write_samples_not_recording_is_noop",
+      "source_manager::tests::daemon_squelch_correlates_acknowledgements_coalesces_and_rejects_old_audio",
+      "source_manager::tests::daemon_squelch_failure_timeout_and_closed_queue_preserve_applied_state",
+      "spectrum::tests::scan_capture_gap_and_decimation_use_original_input_coordinates",
+      "spectrum::tests::scan_daemon_measurements_keep_receipt_age_and_ignore_duplicate_frames",
+      "spectrum::tests::scan_fft_freeze_keeps_display_fixed_and_measures_new_input",
+      "spectrum::tests::scan_fft_retires_pending_windows_and_requires_a_complete_post_settle_window"
+    ],
+    "successful_local_file_bytes": [
+      128,
+      128
+    ],
+    "local_file_failure": true,
+    "daemon_gain_revision_and_scanner_startup": true
+  },
+  "development_verification": [
+    {
+      "exit_code": 101,
+      "log": "repair-evidence/trigger-initial-compile.log",
+      "log_sha256": "051f145800483a5ba3612b2e4c11d99b9da79e57703c233a16d46f1b0d27d2e5",
+      "raw_log_sha256": "051f145800483a5ba3612b2e4c11d99b9da79e57703c233a16d46f1b0d27d2e5",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "exit_code": 101,
+      "log": "repair-evidence/trigger-corrected-compile.log",
+      "log_sha256": "ea463255c25228d3ed731a93b80cada673913856ad1c9eabee10378b5ce304da",
+      "raw_log_sha256": "ea463255c25228d3ed731a93b80cada673913856ad1c9eabee10378b5ce304da",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    },
+    {
+      "exit_code": 101,
+      "log": "repair-evidence/trigger-fixture-failure.log",
+      "log_sha256": "eb5a69c785394e0c55699e9f1901c3ee4b23a54242f92605387c49f89a2dc9e2",
+      "raw_log_sha256": "ac0b1b70820f1b2adb328fdf953e270b4ce74f1f88afde41197c45acaa713e4f",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": [
+        {
+          "passed": 3,
+          "failed": 6,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "exit_code": 101,
+      "log": "repair-evidence/trigger-first-clippy.log",
+      "log_sha256": "630a2a2b62be66f469e0035fd1b965c94fa1ea31fff6e4e24724f6c31053e34a",
+      "raw_log_sha256": "630a2a2b62be66f469e0035fd1b965c94fa1ea31fff6e4e24724f6c31053e34a",
+      "log_normalization": "Trailing whitespace and terminal blank lines removed; content unchanged.",
+      "test_harnesses": []
+    }
+  ],
+  "development_notes": [
+    "Initial compile attempts used the wrong snapshot reference type and a private/nonexistent spectrum accessor; corrected to existing public APIs.",
+    "The first functional run exposed fixture tuning defaults (109 MHz/40 dB) that did not match acknowledged 100 MHz/0 dB capture geometry. Explicit matching fixtures and recording metadata corrected the failures without relaxing production freshness gates.",
+    "The first Clippy pass requested the equivalent matches! expression; the affected queue regression was rerun after the style fix."
+  ],
+  "limits": [
+    "No full workspace suite or expensive power-calibration matrix rerun after the user CPU constraint. Tests/build/lint/AST update were serialized at 20% of one CPU, nice 19, one Cargo job and one test thread.",
+    "Daemon routing tests use controlled protocol fixtures; they do not certify RF hardware or off-air sensitivity. Native timestamp regression runs the actual production processor on a short analytic input.",
+    "All original audit repair/release gates remain intact. Physical hardware, real audio/disk performance and independent interleaved-80k off-air gates remain unverified."
+  ]
+}

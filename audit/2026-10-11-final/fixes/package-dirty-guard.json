@@ -1,0 +1,11 @@
+{
+  "command": [
+    "scripts/package-linux-release.sh",
+    "dist"
+  ],
+  "release_version": "verification",
+  "exit_code": 1,
+  "expected_exit_code": 1,
+  "verified_rejects_uncommitted_inputs": true,
+  "stderr": "Release inputs differ from HEAD; commit the source used for this build first.\n"
+}

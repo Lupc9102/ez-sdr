@@ -1,0 +1,35 @@
+{
+  "batch": 16,
+  "findings": [
+    "G10"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1553,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6347 nodes, 13632 edges)",
+  "protocol_version": 6,
+  "regressions": [
+    "Two real GUI SourceManagers on a synthetic daemon receive distinct private channels; audio mode changes, audio/ADS-B stop and disconnect in one preserve the other audio and growing CF32 recording",
+    "TCP and browser control WebSockets reject foreign private-channel deletion, retuning, recording and squelch changes; existing channels remain observable by explicit subscriptions",
+    "Owner and observing control/data WebSockets receive identity-tagged channel removal; GUI rejects foreign data and reports unexpected active-channel removal persistently",
+    "Workflow restarts wait for the old removal acknowledgement before reusing a session ID; retired audio cannot be accepted",
+    "Eight concurrent first subscribers share exactly one pipeline and virtual tap, each receives real PCM",
+    "Concurrent allocation is unique, skips active collisions and fails without wrapping",
+    "Disconnect releases unrecorded private channels while an active recording protects its tap until stop; completed file size equals reported bytes",
+    "Wire codec preserves private allocation, spectrum identity and removal identity"
+  ],
+  "primary_reference": "https://docs.rs/parking_lot/0.12.5/parking_lot/type.FairMutex.html",
+  "limitations": [
+    "Six formal findings and additional experiments remain open",
+    "Capture hardware is shared: frequency/sample-rate/gain controls are intentionally global",
+    "Explicit low-ID channels remain shared; active recordings prevent deletion and subscribers receive removal identity",
+    "Synthetic loopback results are not physical USB/audio/display measurements",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}

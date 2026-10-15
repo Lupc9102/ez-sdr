@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
@@ -13,7 +13,7 @@ use rustfft::{Fft, FftPlanner};
 use ez_proto::SpectrumFrame;
 
 use crate::broadcast::{Broadcaster, BroadcasterHandle, OverflowPolicy};
-use crate::bus::{SampleBlock, SampleBusHandle};
+use crate::bus::{SampleBlock, SampleBusHandle, SampleContinuity};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SpectrumConfig {
@@ -54,6 +54,7 @@ fn hann_window(len: usize) -> Vec<f32> {
 /// once) — downstream consumers are expected to be realtime visualizers that only care about
 /// the newest frame, so [`Self::subscribe`] uses [`OverflowPolicy::DropOldest`].
 pub struct SpectrumPipeline {
+    channel_id: ez_proto::ChannelId,
     input: SampleBusHandle,
     fft: std::sync::Arc<dyn Fft<f32>>,
     fft_size: usize,
@@ -62,7 +63,9 @@ pub struct SpectrumPipeline {
     accum: VecDeque<Complex32>,
     scratch: Vec<Complex32>,
     smoothed_db: Vec<f32>,
-    last_center_freq_hz: Option<u64>,
+    continuity: SampleContinuity,
+    observation_revision: u64,
+    observation_earliest: Option<Instant>,
     output: Broadcaster<SpectrumFrame>,
 }
 
@@ -72,6 +75,7 @@ impl SpectrumPipeline {
         let fft_size = config.fft_size.max(2);
         let mut planner = FftPlanner::<f32>::new();
         Self {
+            channel_id: 0,
             input,
             fft: planner.plan_fft_forward(fft_size),
             fft_size,
@@ -80,12 +84,18 @@ impl SpectrumPipeline {
             accum: VecDeque::with_capacity(fft_size * 2),
             scratch: vec![Complex32::new(0.0, 0.0); fft_size],
             smoothed_db: vec![-120.0; fft_size],
-            last_center_freq_hz: None,
+            continuity: SampleContinuity::default(),
+            observation_revision: 0,
+            observation_earliest: None,
             output: Broadcaster::new(),
         }
     }
 
     /// Subscribes a new client to this pipeline's output frames.
+    pub fn set_channel_id(&mut self, id: ez_proto::ChannelId) {
+        self.channel_id = id;
+    }
+
     #[must_use]
     pub fn subscribe(&self, capacity: usize) -> BroadcasterHandle<SpectrumFrame> {
         self.output.subscribe(capacity, OverflowPolicy::DropOldest)
@@ -116,13 +126,35 @@ impl SpectrumPipeline {
         }
     }
 
+    pub(crate) fn begin_observation(&mut self, revision: u64) {
+        self.begin_observation_at(revision, Instant::now());
+    }
+
+    fn begin_observation_at(&mut self, revision: u64, now: Instant) {
+        self.observation_revision = revision;
+        self.observation_earliest = Some(now + Duration::from_millis(25));
+        self.accum.clear();
+        self.smoothed_db.fill(-120.0);
+        self.continuity = SampleContinuity::default();
+        // Bounded even if a producer keeps publishing during the drain.
+        for _ in 0..self.input.queued_len() {
+            if self.input.try_recv().is_none() {
+                break;
+            }
+        }
+    }
+
     fn process_block(&mut self, block: &SampleBlock) {
-        // Issue 19: When the SDR retunes, clear the accumulator and reset smoothed dB bins
-        // so pre-tune frequency energy doesn't smear into post-tune frames.
-        if self.last_center_freq_hz != Some(block.center_freq_hz) {
+        if self
+            .observation_earliest
+            .is_some_and(|earliest| block.observed_at.is_none_or(|observed| observed < earliest))
+        {
+            return;
+        }
+        // Never assemble an FFT or average its bins across missing samples or epochs.
+        if !self.continuity.observe(block) {
             self.accum.clear();
             self.smoothed_db.fill(-120.0);
-            self.last_center_freq_hz = Some(block.center_freq_hz);
         }
 
         self.accum.extend(block.samples.iter().copied());
@@ -152,6 +184,7 @@ impl SpectrumPipeline {
 
             let scale = 1.0 / self.fft_size as f32;
             let n = self.fft_size;
+            let mut measurement_bins = (self.observation_revision != 0).then(|| vec![-120.0; n]);
             for (i, c) in self.scratch.iter().enumerate() {
                 // fftshift to ascending-frequency order: bin 0 = center - fs/2, bin n/2 =
                 // center. Matches SpectrumFrame::bins' documented convention.
@@ -162,6 +195,9 @@ impl SpectrumPipeline {
                 } else {
                     -120.0
                 };
+                if let Some(bins) = &mut measurement_bins {
+                    bins[dst] = db;
+                }
                 let prev = self.smoothed_db[dst];
                 self.smoothed_db[dst] = self.avg_alpha * db + (1.0 - self.avg_alpha) * prev;
             }
@@ -172,10 +208,13 @@ impl SpectrumPipeline {
                 .unwrap_or(0);
 
             self.output.publish(SpectrumFrame {
+                channel_id: self.channel_id,
                 center_hz: block.center_freq_hz,
                 sample_rate_hz: block.sample_rate_hz,
                 bins: self.smoothed_db.clone(),
                 timestamp_ms,
+                observation_revision: self.observation_revision,
+                measurement_bins,
             });
         }
     }
@@ -187,6 +226,60 @@ mod tests {
     use crate::bus::SampleBus;
     use std::sync::Arc;
 
+    #[test]
+    fn observation_barrier_discards_queued_and_pre_settle_input_before_a_complete_new_window() {
+        let bus = SampleBus::new();
+        let mut pipeline = SpectrumPipeline::new(
+            bus.subscribe(8, OverflowPolicy::DropOldest),
+            SpectrumConfig {
+                fft_size: 256,
+                avg_alpha: 0.3,
+            },
+        );
+        let output = pipeline.subscribe(8);
+        let now = Instant::now();
+        let mut old = tone_block(256, 0.0, 256_000, 100_000_000);
+        old.observed_at = Some(now);
+        bus.publish(old.clone());
+        pipeline.begin_observation_at(70, now);
+        assert!(!pipeline.tick(Duration::ZERO)); // The pre-barrier input was drained.
+        pipeline.process_block(&old);
+        assert!(output.try_recv().is_none());
+        old.observed_at = Some(now + Duration::from_millis(24));
+        pipeline.process_block(&old);
+        assert!(output.try_recv().is_none());
+        let mut unknown = old.clone();
+        unknown.observed_at = None;
+        pipeline.process_block(&unknown);
+        assert!(output.try_recv().is_none());
+        let mut first = tone_block(128, 0.0, 256_000, 100_000_000);
+        first.observed_at = Some(now + Duration::from_millis(25));
+        pipeline.process_block(&first);
+        assert!(output.try_recv().is_none());
+        let mut second = first.clone();
+        second.start_sample = 128;
+        second.observed_at = Some(now + Duration::from_millis(30));
+        pipeline.process_block(&second);
+        let frame = output.try_recv().unwrap();
+        assert_eq!(frame.observation_revision, 70);
+        assert!((frame.measurement_bins.as_ref().unwrap()[128] + 6.0206).abs() < 0.001);
+        assert!(frame.bins[128] < -80.0); // Display averaging cannot supply scan strength.
+        assert!(output.try_recv().is_none());
+        let mut gap = tone_block(256, 0.0, 256_000, 100_000_000);
+        gap.start_sample = 1024;
+        gap.observed_at = Some(now + Duration::from_millis(35));
+        pipeline.process_block(&gap);
+        let after_gap = output.try_recv().unwrap();
+        assert!(after_gap.bins[128] < -80.0);
+        assert!((after_gap.measurement_bins.unwrap()[128] + 6.0206).abs() < 0.001);
+        // Superseding the dwell barrier also discards its partial window.
+        pipeline.process_block(&first);
+        pipeline.begin_observation_at(71, now + Duration::from_millis(40));
+        second.observed_at = Some(now + Duration::from_millis(64));
+        pipeline.process_block(&second);
+        assert!(output.try_recv().is_none());
+    }
+
     fn tone_block(n: usize, freq_hz: f64, sample_rate_hz: u32, center_hz: u64) -> SampleBlock {
         let samples: Vec<Complex32> = (0..n)
             .map(|k| {
@@ -196,6 +289,9 @@ mod tests {
             })
             .collect();
         SampleBlock {
+            product_session: 0,
+            observed_at: None,
+            capture: None,
             start_sample: 0,
             sample_rate_hz,
             center_freq_hz: center_hz,
@@ -205,6 +301,9 @@ mod tests {
 
     fn silence_block(n: usize, sample_rate_hz: u32, center_hz: u64) -> SampleBlock {
         SampleBlock {
+            product_session: 0,
+            observed_at: None,
+            capture: None,
             start_sample: 0,
             sample_rate_hz,
             center_freq_hz: center_hz,
@@ -248,19 +347,59 @@ mod tests {
         let out = sp.subscribe(4);
 
         // Feed fewer samples than fft_size across several ticks: no frame yet.
-        for _ in 0..3 {
-            bus.publish(silence_block(64, 1_000_000, 100_000_000));
+        for index in 0..3 {
+            let mut block = silence_block(64, 1_000_000, 100_000_000);
+            block.start_sample = index * 64;
+            bus.publish(block);
             sp.tick(Duration::from_millis(50));
             assert!(out.try_recv().is_none());
         }
 
         // The 4th block pushes total accumulated to 256 == fft_size: exactly one frame now.
-        bus.publish(silence_block(64, 1_000_000, 100_000_000));
+        let mut block = silence_block(64, 1_000_000, 100_000_000);
+        block.start_sample = 192;
+        bus.publish(block);
         sp.tick(Duration::from_millis(50));
         let frame = out
             .try_recv()
             .expect("expected a frame once fft_size samples accumulated");
         assert_eq!(frame.bins.len(), 256);
+    }
+
+    #[test]
+    fn fft_windows_and_averages_do_not_bridge_a_gap_or_replay_epoch() {
+        for gap in [false, true] {
+            let (_, mut pipeline) = pipeline_with(SpectrumConfig {
+                fft_size: 256,
+                avg_alpha: 0.3,
+            });
+            let output = pipeline.subscribe(8);
+            let mut before = tone_block(384, 0.0, 48_000, 100_000);
+            before.capture = Some(ez_proto::CaptureClock::new(1, 0, 48_000, None));
+            pipeline.process_block(&before);
+            output.try_recv().unwrap();
+            let mut after = silence_block(128, 48_000, 100_000);
+            after.start_sample = if gap { 1000 } else { 384 };
+            after.capture = Some(ez_proto::CaptureClock::new(
+                if gap { 1 } else { 2 },
+                after.start_sample,
+                48_000,
+                None,
+            ));
+            pipeline.process_block(&after);
+            assert!(
+                output.try_recv().is_none(),
+                "FFT window bridged missing samples"
+            );
+            after.start_sample += 128;
+            after.capture = after.capture.unwrap().offset_samples(128);
+            pipeline.process_block(&after);
+            let frame = output.try_recv().unwrap();
+            assert!(
+                frame.bins.iter().all(|b| (*b + 120.0).abs() < 1e-4),
+                "old averaged spectrum bridged an epoch"
+            );
+        }
     }
 
     #[test]
@@ -346,7 +485,9 @@ mod tests {
         sp.tick(Duration::from_millis(50));
         let first = out.try_recv().expect("first frame");
 
-        bus.publish(tone_block(fft_size, 0.0, sample_rate, 100_000_000));
+        let mut block = tone_block(fft_size, 0.0, sample_rate, 100_000_000);
+        block.start_sample = fft_size as u64;
+        bus.publish(block);
         sp.tick(Duration::from_millis(50));
         let second = out.try_recv().expect("second frame");
 
@@ -384,7 +525,9 @@ mod tests {
         let out = sp.subscribe(4);
 
         // Put a strong DC tone at 100 MHz
-        bus.publish(tone_block(fft_size, 0.0, sample_rate, 100_000_000));
+        let mut block = tone_block(fft_size, 0.0, sample_rate, 100_000_000);
+        block.start_sample = fft_size as u64;
+        bus.publish(block);
         sp.tick(Duration::from_millis(50));
         let frame1 = out.try_recv().expect("frame 1");
         let center = fft_size / 2;

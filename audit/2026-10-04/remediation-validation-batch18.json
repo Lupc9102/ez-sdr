@@ -1,0 +1,27 @@
+{
+  "batch": 18,
+  "findings": [],
+  "experiments": [
+    "Atomic airport database replacement under insert failure"
+  ],
+  "compiler": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "workspace_all_targets": {
+    "passed": 1557,
+    "failed": 0,
+    "ignored": 8,
+    "test_targets": 15
+  },
+  "strict_clippy": "passed",
+  "changed_files_format": "passed",
+  "graphify": "refreshed (6358 nodes, 13664 edges)",
+  "regressions": [
+    "Production writer opens a private explicit database path, with schema/deletion/airport and frequency replacement in one transaction",
+    "Abort the second airport insert and second frequency insert separately, after prior replacement rows: both prior complete tables and unrelated data survive each failed transaction",
+    "A WAL reader holding an old snapshot sees complete prior airport/frequency data across successful writer commit; after releasing the snapshot it sees only the complete new dataset"
+  ],
+  "limitations": [
+    "Five formal findings and seven additional experiments remain open or partly verified",
+    "No network download or user database was modified",
+    "Four untouched files retain pre-existing full workspace formatting differences"
+  ]
+}
