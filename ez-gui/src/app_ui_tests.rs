@@ -3247,7 +3247,10 @@ fn native_wav_recording_matches_continuous_dsp_at_60_hz_and_during_a_gui_stall()
         ez_proto::new_capture_epoch()
     ));
     std::fs::create_dir_all(&dir).unwrap();
-    let period: Vec<u8> = (0..16_384)
+    // Buffer the entire short capture within the native 128-block queue even
+    // when other tests deschedule debug DSP. This checks GUI independence and
+    // exact PCM, rather than the runner's real-time processing throughput.
+    let period: Vec<u8> = (0..65_536)
         .flat_map(|n| {
             let t = n as f64 / 2_400_000.0;
             let amplitude = 0.45 * (1.0 + 0.4 * (std::f64::consts::TAU * 1_000.0 * t).sin());
