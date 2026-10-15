@@ -14,6 +14,11 @@ def run(args, **kwargs):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=180, **kwargs).stdout
 
 
+def sha256(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def launch(command, root, name):
     state = root / name
     state.mkdir()
@@ -110,12 +115,15 @@ def main():
         if args.installed:
             assert run(["dpkg-query", "-W", "-f=${Status}", "ez-sdr"]) == "install ok installed"
             assert Path("/usr/share/applications/ez-sdr.desktop").exists()
-            assert Path("/usr/share/doc/ez-sdr/SOURCE-COMMIT.txt").read_text().strip() == commit
+            # Minimal Ubuntu images may exclude /usr/share/doc through dpkg
+            # policy. Verify the installed executables themselves match instead.
+            for binary in ("ez-gui", "ez-daemon", "dump1090"):
+                assert sha256(Path("/usr/bin") / binary) == sha256(extracted / "usr/bin" / binary)
             checks.append(launch(["/usr/bin/ez-gui"], root, "apt-installed"))
     report = {"source_commit": commit, "checks": checks,
               "package_checksums": True, "internal_manifests": True,
               "cli_help": True, "bundled_library_resolution": True,
-              "sha256": {path.name: hashlib.file_digest(path.open("rb"), "sha256").hexdigest()
+              "sha256": {path.name: sha256(path)
                          for path in (deb, appimage)},
               "scope": "Native GUI startup and CLI help; no physical radio/audio validation"}
     (dist / "linux-package-verification.json").write_text(json.dumps(report, indent=2) + "\n")

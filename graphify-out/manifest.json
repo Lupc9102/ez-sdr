@@ -4870,8 +4870,8 @@
     "semantic_hash": ""
   },
   "scripts/verify-linux-packages.py": {
-    "mtime": 1792077500.6285892,
-    "ast_hash": "eb42ccfebb519d1afe059d7e8c85ed92",
+    "mtime": 1792077651.2843843,
+    "ast_hash": "1f85fce69ff2718b841f94383c0023a4",
     "semantic_hash": ""
   },
   "packaging/linux/RELEASE_NOTES.md": {
