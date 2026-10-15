@@ -95,6 +95,14 @@ def main():
         run(["sha256sum", "--check", "usr/share/doc/ez-sdr/SHA256SUMS"], cwd=appdir)
         assert (appdir / "usr/lib/librtlsdr.so.2").is_file()
         assert (appdir / "usr/lib/libpulse.so.0").is_file()
+        library_env = dict(os.environ, LD_LIBRARY_PATH=str(appdir / "usr/lib"))
+        for binary in (appdir / "usr/bin/ez-gui", appdir / "usr/lib/libpulse.so.0"):
+            links = run(["ldd", str(binary)], env=library_env)
+            assert "not found" not in links, links
+            for library in ("librtlsdr.so.2", "libasound.so.2", "libpulsecommon-"):
+                for line in links.splitlines():
+                    if library in line:
+                        assert str(appdir / "usr/lib") in line, line
         native_sources = appdir / "usr/share/doc/ez-sdr/native-source"
         assert list(native_sources.glob("*.dsc")), "Missing native corresponding source"
         assert (appdir / "usr/share/doc/ez-sdr/SOURCE-COMMIT.txt").read_text().strip() == commit
@@ -104,6 +112,8 @@ def main():
             assert Path("/usr/share/applications/ez-sdr.desktop").exists()
             checks.append(launch(["/usr/bin/ez-gui"], root, "apt-installed"))
     report = {"source_commit": commit, "checks": checks,
+              "package_checksums": True, "internal_manifests": True,
+              "cli_help": True, "bundled_library_resolution": True,
               "sha256": {path.name: hashlib.file_digest(path.open("rb"), "sha256").hexdigest()
                          for path in (deb, appimage)},
               "scope": "Native GUI startup and CLI help; no physical radio/audio validation"}

@@ -81,6 +81,14 @@ install -m0644 /usr/lib/x86_64-linux-gnu/libpulse.so.0 "$app/usr/lib/libpulse.so
 source_packages["$(dpkg-query -W -f='${source:Package}=${source:Version}' libpulse0:amd64)"]=1
 install -Dm0644 /usr/share/doc/libpulse0/copyright "$app/$doc/LICENSES/native-libpulse0.txt"
 cp -a /usr/share/alsa "$app/usr/share/"
+# Hardware profiles/configuration are split into separate Ubuntu packages.
+# Preserve their notices and sources too, not just the libasound binary's.
+for config_package in libasound2-data alsa-topology-conf alsa-ucm-conf; do
+  if [[ "$(dpkg-query -W -f='${db:Status-Status}' "$config_package" 2>/dev/null || true)" == installed ]]; then
+    source_packages["$(dpkg-query -W -f='${source:Package}=${source:Version}' "$config_package")"]=1
+    install -Dm0644 "/usr/share/doc/$config_package/copyright" "$app/$doc/LICENSES/native-$config_package.txt"
+  fi
+done
 
 # Include the exact Ubuntu source packages for every bundled native library.
 # Use an isolated apt index; no root access or changes to the builder are needed.

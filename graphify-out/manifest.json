@@ -4865,13 +4865,13 @@
     "semantic_hash": ""
   },
   "scripts/package-linux-installers.sh": {
-    "mtime": 1792077113.271124,
-    "ast_hash": "a3ef56b02d8befb879f4378efacd3e84",
+    "mtime": 1792077441.6399844,
+    "ast_hash": "8cd66ec5dd7da0f0b03031ca9e0298f1",
     "semantic_hash": ""
   },
   "scripts/verify-linux-packages.py": {
-    "mtime": 1792077113.271124,
-    "ast_hash": "65ca5aecc41c8578f352cd3414379874",
+    "mtime": 1792077441.6399844,
+    "ast_hash": "b0c96dc65f3228f6ee9662cf74d48521",
     "semantic_hash": ""
   },
   "packaging/linux/RELEASE_NOTES.md": {

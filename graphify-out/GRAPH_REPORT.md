@@ -1,16 +1,16 @@
 # Graph Report - ez-sdr  (2026-10-15)
 
 ## Corpus Check
-- 559 files · ~3,808,556 words
+- 559 files · ~3,808,663 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 8262 nodes · 18543 edges · 404 communities (383 shown, 21 thin omitted)
+- 8262 nodes · 18543 edges · 405 communities (383 shown, 22 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 170 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7bd1ed2e`
+- Built from commit: `9925cb02`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -378,6 +378,7 @@
 - [[_COMMUNITY_Community 368|Community 368]]
 - [[_COMMUNITY_Community 369|Community 369]]
 - [[_COMMUNITY_Community 370|Community 370]]
+- [[_COMMUNITY_Community 372|Community 372]]
 - [[_COMMUNITY_Community 373|Community 373]]
 - [[_COMMUNITY_Community 375|Community 375]]
 - [[_COMMUNITY_Community 376|Community 376]]
@@ -443,15 +444,15 @@
 - 3-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/mode_bar.rs -> ez-gui/src/adsb_panel.rs`
 - 3-file cycle: `ez-gui/src/adsb_panel.rs -> ez-gui/src/app.rs -> ez-gui/src/mqtt.rs -> ez-gui/src/adsb_panel.rs`
 
-## Communities (404 total, 21 thin omitted)
+## Communities (405 total, 22 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.12
-Nodes (36): all_phase_and_axis_hypotheses_can_acquire_coded_oqpsk(), build_coded_oqpsk_iq_frames(), build_coded_oqpsk_iq_stream(), build_synthetic_iq_stream(), build_synthetic_vcdu_payload(), capture_gap_rejects_a_split_cadu_and_preserves_completed_images(), coded_symbol_frames(), corrupted_rs_frame_is_dropped_and_does_not_pollute_reassembler() (+28 more)
+Nodes (29): LocatedFrame, all_phase_and_axis_hypotheses_can_acquire_coded_oqpsk(), build_coded_oqpsk_iq_frames(), build_coded_oqpsk_iq_stream(), build_synthetic_vcdu_payload(), capture_gap_rejects_a_split_cadu_and_preserves_completed_images(), coded_symbol_frames(), corrupted_rs_frame_is_dropped_and_does_not_pollute_reassembler() (+21 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.11
-Nodes (14): cancel_and_drop_signal_the_background_worker(), DecodingPanel, MeteorInput, recording_format_and_invalid_rates_are_rejected(), request_from_satellite_sets_no_decoder_reason_when_preset_none(), Arc, BTreeMap, ChannelId (+6 more)
+Cohesion: 0.10
+Nodes (14): cancel_and_drop_signal_the_background_worker(), DecodePreset, DecodingPanel, MeteorInput, Arc, BTreeMap, ChannelId, GrayImage (+6 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.14
@@ -475,7 +476,7 @@ Nodes (20): click_controls(), control_position(), cw_offset_change_sets_dsp_chan
 
 ### Community 7 - "Community 7"
 Cohesion: 0.05
-Nodes (16): peak_in_bins(), plot_bin_stride(), restored_zero_hold_and_disabled_smoothing_follow_each_measured_frame(), Default, Duration, Into, Painter, PathBuf (+8 more)
+Nodes (19): FftInput, ObservationStamp, peak_in_bins(), restored_zero_hold_and_disabled_smoothing_follow_each_measured_frame(), Complex32, Default, Duration, Instant (+11 more)
 
 ### Community 8 - "Community 8"
 Cohesion: 0.07
@@ -522,16 +523,16 @@ Cohesion: 0.09
 Nodes (30): broadcast_state_with_listener_no_crash(), changed_port_releases_previous_listener(), ListenerSnapshot, ListenerState, new_creates_disabled_instance(), no_crash_broadcast_without_listeners(), no_crash_poll_without_channel(), occupied_port_recovers_and_healthy_apply_preserves_websocket() (+22 more)
 
 ### Community 19 - "Community 19"
-Cohesion: 0.05
-Nodes (25): BiquadStage, AdvancedConfig, am_and_nfm_channel_filters_reject_out_of_band_iq_before_decimation(), Biquad, ComplexChannelLowpass, demod_control_flood_coalesces_config_and_profile_and_acknowledges_without_iq(), demod_controls_report_a_missing_worker_instead_of_success(), demod_frame_versions_identify_latest_controls_under_iq_backlog() (+17 more)
+Cohesion: 0.07
+Nodes (23): BiquadStage, AdvancedConfig, am_and_nfm_channel_filters_reject_out_of_band_iq_before_decimation(), ComplexChannelLowpass, demod_control_flood_coalesces_config_and_profile_and_acknowledges_without_iq(), demod_controls_report_a_missing_worker_instead_of_success(), demod_frame_versions_identify_latest_controls_under_iq_backlog(), demod_worker_reconfigures_mode_and_resets() (+15 more)
 
 ### Community 20 - "Community 20"
 Cohesion: 0.09
 Nodes (42): arbitrary_partitions_match_and_signal_loss_expires_lock(), bits(), BlockSync, crc_offsets_and_single_bit_corruption(), encode_block(), full_multiplex_phase_noise_carrier_offset_and_streaming_chunks(), Iq, Lowpass (+34 more)
 
 ### Community 21 - "Community 21"
-Cohesion: 0.31
-Nodes (3): complex_and_byte_apis_match_for_every_mode_and_stereo(), rf_blanker_level_controls_real_impulse_suppression_before_demodulation(), rf_dc_notch_blanker_and_decimator_preserve_stream_state_across_chunks()
+Cohesion: 0.15
+Nodes (5): carrier_agc_is_rate_independent_and_preserves_stream_state(), carrier_agc_tracks_rf_strength_but_preserves_am_modulation_depth(), complex_and_byte_apis_match_for_every_mode_and_stereo(), rf_blanker_level_controls_real_impulse_suppression_before_demodulation(), rf_dc_notch_blanker_and_decimator_preserve_stream_state_across_chunks()
 
 ### Community 22 - "Community 22"
 Cohesion: 0.12
@@ -566,8 +567,8 @@ Cohesion: 0.11
 Nodes (45): apply_filename_template_adjacent_tokens(), apply_filename_template_all_tokens(), apply_filename_template_basic(), apply_filename_template_case_sensitive_no_match(), apply_filename_template_empty_template(), apply_filename_template_no_tokens(), apply_filename_template_only_date(), apply_filename_template_only_freq() (+37 more)
 
 ### Community 30 - "Community 30"
-Cohesion: 0.11
-Nodes (36): carrier_agc_is_rate_independent_and_preserves_stream_state(), carrier_agc_tracks_rf_strength_but_preserves_am_modulation_depth(), configured_demod(), cw_offset_200_produces_tone_at_cw_tone_hz_plus_200(), cw_offset_zero_produces_tone_at_cw_tone_hz(), cw_rejects_adjacent_carriers_before_beat_mixing(), cw_squelch_strong_signal_passes_audio(), cw_squelch_weak_signal_gates_to_silence() (+28 more)
+Cohesion: 0.13
+Nodes (32): configured_demod(), cw_offset_200_produces_tone_at_cw_tone_hz_plus_200(), cw_offset_zero_produces_tone_at_cw_tone_hz(), cw_rejects_adjacent_carriers_before_beat_mixing(), cw_squelch_strong_signal_passes_audio(), cw_squelch_weak_signal_gates_to_silence(), cw_tone_is_added_after_narrow_rf_filter_and_honors_setting(), cw_volume_full_produces_reference_amplitude() (+24 more)
 
 ### Community 31 - "Community 31"
 Cohesion: 0.18
@@ -642,8 +643,8 @@ Cohesion: 0.10
 Nodes (22): cs16_conversion_is_symmetric_and_normalized(), cs16_le_bytes_to_complex(), drop_on_never_started_source_does_not_panic(), last_err(), new_source_has_null_device_and_sane_defaults(), read_iq_on_unstarted_source_returns_zero_without_touching_hardware(), c_char, c_int (+14 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.13
-Nodes (17): complex_fm(), complex_input_preserves_signals_far_below_an_eight_bit_quantization_step(), detected_antialias_tiny_chunks_and_resets_preserve_controls_and_capture_duration(), fm_deemphasis_supports_none_22_50_and_75_microseconds(), fm_lowpass_bypass_is_real_and_keeps_antialias_protection(), fmif_improves_noisy_nfm_and_keeps_tone_gain_when_enabled(), fractional_source_clock_preserves_exact_audio_counts_pitch_and_chunk_state(), new_fm_controls_and_taps_preserve_chunk_counts_reset_and_precision() (+9 more)
+Cohesion: 0.24
+Nodes (12): complex_fm(), complex_input_preserves_signals_far_below_an_eight_bit_quantization_step(), fm_deemphasis_supports_none_22_50_and_75_microseconds(), fm_lowpass_bypass_is_real_and_keeps_antialias_protection(), fmif_improves_noisy_nfm_and_keeps_tone_gain_when_enabled(), new_fm_controls_and_taps_preserve_chunk_counts_reset_and_precision(), physical_fm_meter_ignores_initial_phase_carrier_offset_and_no_energy(), physical_fm_meter_is_partition_invariant_and_retires_on_gaps_and_clock_changes() (+4 more)
 
 ### Community 50 - "Community 50"
 Cohesion: 0.08
@@ -770,12 +771,12 @@ Cohesion: 0.12
 Nodes (16): find_device_index(), Drop, Option, Result, Self, Send, String, Vec (+8 more)
 
 ### Community 81 - "Community 81"
-Cohesion: 0.14
-Nodes (9): amateur_overlay_limits_follow_selected_itu_region(), ItuRegion, Arc, AtomicUsize, Drop, JoinHandle, Option, Sender (+1 more)
+Cohesion: 0.12
+Nodes (7): amateur_overlay_limits_follow_selected_itu_region(), ItuRegion, plot_bin_stride(), Painter, Rect, Ui, waterfall_large_fft_storage_is_bounded_and_preserves_narrow_peaks()
 
 ### Community 82 - "Community 82"
-Cohesion: 0.16
-Nodes (9): FftInput, ObservationStamp, Complex32, Instant, scan_capture_gap_and_decimation_use_original_input_coordinates(), scan_fft_retires_pending_windows_and_requires_a_complete_post_settle_window(), SpectrumContext, SpectrumMeasurement (+1 more)
+Cohesion: 0.15
+Nodes (7): Biquad, detected_antialias_tiny_chunks_and_resets_preserve_controls_and_capture_duration(), fractional_source_clock_preserves_exact_audio_counts_pitch_and_chunk_state(), product_modes_keep_exact_audio_clock_and_chunk_continuity_at_noninteger_rates(), reset_preserves_configured_highpass_from_the_first_block(), set_sample_rates_decimation(), stereo_fm_chunk_boundaries_preserve_pll_filters_and_channel_clocks()
 
 ### Community 83 - "Community 83"
 Cohesion: 0.25
@@ -810,8 +811,8 @@ Cohesion: 0.07
 Nodes (59): Child, ClientReader, ClientWriter, ChildGuard, cli_streams_beast_raw_and_populated_sbs_from_real_synthetic_iq(), connect_when_ready(), free_ports(), independent_crc24() (+51 more)
 
 ### Community 92 - "Community 92"
-Cohesion: 0.16
-Nodes (15): AudioResampler, Demodulator, FmFrequencyEqualizer, FmIfNoiseReducer, FmIfStage, independent_float_stereo_fm(), Box, Complex32 (+7 more)
+Cohesion: 0.14
+Nodes (16): AudioResampler, Demodulator, FmDeviationMeter, FmFrequencyEqualizer, FmIfNoiseReducer, FmIfStage, independent_float_stereo_fm(), Box (+8 more)
 
 ### Community 93 - "Community 93"
 Cohesion: 0.11
@@ -822,8 +823,8 @@ Cohesion: 0.16
 Nodes (21): background_capture_subscriber_decodes_the_published_iq_fixture(), block(), clock_tuning_and_sample_gaps_are_reported_and_reset_decoder_state(), Configuration, DecoderState, hex(), LocalUatSnapshot, LocalUatWorker (+13 more)
 
 ### Community 95 - "Community 95"
-Cohesion: 0.27
-Nodes (18): cadence_uses_samples_and_supports_overlapping_large_windows(), complex_chunk_boundaries_share_raw_iq_calibration_and_cadence(), complex_invalid_samples_do_not_poison_fft_or_pair_with_pending_raw_byte(), complex_large_fft_preserves_weak_tone_and_fractional_sample_rate(), complex_long_burst_is_bounded_and_retains_newest_window(), complex_tone(), fft_short_buffer_does_not_panic(), full_65536_fft_accumulates_real_samples_and_reports_dbfs() (+10 more)
+Cohesion: 0.22
+Nodes (21): cadence_uses_samples_and_supports_overlapping_large_windows(), complex_chunk_boundaries_share_raw_iq_calibration_and_cadence(), complex_invalid_samples_do_not_poison_fft_or_pair_with_pending_raw_byte(), complex_large_fft_preserves_weak_tone_and_fractional_sample_rate(), complex_long_burst_is_bounded_and_retains_newest_window(), complex_tone(), fft_short_buffer_does_not_panic(), full_65536_fft_accumulates_real_samples_and_reports_dbfs() (+13 more)
 
 ### Community 96 - "Community 96"
 Cohesion: 0.08
@@ -902,8 +903,8 @@ Cohesion: 0.07
 Nodes (41): AircraftState, compute_magnitude(), InputFormat, test_compute_magnitude_empty_slice_no_nan(), adsb_gnss_position_and_initial_surface_reference_are_supported(), adsb_old_position_expires_independently_and_track_memory_is_bounded(), adsb_real_iq_decodes_once_across_arbitrary_byte_boundaries(), AdsBDecoder (+33 more)
 
 ### Community 115 - "Community 115"
-Cohesion: 0.27
-Nodes (19): Cursor, decode_cf32_file(), decode_cf32_file_with_amplitude(), decode_cf32_reader(), decode_cf32_reader_with_amplitude(), decode_cs8_file(), decode_cs8_reader(), decode_file() (+11 more)
+Cohesion: 0.17
+Nodes (32): Cursor, build_synthetic_iq_stream(), decode_cf32_file(), decode_cf32_file_with_amplitude(), decode_cf32_reader(), decode_cf32_reader_preserves_samples_split_across_reads(), decode_cf32_reader_with_amplitude(), decode_cs8_file() (+24 more)
 
 ### Community 116 - "Community 116"
 Cohesion: 0.20
@@ -914,8 +915,8 @@ Cohesion: 0.18
 Nodes (16): capture_changes_retire_old_points_and_density_even_while_frozen(), ConstellationDisplay, density_and_points_share_a_bounded_window_including_shrink_and_reset(), density_grid_accumulates(), empty_input_is_noop(), iq_to_point_matches_uc8_offset_convention(), pause_prevents_samples(), push_iq_samples_strides_large_batches() (+8 more)
 
 ### Community 118 - "Community 118"
-Cohesion: 0.17
-Nodes (12): background_completion_does_not_require_visible_tab(), nonfinite_cf32_reports_the_bad_sample_without_consuming_the_recording(), png_exports_preserve_previous_passes_and_pixels(), processed_export_writes_adjusted_channels_histograms_and_rgb_composition(), Drop, Self, signed_cs8_worker_recovers_image_exports_pixels_and_reports_all_bytes(), synthetic_signed_oqpsk() (+4 more)
+Cohesion: 0.18
+Nodes (15): decode_recording(), decode_recording_with_epoch(), FileDecodeOutcome, nonfinite_cf32_reports_the_bad_sample_without_consuming_the_recording(), RecordingFormat, AtomicBool, AtomicU64, Drop (+7 more)
 
 ### Community 119 - "Community 119"
 Cohesion: 0.13
@@ -942,8 +943,8 @@ Cohesion: 0.30
 Nodes (3): CreationContext, Self, Ui
 
 ### Community 125 - "Community 125"
-Cohesion: 0.12
-Nodes (16): daemon_cadence_and_invalid_frames_are_bounded(), daemon_frame(), full_waterfall_update_switches_real_texture_uploads_without_stale_rows(), offset_vfo_render_click_and_width_keep_capture_coordinates(), render_spectrum_test(), Context, Event, FullOutput (+8 more)
+Cohesion: 0.09
+Nodes (21): daemon_cadence_and_invalid_frames_are_bounded(), daemon_frame(), full_waterfall_update_switches_real_texture_uploads_without_stale_rows(), offset_vfo_render_click_and_width_keep_capture_coordinates(), render_spectrum_test(), Arc, AtomicUsize, Context (+13 more)
 
 ### Community 126 - "Community 126"
 Cohesion: 0.10
@@ -995,7 +996,7 @@ Nodes (27): adsb_reset_retires_late_enrichment_and_old_selection(), AdsBPanel, A
 
 ### Community 138 - "Community 138"
 Cohesion: 0.22
-Nodes (24): aborting_run_stops_source_and_releases_both_listeners(), assert_source_stays_stopped(), connect_control_websocket(), connect_with_retry(), expect_welcome(), free_addr(), lifecycle_config(), LifecycleTestProbe (+16 more)
+Nodes (25): aborting_run_stops_source_and_releases_both_listeners(), assert_source_stays_stopped(), connect_control_websocket(), connect_with_retry(), expect_welcome(), free_addr(), lifecycle_config(), LifecycleTestProbe (+17 more)
 
 ### Community 139 - "Community 139"
 Cohesion: 0.26
@@ -1098,8 +1099,8 @@ Cohesion: 0.17
 Nodes (11): Autonomous Daemon — Final Comprehensive Status Report, Code Metrics Summary, Daemon Protocol Status, Do These In The Future, Enhancement Opportunities (Non-Critical), Executive Summary, Final Assessment, If Continuing Development (+3 more)
 
 ### Community 164 - "Community 164"
-Cohesion: 0.11
-Nodes (25): ClippedShape, cancelled_dialog_and_failed_export_unlock_without_losing_decoded_images(), daemon_completion_builds_georeference_ready_result_with_row_times(), daemon_live_stop_waits_for_final_marker_and_disconnect_never_claims_completion(), daemon_live_telemetry_can_be_started_and_stopped_without_local_capture_worker(), daemon_product_boundary_clears_all_apids_and_rejects_old_queued_images(), daemon_telemetry_is_retained_by_apid(), daemon_telemetry_rejects_mismatched_dimensions() (+17 more)
+Cohesion: 0.13
+Nodes (22): ClippedShape, background_completion_does_not_require_visible_tab(), cancelled_dialog_and_failed_export_unlock_without_losing_decoded_images(), FileOperation, FileOperationKind, FileOperationOutcome, folder_dialog_and_png_export_share_pixels_and_finish_in_background(), georeference_files_are_written_by_the_background_file_worker() (+14 more)
 
 ### Community 165 - "Community 165"
 Cohesion: 0.21
@@ -1114,8 +1115,8 @@ Cohesion: 0.29
 Nodes (9): derandomize(), derandomize_in_place(), derandomize_in_place_matches_non_mutating(), derandomize_is_involution(), derandomize_wraps_at_255_bytes(), pn_bitstream_has_maximal_period_255(), pn_table(), pn_table_has_correct_length_and_is_deterministic() (+1 more)
 
 ### Community 168 - "Community 168"
-Cohesion: 0.17
-Nodes (10): flatten_server_task(), join_ingest_thread(), LifecycleTestSource, Complex32, JoinHandle, Result, run(), stop_server_task() (+2 more)
+Cohesion: 0.15
+Nodes (9): flatten_server_task(), join_ingest_thread(), LifecycleTestSource, Complex32, JoinHandle, Result, stop_server_task(), wait_for_first_server_exit() (+1 more)
 
 ### Community 169 - "Community 169"
 Cohesion: 0.29
@@ -1158,8 +1159,8 @@ Cohesion: 0.18
 Nodes (10): Additional experiments, not counted as confirmed findings, ADS-B and Rust GUI logic audit, Coverage by subsystem, Protocol references and an excluded suspicion, Recorded behavioral observations, Repair order and acceptance gates, Reproducing and reading the evidence, The contracts that fail (+2 more)
 
 ### Community 179 - "Community 179"
-Cohesion: 0.13
-Nodes (17): Constants, Elements, bundled_tles_are_real_sgp4_elements(), deterministic_passes_are_sorted_and_physical(), doppler_uses_observer_relative_range_rate(), fresh_pass_cache_tracks_observer_catalog_horizon_and_time_window(), imported_tles_replace_known_catalog_ids_atomically(), invalid_windows_and_empty_catalog_return_no_passes() (+9 more)
+Cohesion: 0.14
+Nodes (15): bundled_tles_are_real_sgp4_elements(), deterministic_passes_are_sorted_and_physical(), doppler_uses_observer_relative_range_rate(), fresh_pass_cache_tracks_observer_catalog_horizon_and_time_window(), imported_tles_replace_known_catalog_ids_atomically(), invalid_windows_and_empty_catalog_return_no_passes(), observer_geometry_handles_antimeridian_and_below_horizon(), pass_signature() (+7 more)
 
 ### Community 180 - "Community 180"
 Cohesion: 0.15
@@ -1202,8 +1203,8 @@ Cohesion: 0.09
 Nodes (21): 1. Distribution licensing is unresolved — P1, 2. The standalone dump1090 CLI advertises inactive raw/SBS feeds — P1, 3. Physical receiver and audible-output validation are absent — P1 for a live-RF claim, 4. Original off-air 80k Meteor performance remains unproved — P1 for 80k field reliability, 5. Replacement coverage is deliberately incomplete — P2, 6. Packaging and minor maintenance gaps remain — P2/P3, ADS-B: both actual native decoders recover the same frames, Architecture and functional scope (+13 more)
 
 ### Community 190 - "Community 190"
-Cohesion: 0.16
-Nodes (19): dot(), EarthFixedState, ecef_to_geodetic(), format_time(), geodetic_to_ecef(), greenwich_sidereal_angle(), look_angle(), LookAngle (+11 more)
+Cohesion: 0.14
+Nodes (22): Constants, Elements, dot(), earth_fixed_position_is_physical_at_tle_epoch(), EarthFixedState, ecef_to_geodetic(), format_time(), geodetic_to_ecef() (+14 more)
 
 ### Community 191 - "Community 191"
 Cohesion: 0.12
@@ -1254,8 +1255,8 @@ Cohesion: 0.29
 Nodes (7): 7. Domain 4: Daemon Server, Network & Concurrency (`ez-daemon`), ISSUE-NET-01 [CRITICAL]: Cascading Mutex Poisoning on Pipeline Panic, ISSUE-NET-02 [CRITICAL]: Unbounded WebSocket Spawning & Thread Exhaustion DoS, ISSUE-NET-03 [CRITICAL]: Integer Negation Overflow Panic on `i64::MIN`, ISSUE-NET-04 [HIGH]: Channelizer Mutex Starvation During Ingest Timeout, ISSUE-NET-05 [HIGH]: Missing Origin Validation Enables CSWSH, ISSUE-NET-06 [HIGH]: Fatal Ingestion Thread Termination on 5s TCP Timeout
 
 ### Community 203 - "Community 203"
-Cohesion: 0.24
-Nodes (9): earth_fixed_position_is_physical_at_tle_epoch(), from_tle_lines(), lrpt_geolocation_uses_real_tle_vectors_and_packet_times(), LrptGeolocationModel, parses_complete_tle_and_rejects_malformed_input(), GrayImage, Option, Result (+1 more)
+Cohesion: 0.27
+Nodes (8): from_tle_lines(), lrpt_geolocation_uses_real_tle_vectors_and_packet_times(), LrptGeolocationModel, parses_complete_tle_and_rejects_malformed_input(), GrayImage, Option, Result, String
 
 ### Community 204 - "Community 204"
 Cohesion: 0.24
@@ -1686,8 +1687,8 @@ Cohesion: 0.11
 Nodes (9): assert, context, document, Element, elements, fs, Socket, sockets (+1 more)
 
 ### Community 325 - "Community 325"
-Cohesion: 0.08
-Nodes (34): actionButton(), addChannel(), api(), connect(), disconnect(), drawAircraft(), drawSpectrum(), drawTelemetry() (+26 more)
+Cohesion: 0.16
+Nodes (24): actionButton(), addChannel(), api(), connect(), disconnect(), drawAircraft(), drawSpectrum(), drawTelemetry() (+16 more)
 
 ### Community 326 - "Community 326"
 Cohesion: 0.11
@@ -1707,7 +1708,7 @@ Nodes (9): build_source(), DaemonConfig, Box, Debug, Formatter, PathBuf, String,
 
 ### Community 332 - "Community 332"
 Cohesion: 0.12
-Nodes (31): agc_attack_on_loud_signal(), agc_clamps_gain_and_output(), agc_decay_on_quiet_signal(), antialias_demod(), apply_lpf_bypass_when_alpha_near_one(), apply_lpf_filters_when_alpha_small(), demod_am_constant_carrier_is_dc_blocked_by_default(), demod_fm_constant_phase_near_zero() (+23 more)
+Nodes (32): agc_attack_on_loud_signal(), agc_clamps_gain_and_output(), agc_decay_on_quiet_signal(), antialias_demod(), apply_lpf_bypass_when_alpha_near_one(), apply_lpf_filters_when_alpha_small(), demod_am_constant_carrier_is_dc_blocked_by_default(), demod_fm_constant_phase_near_zero() (+24 more)
 
 ### Community 333 - "Community 333"
 Cohesion: 0.29
@@ -1718,8 +1719,8 @@ Cohesion: 0.40
 Nodes (4): main(), Box, Error, Result
 
 ### Community 335 - "Community 335"
-Cohesion: 0.39
-Nodes (7): decode_recording(), decode_recording_with_epoch(), FileDecodeOutcome, RecordingFormat, AtomicBool, AtomicU64, Sender
+Cohesion: 0.15
+Nodes (10): distribution(), Value, Vec, ColorImage, Context, FullOutput, HashMap, RgbaImage (+2 more)
 
 ### Community 336 - "Community 336"
 Cohesion: 0.06
@@ -1829,6 +1830,10 @@ Nodes (3): Into, Self, String
 Cohesion: 1.00
 Nodes (3): launch(), main(), run()
 
+### Community 372 - "Community 372"
+Cohesion: 0.24
+Nodes (7): daemon_completion_builds_georeference_ready_result_with_row_times(), daemon_live_stop_waits_for_final_marker_and_disconnect_never_claims_completion(), daemon_live_telemetry_can_be_started_and_stopped_without_local_capture_worker(), daemon_product_boundary_clears_all_apids_and_rejects_old_queued_images(), daemon_telemetry_is_retained_by_apid(), daemon_telemetry_rejects_mismatched_dimensions(), empty_daemon_completion_does_not_create_an_exportable_result()
+
 ### Community 373 - "Community 373"
 Cohesion: 0.29
 Nodes (7): 978 MHz UAT, Build from included source, Installing EZ-SDR releases, Linux x86_64, macOS data locations, macOS Intel x86_64, Windows x86_64
@@ -1921,29 +1926,25 @@ Nodes (5): AppTab, render_mode_bar(), Arc, Mutex, Ui
 Cohesion: 0.08
 Nodes (21): daemon_hardware_controls_use_capture_center_and_ignore_local_offset(), daemon_lrpt_stop_waits_for_product_complete_event_before_removing_channel(), daemon_session_filters_foreign_data_and_waits_for_own_teardown(), daemon_sessions_isolate_gui_mode_stop_disconnect_and_recording(), daemon_squelch_correlates_acknowledgements_coalesces_and_rejects_old_audio(), daemon_squelch_failure_timeout_and_closed_queue_preserve_applied_state(), DaemonAudioTuning, PendingSquelch (+13 more)
 
-### Community 418 - "Community 418"
-Cohesion: 0.17
-Nodes (7): MeteorProfile, LocatedFrame, DecodeLane, LrptDecoder, Option, Vec, VecDeque
-
 ## Knowledge Gaps
 - **1423 isolated node(s):** `@opencode-ai/plugin`, `group`, `started_utc`, `cpu_policy`, `checks` (+1418 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **21 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Receiver` connect `Community 153` to `Community 129`, `Community 1`, `Community 3`, `Community 6`, `Community 137`, `Community 10`, `Community 395`, `Community 11`, `Community 141`, `Community 9`, `Community 15`, `Community 144`, `Community 18`, `Community 19`, `Community 22`, `Community 151`, `Community 408`, `Community 285`, `Community 158`, `Community 416`, `Community 164`, `Community 42`, `Community 173`, `Community 303`, `Community 50`, `Community 180`, `Community 309`, `Community 54`, `Community 315`, `Community 66`, `Community 70`, `Community 79`, `Community 81`, `Community 359`, `Community 123`?**
-  _High betweenness centrality (0.163) - this node is a cross-community bridge._
+- **Why does `Receiver` connect `Community 153` to `Community 129`, `Community 1`, `Community 3`, `Community 6`, `Community 137`, `Community 10`, `Community 395`, `Community 11`, `Community 141`, `Community 9`, `Community 15`, `Community 144`, `Community 18`, `Community 19`, `Community 22`, `Community 151`, `Community 408`, `Community 285`, `Community 158`, `Community 416`, `Community 164`, `Community 42`, `Community 173`, `Community 303`, `Community 50`, `Community 180`, `Community 309`, `Community 54`, `Community 315`, `Community 66`, `Community 70`, `Community 79`, `Community 359`, `Community 123`, `Community 125`?**
+  _High betweenness centrality (0.157) - this node is a cross-community bridge._
 - **Why does `SharedState` connect `Community 337` to `Community 2`, `Community 3`, `Community 6`, `Community 7`, `Community 137`, `Community 142`, `Community 408`, `Community 156`, `Community 29`, `Community 415`, `Community 416`, `Community 37`, `Community 50`, `Community 179`, `Community 51`, `Community 181`, `Community 55`, `Community 183`, `Community 313`, `Community 312`, `Community 329`, `Community 84`, `Community 347`, `Community 114`, `Community 116`?**
-  _High betweenness centrality (0.064) - this node is a cross-community bridge._
+  _High betweenness centrality (0.062) - this node is a cross-community bridge._
 - **Why does `CentralApp` connect `Community 50` to `Community 1`, `Community 2`, `Community 3`, `Community 6`, `Community 137`, `Community 10`, `Community 11`, `Community 142`, `Community 18`, `Community 151`, `Community 408`, `Community 153`, `Community 27`, `Community 415`, `Community 416`, `Community 36`, `Community 37`, `Community 307`, `Community 51`, `Community 54`, `Community 55`, `Community 311`, `Community 314`, `Community 329`, `Community 337`, `Community 84`, `Community 217`, `Community 114`, `Community 117`, `Community 123`, `Community 124`?**
-  _High betweenness centrality (0.058) - this node is a cross-community bridge._
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
 - **What connects `@opencode-ai/plugin`, `Generate the audit inventory and source-linked report from reviewed findings.  S`, `Independent 80k waveform generator using real independently decoded image data.` to the rest of the system?**
   _1434 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.11524822695035461 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.1202020202020202 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
-  _Cohesion score 0.1051693404634581 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.10420168067226891 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
   _Cohesion score 0.1365079365079365 - nodes in this community are weakly interconnected._
