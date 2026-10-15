@@ -110,6 +110,7 @@ def main():
         if args.installed:
             assert run(["dpkg-query", "-W", "-f=${Status}", "ez-sdr"]) == "install ok installed"
             assert Path("/usr/share/applications/ez-sdr.desktop").exists()
+            assert Path("/usr/share/doc/ez-sdr/SOURCE-COMMIT.txt").read_text().strip() == commit
             checks.append(launch(["/usr/bin/ez-gui"], root, "apt-installed"))
     report = {"source_commit": commit, "checks": checks,
               "package_checksums": True, "internal_manifests": True,
