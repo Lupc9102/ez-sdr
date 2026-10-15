@@ -20,6 +20,30 @@ container's filename, so run the command from the directory containing both.
 
 ## Linux x86_64
 
+Download the `.deb` or `.AppImage` from the repository's GitHub Releases page.
+Both target x86-64 Linux desktops with glibc 2.39 or newer (Ubuntu/Pop!_OS 24.04
+or newer). These are not ARM or older Ubuntu builds.
+
+For Debian/Ubuntu, run `sudo apt install ./ez-sdr_<version>_amd64.deb`.
+Use apt rather than `dpkg -i` so runtime dependencies are installed automatically.
+Launch **EZ-SDR** from the applications menu, or run `ez-gui` from a terminal.
+The package also installs `ez-daemon` and `dump1090` in `/usr/bin`.
+
+For the AppImage, run `chmod +x ez-sdr-<version>-x86_64.AppImage`, then open
+it or run it from a terminal. If FUSE is unavailable, append
+`--appimage-extract-and-run`. The AppImage bundles RTL-SDR, libusb, ALSA and
+PulseAudio client libraries, their native sources, and ALSA configuration.
+The host supplies the desktop graphics drivers and an audio server.
+Use the Debian package for automatic desktop menu integration.
+
+The `.deb` and AppImage share `ez-sdr-<version>-linux-installers.sha256`.
+Verify with `sha256sum -c ez-sdr-<version>-linux-installers.sha256`.
+Matching application source, vendored Cargo dependencies, notices and the
+source commit are included under `/usr/share/doc/ez-sdr` in the Debian package
+and `usr/share/doc/ez-sdr` inside the AppImage. The release verification report
+records package hashes and native window startup checks; it does not certify
+physical hardware reception or audio output.
+
 The Linux archive contains `bin/ez-gui`, `bin/ez-daemon`, and `bin/dump1090`.
 It is built on Ubuntu 24.04 and uses system libraries. On Ubuntu 24.04 install:
 

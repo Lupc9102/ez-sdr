@@ -8,6 +8,13 @@ product support than SDR++ and SatDump.
 
 ## Run
 
+Linux x86-64 installers are available on the [Releases page](https://github.com/Lupc9102/ez-sdr/releases/latest).
+On Ubuntu/Pop!_OS 24.04 or newer, install the `.deb` with
+`sudo apt install ./ez-sdr_*_amd64.deb`, or make the AppImage executable and open it.
+See [DISTRIBUTION.md](DISTRIBUTION.md) for checksums, supported systems and launch details.
+
+To build from source:
+
 ```bash
 cargo run -p ez-gui --release
 

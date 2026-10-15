@@ -24,6 +24,7 @@ release_inputs=(
   Cargo.toml Cargo.lock deny.toml DISTRIBUTION.md LICENSE.md README.md rust-toolchain.toml
   .github/workflows/release.yml scripts/package-linux-release.sh scripts/package-windows-release.sh
   scripts/package-macos-release.sh scripts/ez-sdr-installer.iss
+  scripts/package-linux-installers.sh scripts/verify-linux-packages.py packaging/linux
   dump1090 ez-gui ez-daemon ez-proto lrpt-decode uat-decode
   LICENSES/GPL-2.0.txt LICENSES/GPL-3.0.txt LICENSES/MIT.txt
   LICENSES/BSD-2-Clause-FlightAware.txt LICENSES/LGPL-2.1-or-later.txt
@@ -83,5 +84,6 @@ git rev-parse HEAD > "$package_dir/SOURCE-COMMIT.txt"
 (cd "$package_dir" && sha256sum bin/* SOURCE-CODE.tar.gz SOURCE-COMMIT.txt DISTRIBUTION.md LICENSE.md NATIVE-LIBRARIES.txt LICENSES/* > SHA256SUMS)
 tar -czf "$out_dir/$name.tar.gz" -C "$stage" "$name"
 (cd "$out_dir" && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+scripts/package-linux-installers.sh "$package_dir" "$out_dir" "$version"
 echo "$out_dir/$name.tar.gz"
 echo "$out_dir/$name.tar.gz.sha256"

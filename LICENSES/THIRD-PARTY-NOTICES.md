@@ -59,9 +59,14 @@ terms without assigning those copyrights to EZ-SDR authors. Primary references:
 
 ## Native runtime libraries
 
-Native runtime packaging differs by platform. Linux binaries use the system
-libraries listed in `DISTRIBUTION.md`; `NATIVE-LIBRARIES.txt` records their
-runtime links and Ubuntu builder package versions. Windows bundles the RTL-SDR,
+Native runtime packaging differs by platform. The Linux archive and Debian
+package use the system libraries listed in `DISTRIBUTION.md`. The AppImage
+bundles Ubuntu's RTL-SDR, libusb, ALSA and PulseAudio client libraries and their
+audio codec dependencies; it includes their copyright/license notices and exact
+Ubuntu source packages under `usr/share/doc/ez-sdr/native-source`.
+`NATIVE-LIBRARIES.txt` records runtime links, Ubuntu builder package versions,
+and the AppImage's native source versions. Its AppImage runtime is MIT licensed,
+with its license included alongside the other notices. Windows bundles the RTL-SDR,
 libusb, GNU runtime, and winpthreads DLL dependencies beside each executable and
 includes their notices and matching source snapshots. The macOS app bundle
 contains RTL-SDR and libusb under `Contents/Frameworks`; CoreAudio comes from

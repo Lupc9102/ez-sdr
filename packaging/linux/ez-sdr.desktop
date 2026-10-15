@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=EZ-SDR
+Comment=Software defined radio, ADS-B and satellite receiver
+Exec=ez-gui
+Icon=ez-sdr
+Terminal=false
+Categories=Science;HamRadio;
+Keywords=SDR;Radio;ADS-B;Satellite;
+StartupWMClass=ez-gui

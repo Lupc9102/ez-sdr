@@ -17,18 +17,47 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.92.0
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
-      - name: Build licensed Linux release archive
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev desktop-file-utils xvfb x11-utils libgl1-mesa-dri
+      - name: Build licensed Linux archive, Debian package and AppImage
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
         run: scripts/package-linux-release.sh dist
+      - name: Install Debian package with apt
+        run: sudo apt-get install -y ./dist/ez-sdr_*_amd64.deb
+      - name: Verify installed application and packaged launchers
+        run: python3 scripts/verify-linux-packages.py dist --installed
       - uses: actions/upload-artifact@v7
         with:
           name: ez-sdr-${{ github.ref_name }}-linux-x86_64
           path: |
             dist/ez-sdr-${{ github.ref_name }}-linux-x86_64.tar.gz
             dist/ez-sdr-${{ github.ref_name }}-linux-x86_64.tar.gz.sha256
+            dist/*.deb
+            dist/*.AppImage
+            dist/*-linux-installers.sha256
+            dist/linux-package-verification.json
           if-no-files-found: error
+
+  publish-linux:
+    name: Publish verified Linux installers
+    needs: linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v8
+        with:
+          name: ez-sdr-${{ github.ref_name }}-linux-x86_64
+          path: dist
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --draft --title "EZ-SDR $RELEASE_TAG" --notes-file packaging/linux/RELEASE_NOTES.md
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
 
   windows:
     name: Windows x86_64 installer and portable ZIP

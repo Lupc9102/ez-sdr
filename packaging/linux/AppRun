@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+APPDIR="$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)"
+export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export ALSA_CONFIG_PATH="$APPDIR/usr/share/alsa/alsa.conf"
+export ALSA_CONFIG_DIR="$APPDIR/usr/share/alsa"
+export PATH="$APPDIR/usr/bin:$PATH"
+exec "$APPDIR/usr/bin/ez-gui" "$@"
