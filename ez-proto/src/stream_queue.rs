@@ -103,6 +103,9 @@ impl StreamQueue {
                 }
             }
         }
+        // A snapshot promised after a gap must survive until the next pop,
+        // while one coalescing tail keeps the producer's final update fresh.
+        let capacity = capacity + usize::from(capacity == 1 && slot.protect_front);
         while slot.frames.len() >= capacity {
             let protected = if slot.protect_front { 1 } else { 0 };
             let Some(index) = slot.frames.iter().enumerate().skip(protected).find_map(
@@ -277,6 +280,46 @@ mod tests {
             observation_revision: 0,
             measurement_bins: None,
         })
+    }
+
+    #[test]
+    fn protected_snapshot_retains_latest_update_while_front_is_promised() {
+        let mut queue = StreamQueue::default();
+        let observed = Instant::now();
+        for n in 0..2 {
+            assert!(queue.push(spectrum(n), observed));
+        }
+        assert!(matches!(
+            queue.pop().unwrap().0,
+            ServerEvent::StreamGap {
+                dropped_frames: 1,
+                ..
+            }
+        ));
+
+        // A finite producer can finish before the consumer takes the frame
+        // promised by that gap. Keep both the promise and the freshest tail.
+        for n in 2..1000 {
+            assert!(queue.push(spectrum(n), observed));
+        }
+        assert_eq!(queue.queued_frames(), 2);
+        assert!(matches!(
+            queue.pop().unwrap().0,
+            ServerEvent::Spectrum(frame) if frame.timestamp_ms == 1
+        ));
+        assert!(matches!(
+            queue.pop().unwrap().0,
+            ServerEvent::StreamGap {
+                dropped_frames: 997,
+                ..
+            }
+        ));
+        assert!(matches!(
+            queue.pop().unwrap().0,
+            ServerEvent::Spectrum(frame) if frame.timestamp_ms == 999
+        ));
+        assert!(queue.pop().is_none());
+        assert_eq!(queue.skipped_frames() + 2, 1000);
     }
 
     #[test]
