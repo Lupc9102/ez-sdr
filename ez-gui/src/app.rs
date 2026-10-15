@@ -11,8 +11,6 @@ pub struct FreqMemEntry {
 #[cfg(test)]
 use crate::adsb_decoder::AdsBDecoder;
 use crate::adsb_panel::AdsBPanel;
-#[cfg(test)]
-use crate::ai_panel::AiPanel;
 use crate::audio_output::{AudioOutput, AudioOutputSelection};
 use crate::bookmarks::BookmarkDb;
 use crate::config::AppConfig;
@@ -30,26 +28,6 @@ use crate::tle_engine::TleEngine;
 use crate::web_remote::{RemoteCommand, WebRemote};
 
 pub use crate::mode_bar::{AppTab, MAIN_TABS};
-
-/// Scanner configuration request produced outside the scanner itself (the AI
-/// panel's `configure_scanner` tool call). Fields left `None` keep the
-/// scanner's current value; the app loop drains and applies it every frame.
-#[derive(Debug, Clone, Default)]
-pub struct ScannerCommand {
-    pub start_hz: Option<u64>,
-    pub stop_hz: Option<u64>,
-    pub step_hz: Option<u64>,
-    pub dwell_ms: Option<u64>,
-    pub threshold_db: Option<f32>,
-    /// `Some(true)` starts the sweep after applying settings, `Some(false)` stops it.
-    pub run: Option<bool>,
-}
-
-#[path = "app_runtime_actions.rs"]
-mod runtime_actions;
-pub(crate) use runtime_actions::{
-    PendingRuntimeAction, RuntimeAction, RuntimeActionRequest, RUNTIME_ACTION_CAPACITY,
-};
 
 pub struct SharedState {
     pub source: SourceManager,
@@ -79,10 +57,8 @@ pub struct SharedState {
     pub mqtt_connected: bool,
     pub mqtt_enabled: bool,
     pub bookmarks_modified: bool,
-    pub scanner_command: Option<ScannerCommand>,
     /// Every manual tuning route uses the same monotonic scheduler cooldown.
     pub last_manual_tune: Option<Instant>,
-    pub(crate) runtime_actions: VecDeque<RuntimeActionRequest>,
 }
 
 impl SharedState {
@@ -104,8 +80,6 @@ pub struct CentralApp {
     constellation: ConstellationDisplay,
     decoding_panel: DecodingPanel,
     meteor_decoder: DecodingPanel,
-    #[cfg(test)]
-    ai_panel: AiPanel,
     quick_start: crate::quick_start::QuickStartWizard,
     web_remote: WebRemote,
     rigctl: RigctlServer,
@@ -129,7 +103,6 @@ pub struct CentralApp {
     last_adsb_capture: Option<(u64, u32, crate::source_manager::SourceMode, u64, bool)>,
     scanner: crate::scanner::FrequencyScanner,
     last_scheduler_update: std::time::Instant,
-    runtime_action: Option<PendingRuntimeAction>,
     runtime_error_serial: u64,
     runtime_last_error: String,
     last_source_status: crate::source_manager::SourceStatus,
@@ -357,9 +330,7 @@ impl CentralApp {
             mqtt_connected: false,
             mqtt_enabled: false,
             bookmarks_modified: true,
-            scanner_command: None,
             last_manual_tune: None,
-            runtime_actions: VecDeque::new(),
         }));
 
         let mut web_remote = WebRemote::new();
@@ -470,8 +441,6 @@ impl CentralApp {
             constellation: ConstellationDisplay::new(),
             decoding_panel: DecodingPanel::default(),
             meteor_decoder: DecodingPanel::default(),
-            #[cfg(test)]
-            ai_panel: AiPanel::new(shared.clone()),
             quick_start: crate::quick_start::QuickStartWizard::new(),
             web_remote,
             rigctl,
@@ -491,7 +460,6 @@ impl CentralApp {
             last_local_adsb_epoch: None,
             last_adsb_capture: None,
             scanner: crate::scanner::FrequencyScanner::new(shared.clone()),
-            runtime_action: None,
             close_pending: false,
             runtime_error_serial: 0,
             runtime_last_error: String::new(),
@@ -1438,9 +1406,6 @@ impl eframe::App for CentralApp {
             self.settings_applied_this_session = true;
         }
 
-        #[cfg(test)]
-        self.ai_panel.tick();
-        self.tick_runtime_actions();
         self.recorder_panel.tick();
         self.recorder_panel
             .set_audio_sample_rate(self.audio.sample_rate());
@@ -1930,9 +1895,6 @@ impl eframe::App for CentralApp {
                 let prev_hits = self.scanner.hits.len();
                 let shared = Arc::clone(&self.shared);
                 if let Ok(mut state) = shared.try_lock() {
-                    if let Some(cmd) = state.scanner_command.take() {
-                        self.scanner.apply_command(&cmd);
-                    }
                     self.scanner.validate_fixed_capture(&state);
                     let expected_rate =
                         if state.source.source_mode == crate::source_manager::SourceMode::Daemon {

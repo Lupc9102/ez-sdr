@@ -1,7 +1,7 @@
 //! Persistent application configuration.
 //!
 //! Provides [`AppConfig`] for serializing/deserializing SDR, UI, theme,
-//! and AI settings to/from `ez_sdr_config.json`.
+//! application settings to/from `ez_sdr_config.json`.
 
 use crate::theme::{NamedTheme, ThemeConfig};
 use serde::{Deserialize, Serialize};
@@ -213,7 +213,7 @@ pub struct AdvancedConfig {
     #[serde(default)]
     pub rf_notch_hz: f32,
 
-    // ---------- Scan / Record / AI / Satellite extras ----------
+    // ---------- Scan / Record / Satellite extras ----------
     /// Scanner sweep direction: "up" | "down".
     #[serde(default)]
     pub scan_direction: String,
@@ -223,9 +223,6 @@ pub struct AdvancedConfig {
     /// Recorder auto-split size in MB (0 = no split).
     #[serde(default)]
     pub record_split_mb: u32,
-    /// AI context window cap in tokens (0 = unlimited).
-    #[serde(default)]
-    pub ai_context_window: u32,
     /// Satellite elevation offset (degrees).
     #[serde(default)]
     pub sat_elevation_offset: f32,
@@ -361,7 +358,6 @@ impl Default for AdvancedConfig {
             scan_direction: "up".to_string(),
             record_format: "wav".to_string(),
             record_split_mb: 0,
-            ai_context_window: 0,
             sat_elevation_offset: 0.0,
             sat_azimuth_offset: 0.0,
             map_zoom: 1.0,
@@ -369,77 +365,6 @@ impl Default for AdvancedConfig {
         }
     }
 }
-
-/// Default AI provider API endpoint (`OpenRouter`).
-pub const DEFAULT_AI_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
-/// Default AI model identifier.
-pub const DEFAULT_AI_MODEL: &str = "anthropic/claude-haiku-latest";
-
-/// A known AI provider preset with its endpoint, default model, and notes.
-pub struct ProviderPreset {
-    /// Display name of the provider.
-    pub name: &'static str,
-    /// Base URL for the provider's chat completions API.
-    pub endpoint: &'static str,
-    /// Recommended default model ID for this provider.
-    pub default_model: &'static str,
-    /// Whether this provider requires an API key.
-    pub needs_key: bool,
-    /// Short hint about the provider (e.g. "Free tier available").
-    pub note: &'static str,
-}
-
-pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
-    ProviderPreset {
-        name: "OpenRouter",
-        endpoint: "https://openrouter.ai/api/v1/chat/completions",
-        default_model: "anthropic/claude-haiku-latest",
-        needs_key: true,
-        note: "Access 100+ models with one key. Free tier available.",
-    },
-    ProviderPreset {
-        name: "Anthropic",
-        endpoint: "https://api.anthropic.com/v1/messages",
-        default_model: "claude-haiku-4-5-20251001",
-        needs_key: true,
-        note: "Direct Anthropic API. Uses x-api-key header.",
-    },
-    ProviderPreset {
-        name: "OpenAI",
-        endpoint: "https://api.openai.com/v1/chat/completions",
-        default_model: "gpt-4o-mini",
-        needs_key: true,
-        note: "Direct OpenAI API.",
-    },
-    ProviderPreset {
-        name: "Groq",
-        endpoint: "https://api.groq.com/openai/v1/chat/completions",
-        default_model: "llama-3.1-8b-instant",
-        needs_key: true,
-        note: "Very fast inference. Free tier available.",
-    },
-    ProviderPreset {
-        name: "Mistral",
-        endpoint: "https://api.mistral.ai/v1/chat/completions",
-        default_model: "mistral-small-latest",
-        needs_key: true,
-        note: "European provider, strong multilingual.",
-    },
-    ProviderPreset {
-        name: "Ollama (local)",
-        endpoint: "http://localhost:11434/v1/chat/completions",
-        default_model: "llama3.2",
-        needs_key: false,
-        note: "Fully local, no key needed. Install Ollama first.",
-    },
-    ProviderPreset {
-        name: "Custom",
-        endpoint: "",
-        default_model: "",
-        needs_key: true,
-        note: "Set endpoint and model manually.",
-    },
-];
 
 // Keep the subset copied for a mode switch explicit. Source, output-device,
 // display and recording settings stay global and never enter a mode profile.
@@ -574,8 +499,8 @@ impl SourcePreferences {
 
 /// Top-level application configuration persisted to `ez_sdr_config.json`.
 ///
-/// Contains SDR and integration settings plus legacy AI/theme fields preserved
-/// for existing JSON files and reusable library components.
+/// Contains SDR and integration settings plus legacy theme fields preserved
+/// for existing JSON files.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -591,24 +516,6 @@ pub struct AppConfig {
     pub output_directory: String,
     /// Legacy UI theme label retained for older settings files.
     pub theme: String,
-    /// Legacy AI provider API key, retained for settings-file compatibility.
-    pub ai_api_key: String,
-    /// Legacy AI provider endpoint, retained for settings-file compatibility.
-    pub ai_endpoint: String,
-    /// Legacy AI model identifier, retained for settings-file compatibility.
-    pub ai_model: String,
-    /// Maximum tokens per AI response.
-    pub ai_max_tokens: u32,
-    /// AI temperature (0.0 – 2.0).
-    pub ai_temperature: f64,
-    /// Custom system prompt for the AI agent.
-    pub ai_system_prompt: String,
-    /// AI provider name (matches a [`ProviderPreset`] entry).
-    pub ai_provider: String,
-    /// Reasoning effort level ("off", "low", "medium", "high").
-    pub ai_reasoning_effort: String,
-    /// Whether the AI agent has web-search capability enabled.
-    pub ai_web_search: bool,
     /// MQTT broker address (host:port).
     pub mqtt_broker: String,
     /// MQTT topic prefix for all published messages.
@@ -688,7 +595,6 @@ impl std::fmt::Debug for AppConfig {
             .field("default_freq_hz", &self.default_freq_hz)
             .field("default_sample_rate", &self.default_sample_rate)
             .field("theme", &self.theme)
-            .field("ai_api_key", &"[REDACTED]")
             .field("source_preferences", &self.source_preferences)
             .finish_non_exhaustive()
     }
@@ -704,15 +610,6 @@ impl Default for AppConfig {
             output_directory: "./recordings".to_string(),
             save_error: None,
             theme: "dark".to_string(),
-            ai_api_key: String::new(),
-            ai_endpoint: DEFAULT_AI_ENDPOINT.to_string(),
-            ai_model: DEFAULT_AI_MODEL.to_string(),
-            ai_max_tokens: 2048,
-            ai_temperature: 0.7,
-            ai_system_prompt: String::new(),
-            ai_provider: "OpenRouter".to_string(),
-            ai_reasoning_effort: "off".to_string(),
-            ai_web_search: false,
             mqtt_broker: "localhost:1883".to_string(),
             mqtt_topic_prefix: "ezsdr".to_string(),
             web_remote_enabled: false,
@@ -752,8 +649,8 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    /// Serialize settings for export. Credentials are omitted by default so importing a
-    /// redacted file can preserve the credentials already stored on this device.
+    /// Serialize settings for export. The daemon credential is omitted by default
+    /// so importing a redacted file can preserve the value stored on this device.
     pub(crate) fn export_json(
         &self,
         include_credentials: bool,
@@ -761,7 +658,6 @@ impl AppConfig {
         let mut value = serde_json::to_value(self)?;
         if !include_credentials {
             if let Some(object) = value.as_object_mut() {
-                object.remove("ai_api_key");
                 if let Some(source) = object
                     .get_mut("source_preferences")
                     .and_then(serde_json::Value::as_object_mut)
@@ -788,20 +684,14 @@ impl AppConfig {
         }
     }
 
-    /// Import settings while keeping credentials whose keys were omitted. An explicit
-    /// empty string remains a deliberate request to clear a credential.
+    /// Import settings while keeping the daemon credential when its key is omitted.
+    /// An explicit empty string remains a deliberate request to clear it.
     pub(crate) fn import_json_preserving_credentials(
         json: &str,
         current: &Self,
     ) -> Result<Self, serde_json::Error> {
         let mut value: serde_json::Value = serde_json::from_str(json)?;
         if let Some(object) = value.as_object_mut() {
-            if !object.contains_key("ai_api_key") {
-                object.insert(
-                    "ai_api_key".into(),
-                    serde_json::Value::String(current.ai_api_key.clone()),
-                );
-            }
             let source = object
                 .entry("source_preferences")
                 .or_insert_with(|| serde_json::json!({}));
@@ -1375,7 +1265,6 @@ mod tests {
         let deserialized: AppConfig = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.default_freq_hz, cfg.default_freq_hz);
         assert_eq!(deserialized.theme, cfg.theme);
-        assert_eq!(deserialized.ai_model, cfg.ai_model);
         assert_eq!(deserialized.rigctl_enabled, cfg.rigctl_enabled);
         assert_eq!(deserialized.rigctl_port, cfg.rigctl_port);
     }
@@ -1390,14 +1279,6 @@ mod tests {
         assert!(encoded.get("needs_apply").is_none());
         let decoded: AppConfig = serde_json::from_value(encoded).unwrap();
         assert!(!decoded.needs_apply);
-    }
-
-    #[test]
-    fn provider_presets_have_names() {
-        for p in PROVIDER_PRESETS {
-            assert!(!p.name.is_empty());
-        }
-        assert!(PROVIDER_PRESETS.iter().any(|p| p.name == "Custom"));
     }
 
     #[test]
@@ -1420,7 +1301,6 @@ mod tests {
         let cfg = AppConfig {
             default_freq_hz: 433_000_000,
             theme: "light".to_string(),
-            ai_model: "custom-model".to_string(),
             output_directory: "/tmp/recordings".to_string(),
             observer_lat: 40.7128,
             observer_lon: -74.0060,
@@ -1431,7 +1311,6 @@ mod tests {
         let loaded = AppConfig::load_from(&path);
         assert_eq!(loaded.default_freq_hz, 433_000_000);
         assert_eq!(loaded.theme, "light");
-        assert_eq!(loaded.ai_model, "custom-model");
         assert_eq!(loaded.output_directory, "/tmp/recordings");
         assert!((loaded.observer_lat - 40.7128).abs() < f64::EPSILON);
         assert!((loaded.observer_lon - (-74.0060)).abs() < f64::EPSILON);
@@ -1442,7 +1321,6 @@ mod tests {
     #[test]
     fn redacted_exports_omit_credentials_and_import_keeps_existing_values() {
         let current = AppConfig {
-            ai_api_key: "ai-key-sentinel".into(),
             source_preferences: SourcePreferences {
                 daemon_token: "daemon-token-sentinel".into(),
                 ..SourcePreferences::default()
@@ -1453,16 +1331,12 @@ mod tests {
 
         let exported = current.export_json(false).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&exported).unwrap();
-        assert!(value.get("ai_api_key").is_none());
         assert!(value["source_preferences"].get("daemon_token").is_none());
         let contents = String::from_utf8(exported).unwrap();
-        for secret in ["ai-key-sentinel", "daemon-token-sentinel"] {
-            assert!(!contents.contains(secret));
-        }
+        assert!(!contents.contains("daemon-token-sentinel"));
 
         let imported = AppConfig::import_json_preserving_credentials(&contents, &current).unwrap();
         assert_eq!(imported.theme, "light");
-        assert_eq!(imported.ai_api_key, current.ai_api_key);
         assert_eq!(
             imported.source_preferences.daemon_token,
             current.source_preferences.daemon_token
@@ -1472,7 +1346,6 @@ mod tests {
     #[test]
     fn private_backup_roundtrips_credentials_and_debug_redacts_them() {
         let current = AppConfig {
-            ai_api_key: "ai-key-sentinel".into(),
             source_preferences: SourcePreferences {
                 daemon_token: "daemon-token-sentinel".into(),
                 ..SourcePreferences::default()
@@ -1484,22 +1357,18 @@ mod tests {
         let imported =
             AppConfig::import_json_preserving_credentials(&contents, &AppConfig::default())
                 .unwrap();
-        assert_eq!(imported.ai_api_key, current.ai_api_key);
         assert_eq!(
             imported.source_preferences.daemon_token,
             current.source_preferences.daemon_token
         );
 
         let debug = format!("{current:?}");
-        for secret in ["ai-key-sentinel", "daemon-token-sentinel"] {
-            assert!(!debug.contains(secret));
-        }
+        assert!(!debug.contains("daemon-token-sentinel"));
     }
 
     #[test]
     fn import_with_explicit_empty_credentials_clears_them() {
         let current = AppConfig {
-            ai_api_key: "ai-key-sentinel".into(),
             source_preferences: SourcePreferences {
                 daemon_token: "daemon-token-sentinel".into(),
                 ..SourcePreferences::default()
@@ -1507,11 +1376,10 @@ mod tests {
             ..AppConfig::default()
         };
         let imported = AppConfig::import_json_preserving_credentials(
-            r#"{"ai_api_key":"","source_preferences":{"daemon_token":""}}"#,
+            r#"{"source_preferences":{"daemon_token":""}}"#,
             &current,
         )
         .unwrap();
-        assert!(imported.ai_api_key.is_empty());
         assert!(imported.source_preferences.daemon_token.is_empty());
     }
 
@@ -1544,7 +1412,6 @@ mod tests {
         ));
         let path = directory.join("private-backup.json");
         let config = AppConfig {
-            ai_api_key: "private-ai-key".into(),
             source_preferences: SourcePreferences {
                 daemon_token: "private-daemon-token".into(),
                 ..SourcePreferences::default()
@@ -1553,7 +1420,6 @@ mod tests {
         };
         config.export_to(&path, true).unwrap();
         let contents = std::fs::read_to_string(&path).unwrap();
-        assert!(contents.contains("private-ai-key"));
         assert!(contents.contains("private-daemon-token"));
         assert_eq!(
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
@@ -1649,18 +1515,10 @@ mod tests {
     }
 
     #[test]
-    fn config_keeps_unmounted_legacy_ai_and_theme_fields_readable() {
+    fn config_keeps_legacy_theme_fields_readable() {
         let theme = serde_json::to_value(ThemeConfig::light()).unwrap();
         let legacy_json = serde_json::json!({
-            "ai_api_key": "legacy-key-sentinel",
-            "ai_endpoint": "https://ai.example.invalid/v1",
-            "ai_model": "legacy-model",
-            "ai_max_tokens": 512,
-            "ai_temperature": 0.4,
-            "ai_system_prompt": "legacy prompt",
-            "ai_provider": "Legacy Provider",
-            "ai_reasoning_effort": "low",
-            "ai_web_search": true,
+            "ai_api_key": "ignored-legacy-key",
             "custom_themes": [{
                 "id": "legacy-theme",
                 "name": "Legacy Theme",
@@ -1668,19 +1526,13 @@ mod tests {
             }]
         });
         let loaded: AppConfig = serde_json::from_value(legacy_json).unwrap();
-        assert_eq!(loaded.ai_api_key, "legacy-key-sentinel");
-        assert_eq!(loaded.ai_endpoint, "https://ai.example.invalid/v1");
-        assert_eq!(loaded.ai_model, "legacy-model");
-        assert_eq!(loaded.ai_max_tokens, 512);
-        assert_eq!(loaded.ai_temperature, 0.4);
-        assert_eq!(loaded.ai_system_prompt, "legacy prompt");
-        assert_eq!(loaded.ai_provider, "Legacy Provider");
-        assert_eq!(loaded.ai_reasoning_effort, "low");
-        assert!(loaded.ai_web_search);
         assert_eq!(loaded.custom_themes[0].name, "Legacy Theme");
+        assert!(serde_json::to_value(&loaded)
+            .unwrap()
+            .get("ai_api_key")
+            .is_none());
         let roundtrip: AppConfig =
             serde_json::from_value(serde_json::to_value(loaded).unwrap()).unwrap();
-        assert_eq!(roundtrip.ai_api_key, "legacy-key-sentinel");
         assert_eq!(roundtrip.custom_themes[0].theme.preset, "light");
     }
 
@@ -1702,12 +1554,11 @@ mod tests {
 
     #[test]
     fn config_edge_values_empty_strings() {
-        let json = r#"{"version": "0.1.0", "theme": "", "output_directory": "", "ai_model": ""}"#;
+        let json = r#"{"version": "0.1.0", "theme": "", "output_directory": ""}"#;
         let cfg: AppConfig =
             serde_json::from_str(json).expect("config empty strings JSON should deserialize");
         assert_eq!(cfg.theme, "");
         assert_eq!(cfg.output_directory, "");
-        assert_eq!(cfg.ai_model, "");
     }
     #[test]
     fn saved_display_normalization_migrates_aliases_and_rejects_invalid_values() {

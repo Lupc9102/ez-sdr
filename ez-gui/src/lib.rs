@@ -3,7 +3,6 @@
 pub mod adsb_decoder;
 pub mod adsb_panel;
 pub mod advanced_panel;
-pub mod ai_panel;
 pub mod airport_db;
 pub mod antenna_checklist;
 pub mod app;
@@ -58,6 +57,5 @@ pub mod tle_engine;
 pub mod uat_receiver;
 pub mod ui_kit;
 pub mod web_remote;
-pub mod web_remote_async;
 
 pub(crate) mod live_meteor;

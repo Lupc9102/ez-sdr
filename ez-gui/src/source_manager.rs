@@ -1797,31 +1797,12 @@ impl SourceManager {
                 .is_some_and(|(_, _, value)| value == gain)
     }
 
-    pub(crate) fn local_hardware_request_applied(&self) -> bool {
-        self.local_capture_accepted
-            && self.local_open_settings.as_ref().is_some_and(|opened| {
-                self.rtl_open_settings()
-                    .is_ok_and(|current| current == *opened)
-            })
-    }
-
-    pub(crate) fn daemon_adsb_ready(&self) -> bool {
-        self.daemon_adsb_confirmed
-    }
-
     #[cfg(test)]
     pub(crate) fn test_set_hardware_open(
         &mut self,
         open: impl Fn(RtlOpenSettings) -> Result<Vec<u8>, String> + Send + Sync + 'static,
     ) {
         self.test_hardware_open = Some(std::sync::Arc::new(open));
-    }
-
-    pub(crate) fn cancel_daemon_control_request(&mut self) {
-        self.daemon_requested_controls = None;
-        if let Some(hardware) = self.daemon_applied_capture.clone() {
-            self.apply_daemon_hardware(&hardware);
-        }
     }
 
     fn apply_daemon_hardware(&mut self, hardware: &ez_proto::HardwareStatus) {

@@ -423,19 +423,6 @@ impl SatellitePanel {
         }
     }
 
-    pub(crate) fn select_named_satellite(&mut self, name: &str) -> Result<(), String> {
-        let index = self
-            .satellite_catalog
-            .iter()
-            .position(|entry| {
-                entry.name.eq_ignore_ascii_case(name)
-                    || (name.eq_ignore_ascii_case("ISS") && entry.name.starts_with("ISS"))
-            })
-            .ok_or_else(|| format!("unknown satellite: {name}"))?;
-        self.on_satellite_selected(index);
-        Ok(())
-    }
-
     fn on_satellite_selected(&mut self, idx: usize) {
         if idx >= self.satellite_catalog.len() {
             return;

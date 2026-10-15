@@ -202,58 +202,6 @@ impl FrequencyScanner {
         self.status_text = format!("Memory scan stopped ({} hits)", self.hits.len());
     }
 
-    pub fn apply_command(&mut self, cmd: &crate::app::ScannerCommand) {
-        if let Some(hz) = cmd.start_hz {
-            self.start_hz = hz;
-        }
-        if let Some(hz) = cmd.stop_hz {
-            self.stop_hz = hz;
-        }
-        if let Some(hz) = cmd.step_hz {
-            self.step_hz = hz;
-        }
-        if let Some(ms) = cmd.dwell_ms {
-            self.dwell_ms = ms;
-        }
-        if let Some(db) = cmd.threshold_db {
-            self.threshold_db = db;
-        }
-        if let Some(run) = cmd.run {
-            if run {
-                if !self.enabled {
-                    self.start();
-                }
-            } else {
-                self.stop();
-            }
-        }
-        // Clamp current_freq_hz into the new range if scan is running
-        if self.enabled
-            && (self.current_freq_hz < self.start_hz || self.current_freq_hz > self.stop_hz)
-        {
-            self.current_freq_hz = self.start_hz;
-            self.tune_request_hz = Some(self.current_freq_hz);
-        }
-        let applied_desc = format!(
-            "{:.3}–{:.3} MHz, step {:.1} kHz, dwell {} ms, threshold {:.0} dB{}",
-            self.start_hz as f64 / 1e6,
-            self.stop_hz as f64 / 1e6,
-            self.step_hz as f64 / 1e3,
-            self.dwell_ms,
-            self.threshold_db,
-            if self.enabled {
-                " (running)"
-            } else {
-                " (idle)"
-            }
-        );
-        self.status_text = if self.enabled {
-            format!("AI: Scanning {}", applied_desc)
-        } else {
-            format!("AI: {}", applied_desc)
-        };
-    }
-
     pub fn start_calibration(&mut self) {
         self.calibration_active = true;
         self.calibration_phase = CalibrationPhase::WaitingForInitialMeasurement;

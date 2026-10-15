@@ -82,9 +82,7 @@ the pass auto-tune switch; the scheduler engine continues to apply pass windows
 and cooldown rules. The reusable `SchedulerPanel` API can expose custom tasks in
 an embedding app, but the desktop does not mount it as a utility window.
 
-The standalone AI panel remains available to downstream embedders, but the
-desktop workspaces do not mount it as a utility panel. Legacy `ai_*` and
-custom-theme fields remain readable in settings files for compatibility.
+Legacy custom-theme fields remain readable in settings files for compatibility.
 
 The desktop supports two simultaneous listening receivers sharing the same capture.
 Enable **Independent B receiver** in the Radio sidebar; its frequency must fit

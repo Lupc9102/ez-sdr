@@ -2860,9 +2860,6 @@ fn scheduled_tune_waits_for_actual_capture_and_uses_one_enable_state() {
         .contains("outside"));
 }
 
-#[path = "app_runtime_action_tests.rs"]
-mod runtime_action_tests;
-
 #[test]
 fn hidden_local_capture_epoch_retires_state_but_forward_gap_keeps_fresh_trails() {
     use crate::adsb_decoder::capture_tests::position_messages;
