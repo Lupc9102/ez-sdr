@@ -1500,7 +1500,7 @@
     "semantic_hash": ""
   },
   "ez-gui/src/app_ui_tests.rs": {
-    "mtime": 1792074336.6632333,
+    "mtime": 1792074507.5773888,
     "ast_hash": "0244b10356aa84d5cc37e56bbf881aef",
     "semantic_hash": ""
   },
@@ -1860,8 +1860,8 @@
     "semantic_hash": ""
   },
   "ez-proto/src/stream_queue.rs": {
-    "mtime": 1791975494.7685614,
-    "ast_hash": "cf5f7fbcd9dc586f49c29cbba76006ca",
+    "mtime": 1792075123.2562032,
+    "ast_hash": "e0d929f4811dd3796bcaa0ffd98f8567",
     "semantic_hash": ""
   },
   "lrpt-decode/examples/audit_image_reference.rs": {
@@ -1995,7 +1995,7 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1792074336.6632333,
+    "mtime": 1792074507.5767348,
     "ast_hash": "7080f70789132a18512b531c5e484c28",
     "semantic_hash": ""
   },
