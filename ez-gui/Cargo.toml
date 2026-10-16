@@ -28,7 +28,7 @@ uat-decode = { workspace = true }
 
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.35"
-egui_extras = { version = "0.35", default-features = false, features = ["svg"] }
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 
 # RTL-SDR
 rtlsdr_sys = { version = "1.1", optional = true }
