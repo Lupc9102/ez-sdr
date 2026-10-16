@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: rustfmt
       - name: Format
@@ -30,7 +30,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - name: Check
         run: cargo check --workspace --locked --all-targets
 
@@ -41,7 +41,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - name: Build docs
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --no-deps
 
@@ -52,7 +52,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - name: Doc tests
         run: cargo test --workspace --locked --doc
 
@@ -63,7 +63,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy
       - name: Clippy
@@ -82,7 +82,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - name: Test
         if: matrix.features == 'default'
         run: cargo test --workspace --locked
