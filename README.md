@@ -312,3 +312,9 @@ Combined release binaries are distributed under GPL-3.0-or-later with upstream
 attribution, license texts and matching vendored source. See [LICENSE.md](LICENSE.md)
 and [DISTRIBUTION.md](DISTRIBUTION.md) for the scope and Linux package instructions.
 `dump978-fa` is optional and only needed for its JSON source mode.
+
+## AI tools used in this project
+
+Kimi K2.6 was used to lay the foundation, Sonnet 5 handled most of the implementations and bug fixes. Fable 5 and Opus 4.8 were used to refine the LRPT decoding pipeline. Several Chinese AI models were used for quick changes and patches, while GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna, GPT-6 Luna, GPT-6 Sol, GPT-6 Astra, and GPT-6.1 Sol were **all** used to hunt major bugs and get the project ready to ship.
+
+AI played a *huge* role in writing and improving the code (mostly because I only started learning Rust this June), but the project's direction, design decisions, physical and digital testing, and overall development were guided by me.
