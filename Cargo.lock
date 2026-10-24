@@ -877,7 +877,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "pkg-config",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1145,7 +1145,7 @@ dependencies = [
  "serde",
  "serde_json",
  "subtle",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "tokio-util",
@@ -1185,7 +1185,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sgp4",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "tokio-util",
@@ -1202,7 +1202,7 @@ dependencies = [
  "futures-util",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
 ]
@@ -2180,7 +2180,7 @@ dependencies = [
  "num-complex",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
