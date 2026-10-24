@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libpulse-dev librtlsdr-dev desktop-file-utils xvfb x11-utils libgl1-mesa-dri
@@ -67,7 +67,7 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: x86_64-pc-windows-gnu
       - uses: msys2/setup-msys2@v2
@@ -108,7 +108,7 @@ jobs:
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
