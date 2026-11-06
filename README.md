@@ -43,6 +43,7 @@ doesnt receive real stations**
 - **USB/LSB** for sideband
 - **DSB**.
 
+
 - **The Sidebar has**:
 - source selection
 - sample rate
