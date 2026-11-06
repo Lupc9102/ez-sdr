@@ -295,10 +295,6 @@ separate. No physical SDR is covered by the automated tests.
 Use [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md) to record the receiver,
 audible-output and original 80k Meteor checks before making field-reliability claims.
 
-Current task/evidence: [UI_FINAL_SESSION_SUMMARY.md](UI_FINAL_SESSION_SUMMARY.md) and
-[UI_BUILD_TASK.md](UI_BUILD_TASK.md).
-Earlier reports are historical and may describe interfaces that have since changed.
-
 Dependency maintenance: `bincode` 1.x remains unmaintained. The documented
 `RUSTSEC-2025-0141` exception in `deny.toml` depends on bounded codec frames and
 the enforced protocol handshake. Replacing it requires an explicit wire-version
