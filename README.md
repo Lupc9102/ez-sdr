@@ -54,7 +54,6 @@ doesnt receive real stations**
 - Advanced hardware filter
 - display options (hiden under collapsible sections)
 - bandwidth and tune-step fields ONLY accept `Hz`/`kHz`/`MHz` units.
-- 
 - **RTL-SDR Support**: Should be auto detected while opening the app, if it fails then press refresh, If you plugged in the dongle AFTER opening the app, also press refresh.
 - **Recording**: WAV voice recordings, stereo I/Q **RAW** listening, full-band **IQ recording** at the original RF clock, and automatic recording triggered off the power squelch.
   
@@ -104,6 +103,11 @@ cargo check -p ez-gui --features rtlsdr
 EZ_SDR_PREVIEW_DIR=/tmp/ez-sdr-previews cargo test -p ez-gui --no-default-features \
   app_ui_tests::render_workspaces -- --ignored --nocapture
 ```
+
+The CPU preview renderer checks layout and textures, physical SDR, audible output and original
+80k Meteor checks are recorded in HARDWARE_VALIDATION.md.
+bincode 1.x is unmaintained the RUSTSEC-2025-0141 exception in deny.toml
+depends on bounded codec frames and the enforced protocol handshake.
 
 ## License
 
