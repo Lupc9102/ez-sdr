@@ -8,14 +8,14 @@ built with egui and a single OpenGL renderer.
 
 ## Install
 
-Linux x86-64 installers are in [Releases](https://github.com/Lupc9102/ez-sdr/releases/latest).
+Linux installers are in [Releases](https://github.com/Lupc9102/ez-sdr/releases/latest).
 On Ubuntu based distros:
 
 ```bash
 sudo apt install ./ez-sdr_*_amd64.deb
 ```
 
-Or make the AppImage executable and open it. Checksums and supported systems are
+Or make the Appimage executable and open it. Checksums and supported systems are
 in [DISTRIBUTION.md](DISTRIBUTION.md).
 
 Build from source (Debian/Ubuntu: `build-essential pkg-config libasound2-dev
@@ -26,7 +26,7 @@ cargo run -p ez-gui --release
 cargo run -p ez-gui --release --no-default-features --features audio
 ```
 
-The app opens with the receiver stopped. Pick **Demo**, **RTL-SDR** (Should be auto detected if you have a Dongle plugged in), **File replay**,
+The app opens with the receiver stopped. Pick **Demo** or **RTL-SDR** (Should be auto detected if you have a Dongle plugged in) or **File replay**,
 or **Daemon** in the Source section, then press Play.
 Intuitively, **Demo generates signals it
 doesnt receive real stations**
@@ -36,7 +36,7 @@ doesnt receive real stations**
 - **Tuning**: scroll any digit of the frequency readout, double click to type a
   frequency (format is `XXX.XXXXXX MHz`), or click the spectrum to jump to the specific freq. The readout should keep
   1 Hz precision.
-- **Modes**:
+### **Modes**:
 - **AM** for aviation (Airport ATC)
 - **WFM** for broadcast FM
 - **NFM** for narrow FM
@@ -44,7 +44,7 @@ doesnt receive real stations**
 - **DSB**.
 
 
-- **The Sidebar has**:
+### **The Sidebar has**:
 - source selection
 - sample rate
 - gain
@@ -60,43 +60,43 @@ doesnt receive real stations**
   
 ## ADS-B
 
-The map shows heading rotated aircraft, trails, an aircraft list and OpenStreetMap tiles.
-While not necessary you can also set your own coordinates in settings.
+The map shows heading rotated aircraft, trails, an aircraft list and Openstreetmaps tiles.
+While not necessary, you can also set your own coordinates in settings.
 
 - **1090 MHz**: Most planes worldwide use this.
-- **978 MHz**: Freedom frequency, and apparently some European drones use this too.
+- **978 MHz**: 🇺🇸🇺🇸🦅🦅🦅🦅🦅🦅🦅 frequency, and apparently some European drones use this too.
 
 ## Meteor
 
 Live and offline decoding of Meteor-M2-3/M2-4 **LRPT** (OQPSK, 80 or 72 ksym/s).
 !! NOAA APT, HRPT and GOES are not implemented. (Because the only 2 LRPT Meteorological Sats still broadcasting are both Meteor sats)
 
-1. **Meteor → Open recording**, pick a `.cs8`  or
-   `.cf32` (TIP: you can use FFMPEG to change your recording format)
-2. Set the recording's actual sample rate and symbol rate, choose a Meteor preset
-   or Custom, then **Decode**. Thats it!!
+1. **Meteor → Open recording**, pick a .cs8  or
+   .cf32 file (TIP: you can use ffmpeg to change your recording format)
+2. Set the recording's actual sample rate and symbol rate, choose a Meteor preset then SMASH that **Decode** button. Thats it!!
    Over time blocks, progress and reconstructed channels appear live.
-3. You can also export your decoded images as .png's.
+3. You can also export your decoded images as .png's
 
 
 ## Optional daemon
 
-The Rust daemon owns the source/DSP pipelines headless, exposing the desktops
+The Rust daemon owns the source/DSP pipelines headless, exposing the
 binary protocol at `127.0.0.1:7890` and HTTP APIs at `127.0.0.1:7891`
-GUI and daemon must speak the same protocol version. I recommend rebuilding them together.
 
-```bash
+GUI and daemon must speak the same protocol version. I recommend rebuilding them together if you want stuff to actually work ^^
+
+```
 cargo run -p ez-daemon --bin ez-daemon --release
 cargo run -p ez-daemon --bin ez-daemon --release --features rtlsdr -- --source rtlsdr
 cargo run -p ez-daemon --bin ez-daemon --release --features soapy -- \
   --source soapy --device 'driver=airspy'
 ```
 
-Then pick **Daemon** as the desktop source and connect.
+Then pick **Daemon** as the desktop source and connect
 
 ## Development
 
-```bash
+```
 cargo test --workspace --no-default-features
 cargo check -p ez-gui --features rtlsdr
 
@@ -106,7 +106,7 @@ EZ_SDR_PREVIEW_DIR=/tmp/ez-sdr-previews cargo test -p ez-gui --no-default-featur
 ```
 
 The CPU preview renderer checks layout and textures, physical SDR, audible output and original
-80k Meteor checks are recorded in HARDWARE_VALIDATION.md.
+80k meteor checks are recorded in HARDWARE_VALIDATION.md.
 bincode 1.x is unmaintained the RUSTSEC-2025-0141 exception in deny.toml
 depends on bounded codec frames and the enforced protocol handshake.
 
